@@ -100,6 +100,12 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   return token_count == 8U && rows >= kNvFp4RowPairMinimumRows;
 }
 
+[[nodiscard]] constexpr bool use_nvfp4_m8_fixed_shape(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return (rows == 17'408U && columns == 5'120U) ||
+         (rows == 5'120U && columns == 17'408U);
+}
+
 [[nodiscard]] constexpr bool use_nvfp4_m1_scale_codebook(
     const std::size_t rows, const std::size_t columns) noexcept {
   return rows >= kNvFp4M1ScaleCodebookMinimumRows &&
@@ -1136,6 +1142,128 @@ nvfp4_w4a16_small_m8_gemm_bf16_scale_codebook_kernel(
   }
 }
 
+// Production-shape specializations. Rows and columns are compile-time
+// constants, both real shapes contain a whole number of row-pair blocks, and
+// therefore every launched warp owns exactly one valid row pair.
+template <std::size_t kRows, std::size_t kColumns>
+__global__ __launch_bounds__(kThreads, 4) void
+nvfp4_w4a16_small_m8_gemm_bf16_fixed_shape_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kTokenCount = 8U;
+  constexpr unsigned int kPackedColumns =
+      static_cast<unsigned int>(kColumns / kNvFp4ValuesPerByte);
+  constexpr unsigned int kScaleColumns =
+      static_cast<unsigned int>(kColumns / kNvFp4GroupSize);
+  constexpr unsigned int kPackedColumnStep =
+      kNvFp4VectorColumnsPerWarp / kNvFp4ValuesPerByte;
+  static_assert(kRows % (kWarpsPerBlock * 2U) == 0U);
+  static_assert(kColumns % kNvFp4VectorColumnsPerWarp == 0U);
+
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  decoded_scales[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  __syncthreads();
+
+  const std::size_t row0 =
+      2U * (static_cast<std::size_t>(blockIdx.x) * kWarpsPerBlock + warp);
+  const std::size_t row1 = row0 + 1U;
+  const std::uint8_t* const row0_weights =
+      packed_weights + row0 * kPackedColumns;
+  const std::uint8_t* const row0_scales =
+      block_scales + row0 * kScaleColumns;
+  const std::uint8_t* const row1_weights =
+      packed_weights + row1 * kPackedColumns;
+  const std::uint8_t* const row1_scales =
+      block_scales + row1 * kScaleColumns;
+  float accumulators0[kTokenCount]{};
+  float accumulators1[kTokenCount]{};
+
+  for (unsigned int packed_column =
+           lane * kNvFp4VectorPackedBytesPerLane;
+       packed_column < kPackedColumns;
+       packed_column += kPackedColumnStep) {
+    float block_scale0 = 0.0F;
+    float block_scale1 = 0.0F;
+    if ((lane & 1U) == 0U) {
+      const unsigned int scale_column =
+          packed_column / kNvFp4PackedValuesPerScale;
+      block_scale0 = decoded_scales[row0_scales[scale_column]];
+      block_scale1 = decoded_scales[row1_scales[scale_column]];
+    }
+    const int scale_source = static_cast<int>(lane & ~1U);
+    block_scale0 =
+        __shfl_sync(0xffff'ffffU, block_scale0, scale_source);
+    block_scale1 =
+        __shfl_sync(0xffff'ffffU, block_scale1, scale_source);
+
+    const std::uint32_t packed0 =
+        *reinterpret_cast<const std::uint32_t*>(row0_weights +
+                                                packed_column);
+    const std::uint32_t packed1 =
+        *reinterpret_cast<const std::uint32_t*>(row1_weights +
+                                                packed_column);
+    const unsigned int first_column =
+        packed_column * kNvFp4ValuesPerByte;
+
+#pragma unroll
+    for (unsigned int half = 0U; half < 2U; ++half) {
+      std::uint64_t packed_activations[kTokenCount];
+#pragma unroll
+      for (unsigned int token = 0U; token < kTokenCount; ++token) {
+        packed_activations[token] =
+            *reinterpret_cast<const std::uint64_t*>(
+                activations + static_cast<std::size_t>(token) * kColumns +
+                first_column + half * 4U);
+      }
+#pragma unroll
+      for (unsigned int value = 0U; value < 4U; ++value) {
+        const unsigned int packed_value = half * 4U + value;
+        const unsigned int shift = packed_value * 4U;
+        const std::uint8_t nibble0 = static_cast<std::uint8_t>(
+            (packed0 >> shift) & 0x0fU);
+        const std::uint8_t nibble1 = static_cast<std::uint8_t>(
+            (packed1 >> shift) & 0x0fU);
+        const float scaled_weight0 =
+            decoded_weights[nibble0] * block_scale0;
+        const float scaled_weight1 =
+            decoded_weights[nibble1] * block_scale1;
+#pragma unroll
+        for (unsigned int token = 0U; token < kTokenCount; ++token) {
+          const std::uint16_t encoded_activation =
+              static_cast<std::uint16_t>(
+                  (packed_activations[token] >> (value * 16U)) & 0xffffU);
+          const float decoded_activation = decode_bf16(encoded_activation);
+          accumulators0[token] =
+              fmaf(scaled_weight0, decoded_activation, accumulators0[token]);
+          accumulators1[token] =
+              fmaf(scaled_weight1, decoded_activation, accumulators1[token]);
+        }
+      }
+    }
+  }
+
+#pragma unroll
+  for (unsigned int token = 0U; token < kTokenCount; ++token) {
+    const float sum0 = warp_sum(accumulators0[token]) * weight_scale_2;
+    const float sum1 = warp_sum(accumulators1[token]) * weight_scale_2;
+    if (lane == 0U) {
+      output[static_cast<std::size_t>(token) * kRows + row0] =
+          encode_bf16_rne(sum0);
+      output[static_cast<std::size_t>(token) * kRows + row1] =
+          encode_bf16_rne(sum1);
+    }
+  }
+}
+
 [[nodiscard]] int invalid_value() noexcept {
   return static_cast<int>(cudaErrorInvalidValue);
 }
@@ -1455,6 +1583,19 @@ void launch_nvfp4_small_m8_scale_codebook_unchecked(
       <<<blocks, kThreads, 0U, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, rows,
           columns, output);
+}
+
+template <std::size_t kRows, std::size_t kColumns>
+void launch_nvfp4_small_m8_fixed_shape_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / (kWarpsPerBlock * 2U));
+  nvfp4_w4a16_small_m8_gemm_bf16_fixed_shape_kernel<kRows, kColumns>
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
 }  // namespace
@@ -1916,6 +2057,11 @@ int launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_test_cuda(
   return use_nvfp4_small_m_row_pair(token_count, rows);
 }
 
+[[nodiscard]] bool use_sm87_nvfp4_m8_fixed_shape_test(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return use_nvfp4_m8_fixed_shape(rows, columns);
+}
+
 // Test-only direct entry for the preserved row-pair baseline without the
 // shared E4M3FN scale codebook.
 int launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
@@ -2166,7 +2312,17 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
             columns, output, stream);
         break;
       case 8U:
-        if (use_nvfp4_small_m_row_pair(token_count, rows)) {
+        if (use_nvfp4_m8_fixed_shape(rows, columns)) {
+          if (rows == 17'408U) {
+            launch_nvfp4_small_m8_fixed_shape_unchecked<17'408U, 5'120U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                output, stream);
+          } else {
+            launch_nvfp4_small_m8_fixed_shape_unchecked<5'120U, 17'408U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                output, stream);
+          }
+        } else if (use_nvfp4_small_m_row_pair(token_count, rows)) {
           launch_nvfp4_small_m8_scale_codebook_unchecked(
               packed_weights, block_scales, weight_scale_2, activations, rows,
               columns, output, stream);

@@ -111,6 +111,9 @@ launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_test_cuda(
 [[nodiscard]] bool use_sm87_nvfp4_small_m_row_pair_test(
     std::size_t token_count, std::size_t rows) noexcept;
 
+[[nodiscard]] bool use_sm87_nvfp4_m8_fixed_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -2455,6 +2458,21 @@ void test_launch_validation(TestContext& test) {
   test.expect(q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U,
                                                                  17'408U),
               "NVFP4 M8 row-pair accepts production output rows");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
+                  17'408U, 5'120U),
+              "NVFP4 M8 fixed-shape accepts gate/up");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
+                  5'120U, 17'408U),
+              "NVFP4 M8 fixed-shape accepts down");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
+                  17'407U, 5'120U),
+              "NVFP4 M8 fixed-shape rejects a near-miss row count");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
+                  17'408U, 5'119U),
+              "NVFP4 M8 fixed-shape rejects a near-miss K");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
+                  248'320U, 5'120U),
+              "NVFP4 M8 fixed-shape keeps lm_head on the generic path");
   test.expect(!q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
                   7U, 5'120U),
               "NVFP4 M1 scale codebook rejects a partial warp block");
@@ -2543,6 +2561,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_m2_scale_codebook_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M2_SCALE_CODEBOOK_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m8_fixed_shape_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M8_FIXED_SHAPE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -4214,6 +4239,252 @@ void run_optional_nvfp4_m2_scale_codebook_performance(
               "NVFP4 M2 scale codebook clears all shape/distribution gates");
 }
 
+struct NvFp4M8FixedShapeMeasurement {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool passed = false;
+};
+
+[[nodiscard]] NvFp4M8FixedShapeMeasurement
+benchmark_nvfp4_m8_fixed_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 40;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr float kRequiredSpeedup = 1.03F;
+  const std::size_t packed_count = rows * columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  const std::size_t scale_count = rows * scale_columns;
+  std::vector<std::uint8_t> host_scales(scale_count);
+  std::vector<std::uint16_t> host_activations(
+      kTokens * columns, encode_bf16(1.0F));
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(scale_count),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(packed.get(), 0x21, packed_count,
+                                       stream),
+                       label + " initialize packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  if (!ready) {
+    return {};
+  }
+
+  constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
+      NvFp4M1ScaleDistribution::kCheckpointLike,
+      NvFp4M1ScaleDistribution::kSameBankStress,
+  }};
+  double baseline_sum = 0.0;
+  double candidate_sum = 0.0;
+  bool all_cells_passed = true;
+  for (const NvFp4M1ScaleDistribution distribution : kDistributions) {
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize block scales");
+    if (!ready) {
+      return {};
+    }
+
+    const auto launch_baseline = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m8_scale_codebook_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              rows, columns, baseline_output.get(),
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              kTokens, rows, columns, candidate_output.get(),
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         distribution_label + " correctness baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         distribution_label + " correctness candidate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy candidate output");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " correctness synchronize");
+    if (!ready) {
+      return {};
+    }
+    std::size_t mismatches = 0U;
+    for (std::size_t index = 0U; index < baseline.size(); ++index) {
+      mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+    }
+    const bool bitwise_equal = mismatches == 0U;
+    test.expect(bitwise_equal,
+                distribution_label +
+                    " fixed shape matches every production BF16 bit");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           distribution_label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           distribution_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " warmup synchronize");
+    if (!ready) {
+      return {};
+    }
+
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        distribution_label + " baseline pass 1");
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        distribution_label + " candidate pass 1");
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        distribution_label + " candidate pass 2");
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        distribution_label + " baseline pass 2");
+    const bool finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    const float baseline_average =
+        finite ? (baseline_first + baseline_second) * 0.5F
+               : std::numeric_limits<float>::quiet_NaN();
+    const float candidate_average =
+        finite ? (candidate_first + candidate_second) * 0.5F
+               : std::numeric_limits<float>::quiet_NaN();
+    const float speedup = baseline_average / candidate_average;
+    const bool cell_gate = bitwise_equal && finite &&
+                           std::isfinite(speedup) &&
+                           speedup >= kRequiredSpeedup;
+    std::cout << "PERF_NVFP4_M8_FIXED_SHAPE: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second
+              << " baseline_average_ms=" << baseline_average
+              << " candidate_average_ms=" << candidate_average
+              << " speedup=" << speedup
+              << " uplift_percent=" << (speedup - 1.0F) * 100.0F
+              << " bitwise_mismatches=" << mismatches << '/'
+              << baseline.size() << " required_speedup=" << kRequiredSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate,
+                distribution_label +
+                    " clears the fixed-shape performance gate");
+    if (finite) {
+      baseline_sum += static_cast<double>(baseline_average);
+      candidate_sum += static_cast<double>(candidate_average);
+    }
+    all_cells_passed = all_cells_passed && cell_gate;
+  }
+
+  const float baseline_average = static_cast<float>(
+      baseline_sum / static_cast<double>(kDistributions.size()));
+  const float candidate_average = static_cast<float>(
+      candidate_sum / static_cast<double>(kDistributions.size()));
+  const float shape_speedup = baseline_average / candidate_average;
+  const bool shape_gate =
+      all_cells_passed && std::isfinite(shape_speedup) &&
+      shape_speedup >= kRequiredSpeedup;
+  std::cout << "PERF_NVFP4_M8_FIXED_SHAPE_SHAPE: " << label
+            << " baseline_average_ms=" << baseline_average
+            << " candidate_average_ms=" << candidate_average
+            << " speedup=" << shape_speedup
+            << " uplift_percent=" << (shape_speedup - 1.0F) * 100.0F
+            << " all_distribution_cells_passed="
+            << (all_cells_passed ? "true" : "false")
+            << " required_speedup=" << kRequiredSpeedup
+            << " gate=" << (shape_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(shape_gate,
+              label + " clears its aggregate fixed-shape performance gate");
+  return {baseline_average, candidate_average, shape_gate};
+}
+
+void run_optional_nvfp4_m8_fixed_shape_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m8_fixed_shape_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M8 fixed-shape performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M8_FIXED_SHAPE_PERF=1 to enable\n";
+    return;
+  }
+  constexpr double kGateUpCallsPerPrompt = 256.0;
+  constexpr double kDownCallsPerPrompt = 128.0;
+  constexpr double kRequiredSpeedup = 1.03;
+  const NvFp4M8FixedShapeMeasurement gate_up =
+      benchmark_nvfp4_m8_fixed_shape(
+          test, stream, 17'408U, 5'120U,
+          "NVFP4 M8 MLP gate/up 17408x5120");
+  const NvFp4M8FixedShapeMeasurement down =
+      benchmark_nvfp4_m8_fixed_shape(
+          test, stream, 5'120U, 17'408U,
+          "NVFP4 M8 MLP down 5120x17408");
+  const double weighted_baseline =
+      kGateUpCallsPerPrompt * gate_up.baseline_milliseconds +
+      kDownCallsPerPrompt * down.baseline_milliseconds;
+  const double weighted_candidate =
+      kGateUpCallsPerPrompt * gate_up.candidate_milliseconds +
+      kDownCallsPerPrompt * down.candidate_milliseconds;
+  const double weighted_speedup = weighted_baseline / weighted_candidate;
+  const bool aggregate_gate =
+      gate_up.passed && down.passed &&
+      std::isfinite(weighted_speedup) &&
+      weighted_speedup >= kRequiredSpeedup;
+  std::cout << "PERF_NVFP4_M8_FIXED_SHAPE_AGGREGATE: "
+            << "weighted_baseline_ms=" << weighted_baseline
+            << " weighted_candidate_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " uplift_percent=" << (weighted_speedup - 1.0) * 100.0
+            << " required_speedup=" << kRequiredSpeedup
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "NVFP4 M8 fixed shape clears both shapes and weighted gate");
+}
+
 [[nodiscard]] bool benchmark_nvfp4_row_pair_shape(
     TestContext& test, cudaStream_t stream, const std::size_t rows,
     const std::size_t columns, const std::string& label) {
@@ -5052,6 +5323,7 @@ int main() {
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
+  run_optional_nvfp4_m8_fixed_shape_performance(test, stream);
   run_optional_nvfp4_row_pair_performance(test, stream);
   run_optional_small_m_performance(test, stream);
   run_optional_performance(test, stream);
