@@ -46,6 +46,23 @@ launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_small_m_row_pair_test(
     std::size_t token_count, std::size_t rows) noexcept;
 
@@ -1315,6 +1332,242 @@ void run_nvfp4_scale_codebook_exhaustive_case(TestContext& test,
   }
 }
 
+void run_nvfp4_m1_scale_codebook_bitwise_case(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 16U> kFiniteScaleCodes{{
+      0x20U, 0x24U, 0x28U, 0x2cU, 0x30U, 0x34U, 0x38U, 0x3cU,
+      0x40U, 0x44U, 0x48U, 0x4cU, 0x50U, 0x54U, 0x58U, 0x5cU,
+  }};
+  const std::size_t packed_columns = columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  std::vector<std::uint8_t> packed(rows * packed_columns);
+  std::vector<std::uint8_t> scales(rows * scale_columns);
+  std::vector<std::uint16_t> activation(columns);
+
+  // Every row traverses all 256 low/high E2M1 pairs. Row-dependent offsets
+  // make odd tails and row addressing observable even when K is periodic.
+  for (std::size_t row = 0U; row < rows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          ((packed_column >> 4U) + row * 5U) & 0x0fU);
+      packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
+    for (std::size_t scale_column = 0U; scale_column < scale_columns;
+         ++scale_column) {
+      scales[row * scale_columns + scale_column] = kFiniteScaleCodes[
+          (scale_column * 13U + row * 7U) % kFiniteScaleCodes.size()];
+    }
+  }
+  for (std::size_t column = 0U; column < columns; ++column) {
+    const int centered =
+        static_cast<int>((column * 17U + 5U) % 127U) - 63;
+    activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> device_packed;
+  DeviceBuffer<std::uint8_t> device_scales;
+  DeviceBuffer<std::uint16_t> device_activation;
+  DeviceBuffer<std::uint16_t> device_baseline;
+  DeviceBuffer<std::uint16_t> device_candidate;
+  bool ready = test.cuda_ok(device_packed.allocate(packed.size()),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(device_scales.allocate(scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(device_activation.allocate(activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(device_baseline.allocate(rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(device_candidate.allocate(rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_packed.get(), packed.data(),
+                                       packed.size(), cudaMemcpyHostToDevice,
+                                       stream),
+                       label + " copy packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_scales.get(), scales.data(),
+                                       scales.size(), cudaMemcpyHostToDevice,
+                                       stream),
+                       label + " copy block scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_activation.get(), activation.data(),
+                           activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " copy activation");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+              device_packed.get(), device_scales.get(), kWeightScale2,
+              device_activation.get(), rows, columns, device_baseline.get(),
+              static_cast<void*>(stream))),
+      label + " launch preserved M1 vector baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+                               device_packed.get(), device_scales.get(),
+                               kWeightScale2, device_activation.get(), rows,
+                               columns, device_candidate.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch M1 shared scale candidate");
+  std::vector<std::uint16_t> baseline(rows);
+  std::vector<std::uint16_t> candidate(rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), device_baseline.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), device_candidate.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t row = 0U; row < rows; ++row) {
+    mismatches += baseline[row] != candidate[row] ? 1U : 0U;
+  }
+  std::cout << "M1_SCALE_CODEBOOK_DIFF: " << label
+            << " candidate_vs_preserved_vector_bf16=" << mismatches << '/'
+            << rows << '\n';
+  test.expect(mismatches == 0U,
+              label + " M1 candidate matches every baseline BF16 bit");
+}
+
+void run_nvfp4_m1_scale_codebook_exhaustive_case(TestContext& test,
+                                                  cudaStream_t stream) {
+  constexpr std::size_t kRows = 257U;
+  constexpr std::size_t kColumns = 256U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr float kWeightScale2 = 1.0F;
+  const std::string label =
+      "NVFP4 M1 shared E4M3FN exhaustive scale codebook odd rows";
+
+  std::vector<std::uint8_t> packed(kRows * kPackedColumns, 0U);
+  std::vector<std::uint8_t> scales(kRows * kScaleColumns, 0x38U);
+  std::vector<std::uint16_t> activation(kColumns);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    const std::size_t active_group = row % kScaleColumns;
+    const std::size_t first_byte = active_group * 8U;
+    for (std::size_t byte = 0U; byte < 8U; ++byte) {
+      packed[row * kPackedColumns + first_byte + byte] =
+          static_cast<std::uint8_t>(0x21U + ((row + byte) & 1U) * 0x12U);
+    }
+    // Rows 0..255 cover signed zeros, every finite value, and both NaNs.
+    // Row 256 exercises the final partial block.
+    scales[row * kScaleColumns + active_group] =
+        static_cast<std::uint8_t>(row < 256U ? row : 0x38U);
+  }
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered = static_cast<int>((column * 7U + 3U) % 61U) - 30;
+    activation[column] =
+        encode_bf16(static_cast<float>(centered) / 32.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> device_packed;
+  DeviceBuffer<std::uint8_t> device_scales;
+  DeviceBuffer<std::uint16_t> device_activation;
+  DeviceBuffer<std::uint16_t> device_baseline;
+  DeviceBuffer<std::uint16_t> device_candidate;
+  bool ready = test.cuda_ok(device_packed.allocate(packed.size()),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(device_scales.allocate(scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(device_activation.allocate(activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(device_baseline.allocate(kRows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(device_candidate.allocate(kRows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_packed.get(), packed.data(),
+                                       packed.size(), cudaMemcpyHostToDevice,
+                                       stream),
+                       label + " copy packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_scales.get(), scales.data(),
+                                       scales.size(), cudaMemcpyHostToDevice,
+                                       stream),
+                       label + " copy block scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_activation.get(), activation.data(),
+                           activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " copy activation");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+              device_packed.get(), device_scales.get(), kWeightScale2,
+              device_activation.get(), kRows, kColumns,
+              device_baseline.get(), static_cast<void*>(stream))),
+      label + " launch preserved M1 vector baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+                               device_packed.get(), device_scales.get(),
+                               kWeightScale2, device_activation.get(), kRows,
+                               kColumns, device_candidate.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch M1 shared scale candidate");
+  std::vector<std::uint16_t> baseline(kRows);
+  std::vector<std::uint16_t> candidate(kRows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), device_baseline.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), device_candidate.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    mismatches += baseline[row] != candidate[row] ? 1U : 0U;
+  }
+  std::cout << "M1_SCALE_CODEBOOK_DIFF: " << label
+            << " candidate_vs_preserved_vector_bf16=" << mismatches << '/'
+            << kRows << '\n';
+  test.expect(mismatches == 0U,
+              label + " M1 candidate matches every baseline BF16 bit");
+  test.expect(is_bf16_nan(baseline[0x7fU]),
+              label + " positive NaN scale remains NaN");
+  test.expect(is_bf16_nan(baseline[0xffU]),
+              label + " negative NaN scale remains NaN");
+}
+
 void run_small_m_production_k_comparison(TestContext& test,
                                          cudaStream_t stream,
                                          const std::size_t token_count) {
@@ -1924,6 +2177,21 @@ void test_launch_validation(TestContext& test) {
   test.expect(q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U,
                                                                  17'408U),
               "NVFP4 M8 row-pair accepts production output rows");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
+                  7U, 5'120U),
+              "NVFP4 M1 scale codebook rejects a partial warp block");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
+                  8U, 1'024U),
+              "NVFP4 M1 scale codebook keeps short-K vector baseline");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
+                  8U, 5'120U),
+              "NVFP4 M1 scale codebook accepts its minimum production gate");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
+                  17'408U, 5'120U),
+              "NVFP4 M1 scale codebook accepts gate/up shape");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
+                  5'120U, 17'408U),
+              "NVFP4 M1 scale codebook accepts down shape");
   test.expect(!q3x::kernels::use_sm87_fp8_small_m_row_pair_test(2U, 10'240U),
               "FP8 M2 keeps the single-row production kernel");
   test.expect(!q3x::kernels::use_sm87_fp8_small_m_row_pair_test(8U, 1'023U),
@@ -1956,6 +2224,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_row_pair_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_ROW_PAIR_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m1_scale_codebook_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M1_SCALE_CODEBOOK_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -2328,6 +2603,243 @@ void run_optional_fp8_row_pair_performance(TestContext& test,
             << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
   test.expect(aggregate_gate,
               "FP8 M8 row-pair five-shape weighted gate must pass");
+}
+
+enum class NvFp4M1ScaleDistribution {
+  kCheckpointLike,
+  kSameBankStress,
+};
+
+[[nodiscard]] const char* nvfp4_m1_scale_distribution_name(
+    const NvFp4M1ScaleDistribution distribution) noexcept {
+  return distribution == NvFp4M1ScaleDistribution::kCheckpointLike
+             ? "checkpoint_like"
+             : "same_bank_stress";
+}
+
+void fill_nvfp4_m1_scale_distribution(
+    std::vector<std::uint8_t>& scales, const std::size_t scale_columns,
+    const NvFp4M1ScaleDistribution distribution) {
+  constexpr std::array<std::uint8_t, 32U> kCheckpointLikeCodes{{
+      0x4eU, 0x50U, 0x52U, 0x54U, 0x55U, 0x56U, 0x57U, 0x58U,
+      0x58U, 0x58U, 0x59U, 0x59U, 0x59U, 0x5aU, 0x5aU, 0x5bU,
+      0x5bU, 0x5cU, 0x5cU, 0x5dU, 0x5dU, 0x5eU, 0x5fU, 0x60U,
+      0x60U, 0x61U, 0x62U, 0x63U, 0x64U, 0x65U, 0x66U, 0x67U,
+  }};
+  constexpr std::array<std::uint8_t, 3U> kSameBankCodes{{
+      0x20U, 0x40U, 0x60U,
+  }};
+  for (std::size_t index = 0U; index < scales.size(); ++index) {
+    const std::size_t row = index / scale_columns;
+    const std::size_t scale_column = index - row * scale_columns;
+    if (distribution == NvFp4M1ScaleDistribution::kCheckpointLike) {
+      scales[index] = kCheckpointLikeCodes[
+          (scale_column * 5U + row * 11U + (scale_column >> 3U)) %
+          kCheckpointLikeCodes.size()];
+    } else {
+      // All three codes share their low five bits and therefore map to the
+      // same shared-memory bank while retaining different decoded values.
+      scales[index] =
+          kSameBankCodes[(scale_column + row * 3U) % kSameBankCodes.size()];
+    }
+  }
+}
+
+[[nodiscard]] bool benchmark_nvfp4_m1_scale_codebook_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const float required_speedup,
+    const std::string& label) {
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  const int warmup_iterations = rows >= 100'000U ? 4 : 10;
+  const int measured_iterations = rows >= 100'000U ? 10 : 40;
+  const std::size_t packed_count = rows * columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  const std::size_t scale_count = rows * scale_columns;
+  std::vector<std::uint8_t> host_scales(scale_count);
+  std::vector<std::uint16_t> host_activation(
+      columns, encode_bf16(1.0F));
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(scale_count),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activation.allocate(columns),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(baseline_output.allocate(rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(packed.get(), 0x21, packed_count,
+                                       stream),
+                       label + " initialize packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activation");
+  if (!ready) {
+    return false;
+  }
+
+  constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
+      NvFp4M1ScaleDistribution::kCheckpointLike,
+      NvFp4M1ScaleDistribution::kSameBankStress,
+  }};
+  bool all_passed = true;
+  for (const NvFp4M1ScaleDistribution distribution : kDistributions) {
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize block scales");
+    if (!ready) {
+      return false;
+    }
+
+    const auto launch_baseline = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(),
+              rows, columns, baseline_output.get(),
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(),
+              rows, columns, candidate_output.get(),
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         distribution_label + " correctness baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         distribution_label + " correctness candidate");
+    std::vector<std::uint16_t> baseline(rows);
+    std::vector<std::uint16_t> candidate(rows);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy candidate output");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " correctness synchronize");
+    if (!ready) {
+      return false;
+    }
+    std::size_t mismatches = 0U;
+    for (std::size_t row = 0U; row < rows; ++row) {
+      mismatches += baseline[row] != candidate[row] ? 1U : 0U;
+    }
+    const bool bitwise_equal = mismatches == 0U;
+    test.expect(bitwise_equal,
+                distribution_label +
+                    " candidate matches every baseline BF16 bit");
+
+    for (int iteration = 0; iteration < warmup_iterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           distribution_label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           distribution_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " warmup synchronize");
+    if (!ready) {
+      return false;
+    }
+
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, measured_iterations,
+        distribution_label + " baseline pass 1");
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, measured_iterations,
+        distribution_label + " candidate pass 1");
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, measured_iterations,
+        distribution_label + " candidate pass 2");
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, measured_iterations,
+        distribution_label + " baseline pass 2");
+    const bool finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    const float baseline_average =
+        finite ? (baseline_first + baseline_second) * 0.5F
+               : std::numeric_limits<float>::quiet_NaN();
+    const float candidate_average =
+        finite ? (candidate_first + candidate_second) * 0.5F
+               : std::numeric_limits<float>::quiet_NaN();
+    const float speedup = baseline_average / candidate_average;
+    const bool gate_passed = bitwise_equal && finite &&
+                             std::isfinite(speedup) &&
+                             speedup >= required_speedup;
+    std::cout << "PERF_NVFP4_M1_SCALE_CODEBOOK: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second
+              << " baseline_average_ms=" << baseline_average
+              << " candidate_average_ms=" << candidate_average
+              << " speedup=" << speedup
+              << " uplift_percent=" << (speedup - 1.0F) * 100.0F
+              << " bitwise_mismatches=" << mismatches << '/' << rows
+              << " required_speedup=" << required_speedup
+              << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
+    test.expect(gate_passed,
+                distribution_label + " clears its performance gate");
+    all_passed = all_passed && gate_passed;
+  }
+  return all_passed;
+}
+
+void run_optional_nvfp4_m1_scale_codebook_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m1_scale_codebook_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M1 scale-codebook performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M1_SCALE_CODEBOOK_PERF=1 to enable\n";
+    return;
+  }
+  constexpr float kMlpRequiredSpeedup = 1.03F;
+  constexpr float kLmHeadRequiredSpeedup = 1.0F;
+  const bool gate_up = benchmark_nvfp4_m1_scale_codebook_shape(
+      test, stream, 17'408U, 5'120U, kMlpRequiredSpeedup,
+      "NVFP4 M1 MLP gate/up 17408x5120");
+  const bool down = benchmark_nvfp4_m1_scale_codebook_shape(
+      test, stream, 5'120U, 17'408U, kMlpRequiredSpeedup,
+      "NVFP4 M1 MLP down 5120x17408");
+  const bool lm_head = benchmark_nvfp4_m1_scale_codebook_shape(
+      test, stream, 248'320U, 5'120U, kLmHeadRequiredSpeedup,
+      "NVFP4 M1 lm_head 248320x5120");
+  const bool aggregate = gate_up && down && lm_head;
+  std::cout << "PERF_NVFP4_M1_SCALE_CODEBOOK_AGGREGATE: "
+               "all_distributions_and_shapes="
+            << (aggregate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate,
+              "NVFP4 M1 scale codebook clears all shape/distribution gates");
 }
 
 [[nodiscard]] bool benchmark_nvfp4_row_pair_shape(
@@ -3137,6 +3649,13 @@ int main() {
   run_nvfp4_case(test, stream, 13U, 48U, "NVFP4 awkward 13x48");
   run_nvfp4_vector_codebook_case(test, stream);
   run_nvfp4_scale_codebook_exhaustive_case(test, stream);
+  run_nvfp4_m1_scale_codebook_exhaustive_case(test, stream);
+  run_nvfp4_m1_scale_codebook_bitwise_case(
+      test, stream, 17U, 5'120U,
+      "NVFP4 M1 scale codebook odd rows K5120 full E2M1 codebook");
+  run_nvfp4_m1_scale_codebook_bitwise_case(
+      test, stream, 19U, 17'408U,
+      "NVFP4 M1 scale codebook odd rows K17408 full E2M1 codebook");
   run_nvfp4_row_pair_bitwise_case(
       test, stream, 17U, 5'120U,
       "NVFP4 M8 row-pair odd rows K5120 row-distinct full E2M1 codebook");
@@ -3150,6 +3669,7 @@ int main() {
   run_nvfp4_case(test, stream, 3U, 17'408U,
                   "NVFP4 target-K 3x17408");
   run_optional_fp8_row_pair_performance(test, stream);
+  run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_row_pair_performance(test, stream);
   run_optional_small_m_performance(test, stream);
   run_optional_performance(test, stream);
