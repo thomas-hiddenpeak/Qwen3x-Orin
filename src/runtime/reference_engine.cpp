@@ -247,6 +247,20 @@ struct EngineStepContext {
   }
 }
 
+[[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
+    void* const opaque_context,
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const ReferencePrefillTileOptions& options) {
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (context.capture_trace) {
+    return {{}, {ReferenceRunnerError::kTraceUnavailable, 0,
+                 kReferenceNoLayer, "engine_prefill_tile_trace"}};
+  }
+  return context.runner->prefill_prefix_tile(input_token_ids, token_count,
+                                             options);
+}
+
 [[nodiscard]] bool checked_required_steps(
     const std::size_t prompt_tokens, const std::uint32_t max_new_tokens,
     std::uint64_t& result) noexcept {
@@ -394,6 +408,8 @@ struct ReferenceEngine::Impl {
             impl->request_state->arena_bytes();
         impl->load.request_max_sequence_length =
             impl->request_state->max_sequence_length();
+        impl->load.request_prefill_chunk_size =
+            impl->request_state->plan().prefill_chunk_size;
       }
 
       {
@@ -474,17 +490,32 @@ ReferenceGenerateResult ReferenceEngine::generate(
     return result;
   }
   if (user_prompt.empty() || options.max_new_tokens == 0U ||
+      options.prefill_chunk_size == 0U ||
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
-        "prompt must be non-empty, max_new_tokens must be positive, and "
-        "stop_token_id must be in the pinned vocabulary");
+        "prompt must be non-empty, max_new_tokens must be positive, "
+        "prefill_chunk_size must be in [1,8], and stop_token_id must be in "
+        "the pinned vocabulary");
     return result;
   }
   if (options.capture_trace && !impl_->trace_enabled) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
         "capture_trace requires an engine created with enable_trace=true");
+    return result;
+  }
+  if (!options.capture_trace &&
+      options.prefill_chunk_size >
+          impl_->request_state->plan().prefill_chunk_size) {
+    result.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "generation_options",
+        "requested prefill chunk exceeds the engine workspace capacity",
+        "requested=" + std::to_string(options.prefill_chunk_size) +
+            " capacity=" +
+            std::to_string(
+                impl_->request_state->plan().prefill_chunk_size));
     return result;
   }
 
@@ -520,10 +551,12 @@ ReferenceGenerateResult ReferenceEngine::generate(
     control_options.stop_token_id = options.stop_token_id;
     control_options.max_sequence_length =
         impl_->request_state->max_sequence_length();
+    control_options.prefill_chunk_size = options.prefill_chunk_size;
     control_options.capture_trace = options.capture_trace;
     reference_engine_detail::GenerationControlResult control =
         reference_engine_detail::run_generation_control(
-            chat.token_ids, control_options, &step_context, step_with_trace);
+            chat.token_ids, control_options, &step_context, step_with_trace,
+            prefill_prefix_tile);
     if (!control) {
       result.diagnostic = control_diagnostic(control);
       return result;
@@ -558,6 +591,10 @@ ReferenceGenerateResult ReferenceEngine::generate(
         std::move(control.value->generated_token_ids);
     generation.generated_text = std::move(decoded.text);
     generation.stop_reason = control.value->stop_reason;
+    generation.requested_prefill_chunk_size = options.prefill_chunk_size;
+    generation.effective_prefill_chunk_size =
+        options.capture_trace ? kDefaultRequestPrefillChunkSize
+                              : options.prefill_chunk_size;
     generation.timing = std::move(control.value->timing);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
@@ -600,6 +637,9 @@ ReferenceOneShotResult generate_reference(
   ReferenceOneShotResult result;
   if (model_directory.empty() || user_prompt.empty() ||
       options.generation.max_new_tokens == 0U ||
+      options.generation.prefill_chunk_size == 0U ||
+      options.generation.prefill_chunk_size >
+          kMaximumRequestPrefillChunkSize ||
       options.generation.stop_token_id >= kReferenceVocabularySize ||
       !is_valid_projection_backend(options.projection_backend)) {
     result.diagnostic = engine_diagnostic(
@@ -658,6 +698,8 @@ ReferenceOneShotResult generate_reference(
     ReferenceEngineOptions engine_options;
     engine_options.resident_options = options.resident_options;
     engine_options.request_options.batch_size = 1U;
+    engine_options.request_options.prefill_chunk_size =
+        options.generation.prefill_chunk_size;
     engine_options.request_options.max_sequence_length =
         static_cast<std::uint32_t>(required_steps);
     engine_options.request_options.max_arena_bytes =

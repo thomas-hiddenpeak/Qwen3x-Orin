@@ -33,6 +33,12 @@ constexpr std::size_t kRopePairs = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
+static_assert(kLinearQkvElements <= kReferenceIntermediateSize);
+static_assert(kLinearValueElements <= kReferenceIntermediateSize);
+static_assert(kFullQGateElements <= kReferenceIntermediateSize);
+static_assert(kFullQueryElements <= kReferenceIntermediateSize);
+static_assert(kFullKvElements <= kReferenceIntermediateSize);
+
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
     const std::size_t layer = kReferenceNoLayer,
@@ -219,10 +225,12 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "request_sequence_length");
   }
+  const std::uint64_t workspace_tokens = state->plan().prefill_chunk_size;
 
   for (std::size_t index = 0U; index < 3U; ++index) {
     RequestViewResult view = state->hidden_buffer(index);
-    if (!valid_view(view, kReferenceHiddenSize, sizeof(std::uint16_t))) {
+    if (!valid_view(view, workspace_tokens * kReferenceHiddenSize,
+                    sizeof(std::uint16_t))) {
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "hidden_workspace");
     }
@@ -231,7 +239,7 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
   }
   for (std::size_t index = 0U; index < 4U; ++index) {
     RequestViewResult view = state->projection_buffer(index);
-    if (!valid_view(view, kReferenceIntermediateSize,
+    if (!valid_view(view, workspace_tokens * kReferenceIntermediateSize,
                     sizeof(std::uint16_t))) {
       return runner_status(ReferenceRunnerError::kInvalidRequestState,
                            "projection_workspace");
@@ -243,8 +251,10 @@ ReferenceRunnerStatus ReferenceRunner::collect_request_views(
   RequestViewResult linear_a = state->linear_a_buffer();
   RequestViewResult linear_b = state->linear_b_buffer();
   RequestViewResult scratch = state->fp32_scratch();
-  if (!valid_view(linear_a, kLinearScalarElements, sizeof(std::uint16_t)) ||
-      !valid_view(linear_b, kLinearScalarElements, sizeof(std::uint16_t)) ||
+  if (!valid_view(linear_a, workspace_tokens * kLinearScalarElements,
+                  sizeof(std::uint16_t)) ||
+      !valid_view(linear_b, workspace_tokens * kLinearScalarElements,
+                  sizeof(std::uint16_t)) ||
       !valid_view(scratch, kReferenceVocabularySize, sizeof(float))) {
     return runner_status(ReferenceRunnerError::kInvalidRequestState,
                          "scalar_or_fp32_workspace");
@@ -477,7 +487,9 @@ model::LayerType expected_reference_layer_type(
 
 ReferenceRunnerError validate_reference_workspace_plan(
     const RequestMemoryPlan& plan) noexcept {
-  if (plan.batch_size != 1U || plan.max_sequence_length == 0U ||
+  if (plan.batch_size != 1U || plan.prefill_chunk_size == 0U ||
+      plan.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
+      plan.max_sequence_length == 0U ||
       plan.max_sequence_length > kAbsoluteRequestMaxSequenceLength ||
       plan.hidden_bf16.size() != 3U ||
       plan.projection_bf16.size() != 4U) {
@@ -497,17 +509,27 @@ ReferenceRunnerError validate_reference_workspace_plan(
   };
 
   for (const RequestRegion& region : plan.hidden_bf16) {
-    if (!bf16_region_at_least(region, kReferenceHiddenSize)) {
+    if (!bf16_region_at_least(
+            region, static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+                        kReferenceHiddenSize)) {
       return ReferenceRunnerError::kInvalidRequestState;
     }
   }
   for (const RequestRegion& region : plan.projection_bf16) {
-    if (!bf16_region_at_least(region, kReferenceIntermediateSize)) {
+    if (!bf16_region_at_least(
+            region, static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+                        kReferenceIntermediateSize)) {
       return ReferenceRunnerError::kInvalidRequestState;
     }
   }
-  if (!bf16_region_at_least(plan.linear_a_bf16, kLinearScalarElements) ||
-      !bf16_region_at_least(plan.linear_b_bf16, kLinearScalarElements) ||
+  if (!bf16_region_at_least(
+          plan.linear_a_bf16,
+          static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+              kLinearScalarElements) ||
+      !bf16_region_at_least(
+          plan.linear_b_bf16,
+          static_cast<std::uint64_t>(plan.prefill_chunk_size) *
+              kLinearScalarElements) ||
       !fp32_region_at_least(plan.fp32_scratch,
                             kReferenceVocabularySize) ||
       plan.gqa_probability_scratch.arena_offset !=
@@ -642,6 +664,18 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
   poisoned_ = true;
   trace_valid_ = false;
   ReferenceStepOutcome outcome;
+  outcome.status = status;
+  return outcome;
+}
+
+ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
+    const ReferenceRunnerStatus status) noexcept {
+  if (stream_ != nullptr) {
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  poisoned_ = true;
+  trace_valid_ = false;
+  ReferencePrefillTileOutcome outcome;
   outcome.status = status;
   return outcome;
 }
@@ -1037,6 +1071,379 @@ ReferenceStepOutcome ReferenceRunner::step(
 
   ReferenceStepOutcome outcome;
   outcome.value.emplace(std::move(result));
+  return outcome;
+}
+
+ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
+    const std::uint32_t* const input_token_ids,
+    const std::size_t token_count,
+    const ReferencePrefillTileOptions& options) noexcept {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started{};
+  if (options.measure_timing) {
+    started = Clock::now();
+  }
+  if (!static_cast<bool>(*this)) {
+    return fail_prefill_tile(
+        runner_status(ReferenceRunnerError::kInvalidRunner,
+                      "prefill_prefix_tile"));
+  }
+  if (poisoned_) {
+    ReferencePrefillTileOutcome outcome;
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "prefill_prefix_tile");
+    return outcome;
+  }
+  if (input_token_ids == nullptr || token_count == 0U ||
+      token_count > kMaximumRequestPrefillChunkSize) {
+    return fail_prefill_tile(
+        runner_status(ReferenceRunnerError::kTokenOutOfRange,
+                      "prefill_tile_tokens"));
+  }
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (input_token_ids[token] >= kReferenceVocabularySize) {
+      return fail_prefill_tile(
+          runner_status(ReferenceRunnerError::kTokenOutOfRange,
+                        "prefill_tile_token"));
+    }
+  }
+  if (token_count > state_->remaining_capacity() ||
+      token_count > state_->plan().prefill_chunk_size) {
+    return fail_prefill_tile(
+        runner_status(ReferenceRunnerError::kCapacityExceeded,
+                      "prefill_tile_capacity"));
+  }
+
+  if (token_count == 1U) {
+    ReferenceStepOptions step_options;
+    step_options.compute_logits = false;
+    step_options.capture_trace = false;
+    step_options.measure_timing = options.measure_timing;
+    ReferenceStepOutcome step_outcome = step(input_token_ids[0], step_options);
+    if (!step_outcome) {
+      ReferencePrefillTileOutcome outcome;
+      outcome.status = step_outcome.status;
+      return outcome;
+    }
+    ReferencePrefillTileResult tile;
+    tile.step_count = 1U;
+    tile.steps[0] = std::move(*step_outcome.value);
+    tile.timing = tile.steps[0].timing;
+    ReferencePrefillTileOutcome outcome;
+    outcome.value.emplace(std::move(tile));
+    return outcome;
+  }
+
+  const std::uint32_t first_position = state_->current_position();
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  ReferenceRunnerStatus launch_failure{};
+  const auto check_cuda = [&launch_failure](
+                              const int status,
+                              const char* const operation,
+                              const std::size_t layer) noexcept {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    launch_failure = runner_status(ReferenceRunnerError::kCudaFailure,
+                                   operation, layer, status);
+    return false;
+  };
+  const auto project = [this, token_count, &check_cuda](
+                           const LinearWeight& weight,
+                           const std::uint16_t* const input,
+                           std::uint16_t* const output,
+                           const char* const operation,
+                           const std::size_t layer) noexcept {
+    return check_cuda(launch_projection_tile_to_bf16_cuda(
+                          projection_backend_, weight, input, token_count,
+                          views_.fp32_scratch,
+                          views_.fp32_scratch_elements, output, stream_),
+                      operation, layer);
+  };
+
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (!check_cuda(launch_embedding_gather_reference_cuda(
+                        weights_->embed_tokens().weight,
+                        kReferenceVocabularySize, kReferenceHiddenSize,
+                        input_token_ids[token],
+                        views_.hidden[0] + token * kReferenceHiddenSize,
+                        stream_),
+                    "prefill_embedding_gather", kReferenceNoLayer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+  }
+
+  for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
+    const DecoderLayerWeights& layer_weights = weights_->layer(layer);
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      if (!check_cuda(launch_centered_rms_norm_reference_cuda(
+                          views_.hidden[0] + token * kReferenceHiddenSize,
+                          layer_weights.input_layernorm.data,
+                          kReferenceHiddenSize, kRmsEpsilon,
+                          views_.hidden[1] + token * kReferenceHiddenSize,
+                          stream_),
+                      "prefill_input_layernorm", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    }
+
+    const model::LayerType expected =
+        reference_runner_detail::expected_reference_layer_type(layer);
+    if (expected == model::LayerType::kLinearAttention) {
+      const auto* const attention =
+          std::get_if<LinearAttentionWeights>(&layer_weights.attention);
+      if (attention == nullptr) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kInvalidLayerSchedule,
+            "prefill_linear_attention_variant", layer));
+      }
+      if (!project(attention->in_proj_qkv, views_.hidden[1],
+                   views_.projection[0], "prefill_linear_qkv_projection",
+                   layer) ||
+          !project(attention->in_proj_z, views_.hidden[1],
+                   views_.projection[1], "prefill_linear_z_projection",
+                   layer) ||
+          !project(attention->in_proj_a, views_.hidden[1], views_.linear_a,
+                   "prefill_linear_a_projection", layer) ||
+          !project(attention->in_proj_b, views_.hidden[1], views_.linear_b,
+                   "prefill_linear_b_projection", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      for (std::size_t token = 0U; token < token_count; ++token) {
+        std::uint16_t* const qkv =
+            views_.projection[0] + token * kLinearQkvElements;
+        if (!check_cuda(launch_causal_conv1d_silu_update_reference_cuda(
+                            qkv, attention->conv1d.data,
+                            views_.conv_state[layer], qkv, {}, stream_),
+                        "prefill_linear_causal_conv", layer) ||
+            !check_cuda(launch_gated_delta_net_update_reference_cuda(
+                            qkv,
+                            views_.linear_a + token * kLinearScalarElements,
+                            views_.linear_b + token * kLinearScalarElements,
+                            attention->a_log.data, attention->dt_bias.data,
+                            views_.gdn_state[layer], views_.gdn_state[layer],
+                            kRmsEpsilon,
+                            views_.projection[2] +
+                                token * kLinearValueElements,
+                            {}, stream_),
+                        "prefill_linear_gdn", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      }
+      if (!check_cuda(
+              launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                  views_.projection[2], attention->norm.data,
+                  views_.projection[1], token_count * kGdnValueHeadCount,
+                  kGdnHeadDimension, kRmsEpsilon, views_.projection[2],
+                  stream_),
+              "prefill_linear_output_norm_gate", layer) ||
+          !project(attention->out_proj, views_.projection[2],
+                   views_.hidden[1], "prefill_linear_output_projection",
+                   layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else if (expected == model::LayerType::kFullAttention) {
+      const auto* const attention =
+          std::get_if<FullAttentionWeights>(&layer_weights.attention);
+      if (attention == nullptr) {
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kInvalidLayerSchedule,
+            "prefill_full_attention_variant", layer));
+      }
+      std::uint16_t* const packed_gates =
+          views_.projection[3] + token_count * kFullQueryElements;
+      if (!project(attention->q_proj, views_.hidden[1],
+                   views_.projection[0], "prefill_full_q_gate_projection",
+                   layer) ||
+          !project(attention->k_proj, views_.hidden[1],
+                   views_.projection[1], "prefill_full_k_projection",
+                   layer) ||
+          !project(attention->v_proj, views_.hidden[1],
+                   views_.projection[2], "prefill_full_v_projection",
+                   layer) ||
+          !check_cuda(launch_split_interleaved_q_gate_reference_cuda(
+                          views_.projection[0], token_count * kFullQueryHeads,
+                          kFullHeadDimension, views_.projection[3],
+                          packed_gates, stream_),
+                      "prefill_full_split_q_gate", layer) ||
+          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                          views_.projection[3], attention->q_norm.data,
+                          token_count * kFullQueryHeads, kFullHeadDimension,
+                          kRmsEpsilon, views_.projection[0], stream_),
+                      "prefill_full_q_norm", layer) ||
+          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                          views_.projection[1], attention->k_norm.data,
+                          token_count * kFullKvHeads, kFullHeadDimension,
+                          kRmsEpsilon, views_.projection[1], stream_),
+                      "prefill_full_k_norm", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+
+      for (std::size_t token = 0U; token < token_count; ++token) {
+        const std::size_t position =
+            static_cast<std::size_t>(first_position) + token;
+        const float* const cosines = views_.rope_cos + position * kRopePairs;
+        const float* const sines = views_.rope_sin + position * kRopePairs;
+        if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                            views_.projection[0] +
+                                token * kFullQueryElements,
+                            cosines, sines, kFullQueryHeads,
+                            views_.projection[0] +
+                                token * kFullQueryElements,
+                            stream_),
+                        "prefill_full_q_rope", layer) ||
+            !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                            views_.projection[1] + token * kFullKvElements,
+                            cosines, sines, kFullKvHeads,
+                            views_.projection[1] + token * kFullKvElements,
+                            stream_),
+                        "prefill_full_k_rope", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      }
+      // Populate the complete tile's cache before GQA overwrites projection[1]
+      // with query-sized outputs. Each query still uses only its causal prefix.
+      for (std::size_t token = 0U; token < token_count; ++token) {
+        const std::size_t position =
+            static_cast<std::size_t>(first_position) + token;
+        std::uint16_t* const current_key =
+            views_.key_cache[layer] + position * kFullKvElements;
+        std::uint16_t* const current_value =
+            views_.value_cache[layer] + position * kFullKvElements;
+        if (!check_cuda(
+                static_cast<int>(cudaMemcpyAsync(
+                    current_key,
+                    views_.projection[1] + token * kFullKvElements,
+                    kFullKvElements * sizeof(std::uint16_t),
+                    cudaMemcpyDeviceToDevice, stream)),
+                "prefill_full_key_cache_write", layer) ||
+            !check_cuda(
+                static_cast<int>(cudaMemcpyAsync(
+                    current_value,
+                    views_.projection[2] + token * kFullKvElements,
+                    kFullKvElements * sizeof(std::uint16_t),
+                    cudaMemcpyDeviceToDevice, stream)),
+                "prefill_full_value_cache_write", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      }
+      for (std::size_t token = 0U; token < token_count; ++token) {
+        const std::size_t sequence_length =
+            static_cast<std::size_t>(first_position) + token + 1U;
+        if (!check_cuda(launch_gqa_attention_reference_cuda(
+                            views_.projection[0] +
+                                token * kFullQueryElements,
+                            views_.key_cache[layer], views_.value_cache[layer],
+                            kFullQueryHeads, kFullKvHeads, sequence_length,
+                            kFullHeadDimension, kAttentionScale,
+                            views_.fp32_scratch,
+                            views_.fp32_scratch_elements,
+                            views_.projection[1] +
+                                token * kFullQueryElements,
+                            stream_),
+                        "prefill_full_gqa", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
+      }
+      if (!check_cuda(launch_sigmoid_gate_reference_cuda(
+                          views_.projection[1], packed_gates,
+                          token_count * kFullQueryElements,
+                          views_.projection[1], stream_),
+                      "prefill_full_output_gate", layer) ||
+          !project(attention->o_proj, views_.projection[1],
+                   views_.hidden[1], "prefill_full_output_projection",
+                   layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else {
+      return fail_prefill_tile(runner_status(
+          ReferenceRunnerError::kInvalidLayerSchedule,
+          "prefill_layer_schedule", layer));
+    }
+
+    if (!check_cuda(launch_residual_add_reference_cuda(
+                        views_.hidden[0], views_.hidden[1],
+                        token_count * kReferenceHiddenSize,
+                        views_.hidden[2], stream_),
+                    "prefill_attention_residual", layer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      if (!check_cuda(launch_centered_rms_norm_reference_cuda(
+                          views_.hidden[2] + token * kReferenceHiddenSize,
+                          layer_weights.post_attention_layernorm.data,
+                          kReferenceHiddenSize, kRmsEpsilon,
+                          views_.hidden[1] + token * kReferenceHiddenSize,
+                          stream_),
+                      "prefill_post_attention_layernorm", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    }
+    if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                 views_.projection[0], "prefill_mlp_gate_projection", layer) ||
+        !project(layer_weights.mlp.up_proj, views_.hidden[1],
+                 views_.projection[1], "prefill_mlp_up_projection", layer) ||
+        !check_cuda(launch_silu_mul_reference_cuda(
+                        views_.projection[0], views_.projection[1],
+                        token_count * kReferenceIntermediateSize,
+                        views_.projection[0], stream_),
+                    "prefill_mlp_silu_mul", layer) ||
+        !project(layer_weights.mlp.down_proj, views_.projection[0],
+                 views_.hidden[1], "prefill_mlp_down_projection", layer) ||
+        !check_cuda(launch_residual_add_reference_cuda(
+                        views_.hidden[2], views_.hidden[1],
+                        token_count * kReferenceHiddenSize,
+                        views_.hidden[0], stream_),
+                    "prefill_layer_residual", layer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+  }
+
+  // Match the non-logit step boundary even though this output is not consumed
+  // by the following layer-major tile or by persistent state.
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    if (!check_cuda(launch_centered_rms_norm_reference_cuda(
+                        views_.hidden[0] + token * kReferenceHiddenSize,
+                        weights_->final_norm().data, kReferenceHiddenSize,
+                        kRmsEpsilon,
+                        views_.hidden[1] + token * kReferenceHiddenSize,
+                        stream_),
+                    "prefill_final_norm", kReferenceNoLayer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+  }
+
+  const cudaError_t sync_status = cudaStreamSynchronize(stream);
+  if (sync_status != cudaSuccess) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kCudaFailure, "prefill_tile_synchronize",
+        kReferenceNoLayer, static_cast<int>(sync_status)));
+  }
+  const std::uint32_t committed_length =
+      first_position + static_cast<std::uint32_t>(token_count);
+  const RequestOperationStatus commit_status =
+      state_->set_sequence_length(committed_length);
+  if (!commit_status) {
+    return fail_prefill_tile(runner_status(
+        ReferenceRunnerError::kStateCommitFailure,
+        "prefill_tile_commit", kReferenceNoLayer,
+        commit_status.cuda_error));
+  }
+
+  ReferencePrefillTileResult tile;
+  tile.step_count = token_count;
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    tile.steps[token].position =
+        first_position + static_cast<std::uint32_t>(token);
+    tile.steps[token].input_token_id = input_token_ids[token];
+  }
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    tile.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+  ReferencePrefillTileOutcome outcome;
+  outcome.value.emplace(std::move(tile));
   return outcome;
 }
 

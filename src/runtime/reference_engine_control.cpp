@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_engine.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -37,9 +39,12 @@ GenerationControlResult run_generation_control(
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,
     void* const step_context,
-    const StepFunction step_function) {
+    const StepFunction step_function,
+    const PrefillTileFunction prefill_tile_function) {
   if (prompt_token_ids.empty() || options.max_new_tokens == 0U ||
       options.max_sequence_length == 0U || step_function == nullptr ||
+      options.prefill_chunk_size == 0U ||
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize) {
     return failure(GenerationControlError::kInvalidArgument);
   }
@@ -109,17 +114,92 @@ GenerationControlResult run_generation_control(
 
     ReferenceRunnerStatus runner_failure_status;
     std::uint32_t predicted_token = 0U;
-    for (std::size_t index = 0U; index < prompt_token_ids.size(); ++index) {
-      const bool last_prompt_token = index + 1U == prompt_token_ids.size();
+
+    const std::size_t prefix_token_count = prompt_token_ids.size() - 1U;
+    const std::size_t effective_prefill_chunk_size =
+        options.capture_trace ? 1U : options.prefill_chunk_size;
+    if (effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
+        prefill_tile_function == nullptr) {
+      return failure(GenerationControlError::kInvalidArgument);
+    }
+
+    std::size_t prefix_index = 0U;
+    if (effective_prefill_chunk_size > 1U) {
+      while (prefix_index < prefix_token_count) {
+        const std::size_t tile_token_count =
+            std::min(effective_prefill_chunk_size,
+                     prefix_token_count - prefix_index);
+        ReferencePrefillTileOptions tile_options;
+        tile_options.measure_timing = true;
+        ReferencePrefillTileOutcome outcome = prefill_tile_function(
+            step_context, prompt_token_ids.data() + prefix_index,
+            tile_token_count, tile_options);
+        if (!outcome) {
+          return failure(GenerationControlError::kRunnerFailure,
+                         outcome.status);
+        }
+        if (outcome.value->step_count != tile_token_count ||
+            !outcome.value->timing.has_value()) {
+          return failure(outcome.value->timing.has_value()
+                             ? GenerationControlError::kUnexpectedStep
+                             : GenerationControlError::kMissingTiming);
+        }
+        const double tile_elapsed =
+            outcome.value->timing->elapsed_milliseconds;
+        if (!std::isfinite(tile_elapsed) || tile_elapsed < 0.0) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+
+        const std::size_t expected_first_position = control.steps.size();
+        for (std::size_t tile_index = 0U;
+             tile_index < tile_token_count; ++tile_index) {
+          const ReferenceStepResult& step = outcome.value->steps[tile_index];
+          if (step.position != static_cast<std::uint32_t>(
+                                   expected_first_position + tile_index) ||
+              step.input_token_id !=
+                  prompt_token_ids[prefix_index + tile_index] ||
+              step.logits.has_value() ||
+              (step.timing.has_value() &&
+               (!std::isfinite(step.timing->elapsed_milliseconds) ||
+                step.timing->elapsed_milliseconds < 0.0))) {
+            return failure(GenerationControlError::kUnexpectedStep);
+          }
+        }
+
+        for (std::size_t tile_index = 0U;
+             tile_index < tile_token_count; ++tile_index) {
+          control.steps.emplace_back(
+              std::move(outcome.value->steps[tile_index]));
+        }
+        const double accumulated_prefill =
+            control.timing.prompt_prefill_milliseconds + tile_elapsed;
+        if (!std::isfinite(accumulated_prefill)) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+        control.timing.prompt_prefill_milliseconds = accumulated_prefill;
+        prefix_index += tile_token_count;
+      }
+    } else {
+      while (prefix_index < prefix_token_count) {
+        double elapsed = 0.0;
+        const GenerationControlError error = execute(
+            prompt_token_ids[prefix_index], false, elapsed,
+            predicted_token, runner_failure_status);
+        if (error != GenerationControlError::kNone) {
+          return failure(error, runner_failure_status);
+        }
+        control.timing.prompt_prefill_milliseconds += elapsed;
+        ++prefix_index;
+      }
+    }
+
+    {
       double elapsed = 0.0;
-      const GenerationControlError error = execute(prompt_token_ids[index],
-                                                   last_prompt_token,
-                                                   elapsed,
-                                                   predicted_token,
-                                                   runner_failure_status);
+      const GenerationControlError error = execute(
+          prompt_token_ids.back(), true, elapsed, predicted_token,
+          runner_failure_status);
       if (error != GenerationControlError::kNone) {
-        GenerationControlResult result = failure(error, runner_failure_status);
-        return result;
+        return failure(error, runner_failure_status);
       }
       control.timing.prompt_prefill_milliseconds += elapsed;
     }

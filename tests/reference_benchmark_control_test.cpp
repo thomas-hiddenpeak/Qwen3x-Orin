@@ -87,6 +87,7 @@ runtime::ReferenceGenerateResult fake_generate(
     return result;
   }
   if (options.max_new_tokens != 8U || options.capture_trace ||
+      options.prefill_chunk_size != 4U ||
       options.stop_token_id != runtime::kQwen36ImEndTokenId) {
     result.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
     return result;
@@ -98,6 +99,8 @@ runtime::ReferenceGenerateResult fake_generate(
       {1.0}, {2.0}, {3.0, 4.0}, {5.0}, {6.0, 7.0}, {}};
   runtime::ReferenceGeneration generation = make_generation(
       prompt, kTtft[call], kTotal[call], kSubsequent[call]);
+  generation.requested_prefill_chunk_size = options.prefill_chunk_size;
+  generation.effective_prefill_chunk_size = options.prefill_chunk_size;
   if (fake.invalid_timing) {
     generation.timing.time_to_first_token_milliseconds = -1.0;
   }
@@ -135,6 +138,7 @@ runtime::ReferenceBenchmarkOptions benchmark_options() {
   options.warmup_rounds = 1U;
   options.measured_rounds = 2U;
   options.max_new_tokens = 8U;
+  options.prefill_chunk_size = 4U;
   options.device_memory_drop_tolerance_bytes = 64U;
   return options;
 }
@@ -184,6 +188,7 @@ void test_control_success(TestContext& test) {
               "warmup and measured rounds execute in round-major order");
   test.expect(report.samples.size() == 4U &&
                   report.stop_token_id == runtime::kQwen36ImEndTokenId &&
+                  report.prefill_chunk_size == 4U &&
                   report.samples[0].prompt_index == 0U &&
                   report.samples[0].measured_round == 0U &&
                   report.samples[3].prompt_index == 1U &&
@@ -271,6 +276,21 @@ void test_repeatability_and_failures(TestContext& test) {
                              runtime::ReferenceBenchmarkError::kInvalidArgument,
               "zero measured rounds are rejected before callbacks");
 
+  invalid = benchmark_options();
+  invalid.prefill_chunk_size = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidArgument,
+              "zero prefill chunk size is rejected before callbacks");
+
+  invalid.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize + 1U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidArgument,
+              "oversized prefill chunk size is rejected before callbacks");
+
   generator = {};
   generator.invalid_timing = true;
   memory.free_bytes = {1'000U, 1'000U};
@@ -313,6 +333,11 @@ void test_step_comparison(TestContext& test) {
   test.expect(detail::generation_mismatch_field(expected, actual) ==
                   "step_sequence[1].predicted_token_id",
               "step prediction changes are localized");
+  actual = expected;
+  actual.effective_prefill_chunk_size = 2U;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "effective_prefill_chunk_size",
+              "prefill dispatch policy changes are localized");
   test.expect(runtime::to_string(
                   runtime::ReferenceBenchmarkError::kRepeatabilityFailure) ==
                   "repeatability_failure",

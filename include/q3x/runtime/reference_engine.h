@@ -60,6 +60,7 @@ struct ReferenceGenerateOptions {
   std::uint32_t max_new_tokens = 16U;
   bool capture_trace = false;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
+  std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -92,6 +93,10 @@ struct ReferenceGeneration {
   std::vector<std::uint32_t> generated_token_ids;
   std::string generated_text;
   ReferenceStopReason stop_reason = ReferenceStopReason::kMaxNewTokens;
+  std::uint32_t requested_prefill_chunk_size =
+      kDefaultRequestPrefillChunkSize;
+  std::uint32_t effective_prefill_chunk_size =
+      kDefaultRequestPrefillChunkSize;
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
@@ -108,6 +113,8 @@ struct ReferenceEngineLoadStats {
   WeightBindingStats binding;
   std::uint64_t request_arena_bytes = 0U;
   std::uint32_t request_max_sequence_length = 0U;
+  std::uint32_t request_prefill_chunk_size =
+      kDefaultRequestPrefillChunkSize;
 };
 
 struct ReferenceGenerateResult {
@@ -228,11 +235,15 @@ enum class GenerationControlError : std::uint8_t {
 using StepFunction = ReferenceStepOutcome (*)(
     void* context, std::uint32_t input_token_id,
     const ReferenceStepOptions& options);
+using PrefillTileFunction = ReferencePrefillTileOutcome (*)(
+    void* context, const std::uint32_t* input_token_ids,
+    std::size_t token_count, const ReferencePrefillTileOptions& options);
 
 struct GenerationControlOptions {
   std::uint32_t max_new_tokens = 0U;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
   std::uint32_t max_sequence_length = 0U;
+  std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   bool capture_trace = false;
 };
 
@@ -260,7 +271,8 @@ struct GenerationControlResult {
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,
     void* step_context,
-    StepFunction step_function);
+    StepFunction step_function,
+    PrefillTileFunction prefill_tile_function = nullptr);
 
 // Returns the prefix that should be decoded for user-visible text. The exact
 // generated id sequence retains a terminal stop id for oracle comparisons;

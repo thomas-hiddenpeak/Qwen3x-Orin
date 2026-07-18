@@ -243,11 +243,14 @@ RequestLayerSlotResult map_request_layer(
 RequestPlanResult build_request_memory_plan(
     const RequestMemoryOptions& options) {
     if (options.batch_size != 1U || options.max_sequence_length == 0U ||
+        options.prefill_chunk_size == 0U ||
+        options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
         options.max_arena_bytes == 0U ||
         options.max_arena_bytes > kMaximumConfigurableArenaBytes) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kInvalidOption,
-            "request memory options violate batch, sequence, or arena limits",
+            "request memory options violate batch, prefill chunk, sequence, or "
+            "arena limits",
             "options"));
     }
 
@@ -258,6 +261,9 @@ RequestPlanResult build_request_memory_plan(
     std::uint64_t kv_elements = 0U;
     std::uint64_t probability_elements = 0U;
     std::uint64_t rope_elements = 0U;
+    std::uint64_t hidden_elements = 0U;
+    std::uint64_t projection_elements = 0U;
+    std::uint64_t linear_scalar_elements = 0U;
     if (!checked_multiply(kRequestLinearLayerCount,
                           kConvChannels,
                           conv_elements) ||
@@ -280,7 +286,16 @@ RequestPlanResult build_request_memory_plan(
                           probability_elements) ||
         !checked_multiply(options.max_sequence_length,
                           kRopePairs,
-                          rope_elements)) {
+                          rope_elements) ||
+        !checked_multiply(kHiddenElements,
+                          options.prefill_chunk_size,
+                          hidden_elements) ||
+        !checked_multiply(kProjectionElements,
+                          options.prefill_chunk_size,
+                          projection_elements) ||
+        !checked_multiply(kLinearScalarElements,
+                          options.prefill_chunk_size,
+                          linear_scalar_elements)) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
             "request dimensions overflow uint64 during plan construction",
@@ -296,6 +311,7 @@ RequestPlanResult build_request_memory_plan(
     }
 
     plan.batch_size = options.batch_size;
+    plan.prefill_chunk_size = options.prefill_chunk_size;
     plan.max_sequence_length =
         static_cast<std::uint32_t>(options.max_sequence_length);
     plan.persistent_offset = 0U;
@@ -325,7 +341,7 @@ RequestPlanResult build_request_memory_plan(
 
     plan.workspace_offset = builder.cursor();
     for (RequestRegion& hidden : plan.hidden_bf16) {
-        if (!builder.add(kHiddenElements, kBf16Bytes, hidden)) {
+        if (!builder.add(hidden_elements, kBf16Bytes, hidden)) {
             return plan_failure(make_diagnostic(
                 RequestErrorCode::kArithmeticOverflow,
                 "hidden workspace layout overflows uint64",
@@ -333,17 +349,17 @@ RequestPlanResult build_request_memory_plan(
         }
     }
     for (RequestRegion& projection : plan.projection_bf16) {
-        if (!builder.add(kProjectionElements, kBf16Bytes, projection)) {
+        if (!builder.add(projection_elements, kBf16Bytes, projection)) {
             return plan_failure(make_diagnostic(
                 RequestErrorCode::kArithmeticOverflow,
                 "projection workspace layout overflows uint64",
                 "projection_bf16"));
         }
     }
-    if (!builder.add(kLinearScalarElements,
+    if (!builder.add(linear_scalar_elements,
                      kBf16Bytes,
                      plan.linear_a_bf16) ||
-        !builder.add(kLinearScalarElements,
+        !builder.add(linear_scalar_elements,
                      kBf16Bytes,
                      plan.linear_b_bf16)) {
         return plan_failure(make_diagnostic(

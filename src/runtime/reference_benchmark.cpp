@@ -138,6 +138,14 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
   if (expected.stop_reason != actual.stop_reason) {
     return "stop_reason";
   }
+  if (expected.requested_prefill_chunk_size !=
+      actual.requested_prefill_chunk_size) {
+    return "requested_prefill_chunk_size";
+  }
+  if (expected.effective_prefill_chunk_size !=
+      actual.effective_prefill_chunk_size) {
+    return "effective_prefill_chunk_size";
+  }
   if (expected.steps.size() != actual.steps.size()) {
     return "step_sequence.size";
   }
@@ -173,11 +181,14 @@ ReferenceBenchmarkResult run_benchmark_control(
   ReferenceBenchmarkResult result;
   if (generate == nullptr || probe_memory == nullptr || prompts.empty() ||
       options.measured_rounds == 0U || options.max_new_tokens == 0U ||
-      options.stop_token_id >= kReferenceVocabularySize) {
+      options.stop_token_id >= kReferenceVocabularySize ||
+      options.prefill_chunk_size == 0U ||
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize) {
     result.diagnostic = benchmark_diagnostic(
         ReferenceBenchmarkError::kInvalidArgument,
         "callbacks and prompts must be present; measured_rounds and "
-        "max_new_tokens must be positive; stop_token_id must be valid");
+        "max_new_tokens must be positive; stop_token_id and "
+        "prefill_chunk_size must be valid");
     return result;
   }
   for (std::size_t index = 0U; index < prompts.size(); ++index) {
@@ -216,6 +227,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     report.measured_rounds = options.measured_rounds;
     report.max_new_tokens = options.max_new_tokens;
     report.stop_token_id = options.stop_token_id;
+    report.prefill_chunk_size = options.prefill_chunk_size;
     report.samples.reserve(sample_count);
     report.device_memory.start_free_bytes = initial_memory.value->free_bytes;
     report.device_memory.end_free_bytes = initial_memory.value->free_bytes;
@@ -238,6 +250,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     generation_options.max_new_tokens = options.max_new_tokens;
     generation_options.stop_token_id = options.stop_token_id;
     generation_options.capture_trace = false;
+    generation_options.prefill_chunk_size = options.prefill_chunk_size;
 
     auto run_phase = [&](const std::uint32_t rounds,
                          const bool warmup) -> bool {

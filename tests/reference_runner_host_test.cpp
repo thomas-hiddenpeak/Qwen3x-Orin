@@ -120,6 +120,28 @@ void test_schedule_and_workspace(TestContext& test) {
                   runtime::ReferenceRunnerError::kNone,
               "canonical RequestState plan satisfies runner workspace ABI");
 
+  runtime::RequestMemoryOptions chunk_options;
+  chunk_options.prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize;
+  const runtime::RequestPlanResult chunk_built =
+      runtime::build_request_memory_plan(chunk_options);
+  test.expect(chunk_built &&
+                  detail::validate_reference_workspace_plan(
+                      *chunk_built.value) ==
+                      runtime::ReferenceRunnerError::kNone,
+              "maximum prefill chunk plan satisfies runner workspace ABI");
+
+  plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+  test.expect(detail::validate_reference_workspace_plan(plan) ==
+                  runtime::ReferenceRunnerError::kInvalidRequestState,
+              "chunk metadata cannot exceed the allocated workspace spans");
+  plan = *built.value;
+  plan.prefill_chunk_size = 0U;
+  test.expect(detail::validate_reference_workspace_plan(plan) ==
+                  runtime::ReferenceRunnerError::kInvalidRequestState,
+              "zero prefill chunk metadata is rejected");
+
+  plan = *built.value;
   plan.layers[3U].type = q3x::model::LayerType::kLinearAttention;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidLayerSchedule,

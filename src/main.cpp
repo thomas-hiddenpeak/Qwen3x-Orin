@@ -28,6 +28,10 @@ inline constexpr std::uint32_t kCliDefaultWarmupRounds = 1U;
 inline constexpr std::uint32_t kCliDefaultBenchmarkIterations = 3U;
 inline constexpr std::uint32_t kCliMaximumBenchmarkRounds = 10'000U;
 inline constexpr std::uint32_t kCliDefaultMaxSequenceLength = 512U;
+inline constexpr std::uint32_t kCliDefaultPrefillChunkSize =
+    q3x::runtime::kDefaultRequestPrefillChunkSize;
+inline constexpr std::uint32_t kCliMaximumPrefillChunkSize =
+    q3x::runtime::kMaximumRequestPrefillChunkSize;
 
 void PrintUsage(std::ostream& output) {
   output
@@ -38,10 +42,12 @@ void PrintUsage(std::ostream& output) {
       << "  qwen3x-orin models     List catalogued target architectures\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
          "[--max-tokens N] [--trace] "
+         "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT [--prompt TEXT ...] "
          "[--max-tokens N] [--warmup N] [--iterations N] "
          "[--max-sequence-length N] "
+         "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin help       Show this help\n";
 }
@@ -51,6 +57,7 @@ void PrintGenerateUsage(std::ostream& output) {
       << "Usage:\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
          "[--max-tokens N] [--trace] "
+         "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
       << "  --prompt TEXT    One user message; thinking is disabled\n"
@@ -58,6 +65,11 @@ void PrintGenerateUsage(std::ostream& output) {
       << kCliMaximumMaxTokens << ", default " << kCliDefaultMaxTokens
       << ")\n"
       << "  --trace         Capture per-step activation boundary digests\n"
+      << "  --prefill-chunk-size N\n"
+      << "                  Prompt-prefix projection tile size (1.."
+      << kCliMaximumPrefillChunkSize << ", default "
+      << kCliDefaultPrefillChunkSize
+      << "; trace mode has effective size 1)\n"
       << "  --projection-backend reference|sm87\n"
       << "                  Projection policy (default reference)\n";
 }
@@ -68,6 +80,7 @@ void PrintBenchmarkUsage(std::ostream& output) {
       << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT "
          "[--prompt TEXT ...] [--max-tokens N] [--warmup N] "
          "[--iterations N] [--max-sequence-length N] "
+         "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
       << "  --prompt TEXT              Repeatable non-empty user message\n"
@@ -84,6 +97,10 @@ void PrintBenchmarkUsage(std::ostream& output) {
       << q3x::runtime::kAbsoluteRequestMaxSequenceLength << ", default "
       << kCliDefaultMaxSequenceLength
       << "; also limited by the default 2 GiB request arena)\n"
+      << "  --prefill-chunk-size N\n"
+      << "                              Prompt-prefix projection tile size (1.."
+      << kCliMaximumPrefillChunkSize << ", default "
+      << kCliDefaultPrefillChunkSize << ")\n"
       << "  --projection-backend reference|sm87\n"
       << "                              Projection policy (default reference)\n";
 }
@@ -187,6 +204,7 @@ struct GenerateCliOptions {
   std::filesystem::path model_directory;
   std::string prompt;
   std::uint32_t max_tokens = kCliDefaultMaxTokens;
+  std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
   bool trace = false;
   q3x::runtime::ProjectionBackend projection_backend =
       q3x::runtime::ProjectionBackend::kReference;
@@ -250,6 +268,7 @@ struct GenerateParseResult {
 
   bool prompt_seen = false;
   bool max_tokens_seen = false;
+  bool prefill_chunk_size_seen = false;
   bool trace_seen = false;
   bool projection_backend_seen = false;
   for (int index = 3; index < argc; ++index) {
@@ -299,6 +318,24 @@ struct GenerateParseResult {
       options.trace = true;
       continue;
     }
+    if (argument == "--prefill-chunk-size") {
+      if (prefill_chunk_size_seen) {
+        result.error = "--prefill-chunk-size may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--prefill-chunk-size requires N";
+        return result;
+      }
+      prefill_chunk_size_seen = true;
+      if (!ParsePositiveU32(argv[++index], options.prefill_chunk_size) ||
+          options.prefill_chunk_size > kCliMaximumPrefillChunkSize) {
+        result.error = "--prefill-chunk-size must be an integer in [1, " +
+                       std::to_string(kCliMaximumPrefillChunkSize) + "]";
+        return result;
+      }
+      continue;
+    }
     if (argument == "--projection-backend") {
       if (projection_backend_seen) {
         result.error = "--projection-backend may be specified only once";
@@ -334,6 +371,7 @@ struct BenchmarkCliOptions {
   std::uint32_t warmup_rounds = kCliDefaultWarmupRounds;
   std::uint32_t iterations = kCliDefaultBenchmarkIterations;
   std::uint32_t max_sequence_length = kCliDefaultMaxSequenceLength;
+  std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
   q3x::runtime::ProjectionBackend projection_backend =
       q3x::runtime::ProjectionBackend::kReference;
 };
@@ -362,6 +400,7 @@ struct BenchmarkParseResult {
   bool warmup_seen = false;
   bool iterations_seen = false;
   bool max_sequence_length_seen = false;
+  bool prefill_chunk_size_seen = false;
   bool projection_backend_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
@@ -466,6 +505,24 @@ struct BenchmarkParseResult {
       if (!ParseProjectionBackend(argv[++index],
                                   options.projection_backend)) {
         result.error = "--projection-backend must be reference or sm87";
+        return result;
+      }
+      continue;
+    }
+    if (argument == "--prefill-chunk-size") {
+      if (prefill_chunk_size_seen) {
+        result.error = "--prefill-chunk-size may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--prefill-chunk-size requires N";
+        return result;
+      }
+      prefill_chunk_size_seen = true;
+      if (!ParsePositiveU32(argv[++index], options.prefill_chunk_size) ||
+          options.prefill_chunk_size > kCliMaximumPrefillChunkSize) {
+        result.error = "--prefill-chunk-size must be an integer in [1, " +
+                       std::to_string(kCliMaximumPrefillChunkSize) + "]";
         return result;
       }
       continue;
@@ -611,6 +668,10 @@ void PrintGeneration(
          << "status=ok\n"
          << "projection.backend="
          << q3x::runtime::to_string(projection_backend) << '\n'
+         << "prefill.requested_chunk_size="
+         << generation.requested_prefill_chunk_size << '\n'
+         << "prefill.effective_chunk_size="
+         << generation.effective_prefill_chunk_size << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
@@ -646,7 +707,9 @@ void PrintGeneration(
          << load.binding.full_attention_layers << '\n'
          << "load.request_arena_bytes=" << load.request_arena_bytes << '\n'
          << "load.request_max_sequence_length="
-         << load.request_max_sequence_length << '\n';
+         << load.request_max_sequence_length << '\n'
+         << "load.request_prefill_chunk_size="
+         << load.request_prefill_chunk_size << '\n';
   PrintStringField(output, "prompt.rendered", generation.rendered_prompt);
   output << "prompt.token_count=" << generation.prompt_token_ids.size()
          << '\n';
@@ -708,11 +771,17 @@ int RunGenerate(const int argc, char** const argv) {
   q3x::runtime::ReferenceOneShotOptions options;
   options.generation.max_new_tokens = parsed.value->max_tokens;
   options.generation.capture_trace = parsed.value->trace;
+  options.generation.prefill_chunk_size = parsed.value->prefill_chunk_size;
   options.projection_backend = parsed.value->projection_backend;
   std::cerr << "progress=loading_and_generating model_dir=";
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
   std::cerr << " max_tokens=" << parsed.value->max_tokens
             << " trace=" << (parsed.value->trace ? 1 : 0)
+            << " requested_prefill_chunk_size="
+            << parsed.value->prefill_chunk_size
+            << " effective_prefill_chunk_size="
+            << (parsed.value->trace ? kCliDefaultPrefillChunkSize
+                                    : parsed.value->prefill_chunk_size)
             << " projection_backend="
             << q3x::runtime::to_string(parsed.value->projection_backend)
             << '\n';
@@ -738,6 +807,10 @@ void PrintBenchmarkReport(
          << "status=ok\n"
          << "projection.backend="
          << q3x::runtime::to_string(projection_backend) << '\n'
+         << "prefill.requested_chunk_size=" << report.prefill_chunk_size
+         << '\n'
+         << "prefill.effective_chunk_size=" << report.prefill_chunk_size
+         << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
@@ -751,6 +824,8 @@ void PrintBenchmarkReport(
          << "load.request_arena_bytes=" << load.request_arena_bytes << '\n'
          << "load.request_max_sequence_length="
          << load.request_max_sequence_length << '\n'
+         << "load.request_prefill_chunk_size="
+         << load.request_prefill_chunk_size << '\n'
          << "benchmark.prompt_count=" << report.prompts.size() << '\n'
          << "benchmark.warmup_rounds=" << report.warmup_rounds << '\n'
          << "benchmark.measured_rounds=" << report.measured_rounds << '\n'
@@ -833,6 +908,8 @@ int RunBenchmark(const int argc, char** const argv) {
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
       parsed.value->max_sequence_length;
+  engine_options.request_options.prefill_chunk_size =
+      parsed.value->prefill_chunk_size;
   engine_options.projection_backend = parsed.value->projection_backend;
 
   const q3x::runtime::RequestPlanResult request_plan =
@@ -860,6 +937,10 @@ int RunBenchmark(const int argc, char** const argv) {
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
   std::cerr << " max_sequence_length="
             << parsed.value->max_sequence_length
+            << " requested_prefill_chunk_size="
+            << parsed.value->prefill_chunk_size
+            << " effective_prefill_chunk_size="
+            << parsed.value->prefill_chunk_size
             << " projection_backend="
             << q3x::runtime::to_string(parsed.value->projection_backend)
             << '\n';
@@ -875,11 +956,16 @@ int RunBenchmark(const int argc, char** const argv) {
   benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
   benchmark_options.measured_rounds = parsed.value->iterations;
   benchmark_options.max_new_tokens = parsed.value->max_tokens;
+  benchmark_options.prefill_chunk_size = parsed.value->prefill_chunk_size;
   std::cerr << "progress=running_benchmark prompts="
             << parsed.value->prompts.size()
             << " warmup_rounds=" << parsed.value->warmup_rounds
             << " measured_rounds=" << parsed.value->iterations
-            << " max_tokens=" << parsed.value->max_tokens << '\n';
+            << " max_tokens=" << parsed.value->max_tokens
+            << " requested_prefill_chunk_size="
+            << parsed.value->prefill_chunk_size
+            << " effective_prefill_chunk_size="
+            << parsed.value->prefill_chunk_size << '\n';
   q3x::runtime::ReferenceBenchmarkResult benchmark =
       q3x::runtime::benchmark_reference_engine(
           *created.value, parsed.value->prompts, benchmark_options);

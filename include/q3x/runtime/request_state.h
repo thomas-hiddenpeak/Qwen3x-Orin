@@ -14,6 +14,8 @@ namespace q3x::runtime {
 inline constexpr std::uint64_t kRequestArenaAlignment = 256U;
 inline constexpr std::uint64_t kDefaultRequestMaxSequenceLength = 128U;
 inline constexpr std::uint64_t kAbsoluteRequestMaxSequenceLength = 262'144U;
+inline constexpr std::uint32_t kDefaultRequestPrefillChunkSize = 1U;
+inline constexpr std::uint32_t kMaximumRequestPrefillChunkSize = 8U;
 inline constexpr std::size_t kRequestLayerCount = 64U;
 inline constexpr std::size_t kRequestLinearLayerCount = 48U;
 inline constexpr std::size_t kRequestFullLayerCount = 16U;
@@ -24,7 +26,7 @@ inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
 inline constexpr std::uint64_t kDefaultRequestArenaBytes = 88'031'744U;
-inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'350'760'960ULL;
+inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'351'951'872ULL;
 
 enum class RequestErrorCode : std::uint8_t {
     kNone,
@@ -50,6 +52,7 @@ struct RequestMemoryOptions {
     // The runtime is intentionally batch-one. Keeping this explicit makes an
     // accidental future batch>1 caller fail closed instead of underallocating.
     std::uint32_t batch_size = 1U;
+    std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
     std::uint64_t max_sequence_length = kDefaultRequestMaxSequenceLength;
     std::uint64_t max_arena_bytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
     std::uint64_t min_free_bytes_after_create =
@@ -98,6 +101,7 @@ struct RequestLayerSlotResult {
 
 struct RequestMemoryPlan {
     std::uint32_t batch_size = 1U;
+    std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
     std::uint32_t max_sequence_length = 0U;
     std::uint64_t arena_bytes = 0U;
     std::uint64_t persistent_offset = 0U;

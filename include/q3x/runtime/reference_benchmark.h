@@ -30,6 +30,7 @@ struct ReferenceBenchmarkOptions {
   std::uint32_t measured_rounds = 3U;
   std::uint32_t max_new_tokens = 16U;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
+  std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   // A persistent free-memory decrease larger than this is called out in the
   // report. It does not discard otherwise valid latency measurements.
   std::uint64_t device_memory_drop_tolerance_bytes =
@@ -89,6 +90,7 @@ struct ReferenceBenchmarkReport {
   std::uint32_t measured_rounds = 0U;
   std::uint32_t max_new_tokens = 0U;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
+  std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   std::vector<ReferenceBenchmarkPromptReport> prompts;
   std::vector<ReferenceBenchmarkSample> samples;
   ReferenceLatencyStatistics time_to_first_token;

@@ -4,6 +4,7 @@
 #include "q3x/runtime/model_weights.h"
 #include "q3x/runtime/request_state.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -90,6 +91,31 @@ struct ReferenceStepResult {
 
 struct ReferenceStepOutcome {
   std::optional<ReferenceStepResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+struct ReferencePrefillTileOptions {
+  bool measure_timing = false;
+};
+
+// A prefix tile never produces logits or trace data. The fixed-capacity result
+// keeps the runner boundary allocation-free while retaining one position/input
+// record per committed token for the high-level generation transcript. When
+// timing is requested, timing contains the aggregate tile latency. Individual
+// step timings are absent for M>1; M=1 preserves the delegated step timing.
+struct ReferencePrefillTileResult {
+  std::array<ReferenceStepResult, kMaximumRequestPrefillChunkSize> steps{};
+  std::size_t step_count = 0U;
+  std::optional<ReferenceStepTiming> timing;
+};
+
+struct ReferencePrefillTileOutcome {
+  std::optional<ReferencePrefillTileResult> value;
   ReferenceRunnerStatus status;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -199,6 +225,14 @@ class ReferenceRunner {
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
 
+  // Executes 1..8 non-logit prompt-prefix tokens in layer-major order. The
+  // request plan must reserve at least token_count workspace rows. Persistent
+  // conv/GDN/KV state is still updated in token order, and the logical request
+  // length is committed once only after the complete tile synchronizes.
+  [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
+      const std::uint32_t* input_token_ids, std::size_t token_count,
+      const ReferencePrefillTileOptions& options = {}) noexcept;
+
   // A successful reset synchronizes the owned stream, clears all persistent
   // request state through RequestState::reset_async, clears poison, and
   // invalidates the prior trace. Reset is the only poison recovery operation.
@@ -231,6 +265,8 @@ class ReferenceRunner {
   ReferenceRunner() noexcept = default;
   void release() noexcept;
   [[nodiscard]] ReferenceStepOutcome fail_step(
+      ReferenceRunnerStatus status) noexcept;
+  [[nodiscard]] ReferencePrefillTileOutcome fail_prefill_tile(
       ReferenceRunnerStatus status) noexcept;
 
   const ModelWeights* weights_ = nullptr;

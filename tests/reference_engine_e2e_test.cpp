@@ -107,6 +107,21 @@ bool projection_backend_from(
   return false;
 }
 
+bool prefill_chunk_from(const int argc, char** const argv,
+                        std::uint32_t& prefill_chunk_size) noexcept {
+  prefill_chunk_size = 1U;
+  if (argc < 4) {
+    return true;
+  }
+  if (argv[3] == nullptr || argv[3][0] < '1' || argv[3][0] > '8' ||
+      argv[3][1] != '\0') {
+    return false;
+  }
+  prefill_chunk_size =
+      static_cast<std::uint32_t>(argv[3][0] - '0');
+  return true;
+}
+
 void print_diagnostic(const runtime::ReferenceEngineDiagnostic& diagnostic) {
   std::cerr << "generate_reference failed: code="
             << runtime::to_string(diagnostic.code)
@@ -159,15 +174,20 @@ void check_step_sequence(TestContext& test,
 }  // namespace
 
 int main(const int argc, char** const argv) {
-  if (argc > 3) {
+  if (argc > 4) {
     std::cerr << "usage: q3x_reference_engine_e2e_test "
-                 "[MODEL_DIR|-] [reference|sm87]\n";
+                 "[MODEL_DIR|-] [reference|sm87] [PREFILL_CHUNK]\n";
     return 2;
   }
 
   runtime::ProjectionBackend projection_backend;
   if (!projection_backend_from(argc, argv, projection_backend)) {
     std::cerr << "invalid projection backend: expected reference or sm87\n";
+    return 2;
+  }
+  std::uint32_t prefill_chunk_size = 1U;
+  if (!prefill_chunk_from(argc, argv, prefill_chunk_size)) {
+    std::cerr << "invalid prefill chunk: expected an integer in [1,8]\n";
     return 2;
   }
 
@@ -183,6 +203,7 @@ int main(const int argc, char** const argv) {
       static_cast<std::uint32_t>(kExpectedGeneratedIds.size());
   options.generation.stop_token_id = runtime::kQwen36ImEndTokenId;
   options.generation.capture_trace = false;
+  options.generation.prefill_chunk_size = prefill_chunk_size;
   options.projection_backend = projection_backend;
 
   const runtime::ReferenceOneShotResult result = runtime::generate_reference(
@@ -208,6 +229,10 @@ int main(const int argc, char** const argv) {
                   generation.generated_token_ids.back() ==
                       runtime::kQwen36ImEndTokenId,
               "generated ids retain terminal im_end");
+  test.expect(generation.requested_prefill_chunk_size == prefill_chunk_size &&
+                  generation.effective_prefill_chunk_size ==
+                      prefill_chunk_size,
+              "generation reports the requested and effective prefill chunk");
   check_step_sequence(test, generation);
 
   if (test.failures() == 0) {
