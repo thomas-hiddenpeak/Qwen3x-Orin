@@ -24,6 +24,7 @@ constexpr std::size_t kFp8RowPairMinimumRows = 1'024U;
 constexpr std::size_t kNvFp4RowPairMinimumRows = kWarpsPerBlock * 2U;
 constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows = kWarpsPerBlock;
 constexpr std::size_t kNvFp4M1ScaleCodebookMinimumColumns = 5'120U;
+constexpr unsigned int kNvFp4M1PersistentMaximumBlocks = 96U;
 constexpr std::size_t kNvFp4M2ScaleCodebookMinimumRows = kWarpsPerBlock;
 constexpr std::size_t kNvFp4M2ScaleCodebookMinimumColumns = 5'120U;
 constexpr std::size_t kFp8EncodedValueCount = 256U;
@@ -1897,6 +1898,22 @@ void launch_nvfp4_scale_codebook_unchecked(
           columns, output);
 }
 
+void launch_nvfp4_scale_codebook_grid_cap_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  const unsigned int uncapped = block_count_for_rows(rows);
+  const unsigned int blocks =
+      uncapped < maximum_blocks ? uncapped : maximum_blocks;
+  nvfp4_w4a16_gemv_bf16_scale_codebook_kernel
+      <<<blocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activation, rows,
+          columns, output);
+}
+
 [[nodiscard]] int validate_fp8_small_m_launch(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t token_count,
@@ -2636,9 +2653,9 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
       (reinterpret_cast<std::uintptr_t>(activation) %
        alignof(std::uint64_t)) == 0U;
   if (vector_shape && use_nvfp4_m1_scale_codebook(rows, columns)) {
-    launch_nvfp4_scale_codebook_unchecked(
+    launch_nvfp4_scale_codebook_grid_cap_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, rows,
-        columns, output, stream);
+        columns, output, kNvFp4M1PersistentMaximumBlocks, stream);
   } else if (vector_shape) {
     launch_nvfp4_vector_unchecked(packed_weights, block_scales,
                                   weight_scale_2, activation, rows, columns,
@@ -2736,10 +2753,54 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only capped launch of the exact production M=1 kernel. The existing
+// entry above intentionally remains an uncapped same-cubin baseline after the
+// production cap promotion so the gate can detect any cap-specific regression.
+int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_grid_cap_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_launch(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_scale_codebook_grid_cap_unchecked(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output, static_cast<unsigned int>(maximum_blocks), stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only query sharing the exact M=1 production gate.
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_nvfp4_m1_scale_codebook(rows, columns);
+}
+
+// Test-only query sharing the exact block cap compiled into M=1 production
+// dispatch. Keeping the performance gate tied to this value prevents a test
+// sweep and production launch from silently drifting apart.
+[[nodiscard]] std::size_t
+sm87_nvfp4_m1_persistent_maximum_blocks_test() noexcept {
+  return kNvFp4M1PersistentMaximumBlocks;
 }
 
 // Test-only direct M=2 entries preserve the current vector baseline and keep

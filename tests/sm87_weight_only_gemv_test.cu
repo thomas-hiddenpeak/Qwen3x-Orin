@@ -112,8 +112,18 @@ launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_grid_cap_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output, std::size_t maximum_blocks,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] std::size_t
+sm87_nvfp4_m1_persistent_maximum_blocks_test() noexcept;
 
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m2_vector_test_cuda(
@@ -1428,7 +1438,8 @@ void run_nvfp4_scale_codebook_exhaustive_case(TestContext& test,
 
 void run_nvfp4_m1_scale_codebook_bitwise_case(
     TestContext& test, cudaStream_t stream, const std::size_t rows,
-    const std::size_t columns, const std::string& label) {
+    const std::size_t columns, const std::string& label,
+    const bool use_public_candidate = false) {
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   constexpr std::array<std::uint8_t, 16U> kFiniteScaleCodes{{
       0x20U, 0x24U, 0x28U, 0x2cU, 0x30U, 0x34U, 0x38U, 0x3cU,
@@ -1500,21 +1511,43 @@ void run_nvfp4_m1_scale_codebook_bitwise_case(
     return;
   }
 
-  ready = test.cuda_ok(
-      static_cast<cudaError_t>(q3x::kernels::
-          launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+  const auto launch_baseline = [&]() noexcept -> int {
+    if (use_public_candidate) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
               device_packed.get(), device_scales.get(), kWeightScale2,
               device_activation.get(), rows, columns, device_baseline.get(),
-              static_cast<void*>(stream))),
-      label + " launch preserved M1 vector baseline");
+              static_cast<void*>(stream));
+    }
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_vector_test_cuda(
+            device_packed.get(), device_scales.get(), kWeightScale2,
+            device_activation.get(), rows, columns, device_baseline.get(),
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    if (use_public_candidate) {
+      return q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+          device_packed.get(), device_scales.get(), kWeightScale2,
+          device_activation.get(), rows, columns, device_candidate.get(),
+          static_cast<void*>(stream));
+    }
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+            device_packed.get(), device_scales.get(), kWeightScale2,
+            device_activation.get(), rows, columns, device_candidate.get(),
+            static_cast<void*>(stream));
+  };
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(launch_baseline()),
+      label + (use_public_candidate
+                   ? " launch uncapped M1 scale-codebook baseline"
+                   : " launch preserved M1 vector baseline"));
   ready = ready && test.cuda_ok(
-                       static_cast<cudaError_t>(q3x::kernels::
-                           launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
-                               device_packed.get(), device_scales.get(),
-                               kWeightScale2, device_activation.get(), rows,
-                               columns, device_candidate.get(),
-                               static_cast<void*>(stream))),
-                       label + " launch M1 shared scale candidate");
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + (use_public_candidate
+                                    ? " launch public M1 production candidate"
+                                    : " launch M1 shared scale candidate"));
   std::vector<std::uint16_t> baseline(rows);
   std::vector<std::uint16_t> candidate(rows);
   ready = ready && test.cuda_ok(
@@ -1539,11 +1572,16 @@ void run_nvfp4_m1_scale_codebook_bitwise_case(
   for (std::size_t row = 0U; row < rows; ++row) {
     mismatches += baseline[row] != candidate[row] ? 1U : 0U;
   }
-  std::cout << "M1_SCALE_CODEBOOK_DIFF: " << label
-            << " candidate_vs_preserved_vector_bf16=" << mismatches << '/'
-            << rows << '\n';
-  test.expect(mismatches == 0U,
-              label + " M1 candidate matches every baseline BF16 bit");
+  std::cout << "M1_SCALE_CODEBOOK_DIFF: " << label << ' '
+            << (use_public_candidate
+                    ? "public_vs_uncapped_scale_codebook_bf16="
+                    : "candidate_vs_preserved_vector_bf16=")
+            << mismatches << '/' << rows << '\n';
+  test.expect(
+      mismatches == 0U,
+      label + (use_public_candidate
+                   ? " public production matches every uncapped BF16 bit"
+                   : " M1 candidate matches every baseline BF16 bit"));
 }
 
 void run_nvfp4_m1_scale_codebook_exhaustive_case(TestContext& test,
@@ -2883,6 +2921,9 @@ void test_launch_validation(TestContext& test) {
   test.expect(q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
                   5'120U, 17'408U),
               "NVFP4 M1 scale codebook accepts down shape");
+  test.expect(
+      q3x::kernels::sm87_nvfp4_m1_persistent_maximum_blocks_test() == 96U,
+      "NVFP4 M1 production persistent grid cap is frozen at 96 blocks");
   test.expect(!q3x::kernels::use_sm87_nvfp4_m2_scale_codebook_test(
                   7U, 5'120U),
               "NVFP4 M2 scale codebook rejects a partial warp block");
@@ -2998,6 +3039,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_m2_scale_codebook_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M2_SCALE_CODEBOOK_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m1_grid_cap_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M1_GRID_CAP_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -5822,6 +5870,511 @@ void fill_nvfp4_m1_scale_distribution(
   }
 }
 
+constexpr std::array<std::size_t, 6U> kNvFp4GridCaps{{
+    96U, 192U, 384U, 768U, 1'024U, 2'048U,
+}};
+
+constexpr std::array<NvFp4M1ScaleDistribution, 2U>
+    kNvFp4GridCapScaleDistributions{{
+        NvFp4M1ScaleDistribution::kCheckpointLike,
+        NvFp4M1ScaleDistribution::kSameBankStress,
+    }};
+
+struct NvFp4M1GridCapMeasurements {
+  std::array<std::array<float, kNvFp4GridCaps.size()>,
+             kNvFp4GridCapScaleDistributions.size()>
+      baseline_milliseconds{};
+  std::array<std::array<float, kNvFp4GridCaps.size()>,
+             kNvFp4GridCapScaleDistributions.size()>
+      candidate_milliseconds{};
+  std::array<std::array<bool, kNvFp4GridCaps.size()>,
+             kNvFp4GridCapScaleDistributions.size()>
+      bitwise_equal{};
+};
+
+struct NvFp4M1GridCapShape {
+  std::size_t rows;
+  std::size_t columns;
+  std::size_t profile_calls;
+  const char* label;
+};
+
+[[nodiscard]] NvFp4M1GridCapMeasurements benchmark_nvfp4_m1_grid_cap_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  const int warmup_iterations = rows >= 100'000U ? 4 : 10;
+  const int measured_iterations = rows >= 100'000U ? 10 : 24;
+  const std::size_t packed_count = rows * columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  const std::size_t scale_count = rows * scale_columns;
+
+  NvFp4M1GridCapMeasurements measurements{};
+  for (auto& distribution : measurements.baseline_milliseconds) {
+    distribution.fill(std::numeric_limits<float>::quiet_NaN());
+  }
+  for (auto& distribution : measurements.candidate_milliseconds) {
+    distribution.fill(std::numeric_limits<float>::quiet_NaN());
+  }
+
+  std::vector<std::uint8_t> host_scales(scale_count);
+  std::vector<std::uint16_t> host_activation(columns);
+  for (std::size_t column = 0U; column < columns; ++column) {
+    const int centered =
+        static_cast<int>((column * 13U + 3U) % 127U) - 63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(scale_count),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activation.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(rows),
+                       label + " allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(rows),
+                       label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(packed.get(), 0x21, packed_count,
+                                       stream),
+                       label + " initialize packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed activations");
+  if (!ready) {
+    return measurements;
+  }
+
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4GridCapScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4GridCapScaleDistributions[distribution_index];
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize block scales");
+    if (!ready) {
+      return measurements;
+    }
+
+    const auto launch_baseline = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              rows, columns, baseline_output.get(),
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         distribution_label +
+                             " correctness uncapped baseline");
+    std::vector<std::uint16_t> baseline(rows);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy uncapped baseline");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " baseline synchronize");
+    if (!ready) {
+      return measurements;
+    }
+
+    for (std::size_t cap_index = 0U; cap_index < kNvFp4GridCaps.size();
+         ++cap_index) {
+      const std::size_t grid_cap = kNvFp4GridCaps[cap_index];
+      const auto launch_candidate = [&]() noexcept -> int {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_grid_cap_test_cuda(
+                packed.get(), scales.get(), kWeightScale2,
+                activations.get(), rows, columns, candidate_output.get(),
+                grid_cap, static_cast<void*>(stream));
+      };
+
+      ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_candidate()),
+          distribution_label + " correctness capped candidate cap=" +
+              std::to_string(grid_cap));
+      std::vector<std::uint16_t> candidate(rows);
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               candidate.data(), candidate_output.get(),
+                               candidate.size() * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           distribution_label + " copy candidate cap=" +
+                               std::to_string(grid_cap));
+      ready = ready && test.cuda_ok(
+                           cudaStreamSynchronize(stream),
+                           distribution_label + " correctness synchronize cap=" +
+                               std::to_string(grid_cap));
+      if (!ready) {
+        return measurements;
+      }
+      std::size_t mismatches = 0U;
+      for (std::size_t index = 0U; index < baseline.size(); ++index) {
+        mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+      }
+      measurements.bitwise_equal[distribution_index][cap_index] =
+          mismatches == 0U;
+      std::cout << "NVFP4_M1_GRID_CAP_DIFF: " << label << " distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " grid_cap=" << grid_cap
+                << " candidate_vs_uncapped_bf16=" << mismatches << '/'
+                << baseline.size() << '\n';
+      test.expect(mismatches == 0U,
+                  distribution_label + " cap=" + std::to_string(grid_cap) +
+                      " matches every uncapped BF16 bit");
+
+      for (int iteration = 0; iteration < warmup_iterations && ready;
+           ++iteration) {
+        ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                             distribution_label + " baseline warmup");
+        ready = ready && test.cuda_ok(
+                             static_cast<cudaError_t>(launch_candidate()),
+                             distribution_label + " candidate warmup cap=" +
+                                 std::to_string(grid_cap));
+      }
+      ready = ready && test.cuda_ok(
+                           cudaStreamSynchronize(stream),
+                           distribution_label + " warmup synchronize cap=" +
+                               std::to_string(grid_cap));
+      if (!ready) {
+        return measurements;
+      }
+
+      double baseline_total = 0.0;
+      double candidate_total = 0.0;
+      bool finite = true;
+      for (int round = 0; round < kMeasurementRounds; ++round) {
+        const std::string suffix =
+            " cap=" + std::to_string(grid_cap) +
+            " round=" + std::to_string(round + 1);
+        const float baseline_first = measure_small_m_tile(
+            test, stream, launch_baseline, measured_iterations,
+            distribution_label + " baseline pass 1" + suffix);
+        const float candidate_first = measure_small_m_tile(
+            test, stream, launch_candidate, measured_iterations,
+            distribution_label + " candidate pass 1" + suffix);
+        const float candidate_second = measure_small_m_tile(
+            test, stream, launch_candidate, measured_iterations,
+            distribution_label + " candidate pass 2" + suffix);
+        const float baseline_second = measure_small_m_tile(
+            test, stream, launch_baseline, measured_iterations,
+            distribution_label + " baseline pass 2" + suffix);
+        const bool round_finite =
+            std::isfinite(baseline_first) &&
+            std::isfinite(candidate_first) &&
+            std::isfinite(candidate_second) &&
+            std::isfinite(baseline_second);
+        finite = finite && round_finite;
+        if (round_finite) {
+          baseline_total += baseline_first + baseline_second;
+          candidate_total += candidate_first + candidate_second;
+        }
+        std::cout << "PERF_NVFP4_M1_GRID_CAP_ROUND: " << label
+                  << " distribution="
+                  << nvfp4_m1_scale_distribution_name(distribution)
+                  << " grid_cap=" << grid_cap << " round=" << round + 1
+                  << " baseline_pass1_ms=" << baseline_first
+                  << " candidate_pass1_ms=" << candidate_first
+                  << " candidate_pass2_ms=" << candidate_second
+                  << " baseline_pass2_ms=" << baseline_second << '\n';
+      }
+      if (!finite) {
+        return measurements;
+      }
+      constexpr double kTimedPasses =
+          2.0 * static_cast<double>(kMeasurementRounds);
+      const float baseline_average =
+          static_cast<float>(baseline_total / kTimedPasses);
+      const float candidate_average =
+          static_cast<float>(candidate_total / kTimedPasses);
+      measurements.baseline_milliseconds[distribution_index][cap_index] =
+          baseline_average;
+      measurements.candidate_milliseconds[distribution_index][cap_index] =
+          candidate_average;
+      const float speedup = baseline_average / candidate_average;
+      std::cout << "PERF_NVFP4_M1_GRID_CAP: " << label << " distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " grid_cap=" << grid_cap
+                << " baseline_average_ms=" << baseline_average
+                << " candidate_average_ms=" << candidate_average
+                << " speedup=" << speedup
+                << " uplift_percent=" << (speedup - 1.0F) * 100.0F
+                << '\n';
+    }
+  }
+  return measurements;
+}
+
+template <std::size_t ShapeCount>
+[[nodiscard]] std::size_t select_nvfp4_m1_grid_cap(
+    TestContext& test,
+    const std::array<NvFp4M1GridCapShape, ShapeCount>& shapes,
+    const std::array<NvFp4M1GridCapMeasurements, ShapeCount>& measurements,
+    const std::size_t frozen_cap_index) {
+  constexpr float kMinimumWeightedSpeedup = 1.03F;
+  constexpr float kMinimumPerShapeSpeedup = 0.98F;
+  std::array<bool, kNvFp4GridCaps.size()> aggregate_gates{};
+  std::array<double, kNvFp4GridCaps.size()> weighted_speedups{};
+  std::size_t selected_cap_index = kNvFp4GridCaps.size();
+  double selected_weighted_speedup = 0.0;
+  for (std::size_t cap_index = 0U; cap_index < kNvFp4GridCaps.size();
+       ++cap_index) {
+    double weighted_baseline = 0.0;
+    double weighted_candidate = 0.0;
+    bool all_finite = true;
+    bool all_bitwise = true;
+    bool no_shape_regression = true;
+    for (std::size_t shape_index = 0U; shape_index < ShapeCount;
+         ++shape_index) {
+      for (std::size_t distribution_index = 0U;
+           distribution_index < kNvFp4GridCapScaleDistributions.size();
+           ++distribution_index) {
+        const float baseline = measurements[shape_index]
+                                   .baseline_milliseconds[distribution_index]
+                                                         [cap_index];
+        const float candidate = measurements[shape_index]
+                                    .candidate_milliseconds[distribution_index]
+                                                          [cap_index];
+        const bool finite =
+            std::isfinite(baseline) && std::isfinite(candidate);
+        const float speedup = baseline / candidate;
+        all_finite = all_finite && finite;
+        all_bitwise = all_bitwise &&
+                      measurements[shape_index]
+                          .bitwise_equal[distribution_index][cap_index];
+        no_shape_regression = no_shape_regression && finite &&
+                              speedup >= kMinimumPerShapeSpeedup;
+        if (distribution_index == 0U) {
+          weighted_baseline +=
+              static_cast<double>(shapes[shape_index].profile_calls) *
+              baseline;
+          weighted_candidate +=
+              static_cast<double>(shapes[shape_index].profile_calls) *
+              candidate;
+        }
+        std::cout << "PERF_NVFP4_M1_GRID_CAP_VALIDATION: "
+                  << shapes[shape_index].label
+                  << " distribution="
+                  << nvfp4_m1_scale_distribution_name(
+                         kNvFp4GridCapScaleDistributions[distribution_index])
+                  << " grid_cap=" << kNvFp4GridCaps[cap_index]
+                  << " baseline_ms=" << baseline
+                  << " candidate_ms=" << candidate
+                  << " speedup=" << speedup
+                  << " minimum_speedup=" << kMinimumPerShapeSpeedup
+                  << " gate="
+                  << (finite && speedup >= kMinimumPerShapeSpeedup ? "PASS"
+                                                                    : "FAIL")
+                  << '\n';
+      }
+    }
+    const double weighted_speedup = weighted_baseline / weighted_candidate;
+    const bool aggregate_gate =
+        all_finite && all_bitwise && no_shape_regression &&
+        std::isfinite(weighted_speedup) &&
+        weighted_speedup >= kMinimumWeightedSpeedup;
+    aggregate_gates[cap_index] = aggregate_gate;
+    weighted_speedups[cap_index] = weighted_speedup;
+    std::cout << "PERF_NVFP4_M1_GRID_CAP_AGGREGATE: grid_cap="
+              << kNvFp4GridCaps[cap_index]
+              << " checkpoint_weighted_baseline_ms=" << weighted_baseline
+              << " checkpoint_weighted_candidate_ms=" << weighted_candidate
+              << " speedup=" << weighted_speedup
+              << " required_speedup=" << kMinimumWeightedSpeedup
+              << " all_bitwise=" << (all_bitwise ? "true" : "false")
+              << " no_shape_regression="
+              << (no_shape_regression ? "true" : "false")
+              << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+    if (aggregate_gate && weighted_speedup > selected_weighted_speedup) {
+      selected_cap_index = cap_index;
+      selected_weighted_speedup = weighted_speedup;
+    }
+  }
+  if (frozen_cap_index < kNvFp4GridCaps.size()) {
+    const bool frozen_gate = aggregate_gates[frozen_cap_index];
+    selected_cap_index =
+        frozen_gate ? frozen_cap_index : kNvFp4GridCaps.size();
+    selected_weighted_speedup = weighted_speedups[frozen_cap_index];
+    test.expect(frozen_gate,
+                "NVFP4 M1 frozen grid cap=" +
+                    std::to_string(kNvFp4GridCaps[frozen_cap_index]) +
+                    " passes every production gate");
+    std::cout << "PERF_NVFP4_M1_GRID_CAP_SELECTED: grid_cap="
+              << kNvFp4GridCaps[frozen_cap_index]
+              << " weighted_speedup=" << selected_weighted_speedup
+              << " gate=" << (frozen_gate ? "PASS" : "FAIL") << '\n';
+    return selected_cap_index;
+  }
+  return kNvFp4GridCaps.size();
+}
+
+void run_nvfp4_m1_large_row_grid_stride_coverage(
+    TestContext& test, cudaStream_t stream, const std::size_t grid_cap) {
+  constexpr std::size_t kRows = 65'537U;
+  constexpr std::size_t kColumns = 256U;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  const std::string label = "NVFP4 M1 grid-cap >65535-row coverage";
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  std::vector<std::uint8_t> host_scales(kRows * kScaleColumns);
+  fill_nvfp4_m1_scale_distribution(
+      host_scales, kScaleColumns,
+      NvFp4M1ScaleDistribution::kCheckpointLike);
+  std::vector<std::uint16_t> host_activation(
+      kColumns, encode_bf16(1.0F / 256.0F));
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(kRows * kPackedColumns),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activation.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(kRows),
+                       label + " allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(kRows),
+                       label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(packed.get(), 0x21,
+                                       kRows * kPackedColumns, stream),
+                       label + " initialize packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize block scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  if (!ready) {
+    return;
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            kRows, kColumns, baseline_output.get(),
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_grid_cap_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            kRows, kColumns, candidate_output.get(), grid_cap,
+            static_cast<void*>(stream));
+  };
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch uncapped baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " launch capped candidate");
+  std::vector<std::uint16_t> baseline(kRows);
+  std::vector<std::uint16_t> candidate(kRows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+  std::size_t mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  std::cout << "NVFP4_M1_GRID_CAP_LARGE_ROWS_DIFF: grid_cap=" << grid_cap
+            << " candidate_vs_uncapped_bf16=" << mismatches << '/'
+            << baseline.size() << '\n';
+  test.expect(mismatches == 0U,
+              label + " covers every row with identical BF16 output");
+}
+
+void run_optional_nvfp4_m1_grid_cap_performance(TestContext& test,
+                                                 cudaStream_t stream) {
+  if (!nvfp4_m1_grid_cap_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M1 persistent-row grid-cap segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M1_GRID_CAP_PERF=1 to enable\n";
+    return;
+  }
+  constexpr std::array<NvFp4M1GridCapShape, 3U> kShapes{{
+      {17'408U, 5'120U, 256U, "NVFP4 M1 MLP gate/up 17408x5120"},
+      {5'120U, 17'408U, 128U, "NVFP4 M1 MLP down 5120x17408"},
+      {248'320U, 5'120U, 2U, "NVFP4 M1 lm_head 248320x5120"},
+  }};
+  std::array<NvFp4M1GridCapMeasurements, kShapes.size()> measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] = benchmark_nvfp4_m1_grid_cap_shape(
+        test, stream, kShapes[shape_index].rows, kShapes[shape_index].columns,
+        kShapes[shape_index].label);
+  }
+  const std::size_t production_cap =
+      q3x::kernels::sm87_nvfp4_m1_persistent_maximum_blocks_test();
+  std::size_t production_cap_index = kNvFp4GridCaps.size();
+  for (std::size_t cap_index = 0U; cap_index < kNvFp4GridCaps.size();
+       ++cap_index) {
+    if (kNvFp4GridCaps[cap_index] == production_cap) {
+      production_cap_index = cap_index;
+      break;
+    }
+  }
+  const bool production_cap_is_measured =
+      production_cap_index < kNvFp4GridCaps.size();
+  test.expect(production_cap_is_measured,
+              "NVFP4 M1 production grid cap is present in the sweep");
+  if (!production_cap_is_measured) {
+    return;
+  }
+  const std::size_t selected_cap_index =
+      select_nvfp4_m1_grid_cap(test, kShapes, measurements,
+                              production_cap_index);
+  if (selected_cap_index < kNvFp4GridCaps.size()) {
+    run_nvfp4_m1_large_row_grid_stride_coverage(
+        test, stream, kNvFp4GridCaps[selected_cap_index]);
+  }
+}
+
 [[nodiscard]] bool benchmark_nvfp4_m1_scale_codebook_shape(
     TestContext& test, cudaStream_t stream, const std::size_t rows,
     const std::size_t columns, const float required_speedup,
@@ -7294,6 +7847,9 @@ int main() {
   run_nvfp4_m1_scale_codebook_bitwise_case(
       test, stream, 19U, 17'408U,
       "NVFP4 M1 scale codebook odd rows K17408 full E2M1 codebook");
+  run_nvfp4_m1_scale_codebook_bitwise_case(
+      test, stream, 769U, 5'120U,
+      "NVFP4 M1 public persistent grid-stride rows769 K5120", true);
   run_nvfp4_m2_scale_codebook_exhaustive_case(test, stream);
   run_nvfp4_m2_scale_codebook_bitwise_case(
       test, stream, 17U, 5'120U,
@@ -7315,6 +7871,7 @@ int main() {
                   "NVFP4 target-K 3x17408");
   run_optional_fp8_m1_grid_cap_performance(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
+  run_optional_nvfp4_m1_grid_cap_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_wmma_performance(test, stream);
