@@ -96,7 +96,7 @@ loader milestone and 45.56 seconds after packed-x8, without changing its exact
 fixed-oracle CTest to 40.60 seconds, again with the exact 19/26-token and
 44-step result. The first C8 chunked-prefix run preserves that same exact
 19/26-token and 44-step oracle result; trace mode continues to use the scalar
-C1 order. The post-C8 kernel sequence through `4f23fdb` preserves the same
+C1 order. The post-C8 kernel sequence through `5fe0ae0` preserves the same
 exact result at the optimized C8 dispatch. Native boundary hashes are not
 required to equal vLLM hashes
 because independent checkpoint
@@ -123,6 +123,11 @@ Deliverables:
   layer-major prompt-prefix dispatch for `C=2..8`, with C1 fallback/default.
 - [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
   independent fallbacks for other shapes.
+- [done, exact-shape gated] Compile-time NVFP4 M=8 specializations for
+  `[17408,5120]` and `[5120,17408]`, with the generic row-pair path retained.
+- [done, exact-shape gated] Compile-time FP8 M=8 specializations for
+  `[10240,5120]`, `[5120,6144]`, `[6144,5120]`, `[12288,5120]`, and
+  `[1024,5120]`, with the generic row-pair path retained.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -149,12 +154,20 @@ median TTFT from 6,107.420 to 2,005.784 ms and total generation from 6,492.908
 to 2,389.125 ms, while median subsequent-token latency remained effectively
 flat (385.467 versus 383.320 ms). The 64-position request arena increased by
 1,190,912 bytes, and the C8 full-model gate retained the exact 19 prompt IDs,
-26 output IDs, and 44 steps. The post-C8 kernel sequence through `4f23fdb`
-then reached 1,252.651 ms TTFT, 1,451.917 ms total generation, and 199.297 ms
+26 output IDs, and 44 steps. The post-C8 kernel sequence through `5fe0ae0`
+then reached 1,020.755 ms TTFT, 1,205.989 ms total generation, and 185.108 ms
 for the subsequent token without increasing the C8 request arena. That is a
-further 37.55%, 39.23%, and 48.01% reduction from the first C8 medians, and
-the exact 19/26-token, text, stop, and 44-step gate still passes. Production
-NVFP4 output-row pairing is limited to the aligned vector M=8 path.
+further 49.11%, 49.52%, and 51.71% reduction from the first C8 medians, and
+the exact 19/26-token, text, stop, and 44-step gate still passes. The final
+NVFP4 M=8 specialization provides a same-binary 1.16079x weighted speedup and
+reduces normalized SASS from 1,272 to 1,144 instructions while retaining 64
+registers, 1,088 bytes of shared memory, and zero stack/local memory. It is
+limited to the two exact production shapes; other aligned M=8 shapes retain
+the generic row-pair path. The final FP8 M=8 specialization provides a
+same-binary 1.13694x call-weighted speedup across five exact production shapes
+and reduces normalized SASS from 1,864 to 784 instructions while retaining 48
+registers, 1,536 bytes of shared memory, and zero stack/local memory or spills.
+Other aligned FP8 M=8 shapes retain the generic row-pair path.
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

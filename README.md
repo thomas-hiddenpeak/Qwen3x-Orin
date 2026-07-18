@@ -17,10 +17,10 @@ aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
 supports bounded `C=1..8` prompt-prefix tiles. In the current two-prompt,
 two-output-token diagnostic, the first `C=8` path reduced median TTFT from
-6,107.420 ms to 2,005.784 ms. The subsequent kernel-optimization chain reaches
-1,252.651 ms TTFT, 1,451.917 ms total generation, and 199.297 ms for the
-subsequent token without increasing the 85,011,968-byte C8 request arena. The
-defaults remain `C=1` and the `reference` backend, and the result is not a
+6,107.420 ms to 2,005.784 ms. The kernel-optimization chain through `5fe0ae0`
+reaches 1,020.755 ms TTFT, 1,205.989 ms total generation, and 185.108 ms for
+the subsequent token without increasing the 85,011,968-byte C8 request arena.
+The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
 default authenticated loader now uses Linux AF_ALG when available, reducing
@@ -145,8 +145,14 @@ validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
 checked scalar fallback. Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
-8-byte aligned; other FP8 shapes also retain their scalar fallback. Reuse one
-loaded engine for repeatability and latency distributions with:
+8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
+the exact NVFP4 `[17408,5120]` and `[5120,17408]` production projections use
+compile-time shape specializations; other aligned M=8 shapes retain the
+generic row-pair path. The exact FP8 `[10240,5120]`, `[5120,6144]`,
+`[6144,5120]`, `[12288,5120]`, and `[1024,5120]` M=8 projections likewise use
+compile-time specializations, while other aligned FP8 M=8 shapes retain their
+generic row-pair path. Reuse one loaded engine for repeatability and latency
+distributions with:
 
 ```bash
 build/orin-release/qwen3x-orin benchmark MODEL_DIR \
@@ -184,9 +190,13 @@ median TTFT and 385.181 ms median subsequent-token latency. With the same
 two-prompt/two-token benchmark shape, the first C8 prefix-tiling milestone
 reached 2.006 seconds median TTFT, 2.389 seconds total generation, and
 383.320 ms median subsequent-token latency. The post-C8 kernel sequence at
-`4f23fdb` then reached 1.253 seconds TTFT, 1.452 seconds total generation, and
-199.297 ms subsequent-token latency. Its 64-position request arena remains
-85,011,968 bytes, 1,190,912 bytes above C1. The complete optimized C8
+`5fe0ae0` then reached 1.021 seconds TTFT, 1.206 seconds total generation, and
+185.108 ms subsequent-token latency. Its 64-position request arena remains
+85,011,968 bytes, 1,190,912 bytes above C1. The final same-binary fixed-shape
+NVFP4 M=8 gate measured a 1.16079x weighted speedup while reducing normalized
+SASS from 1,272 to 1,144 instructions. The corresponding FP8 M=8 gate measured
+a 1.13694x call-weighted speedup across five production shapes and reduced
+normalized SASS from 1,864 to 784 instructions. The complete optimized C8
 fixed-oracle run retained all 19 prompt IDs, 26 output IDs, exact text,
 `<|im_end|>`, and all 44 steps. At the earlier
 packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest had fallen
