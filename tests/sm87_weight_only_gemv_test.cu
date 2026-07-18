@@ -21,6 +21,11 @@ namespace q3x::kernels {
 // Deliberately not part of the public kernel API. The implementation is
 // linked into this test so performance comparisons can use identical buffers
 // and one binary without weakening production shape dispatch.
+[[nodiscard]] int launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -129,6 +134,10 @@ class EventPair {
   return value;
 }
 
+[[nodiscard]] bool is_bf16_nan(const std::uint16_t bits) noexcept {
+  return (bits & 0x7f80U) == 0x7f80U && (bits & 0x007fU) != 0U;
+}
+
 // Independent host decoders intentionally use arithmetic rather than the
 // device kernel's bit construction.
 [[nodiscard]] float decode_e4m3fn_host(const std::uint8_t bits) noexcept {
@@ -211,6 +220,15 @@ void compare_bf16_outputs(TestContext& test,
   test.expect(actual.size() == expected.size(), label + " output size");
   const std::size_t count = std::min(actual.size(), expected.size());
   for (std::size_t row = 0U; row < count; ++row) {
+    if (is_bf16_nan(expected[row])) {
+      // FMA/reduction is allowed to canonicalize the sign of a NaN. The CUDA
+      // reference comparison below still checks the device-visible result;
+      // this independent host oracle checks classification only.
+      test.expect(is_bf16_nan(actual[row]),
+                  label + " row " + std::to_string(row) +
+                      " must preserve the expected NaN class");
+      continue;
+    }
     const float actual_value = decode_bf16(actual[row]);
     const float expected_value = decode_bf16(expected[row]);
     const float tolerance =
@@ -243,6 +261,12 @@ void compare_cuda_reference_outputs(
     }
     const float optimized_value = decode_bf16(optimized[row]);
     const float reference_value = decode_bf16(reference[row]);
+    if (is_bf16_nan(reference[row])) {
+      test.expect(is_bf16_nan(optimized[row]),
+                  label + " CUDA-reference row " + std::to_string(row) +
+                      " NaN class mismatch");
+      continue;
+    }
     const float absolute_error =
         std::fabs(optimized_value - reference_value);
     const float relative_error =
@@ -282,22 +306,17 @@ void fill_activation(std::vector<std::uint16_t>& activation) {
   }
 }
 
-void run_fp8_case(TestContext& test, cudaStream_t stream,
-                  const std::size_t rows, const std::size_t columns,
-                  const std::string& label) {
-  constexpr float kWeightScale = 1.0F / 128.0F;
-  constexpr std::array<std::uint8_t, 13U> kFiniteCodes{{
-      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U, 0x3cU,
-      0x40U, 0xb8U, 0x70U, 0x78U, 0x7eU, 0xfeU,
-  }};
-  std::vector<std::uint16_t> activation(columns);
-  std::vector<std::uint8_t> weights(rows * columns);
-  fill_activation(activation);
-  for (std::size_t index = 0U; index < weights.size(); ++index) {
-    weights[index] = kFiniteCodes[(index * 7U + 1U) % kFiniteCodes.size()];
-  }
+void run_fp8_payload(TestContext& test, cudaStream_t stream,
+                      const std::vector<std::uint8_t>& weights,
+                      const float weight_scale,
+                      const std::vector<std::uint16_t>& activation,
+                      const std::size_t rows, const std::size_t columns,
+                      const std::string& label,
+                      const bool unaligned_weights = false,
+                      const bool unaligned_activation = false,
+                      const bool strict_bf16 = false) {
   const std::vector<std::uint16_t> expected = fp8_host_reference(
-      weights, kWeightScale, activation, rows, columns);
+      weights, weight_scale, activation, rows, columns);
   std::vector<std::uint16_t> actual(rows, 0U);
   std::vector<std::uint16_t> repeated(rows, 0U);
   std::vector<std::uint16_t> reference(rows, 0U);
@@ -307,10 +326,15 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   DeviceBuffer<std::uint16_t> device_output;
   DeviceBuffer<float> device_reference_fp32;
   DeviceBuffer<std::uint16_t> device_reference_output;
-  bool ready = test.cuda_ok(device_weights.allocate(weights.size()),
+  const std::size_t weight_offset = unaligned_weights ? 1U : 0U;
+  const std::size_t activation_offset = unaligned_activation ? 1U : 0U;
+  bool ready = test.cuda_ok(
+      device_weights.allocate(weights.size() + weight_offset),
                             label + " allocate weights");
-  ready = ready && test.cuda_ok(device_activation.allocate(activation.size()),
-                                label + " allocate activation");
+  ready = ready && test.cuda_ok(
+                       device_activation.allocate(activation.size() +
+                                                  activation_offset),
+                       label + " allocate activation");
   ready = ready && test.cuda_ok(device_output.allocate(rows),
                                 label + " allocate output");
   ready = ready && test.cuda_ok(device_reference_fp32.allocate(rows),
@@ -318,12 +342,14 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   ready = ready && test.cuda_ok(device_reference_output.allocate(rows),
                                 label + " allocate reference BF16");
   ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(device_weights.get(), weights.data(),
+                       cudaMemcpyAsync(device_weights.get() + weight_offset,
+                                       weights.data(),
                                        weights.size(), cudaMemcpyHostToDevice,
                                        stream),
                        label + " copy weights");
   ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(device_activation.get(),
+                       cudaMemcpyAsync(device_activation.get() +
+                                           activation_offset,
                                        activation.data(),
                                        activation.size() * sizeof(activation[0]),
                                        cudaMemcpyHostToDevice, stream),
@@ -331,13 +357,17 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   if (!ready) {
     return;
   }
+  const std::uint8_t* const weights_device =
+      device_weights.get() + weight_offset;
+  const std::uint16_t* const activation_device =
+      device_activation.get() + activation_offset;
 
   (void)seed_stale_error(test);
   ready = test.cuda_ok(
       static_cast<cudaError_t>(
           q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda(
-              device_weights.get(), kWeightScale, device_activation.get(), rows,
-              columns, device_output.get(), static_cast<void*>(stream))),
+              weights_device, weight_scale, activation_device, rows, columns,
+              device_output.get(), static_cast<void*>(stream))),
       label + " launch");
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(actual.data(), device_output.get(),
@@ -348,8 +378,8 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
                        static_cast<cudaError_t>(
                            q3x::kernels::
                                launch_sm87_fp8_w8a16_gemv_bf16_cuda(
-                                   device_weights.get(), kWeightScale,
-                                   device_activation.get(), rows, columns,
+                                   weights_device, weight_scale,
+                                   activation_device, rows, columns,
                                    device_output.get(),
                                    static_cast<void*>(stream))),
                        label + " repeat launch");
@@ -361,8 +391,8 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(
                            q3x::kernels::launch_fp8_gemv_reference_cuda(
-                               device_weights.get(), kWeightScale,
-                               device_activation.get(), rows, columns,
+                               weights_device, weight_scale,
+                               activation_device, rows, columns,
                                device_reference_fp32.get(),
                                static_cast<void*>(stream))),
                        label + " launch CUDA reference");
@@ -384,8 +414,75 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   if (ready) {
     compare_bf16_outputs(test, actual, expected, columns, label);
     compare_cuda_reference_outputs(test, actual, reference, columns, label);
+    if (strict_bf16) {
+      for (std::size_t row = 0U; row < rows; ++row) {
+        if (is_bf16_nan(expected[row])) {
+          test.expect(is_bf16_nan(actual[row]),
+                      label + " strict row " + std::to_string(row) +
+                          " host NaN class");
+          test.expect(is_bf16_nan(reference[row]),
+                      label + " strict row " + std::to_string(row) +
+                          " CUDA-reference NaN class");
+        } else {
+          test.expect(actual[row] == expected[row],
+                      label + " strict row " + std::to_string(row) +
+                          " must equal host BF16 bits");
+          test.expect(actual[row] == reference[row],
+                      label + " strict row " + std::to_string(row) +
+                          " must equal CUDA-reference BF16 bits");
+        }
+      }
+    }
     test.expect(actual == repeated, label + " is bitwise deterministic");
   }
+}
+
+void run_fp8_case(TestContext& test, cudaStream_t stream,
+                  const std::size_t rows, const std::size_t columns,
+                  const std::string& label,
+                  const bool unaligned_weights = false,
+                  const bool unaligned_activation = false) {
+  constexpr float kWeightScale = 1.0F / 128.0F;
+  constexpr std::array<std::uint8_t, 13U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U, 0x3cU,
+      0x40U, 0xb8U, 0x70U, 0x78U, 0x7eU, 0xfeU,
+  }};
+  std::vector<std::uint16_t> activation(columns);
+  std::vector<std::uint8_t> weights(rows * columns);
+  fill_activation(activation);
+  for (std::size_t index = 0U; index < weights.size(); ++index) {
+    weights[index] = kFiniteCodes[(index * 7U + 1U) % kFiniteCodes.size()];
+  }
+  run_fp8_payload(test, stream, weights, kWeightScale, activation, rows,
+                  columns, label, unaligned_weights, unaligned_activation);
+}
+
+void run_fp8_vector_codebook_case(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kColumns = 1'024U;
+  constexpr std::size_t kBytePositions = 4U;
+  constexpr std::size_t kRows = 256U * kBytePositions;
+  constexpr std::array<float, kBytePositions> kDistinctActivations{{
+      0.5F, 0.75F, 1.25F, 1.75F,
+  }};
+  std::vector<std::uint16_t> activation(kColumns, encode_bf16(1.0F));
+  for (std::size_t position = 0U; position < kBytePositions; ++position) {
+    activation[position] = encode_bf16(kDistinctActivations[position]);
+  }
+  std::vector<std::uint8_t> weights(kRows * kColumns, 0U);
+
+  // Every E4M3FN encoding occupies every byte in the first uint32 load.
+  // Distinct, exactly representable activations make a byte-to-K permutation
+  // visible. The two reserved encodings additionally exercise signed NaNs.
+  for (std::size_t code = 0U; code < 256U; ++code) {
+    for (std::size_t position = 0U; position < kBytePositions; ++position) {
+      const std::size_t row = code * kBytePositions + position;
+      weights[row * kColumns + position] =
+          static_cast<std::uint8_t>(code);
+    }
+  }
+  run_fp8_payload(test, stream, weights, 1.0F, activation, kRows, kColumns,
+                  "FP8 packed-x4 exhaustive codebook and byte positions",
+                  false, false, true);
 }
 
 void run_nvfp4_payload(TestContext& test, cudaStream_t stream,
@@ -692,6 +789,41 @@ void test_launch_validation(TestContext& test) {
 using NvFp4Launcher = int (*)(const std::uint8_t*, const std::uint8_t*, float,
                               const std::uint16_t*, std::size_t, std::size_t,
                               std::uint16_t*, void*) noexcept;
+using Fp8Launcher = int (*)(const std::uint8_t*, float,
+                            const std::uint16_t*, std::size_t, std::size_t,
+                            std::uint16_t*, void*) noexcept;
+
+[[nodiscard]] float measure_fp8_launcher(
+    TestContext& test, cudaStream_t stream, Fp8Launcher launcher,
+    const std::uint8_t* weights, const float weight_scale,
+    const std::uint16_t* activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* output, const int iterations,
+    const std::string& label) {
+  EventPair events;
+  bool ready = events.create(test);
+  ready = ready && test.cuda_ok(cudaEventRecord(events.start(), stream),
+                                label + " record start");
+  for (int iteration = 0; iteration < iterations && ready; ++iteration) {
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(launcher(
+            weights, weight_scale, activation, rows, columns, output,
+            static_cast<void*>(stream))),
+        label + " launch");
+  }
+  ready = ready && test.cuda_ok(cudaEventRecord(events.stop(), stream),
+                                label + " record stop");
+  ready = ready && test.cuda_ok(cudaEventSynchronize(events.stop()),
+                                label + " event synchronize");
+  float total_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  ready = ready && test.cuda_ok(
+                       cudaEventElapsedTime(&total_milliseconds,
+                                            events.start(), events.stop()),
+                       label + " elapsed time");
+  if (!ready) {
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+  return total_milliseconds / static_cast<float>(iterations);
+}
 
 [[nodiscard]] float measure_nvfp4_launcher(
     TestContext& test, cudaStream_t stream, NvFp4Launcher launcher,
@@ -832,12 +964,25 @@ void benchmark_nvfp4_shape(TestContext& test, cudaStream_t stream,
 
 void benchmark_fp8_shape(TestContext& test, cudaStream_t stream,
                          const std::size_t rows, const std::size_t columns,
-                         const std::string& label) {
+                         const std::string& label,
+                         const bool mixed_finite = false) {
   constexpr int kWarmupIterations = 5;
   constexpr int kMeasuredIterations = 20;
   constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 13U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U, 0x3cU,
+      0x40U, 0xb8U, 0x70U, 0x78U, 0x7eU, 0xfeU,
+  }};
   const std::size_t weight_count = rows * columns;
   std::vector<std::uint16_t> activation(columns, encode_bf16(1.0F));
+  std::vector<std::uint8_t> host_weights;
+  if (mixed_finite) {
+    host_weights.resize(weight_count);
+    for (std::size_t index = 0U; index < weight_count; ++index) {
+      host_weights[index] =
+          kFiniteCodes[(index * 7U + 1U) % kFiniteCodes.size()];
+    }
+  }
   DeviceBuffer<std::uint8_t> weights;
   DeviceBuffer<std::uint16_t> device_activation;
   DeviceBuffer<std::uint16_t> output;
@@ -847,10 +992,18 @@ void benchmark_fp8_shape(TestContext& test, cudaStream_t stream,
                                 label + " allocate activation");
   ready = ready &&
           test.cuda_ok(output.allocate(rows), label + " allocate output");
-  ready = ready && test.cuda_ok(
-                       cudaMemsetAsync(weights.get(), 0x38, weight_count,
-                                       stream),
-                       label + " initialize weights");
+  if (mixed_finite) {
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                         host_weights.size(),
+                                         cudaMemcpyHostToDevice, stream),
+                         label + " initialize mixed weights");
+  } else {
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(weights.get(), 0x38, weight_count,
+                                         stream),
+                         label + " initialize uniform weights");
+  }
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(device_activation.get(),
                                        activation.data(),
@@ -865,6 +1018,14 @@ void benchmark_fp8_shape(TestContext& test, cudaStream_t stream,
     ready = ready && test.cuda_ok(
                          static_cast<cudaError_t>(
                              q3x::kernels::
+                                 launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda(
+                                     weights.get(), kWeightScale,
+                                     device_activation.get(), rows, columns,
+                                     output.get(), static_cast<void*>(stream))),
+                         label + " scalar warmup launch");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(
+                             q3x::kernels::
                                  launch_sm87_fp8_w8a16_gemv_bf16_cuda(
                                      weights.get(), kWeightScale,
                                      device_activation.get(), rows, columns,
@@ -873,42 +1034,52 @@ void benchmark_fp8_shape(TestContext& test, cudaStream_t stream,
   }
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 label + " warmup synchronize");
-  EventPair events;
-  ready = ready && events.create(test);
-  ready = ready &&
-          test.cuda_ok(cudaEventRecord(events.start(), stream),
-                       label + " record start");
-  for (int iteration = 0; iteration < kMeasuredIterations; ++iteration) {
-    ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(
-                             q3x::kernels::
-                                 launch_sm87_fp8_w8a16_gemv_bf16_cuda(
-                                     weights.get(), kWeightScale,
-                                     device_activation.get(), rows, columns,
-                                     output.get(), static_cast<void*>(stream))),
-                         label + " measured launch");
-  }
-  ready = ready && test.cuda_ok(cudaEventRecord(events.stop(), stream),
-                                label + " record stop");
-  ready = ready && test.cuda_ok(cudaEventSynchronize(events.stop()),
-                                label + " event synchronize");
   if (!ready) {
     return;
   }
-  float total_milliseconds = 0.0F;
-  if (!test.cuda_ok(cudaEventElapsedTime(&total_milliseconds, events.start(),
-                                         events.stop()),
-                    label + " elapsed time")) {
+
+  // Mirrored order reduces systematic clock and temperature bias.
+  const float scalar_first = measure_fp8_launcher(
+      test, stream,
+      q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda,
+      weights.get(), kWeightScale, device_activation.get(), rows, columns,
+      output.get(), kMeasuredIterations, label + " scalar pass 1");
+  const float vector_first = measure_fp8_launcher(
+      test, stream, q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda,
+      weights.get(), kWeightScale, device_activation.get(), rows, columns,
+      output.get(), kMeasuredIterations, label + " vector pass 1");
+  const float vector_second = measure_fp8_launcher(
+      test, stream, q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda,
+      weights.get(), kWeightScale, device_activation.get(), rows, columns,
+      output.get(), kMeasuredIterations, label + " vector pass 2");
+  const float scalar_second = measure_fp8_launcher(
+      test, stream,
+      q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda,
+      weights.get(), kWeightScale, device_activation.get(), rows, columns,
+      output.get(), kMeasuredIterations, label + " scalar pass 2");
+  if (!(std::isfinite(scalar_first) && std::isfinite(scalar_second) &&
+        std::isfinite(vector_first) && std::isfinite(vector_second))) {
     return;
   }
-  const float average_milliseconds =
-      total_milliseconds / static_cast<float>(kMeasuredIterations);
+
+  const float scalar_average = (scalar_first + scalar_second) * 0.5F;
+  const float vector_average = (vector_first + vector_second) * 0.5F;
+  const float speedup = scalar_average / vector_average;
+  const float minimum_required_speedup =
+      rows >= 5'120U ? 1.15F : (1.0F / 1.02F);
   const double encoded_gigabytes =
       static_cast<double>(weight_count) / 1.0e9;
   const double gigabytes_per_second =
-      encoded_gigabytes / (static_cast<double>(average_milliseconds) / 1.0e3);
-  std::cout << "PERF: " << label << " average_ms=" << average_milliseconds
-            << " encoded_weight_GBps=" << gigabytes_per_second << '\n';
+      encoded_gigabytes / (static_cast<double>(vector_average) / 1.0e3);
+  const bool gate_passed = speedup >= minimum_required_speedup;
+  std::cout << "PERF: " << label << " scalar_average_ms=" << scalar_average
+            << " vector_average_ms=" << vector_average
+            << " speedup=" << speedup
+            << " vector_encoded_weight_GBps=" << gigabytes_per_second
+            << " required_speedup=" << minimum_required_speedup
+            << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
+  test.expect(gate_passed,
+              label + " packed-x4 performance gate must pass");
 }
 
 void run_optional_performance(TestContext& test, cudaStream_t stream) {
@@ -919,6 +1090,16 @@ void run_optional_performance(TestContext& test, cudaStream_t stream) {
   }
   benchmark_fp8_shape(test, stream, 10'240U, 5'120U,
                       "FP8 linear QKV 10240x5120");
+  benchmark_fp8_shape(test, stream, 5'120U, 6'144U,
+                      "FP8 projection 5120x6144");
+  benchmark_fp8_shape(test, stream, 6'144U, 5'120U,
+                      "FP8 projection 6144x5120");
+  benchmark_fp8_shape(test, stream, 12'288U, 5'120U,
+                      "FP8 linear QKV 12288x5120");
+  benchmark_fp8_shape(test, stream, 1'024U, 5'120U,
+                      "FP8 small projection 1024x5120");
+  benchmark_fp8_shape(test, stream, 10'240U, 5'120U,
+                      "FP8 linear QKV 10240x5120 mixed finite", true);
   benchmark_nvfp4_shape(test, stream, 17'408U, 5'120U,
                         "NVFP4 MLP gate/up 17408x5120");
   benchmark_nvfp4_shape(test, stream, 5'120U, 17'408U,
@@ -959,7 +1140,15 @@ int main() {
   // Awkward rows and K tails exercise partial blocks/warps. Target-K cases
   // cover both fixed MLP reduction lengths without allocating full matrices.
   run_fp8_case(test, stream, 13U, 37U, "FP8 awkward 13x37");
+  run_fp8_vector_codebook_case(test, stream);
+  run_fp8_case(test, stream, 3U, 1'024U,
+               "FP8 vector-shaped unaligned-weight scalar fallback", true,
+               false);
+  run_fp8_case(test, stream, 3U, 1'024U,
+               "FP8 vector-shaped unaligned-activation scalar fallback", false,
+               true);
   run_fp8_case(test, stream, 3U, 5'120U, "FP8 target-K 3x5120");
+  run_fp8_case(test, stream, 3U, 6'144U, "FP8 target-K 3x6144");
   run_fp8_case(test, stream, 3U, 17'408U, "FP8 long-K 3x17408");
   run_nvfp4_case(test, stream, 13U, 48U, "NVFP4 awkward 13x48");
   run_nvfp4_vector_codebook_case(test, stream);

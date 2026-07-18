@@ -14,6 +14,9 @@ constexpr unsigned int kWarpSize = 32U;
 constexpr unsigned int kWarpsPerBlock = 8U;
 constexpr unsigned int kThreads = kWarpSize * kWarpsPerBlock;
 constexpr std::size_t kMaximumBlocks = 65'535U;
+constexpr std::size_t kFp8VectorValuesPerLane = 4U;
+constexpr std::size_t kFp8VectorColumnsPerBlock =
+    kThreads * kFp8VectorValuesPerLane;
 constexpr std::size_t kNvFp4GroupSize = 16U;
 constexpr std::size_t kNvFp4ValuesPerByte = 2U;
 constexpr std::size_t kNvFp4PackedValuesPerScale =
@@ -108,6 +111,34 @@ __device__ __forceinline__ float decode_e4m3fn(const std::uint8_t bits) {
                          (mantissa << 20U));
 }
 
+// Exact finite E4M3FN values are an integer significand in [0, 15] times a
+// power of two. Building that pair without control flow avoids warp-divergent
+// normal/subnormal paths. All operations are exact in FP32; the final mask
+// preserves signed zero and replaces the two reserved encodings with signed
+// canonical quiet NaNs.
+__device__ __forceinline__ float decode_e4m3fn_branchless(
+    const std::uint8_t bits) {
+  const unsigned int sign =
+      static_cast<unsigned int>(bits & 0x80U) << 24U;
+  const unsigned int magnitude = static_cast<unsigned int>(bits & 0x7fU);
+  const unsigned int exponent = magnitude >> 3U;
+  const unsigned int mantissa = magnitude & 0x07U;
+  const unsigned int normal_mask =
+      0U - static_cast<unsigned int>(exponent != 0U);
+  const unsigned int significand = mantissa + (normal_mask & 8U);
+  const unsigned int scale_exponent =
+      118U + (normal_mask & (exponent - 1U));
+  const float finite =
+      __uint2float_rn(significand) *
+      __uint_as_float(scale_exponent << 23U);
+  const unsigned int finite_bits = __float_as_uint(finite) | sign;
+  const unsigned int nan_mask =
+      0U - static_cast<unsigned int>(magnitude == 0x7fU);
+  const unsigned int nan_bits = sign | 0x7fc0'0000U;
+  return __uint_as_float((finite_bits & ~nan_mask) |
+                         (nan_bits & nan_mask));
+}
+
 __device__ __forceinline__ float decode_e2m1(const std::uint8_t nibble) {
   const unsigned int sign =
       static_cast<unsigned int>(nibble & 0x08U) << 28U;
@@ -131,7 +162,8 @@ __device__ __forceinline__ float warp_sum(float value) {
   return value;
 }
 
-__global__ __launch_bounds__(kThreads) void fp8_w8a16_gemv_bf16_kernel(
+__global__ __launch_bounds__(kThreads) void
+fp8_w8a16_gemv_bf16_scalar_kernel(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
@@ -147,6 +179,62 @@ __global__ __launch_bounds__(kThreads) void fp8_w8a16_gemv_bf16_kernel(
       sum = fmaf(decode_e4m3fn(row_weights[column]),
                  decode_bf16(activation[column]), sum);
     }
+    sum = warp_sum(sum);
+    if (lane == 0U) {
+      warp_sums[warp] = sum;
+    }
+    __syncthreads();
+    if (warp == 0U) {
+      float block_sum = lane < kWarpsPerBlock ? warp_sums[lane] : 0.0F;
+      block_sum = warp_sum(block_sum) * weight_scale;
+      if (lane == 0U) {
+        output[row] = encode_bf16_rne(block_sum);
+      }
+    }
+    __syncthreads();
+  }
+}
+
+__global__ __launch_bounds__(kThreads) void
+fp8_w8a16_gemv_bf16_vector_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) {
+  __shared__ float warp_sums[kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  for (std::size_t row = static_cast<std::size_t>(blockIdx.x); row < rows;
+       row += static_cast<std::size_t>(gridDim.x)) {
+    const std::uint8_t* const row_weights = weights + row * columns;
+    float accumulators[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+    // A 32-bit weight load and a 64-bit BF16 activation load supply four
+    // adjacent K values. All production K values dispatched here are exact
+    // multiples of the 1024 columns covered by one 256-thread iteration.
+    for (std::size_t first_column =
+             static_cast<std::size_t>(threadIdx.x) *
+             kFp8VectorValuesPerLane;
+         first_column < columns;
+         first_column += kFp8VectorColumnsPerBlock) {
+      const std::uint32_t packed_weights =
+          *reinterpret_cast<const std::uint32_t*>(row_weights + first_column);
+      const std::uint64_t packed_activation =
+          *reinterpret_cast<const std::uint64_t*>(activation + first_column);
+#pragma unroll
+      for (unsigned int value = 0U; value < kFp8VectorValuesPerLane; ++value) {
+        const std::uint8_t encoded_weight = static_cast<std::uint8_t>(
+            (packed_weights >> (value * 8U)) & 0xffU);
+        const std::uint16_t encoded_activation =
+            static_cast<std::uint16_t>(
+                (packed_activation >> (value * 16U)) & 0xffffU);
+        accumulators[value] =
+            fmaf(decode_e4m3fn_branchless(encoded_weight),
+                 decode_bf16(encoded_activation), accumulators[value]);
+      }
+    }
+
+    float sum = (accumulators[0] + accumulators[1]) +
+                (accumulators[2] + accumulators[3]);
     sum = warp_sum(sum);
     if (lane == 0U) {
       warp_sums[warp] = sum;
@@ -285,6 +373,55 @@ nvfp4_w4a16_gemv_bf16_vector_kernel(
   return static_cast<int>(cudaErrorInvalidValue);
 }
 
+[[nodiscard]] int validate_fp8_launch(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  if (!std::isfinite(weight_scale) || weight_scale < 0.0F ||
+      multiply_overflows(rows, columns)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(columns, sizeof(std::uint16_t)) ||
+      multiply_overflows(rows, sizeof(std::uint16_t))) {
+    return invalid_value();
+  }
+  if (weights == nullptr || activation == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t weight_bytes = rows * columns;
+  const std::size_t activation_bytes = columns * sizeof(std::uint16_t);
+  const std::size_t output_bytes = rows * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, weights, weight_bytes) ||
+      ranges_overlap(output, output_bytes, activation, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+void launch_fp8_scalar_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  const unsigned int blocks = block_count_for_single_row(rows);
+  fp8_w8a16_gemv_bf16_scalar_kernel<<<blocks, kThreads, 0U, stream>>>(
+      weights, weight_scale, activation, rows, columns, output);
+}
+
+void launch_fp8_vector_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  const unsigned int blocks = block_count_for_single_row(rows);
+  fp8_w8a16_gemv_bf16_vector_kernel<<<blocks, kThreads, 0U, stream>>>(
+      weights, weight_scale, activation, rows, columns, output);
+}
+
 [[nodiscard]] int validate_nvfp4_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -350,34 +487,48 @@ int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (!std::isfinite(weight_scale) || weight_scale < 0.0F ||
-      multiply_overflows(rows, columns)) {
-    return invalid_value();
-  }
-  if (rows == 0U || columns == 0U) {
-    return static_cast<int>(cudaSuccess);
-  }
-  if (multiply_overflows(columns, sizeof(std::uint16_t)) ||
-      multiply_overflows(rows, sizeof(std::uint16_t))) {
-    return invalid_value();
-  }
-  if (weights == nullptr || activation == nullptr || output == nullptr) {
-    return invalid_value();
+  const int validation = validate_fp8_launch(
+      weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
   }
 
-  const std::size_t weight_bytes = rows * columns;
-  const std::size_t activation_bytes = columns * sizeof(std::uint16_t);
-  const std::size_t output_bytes = rows * sizeof(std::uint16_t);
-  if (ranges_overlap(output, output_bytes, weights, weight_bytes) ||
-      ranges_overlap(output, output_bytes, activation, activation_bytes)) {
-    return invalid_value();
-  }
-
-  const unsigned int blocks = block_count_for_single_row(rows);
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  fp8_w8a16_gemv_bf16_kernel<<<blocks, kThreads, 0U, stream>>>(
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
+  if (vector_shape) {
+    launch_fp8_vector_unchecked(weights, weight_scale, activation, rows,
+                                columns, output, stream);
+  } else {
+    launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
+                                columns, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only scalar baseline for mirrored CUDA-event A/B measurements. It is
+// intentionally omitted from the public header.
+int launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_launch(
       weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
+                              columns, output, stream);
   return static_cast<int>(cudaGetLastError());
 }
 
