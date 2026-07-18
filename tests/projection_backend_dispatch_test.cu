@@ -519,17 +519,25 @@ void test_tile_routes(TestContext& test) {
               "SM87 FP8 M15 remains M8+M7");
   test.expect(capture_fp8(16U, "SM87 FP8 generic M16 dispatch graph") == 2U,
               "SM87 FP8 generic M16 uses the public two-M8 fallback");
-  const std::size_t nvfp4_m16_kernel_nodes = captured_kernel_node_count(
-      test,
-      [&](cudaStream_t stream) noexcept {
-        return runtime::launch_projection_tile_to_bf16_cuda(
-            runtime::ProjectionBackend::kSm87WeightOnly, nvfp4,
-            nvfp4_activation.get(), kMaximumTokens, nullptr, 0U, output.get(),
-            static_cast<void*>(stream));
-      },
-      "SM87 NVFP4 M16 dispatch graph");
-  test.expect(nvfp4_m16_kernel_nodes == 2U,
-              "SM87 NVFP4 M16 remains two M8 launches");
+  const auto capture_nvfp4 = [&](const std::size_t token_count,
+                                 const std::string& label) {
+    return captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return runtime::launch_projection_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, nvfp4,
+              nvfp4_activation.get(), token_count, nullptr, 0U, output.get(),
+              static_cast<void*>(stream));
+        },
+        label);
+  };
+  test.expect(capture_nvfp4(9U, "SM87 NVFP4 M9 dispatch graph") == 2U,
+              "SM87 NVFP4 M9 remains M8+M1");
+  test.expect(capture_nvfp4(15U, "SM87 NVFP4 M15 dispatch graph") == 2U,
+              "SM87 NVFP4 M15 remains M8+M7");
+  test.expect(
+      capture_nvfp4(16U, "SM87 NVFP4 generic M16 dispatch graph") == 2U,
+      "SM87 NVFP4 generic M16 uses the public two-M8 fallback");
 }
 
 void test_fp8_m16_production_dispatch(TestContext& test) {
@@ -736,6 +744,170 @@ void test_fp8_m16_production_dispatch(TestContext& test) {
     test.expect(public_fallback == direct_two_m8,
                 "1024x5120 public M16 is bitwise equal to direct two-M8");
   }
+}
+
+void test_nvfp4_m16_production_dispatch(TestContext& test) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kColumns / 16U);
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr std::array<std::uint16_t, kTokens> kActivationValues{
+      0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
+      0x3e80U, 0xbf00U, 0x4080U, 0xc000U,
+      0x3f40U, 0xbf40U, 0x4040U, 0xc040U,
+      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U};
+  constexpr std::array<std::uint16_t, kTokens> kExpected{
+      0x42a0U, 0x4220U, 0xc2a0U, 0x4320U,
+      0x41a0U, 0xc220U, 0x43a0U, 0xc320U,
+      0x4270U, 0xc270U, 0x4370U, 0xc370U,
+      0x42f0U, 0xc2f0U, 0x4420U, 0xc420U};
+
+  DeviceBuffer<std::uint8_t> packed_weights;
+  DeviceBuffer<std::uint8_t> block_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<std::uint16_t> output;
+  bool ready = packed_weights.allocate(
+      test, kPackedBytes + 4U, "production C16 NVFP4 packed weights");
+  ready = ready && block_scales.allocate(
+                       test, kScaleBytes + 1U,
+                       "production C16 NVFP4 block scales");
+  ready = ready && activations.allocate(
+                       test, kTokens * kColumns + 1U,
+                       "production C16 NVFP4 activations");
+  ready = ready && companion_scales.allocate(
+                       test, 2U, "production C16 NVFP4 companion scales");
+  ready = ready && output.allocate(test, kTokens * kRows,
+                                   "production C16 NVFP4 output");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    std::fill_n(host_activations.begin() + token * kColumns, kColumns,
+                kActivationValues[token]);
+  }
+  ready = test.cuda_ok(cudaMemset(packed_weights.get(), 0x22,
+                                  kPackedBytes + 4U),
+                       "initialize production C16 NVFP4 packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(block_scales.get(), 0x38, kScaleBytes + 1U),
+                       "initialize production C16 NVFP4 block scales");
+  ready = ready && upload(test, activations, host_activations,
+                          "production C16 NVFP4 activations");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kWeightScale2, 1.0F},
+                       "production C16 NVFP4 companion scales");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight nvfp4 = runtime::NvFp4LinearWeight{
+      packed_weights.get(), block_scales.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kWeightScale2, 1.0F, kRows, kColumns};
+  int status = runtime::launch_projection_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, nvfp4, activations.get(),
+      kTokens, nullptr, 0U, output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "SM87 NVFP4 production-shape C16 dispatch succeeds");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, output, kTokens, kRows,
+        std::vector<std::uint16_t>(kExpected.begin(), kExpected.end()),
+        "SM87 NVFP4 production-shape C16 dispatch");
+  }
+  const std::size_t production_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, nvfp4,
+            activations.get(), kTokens, nullptr, 0U, output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 NVFP4 production-shape C16 dispatch graph");
+  test.expect(production_kernel_nodes == 1U,
+              "SM87 NVFP4 production C16 dispatch uses one WMMA kernel");
+
+  const auto run_fallback = [&](const std::uint8_t* const packed,
+                                const std::uint8_t* const scales,
+                                const std::uint16_t* const input,
+                                const std::size_t expected_nodes,
+                                const std::string& label) {
+    const std::size_t nodes = captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              packed, scales, kWeightScale2, input, kRows, kColumns,
+              output.get(), static_cast<void*>(stream));
+        },
+        label + " graph");
+    test.expect(nodes == expected_nodes,
+                label + " uses the expected safe fallback kernel count");
+    const int fallback_status =
+        q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+            packed, scales, kWeightScale2, input, kRows, kColumns,
+            output.get());
+    test.expect(static_cast<cudaError_t>(fallback_status) == cudaSuccess,
+                label + " launch succeeds");
+    if (static_cast<cudaError_t>(fallback_status) == cudaSuccess) {
+      (void)expect_tile_output(
+          test, output, kTokens, kRows,
+          std::vector<std::uint16_t>(kExpected.begin(), kExpected.end()),
+          label);
+    }
+  };
+
+  run_fallback(packed_weights.get() + 4U, block_scales.get(),
+               activations.get(), 2U,
+               "4-byte but non-16-byte NVFP4 packed-weight fallback");
+  run_fallback(packed_weights.get(), block_scales.get() + 1U,
+               activations.get(), 2U,
+               "byte-aligned NVFP4 block-scale fallback");
+
+  ready = test.cuda_ok(
+      cudaMemcpy(activations.get() + 1U, host_activations.data(),
+                 host_activations.size() * sizeof(host_activations.front()),
+                 cudaMemcpyHostToDevice),
+      "upload 2-byte-aligned production C16 NVFP4 activations");
+  if (!ready) {
+    return;
+  }
+  run_fallback(packed_weights.get(), block_scales.get(),
+               activations.get() + 1U, kTokens,
+               "2-byte but non-8-byte NVFP4 activation fallback");
+
+  const auto capture_generic_shape = [&](const std::size_t rows,
+                                         const std::size_t columns,
+                                         const std::string& label) {
+    const auto* const packed =
+        reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+    const auto* const scales =
+        reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+    const auto* const input =
+        reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
+    auto* const fake_output =
+        reinterpret_cast<std::uint16_t*>(0x40'0000'0000ULL);
+    return captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              packed, scales, 1.0F, input, rows, columns, fake_output,
+              static_cast<void*>(stream));
+        },
+        label);
+  };
+  test.expect(capture_generic_shape(
+                  1'024U, 5'120U,
+                  "SM87 NVFP4 1024x5120 public M16 fallback graph") == 2U,
+              "NVFP4 1024x5120 public M16 uses exactly two M8 kernels");
+  test.expect(capture_generic_shape(
+                  248'320U, 5'120U,
+                  "SM87 NVFP4 lm_head public M16 fallback graph") == 2U,
+              "NVFP4 lm_head public M16 does not select the WMMA kernel");
 }
 
 void test_tile_validation(TestContext& test) {
@@ -1027,6 +1199,7 @@ int main() {
   test_routes(test);
   test_tile_routes(test);
   test_fp8_m16_production_dispatch(test);
+  test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " projection dispatch assertion(s) failed\n";

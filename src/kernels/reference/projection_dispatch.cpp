@@ -408,6 +408,12 @@ int launch_projection_tile_to_bf16_cuda(
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
+      if (token_count == 16U) {
+        return kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, spans.rows, spans.columns,
+            output, cuda_stream);
+      }
       for (std::size_t token_offset = 0U; token_offset < token_count;) {
         const std::size_t remaining = token_count - token_offset;
         const std::size_t launch_tokens =

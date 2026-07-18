@@ -138,6 +138,16 @@ launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_test_cuda(
 [[nodiscard]] bool use_sm87_nvfp4_m8_fixed_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
+[[nodiscard]] bool use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -2492,6 +2502,199 @@ void test_launch_validation(TestContext& test) {
           cudaErrorInvalidValue,
       "FP8 M16 rejects output[8:16]/activation[0:8] overlap");
 
+  constexpr std::size_t kLargestAlignedSixteenth =
+      (kMaximum / 16U) & ~std::size_t{15U};
+  constexpr std::size_t kFirstAlignedPastSixteenth =
+      ((kMaximum / 16U) / 16U + 1U) * 16U;
+  constexpr std::size_t kFirstOutputByteOverflowRows =
+      kMaximum / 32U + 1U;
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nullptr, nullptr, 1.0F, nullptr, 0U, 15U, nullptr)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 validates K grouping before an empty-shape no-op");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nullptr, nullptr, std::numeric_limits<float>::infinity(),
+              nullptr, 0U, 16U, nullptr)) == cudaErrorInvalidValue,
+      "NVFP4 M16 validates scale before an empty-shape no-op");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nullptr, nullptr, 1.0F, nullptr, 0U, kMaximum - 15U,
+              nullptr)) == cudaSuccess,
+      "NVFP4 M16 zero rows is a no-op after legal K/scale validation");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nullptr, nullptr, 1.0F, nullptr, kMaximum, 0U, nullptr)) ==
+          cudaSuccess,
+      "NVFP4 M16 zero columns is a no-op after legal K/scale validation");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nullptr, scale_pointer, 1.0F, activation, 1U, 16U, output)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects null packed weights for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, nullptr, 1.0F, activation, 1U, 16U, output)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects null block scales for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, nullptr, 1U, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects null activations for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U, 16U,
+              nullptr)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects null output for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U, 31U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects non-group-aligned K");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer,
+              std::numeric_limits<float>::quiet_NaN(), activation, 1U, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a non-finite scale");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, -1.0F, activation, 1U, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a negative scale");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, kMaximum, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects rows*K overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U,
+              kFirstAlignedPastSixteenth, output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects 16*K overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation,
+              kMaximum / 16U + 1U, 16U, output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a 16*N extent that also overflows N*K");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U,
+              kLargestAlignedSixteenth, output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects activation byte-size overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation,
+              kFirstOutputByteOverflowRows, 16U, output)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output byte-size overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              reinterpret_cast<const std::uint8_t*>(
+                  std::numeric_limits<std::uintptr_t>::max() - 3U),
+              scale_pointer, 1.0F, activation, 1U, 16U, output)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a wrapping packed-weight range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, wrapped_scale, 1.0F, activation, 2U, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a wrapping block-scale range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, wrapped_activation, 1U, 16U,
+              output)) == cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a wrapping activation range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U, 16U,
+              reinterpret_cast<std::uint16_t*>(
+                  std::numeric_limits<std::uintptr_t>::max() - 15U))) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects a wrapping output range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U, 16U,
+              reinterpret_cast<std::uint16_t*>(0x1004U))) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output overlap with packed weights");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 2U, 16U,
+              reinterpret_cast<std::uint16_t*>(
+                  const_cast<std::uint8_t*>(scale_pointer)))) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output overlap with block scales");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              byte_pointer, scale_pointer, 1.0F, activation, 1U, 16U,
+              reinterpret_cast<std::uint16_t*>(0x2100U))) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output overlap with the full activation tile");
+
+  constexpr std::uintptr_t kNvFp4M16ActivationAddress =
+      0x4'0000'0000ULL;
+  constexpr std::size_t kNvFp4M16Rows = 17'408U;
+  constexpr std::size_t kNvFp4M16Columns = 5'120U;
+  constexpr std::size_t kNvFp4M16HalfActivationBytes =
+      8U * kNvFp4M16Columns * sizeof(std::uint16_t);
+  constexpr std::size_t kNvFp4M16HalfOutputBytes =
+      8U * kNvFp4M16Rows * sizeof(std::uint16_t);
+  auto* const nvfp4_m16_packed =
+      reinterpret_cast<const std::uint8_t*>(0x3'0000'0000ULL);
+  auto* const nvfp4_m16_scales =
+      reinterpret_cast<const std::uint8_t*>(0x3'8000'0000ULL);
+  auto* const nvfp4_m16_activations =
+      reinterpret_cast<const std::uint16_t*>(kNvFp4M16ActivationAddress);
+  auto* const nvfp4_m16_output_first_overlaps_activation_second =
+      reinterpret_cast<std::uint16_t*>(
+          kNvFp4M16ActivationAddress + kNvFp4M16HalfActivationBytes);
+  auto* const nvfp4_m16_output_second_overlaps_activation_first =
+      reinterpret_cast<std::uint16_t*>(
+          kNvFp4M16ActivationAddress -
+          (kNvFp4M16HalfOutputBytes + kNvFp4M16HalfActivationBytes));
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nvfp4_m16_packed, nvfp4_m16_scales, 1.0F,
+              nvfp4_m16_activations, kNvFp4M16Rows, kNvFp4M16Columns,
+              nvfp4_m16_output_first_overlaps_activation_second)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output[0:8]/activation[8:16] overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              nvfp4_m16_packed, nvfp4_m16_scales, 1.0F,
+              nvfp4_m16_activations, kNvFp4M16Rows, kNvFp4M16Columns,
+              nvfp4_m16_output_second_overlaps_activation_first)) ==
+          cudaErrorInvalidValue,
+      "NVFP4 M16 rejects output[8:16]/activation[0:8] overlap");
+
   test.expect(
       static_cast<cudaError_t>(q3x::kernels::
           launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
@@ -2644,6 +2847,27 @@ void test_launch_validation(TestContext& test) {
   test.expect(!q3x::kernels::use_sm87_nvfp4_m8_fixed_shape_test(
                   248'320U, 5'120U),
               "NVFP4 M8 fixed-shape keeps lm_head on the generic path");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+                  17'408U, 5'120U),
+              "NVFP4 M16 WMMA predicate accepts gate/up");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+                  5'120U, 17'408U),
+              "NVFP4 M16 WMMA predicate accepts down");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+                  17'407U, 5'120U),
+              "NVFP4 M16 WMMA predicate rejects a near-miss row count");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+                  17'408U, 5'104U),
+              "NVFP4 M16 WMMA predicate rejects a near-miss K");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m16_wmma_fixed_shape_test(
+                  248'320U, 5'120U),
+              "NVFP4 M16 WMMA predicate keeps lm_head on two M8 tiles");
+  test.expect(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
+              nullptr, nullptr, 1.0F, nullptr, 17'408U, 5'120U,
+              nullptr)) == cudaErrorInvalidValue,
+      "NVFP4 M16 WMMA test launcher rejects null non-empty buffers");
   test.expect(!q3x::kernels::use_sm87_nvfp4_m1_scale_codebook_test(
                   7U, 5'120U),
               "NVFP4 M1 scale codebook rejects a partial warp block");
@@ -2781,6 +3005,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_m8_fixed_shape_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M8_FIXED_SHAPE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m16_wmma_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -4033,6 +4264,526 @@ void run_optional_fp8_m8_fixed_shape_performance(TestContext& test,
             << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
   test.expect(aggregate_gate,
               "FP8 M8 fixed shapes clear every production gate");
+}
+
+struct NvFp4M16WmmaMeasurement {
+  double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  bool deterministic = false;
+  bool within_tolerance = false;
+};
+
+struct NvFp4M16OutputCheck {
+  bool deterministic = false;
+  bool within_tolerance = false;
+  std::size_t reference_nan_count = 0U;
+};
+
+[[nodiscard]] NvFp4M16OutputCheck check_nvfp4_m16_outputs(
+    TestContext& test, const std::vector<std::uint16_t>& candidate,
+    const std::vector<std::uint16_t>& baseline,
+    const std::vector<std::uint16_t>& replay, const std::size_t columns,
+    const std::size_t expected_reference_nan_count,
+    const std::string& label) {
+  test.expect(candidate.size() == baseline.size(),
+              label + " candidate/baseline output size");
+  test.expect(candidate.size() == replay.size(),
+              label + " candidate/replay output size");
+  const std::size_t count =
+      std::min(candidate.size(), std::min(baseline.size(), replay.size()));
+  std::size_t bf16_mismatches = 0U;
+  std::size_t deterministic_mismatches = 0U;
+  std::size_t reference_nan_count = 0U;
+  std::size_t nan_class_mismatches = 0U;
+  float maximum_absolute_error = 0.0F;
+  float maximum_relative_error = 0.0F;
+  bool within_tolerance = true;
+  for (std::size_t index = 0U; index < count; ++index) {
+    bf16_mismatches += candidate[index] != baseline[index] ? 1U : 0U;
+    deterministic_mismatches += candidate[index] != replay[index] ? 1U : 0U;
+    if (is_bf16_nan(baseline[index])) {
+      ++reference_nan_count;
+      const bool candidate_is_nan = is_bf16_nan(candidate[index]);
+      nan_class_mismatches += candidate_is_nan ? 0U : 1U;
+      within_tolerance = within_tolerance && candidate_is_nan;
+      continue;
+    }
+    const float baseline_value = decode_bf16(baseline[index]);
+    const float candidate_value = decode_bf16(candidate[index]);
+    const float absolute_error =
+        std::fabs(candidate_value - baseline_value);
+    const float relative_error =
+        absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+    maximum_absolute_error =
+        std::max(maximum_absolute_error, absolute_error);
+    maximum_relative_error =
+        std::max(maximum_relative_error, relative_error);
+    const float tolerance =
+        2.0e-4F * std::sqrt(static_cast<float>(columns)) +
+        1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+    within_tolerance = within_tolerance &&
+                       std::isfinite(candidate_value) &&
+                       std::isfinite(baseline_value) &&
+                       absolute_error <= tolerance;
+  }
+  const bool deterministic = deterministic_mismatches == 0U;
+  const bool nan_coverage =
+      reference_nan_count == expected_reference_nan_count &&
+      nan_class_mismatches == 0U;
+  std::cout << "NVFP4_M16_WMMA_DIFF: " << label
+            << " candidate_vs_two_m8_bf16=" << bf16_mismatches << '/'
+            << count << " deterministic_mismatches="
+            << deterministic_mismatches << '/' << count
+            << " reference_nan_count=" << reference_nan_count
+            << " nan_class_mismatches=" << nan_class_mismatches
+            << " max_abs=" << maximum_absolute_error
+            << " max_rel=" << maximum_relative_error
+            << " tolerance_gate=" << (within_tolerance ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(deterministic, label + " candidate replay is bitwise stable");
+  test.expect(nan_coverage, label + " has the required NaN-class coverage");
+  test.expect(within_tolerance,
+              label + " clears the existing numerical tolerance");
+  return {deterministic, within_tolerance && nan_coverage,
+          reference_nan_count};
+}
+
+[[nodiscard]] NvFp4M16WmmaMeasurement benchmark_nvfp4_m16_wmma_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kHalfTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  // Deliberately not a power-of-two scale. Together with the odd activation
+  // denominators below this prevents an accidentally exact-only fixture.
+  constexpr float kWeightScale2 = 1.0F / 37.0F;
+  constexpr std::array<std::uint8_t, 16U> kFiniteScaleCodes{{
+      0x00U, 0x80U, 0x08U, 0x88U, 0x18U, 0x98U, 0x20U, 0xa0U,
+      0x28U, 0xa8U, 0x30U, 0xb0U, 0x38U, 0xb8U, 0x40U, 0xc0U,
+  }};
+  const std::size_t packed_columns = columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+
+  std::vector<std::uint8_t> host_packed(rows * packed_columns);
+  std::array<bool, 16U> low_nibble_covered{};
+  std::array<bool, 16U> high_nibble_covered{};
+  for (std::size_t row = 0U; row < rows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U + (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+      low_nibble_covered[low] = true;
+      high_nibble_covered[high] = true;
+    }
+  }
+  test.expect(std::all_of(low_nibble_covered.begin(),
+                          low_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers all E2M1 low-nibble codes");
+  test.expect(std::all_of(high_nibble_covered.begin(),
+                          high_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers all E2M1 high-nibble codes");
+
+  std::vector<std::uint8_t> host_scales(rows * scale_columns);
+  std::array<bool, kFiniteScaleCodes.size()> scale_codes_covered{};
+  for (std::size_t row = 0U; row < rows; ++row) {
+    for (std::size_t group = 0U; group < scale_columns; ++group) {
+      const std::size_t code_index =
+          (row * 5U + group * 7U + (group >> 3U)) & 0x0fU;
+      host_scales[row * scale_columns + group] =
+          kFiniteScaleCodes[code_index];
+      scale_codes_covered[code_index] = true;
+    }
+  }
+  test.expect(std::all_of(scale_codes_covered.begin(),
+                          scale_codes_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers every finite scale fixture code");
+
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 31U) - 15;
+      const int odd_denominator =
+          3 + 2 * static_cast<int>((column * 7U + token * 3U) % 11U);
+      const int exponent =
+          static_cast<int>((column * 5U + token * 7U) % 5U) - 3;
+      host_activations[token * columns + column] = encode_bf16(std::ldexp(
+          static_cast<float>(centered) /
+              static_cast<float>(odd_denominator),
+          exponent));
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  DeviceBuffer<std::uint16_t> replay_output;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(replay_output.allocate(kTokens * rows),
+                                label + " allocate replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize packed E2M1 weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize grouped scale codes");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize nonpower activations");
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    int status =
+        q3x::kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            kHalfTokens, rows, columns, baseline_output.get(),
+            static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+        packed.get(), scales.get(), kWeightScale2,
+        activations.get() + kHalfTokens * columns, kHalfTokens, rows, columns,
+        baseline_output.get() + kHalfTokens * rows,
+        static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+        packed.get(), scales.get(), kWeightScale2, activations.get(), rows,
+        columns, candidate_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_replay = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+        packed.get(), scales.get(), kWeightScale2, activations.get(), rows,
+        columns, replay_output.get(), static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " correctness two-M8 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " correctness M16 WMMA candidate");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " deterministic replay");
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  std::vector<std::uint16_t> replay(kTokens * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy two-M8 baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy M16 candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           replay.data(), replay_output.get(),
+                           replay.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy M16 replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return {};
+  }
+  const NvFp4M16OutputCheck finite_check = check_nvfp4_m16_outputs(
+      test, candidate, baseline, replay, columns, 0U,
+      label + " full E2M1/group-scale fixture");
+
+  for (int iteration = 0; iteration < kWarmupIterations && ready;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool finite_timing = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string suffix = " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 1" + suffix);
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 1" + suffix);
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 2" + suffix);
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 2" + suffix);
+    const bool round_finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    finite_timing = finite_timing && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first + baseline_second;
+      candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_NVFP4_M16_WMMA_ROUND: " << label
+              << " round=" << round + 1
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double baseline_average = baseline_total / kTimedPasses;
+  const double candidate_average = candidate_total / kTimedPasses;
+  std::cout << "PERF_NVFP4_M16_WMMA: " << label
+            << " baseline_two_m8_ms=" << baseline_average
+            << " candidate_m16_ms=" << candidate_average
+            << " speedup=" << baseline_average / candidate_average << '\n';
+
+  // Reuse the timed buffers for an exhaustive 256 scale-code x 16 E2M1
+  // matrix. Each of the first 4096 rows has exactly one selected nibble and
+  // one selected 16-value scale group. Critical K positions cross nibble,
+  // scale-group, vector-load, and K64 staging boundaries. All other values
+  // are zero, which also checks the required 0 * NaN propagation inside the
+  // two reserved E4M3FN scale groups.
+  constexpr std::size_t kScaleCodes = 256U;
+  constexpr std::size_t kNibbles = 16U;
+  constexpr std::size_t kExhaustiveRows = kScaleCodes * kNibbles;
+  constexpr std::size_t kNanCombinations = 2U * kNibbles;
+  constexpr std::array<std::size_t, 12U> kTargetColumns{{
+      0U, 1U, 15U, 16U, 31U, 32U, 47U, 48U, 62U, 63U, 64U, 65U,
+  }};
+  std::fill(host_packed.begin(), host_packed.end(), 0U);
+  std::fill(host_scales.begin(), host_scales.end(), 0U);
+  std::array<bool, kTargetColumns.size()> target_columns_covered{};
+  for (std::size_t scale_code = 0U; scale_code < kScaleCodes;
+       ++scale_code) {
+    for (std::size_t nibble = 0U; nibble < kNibbles; ++nibble) {
+      const std::size_t row = scale_code * kNibbles + nibble;
+      const std::size_t target_index = row % kTargetColumns.size();
+      const std::size_t column = kTargetColumns[target_index];
+      std::uint8_t& packed_byte =
+          host_packed[row * packed_columns + column / 2U];
+      if ((column & 1U) == 0U) {
+        packed_byte = static_cast<std::uint8_t>(nibble);
+      } else {
+        packed_byte = static_cast<std::uint8_t>(nibble << 4U);
+      }
+      host_scales[row * scale_columns + column / 16U] =
+          static_cast<std::uint8_t>(scale_code);
+      target_columns_covered[target_index] = true;
+    }
+  }
+  test.expect(rows >= kExhaustiveRows,
+              label + " has room for all scale x nibble rows");
+  test.expect(std::all_of(target_columns_covered.begin(),
+                          target_columns_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers every K boundary fixture");
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(packed.get(), host_packed.data(), host_packed.size(),
+                      cudaMemcpyHostToDevice, stream),
+      label + " initialize exhaustive scale/nibble weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize exhaustive scale codes");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                                label + " exhaustive two-M8 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " exhaustive M16 candidate");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " exhaustive deterministic replay");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy exhaustive baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy exhaustive candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           replay.data(), replay_output.get(),
+                           replay.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy exhaustive replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " exhaustive synchronize");
+  if (!ready) {
+    return {};
+  }
+  constexpr std::size_t kExpectedNanOutputs = kNanCombinations * kTokens;
+  const NvFp4M16OutputCheck nan_check = check_nvfp4_m16_outputs(
+      test, candidate, baseline, replay, columns, kExpectedNanOutputs,
+      label + " exhaustive scale x E2M1 fixture");
+  std::size_t positive_nan_row_count = 0U;
+  std::size_t negative_nan_row_count = 0U;
+  bool token_boundary_covered = true;
+  constexpr std::size_t kPositiveNanFirstRow = 0x7fU * kNibbles;
+  constexpr std::size_t kNegativeNanFirstRow = 0xffU * kNibbles;
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t nibble = 0U; nibble < kNibbles; ++nibble) {
+      positive_nan_row_count +=
+          is_bf16_nan(
+              baseline[token * rows + kPositiveNanFirstRow + nibble])
+              ? 1U
+              : 0U;
+      negative_nan_row_count +=
+          is_bf16_nan(
+              baseline[token * rows + kNegativeNanFirstRow + nibble])
+              ? 1U
+              : 0U;
+    }
+  }
+  for (const std::size_t token : {7U, 8U}) {
+    for (const std::size_t first_row : {kPositiveNanFirstRow,
+                                        kNegativeNanFirstRow}) {
+      for (std::size_t nibble = 0U; nibble < kNibbles; ++nibble) {
+        const std::size_t row = first_row + nibble;
+        token_boundary_covered =
+            token_boundary_covered &&
+            is_bf16_nan(baseline[token * rows + row]) &&
+            is_bf16_nan(candidate[token * rows + row]);
+      }
+    }
+  }
+  test.expect(positive_nan_row_count == kNibbles * kTokens,
+              label + " propagates all 0x7f x E2M1 combinations");
+  test.expect(negative_nan_row_count == kNibbles * kTokens,
+              label + " propagates all 0xff x E2M1 combinations");
+  test.expect(token_boundary_covered,
+              label + " preserves NaN class across token 7/8");
+
+  const bool deterministic =
+      finite_check.deterministic && nan_check.deterministic;
+  const bool within_tolerance =
+      finite_check.within_tolerance && nan_check.within_tolerance;
+  return {finite_timing ? baseline_average
+                        : std::numeric_limits<double>::quiet_NaN(),
+          finite_timing ? candidate_average
+                        : std::numeric_limits<double>::quiet_NaN(),
+          deterministic, within_tolerance};
+}
+
+void run_optional_nvfp4_m16_wmma_performance(TestContext& test,
+                                              cudaStream_t stream) {
+  if (!nvfp4_m16_wmma_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M16 WMMA performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr double kMinimumPerShapeSpeedup = 1.10;
+  constexpr double kMinimumWeightedSpeedup = 1.15;
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t calls_per_prompt;
+    const char* label;
+  };
+  constexpr std::array<Shape, 2U> kShapes{{
+      {17'408U, 5'120U, 256U, "NVFP4 M16 WMMA 17408x5120"},
+      {5'120U, 17'408U, 128U, "NVFP4 M16 WMMA 5120x17408"},
+  }};
+  std::array<NvFp4M16WmmaMeasurement, kShapes.size()> measurements{};
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    measurements[index] = benchmark_nvfp4_m16_wmma_shape(
+        test, stream, kShapes[index].rows, kShapes[index].columns,
+        kShapes[index].label);
+  }
+
+  double weighted_baseline = 0.0;
+  double weighted_candidate = 0.0;
+  bool all_shapes_pass = true;
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    const NvFp4M16WmmaMeasurement& measurement = measurements[index];
+    const double speedup = measurement.baseline_milliseconds /
+                           measurement.candidate_milliseconds;
+    const bool finite =
+        std::isfinite(measurement.baseline_milliseconds) &&
+        std::isfinite(measurement.candidate_milliseconds) &&
+        std::isfinite(speedup);
+    const bool shape_gate =
+        finite && measurement.deterministic && measurement.within_tolerance &&
+        speedup >= kMinimumPerShapeSpeedup;
+    all_shapes_pass = all_shapes_pass && shape_gate;
+    test.expect(shape_gate,
+                std::string(kShapes[index].label) +
+                    " clears correctness and per-shape performance gates");
+    weighted_baseline +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.baseline_milliseconds;
+    weighted_candidate +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.candidate_milliseconds;
+    std::cout << "PERF_NVFP4_M16_WMMA_VALIDATION: "
+              << kShapes[index].label << " baseline_two_m8_ms="
+              << measurement.baseline_milliseconds
+              << " candidate_m16_ms=" << measurement.candidate_milliseconds
+              << " speedup=" << speedup
+              << " minimum_speedup=" << kMinimumPerShapeSpeedup
+              << " gate=" << (shape_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const double weighted_speedup = weighted_baseline / weighted_candidate;
+  const bool aggregate_gate =
+      all_shapes_pass && std::isfinite(weighted_speedup) &&
+      weighted_speedup >= kMinimumWeightedSpeedup;
+  std::cout << "PERF_NVFP4_M16_WMMA_AGGREGATE: "
+            << "weighted_baseline_two_m8_ms=" << weighted_baseline
+            << " weighted_candidate_m16_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumWeightedSpeedup
+            << " profile_calls=256:128"
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "NVFP4 M16 WMMA clears the weighted production gate");
 }
 
 struct Fp8M16WmmaMeasurement {
@@ -6566,6 +7317,7 @@ int main() {
   run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);
+  run_optional_nvfp4_m16_wmma_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
