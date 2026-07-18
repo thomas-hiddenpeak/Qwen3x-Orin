@@ -21,6 +21,7 @@ constexpr std::size_t kFp8VectorColumnsPerBlock =
     kThreads * kFp8VectorValuesPerLane;
 constexpr std::size_t kNvFp4GroupSize = 16U;
 constexpr std::size_t kNvFp4ValuesPerByte = 2U;
+constexpr std::size_t kNvFp4EncodedValueCount = 16U;
 constexpr std::size_t kNvFp4PackedValuesPerScale =
     kNvFp4GroupSize / kNvFp4ValuesPerByte;
 constexpr std::size_t kNvFp4VectorPackedBytesPerLane = 4U;
@@ -371,8 +372,14 @@ nvfp4_w4a16_gemv_bf16_vector_kernel(
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
   const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
   const unsigned int warp = threadIdx.x / kWarpSize;
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
   const std::size_t packed_columns = columns / kNvFp4ValuesPerByte;
   const std::size_t scale_columns = columns / kNvFp4GroupSize;
   const std::size_t first_row =
@@ -425,7 +432,7 @@ nvfp4_w4a16_gemv_bf16_vector_kernel(
           const std::uint16_t encoded_activation =
               static_cast<std::uint16_t>(
                   (packed_activation >> (value * 16U)) & 0xffffU);
-          const float scaled_weight = decode_e2m1(nibble) * block_scale;
+          const float scaled_weight = decoded_weights[nibble] * block_scale;
           accumulators[value] =
               fmaf(scaled_weight, decode_bf16(encoded_activation),
                    accumulators[value]);
@@ -450,8 +457,14 @@ nvfp4_w4a16_small_m_gemm_bf16_vector_kernel(
     const std::uint16_t* const activations, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
   static_assert(TokenCount >= 2U && TokenCount <= kMaximumSmallMTokens);
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
   const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
   const unsigned int warp = threadIdx.x / kWarpSize;
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
   const std::size_t packed_columns = columns / kNvFp4ValuesPerByte;
   const std::size_t scale_columns = columns / kNvFp4GroupSize;
   const std::size_t first_row =
@@ -502,7 +515,7 @@ nvfp4_w4a16_small_m_gemm_bf16_vector_kernel(
           const unsigned int packed_value = half * 4U + value;
           const std::uint8_t nibble = static_cast<std::uint8_t>(
               (packed >> (packed_value * 4U)) & 0x0fU);
-          const float scaled_weight = decode_e2m1(nibble) * block_scale;
+          const float scaled_weight = decoded_weights[nibble] * block_scale;
 #pragma unroll
           for (unsigned int token = 0U; token < TokenCount; ++token) {
             const std::uint16_t encoded_activation =

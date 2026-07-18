@@ -1832,9 +1832,9 @@ void run_optional_small_m_performance(TestContext& test,
   }};
   constexpr std::array<std::size_t, 3U> kTokenCounts{{2U, 4U, 8U}};
   // M1 and small-M kernels are optimized independently. Keep the M8 gate
-  // below the historical 4x ratio so a faster M1 denominator cannot turn an
-  // absolute small-M improvement into a false regression.
-  constexpr std::array<float, 3U> kAggregateRequired{{1.5F, 2.5F, 3.5F}};
+  // below the historical ratio so codebook caching in the M1 denominator
+  // cannot turn an absolute small-M improvement into a false regression.
+  constexpr std::array<float, 3U> kAggregateRequired{{1.5F, 2.5F, 2.75F}};
 
   for (std::size_t token_index = 0U; token_index < kTokenCounts.size();
        ++token_index) {
