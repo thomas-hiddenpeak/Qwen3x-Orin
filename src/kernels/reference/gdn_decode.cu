@@ -136,6 +136,49 @@ __global__ void causal_conv1d_silu_update_kernel(
   }
 }
 
+__global__ void causal_conv1d_silu_update_tile_kernel(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history,
+    std::uint16_t* const output) {
+  for (std::size_t channel =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       channel < kGdnQkvChannels;
+       channel += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
+    const std::size_t history_offset = channel * kGdnConvHistoryWidth;
+    const std::size_t weight_offset = channel * kGdnConvKernelWidth;
+    std::uint16_t history_0 = history[history_offset];
+    std::uint16_t history_1 = history[history_offset + 1U];
+    std::uint16_t history_2 = history[history_offset + 2U];
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      const std::size_t token_offset = token * kGdnQkvChannels;
+      const std::uint16_t current_bits = raw_qkv[token_offset + channel];
+      float convolution = 0.0F;
+      convolution = fmaf(decode_bf16_device(history_0),
+                         decode_bf16_device(conv_weight[weight_offset]),
+                         convolution);
+      convolution = fmaf(
+          decode_bf16_device(history_1),
+          decode_bf16_device(conv_weight[weight_offset + 1U]), convolution);
+      convolution = fmaf(
+          decode_bf16_device(history_2),
+          decode_bf16_device(conv_weight[weight_offset + 2U]), convolution);
+      convolution = fmaf(
+          decode_bf16_device(current_bits),
+          decode_bf16_device(conv_weight[weight_offset + 3U]), convolution);
+      output[token_offset + channel] = encode_bf16_device(
+          convolution / (1.0F + expf(-convolution)));
+      history_0 = history_1;
+      history_1 = history_2;
+      history_2 = current_bits;
+    }
+    history[history_offset] = history_0;
+    history[history_offset + 1U] = history_1;
+    history[history_offset + 2U] = history_2;
+  }
+}
+
 __global__ void gated_delta_net_update_kernel(
     const std::uint16_t* const conv_qkv,
     const std::uint16_t* const a,
@@ -174,6 +217,8 @@ __global__ void gated_delta_net_update_kernel(
       rsqrtf(partial[0] + l2_epsilon) *
       rsqrtf(static_cast<float>(kGdnHeadDimension));
   normalized_q[dimension] = q_value * q_scale;
+  // Do not reuse partial until every thread has consumed the Q reduction.
+  __syncthreads();
 
   partial[dimension] = k_value * k_value;
   __syncthreads();
@@ -227,6 +272,119 @@ __global__ void gated_delta_net_update_kernel(
       encode_bf16_device(result);
 }
 
+__global__ void gated_delta_net_update_tile_kernel(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output) {
+  __shared__ float normalized_q[kGdnHeadDimension];
+  __shared__ float normalized_k[kGdnHeadDimension];
+  __shared__ float partial[kGdnHeadDimension];
+  __shared__ float recurrence_scalars[2];
+
+  const std::size_t value_head = blockIdx.x;
+  const std::size_t dimension = threadIdx.x;
+  const std::size_t qk_head = value_head / 3U;
+  constexpr std::size_t kKOffset = kGdnQElements;
+  constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
+  const std::size_t state_row_offset =
+      value_head * kGdnHeadDimension * kGdnHeadDimension +
+      dimension * kGdnHeadDimension;
+
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    const std::size_t qkv_token_offset = token * kGdnQkvChannels;
+    const std::size_t scalar_token_offset = token * kGdnValueHeadCount;
+    const std::size_t output_token_offset = token * kGdnVElements;
+    const std::size_t q_index =
+        qkv_token_offset + qk_head * kGdnHeadDimension + dimension;
+    const std::size_t k_index = qkv_token_offset + kKOffset +
+                                qk_head * kGdnHeadDimension + dimension;
+    const float q_value = decode_bf16_device(conv_qkv[q_index]);
+    const float k_value = decode_bf16_device(conv_qkv[k_index]);
+
+    partial[dimension] = q_value * q_value;
+    __syncthreads();
+    for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+         stride >>= 1U) {
+      if (threadIdx.x < stride) {
+        partial[threadIdx.x] += partial[threadIdx.x + stride];
+      }
+      __syncthreads();
+    }
+    const float q_scale =
+        rsqrtf(partial[0] + l2_epsilon) *
+        rsqrtf(static_cast<float>(kGdnHeadDimension));
+    normalized_q[dimension] = q_value * q_scale;
+    // Match the single-token boundary before reusing partial for K.
+    __syncthreads();
+
+    partial[dimension] = k_value * k_value;
+    __syncthreads();
+    for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+         stride >>= 1U) {
+      if (threadIdx.x < stride) {
+        partial[threadIdx.x] += partial[threadIdx.x + stride];
+      }
+      __syncthreads();
+    }
+    normalized_k[dimension] =
+        k_value * rsqrtf(partial[0] + l2_epsilon);
+
+    if (threadIdx.x == 0U) {
+      const float gate_input =
+          decode_bf16_device(a[scalar_token_offset + value_head]) +
+          decode_bf16_device(dt_bias[value_head]);
+      const float g = -expf(decode_bf16_device(A_log[value_head])) *
+                      stable_softplus_device(gate_input);
+      recurrence_scalars[0] = expf(g);
+      recurrence_scalars[1] = stable_sigmoid_device(
+          decode_bf16_device(b[scalar_token_offset + value_head]));
+    }
+    __syncthreads();
+
+    const float alpha = recurrence_scalars[0];
+    const float beta = recurrence_scalars[1];
+    const std::uint16_t* const recurrent_state =
+        token == 0U ? state_input : state_output;
+    float prediction = 0.0F;
+    for (std::size_t key_dimension = 0;
+         key_dimension < kGdnHeadDimension; ++key_dimension) {
+      const float decayed_state = alpha * decode_bf16_device(
+                                              recurrent_state[
+                                                  state_row_offset +
+                                                  key_dimension]);
+      prediction =
+          fmaf(decayed_state, normalized_k[key_dimension], prediction);
+    }
+    const float value = decode_bf16_device(
+        conv_qkv[qkv_token_offset + kVOffset +
+                 value_head * kGdnHeadDimension + dimension]);
+    const float delta = (value - prediction) * beta;
+    float result = 0.0F;
+    for (std::size_t key_dimension = 0;
+         key_dimension < kGdnHeadDimension; ++key_dimension) {
+      const std::size_t state_index = state_row_offset + key_dimension;
+      const float decayed_state =
+          alpha * decode_bf16_device(recurrent_state[state_index]);
+      const float updated_state =
+          fmaf(delta, normalized_k[key_dimension], decayed_state);
+      state_output[state_index] = encode_bf16_device(updated_state);
+      result = fmaf(updated_state, normalized_q[key_dimension], result);
+    }
+    output[output_token_offset + value_head * kGdnHeadDimension + dimension] =
+        encode_bf16_device(result);
+    if (token + 1U < token_count) {
+      __syncthreads();
+    }
+  }
+}
+
 }  // namespace
 
 int launch_causal_conv1d_silu_update_reference_cuda(
@@ -250,6 +408,37 @@ int launch_causal_conv1d_silu_update_reference_cuda(
   (void)cudaGetLastError();
   causal_conv1d_silu_update_kernel<<<kBlocks, kConvThreads, 0U, stream>>>(
       raw_qkv, conv_weight, history_in_out, conv_qkv_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_causal_conv1d_silu_update_tile_reference_cuda(
+    const std::uint16_t* const raw_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const conv_weight,
+    std::uint16_t* const history_in_out,
+    std::uint16_t* const conv_qkv_output,
+    const GdnDimensions dimensions,
+    void* const cuda_stream) noexcept {
+  if (token_count == 1U) {
+    return launch_causal_conv1d_silu_update_reference_cuda(
+        raw_qkv, conv_weight, history_in_out, conv_qkv_output, dimensions,
+        cuda_stream);
+  }
+  if (token_count == 0U || token_count > kGdnMaximumTileTokenCount ||
+      validate_dimensions(dimensions) != GdnStatus::kSuccess ||
+      raw_qkv == nullptr || conv_weight == nullptr ||
+      history_in_out == nullptr || conv_qkv_output == nullptr ||
+      invalid_conv_alias(raw_qkv, conv_weight, history_in_out,
+                         conv_qkv_output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr unsigned int kBlocks = static_cast<unsigned int>(
+      kGdnQkvChannels / kConvThreads +
+      (kGdnQkvChannels % kConvThreads != 0U ? 1U : 0U));
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  causal_conv1d_silu_update_tile_kernel<<<kBlocks, kConvThreads, 0U, stream>>>(
+      raw_qkv, token_count, conv_weight, history_in_out, conv_qkv_output);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -280,6 +469,43 @@ int launch_gated_delta_net_update_reference_cuda(
       static_cast<unsigned int>(kGdnValueHeadCount), kGdnThreads, 0U, stream>>>(
       conv_qkv, a, b, A_log, dt_bias, state_input, state_output, l2_epsilon,
       output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gated_delta_net_update_tile_reference_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output,
+    const GdnDimensions dimensions,
+    void* const cuda_stream) noexcept {
+  if (token_count == 1U) {
+    return launch_gated_delta_net_update_reference_cuda(
+        conv_qkv, a, b, A_log, dt_bias, state_input, state_output, l2_epsilon,
+        output, dimensions, cuda_stream);
+  }
+  if (token_count == 0U || token_count > kGdnMaximumTileTokenCount ||
+      validate_dimensions(dimensions) != GdnStatus::kSuccess ||
+      !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
+      conv_qkv == nullptr || a == nullptr || b == nullptr || A_log == nullptr ||
+      dt_bias == nullptr || state_input == nullptr || state_output == nullptr ||
+      output == nullptr ||
+      invalid_gdn_alias(conv_qkv, a, b, A_log, dt_bias, state_input,
+                        state_output, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_tile_kernel<<<
+      static_cast<unsigned int>(kGdnValueHeadCount), kGdnThreads, 0U, stream>>>(
+      conv_qkv, token_count, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, output);
   return static_cast<int>(cudaGetLastError());
 }
 

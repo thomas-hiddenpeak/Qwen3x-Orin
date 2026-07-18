@@ -10,6 +10,7 @@ inline constexpr std::size_t kGdnValueHeadCount = 48U;
 inline constexpr std::size_t kGdnHeadDimension = 128U;
 inline constexpr std::size_t kGdnConvHistoryWidth = 3U;
 inline constexpr std::size_t kGdnConvKernelWidth = 4U;
+inline constexpr std::size_t kGdnMaximumTileTokenCount = 8U;
 inline constexpr std::size_t kGdnQElements =
     kGdnQkHeadCount * kGdnHeadDimension;
 inline constexpr std::size_t kGdnKElements = kGdnQElements;
@@ -76,6 +77,18 @@ enum class GdnStatus : std::uint8_t {
     std::uint16_t* history_in_out, std::uint16_t* conv_qkv_output,
     GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
 
+// Sequence-tile form of the causal convolution launch above. raw_qkv and
+// conv_qkv_output are contiguous token-major BF16
+// [token_count, kGdnQkvChannels], and token_count must be in [1, 8]. The
+// history recurrence is evaluated in token order with the same raw-BF16
+// boundary as separate single-token launches. Exact raw/output aliasing is
+// supported, and M=1 delegates to the single-token entry point.
+[[nodiscard]] int launch_causal_conv1d_silu_update_tile_reference_cuda(
+    const std::uint16_t* raw_qkv, std::size_t token_count,
+    const std::uint16_t* conv_weight, std::uint16_t* history_in_out,
+    std::uint16_t* conv_qkv_output, GdnDimensions dimensions = {},
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_gated_delta_net_update_reference_cuda(
     const std::uint16_t* conv_qkv, const std::uint16_t* a,
     const std::uint16_t* b, const std::uint16_t* A_log,
@@ -83,5 +96,21 @@ enum class GdnStatus : std::uint8_t {
     std::uint16_t* state_output, float l2_epsilon,
     std::uint16_t* output, GdnDimensions dimensions = {},
     void* cuda_stream = nullptr) noexcept;
+
+// Sequence-tile form of the Gated DeltaNet launch above. conv_qkv is
+// token-major BF16 [token_count, kGdnQkvChannels], a and b are token-major
+// BF16 [token_count, kGdnValueHeadCount], and output is token-major BF16
+// [token_count, kGdnVElements]. A_log and dt_bias remain per-head constants.
+// token_count must be in [1, 8]. Each recurrence step reads the BF16 state
+// persisted by the preceding step while its output uses that step's FP32
+// updated state, exactly as separate single-token launches. M=1 delegates to
+// the single-token entry point.
+[[nodiscard]] int launch_gated_delta_net_update_tile_reference_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

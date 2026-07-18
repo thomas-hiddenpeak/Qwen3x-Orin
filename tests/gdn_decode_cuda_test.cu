@@ -143,6 +143,30 @@ void expect_bf16_buffer_near(TestContext& test,
                   ", max_abs_error=" + std::to_string(maximum_error));
 }
 
+void expect_bf16_buffer_bitwise_equal(
+    TestContext& test, const std::uint16_t* const actual,
+    const std::uint16_t* const expected, const std::size_t count,
+    const std::string& label) {
+  std::size_t mismatch_count = 0U;
+  std::size_t first_mismatch = 0U;
+  for (std::size_t index = 0U; index < count; ++index) {
+    if (actual[index] != expected[index]) {
+      if (mismatch_count == 0U) {
+        first_mismatch = index;
+      }
+      ++mismatch_count;
+    }
+  }
+  std::string detail =
+      label + " mismatches=" + std::to_string(mismatch_count);
+  if (mismatch_count != 0U) {
+    detail += ", first=" + std::to_string(first_mismatch) +
+              ", actual_bits=" + std::to_string(actual[first_mismatch]) +
+              ", expected_bits=" + std::to_string(expected[first_mismatch]);
+  }
+  test.expect(mismatch_count == 0U, detail);
+}
+
 void test_launch_validation(TestContext& test) {
   const q3x::runtime::GdnDimensions wrong{15U, 48U, 128U};
   const q3x::runtime::GdnDimensions overflow{
@@ -171,6 +195,169 @@ void test_launch_validation(TestContext& test) {
                       nullptr, std::numeric_limits<float>::infinity(),
                       nullptr)) == cudaErrorInvalidValue,
               "CUDA GDN rejects infinite epsilon");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  nullptr, 0U, nullptr, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA tile conv rejects zero tokens");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  nullptr, 1U, nullptr, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA tile conv M=1 rejects null buffers");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  nullptr, q3x::runtime::kGdnMaximumTileTokenCount + 1U,
+                  nullptr, nullptr, nullptr)) == cudaErrorInvalidValue,
+      "CUDA tile conv rejects oversized tile");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  nullptr, 2U, nullptr, nullptr, nullptr, wrong)) ==
+          cudaErrorInvalidValue,
+      "CUDA tile conv rejects wrong dimensions");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+              nullptr, 0U, nullptr, nullptr, nullptr, nullptr, nullptr,
+              nullptr, 1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "CUDA tile GDN rejects zero tokens");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+              nullptr, 1U, nullptr, nullptr, nullptr, nullptr, nullptr,
+              nullptr, 1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "CUDA tile GDN M=1 rejects null buffers");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+              nullptr, q3x::runtime::kGdnMaximumTileTokenCount + 1U,
+              nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 1.0e-6F,
+              nullptr)) == cudaErrorInvalidValue,
+      "CUDA tile GDN rejects oversized tile");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+              nullptr, 2U, nullptr, nullptr, nullptr, nullptr, nullptr,
+              nullptr, std::numeric_limits<float>::quiet_NaN(), nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA tile GDN rejects NaN epsilon");
+}
+
+void test_conv_tile_bitwise(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kMaximumTokens =
+      q3x::runtime::kGdnMaximumTileTokenCount;
+  constexpr std::size_t kTileElements =
+      kMaximumTokens * q3x::runtime::kGdnQkvChannels;
+  constexpr std::size_t kHistoryElements =
+      q3x::runtime::kGdnQkvChannels *
+      q3x::runtime::kGdnConvHistoryWidth;
+
+  ManagedBuffer<std::uint16_t> sequential_qkv;
+  ManagedBuffer<std::uint16_t> tile_qkv;
+  ManagedBuffer<std::uint16_t> weight;
+  ManagedBuffer<std::uint16_t> sequential_history;
+  ManagedBuffer<std::uint16_t> tile_history;
+  bool ready = test.cuda_ok(sequential_qkv.allocate(kTileElements),
+                            "tile conv allocate sequential QKV");
+  ready = ready && test.cuda_ok(tile_qkv.allocate(kTileElements),
+                                "tile conv allocate tile QKV");
+  ready = ready && test.cuda_ok(
+                       weight.allocate(q3x::runtime::kGdnQkvChannels *
+                                       q3x::runtime::kGdnConvKernelWidth),
+                       "tile conv allocate weight");
+  ready = ready && test.cuda_ok(sequential_history.allocate(kHistoryElements),
+                                "tile conv allocate sequential history");
+  ready = ready && test.cuda_ok(tile_history.allocate(kHistoryElements),
+                                "tile conv allocate tile history");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> initial_qkv(kTileElements);
+  std::vector<std::uint16_t> initial_history(kHistoryElements);
+  for (std::size_t index = 0U; index < weight.size(); ++index) {
+    const int centered = static_cast<int>((index * 13U) % 29U) - 14;
+    weight[index] = encode_bf16(static_cast<float>(centered) / 64.0F);
+  }
+  for (std::size_t token = 0U; token < kMaximumTokens; ++token) {
+    for (std::size_t channel = 0U;
+         channel < q3x::runtime::kGdnQkvChannels; ++channel) {
+      const int centered = static_cast<int>(
+                               (channel * 17U + token * 11U) % 43U) -
+                           21;
+      initial_qkv[token * q3x::runtime::kGdnQkvChannels + channel] =
+          encode_bf16(static_cast<float>(centered) / 32.0F);
+    }
+  }
+  for (std::size_t index = 0U; index < kHistoryElements; ++index) {
+    const int centered = static_cast<int>((index * 7U) % 19U) - 9;
+    initial_history[index] =
+        encode_bf16(static_cast<float>(centered) / 128.0F);
+  }
+
+  for (std::size_t token_count = 1U; token_count <= kMaximumTokens;
+       ++token_count) {
+    std::copy(initial_qkv.begin(), initial_qkv.end(), sequential_qkv.data());
+    std::copy(initial_qkv.begin(), initial_qkv.end(), tile_qkv.data());
+    std::copy(initial_history.begin(), initial_history.end(),
+              sequential_history.data());
+    std::copy(initial_history.begin(), initial_history.end(),
+              tile_history.data());
+
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      std::uint16_t* const qkv =
+          sequential_qkv.data() +
+          token * q3x::runtime::kGdnQkvChannels;
+      if (!test.cuda_ok(
+              static_cast<cudaError_t>(
+                  q3x::runtime::
+                      launch_causal_conv1d_silu_update_reference_cuda(
+                          qkv, weight.data(), sequential_history.data(), qkv,
+                          {}, static_cast<void*>(stream))),
+              "tile conv sequential launch M=" +
+                  std::to_string(token_count) +
+                  " token=" + std::to_string(token))) {
+        return;
+      }
+    }
+    ready = launch_after_stale(
+        test, stream, "causal conv tile M=" + std::to_string(token_count),
+        [&]() {
+          return q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  tile_qkv.data(), token_count, weight.data(),
+                  tile_history.data(), tile_qkv.data(), {},
+                  static_cast<void*>(stream));
+        });
+    if (!ready) {
+      return;
+    }
+    expect_bf16_buffer_bitwise_equal(
+        test, tile_qkv.data(), sequential_qkv.data(),
+        token_count * q3x::runtime::kGdnQkvChannels,
+        "CUDA causal conv tile in-place output M=" +
+            std::to_string(token_count));
+    expect_bf16_buffer_bitwise_equal(
+        test, tile_history.data(), sequential_history.data(),
+        kHistoryElements,
+        "CUDA causal conv tile history M=" + std::to_string(token_count));
+  }
+
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  tile_qkv.data(), 2U, weight.data(), tile_history.data(),
+                  tile_history.data())) == cudaErrorInvalidValue,
+      "CUDA tile conv rejects history/output alias");
 }
 
 void test_conv_multistep(TestContext& test, cudaStream_t stream) {
@@ -301,6 +488,191 @@ void fill_gdn_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
   A_log[2] = encode_bf16(4.0F);
 }
 
+void fill_gdn_tile_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
+                          ManagedBuffer<std::uint16_t>& a,
+                          ManagedBuffer<std::uint16_t>& b,
+                          ManagedBuffer<std::uint16_t>& A_log,
+                          ManagedBuffer<std::uint16_t>& dt_bias) {
+  constexpr std::size_t kKOffset = q3x::runtime::kGdnQElements;
+  constexpr std::size_t kVOffset =
+      q3x::runtime::kGdnQElements + q3x::runtime::kGdnKElements;
+  for (std::size_t token = 0U;
+       token < q3x::runtime::kGdnMaximumTileTokenCount; ++token) {
+    const std::size_t qkv_offset = token * q3x::runtime::kGdnQkvChannels;
+    const std::size_t scalar_offset =
+        token * q3x::runtime::kGdnValueHeadCount;
+    for (std::size_t head = 0U;
+         head < q3x::runtime::kGdnQkHeadCount; ++head) {
+      for (std::size_t dimension = 0U;
+           dimension < q3x::runtime::kGdnHeadDimension; ++dimension) {
+        const int q_centered = static_cast<int>(
+                                   (head * 11U + dimension * 3U +
+                                    token * 5U) %
+                                   29U) -
+                               14;
+        const int k_centered = static_cast<int>(
+                                   (head * 7U + dimension * 5U +
+                                    token * 2U) %
+                                   31U) -
+                               15;
+        conv_qkv[qkv_offset +
+                 head * q3x::runtime::kGdnHeadDimension + dimension] =
+            encode_bf16(static_cast<float>(q_centered) / 16.0F);
+        conv_qkv[qkv_offset + kKOffset +
+                 head * q3x::runtime::kGdnHeadDimension + dimension] =
+            encode_bf16(static_cast<float>(k_centered) / 16.0F);
+      }
+    }
+    for (std::size_t index = 0U; index < q3x::runtime::kGdnVElements;
+         ++index) {
+      const int centered =
+          static_cast<int>((index * 13U + token * 7U) % 37U) - 18;
+      conv_qkv[qkv_offset + kVOffset + index] =
+          encode_bf16(static_cast<float>(centered) / 16.0F);
+    }
+    for (std::size_t head = 0U;
+         head < q3x::runtime::kGdnValueHeadCount; ++head) {
+      a[scalar_offset + head] = encode_bf16(
+          static_cast<float>(static_cast<int>((head + token) % 9U) - 4) *
+          0.25F);
+      b[scalar_offset + head] = encode_bf16(
+          static_cast<float>(static_cast<int>((head + 2U * token) % 11U) -
+                             5) *
+          0.5F);
+    }
+  }
+  for (std::size_t head = 0U; head < q3x::runtime::kGdnValueHeadCount;
+       ++head) {
+    A_log[head] = encode_bf16(
+        -1.5F + static_cast<float>(head % 5U) * 0.375F);
+    dt_bias[head] = encode_bf16(
+        -0.75F + static_cast<float>(head % 7U) * 0.125F);
+  }
+  b[0] = encode_bf16(20.0F);
+  b[q3x::runtime::kGdnValueHeadCount + 1U] = encode_bf16(-20.0F);
+  a[2U * q3x::runtime::kGdnValueHeadCount + 2U] = encode_bf16(25.0F);
+  A_log[2] = encode_bf16(4.0F);
+}
+
+void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kMaximumTokens =
+      q3x::runtime::kGdnMaximumTileTokenCount;
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> sequential_state;
+  ManagedBuffer<std::uint16_t> tile_state;
+  ManagedBuffer<std::uint16_t> sequential_output;
+  ManagedBuffer<std::uint16_t> tile_output;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kMaximumTokens * q3x::runtime::kGdnQkvChannels),
+      "tile GDN allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kMaximumTokens *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "tile GDN allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kMaximumTokens *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "tile GDN allocate b");
+  ready = ready && test.cuda_ok(A_log.allocate(
+                                    q3x::runtime::kGdnValueHeadCount),
+                                "tile GDN allocate A_log");
+  ready = ready && test.cuda_ok(dt_bias.allocate(
+                                    q3x::runtime::kGdnValueHeadCount),
+                                "tile GDN allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       sequential_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate sequential state");
+  ready = ready && test.cuda_ok(
+                       tile_state.allocate(q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate tile state");
+  ready = ready && test.cuda_ok(
+                       sequential_output.allocate(
+                           kMaximumTokens * q3x::runtime::kGdnVElements),
+                       "tile GDN allocate sequential output");
+  ready = ready && test.cuda_ok(
+                       tile_output.allocate(
+                           kMaximumTokens * q3x::runtime::kGdnVElements),
+                       "tile GDN allocate tile output");
+  if (!ready) {
+    return;
+  }
+
+  fill_gdn_tile_inputs(conv_qkv, a, b, A_log, dt_bias);
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+
+  for (std::size_t token_count = 1U; token_count <= kMaximumTokens;
+       ++token_count) {
+    std::copy(initial_state.begin(), initial_state.end(),
+              sequential_state.data());
+    std::copy(initial_state.begin(), initial_state.end(), tile_state.data());
+    std::fill_n(sequential_output.data(), sequential_output.size(),
+                static_cast<std::uint16_t>(0U));
+    std::fill_n(tile_output.data(), tile_output.size(),
+                static_cast<std::uint16_t>(0U));
+
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      if (!test.cuda_ok(
+              static_cast<cudaError_t>(
+                  q3x::runtime::launch_gated_delta_net_update_reference_cuda(
+                      conv_qkv.data() +
+                          token * q3x::runtime::kGdnQkvChannels,
+                      a.data() + token * q3x::runtime::kGdnValueHeadCount,
+                      b.data() + token * q3x::runtime::kGdnValueHeadCount,
+                      A_log.data(), dt_bias.data(), sequential_state.data(),
+                      sequential_state.data(), 1.0e-6F,
+                      sequential_output.data() +
+                          token * q3x::runtime::kGdnVElements,
+                      {}, static_cast<void*>(stream))),
+              "tile GDN sequential launch M=" +
+                  std::to_string(token_count) +
+                  " token=" + std::to_string(token))) {
+        return;
+      }
+    }
+    ready = launch_after_stale(
+        test, stream, "GDN tile M=" + std::to_string(token_count), [&]() {
+          return q3x::runtime::
+              launch_gated_delta_net_update_tile_reference_cuda(
+                  conv_qkv.data(), token_count, a.data(), b.data(),
+                  A_log.data(), dt_bias.data(), tile_state.data(),
+                  tile_state.data(), 1.0e-6F, tile_output.data(), {},
+                  static_cast<void*>(stream));
+        });
+    if (!ready) {
+      return;
+    }
+    expect_bf16_buffer_bitwise_equal(
+        test, tile_output.data(), sequential_output.data(),
+        token_count * q3x::runtime::kGdnVElements,
+        "CUDA GDN tile FP32-pre-store output M=" +
+            std::to_string(token_count));
+    expect_bf16_buffer_bitwise_equal(
+        test, tile_state.data(), sequential_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "CUDA GDN tile BF16 persistent state M=" +
+            std::to_string(token_count));
+  }
+
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+              conv_qkv.data(), 2U, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), tile_state.data(), tile_state.data(), 1.0e-6F,
+              conv_qkv.data())) == cudaErrorInvalidValue,
+      "CUDA tile GDN rejects output/conv alias");
+}
+
 void test_gdn_multistep(TestContext& test, cudaStream_t stream) {
   ManagedBuffer<std::uint16_t> conv_qkv;
   ManagedBuffer<std::uint16_t> a;
@@ -406,7 +778,9 @@ int main() {
     return 1;
   }
   test_conv_multistep(test, stream);
+  test_conv_tile_bitwise(test, stream);
   test_gdn_multistep(test, stream);
+  test_gdn_tile_bitwise(test, stream);
   (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy GDN stream");
   if (test.failures() != 0) {
     std::cerr << test.failures() << " CUDA GDN assertion(s) failed\n";

@@ -1274,26 +1274,20 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                    "prefill_linear_b_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      for (std::size_t token = 0U; token < token_count; ++token) {
-        std::uint16_t* const qkv =
-            views_.projection[0] + token * kLinearQkvElements;
-        if (!check_cuda(launch_causal_conv1d_silu_update_reference_cuda(
-                            qkv, attention->conv1d.data,
-                            views_.conv_state[layer], qkv, {}, stream_),
-                        "prefill_linear_causal_conv", layer) ||
-            !check_cuda(launch_gated_delta_net_update_reference_cuda(
-                            qkv,
-                            views_.linear_a + token * kLinearScalarElements,
-                            views_.linear_b + token * kLinearScalarElements,
-                            attention->a_log.data, attention->dt_bias.data,
-                            views_.gdn_state[layer], views_.gdn_state[layer],
-                            kRmsEpsilon,
-                            views_.projection[2] +
-                                token * kLinearValueElements,
-                            {}, stream_),
-                        "prefill_linear_gdn", layer)) {
-          return fail_prefill_tile(launch_failure);
-        }
+      if (!check_cuda(
+              launch_causal_conv1d_silu_update_tile_reference_cuda(
+                  views_.projection[0], token_count, attention->conv1d.data,
+                  views_.conv_state[layer], views_.projection[0], {},
+                  stream_),
+              "prefill_linear_causal_conv", layer) ||
+          !check_cuda(launch_gated_delta_net_update_tile_reference_cuda(
+                          views_.projection[0], token_count, views_.linear_a,
+                          views_.linear_b, attention->a_log.data,
+                          attention->dt_bias.data, views_.gdn_state[layer],
+                          views_.gdn_state[layer], kRmsEpsilon,
+                          views_.projection[2], {}, stream_),
+                      "prefill_linear_gdn", layer)) {
+        return fail_prefill_tile(launch_failure);
       }
       if (!check_cuda(
               launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
