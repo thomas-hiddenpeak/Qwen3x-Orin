@@ -159,6 +159,16 @@ void test_launch_validation(TestContext& test) {
                   cudaErrorInvalidValue,
               "CUDA headwise RMSNorm rejects overflow");
   test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+                      nullptr, nullptr, 0U, 5'120U, 1.0e-6F, nullptr)) ==
+                  cudaSuccess,
+              "empty CUDA headwise RMSNorm is a no-op");
+  test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+                      nullptr, nullptr, 8U, 5'120U, 1.0e-6F, nullptr)) ==
+                  cudaErrorInvalidValue,
+              "non-empty CUDA headwise RMSNorm rejects null storage");
+  test.expect(static_cast<cudaError_t>(
                   q3x::runtime::
                       launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
                           nullptr, nullptr, nullptr, 1U, 1U, 1.0e-6F,
@@ -335,6 +345,88 @@ void test_vector_ops(TestContext& test, cudaStream_t stream) {
                             std::to_string(index));
     }
   }
+}
+
+void run_outer_rms_tile_exact_case(TestContext& test, cudaStream_t stream,
+                                   const std::size_t row_count) {
+  constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr float kEpsilon = 1.0e-6F;
+  const std::size_t element_count = row_count * kHiddenSize;
+  const std::string label =
+      "outer centered RMSNorm tile M=" + std::to_string(row_count);
+
+  ManagedBuffer<std::uint16_t> input;
+  ManagedBuffer<std::uint16_t> weight;
+  ManagedBuffer<std::uint16_t> scalar_output;
+  ManagedBuffer<std::uint16_t> tile_output;
+  bool ready = test.cuda_ok(input.allocate(element_count),
+                            label + " allocate input");
+  ready = ready && test.cuda_ok(weight.allocate(kHiddenSize),
+                                label + " allocate weight");
+  ready = ready && test.cuda_ok(scalar_output.allocate(element_count),
+                                label + " allocate scalar output");
+  ready = ready && test.cuda_ok(tile_output.allocate(element_count),
+                                label + " allocate tile output");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t row = 0U; row < row_count; ++row) {
+    for (std::size_t dimension = 0U; dimension < kHiddenSize; ++dimension) {
+      const int centered = static_cast<int>(
+                               (row * 29U + dimension * 17U) % 127U) -
+                           63;
+      input[row * kHiddenSize + dimension] =
+          encode_bf16(static_cast<float>(centered) / 32.0F);
+    }
+  }
+  for (std::size_t dimension = 0U; dimension < kHiddenSize; ++dimension) {
+    const int centered = static_cast<int>((dimension * 11U) % 61U) - 30;
+    weight[dimension] =
+        encode_bf16(static_cast<float>(centered) / 64.0F);
+  }
+
+  ready = launch_after_stale(test, stream, label + " repeated scalar", [&]() {
+    for (std::size_t row = 0U; row < row_count; ++row) {
+      const int status =
+          q3x::runtime::launch_centered_rms_norm_reference_cuda(
+              input.data() + row * kHiddenSize, weight.data(), kHiddenSize,
+              kEpsilon, scalar_output.data() + row * kHiddenSize,
+              static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  });
+  if (!ready) {
+    return;
+  }
+  ready = launch_after_stale(test, stream, label + " tiled", [&]() {
+    return q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+        input.data(), weight.data(), row_count, kHiddenSize, kEpsilon,
+        tile_output.data(), static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+
+  const auto mismatch = std::mismatch(
+      scalar_output.data(), scalar_output.data() + element_count,
+      tile_output.data());
+  test.expect(mismatch.first == scalar_output.data() + element_count,
+              label + " is bitwise identical to repeated scalar launches" +
+                  (mismatch.first == scalar_output.data() + element_count
+                       ? std::string{}
+                       : " at element " + std::to_string(static_cast<std::size_t>(
+                                                mismatch.first -
+                                                scalar_output.data()))));
+}
+
+void test_outer_rms_tile_exact(TestContext& test, cudaStream_t stream) {
+  run_outer_rms_tile_exact_case(test, stream, 1U);
+  run_outer_rms_tile_exact_case(test, stream, 2U);
+  run_outer_rms_tile_exact_case(test, stream, 8U);
 }
 
 void test_fp32_conversion(TestContext& test, cudaStream_t stream) {
@@ -710,6 +802,7 @@ int main() {
 
   test_embedding(test, stream);
   test_vector_ops(test, stream);
+  test_outer_rms_tile_exact(test, stream);
   test_fp32_conversion(test, stream);
   run_headwise_norm_case(test, stream, 24U,
                          q3x::runtime::kFullAttentionHeadDimension,

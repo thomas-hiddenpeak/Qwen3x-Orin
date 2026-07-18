@@ -184,6 +184,8 @@ struct LogitsAnalysis {
 
 [[nodiscard]] LogitsAnalysis analyze_bf16_logits_in_place(
     float* logits, std::size_t element_count) noexcept;
+[[nodiscard]] LogitsAnalysis analyze_bf16_logits_bits(
+    const std::uint16_t* logits, std::size_t element_count) noexcept;
 
 // Exact payload/dimension preflight used by the runner factory. Exposed here
 // so small fake weights can test FP8/NVFP4 scalar constraints without a model
@@ -272,7 +274,7 @@ class ReferenceRunner {
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
   void* stream_ = nullptr;
-  float* pinned_logits_ = nullptr;
+  void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;

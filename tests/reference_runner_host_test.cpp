@@ -87,6 +87,37 @@ void test_logits_analysis(TestContext& test) {
   }
 }
 
+void test_bf16_logits_bits_analysis(TestContext& test) {
+  std::vector<float> rounded_source{1.25F, -2.0F, 3.5F, 3.5F, 0.0F};
+  std::vector<std::uint16_t> bits;
+  bits.reserve(rounded_source.size());
+  for (const float value : rounded_source) {
+    bits.push_back(detail::float_to_bf16_rne(value));
+  }
+  const auto from_bits =
+      detail::analyze_bf16_logits_bits(bits.data(), bits.size());
+  const auto from_fp32 = detail::analyze_bf16_logits_in_place(
+      rounded_source.data(), rounded_source.size());
+  test.expect(from_bits.ok() && from_fp32.ok() &&
+                  from_bits.predicted_index == from_fp32.predicted_index &&
+                  from_bits.predicted_index == 2U &&
+                  from_bits.maximum == from_fp32.maximum &&
+                  from_bits.logsumexp == from_fp32.logsumexp &&
+                  from_bits.max_log_probability ==
+                      from_fp32.max_log_probability,
+              "packed BF16 logits preserve analysis and earliest ties");
+
+  test.expect(detail::analyze_bf16_logits_bits(nullptr, 1U).status ==
+                  detail::LogitsAnalysisStatus::kInvalidArgument &&
+                  detail::analyze_bf16_logits_bits(bits.data(), 0U).status ==
+                      detail::LogitsAnalysisStatus::kInvalidArgument,
+              "packed BF16 logits reject empty storage");
+  constexpr std::uint16_t kNonFinite[] = {0x3f80U, 0x7f80U};
+  test.expect(detail::analyze_bf16_logits_bits(kNonFinite, 2U).status ==
+                  detail::LogitsAnalysisStatus::kNonFinite,
+              "packed BF16 logits reject non-finite values");
+}
+
 void test_schedule_and_workspace(TestContext& test) {
   std::size_t linear = 0U;
   std::size_t full = 0U;
@@ -229,6 +260,7 @@ int main() {
   TestContext test;
   test_bf16_rounding(test);
   test_logits_analysis(test);
+  test_bf16_logits_bits_analysis(test);
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_trace_layout_and_factory_error(test);

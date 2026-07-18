@@ -469,6 +469,47 @@ LogitsAnalysis analyze_bf16_logits_in_place(
   return result;
 }
 
+LogitsAnalysis analyze_bf16_logits_bits(
+    const std::uint16_t* const logits,
+    const std::size_t element_count) noexcept {
+  LogitsAnalysis result;
+  if (logits == nullptr || element_count == 0U) {
+    result.status = LogitsAnalysisStatus::kInvalidArgument;
+    return result;
+  }
+
+  std::size_t maximum_index = 0U;
+  float maximum = bf16_to_float(logits[0]);
+  bool all_finite = std::isfinite(maximum);
+  for (std::size_t index = 1U; index < element_count; ++index) {
+    const float value = bf16_to_float(logits[index]);
+    all_finite = all_finite && std::isfinite(value);
+    if (value > maximum) {
+      maximum = value;
+      maximum_index = index;
+    }
+  }
+  if (!all_finite) {
+    result.status = LogitsAnalysisStatus::kNonFinite;
+    return result;
+  }
+
+  double exponential_sum = 0.0;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    exponential_sum +=
+        std::exp(static_cast<double>(bf16_to_float(logits[index])) -
+                 static_cast<double>(maximum));
+  }
+  const double logsumexp =
+      static_cast<double>(maximum) + std::log(exponential_sum);
+  result.status = LogitsAnalysisStatus::kSuccess;
+  result.predicted_index = maximum_index;
+  result.maximum = maximum;
+  result.logsumexp = logsumexp;
+  result.max_log_probability = static_cast<double>(maximum) - logsumexp;
+  return result;
+}
+
 bool valid_reference_linear_weight_contract(
     const LinearWeight& weight, const std::size_t output_size,
     const std::size_t input_size) noexcept {
@@ -1010,16 +1051,35 @@ ReferenceStepOutcome ReferenceRunner::step(
   }
 
   if (options.compute_logits) {
-    if (!check_cuda(launch_projection_reference_cuda(
-                        weights_->lm_head(), views_.hidden[1],
-                        views_.fp32_scratch, stream_),
-                    "lm_head", kReferenceNoLayer) ||
-        !check_cuda(
-            static_cast<int>(cudaMemcpyAsync(
-                pinned_logits_, views_.fp32_scratch,
-                kReferenceVocabularySize * sizeof(float),
-                cudaMemcpyDeviceToHost, stream)),
-            "logits_d2h", kReferenceNoLayer)) {
+    const bool use_sm87_bf16_logits =
+        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+        linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
+    if (use_sm87_bf16_logits) {
+      auto* const device_bf16_logits =
+          reinterpret_cast<std::uint16_t*>(views_.fp32_scratch);
+      if (!check_cuda(launch_projection_to_bf16_cuda(
+                          projection_backend_, weights_->lm_head(),
+                          views_.hidden[1], nullptr, 0U,
+                          device_bf16_logits, stream_),
+                      "lm_head_sm87_bf16", kReferenceNoLayer) ||
+          !check_cuda(
+              static_cast<int>(cudaMemcpyAsync(
+                  pinned_logits_, device_bf16_logits,
+                  kReferenceVocabularySize * sizeof(std::uint16_t),
+                  cudaMemcpyDeviceToHost, stream)),
+              "logits_bf16_d2h", kReferenceNoLayer)) {
+        return fail_step(launch_failure);
+      }
+    } else if (!check_cuda(launch_projection_reference_cuda(
+                               weights_->lm_head(), views_.hidden[1],
+                               views_.fp32_scratch, stream_),
+                           "lm_head", kReferenceNoLayer) ||
+               !check_cuda(
+                   static_cast<int>(cudaMemcpyAsync(
+                       pinned_logits_, views_.fp32_scratch,
+                       kReferenceVocabularySize * sizeof(float),
+                       cudaMemcpyDeviceToHost, stream)),
+                   "logits_d2h", kReferenceNoLayer)) {
       return fail_step(launch_failure);
     }
   }
@@ -1035,9 +1095,17 @@ ReferenceStepOutcome ReferenceRunner::step(
   result.position = position;
   result.input_token_id = input_token_id;
   if (options.compute_logits) {
+    const bool used_sm87_bf16_logits =
+        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+        linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
     const reference_runner_detail::LogitsAnalysis analysis =
-        reference_runner_detail::analyze_bf16_logits_in_place(
-            pinned_logits_, kReferenceVocabularySize);
+        used_sm87_bf16_logits
+            ? reference_runner_detail::analyze_bf16_logits_bits(
+                  static_cast<const std::uint16_t*>(pinned_logits_),
+                  kReferenceVocabularySize)
+            : reference_runner_detail::analyze_bf16_logits_in_place(
+                  static_cast<float*>(pinned_logits_),
+                  kReferenceVocabularySize);
     if (!analysis.ok()) {
       return fail_step(runner_status(
           ReferenceRunnerError::kNonFiniteLogits, "bf16_logits_analysis"));
@@ -1175,16 +1243,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
-    for (std::size_t token = 0U; token < token_count; ++token) {
-      if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                          views_.hidden[0] + token * kReferenceHiddenSize,
-                          layer_weights.input_layernorm.data,
-                          kReferenceHiddenSize, kRmsEpsilon,
-                          views_.hidden[1] + token * kReferenceHiddenSize,
-                          stream_),
-                      "prefill_input_layernorm", layer)) {
-        return fail_prefill_tile(launch_failure);
-      }
+    if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                        views_.hidden[0],
+                        layer_weights.input_layernorm.data, token_count,
+                        kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
+                        stream_),
+                    "prefill_input_layernorm", layer)) {
+      return fail_prefill_tile(launch_failure);
     }
 
     const model::LayerType expected =
@@ -1368,16 +1433,13 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     "prefill_attention_residual", layer)) {
       return fail_prefill_tile(launch_failure);
     }
-    for (std::size_t token = 0U; token < token_count; ++token) {
-      if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                          views_.hidden[2] + token * kReferenceHiddenSize,
-                          layer_weights.post_attention_layernorm.data,
-                          kReferenceHiddenSize, kRmsEpsilon,
-                          views_.hidden[1] + token * kReferenceHiddenSize,
-                          stream_),
-                      "prefill_post_attention_layernorm", layer)) {
-        return fail_prefill_tile(launch_failure);
-      }
+    if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                        views_.hidden[2],
+                        layer_weights.post_attention_layernorm.data,
+                        token_count, kReferenceHiddenSize, kRmsEpsilon,
+                        views_.hidden[1], stream_),
+                    "prefill_post_attention_layernorm", layer)) {
+      return fail_prefill_tile(launch_failure);
     }
     if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
                  views_.projection[0], "prefill_mlp_gate_projection", layer) ||
@@ -1401,16 +1463,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   // Match the non-logit step boundary even though this output is not consumed
   // by the following layer-major tile or by persistent state.
-  for (std::size_t token = 0U; token < token_count; ++token) {
-    if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                        views_.hidden[0] + token * kReferenceHiddenSize,
-                        weights_->final_norm().data, kReferenceHiddenSize,
-                        kRmsEpsilon,
-                        views_.hidden[1] + token * kReferenceHiddenSize,
-                        stream_),
-                    "prefill_final_norm", kReferenceNoLayer)) {
-      return fail_prefill_tile(launch_failure);
-    }
+  if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                      views_.hidden[0], weights_->final_norm().data,
+                      token_count, kReferenceHiddenSize, kRmsEpsilon,
+                      views_.hidden[1], stream_),
+                  "prefill_final_norm", kReferenceNoLayer)) {
+    return fail_prefill_tile(launch_failure);
   }
 
   const cudaError_t sync_status = cudaStreamSynchronize(stream);
@@ -1484,7 +1542,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
 
-  status = cudaHostAlloc(reinterpret_cast<void**>(&runner.pinned_logits_),
+  status = cudaHostAlloc(&runner.pinned_logits_,
                          kReferenceVocabularySize * sizeof(float),
                          cudaHostAllocDefault);
   if (status != cudaSuccess) {
