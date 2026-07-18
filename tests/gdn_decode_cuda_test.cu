@@ -7,11 +7,33 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
+
+namespace q3x::runtime {
+
+// Test-only entry points linked beside production for exact and mirrored A/B.
+[[nodiscard]] int launch_gated_delta_net_update_tile_warp_baseline_test_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_gated_delta_net_update_tile_warp_row_pair_test_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+}  // namespace q3x::runtime
 
 namespace {
 
@@ -629,9 +651,14 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
   ManagedBuffer<std::uint16_t> sequential_state;
   ManagedBuffer<std::uint16_t> tile_state;
   ManagedBuffer<std::uint16_t> warp_state;
+  ManagedBuffer<std::uint16_t> row_pair_inplace_state;
+  ManagedBuffer<std::uint16_t> row_pair_disjoint_input_state;
+  ManagedBuffer<std::uint16_t> row_pair_disjoint_output_state;
   ManagedBuffer<std::uint16_t> sequential_output;
   ManagedBuffer<std::uint16_t> tile_output;
   ManagedBuffer<std::uint16_t> warp_output;
+  ManagedBuffer<std::uint16_t> row_pair_inplace_output;
+  ManagedBuffer<std::uint16_t> row_pair_disjoint_output;
   bool ready = test.cuda_ok(
       conv_qkv.allocate(kMaximumTokens * q3x::runtime::kGdnQkvChannels),
       "tile GDN allocate conv QKV");
@@ -660,6 +687,18 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
                        warp_state.allocate(q3x::runtime::kGdnStateElements),
                        "tile GDN allocate warp state");
   ready = ready && test.cuda_ok(
+                       row_pair_inplace_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate row-pair in-place state");
+  ready = ready && test.cuda_ok(
+                       row_pair_disjoint_input_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate row-pair disjoint input state");
+  ready = ready && test.cuda_ok(
+                       row_pair_disjoint_output_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate row-pair disjoint output state");
+  ready = ready && test.cuda_ok(
                        sequential_output.allocate(
                            kMaximumTokens * q3x::runtime::kGdnVElements),
                        "tile GDN allocate sequential output");
@@ -671,6 +710,14 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
                        warp_output.allocate(
                            kMaximumTokens * q3x::runtime::kGdnVElements),
                        "tile GDN allocate warp output");
+  ready = ready && test.cuda_ok(
+                       row_pair_inplace_output.allocate(
+                           kMaximumTokens * q3x::runtime::kGdnVElements),
+                       "tile GDN allocate row-pair in-place output");
+  ready = ready && test.cuda_ok(
+                       row_pair_disjoint_output.allocate(
+                           kMaximumTokens * q3x::runtime::kGdnVElements),
+                       "tile GDN allocate row-pair disjoint output");
   if (!ready) {
     return;
   }
@@ -686,16 +733,36 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
 
   for (std::size_t token_count = 1U; token_count <= kMaximumTokens;
        ++token_count) {
+    const bool test_row_pair =
+        token_count == 1U || token_count == 2U ||
+        token_count == kMaximumTokens;
     std::copy(initial_state.begin(), initial_state.end(),
               sequential_state.data());
     std::copy(initial_state.begin(), initial_state.end(), tile_state.data());
     std::copy(initial_state.begin(), initial_state.end(), warp_state.data());
+    if (test_row_pair) {
+      std::copy(initial_state.begin(), initial_state.end(),
+                row_pair_inplace_state.data());
+      std::copy(initial_state.begin(), initial_state.end(),
+                row_pair_disjoint_input_state.data());
+      std::fill_n(row_pair_disjoint_output_state.data(),
+                  row_pair_disjoint_output_state.size(),
+                  static_cast<std::uint16_t>(0x5a5aU));
+    }
     std::fill_n(sequential_output.data(), sequential_output.size(),
                 static_cast<std::uint16_t>(0U));
     std::fill_n(tile_output.data(), tile_output.size(),
                 static_cast<std::uint16_t>(0U));
     std::fill_n(warp_output.data(), warp_output.size(),
                 static_cast<std::uint16_t>(0U));
+    if (test_row_pair) {
+      std::fill_n(row_pair_inplace_output.data(),
+                  row_pair_inplace_output.size(),
+                  static_cast<std::uint16_t>(0U));
+      std::fill_n(row_pair_disjoint_output.data(),
+                  row_pair_disjoint_output.size(),
+                  static_cast<std::uint16_t>(0U));
+    }
 
     for (std::size_t token = 0U; token < token_count; ++token) {
       if (!test.cuda_ok(
@@ -762,6 +829,132 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
         q3x::runtime::kGdnStateElements,
         "CUDA GDN warp-parallel BF16 persistent state M=" +
             std::to_string(token_count));
+
+    if (test_row_pair) {
+      std::copy(initial_state.begin(), initial_state.end(), warp_state.data());
+      std::fill_n(warp_output.data(), warp_output.size(),
+                  static_cast<std::uint16_t>(0U));
+      ready = launch_after_stale(
+          test, stream,
+          "GDN warp baseline in-place M=" + std::to_string(token_count),
+          [&]() {
+            return q3x::runtime::
+                launch_gated_delta_net_update_tile_warp_baseline_test_cuda(
+                    conv_qkv.data(), token_count, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(), warp_state.data(),
+                    warp_state.data(), 1.0e-6F, warp_output.data(),
+                    static_cast<void*>(stream));
+          });
+      if (!ready) {
+        return;
+      }
+      expect_bf16_buffer_bitwise_equal(
+          test, warp_output.data(), sequential_output.data(),
+          token_count * q3x::runtime::kGdnVElements,
+          "CUDA GDN warp baseline in-place output M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, warp_state.data(), sequential_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp baseline in-place state M=" +
+              std::to_string(token_count));
+
+      ready = launch_after_stale(
+          test, stream,
+          "GDN warp baseline disjoint M=" + std::to_string(token_count),
+          [&]() {
+            return q3x::runtime::
+                launch_gated_delta_net_update_tile_warp_baseline_test_cuda(
+                    conv_qkv.data(), token_count, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(),
+                    row_pair_disjoint_input_state.data(),
+                    row_pair_disjoint_output_state.data(), 1.0e-6F,
+                    row_pair_disjoint_output.data(),
+                    static_cast<void*>(stream));
+          });
+      if (!ready) {
+        return;
+      }
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_output.data(), sequential_output.data(),
+          token_count * q3x::runtime::kGdnVElements,
+          "CUDA GDN warp baseline disjoint output M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_output_state.data(), sequential_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp baseline disjoint state M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_input_state.data(), initial_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp baseline preserves disjoint input M=" +
+              std::to_string(token_count));
+      std::fill_n(row_pair_disjoint_output_state.data(),
+                  row_pair_disjoint_output_state.size(),
+                  static_cast<std::uint16_t>(0x5a5aU));
+      std::fill_n(row_pair_disjoint_output.data(),
+                  row_pair_disjoint_output.size(),
+                  static_cast<std::uint16_t>(0U));
+
+      ready = launch_after_stale(
+          test, stream,
+          "GDN warp row-pair in-place M=" + std::to_string(token_count),
+          [&]() {
+            return q3x::runtime::
+                launch_gated_delta_net_update_tile_warp_row_pair_test_cuda(
+                    conv_qkv.data(), token_count, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(),
+                    row_pair_inplace_state.data(),
+                    row_pair_inplace_state.data(), 1.0e-6F,
+                    row_pair_inplace_output.data(), static_cast<void*>(stream));
+          });
+      if (!ready) {
+        return;
+      }
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_inplace_output.data(), sequential_output.data(),
+          token_count * q3x::runtime::kGdnVElements,
+          "CUDA GDN warp row-pair in-place output M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_inplace_state.data(), sequential_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp row-pair in-place state M=" +
+              std::to_string(token_count));
+
+      ready = launch_after_stale(
+          test, stream,
+          "GDN warp row-pair disjoint M=" + std::to_string(token_count),
+          [&]() {
+            return q3x::runtime::
+                launch_gated_delta_net_update_tile_warp_row_pair_test_cuda(
+                    conv_qkv.data(), token_count, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(),
+                    row_pair_disjoint_input_state.data(),
+                    row_pair_disjoint_output_state.data(), 1.0e-6F,
+                    row_pair_disjoint_output.data(),
+                    static_cast<void*>(stream));
+          });
+      if (!ready) {
+        return;
+      }
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_output.data(), sequential_output.data(),
+          token_count * q3x::runtime::kGdnVElements,
+          "CUDA GDN warp row-pair disjoint output M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_output_state.data(), sequential_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp row-pair disjoint state M=" +
+              std::to_string(token_count));
+      expect_bf16_buffer_bitwise_equal(
+          test, row_pair_disjoint_input_state.data(), initial_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "CUDA GDN warp row-pair preserves disjoint input M=" +
+              std::to_string(token_count));
+    }
   }
 
   test.expect(
@@ -812,6 +1005,86 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
               << "x; M8 reference=" << reference_m8_ms
               << " ms, warp=" << warp_m8_ms
               << " ms, speedup=" << reference_m8_ms / warp_m8_ms << "x\n";
+  }
+
+  const char* const run_row_pair_perf =
+      std::getenv("Q3X_RUN_GDN_ROW_PAIR_PERF");
+  if (run_row_pair_perf != nullptr &&
+      std::strcmp(run_row_pair_perf, "1") == 0) {
+    constexpr std::size_t kPairWarmups = 5U;
+    constexpr std::size_t kPairIterations = 50U;
+
+    const auto launch_baseline = [&](const std::size_t token_count) {
+      return q3x::runtime::
+          launch_gated_delta_net_update_tile_warp_baseline_test_cuda(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), warp_state.data(), warp_state.data(), 1.0e-6F,
+              warp_output.data(), static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&](const std::size_t token_count) {
+      return q3x::runtime::
+          launch_gated_delta_net_update_tile_warp_row_pair_test_cuda(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), row_pair_inplace_state.data(),
+              row_pair_inplace_state.data(), 1.0e-6F,
+              row_pair_inplace_output.data(), static_cast<void*>(stream));
+    };
+    const auto measure_mirrored =
+        [&](const std::size_t token_count,
+            const std::string& shape) -> std::array<float, 2> {
+      std::copy(initial_state.begin(), initial_state.end(), warp_state.data());
+      std::copy(initial_state.begin(), initial_state.end(),
+                row_pair_inplace_state.data());
+      const float baseline_first = measure_average_cuda_milliseconds(
+          test, stream, kPairWarmups, kPairIterations,
+          "GDN row-pair " + shape + " baseline first", [&]() {
+            return launch_baseline(token_count);
+          });
+      const float candidate_first = measure_average_cuda_milliseconds(
+          test, stream, kPairWarmups, kPairIterations,
+          "GDN row-pair " + shape + " candidate first", [&]() {
+            return launch_candidate(token_count);
+          });
+      const float candidate_second = measure_average_cuda_milliseconds(
+          test, stream, kPairWarmups, kPairIterations,
+          "GDN row-pair " + shape + " candidate second", [&]() {
+            return launch_candidate(token_count);
+          });
+      const float baseline_second = measure_average_cuda_milliseconds(
+          test, stream, kPairWarmups, kPairIterations,
+          "GDN row-pair " + shape + " baseline second", [&]() {
+            return launch_baseline(token_count);
+          });
+      return {(baseline_first + baseline_second) * 0.5F,
+              (candidate_first + candidate_second) * 0.5F};
+    };
+
+    const std::array<float, 2> m1 = measure_mirrored(1U, "M1");
+    const std::array<float, 2> m2 = measure_mirrored(2U, "M2");
+    const std::array<float, 2> m8 =
+        measure_mirrored(kMaximumTokens, "M8");
+    const bool finite =
+        std::isfinite(m1[0]) && std::isfinite(m1[1]) &&
+        std::isfinite(m2[0]) && std::isfinite(m2[1]) &&
+        std::isfinite(m8[0]) && std::isfinite(m8[1]);
+    test.expect(finite, "GDN row-pair mirrored A/B timings are finite");
+    if (finite) {
+      const float m1_speedup = m1[0] / m1[1];
+      const float m2_ratio = m2[1] / m2[0];
+      const float m8_speedup = m8[0] / m8[1];
+      std::cout << "GDN row-pair mirrored CUDA-event A/B: M1 B=" << m1[0]
+                << " ms, C=" << m1[1] << " ms, speedup=" << m1_speedup
+                << "x; M2 B=" << m2[0] << " ms, C=" << m2[1]
+                << " ms, C/B=" << m2_ratio << "; M8 B=" << m8[0]
+                << " ms, C=" << m8[1] << " ms, speedup=" << m8_speedup
+                << "x\n";
+      test.expect(m1_speedup >= 1.03F,
+                  "GDN row-pair M1 reaches the 3% speedup gate");
+      test.expect(m2_ratio <= 1.02F,
+                  "GDN row-pair M2 does not regress by more than 2%");
+      test.expect(m8_speedup >= 1.03F,
+                  "GDN row-pair M8 reaches the 3% speedup gate");
+    }
   }
 }
 
