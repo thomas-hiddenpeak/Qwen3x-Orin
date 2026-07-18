@@ -16,7 +16,10 @@ exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
 reduces median subsequent-token latency from 1,144.108 ms to 651.554 ms in the
-first matched diagnostic benchmark.
+first matched diagnostic benchmark. The default authenticated loader now uses
+Linux AF_ALG when available, reducing the measured resident-load phase for the
+same pinned model from about 203.7 seconds to 21.5 seconds without weakening
+the three full-file SHA-256 checks.
 
 > Qwen3x-Orin is an independent community project. It is not an official Qwen,
 > Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -95,7 +98,10 @@ matched backend results are recorded in the
 
 The current tree requires a CUDA-capable Jetson AGX Orin development
 environment with CMake, a C++17 compiler, and ICU 74 (`uc` and `i18n`). ICU is
-linked only by the separate `q3x::text` tokenizer library.
+linked only by the separate `q3x::text` tokenizer library. Linux AF_ALG is an
+optional startup acceleration supplied by the kernel; no OpenSSL development
+dependency is required, and the loader falls back to its portable SHA-256
+implementation if AF_ALG cannot be initialized before loading begins.
 
 ```bash
 cmake -S . -B build
@@ -149,8 +155,15 @@ and text, stopped at `<|im_end|>`, and completed 44 sequential runner steps.
 Its non-normative cold load was 213.845 seconds and generation was 49.212
 seconds; see the [reference engine evidence](docs/REFERENCE_ENGINE.md) for the
 complete timing and boundary-hash record.
-The same run is available as
+That original run is available as
 [machine-readable metadata](docs/metadata/qwen36-27b-native-reference-run.json).
+That is the historical portable-hash reference. With the current automatic
+AF_ALG path and the SM87 projection backend, a diagnostic two-token run reported
+21.485 seconds for resident loading and 22.638 seconds for total engine loading;
+the complete 26-token fixed-oracle CTest fell from 234.35 to 52.22 seconds while
+retaining exact IDs, text, stop semantics, and runner steps. See the
+[updated performance evidence](docs/PERFORMANCE_BASELINE.md) and its
+[machine-readable AF_ALG record](docs/metadata/qwen36-27b-afalg-loader-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 

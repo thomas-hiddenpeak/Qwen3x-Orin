@@ -27,8 +27,12 @@ The diagnostic Phase 3 records are:
 - [`qwen36-27b-projection-backend-benchmark.json`](qwen36-27b-projection-backend-benchmark.json),
   which retains every paired reference/SM87 sample, strict replay results,
   exact full-model gate, memory watermarks, microbenchmarks, and limitations.
+- [`qwen36-27b-afalg-loader-benchmark.json`](qwen36-27b-afalg-loader-benchmark.json),
+  which records the post-SM87 startup diagnosis, observed kernel SHA-256
+  provider, accelerated full-shard authentication/load timings, unchanged
+  exact-generation gates, and historical-comparison limitations.
 
-Each report contains raw SHA-256 hashes for `config.json`,
+The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
 quantization fields; index counts; representative shapes read from the first
 safetensors shard header; and benchmark shapes derived from that evidence.

@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-afalg-loader-benchmark",
+  "status": "diagnostic-validation",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "git_commit": "06f16c924c47c3d876f42fba872b0172b676161b",
+    "parent_commit": "e287e581638762b9c2a712d956c9d44797528de1",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "swap_enabled_bytes": 2147479552,
+    "kernel_sha256_provider": {
+      "algorithm": "sha256",
+      "driver": "sha256-ce",
+      "priority": 200,
+      "selftest": "passed"
+    }
+  },
+  "pre_change_profile": {
+    "source_commit": "e287e581638762b9c2a712d956c9d44797528de1",
+    "command": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=true qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --projection-backend sm87",
+    "report": {
+      "filename": "q3x-27b-sm87-profile.nsys-rep",
+      "checked_in": false,
+      "size_bytes": 1771020,
+      "sha256": "b7d89cd5a85f25e1efe26c3af7057bbe0c291340f6499257bebfac68d9c3a8a3"
+    },
+    "load_milliseconds": {
+      "total": 205188.912,
+      "tokenizer": 1153.076,
+      "resident": 204003.741,
+      "weight_bind": 27.980,
+      "request_state": 3.877,
+      "runner_factory": 0.227
+    },
+    "generation_milliseconds": {
+      "time_to_first_token": 11223.923,
+      "subsequent_token": 652.560,
+      "total": 11876.483
+    },
+    "runner_steps": 20,
+    "cuda_kernel_launches": 24042,
+    "host_to_device_profile": {
+      "resident_payload_bytes": 20150569096,
+      "gpu_memop_count": 2148,
+      "gpu_memop_milliseconds": 564.086,
+      "count_note": "The profile contains the 2,146 resident scatter operations plus two other H2D memory operations."
+    },
+    "cuda_malloc": {
+      "calls": 2,
+      "cuda_api_milliseconds": 1598.0
+    },
+    "kernel_groups": [
+      {
+        "name": "optimized_nvfp4_layer_projections",
+        "instances": 3840,
+        "gpu_milliseconds": 6888.782016,
+        "profile_share_percent": 58.3
+      },
+      {
+        "name": "optimized_fp8_layer_projections",
+        "instances": 4160,
+        "gpu_milliseconds": 4499.906336,
+        "profile_share_percent": 38.1
+      },
+      {
+        "name": "gated_deltanet",
+        "instances": 960,
+        "gpu_milliseconds": 186.218912,
+        "profile_share_percent": 1.6
+      },
+      {
+        "name": "reference_nvfp4_lm_head",
+        "instances": 2,
+        "gpu_milliseconds": 120.134432,
+        "profile_share_percent": 1.0
+      }
+    ],
+    "diagnosis": "The H2D GPU memory operations took about 0.564 seconds and cudaMalloc API calls about 1.598 seconds, while resident loading took 204.004 seconds. The portable scalar SHA-256 pass, not storage-to-GPU transfer, was the dominant startup bottleneck."
+  },
+  "implementation": {
+    "requested_backend": "auto",
+    "selected_backend": "linux_af_alg",
+    "algorithm_name": "sha256",
+    "af_alg_operations_prepared_before_reading": 3,
+    "shard_backends_mixed": false,
+    "auto_fallback_scope": "initialization_only_before_any_checkpoint_bytes",
+    "streaming_or_finalization_failure_policy": "fail_closed",
+    "portable_fallback_retained": true,
+    "external_library_dependency_added": false,
+    "full_file_sha256_identity_unchanged": true
+  },
+  "validation": {
+    "release_build": {
+      "passed": true,
+      "warnings": 0
+    },
+    "non_model_ctest": {
+      "passed": 41,
+      "failed": 0,
+      "seconds": 3.74,
+      "package_consumer_passed": true
+    },
+    "sanitizers": {
+      "address": true,
+      "undefined_behavior": true,
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "leak_detection_disabled_for_cuda_driver_noise": true
+    },
+    "official_resident_loader": {
+      "command": "Q3X_OFFICIAL_27B_ROOT=MODEL_DIR q3x_resident_weights_cuda_test",
+      "seconds": 21.4772,
+      "sha256_backend": "linux_af_alg",
+      "bytes_read": 21921697184,
+      "bytes_copied": 20150569096,
+      "bytes_skipped": 1771128088,
+      "chunks": 328,
+      "memcpy_operations": 2146,
+      "all_three_full_shard_hashes_passed": true,
+      "device_round_trip_passed": true
+    },
+    "short_generation": {
+      "command": "qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --projection-backend sm87",
+      "load_milliseconds": {
+        "total": 22637.825,
+        "tokenizer": 1130.078,
+        "resident": 21484.838,
+        "weight_bind": 18.419,
+        "request_state": 4.223,
+        "runner_factory": 0.256
+      },
+      "sha256_backend": "linux_af_alg",
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids": [
+        77517,
+        220
+      ],
+      "generated_text": "CUDA ",
+      "runner_steps": 20,
+      "time_to_first_token_milliseconds": 11166.566,
+      "subsequent_token_milliseconds": 650.973,
+      "total_generation_milliseconds": 11817.539
+    },
+    "full_model_sm87_oracle": {
+      "ctest_name": "reference_engine_e2e",
+      "ctest_seconds": 52.22,
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "comparison": {
+    "historical_unprofiled_sm87_baseline": {
+      "artifact": "qwen36-27b-projection-backend-benchmark",
+      "source_commit": "fb09f4245763e73e5b50c34b09c300fedc4119ac",
+      "resident_load_milliseconds": 203676.733,
+      "total_load_milliseconds": 204837.861,
+      "full_model_oracle_ctest_seconds": 234.35
+    },
+    "accelerated": {
+      "resident_load_milliseconds": 21484.838,
+      "total_load_milliseconds": 22637.825,
+      "full_model_oracle_ctest_seconds": 52.22
+    },
+    "derived": {
+      "resident_load_reduction_milliseconds": 182191.895,
+      "resident_load_reduction_percent": 89.4515,
+      "resident_load_speedup": 9.480022,
+      "total_load_reduction_milliseconds": 182200.036,
+      "total_load_reduction_percent": 88.9484,
+      "total_load_speedup": 9.048478,
+      "full_model_oracle_wall_time_reduction_percent": 77.7171,
+      "full_model_oracle_wall_time_speedup": 4.487744
+    },
+    "method_note": "The historical load baseline came from the prior same-device SM87 benchmark artifact while the accelerated timing came from generate. Both use the same pinned model and resident-load contract, but this is a diagnostic historical comparison rather than a randomized paired release benchmark. The full-model oracle rows are the same CTest at the two source commits."
+  },
+  "limitations": [
+    "MAXN was selected but clocks were not locked",
+    "swap was enabled",
+    "the loader comparison uses a historical baseline rather than randomized same-binary A/B trials",
+    "AF_ALG resolves providers through the running Linux kernel; sha256-ce was observed on this device but is not hard-coded by the runtime",
+    "the result covers the exact pinned three-shard 27B checkpoint and is not a general storage benchmark"
+  ],
+  "policy": {
+    "authentication_weakened": false,
+    "default_sha256_backend": "auto",
+    "successful_backend_reported": true,
+    "result_is_release_claim": false
+  }
+}

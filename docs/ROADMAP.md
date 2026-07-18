@@ -50,7 +50,8 @@ Deliverables:
 - [done] Strict ownership, membership, range, and aggregate-payload validation
   across every indexed shard in the fully materialized 27B checkpoint.
 - [done] Authenticated one-pass, double-buffered direct loader with one
-  256-byte-aligned text-only CUDA arena and a pre-allocation memory gate.
+  256-byte-aligned text-only CUDA arena, a pre-allocation memory gate, and
+  automatic Linux AF_ALG SHA-256 acceleration with a portable fallback.
 - Lossless Marlin-oriented repack and scale preprocessing primitives.
 - Versioned `.q3x` container prototype with source hashes and atomic output.
 
@@ -86,11 +87,14 @@ Deliverables:
 
 Current native evidence: the fixed 19-token prompt produces all 26 oracle
 output IDs, decoded UTF-8 text, and `<|im_end|>` stop exactly on the target
-Orin. The one-run request arena was 82,505,216 bytes; cold load was 213.845
-seconds and sequential generation was 49.212 seconds. Native boundary hashes
-are not required to equal vLLM hashes because independent checkpoint scales
-versus fused requantization and sequential versus chunk BF16 GDN updates have
-different rounding/order. Tolerance-based boundary characterization and
+Orin. The first reference record used an 82,505,216-byte request arena, a
+213.845-second portable-hash cold load, and 49.212 seconds of sequential
+generation. The current AF_ALG loader reduced a measured resident load to
+21.485 seconds; the SM87 full fixed-oracle CTest now completes in 52.22 seconds
+without changing its exact 19/26-token and 44-step result. Native boundary
+hashes are not required to equal vLLM hashes because independent checkpoint
+scales versus fused requantization and sequential versus chunk BF16 GDN updates
+have different rounding/order. Tolerance-based boundary characterization and
 broader prompt repeatability remain in progress.
 
 Exit criteria:
@@ -118,8 +122,13 @@ weight-only GEMV. The first direct-BF16 SM87 backend passes awkward/K=5120/
 K=17408 numerical gates and the complete 19/26-token fixed oracle. In a
 same-binary, two-prompt comparison it reduced median TTFT by 45.60%, total
 two-token generation by 45.47%, and subsequent-token latency by 43.05%
-(1.838x, 1.834x, and 1.756x speedups). It remains default-off while prompt and
-shape coverage expands. See [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
+(1.838x, 1.834x, and 1.756x speedups). A follow-up optimized profile assigns
+58.3% of GPU time to NVFP4 projections and 38.1% to FP8 projections, selecting
+packed NVFP4 x8 decode as the next M=1 target. Separately, default AF_ALG
+authentication reduced the resident-load phase by 89.45% in a diagnostic
+historical comparison. The projection backend remains default-off while prompt
+and shape coverage expands. See
+[PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
 
 Exit criteria:
 

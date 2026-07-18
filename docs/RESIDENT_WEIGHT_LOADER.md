@@ -113,6 +113,26 @@ full-file SHA matches         3/3
 resident tensor views      1,846
 ```
 
+With the default `auto` backend at commit
+`06f16c924c47c3d876f42fba872b0172b676161b`, the same fixture selected
+`linux_af_alg` and reported:
+
+```text
+elapsed                   21.4772 s
+full-file bytes    21,921,697,184
+H2D text bytes     20,150,569,096
+skipped bytes       1,771,128,088
+chunks                        328
+async scatter operations     2,146
+full-file SHA matches          3/3
+sha256 backend        linux_af_alg
+```
+
+The resident phase of a complete two-token SM87 CLI run was 21.485 seconds,
+versus 203.677 seconds in the previous unprofiled SM87 benchmark artifact. This
+is a 9.480x diagnostic historical speedup; clocks were not locked, and the two
+load numbers were not collected as randomized same-binary trials.
+
 The test copied samples of the embedding, layer-0 FP8 QKV weight, and
 `lm_head.weight_scale_2` back from the device and compared them byte-for-byte
 with their authenticated source ranges. It never modifies the model directory.
