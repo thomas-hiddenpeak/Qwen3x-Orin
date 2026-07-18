@@ -33,6 +33,9 @@ launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] bool use_sm87_nvfp4_small_m_row_pair_test(
+    std::size_t token_count, std::size_t rows) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -896,25 +899,34 @@ void run_nvfp4_row_pair_bitwise_case(TestContext& test,
       0x20U, 0x24U, 0x28U, 0x2cU, 0x30U, 0x34U, 0x38U, 0x3cU,
       0x40U, 0x44U, 0x48U, 0x4cU, 0x50U, 0x54U, 0x58U, 0x5cU,
   }};
+  const std::size_t packed_columns = columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
   const std::size_t packed_count = rows * columns / 2U;
   const std::size_t scale_count = rows * columns / 16U;
   std::vector<std::uint8_t> packed(packed_count);
   std::vector<std::uint8_t> scales(scale_count);
   std::vector<std::uint16_t> activations(kTokens * columns);
 
-  // Across every 256 packed bytes, each E2M1 code appears in both nibbles
-  // and every low/high code pair appears once. This catches row-specific
-  // packed-word mixups while exercising the complete 16-entry codebook.
-  for (std::size_t index = 0U; index < packed.size(); ++index) {
-    const std::uint8_t low = static_cast<std::uint8_t>(index & 0x0fU);
-    const std::uint8_t high =
-        static_cast<std::uint8_t>((index >> 4U) & 0x0fU);
-    packed[index] = static_cast<std::uint8_t>(low | (high << 4U));
+  // Every row covers all 256 low/high E2M1 pairs, but row-dependent offsets
+  // ensure adjacent rows are not identical even when packed_columns is a
+  // multiple of 256. This directly catches accidental row0 weight reuse.
+  for (std::size_t row = 0U; row < rows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          ((packed_column >> 4U) + row * 5U) & 0x0fU);
+      packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
   }
-  for (std::size_t index = 0U; index < scales.size(); ++index) {
-    scales[index] = kFiniteScaleCodes[
-        (index * 13U + index / (columns / 16U)) %
-        kFiniteScaleCodes.size()];
+  for (std::size_t row = 0U; row < rows; ++row) {
+    for (std::size_t scale_column = 0U; scale_column < scale_columns;
+         ++scale_column) {
+      scales[row * scale_columns + scale_column] = kFiniteScaleCodes[
+          (scale_column * 13U + row * 7U) % kFiniteScaleCodes.size()];
+    }
   }
   for (std::size_t token = 0U; token < kTokens; ++token) {
     for (std::size_t column = 0U; column < columns; ++column) {
@@ -962,13 +974,12 @@ void run_nvfp4_row_pair_bitwise_case(TestContext& test,
   }
 
   ready = test.cuda_ok(
-      static_cast<cudaError_t>(
-          q3x::kernels::
-              launch_sm87_nvfp4_w4a16_small_m8_single_row_test_cuda(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m8_single_row_test_cuda(
               device_packed.get(), device_scales.get(), kWeightScale2,
               device_activations.get(), rows, columns, device_baseline.get(),
               static_cast<void*>(stream))),
-      label + " launch production baseline");
+      label + " launch preserved single-row baseline");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(q3x::kernels::
                            launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
@@ -976,7 +987,7 @@ void run_nvfp4_row_pair_bitwise_case(TestContext& test,
                                kWeightScale2, device_activations.get(), rows,
                                columns, device_row_pair.get(),
                                static_cast<void*>(stream))),
-                       label + " launch row-pair prototype");
+                       label + " launch row-pair candidate");
   std::vector<std::uint16_t> baseline(kTokens * rows);
   std::vector<std::uint16_t> row_pair(kTokens * rows);
   ready = ready && test.cuda_ok(
@@ -1002,10 +1013,10 @@ void run_nvfp4_row_pair_bitwise_case(TestContext& test,
     mismatches += baseline[index] != row_pair[index] ? 1U : 0U;
   }
   std::cout << "ROW_PAIR_DIFF: " << label
-            << " row_pair_vs_production_m8_bf16=" << mismatches << '/'
+            << " candidate_vs_single_row_m8_bf16=" << mismatches << '/'
             << baseline.size() << '\n';
   test.expect(mismatches == 0U,
-              label + " row-pair prototype matches production M8 bits");
+              label + " row-pair candidate matches single-row BF16 bits");
 }
 
 void run_small_m_production_k_comparison(TestContext& test,
@@ -1604,6 +1615,19 @@ void test_launch_validation(TestContext& test) {
               nullptr, nullptr, 1.0F, nullptr, 8U, kMaximum, 0U,
               nullptr)) == cudaSuccess,
       "NVFP4 small-M zero columns ignores huge output extent");
+
+  test.expect(!q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(2U,
+                                                                  17'408U),
+              "NVFP4 M2 keeps the single-row production kernel");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U, 1U),
+              "NVFP4 M8 row-pair rejects one output row");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U, 15U),
+              "NVFP4 M8 row-pair rejects a partial row-pair block");
+  test.expect(q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U, 16U),
+              "NVFP4 M8 row-pair accepts one complete row-pair block");
+  test.expect(q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U,
+                                                                 17'408U),
+              "NVFP4 M8 row-pair accepts production output rows");
 }
 
 [[nodiscard]] bool performance_enabled() noexcept {
@@ -1862,8 +1886,9 @@ struct SmallMMeasurement {
       encoded_gigabytes / (static_cast<double>(row_pair_average) / 1.0e3);
   const bool gate_passed = speedup >= kMinimumRequiredSpeedup;
   std::cout << "PERF_NVFP4_ROW_PAIR: " << label
-            << " baseline_m8_ms=" << baseline_average
-            << " row_pair_m8_ms=" << row_pair_average
+            << " M=" << kTokens
+            << " baseline_single_row_ms=" << baseline_average
+            << " row_pair_candidate_ms=" << row_pair_average
             << " speedup=" << speedup
             << " uplift_percent=" << uplift_percent
             << " baseline_encoded_weight_GBps="
@@ -1873,7 +1898,7 @@ struct SmallMMeasurement {
             << " required_speedup=" << kMinimumRequiredSpeedup
             << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
   test.expect(gate_passed,
-              label + " row-pair prototype must improve M8 by at least 3%");
+              label + " row-pair candidate must improve by at least 3%");
   return gate_passed;
 }
 
@@ -2503,10 +2528,10 @@ int main() {
   run_nvfp4_vector_codebook_case(test, stream);
   run_nvfp4_row_pair_bitwise_case(
       test, stream, 17U, 5'120U,
-      "NVFP4 row-pair odd rows K5120 full E2M1 codebook");
+      "NVFP4 M8 row-pair odd rows K5120 row-distinct full E2M1 codebook");
   run_nvfp4_row_pair_bitwise_case(
       test, stream, 19U, 17'408U,
-      "NVFP4 row-pair odd rows K17408 full E2M1 codebook");
+      "NVFP4 M8 row-pair odd rows K17408 row-distinct full E2M1 codebook");
   run_nvfp4_case(test, stream, 3U, 256U,
                   "NVFP4 vector-shaped unaligned scalar fallback", true);
   run_nvfp4_case(test, stream, 3U, 5'120U, "NVFP4 target-K 3x5120");

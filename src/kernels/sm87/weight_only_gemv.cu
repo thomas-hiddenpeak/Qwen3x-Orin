@@ -15,6 +15,7 @@ constexpr unsigned int kWarpsPerBlock = 8U;
 constexpr unsigned int kThreads = kWarpSize * kWarpsPerBlock;
 constexpr std::size_t kMaximumBlocks = 65'535U;
 constexpr std::size_t kMaximumSmallMTokens = 8U;
+constexpr std::size_t kNvFp4RowPairMinimumRows = kWarpsPerBlock * 2U;
 constexpr std::size_t kFp8EncodedValueCount = 256U;
 constexpr std::size_t kFp8VectorValuesPerLane = 4U;
 constexpr std::size_t kFp8VectorColumnsPerBlock =
@@ -71,6 +72,13 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
     const std::size_t rows) noexcept {
   return static_cast<unsigned int>(rows < kMaximumBlocks ? rows
                                                          : kMaximumBlocks);
+}
+
+[[nodiscard]] constexpr bool use_nvfp4_small_m_row_pair(
+    const std::size_t token_count, const std::size_t rows) noexcept {
+  // Avoid doing a complete second-row FMA stream for partial blocks on tiny
+  // M=8 matrices. No other token count has passed the production gate.
+  return token_count == 8U && rows >= kNvFp4RowPairMinimumRows;
 }
 
 __device__ __forceinline__ float decode_bf16(const std::uint16_t bits) {
@@ -1014,6 +1022,12 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only query sharing the exact predicate used by production dispatch.
+[[nodiscard]] bool use_sm87_nvfp4_small_m_row_pair_test(
+    const std::size_t token_count, const std::size_t rows) noexcept {
+  return use_nvfp4_small_m_row_pair(token_count, rows);
+}
+
 // Test-only direct row-pair M=8 entry point. Kept out of the public header so
 // mirrored performance tests can name the implementation explicitly.
 int launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
@@ -1212,9 +1226,15 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
             columns, output, stream);
         break;
       case 8U:
-        launch_nvfp4_small_m8_row_pair_unchecked(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
+        if (use_nvfp4_small_m_row_pair(token_count, rows)) {
+          launch_nvfp4_small_m8_row_pair_unchecked(
+              packed_weights, block_scales, weight_scale_2, activations, rows,
+              columns, output, stream);
+        } else {
+          launch_nvfp4_small_m_vector_unchecked<8U>(
+              packed_weights, block_scales, weight_scale_2, activations, rows,
+              columns, output, stream);
+        }
         break;
       default:
         return invalid_value();
