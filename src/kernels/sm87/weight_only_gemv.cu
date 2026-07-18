@@ -15,6 +15,8 @@ constexpr unsigned int kWarpsPerBlock = 8U;
 constexpr unsigned int kThreads = kWarpSize * kWarpsPerBlock;
 constexpr std::size_t kMaximumBlocks = 65'535U;
 constexpr std::size_t kMaximumSmallMTokens = 8U;
+constexpr std::size_t kFp8M1PersistentMinimumRows = 1'024U;
+constexpr unsigned int kFp8M1PersistentMaximumBlocks = 2'048U;
 constexpr std::size_t kFp8RowPairMinimumRows = 1'024U;
 constexpr std::size_t kNvFp4RowPairMinimumRows = kWarpsPerBlock * 2U;
 constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows = kWarpsPerBlock;
@@ -77,6 +79,11 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
     const std::size_t rows) noexcept {
   return static_cast<unsigned int>(rows < kMaximumBlocks ? rows
                                                          : kMaximumBlocks);
+}
+
+[[nodiscard]] constexpr bool use_fp8_m1_persistent_rows(
+    const std::size_t rows) noexcept {
+  return rows >= kFp8M1PersistentMinimumRows;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_small_m_row_pair(
@@ -1175,6 +1182,19 @@ void launch_fp8_vector_unchecked(
       weights, weight_scale, activation, rows, columns, output);
 }
 
+void launch_fp8_vector_grid_cap_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  const unsigned int uncapped = block_count_for_single_row(rows);
+  const unsigned int blocks =
+      uncapped < maximum_blocks ? uncapped : maximum_blocks;
+  fp8_w8a16_gemv_bf16_vector_kernel<<<blocks, kThreads, 0U, stream>>>(
+      weights, weight_scale, activation, rows, columns, output);
+}
+
 [[nodiscard]] int validate_nvfp4_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -1438,8 +1458,14 @@ int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
       (reinterpret_cast<std::uintptr_t>(activation) %
        alignof(std::uint64_t)) == 0U;
   if (vector_shape) {
-    launch_fp8_vector_unchecked(weights, weight_scale, activation, rows,
-                                columns, output, stream);
+    if (use_fp8_m1_persistent_rows(rows)) {
+      launch_fp8_vector_grid_cap_unchecked(
+          weights, weight_scale, activation, rows, columns, output,
+          kFp8M1PersistentMaximumBlocks, stream);
+    } else {
+      launch_fp8_vector_unchecked(weights, weight_scale, activation, rows,
+                                  columns, output, stream);
+    }
   } else {
     launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
                                 columns, output, stream);
@@ -1464,6 +1490,71 @@ int launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda(
   (void)cudaGetLastError();
   launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
                               columns, output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+[[nodiscard]] bool use_sm87_fp8_m1_persistent_rows_test(
+    const std::size_t rows) noexcept {
+  return use_fp8_m1_persistent_rows(rows);
+}
+
+// Test-only uncapped vector baseline retained even if production later adopts
+// persistent row blocks. It is intentionally omitted from the public header.
+int launch_sm87_fp8_w8a16_gemv_bf16_vector_uncapped_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_launch(
+      weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_vector_unchecked(weights, weight_scale, activation, rows, columns,
+                              output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_gemv_bf16_grid_cap_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_launch(
+      weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_vector_grid_cap_unchecked(
+      weights, weight_scale, activation, rows, columns, output,
+      static_cast<unsigned int>(maximum_blocks), stream);
   return static_cast<int>(cudaGetLastError());
 }
 
