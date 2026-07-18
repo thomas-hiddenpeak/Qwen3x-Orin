@@ -92,8 +92,10 @@ Orin. The first reference record used an 82,505,216-byte request arena, a
 generation. The current AF_ALG loader reduced a measured resident load to
 21.485 seconds; the SM87 full fixed-oracle CTest took 52.22 seconds after that
 loader milestone and 45.56 seconds after packed-x8, without changing its exact
-19/26-token and 44-step result. Native boundary
-hashes are not required to equal vLLM hashes because independent checkpoint
+19/26-token and 44-step result. The packed-x4 FP8 milestone reduced the same
+fixed-oracle CTest to 40.60 seconds, again with the exact 19/26-token and
+44-step result. Native boundary hashes are not required to equal vLLM hashes
+because independent checkpoint
 scales versus fused requantization and sequential versus chunk BF16 GDN updates
 have different rounding/order. Tolerance-based boundary characterization and
 broader prompt repeatability remain in progress.
@@ -112,6 +114,7 @@ Deliverables:
 
 - [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
 - [done, shape-gated] Canonical NVFP4 packed-x8 M=1 decode with scalar fallback.
+- [done, shape-gated] Canonical FP8 packed-x4 M=1 decode with scalar fallback.
 - Marlin-style W4A16 and W8A16 kernels for small token batches.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
@@ -128,7 +131,13 @@ two-token generation by 45.47%, and subsequent-token latency by 43.05%
 reduced those SM87 medians by another 25.83%, 25.69%, and 23.40%, reaching
 8.280-second TTFT and 499.086 ms per subsequent token. Its follow-up profile
 assigns 51.2% of GPU time to FP8 projections and 43.8% to NVFP4, selecting FP8
-conversion as the next M=1 target. Separately, default AF_ALG authentication
+conversion as the next M=1 target. The packed-x4 FP8 milestone then reached
+6.107-second TTFT and 385.181 ms per subsequent token, reducing the packed-x8
+medians by 26.24% and 22.82%. Its same-binary kernel gate measures 2.02x to
+2.36x speedups on the recorded production and mixed-code shapes. The follow-up
+profile assigns 34.2% of GPU time to packed-x4 FP8 and 59.1% to packed-x8
+NVFP4; the next functional/performance gate is small-M projection before
+chunked prefill. Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
 coverage expands. See

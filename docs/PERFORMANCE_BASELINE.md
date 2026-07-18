@@ -11,7 +11,9 @@ The subsequent startup diagnosis and authenticated-loader result are retained
 in
 [`qwen36-27b-afalg-loader-benchmark.json`](metadata/qwen36-27b-afalg-loader-benchmark.json).
 The next M=1 NVFP4 milestone is recorded in
-[`qwen36-27b-nvfp4-packedx8-benchmark.json`](metadata/qwen36-27b-nvfp4-packedx8-benchmark.json).
+[`qwen36-27b-nvfp4-packedx8-benchmark.json`](metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
+and the subsequent FP8 milestone is recorded in
+[`qwen36-27b-fp8-packedx4-benchmark.json`](metadata/qwen36-27b-fp8-packedx4-benchmark.json).
 
 ## Method
 
@@ -213,8 +215,72 @@ with unlocked clocks, not a serving-throughput claim.
 The post-change Nsight trace attributes 51.2% of GPU kernel time to FP8 layer
 projections and 43.8% to packed-x8 NVFP4 layer projections. The two NVFP4
 production shapes averaged 1.0035 ms and 1.0017 ms in the full-model trace,
-down from approximately 1.782 ms and 1.818 ms. FP8 is therefore the next M=1
-decode target; multi-token prefill remains a separate small-M milestone.
+down from approximately 1.782 ms and 1.818 ms. This result selected FP8 as the
+next M=1 decode target; multi-token prefill remained a separate small-M
+milestone.
+
+## Packed-x4 FP8 decode
+
+Commit `ad22fdda2925bc12d60c319296646e4449dc11a3` vectorizes the canonical
+FP8 E4M3FN path without repacking the checkpoint. When K is divisible by
+1,024, the weight pointer is 4-byte aligned, and the BF16 activation pointer
+is 8-byte aligned, each lane loads four encoded weights with one 32-bit load
+and four activations with one 64-bit load. A branchless decoder preserves the
+exact finite E4M3FN values, signed zero, and the signed canonical quiet-NaN
+class. Other shapes or alignments retain the scalar SM87 kernel.
+
+The same-binary CUDA-event gate used identical buffers and mirrored
+scalar/vector measurement order. All four shapes with at least 5,120 rows
+exceed their required 1.15x gate; the smaller shape also improves instead of
+using its allowed 2% regression budget:
+
+| Shape `[N,K]` and payload | Scalar | Packed x4 | Speedup | Encoded-weight bandwidth |
+| --- | ---: | ---: | ---: | ---: |
+| `[10240,5120]`, uniform finite | 1.61403 ms | 0.795254 ms | 2.030x | 65.93 GB/s |
+| `[5120,6144]`, uniform finite | 0.969309 ms | 0.469730 ms | 2.064x | 66.97 GB/s |
+| `[6144,5120]`, uniform finite | 0.966847 ms | 0.479402 ms | 2.017x | 65.62 GB/s |
+| `[12288,5120]`, uniform finite | 1.91765 ms | 0.951666 ms | 2.015x | 66.11 GB/s |
+| `[1024,5120]`, uniform finite | 0.179198 ms | 0.086185 ms | 2.079x | 60.83 GB/s |
+| `[10240,5120]`, mixed finite codes | 1.87785 ms | 0.794232 ms | 2.364x | 66.01 GB/s |
+
+The generated packed-x4 kernel uses 36 registers per thread and 32 bytes of
+shared memory per block, with no stack, local memory, or spills. SASS retains
+the intended 32-bit encoded-weight load and 64-bit activation load. The scalar
+baseline uses 17 registers per thread.
+
+Repeating the same two-prompt benchmark command reproduced every prompt ID,
+generated ID, decoded string, stop reason, and runner-step count. All four
+measured samples passed the 64 MiB persistent-memory gate:
+
+| Median metric | Reference | First SM87 | Packed x8 | Packed x4 | Reduction vs packed x8 | Speedup vs reference |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Time to first token | 20,521.948 ms | 11,163.214 ms | 8,279.876 ms | 6,107.361 ms | 26.24% | 3.360x |
+| Total two-token generation | 21,666.056 ms | 11,814.763 ms | 8,779.179 ms | 6,492.535 ms | 26.05% | 3.337x |
+| Subsequent token | 1,144.108 ms | 651.554 ms | 499.086 ms | 385.181 ms | 22.82% | 2.970x |
+
+The four packed-x4 samples ranged from 6,106.646 to 6,107.479 ms for TTFT,
+6,491.486 to 6,493.014 ms total, and 384.827 to 385.535 ms for the subsequent
+token. The last median is approximately 2.596 subsequent tokens per second.
+AF_ALG resident loading remained separate at 21,579.657 ms. Device free memory
+ended above its starting value, so no persistent drop was detected.
+
+Only the preceding scalar/vector microbenchmark is a same-binary A/B. The
+end-to-end reference, first-SM87, packed-x8, and packed-x4 columns are retained
+from their respective commits and form a cross-commit historical comparison,
+not a randomized same-binary release trial. The batch-one, two-short-prompt
+run also used unlocked clocks with swap enabled.
+
+The post-change Nsight trace launched the same 24,042 kernels over 20 runner
+steps. Packed-x4 FP8 projections consumed 2,226.552 ms across 4,160 instances,
+50.52% less GPU time than the preceding profile, while packed-x8 NVFP4 consumed
+3,850.493 ms across 3,840 instances. Their new profile shares are 34.2% and
+59.1%, respectively; Gated DeltaNet and the reference NVFP4 language head
+account for another 2.9% and 1.8%. Total kernel GPU time was 6,512.443 ms,
+25.89% below the preceding packed-x8 profile. The profiled generation reported
+6,175.789 ms TTFT and 386.433 ms for its subsequent token. The raw report is
+not checked in; its 1,769,234-byte size and SHA-256
+`e5854b3c163153204c8b871cb8e1cd1614a09622b441e12e1f7bdef1d234df32`
+are retained in the machine-readable record.
 
 ## Correctness gate
 
@@ -222,13 +288,18 @@ The current `reference_engine_e2e` CTest loaded the pinned 27B checkpoint with
 `Q3X_E2E_PROJECTION_BACKEND=sm87` and matched all 19 prompt IDs, 26 generated
 IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps. The lightweight
 kernel gate also compared SM87 directly with the CUDA reference for FP8 and
-NVFP4 awkward/fallback/vector shapes, all 16 E2M1 codes in all eight packed
-nibble positions, adjacent-lane scale selection, and K=5120/6144/17408. All 204
-deterministic BF16 outputs matched the CUDA reference bit-for-bit. Parallel
-reduction order is still not a general bitwise-equivalence promise, so
-`reference` remains the default projection backend. The accelerated loader is
-independent of that projection choice and is now the default when AF_ALG is
-available. The complete packed-x8 fixed-oracle CTest passed in 45.56 seconds.
+NVFP4 awkward/fallback/vector shapes. It covers every one of the 256 E4M3FN
+codes in all four positions of the packed FP8 load, including both reserved
+NaN encodings; all 16 E2M1 codes in all eight packed nibble positions;
+adjacent-lane scale selection; both unaligned FP8 fallbacks; and
+K=5120/6144/17408. All 1,237 deterministic BF16 outputs matched the CUDA
+reference bit-for-bit, while the independent host oracle checks the reserved
+E4M3FN outputs by NaN class. The remaining 41 non-model CTests also pass.
+Parallel reduction order is still not a general bitwise-equivalence promise,
+so `reference` remains the default projection backend. The accelerated loader
+is independent of that projection choice and is now the default when AF_ALG
+is available. The complete packed-x4 fixed-oracle CTest passed in 40.60
+seconds.
 
 ## Phase 3 decision
 
@@ -237,14 +308,14 @@ GEMV:
 
 1. keep `sm87` explicit while prompt coverage expands;
 2. retain shape-driven packed-x8 dispatch for aligned canonical NVFP4 M=1;
-3. optimize multi-token prefill separately from M=1 decode;
-4. retain exact-token, numerical, replay, and memory gates for every dispatch
+3. retain shape-driven packed-x4 dispatch for aligned canonical FP8 M=1;
+4. optimize multi-token prefill separately from M=1 decode;
+5. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-5. lock clocks when privileged access is available before making a formal
+6. lock clocks when privileged access is available before making a formal
    release performance claim.
 
-The next measured M=1 target is packed FP8 conversion. It should retain a
-same-binary gate and is accepted only if the dominant production shapes improve
-materially without changing the full-model oracle. The small-M projection gate
-then decides whether chunked `C<=8` prefill proceeds; `.q3x` repacking waits for
-a stable physical layout.
+The next measured target is a small-M projection gate. M=2 through M=8 must
+improve materially over repeated M=1 without changing the full-model oracle
+before chunked `C<=8` prefill proceeds. `.q3x` repacking waits for a stable
+physical layout.

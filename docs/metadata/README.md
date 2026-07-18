@@ -35,6 +35,10 @@ The diagnostic Phase 3 records are:
   which records the canonical packed-x8 NVFP4 dispatch, same-binary scalar/
   vector gate, two-prompt replay benchmark, full-model exact gate, SASS
   resources, and post-change Nsight profile.
+- [`qwen36-27b-fp8-packedx4-benchmark.json`](qwen36-27b-fp8-packedx4-benchmark.json),
+  which records the canonical packed-x4 FP8 dispatch, exhaustive E4M3FN and
+  fallback gates, same-binary scalar/vector measurements, exact 27B replay,
+  SASS resources, and the post-change Nsight profile.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

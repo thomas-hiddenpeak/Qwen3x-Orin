@@ -117,6 +117,16 @@ dequantization path. The optimized path uses Marlin-style register conversion
 or a shape-appropriate custom kernel. Per-tensor, block, and secondary/global
 scale policies must remain distinct in metadata and dispatch.
 
+The current canonical M=1 path does not repack. When K is divisible by 1,024,
+the row-major weight pointer is 4-byte aligned, and the BF16 activation is
+8-byte aligned, each SM87 lane loads four E4M3FN bytes and four BF16 values
+with one 32-bit and one 64-bit global load. Four FP32 accumulators amortize the
+loop dependency, and a branchless conversion preserves all finite E4M3FN
+values, signed zero, and the two reserved encodings as signed canonical quiet
+NaNs. Other K values or either unaligned pointer use the scalar decoder. This
+is the measured M=1 CUDA-arithmetic route; Marlin-style W8A16 for small M
+remains a separate layout and dispatch milestone.
+
 Likewise, the pinned artifact's FP32 `input_scale` is not applied by the
 W8A16 path: the stored E4M3 weight is multiplied by its `weight_scale`, while
 the activation remains BF16. Any future W8A8 path must have a separate

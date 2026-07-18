@@ -15,13 +15,13 @@ fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
-reaches 499.086 ms median subsequent-token latency after the first packed-x8
-NVFP4 milestone, or about 2.00 token/s in the current two-prompt diagnostic
-run. Comparisons with the earlier 1,144.108 ms reference are historical rather
-than randomized same-binary trials. The default authenticated loader now uses
-Linux AF_ALG when available, reducing the measured resident-load phase for the
-same pinned model from about 203.7 seconds to 21.5 seconds without weakening
-the three full-file SHA-256 checks.
+reaches 385.181 ms median subsequent-token latency after the packed-x8 NVFP4
+and packed-x4 FP8 milestones, or about 2.60 subsequent tokens/s in the current
+two-prompt diagnostic run. Comparisons with the earlier 1,144.108 ms reference
+are historical rather than randomized same-binary trials. The default authenticated
+loader now uses Linux AF_ALG when available, reducing the measured resident-load
+phase for the same pinned model from about 203.7 seconds to 21.5 seconds without
+weakening the three full-file SHA-256 checks.
 
 > Qwen3x-Orin is an independent community project. It is not an official Qwen,
 > Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -138,8 +138,10 @@ The correctness reference remains the default. On an SM87 device, select the
 validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 `--projection-backend sm87`. Aligned canonical NVFP4 projections whose K is a
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
-checked scalar fallback. Reuse one loaded engine for repeatability and latency
-distributions with:
+checked scalar fallback. Canonical FP8 projections whose K is a multiple of
+1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
+8-byte aligned; other FP8 shapes also retain their scalar fallback. Reuse one
+loaded engine for repeatability and latency distributions with:
 
 ```bash
 build/orin-release/qwen3x-orin benchmark MODEL_DIR \
@@ -164,14 +166,16 @@ That original run is available as
 That is the historical portable-hash reference. With the current automatic
 AF_ALG path and the SM87 projection backend, a diagnostic two-token run reported
 21.485 seconds for resident loading and 22.638 seconds for total engine loading;
-the packed-x8 two-prompt benchmark then reported 8.280 seconds median TTFT and
-499.086 ms median subsequent-token latency. The complete 26-token fixed-oracle
-CTest fell from 234.35 to 45.56 seconds while retaining exact IDs, text, stop
-semantics, and runner steps. See the
+the packed-x8 and packed-x4 two-prompt milestones then reached 6.107 seconds
+median TTFT and 385.181 ms median subsequent-token latency. The complete
+26-token fixed-oracle CTest fell from 234.35 to 40.60 seconds while retaining
+exact IDs, text, stop semantics, and runner steps. See the
 [updated performance evidence](docs/PERFORMANCE_BASELINE.md) and its
 [machine-readable AF_ALG](docs/metadata/qwen36-27b-afalg-loader-benchmark.json)
 and
-[packed-x8 records](docs/metadata/qwen36-27b-nvfp4-packedx8-benchmark.json).
+[packed-x8 records](docs/metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
+plus the
+[packed-x4 records](docs/metadata/qwen36-27b-fp8-packedx4-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 

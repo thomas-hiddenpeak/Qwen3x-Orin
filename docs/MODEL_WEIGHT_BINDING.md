@@ -98,16 +98,29 @@ and adjacent lanes share one 16-value block scale. Non-vector K and unaligned
 weight pointers retain the original scalar kernel. This shape dispatch does not
 change the public projection API or require an offline weight layout.
 
+Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
+4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
+route. Each lane consumes four E4M3FN weights with one 32-bit load and four
+activations with one 64-bit load, retaining four FP32 accumulators. Its
+branchless decoder is exact for finite E4M3FN values and preserves signed zero
+and signed canonical quiet NaNs. Non-vector K and either unaligned pointer
+retain the scalar kernel. This dispatch likewise requires no public API or
+checkpoint-layout change.
+
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
 but their warp reduction and global-scale multiplication order are not
 required to be bitwise identical to the deliberately scalar-shaped CUDA
 reference. Optimized results must instead pass the independent per-operation
-tolerance gate and the fixed full-model exact-token/text gate. The initial
-The current deterministic gate covers FP8 and NVFP4 K=5120/6144/17408, scalar
-and unaligned fallbacks, all E2M1 codes and packed positions, and adjacent-lane
-scale selection. Its 204 BF16 outputs produced zero bit mismatches against the
-CUDA reference. The default remains `kReference`; passing one prompt does not
-make the optimized backend a universal floating-point oracle.
+tolerance gate and the fixed full-model exact-token/text gate. The current
+deterministic gate covers FP8 and NVFP4 K=5120/6144/17408, scalar and
+unaligned fallbacks, all 256 E4M3FN codes in all four packed byte positions,
+both reserved encodings with NaN-class checks, all E2M1 codes and packed
+nibble positions, and adjacent-lane scale selection. Its 1,237 BF16 outputs
+produced zero bit mismatches against the CUDA reference; the independent host
+oracle checks reserved E4M3FN outputs by NaN class. The default remains
+`kReference`;
+passing one prompt does not make the optimized backend a universal
+floating-point oracle.
 
 ## Validation coverage
 
@@ -127,9 +140,10 @@ production routes, BF16 fallback, scratch behavior, and fail-closed backend
 and variant validation. It uses only tiny synthetic buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
-all packed E2M1 positions, the model reduction lengths, an independent host
-formula, deterministic replay, and direct optimized-versus-reference BF16
-mismatch/error statistics. Its optional production-shape segment performs a
-mirrored scalar/vector CUDA-event comparison and enforces a 1.15x minimum
-speedup for both dominant NVFP4 shapes. It is enabled with
+all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
+host formulas, deterministic replay, and direct optimized-versus-reference
+BF16 mismatch/error statistics. Its optional production-shape segment performs
+a mirrored scalar/vector CUDA-event comparison and enforces a 1.15x minimum
+speedup for the dominant NVFP4 shapes and FP8 shapes with at least 5,120 rows;
+the smaller FP8 shape may regress by at most 2%. It is enabled with
 `Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`.

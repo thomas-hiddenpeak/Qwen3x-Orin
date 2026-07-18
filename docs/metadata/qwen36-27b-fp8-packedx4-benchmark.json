@@ -1,0 +1,468 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-packedx4-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "git_commit": "ad22fdda2925bc12d60c319296646e4449dc11a3",
+    "parent_commit": "3ad7e8001427ed5125b2fd537f9049cac3cfb24e",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment",
+    "swap_enabled_bytes": 2147479552
+  },
+  "implementation": {
+    "format": "ModelOpt FP8 E4M3FN W8A16",
+    "vector_dispatch": {
+      "columns_multiple": 1024,
+      "weight_alignment_bytes": 4,
+      "activation_alignment_bytes": 8,
+      "fallback": "original scalar SM87 kernel"
+    },
+    "packed_weight_bytes_per_lane_load": 4,
+    "packed_activation_bytes_per_lane_load": 8,
+    "e4m3fn_values_per_lane_load": 4,
+    "logical_columns_per_block_iteration": 1024,
+    "fp32_accumulators_per_lane": 4,
+    "decode": "branchless exact finite E4M3FN with signed zero and signed canonical quiet NaN preservation",
+    "checkpoint_repack_required": false,
+    "public_api_changed": false
+  },
+  "correctness": {
+    "release_build_passed": true,
+    "non_model_ctest": {
+      "passed": 41,
+      "failed": 0,
+      "seconds": 3.94,
+      "package_consumer_passed": true
+    },
+    "synthetic_kernel_gate": {
+      "cases": [
+        "fp8_13x37_scalar_fallback",
+        "fp8_1024x1024_exhaustive_codebook_and_byte_positions",
+        "fp8_3x1024_unaligned_weight_scalar_fallback",
+        "fp8_3x1024_unaligned_activation_scalar_fallback",
+        "fp8_3x5120_vector",
+        "fp8_3x6144_vector",
+        "fp8_3x17408_vector",
+        "nvfp4_13x48_scalar_fallback",
+        "nvfp4_160x256_codebook_lane_scale",
+        "nvfp4_3x256_unaligned_scalar_fallback",
+        "nvfp4_3x5120_vector",
+        "nvfp4_3x6144_vector",
+        "nvfp4_3x17408_vector"
+      ],
+      "e4m3fn_codes_covered": 256,
+      "byte_positions_per_uint32_covered": 4,
+      "reserved_nan_codes_covered": 2,
+      "nan_classification_rows": 8,
+      "e2m1_codes_covered": 16,
+      "nibble_positions_per_uint32_covered": 8,
+      "lane_scale_halves_covered": 32,
+      "total_bf16_outputs_compared": 1237,
+      "bf16_bit_mismatches": 0,
+      "maximum_absolute_error": 0.0,
+      "maximum_relative_error": 0.0,
+      "host_double_oracle_passed": true,
+      "cuda_reference_passed": true,
+      "repeated_output_bitwise_deterministic": true
+    },
+    "full_model_sm87_oracle": {
+      "ctest_name": "reference_engine_e2e",
+      "ctest_seconds": 40.60,
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "same_binary_microbenchmark": {
+    "command": "Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1 q3x_sm87_weight_only_gemv_test",
+    "warmup_iterations_per_path": 5,
+    "measured_iterations_per_pass": 20,
+    "measurement_order": [
+      "scalar",
+      "vector",
+      "vector",
+      "scalar"
+    ],
+    "timer": "CUDA events",
+    "minimum_required_speedup_for_rows_at_least_5120": 1.15,
+    "maximum_allowed_slowdown_for_smaller_rows_percent": 2.0,
+    "results": [
+      {
+        "name": "linear_qkv",
+        "payload": "uniform_finite",
+        "rows": 10240,
+        "columns": 5120,
+        "scalar_average_milliseconds": 1.61403,
+        "vector_average_milliseconds": 0.795254,
+        "speedup": 2.02958,
+        "vector_encoded_weight_gigabytes_per_second": 65.9271,
+        "gate_passed": true
+      },
+      {
+        "name": "projection",
+        "payload": "uniform_finite",
+        "rows": 5120,
+        "columns": 6144,
+        "scalar_average_milliseconds": 0.969309,
+        "vector_average_milliseconds": 0.469730,
+        "speedup": 2.06355,
+        "vector_encoded_weight_gigabytes_per_second": 66.9689,
+        "gate_passed": true
+      },
+      {
+        "name": "projection",
+        "payload": "uniform_finite",
+        "rows": 6144,
+        "columns": 5120,
+        "scalar_average_milliseconds": 0.966847,
+        "vector_average_milliseconds": 0.479402,
+        "speedup": 2.01678,
+        "vector_encoded_weight_gigabytes_per_second": 65.6178,
+        "gate_passed": true
+      },
+      {
+        "name": "linear_qkv",
+        "payload": "uniform_finite",
+        "rows": 12288,
+        "columns": 5120,
+        "scalar_average_milliseconds": 1.91765,
+        "vector_average_milliseconds": 0.951666,
+        "speedup": 2.01504,
+        "vector_encoded_weight_gigabytes_per_second": 66.1099,
+        "gate_passed": true
+      },
+      {
+        "name": "small_projection",
+        "payload": "uniform_finite",
+        "rows": 1024,
+        "columns": 5120,
+        "scalar_average_milliseconds": 0.179198,
+        "vector_average_milliseconds": 0.0861848,
+        "speedup": 2.07923,
+        "vector_encoded_weight_gigabytes_per_second": 60.8330,
+        "gate_passed": true
+      },
+      {
+        "name": "linear_qkv",
+        "payload": "mixed_finite_e4m3fn_codes",
+        "rows": 10240,
+        "columns": 5120,
+        "scalar_average_milliseconds": 1.87785,
+        "vector_average_milliseconds": 0.794232,
+        "speedup": 2.36436,
+        "vector_encoded_weight_gigabytes_per_second": 66.0119,
+        "gate_passed": true
+      }
+    ],
+    "sass_resources": {
+      "vector_registers_per_thread": 36,
+      "scalar_registers_per_thread": 17,
+      "vector_stack_bytes": 0,
+      "vector_local_bytes": 0,
+      "vector_shared_bytes": 32,
+      "packed_weight_load_bits": 32,
+      "packed_activation_load_bits": 64,
+      "spills_detected": false
+    }
+  },
+  "end_to_end_benchmark": {
+    "command": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --prompt 'Explain CUDA in one sentence.' --max-tokens 2 --warmup 1 --iterations 2 --max-sequence-length 64 --projection-backend sm87",
+    "prompt_count": 2,
+    "warmup_rounds": 1,
+    "measured_rounds": 2,
+    "measured_samples": 4,
+    "max_new_tokens": 2,
+    "strict_replay_passed": true,
+    "load": {
+      "sha256_backend": "linux_af_alg",
+      "total_milliseconds": 22740.785,
+      "resident_milliseconds": 21579.657
+    },
+    "time_to_first_token_milliseconds": {
+      "minimum": 6106.646,
+      "median": 6107.361,
+      "p95": 6107.479,
+      "maximum": 6107.479,
+      "samples": [
+        6107.479,
+        6106.646,
+        6107.410,
+        6107.312
+      ]
+    },
+    "total_generation_milliseconds": {
+      "minimum": 6491.486,
+      "median": 6492.535,
+      "p95": 6493.014,
+      "maximum": 6493.014,
+      "samples": [
+        6493.014,
+        6491.486,
+        6492.237,
+        6492.834
+      ]
+    },
+    "subsequent_token_milliseconds": {
+      "minimum": 384.827,
+      "median": 385.181,
+      "p95": 385.535,
+      "maximum": 385.535,
+      "samples": [
+        385.535,
+        384.840,
+        384.827,
+        385.521
+      ]
+    },
+    "device_memory": {
+      "start_free_bytes": 41450778624,
+      "end_free_bytes": 41453391872,
+      "minimum_free_bytes": 41450778624,
+      "total_bytes": 65932095488,
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 0,
+      "drop_tolerance_bytes": 67108864,
+      "persistent_drop_detected": false
+    },
+    "prompts": [
+      {
+        "text": "用一句话解释 CUDA 是什么。",
+        "prompt_token_ids": [
+          248045,
+          846,
+          198,
+          95826,
+          110827,
+          98682,
+          52965,
+          220,
+          98661,
+          1710,
+          248046,
+          198,
+          248045,
+          74455,
+          198,
+          248068,
+          271,
+          248069,
+          271
+        ],
+        "generated_token_ids": [
+          77517,
+          220
+        ],
+        "generated_text": "CUDA ",
+        "stop_reason": "max_new_tokens",
+        "runner_steps": 20
+      },
+      {
+        "text": "Explain CUDA in one sentence.",
+        "prompt_token_ids": [
+          248045,
+          846,
+          198,
+          814,
+          20139,
+          52965,
+          303,
+          799,
+          11316,
+          13,
+          248046,
+          198,
+          248045,
+          74455,
+          198,
+          248068,
+          271,
+          248069,
+          271
+        ],
+        "generated_token_ids": [
+          77517,
+          369
+        ],
+        "generated_text": "CUDA is",
+        "stop_reason": "max_new_tokens",
+        "runner_steps": 20
+      }
+    ]
+  },
+  "derived": {
+    "versus_packed_x8": {
+      "prior_source_commit": "177c560c88710e93a452f58e3a9ae70d2da41c7f",
+      "time_to_first_token_reduction_milliseconds": 2172.515,
+      "time_to_first_token_reduction_percent": 26.2385,
+      "time_to_first_token_speedup": 1.355721,
+      "total_generation_reduction_milliseconds": 2286.644,
+      "total_generation_reduction_percent": 26.0462,
+      "total_generation_speedup": 1.352196,
+      "subsequent_token_reduction_milliseconds": 113.905,
+      "subsequent_token_reduction_percent": 22.8227,
+      "subsequent_token_speedup": 1.295718
+    },
+    "versus_first_sm87": {
+      "prior_source_commit": "fb09f4245763e73e5b50c34b09c300fedc4119ac",
+      "time_to_first_token_reduction_percent": 45.2903,
+      "time_to_first_token_speedup": 1.827829,
+      "total_generation_reduction_percent": 45.0473,
+      "total_generation_speedup": 1.819746,
+      "subsequent_token_reduction_percent": 40.8827,
+      "subsequent_token_speedup": 1.691553
+    },
+    "versus_reference": {
+      "reference_source_commit": "fb09f4245763e73e5b50c34b09c300fedc4119ac",
+      "time_to_first_token_reduction_percent": 70.2399,
+      "time_to_first_token_speedup": 3.360199,
+      "total_generation_reduction_percent": 70.0336,
+      "total_generation_speedup": 3.337072,
+      "subsequent_token_reduction_percent": 66.3335,
+      "subsequent_token_speedup": 2.970313
+    },
+    "subsequent_tokens_per_second": 2.596182
+  },
+  "post_change_profile": {
+    "command": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=true qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --projection-backend sm87",
+    "report": {
+      "filename": "q3x-27b-sm87-fp8-packedx4-profile.nsys-rep",
+      "checked_in": false,
+      "size_bytes": 1769234,
+      "sha256": "e5854b3c163153204c8b871cb8e1cd1614a09622b441e12e1f7bdef1d234df32"
+    },
+    "runner_steps": 20,
+    "cuda_kernel_launches": 24042,
+    "all_kernel_gpu_milliseconds": 6512.442752,
+    "all_gpu_activity_including_memory_operations": {
+      "instances": 27636,
+      "milliseconds": 7091.798848
+    },
+    "generation_milliseconds": {
+      "time_to_first_token": 6175.789,
+      "subsequent_token": 386.433,
+      "total": 6562.223
+    },
+    "kernel_groups": [
+      {
+        "name": "nvfp4_packed_x8_layer_projections",
+        "instances": 3840,
+        "gpu_milliseconds": 3850.492800,
+        "profile_share_percent": 59.1252
+      },
+      {
+        "name": "fp8_packed_x4_layer_projections",
+        "instances": 4160,
+        "gpu_milliseconds": 2226.552000,
+        "profile_share_percent": 34.1892
+      },
+      {
+        "name": "gated_deltanet",
+        "instances": 960,
+        "gpu_milliseconds": 186.236224,
+        "profile_share_percent": 2.8597
+      },
+      {
+        "name": "reference_nvfp4_lm_head",
+        "instances": 2,
+        "gpu_milliseconds": 120.125600,
+        "profile_share_percent": 1.8446
+      }
+    ],
+    "fp8_shapes": [
+      {
+        "rows": 10240,
+        "columns": 5120,
+        "instances": 960,
+        "average_milliseconds": 0.8110941,
+        "profile_share_percent": 12.0
+      },
+      {
+        "rows": 5120,
+        "columns": 6144,
+        "instances": 1280,
+        "average_milliseconds": 0.4766582,
+        "profile_share_percent": 9.4
+      },
+      {
+        "rows": 6144,
+        "columns": 5120,
+        "instances": 960,
+        "average_milliseconds": 0.4901560,
+        "profile_share_percent": 7.2
+      },
+      {
+        "rows": 12288,
+        "columns": 5120,
+        "instances": 320,
+        "average_milliseconds": 0.9726835,
+        "profile_share_percent": 4.8
+      },
+      {
+        "rows": 1024,
+        "columns": 5120,
+        "instances": 640,
+        "average_milliseconds": 0.0874543,
+        "profile_share_percent": 0.9
+      }
+    ],
+    "nvfp4_shapes": [
+      {
+        "rows": 17408,
+        "columns": 5120,
+        "instances": 2560,
+        "average_milliseconds": 1.0033217,
+        "profile_share_percent": 39.4
+      },
+      {
+        "rows": 5120,
+        "columns": 17408,
+        "instances": 1280,
+        "average_milliseconds": 1.0015541,
+        "profile_share_percent": 19.7
+      }
+    ],
+    "fp8_gpu_time_reduction_versus_packed_x8_profile_percent": 50.51949,
+    "fp8_gpu_time_speedup_versus_packed_x8_profile": 2.020998,
+    "all_kernel_gpu_time_reduction_versus_packed_x8_profile_percent": 25.88512,
+    "all_kernel_gpu_time_speedup_versus_packed_x8_profile": 1.349257,
+    "next_target": "small-M projection gate before chunked prefill"
+  },
+  "limitations": [
+    "MAXN was selected but clocks were not locked",
+    "swap was enabled",
+    "the end-to-end comparison reuses prior cross-commit benchmark artifacts rather than randomized same-binary trials",
+    "only the scalar/vector microbenchmark uses identical buffers in one binary",
+    "the microbenchmark uses deterministic synthetic payloads",
+    "the benchmark covers batch-one sequential generation with two short prompts and two output tokens",
+    "cudaMemGetInfo is device-wide and sampled only between invocations",
+    "parallel accumulation remains numerically gated rather than universally bitwise-equivalent"
+  ],
+  "policy": {
+    "default_projection_backend": "reference",
+    "sm87_backend_is_opt_in": true,
+    "result_is_release_claim": false
+  }
+}
