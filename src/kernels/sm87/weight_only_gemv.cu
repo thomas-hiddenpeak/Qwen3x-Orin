@@ -17,6 +17,8 @@ constexpr std::size_t kMaximumBlocks = 65'535U;
 constexpr std::size_t kMaximumSmallMTokens = 8U;
 constexpr std::size_t kFp8M1PersistentMinimumRows = 1'024U;
 constexpr unsigned int kFp8M1PersistentMaximumBlocks = 2'048U;
+constexpr std::size_t kFp8M2PersistentMinimumRows = 1'024U;
+constexpr unsigned int kFp8M2PersistentMaximumBlocks = 2'048U;
 constexpr std::size_t kFp8RowPairMinimumRows = 1'024U;
 constexpr std::size_t kNvFp4RowPairMinimumRows = kWarpsPerBlock * 2U;
 constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows = kWarpsPerBlock;
@@ -84,6 +86,11 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 [[nodiscard]] constexpr bool use_fp8_m1_persistent_rows(
     const std::size_t rows) noexcept {
   return rows >= kFp8M1PersistentMinimumRows;
+}
+
+[[nodiscard]] constexpr bool use_fp8_m2_persistent_rows(
+    const std::size_t rows) noexcept {
+  return rows >= kFp8M2PersistentMinimumRows;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_small_m_row_pair(
@@ -1359,6 +1366,21 @@ void launch_fp8_small_m_vector_unchecked(
                                         rows, columns, output);
 }
 
+template <std::size_t TokenCount>
+void launch_fp8_small_m_vector_grid_cap_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  const unsigned int uncapped = block_count_for_single_row(rows);
+  const unsigned int blocks =
+      uncapped < maximum_blocks ? uncapped : maximum_blocks;
+  fp8_w8a16_small_m_gemm_bf16_vector_kernel<TokenCount>
+      <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                        rows, columns, output);
+}
+
 void launch_fp8_small_m8_row_pair_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t rows,
@@ -1620,6 +1642,74 @@ int launch_sm87_fp8_w8a16_small_m8_row_pair_test_cuda(
   launch_fp8_small_m8_row_pair_unchecked(weights, weight_scale, activations,
                                          rows, columns, output, stream);
   return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only preserved uncapped M=2 launcher and same-cubin grid-cap candidate.
+// These stay outside the public header so a sweep cannot alter production
+// dispatch before every correctness and performance gate has passed.
+int launch_sm87_fp8_w8a16_small_m2_uncapped_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 2U;
+  const int validation = validate_fp8_small_m_launch(
+      weights, weight_scale, activations, kTokenCount, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_small_m_vector_unchecked<kTokenCount>(
+      weights, weight_scale, activations, rows, columns, output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_small_m2_grid_cap_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 2U;
+  const int validation = validate_fp8_small_m_launch(
+      weights, weight_scale, activations, kTokenCount, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_small_m_vector_grid_cap_unchecked<kTokenCount>(
+      weights, weight_scale, activations, rows, columns, output,
+      static_cast<unsigned int>(maximum_blocks), stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+[[nodiscard]] bool use_sm87_fp8_m2_persistent_rows_test(
+    const std::size_t rows) noexcept {
+  return use_fp8_m2_persistent_rows(rows);
 }
 
 int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
@@ -1952,8 +2042,15 @@ int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
     (void)cudaGetLastError();
     switch (token_count) {
       case 2U:
-        launch_fp8_small_m_vector_unchecked<2U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
+        if (use_fp8_m2_persistent_rows(rows)) {
+          launch_fp8_small_m_vector_grid_cap_unchecked<2U>(
+              weights, weight_scale, activations, rows, columns, output,
+              kFp8M2PersistentMaximumBlocks, stream);
+        } else {
+          launch_fp8_small_m_vector_unchecked<2U>(
+              weights, weight_scale, activations, rows, columns, output,
+              stream);
+        }
         break;
       case 3U:
         launch_fp8_small_m_vector_unchecked<3U>(

@@ -50,6 +50,20 @@ namespace q3x::kernels {
     const std::uint16_t* activations, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m2_uncapped_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m2_grid_cap_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, std::size_t maximum_blocks,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] bool use_sm87_fp8_m2_persistent_rows_test(
+    std::size_t rows) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_small_m_row_pair_test(
     std::size_t token_count, std::size_t rows) noexcept;
 
@@ -2485,6 +2499,12 @@ void test_launch_validation(TestContext& test) {
               "FP8 M1 persistent rows accepts the smallest real projection");
   test.expect(q3x::kernels::use_sm87_fp8_m1_persistent_rows_test(65'537U),
               "FP8 M1 persistent rows accepts grid-stride large-row shapes");
+  test.expect(!q3x::kernels::use_sm87_fp8_m2_persistent_rows_test(1'023U),
+              "FP8 M2 persistent rows keeps the small-row fallback");
+  test.expect(q3x::kernels::use_sm87_fp8_m2_persistent_rows_test(1'024U),
+              "FP8 M2 persistent rows accepts the smallest real projection");
+  test.expect(q3x::kernels::use_sm87_fp8_m2_persistent_rows_test(65'537U),
+              "FP8 M2 persistent rows accepts grid-stride large-row shapes");
 }
 
 [[nodiscard]] bool performance_enabled() noexcept {
@@ -2537,6 +2557,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool fp8_m1_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M1_GRID_CAP_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -3088,6 +3115,418 @@ void run_optional_fp8_m1_grid_cap_performance(TestContext& test,
   if (aggregate_gate) {
     run_fp8_m1_large_row_grid_stride_coverage(test, stream, selected_cap);
   }
+}
+
+constexpr std::array<std::size_t, 6U> kFp8M2GridCaps{{
+    96U, 192U, 384U, 768U, 1'024U, 2'048U,
+}};
+
+struct Fp8M2GridCapMeasurements {
+  std::array<float, kFp8M2GridCaps.size()> baseline_milliseconds{};
+  std::array<float, kFp8M2GridCaps.size()> candidate_milliseconds{};
+  std::array<bool, kFp8M2GridCaps.size()> bitwise_equal{};
+};
+
+[[nodiscard]] Fp8M2GridCapMeasurements benchmark_fp8_m2_grid_cap_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokenCount = 2U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+  Fp8M2GridCapMeasurements measurements;
+  measurements.baseline_milliseconds.fill(
+      std::numeric_limits<float>::quiet_NaN());
+  measurements.candidate_milliseconds.fill(
+      std::numeric_limits<float>::quiet_NaN());
+
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokenCount * columns);
+  for (std::size_t token = 0U; token < kTokenCount; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 13U + token * 29U + 3U) % 127U) -
+                           63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready &&
+          test.cuda_ok(activations.allocate(host_activations.size()),
+                       label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokenCount * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokenCount * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed finite weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed activations");
+  if (!ready) {
+    return measurements;
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m2_uncapped_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            baseline_output.get(), static_cast<void*>(stream));
+  };
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " correctness baseline launch");
+  std::vector<std::uint16_t> baseline(kTokenCount * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy correctness baseline");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " baseline synchronize");
+  if (!ready) {
+    return measurements;
+  }
+
+  for (std::size_t cap_index = 0U; cap_index < kFp8M2GridCaps.size();
+       ++cap_index) {
+    const std::size_t grid_cap = kFp8M2GridCaps[cap_index];
+    const auto launch_candidate = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m2_grid_cap_test_cuda(
+              weights.get(), kWeightScale, activations.get(), rows, columns,
+              candidate_output.get(), grid_cap, static_cast<void*>(stream));
+    };
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                         label + " correctness candidate launch cap=" +
+                             std::to_string(grid_cap));
+    std::vector<std::uint16_t> candidate(kTokenCount * rows);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy correctness candidate cap=" +
+                             std::to_string(grid_cap));
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         label + " correctness synchronize cap=" +
+                             std::to_string(grid_cap));
+    if (!ready) {
+      return measurements;
+    }
+    std::size_t mismatches = 0U;
+    for (std::size_t index = 0U; index < baseline.size(); ++index) {
+      mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+    }
+    measurements.bitwise_equal[cap_index] = mismatches == 0U;
+    std::cout << "FP8_M2_GRID_CAP_DIFF: " << label
+              << " grid_cap=" << grid_cap
+              << " candidate_vs_uncapped_bf16=" << mismatches << '/'
+              << baseline.size() << '\n';
+    test.expect(mismatches == 0U,
+                label + " cap=" + std::to_string(grid_cap) +
+                    " matches every uncapped M2 BF16 bit");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           label + " candidate warmup cap=" +
+                               std::to_string(grid_cap));
+    }
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         label + " warmup synchronize cap=" +
+                             std::to_string(grid_cap));
+    if (!ready) {
+      return measurements;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    bool finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_suffix =
+          " cap=" + std::to_string(grid_cap) +
+          " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          label + " baseline pass 1" + round_suffix);
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          label + " candidate pass 1" + round_suffix);
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          label + " candidate pass 2" + round_suffix);
+      const float baseline_second = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          label + " baseline pass 2" + round_suffix);
+      const bool round_finite =
+          std::isfinite(baseline_first) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) &&
+          std::isfinite(baseline_second);
+      finite = finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_FP8_M2_GRID_CAP_ROUND: " << label
+                << " grid_cap=" << grid_cap << " round=" << round + 1
+                << " baseline_pass1_ms=" << baseline_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " baseline_pass2_ms=" << baseline_second << '\n';
+    }
+    if (!finite) {
+      return measurements;
+    }
+    constexpr double kPassesPerCandidate =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    const float baseline_average =
+        static_cast<float>(baseline_total / kPassesPerCandidate);
+    const float candidate_average =
+        static_cast<float>(candidate_total / kPassesPerCandidate);
+    measurements.baseline_milliseconds[cap_index] = baseline_average;
+    measurements.candidate_milliseconds[cap_index] = candidate_average;
+    const float speedup = baseline_average / candidate_average;
+    std::cout << "PERF_FP8_M2_GRID_CAP: " << label
+              << " grid_cap=" << grid_cap
+              << " baseline_average_ms=" << baseline_average
+              << " candidate_average_ms=" << candidate_average
+              << " speedup=" << speedup
+              << " uplift_percent=" << (speedup - 1.0F) * 100.0F << '\n';
+  }
+  return measurements;
+}
+
+void run_fp8_m2_large_row_grid_stride_coverage(
+    TestContext& test, cudaStream_t stream, const std::size_t grid_cap) {
+  constexpr std::size_t kTokenCount = 2U;
+  constexpr std::size_t kRows = 65'537U;
+  constexpr std::size_t kColumns = 1'024U;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  const std::string label = "FP8 M2 grid-cap >65535-row coverage";
+  std::vector<std::uint16_t> host_activations(
+      kTokenCount * kColumns, encode_bf16(1.0F / 256.0F));
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(weights.allocate(kRows * kColumns),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready &&
+          test.cuda_ok(baseline_output.allocate(kTokenCount * kRows),
+                       label + " allocate baseline output");
+  ready = ready &&
+          test.cuda_ok(candidate_output.allocate(kTokenCount * kRows),
+                       label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(weights.get(), 0x38, kRows * kColumns,
+                                       stream),
+                       label + " initialize weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m2_uncapped_test_cuda(
+              weights.get(), kWeightScale, activations.get(), kRows, kColumns,
+              baseline_output.get(), static_cast<void*>(stream))),
+      label + " launch uncapped baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+                               weights.get(), kWeightScale, activations.get(),
+                               kTokenCount, kRows, kColumns,
+                               candidate_output.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch production candidate");
+  std::vector<std::uint16_t> baseline(kTokenCount * kRows);
+  std::vector<std::uint16_t> candidate(kTokenCount * kRows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+  std::size_t mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  std::cout << "FP8_M2_GRID_CAP_LARGE_ROWS_DIFF: grid_cap=" << grid_cap
+            << " production_vs_uncapped_bf16=" << mismatches << '/'
+            << baseline.size() << '\n';
+  test.expect(mismatches == 0U,
+              label + " covers every token row with identical BF16 output");
+}
+
+void run_optional_fp8_m2_grid_cap_performance(TestContext& test,
+                                               cudaStream_t stream) {
+  if (!fp8_m2_grid_cap_performance_enabled()) {
+    std::cout << "SKIP: FP8 M2 persistent-row grid-cap segment; set "
+                 "Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF=1 to enable\n";
+    return;
+  }
+  constexpr float kMinimumWeightedSpeedup = 1.03F;
+  constexpr float kMinimumPerShapeSpeedup = 0.98F;
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t calls_per_prompt;
+    const char* label;
+  };
+  constexpr std::array<Shape, 6U> kShapes{{
+      {10'240U, 5'120U, 48U, "FP8 M2 linear QKV 10240x5120"},
+      {5'120U, 6'144U, 64U, "FP8 M2 projection 5120x6144"},
+      {6'144U, 5'120U, 48U, "FP8 M2 projection 6144x5120"},
+      {12'288U, 5'120U, 16U, "FP8 M2 linear QKV 12288x5120"},
+      {1'024U, 5'120U, 32U, "FP8 M2 small projection 1024x5120"},
+      {5'120U, 5'120U, 0U, "FP8 M2 square validation 5120x5120"},
+  }};
+  std::array<Fp8M2GridCapMeasurements, kShapes.size()> measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] = benchmark_fp8_m2_grid_cap_shape(
+        test, stream, kShapes[shape_index].rows, kShapes[shape_index].columns,
+        kShapes[shape_index].label);
+  }
+
+  std::size_t selected_cap_index = kFp8M2GridCaps.size();
+  double selected_weighted_speedup = 0.0;
+  std::array<double, kFp8M2GridCaps.size()> weighted_speedups{};
+  std::array<bool, kFp8M2GridCaps.size()> aggregate_gates{};
+  for (std::size_t cap_index = 0U; cap_index < kFp8M2GridCaps.size();
+       ++cap_index) {
+    double weighted_baseline = 0.0;
+    double weighted_candidate = 0.0;
+    bool all_bitwise = true;
+    bool all_finite = true;
+    bool no_shape_regression = true;
+    for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+         ++shape_index) {
+      const float baseline =
+          measurements[shape_index].baseline_milliseconds[cap_index];
+      const float candidate =
+          measurements[shape_index].candidate_milliseconds[cap_index];
+      const bool finite = std::isfinite(baseline) && std::isfinite(candidate);
+      const float speedup = baseline / candidate;
+      all_finite = all_finite && finite;
+      all_bitwise = all_bitwise &&
+                    measurements[shape_index].bitwise_equal[cap_index];
+      no_shape_regression = no_shape_regression && finite &&
+                            speedup >= kMinimumPerShapeSpeedup;
+      weighted_baseline +=
+          static_cast<double>(kShapes[shape_index].calls_per_prompt) *
+          baseline;
+      weighted_candidate +=
+          static_cast<double>(kShapes[shape_index].calls_per_prompt) *
+          candidate;
+      std::cout << "PERF_FP8_M2_GRID_CAP_VALIDATION: "
+                << kShapes[shape_index].label
+                << " grid_cap=" << kFp8M2GridCaps[cap_index]
+                << " baseline_ms=" << baseline
+                << " candidate_ms=" << candidate
+                << " speedup=" << speedup
+                << " minimum_speedup=" << kMinimumPerShapeSpeedup
+                << " gate="
+                << (finite && speedup >= kMinimumPerShapeSpeedup ? "PASS"
+                                                                 : "FAIL")
+                << '\n';
+    }
+    const double weighted_speedup = weighted_baseline / weighted_candidate;
+    const bool aggregate_gate =
+        all_finite && all_bitwise && no_shape_regression &&
+        std::isfinite(weighted_speedup) &&
+        weighted_speedup >= kMinimumWeightedSpeedup;
+    weighted_speedups[cap_index] = weighted_speedup;
+    aggregate_gates[cap_index] = aggregate_gate;
+    std::cout << "PERF_FP8_M2_GRID_CAP_AGGREGATE: grid_cap="
+              << kFp8M2GridCaps[cap_index]
+              << " weighted_baseline_ms=" << weighted_baseline
+              << " weighted_candidate_ms=" << weighted_candidate
+              << " speedup=" << weighted_speedup
+              << " required_speedup=" << kMinimumWeightedSpeedup
+              << " all_bitwise=" << (all_bitwise ? "true" : "false")
+              << " no_shape_regression="
+              << (no_shape_regression ? "true" : "false")
+              << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+    if (aggregate_gate && weighted_speedup > selected_weighted_speedup) {
+      selected_cap_index = cap_index;
+      selected_weighted_speedup = weighted_speedup;
+    }
+  }
+  const bool sweep_selected = selected_cap_index < kFp8M2GridCaps.size();
+  test.expect(sweep_selected,
+              "FP8 M2 sweep selects a cap clearing every production gate");
+  if (!sweep_selected) {
+    std::cout << "PERF_FP8_M2_GRID_CAP_SWEEP_BEST: gate=FAIL\n";
+    return;
+  }
+  std::cout << "PERF_FP8_M2_GRID_CAP_SWEEP_BEST: grid_cap="
+            << kFp8M2GridCaps[selected_cap_index]
+            << " weighted_speedup=" << selected_weighted_speedup << '\n';
+
+  // Freeze and gate the exact cap compiled into production. The diagnostic
+  // sweep remains useful, but clock noise must not validate another cap.
+  constexpr std::size_t kProductionCapIndex = kFp8M2GridCaps.size() - 1U;
+  selected_cap_index = kProductionCapIndex;
+  const std::size_t selected_cap = kFp8M2GridCaps[selected_cap_index];
+  const bool production_gate = aggregate_gates[selected_cap_index];
+  std::cout << "PERF_FP8_M2_GRID_CAP_SELECTED: grid_cap=" << selected_cap
+            << " weighted_speedup=" << weighted_speedups[selected_cap_index]
+            << " gate=" << (production_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(production_gate,
+              "FP8 M2 frozen production cap clears every production gate");
+  if (!production_gate) {
+    return;
+  }
+  run_fp8_m2_large_row_grid_stride_coverage(test, stream, selected_cap);
 }
 
 struct Fp8RowPairMeasurement {
@@ -4609,6 +5048,7 @@ int main() {
   run_nvfp4_case(test, stream, 3U, 17'408U,
                   "NVFP4 target-K 3x17408");
   run_optional_fp8_m1_grid_cap_performance(test, stream);
+  run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
