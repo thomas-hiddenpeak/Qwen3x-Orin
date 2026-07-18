@@ -16,6 +16,20 @@
 #include <string>
 #include <vector>
 
+namespace q3x::kernels {
+
+// Deliberately not part of the public kernel API. The implementation is
+// linked into this test so performance comparisons can use identical buffers
+// and one binary without weakening production shape dispatch.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+}  // namespace q3x::kernels
+
 namespace {
 
 class TestContext {
@@ -374,28 +388,16 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   }
 }
 
-void run_nvfp4_case(TestContext& test, cudaStream_t stream,
-                    const std::size_t rows, const std::size_t columns,
-                    const std::string& label) {
-  constexpr float kWeightScale2 = 1.0F / 64.0F;
-  constexpr std::array<std::uint8_t, 8U> kScaleCodes{{
-      0x20U, 0x28U, 0x30U, 0x34U, 0x38U, 0x3cU, 0x40U, 0x44U,
-  }};
-  std::vector<std::uint16_t> activation(columns);
-  std::vector<std::uint8_t> packed(rows * columns / 2U);
-  std::vector<std::uint8_t> scales(rows * columns / 16U);
-  fill_activation(activation);
-  for (std::size_t index = 0U; index < packed.size(); ++index) {
-    const std::uint8_t low = static_cast<std::uint8_t>((index * 3U) & 0x0fU);
-    const std::uint8_t high =
-        static_cast<std::uint8_t>((index * 11U + 5U) & 0x0fU);
-    packed[index] = static_cast<std::uint8_t>(low | (high << 4U));
-  }
-  for (std::size_t index = 0U; index < scales.size(); ++index) {
-    scales[index] = kScaleCodes[(index * 5U + 1U) % kScaleCodes.size()];
-  }
+void run_nvfp4_payload(TestContext& test, cudaStream_t stream,
+                       const std::vector<std::uint8_t>& packed,
+                       const std::vector<std::uint8_t>& scales,
+                       const float weight_scale_2,
+                       const std::vector<std::uint16_t>& activation,
+                       const std::size_t rows, const std::size_t columns,
+                       const std::string& label,
+                       const bool unaligned_packed = false) {
   const std::vector<std::uint16_t> expected = nvfp4_host_reference(
-      packed, scales, kWeightScale2, activation, rows, columns);
+      packed, scales, weight_scale_2, activation, rows, columns);
   std::vector<std::uint16_t> actual(rows, 0U);
   std::vector<std::uint16_t> repeated(rows, 0U);
   std::vector<std::uint16_t> reference(rows, 0U);
@@ -406,7 +408,9 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
   DeviceBuffer<std::uint16_t> device_output;
   DeviceBuffer<float> device_reference_fp32;
   DeviceBuffer<std::uint16_t> device_reference_output;
-  bool ready = test.cuda_ok(device_packed.allocate(packed.size()),
+  const std::size_t packed_offset = unaligned_packed ? 1U : 0U;
+  bool ready = test.cuda_ok(
+      device_packed.allocate(packed.size() + packed_offset),
                             label + " allocate packed weights");
   ready = ready && test.cuda_ok(device_scales.allocate(scales.size()),
                                 label + " allocate scales");
@@ -419,7 +423,8 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
   ready = ready && test.cuda_ok(device_reference_output.allocate(rows),
                                 label + " allocate reference BF16");
   ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(device_packed.get(), packed.data(),
+                       cudaMemcpyAsync(device_packed.get() + packed_offset,
+                                       packed.data(),
                                        packed.size(), cudaMemcpyHostToDevice,
                                        stream),
                        label + " copy packed weights");
@@ -437,12 +442,14 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
   if (!ready) {
     return;
   }
+  const std::uint8_t* const packed_device =
+      device_packed.get() + packed_offset;
 
   (void)seed_stale_error(test);
   ready = test.cuda_ok(
       static_cast<cudaError_t>(
           q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
-              device_packed.get(), device_scales.get(), kWeightScale2,
+              packed_device, device_scales.get(), weight_scale_2,
               device_activation.get(), rows, columns, device_output.get(),
               static_cast<void*>(stream))),
       label + " launch");
@@ -455,8 +462,8 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
                        static_cast<cudaError_t>(
                            q3x::kernels::
                                launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
-                                   device_packed.get(), device_scales.get(),
-                                   kWeightScale2, device_activation.get(), rows,
+                                   packed_device, device_scales.get(),
+                                   weight_scale_2, device_activation.get(), rows,
                                    columns, device_output.get(),
                                    static_cast<void*>(stream))),
                        label + " repeat launch");
@@ -468,8 +475,8 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(
                            q3x::kernels::launch_nvfp4_gemv_reference_cuda(
-                               device_packed.get(), device_scales.get(),
-                               kWeightScale2, device_activation.get(), rows,
+                               packed_device, device_scales.get(),
+                               weight_scale_2, device_activation.get(), rows,
                                columns, device_reference_fp32.get(),
                                static_cast<void*>(stream))),
                        label + " launch CUDA reference");
@@ -493,6 +500,89 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
     compare_cuda_reference_outputs(test, actual, reference, columns, label);
     test.expect(actual == repeated, label + " is bitwise deterministic");
   }
+}
+
+void run_nvfp4_case(TestContext& test, cudaStream_t stream,
+                    const std::size_t rows, const std::size_t columns,
+                    const std::string& label,
+                    const bool unaligned_packed = false) {
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 8U> kScaleCodes{{
+      0x20U, 0x28U, 0x30U, 0x34U, 0x38U, 0x3cU, 0x40U, 0x44U,
+  }};
+  std::vector<std::uint16_t> activation(columns);
+  std::vector<std::uint8_t> packed(rows * columns / 2U);
+  std::vector<std::uint8_t> scales(rows * columns / 16U);
+  fill_activation(activation);
+  for (std::size_t index = 0U; index < packed.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>((index * 3U) & 0x0fU);
+    const std::uint8_t high =
+        static_cast<std::uint8_t>((index * 11U + 5U) & 0x0fU);
+    packed[index] = static_cast<std::uint8_t>(low | (high << 4U));
+  }
+  for (std::size_t index = 0U; index < scales.size(); ++index) {
+    scales[index] = kScaleCodes[(index * 5U + 1U) % kScaleCodes.size()];
+  }
+  run_nvfp4_payload(test, stream, packed, scales, kWeightScale2, activation,
+                    rows, columns, label, unaligned_packed);
+}
+
+void run_nvfp4_vector_codebook_case(TestContext& test,
+                                    cudaStream_t stream) {
+  constexpr std::size_t kColumns = 256U;
+  constexpr std::size_t kCodebookRows = 16U * 8U;
+  constexpr std::size_t kScaleRows = 16U * 2U;
+  constexpr std::size_t kRows = kCodebookRows + kScaleRows;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::uint8_t kE2m1One = 0x02U;
+  constexpr std::array<std::uint8_t, 16U> kDistinctScaleCodes{{
+      0x20U, 0x24U, 0x28U, 0x2cU, 0x30U, 0x34U, 0x38U, 0x3cU,
+      0x40U, 0x44U, 0x48U, 0x4cU, 0x50U, 0x54U, 0x58U, 0x5cU,
+  }};
+  constexpr std::array<float, 8U> kDistinctWordActivations{{
+      0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 1.75F, 2.0F, 2.5F,
+  }};
+
+  std::vector<std::uint16_t> activation(kColumns, encode_bf16(1.0F));
+  for (std::size_t index = 0U; index < kDistinctWordActivations.size();
+       ++index) {
+    activation[index] = encode_bf16(kDistinctWordActivations[index]);
+  }
+  std::vector<std::uint8_t> packed(kRows * kPackedColumns, 0U);
+  std::vector<std::uint8_t> scales(kRows * kScaleColumns, 0x38U);
+
+  // Every E2M1 code occupies each of the eight nibble positions in one
+  // uint32 load. The corresponding activations are distinct, BF16-exact
+  // values, so a byte/nibble-to-K permutation changes the result. All other
+  // weights are +0, keeping the expected value independently auditable.
+  for (std::size_t code = 0U; code < 16U; ++code) {
+    for (std::size_t nibble_position = 0U; nibble_position < 8U;
+         ++nibble_position) {
+      const std::size_t row = code * 8U + nibble_position;
+      const std::size_t byte = nibble_position / 2U;
+      const unsigned int shift =
+          static_cast<unsigned int>((nibble_position & 1U) * 4U);
+      packed[row * kPackedColumns + byte] = static_cast<std::uint8_t>(
+          static_cast<std::uint8_t>(code) << shift);
+    }
+  }
+
+  // Each scale group is exercised once by its even-lane half and once by its
+  // odd-lane half. Distinct scale codes catch an incorrect lane-pair source or
+  // scale-column calculation.
+  for (std::size_t group = 0U; group < 16U; ++group) {
+    for (std::size_t half = 0U; half < 2U; ++half) {
+      const std::size_t row = kCodebookRows + group * 2U + half;
+      const std::size_t column = group * 16U + half * 8U;
+      const std::size_t byte = column / 2U;
+      packed[row * kPackedColumns + byte] = kE2m1One;
+      scales[row * kScaleColumns + group] = kDistinctScaleCodes[group];
+    }
+  }
+
+  run_nvfp4_payload(test, stream, packed, scales, 1.0F, activation, kRows,
+                    kColumns, "NVFP4 vector codebook and lane-pair scales");
 }
 
 void test_launch_validation(TestContext& test) {
@@ -599,12 +689,49 @@ void test_launch_validation(TestContext& test) {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+using NvFp4Launcher = int (*)(const std::uint8_t*, const std::uint8_t*, float,
+                              const std::uint16_t*, std::size_t, std::size_t,
+                              std::uint16_t*, void*) noexcept;
+
+[[nodiscard]] float measure_nvfp4_launcher(
+    TestContext& test, cudaStream_t stream, NvFp4Launcher launcher,
+    const std::uint8_t* packed, const std::uint8_t* scales,
+    const float weight_scale_2, const std::uint16_t* activation,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* output, const int iterations, const std::string& label) {
+  EventPair events;
+  bool ready = events.create(test);
+  ready = ready && test.cuda_ok(cudaEventRecord(events.start(), stream),
+                                label + " record start");
+  for (int iteration = 0; iteration < iterations && ready; ++iteration) {
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(launcher(
+            packed, scales, weight_scale_2, activation, rows, columns, output,
+            static_cast<void*>(stream))),
+        label + " launch");
+  }
+  ready = ready && test.cuda_ok(cudaEventRecord(events.stop(), stream),
+                                label + " record stop");
+  ready = ready && test.cuda_ok(cudaEventSynchronize(events.stop()),
+                                label + " event synchronize");
+  float total_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  ready = ready && test.cuda_ok(
+                       cudaEventElapsedTime(&total_milliseconds,
+                                            events.start(), events.stop()),
+                       label + " elapsed time");
+  if (!ready) {
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+  return total_milliseconds / static_cast<float>(iterations);
+}
+
 void benchmark_nvfp4_shape(TestContext& test, cudaStream_t stream,
                            const std::size_t rows,
                            const std::size_t columns,
                            const std::string& label) {
   constexpr int kWarmupIterations = 5;
   constexpr int kMeasuredIterations = 20;
+  constexpr float kMinimumRequiredSpeedup = 1.15F;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   const std::size_t packed_count = rows * columns / 2U;
   const std::size_t scale_count = rows * columns / 16U;
@@ -639,52 +766,68 @@ void benchmark_nvfp4_shape(TestContext& test, cudaStream_t stream,
 
   for (int iteration = 0; iteration < kWarmupIterations; ++iteration) {
     ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(
-                             q3x::kernels::
-                                 launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
-                                     packed.get(), scales.get(), kWeightScale2,
-                                     device_activation.get(), rows, columns,
-                                     output.get(), static_cast<void*>(stream))),
-                         label + " warmup launch");
+                         static_cast<cudaError_t>(q3x::kernels::
+                             launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
+                                 packed.get(), scales.get(), kWeightScale2,
+                                 device_activation.get(), rows, columns,
+                                 output.get(), static_cast<void*>(stream))),
+                         label + " scalar warmup launch");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(q3x::kernels::
+                             launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+                                 packed.get(), scales.get(), kWeightScale2,
+                                 device_activation.get(), rows, columns,
+                                 output.get(), static_cast<void*>(stream))),
+                         label + " vector warmup launch");
   }
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 label + " warmup synchronize");
-  EventPair events;
-  ready = ready && events.create(test);
-  ready = ready &&
-          test.cuda_ok(cudaEventRecord(events.start(), stream),
-                       label + " record start");
-  for (int iteration = 0; iteration < kMeasuredIterations; ++iteration) {
-    ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(
-                             q3x::kernels::
-                                 launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
-                                     packed.get(), scales.get(), kWeightScale2,
-                                     device_activation.get(), rows, columns,
-                                     output.get(), static_cast<void*>(stream))),
-                         label + " measured launch");
-  }
-  ready = ready && test.cuda_ok(cudaEventRecord(events.stop(), stream),
-                                label + " record stop");
-  ready = ready && test.cuda_ok(cudaEventSynchronize(events.stop()),
-                                label + " event synchronize");
   if (!ready) {
     return;
   }
-  float total_milliseconds = 0.0F;
-  if (!test.cuda_ok(cudaEventElapsedTime(&total_milliseconds, events.start(),
-                                         events.stop()),
-                    label + " elapsed time")) {
+
+  // Measure in mirrored order to reduce systematic clock/temperature bias.
+  const float scalar_first = measure_nvfp4_launcher(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda,
+      packed.get(), scales.get(), kWeightScale2, device_activation.get(), rows,
+      columns, output.get(), kMeasuredIterations, label + " scalar pass 1");
+  const float vector_first = measure_nvfp4_launcher(
+      test, stream, q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda,
+      packed.get(), scales.get(), kWeightScale2, device_activation.get(), rows,
+      columns, output.get(), kMeasuredIterations, label + " vector pass 1");
+  const float vector_second = measure_nvfp4_launcher(
+      test, stream, q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda,
+      packed.get(), scales.get(), kWeightScale2, device_activation.get(), rows,
+      columns, output.get(), kMeasuredIterations, label + " vector pass 2");
+  const float scalar_second = measure_nvfp4_launcher(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda,
+      packed.get(), scales.get(), kWeightScale2, device_activation.get(), rows,
+      columns, output.get(), kMeasuredIterations, label + " scalar pass 2");
+  if (!(std::isfinite(scalar_first) && std::isfinite(scalar_second) &&
+        std::isfinite(vector_first) && std::isfinite(vector_second))) {
     return;
   }
-  const float average_milliseconds =
-      total_milliseconds / static_cast<float>(kMeasuredIterations);
+
+  const float scalar_average = (scalar_first + scalar_second) * 0.5F;
+  const float vector_average = (vector_first + vector_second) * 0.5F;
+  const float speedup = scalar_average / vector_average;
   const double encoded_gigabytes =
       static_cast<double>(packed_count + scale_count) / 1.0e9;
-  const double gigabytes_per_second =
-      encoded_gigabytes / (static_cast<double>(average_milliseconds) / 1.0e3);
-  std::cout << "PERF: " << label << " average_ms=" << average_milliseconds
-            << " encoded_weight_GBps=" << gigabytes_per_second << '\n';
+  const double vector_gigabytes_per_second =
+      encoded_gigabytes / (static_cast<double>(vector_average) / 1.0e3);
+  const bool gate_passed = speedup >= kMinimumRequiredSpeedup;
+  std::cout << "PERF: " << label << " scalar_average_ms=" << scalar_average
+            << " vector_average_ms=" << vector_average
+            << " speedup=" << speedup
+            << " vector_encoded_weight_GBps="
+            << vector_gigabytes_per_second
+            << " required_speedup=" << kMinimumRequiredSpeedup
+            << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
+  test.expect(gate_passed, label + " vector path must be at least 15% faster");
 }
 
 void benchmark_fp8_shape(TestContext& test, cudaStream_t stream,
@@ -819,7 +962,11 @@ int main() {
   run_fp8_case(test, stream, 3U, 5'120U, "FP8 target-K 3x5120");
   run_fp8_case(test, stream, 3U, 17'408U, "FP8 long-K 3x17408");
   run_nvfp4_case(test, stream, 13U, 48U, "NVFP4 awkward 13x48");
+  run_nvfp4_vector_codebook_case(test, stream);
+  run_nvfp4_case(test, stream, 3U, 256U,
+                  "NVFP4 vector-shaped unaligned scalar fallback", true);
   run_nvfp4_case(test, stream, 3U, 5'120U, "NVFP4 target-K 3x5120");
+  run_nvfp4_case(test, stream, 3U, 6'144U, "NVFP4 target-K 3x6144");
   run_nvfp4_case(test, stream, 3U, 17'408U,
                   "NVFP4 target-K 3x17408");
   run_optional_performance(test, stream);
