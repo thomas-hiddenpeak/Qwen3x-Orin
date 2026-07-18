@@ -30,6 +30,13 @@ The lower-level `load_resident_weights(...)` accepts an explicit manifest and
 identity table. It exists for synthetic tests and future pinned descriptors;
 production 27B callers should use the pinned entry point.
 
+`ResidentLoadOptions::sha256_backend` defaults to `auto`. On Linux this prepares
+one AF_ALG `sha256` operation for every shard before reading any checkpoint
+bytes. If that initialization is unavailable, and only in `auto` mode, the
+loader uses the portable in-process SHA-256 implementation for the entire load.
+Callers can force `portable` or `linux_af_alg`; the successful concrete choice is
+reported by `ResidentLoadStats::sha256_backend` and is never mixed across shards.
+
 ## I/O and identity boundary
 
 The pinned loader compiles in these full-file identities:
@@ -51,6 +58,13 @@ EOF. The same chunk feeds the full-file SHA-256 and every intersecting H2D
 scatter operation. Hash verification is therefore not a separate second pass.
 A final EOF read and `fstat` detect growth or truncation during loading; any
 I/O, hash, or CUDA failure destroys the partial arena.
+
+The Linux backend sends each complete chunk to the kernel's streaming AF_ALG
+SHA-256 operation, then receives the standard 32-byte digest. On Jetson AGX
+Orin the generic `sha256` name selects the kernel's ARMv8 SHA2 implementation.
+Backend setup failure is distinct from a streaming/finalization failure: only
+the former may fall back under `auto`, while an error after any bytes have been
+consumed fails closed and releases the partial arena.
 
 Two page-locked staging buffers are used in ping-pong order. A per-slot CUDA
 event must complete before the CPU reuses that slot, allowing the next host
@@ -84,7 +98,8 @@ limits; reducing the 8 GiB margin is an explicit policy decision.
 ## Reproduced official integration
 
 On the target Jetson AGX Orin, using the pinned local model and the default
-64 MiB chunk, the conditional integration test completed successfully:
+64 MiB chunk, the original portable-SHA conditional integration baseline
+completed successfully:
 
 ```text
 elapsed                  212.736 s
@@ -118,5 +133,9 @@ Q3X_OFFICIAL_27B_ROOT=MODEL_DIR \
 
 Synthetic tests cover chunk-split tensors, skipped regions, incorrect SHA,
 truncation, shard symlinks, unsafe paths, wrapped offsets, stale CUDA last-error
-state, statistics, device round-trips, and RAII moves. The CPU plan test is also
-run under the host ASan/UBSan configuration.
+state, statistics, device round-trips, and RAII moves. When AF_ALG is available,
+the tiny CUDA fixture runs both forced `portable` and forced `linux_af_alg` and
+compares their digest/statistics and cross-chunk device bytes. It also checks
+that default `auto` selects AF_ALG when available and otherwise falls back to
+the portable backend. The CPU plan test is also run under the host ASan/UBSan
+configuration.

@@ -626,6 +626,8 @@ void PrintGeneration(
          << "load.resident.chunks=" << load.resident.chunks << '\n'
          << "load.resident.memcpy_operations="
          << load.resident.memcpy_operations << '\n'
+         << "load.resident.sha256_backend="
+         << q3x::runtime::to_string(load.resident.sha256_backend) << '\n'
          << "load.resident.device_free_before="
          << load.resident.device_free_before << '\n'
          << "load.resident.device_total=" << load.resident.device_total
@@ -744,6 +746,8 @@ void PrintBenchmarkReport(
          << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
+         << "load.resident.sha256_backend="
+         << q3x::runtime::to_string(load.resident.sha256_backend) << '\n'
          << "load.request_arena_bytes=" << load.request_arena_bytes << '\n'
          << "load.request_max_sequence_length="
          << load.request_max_sequence_length << '\n'

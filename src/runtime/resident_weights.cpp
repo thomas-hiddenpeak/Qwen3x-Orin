@@ -22,6 +22,11 @@
 #include <utility>
 #include <vector>
 
+#if defined(__linux__)
+#include <linux/if_alg.h>
+#include <sys/socket.h>
+#endif
+
 namespace q3x::runtime {
 namespace {
 
@@ -165,6 +170,240 @@ class UniqueFd {
 
   private:
     int descriptor_ = -1;
+};
+
+bool is_valid_sha256_backend(const ResidentSha256Backend backend) noexcept {
+    switch (backend) {
+        case ResidentSha256Backend::kAuto:
+        case ResidentSha256Backend::kPortable:
+        case ResidentSha256Backend::kLinuxAfAlg:
+            return true;
+    }
+    return false;
+}
+
+struct AfAlgOperationResult {
+    std::vector<UniqueFd> operations;
+    int error = 0;
+    std::string context;
+
+    [[nodiscard]] bool ok() const noexcept {
+        return error == 0 && !operations.empty();
+    }
+};
+
+AfAlgOperationResult create_af_alg_sha256_operations(
+    const std::size_t operation_count) {
+    AfAlgOperationResult result;
+#if defined(__linux__)
+    UniqueFd control(
+        ::socket(AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
+    if (!control) {
+        result.error = errno;
+        result.context = "socket(AF_ALG)";
+        return result;
+    }
+
+    struct sockaddr_alg address {};
+    address.salg_family = AF_ALG;
+    constexpr char kHashType[] = "hash";
+    constexpr char kSha256Name[] = "sha256";
+    static_assert(sizeof(kHashType) <= sizeof(address.salg_type));
+    static_assert(sizeof(kSha256Name) <= sizeof(address.salg_name));
+    std::memcpy(address.salg_type, kHashType, sizeof(kHashType));
+    std::memcpy(address.salg_name, kSha256Name, sizeof(kSha256Name));
+    if (::bind(control.get(),
+               reinterpret_cast<const struct sockaddr*>(&address),
+               sizeof(address)) != 0) {
+        result.error = errno;
+        result.context = "bind(AF_ALG sha256)";
+        return result;
+    }
+
+    result.operations.reserve(operation_count);
+    for (std::size_t index = 0U; index < operation_count; ++index) {
+        int descriptor = -1;
+        do {
+            descriptor = ::accept4(control.get(), nullptr, nullptr, SOCK_CLOEXEC);
+        } while (descriptor < 0 && errno == EINTR);
+        if (descriptor < 0) {
+            result.error = errno;
+            result.context = "accept4(AF_ALG sha256)";
+            result.operations.clear();
+            return result;
+        }
+        result.operations.emplace_back(descriptor);
+    }
+    return result;
+#else
+    (void)operation_count;
+    result.error = ENOTSUP;
+    result.context = "AF_ALG is unavailable on this platform";
+    return result;
+#endif
+}
+
+struct HashBackendPreparation {
+    ResidentSha256Backend backend = ResidentSha256Backend::kPortable;
+    std::vector<UniqueFd> af_alg_operations;
+    int error = 0;
+    std::string context;
+
+    [[nodiscard]] bool ok() const noexcept { return error == 0; }
+};
+
+HashBackendPreparation prepare_hash_backend(
+    const ResidentSha256Backend requested,
+    const std::size_t shard_count) {
+    HashBackendPreparation result;
+    if (requested == ResidentSha256Backend::kPortable) {
+        return result;
+    }
+
+    AfAlgOperationResult accelerated =
+        create_af_alg_sha256_operations(shard_count);
+    if (accelerated.ok()) {
+        result.backend = ResidentSha256Backend::kLinuxAfAlg;
+        result.af_alg_operations = std::move(accelerated.operations);
+        return result;
+    }
+    if (requested == ResidentSha256Backend::kAuto) {
+        return result;
+    }
+    result.error = accelerated.error == 0 ? EIO : accelerated.error;
+    result.context = std::move(accelerated.context);
+    return result;
+}
+
+struct HashOperationResult {
+    std::optional<core::Sha256Digest> digest;
+    int error = 0;
+    std::string context;
+};
+
+class ShardSha256 {
+  public:
+    explicit ShardSha256(const ResidentSha256Backend backend,
+                         UniqueFd af_alg_operation = {}) noexcept
+        : backend_(backend), af_alg_operation_(std::move(af_alg_operation)) {}
+
+    ShardSha256(const ShardSha256&) = delete;
+    ShardSha256& operator=(const ShardSha256&) = delete;
+
+    [[nodiscard]] bool update(const void* const data,
+                              const std::size_t size,
+                              int& error) noexcept {
+        if (finalized_ || (data == nullptr && size != 0U) ||
+            !checked_add(bytes_hashed_,
+                         static_cast<std::uint64_t>(size),
+                         bytes_hashed_)) {
+            error = EOVERFLOW;
+            return false;
+        }
+        if (backend_ == ResidentSha256Backend::kPortable) {
+            if (!portable_.update(data, size)) {
+                error = EOVERFLOW;
+                return false;
+            }
+            return true;
+        }
+#if defined(__linux__)
+        if (backend_ != ResidentSha256Backend::kLinuxAfAlg ||
+            !af_alg_operation_) {
+            error = ENOTSUP;
+            return false;
+        }
+        const auto* input = static_cast<const std::uint8_t*>(data);
+        std::size_t sent = 0U;
+        while (sent < size) {
+            const ssize_t count = ::send(af_alg_operation_.get(),
+                                         input + sent,
+                                         size - sent,
+                                         MSG_MORE | MSG_NOSIGNAL);
+            if (count > 0) {
+                sent += static_cast<std::size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            error = count == 0 ? EIO : errno;
+            return false;
+        }
+        return true;
+#else
+        (void)data;
+        (void)size;
+        error = ENOTSUP;
+        return false;
+#endif
+    }
+
+    [[nodiscard]] HashOperationResult finalize() noexcept {
+        HashOperationResult result;
+        if (finalized_) {
+            result.error = EINVAL;
+            result.context = "SHA-256 operation was already finalized";
+            return result;
+        }
+        finalized_ = true;
+        if (backend_ == ResidentSha256Backend::kPortable) {
+            result.digest.emplace(portable_.finalize());
+            return result;
+        }
+#if defined(__linux__)
+        if (backend_ != ResidentSha256Backend::kLinuxAfAlg ||
+            !af_alg_operation_) {
+            result.error = ENOTSUP;
+            result.context = "AF_ALG SHA-256 operation is unavailable";
+            return result;
+        }
+
+        // Every non-empty update uses MSG_MORE. A zero-length send without
+        // MSG_MORE explicitly terminates the hash message before reading the
+        // standard 32-byte digest.
+        constexpr std::uint8_t kEmpty = 0U;
+        ssize_t terminated = -1;
+        do {
+            terminated = ::send(af_alg_operation_.get(),
+                                &kEmpty,
+                                0U,
+                                MSG_NOSIGNAL);
+        } while (terminated < 0 && errno == EINTR);
+        if (terminated != 0) {
+            result.error = terminated < 0 ? errno : EPROTO;
+            result.context = "send(AF_ALG SHA-256 final)";
+            return result;
+        }
+
+        core::Sha256Digest digest;
+        ssize_t received = -1;
+        do {
+            received = ::recv(af_alg_operation_.get(),
+                              digest.bytes.data(),
+                              digest.bytes.size(),
+                              MSG_WAITALL);
+        } while (received < 0 && errno == EINTR);
+        if (received != static_cast<ssize_t>(digest.bytes.size())) {
+            result.error = received < 0 ? errno : EPROTO;
+            result.context = "recv(AF_ALG SHA-256 digest)";
+            return result;
+        }
+        result.digest.emplace(digest);
+        return result;
+#else
+        result.error = ENOTSUP;
+        result.context = "AF_ALG is unavailable on this platform";
+        return result;
+#endif
+    }
+
+  private:
+    ResidentSha256Backend backend_ = ResidentSha256Backend::kPortable;
+    core::Sha256 portable_;
+    UniqueFd af_alg_operation_;
+    std::uint64_t bytes_hashed_ = 0U;
+    bool finalized_ = false;
 };
 
 struct OpenResult {
@@ -647,7 +886,8 @@ ResidentLoadResult load_resident_weights(
         options.max_tensors == 0U || options.max_tensors > kMaximumTensors ||
         options.max_shards == 0U || options.max_shards > kMaximumShards ||
         options.max_memcpy_operations == 0U ||
-        options.max_memcpy_operations > kMaximumMemcpyOperations) {
+        options.max_memcpy_operations > kMaximumMemcpyOperations ||
+        !is_valid_sha256_backend(options.sha256_backend)) {
         return load_failure(make_diagnostic(
             ResidentLoadErrorCode::kInvalidOption,
             "resident loader options exceed defensive limits",
@@ -669,6 +909,20 @@ ResidentLoadResult load_resident_weights(
                 ResidentLoadErrorCode::kInvalidOption,
                 "resident plan exceeds configured resource limits",
                 "plan"));
+        }
+
+        HashBackendPreparation hash_backend =
+            prepare_hash_backend(options.sha256_backend, plan.shards.size());
+        if (!hash_backend.ok()) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kSha256BackendUnavailable,
+                "requested SHA-256 backend could not be initialized",
+                hash_backend.context,
+                {},
+                0U,
+                std::string(to_string(options.sha256_backend)),
+                std::strerror(hash_backend.error),
+                hash_backend.error));
         }
 
         const std::string directory_text = directory.string();
@@ -747,6 +1001,7 @@ ResidentLoadResult load_resident_weights(
 
         ResidentWeights output;
         output.arena_bytes_ = plan.arena_bytes;
+        output.stats_.sha256_backend = hash_backend.backend;
         output.stats_.shards.reserve(plan.shards.size());
         for (const PlannedTensor& tensor : plan.tensors) {
             DeviceTensorView view;
@@ -827,11 +1082,20 @@ ResidentLoadResult load_resident_weights(
 
         std::array<bool, kStagingSlots> slot_pending{};
         std::uint64_t global_chunk_index = 0U;
-        for (OpenShard& opened_shard : open_shards) {
+        for (std::size_t shard_index = 0U;
+             shard_index < open_shards.size(); ++shard_index) {
+            OpenShard& opened_shard = open_shards[shard_index];
             const PlannedShard& shard = *opened_shard.plan;
             ShardLoadStats shard_stats;
             shard_stats.filename = shard.identity.filename;
-            core::Sha256 hasher;
+            UniqueFd af_alg_operation;
+            if (hash_backend.backend ==
+                ResidentSha256Backend::kLinuxAfAlg) {
+                af_alg_operation =
+                    std::move(hash_backend.af_alg_operations[shard_index]);
+            }
+            ShardSha256 hasher(hash_backend.backend,
+                               std::move(af_alg_operation));
             std::uint64_t file_offset = 0U;
             std::size_t segment_cursor = 0U;
 
@@ -879,13 +1143,20 @@ ResidentLoadResult load_resident_weights(
                         std::to_string(chunk_size),
                         std::to_string(read_result.bytes)));
                 }
-                if (!hasher.update(resources.staging[slot], chunk_size)) {
+                int hash_error = 0;
+                if (!hasher.update(resources.staging[slot],
+                                   chunk_size,
+                                   hash_error)) {
                     return load_failure(make_diagnostic(
-                        ResidentLoadErrorCode::kArithmeticOverflow,
-                        "SHA-256 streaming length overflow",
-                        "sha256",
+                        ResidentLoadErrorCode::kSha256Failure,
+                        "SHA-256 streaming update failed",
+                        std::string(to_string(hash_backend.backend)) +
+                            ".update",
                         shard.identity.filename,
-                        file_offset));
+                        file_offset,
+                        {},
+                        std::strerror(hash_error),
+                        hash_error));
                 }
 
                 std::uint64_t chunk_end = 0U;
@@ -1032,7 +1303,22 @@ ResidentLoadResult load_resident_weights(
                     shard.identity.file_size));
             }
 
-            shard_stats.sha256 = hasher.finalize().hex();
+            HashOperationResult hash_result = hasher.finalize();
+            if (!hash_result.digest) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kSha256Failure,
+                    "SHA-256 finalization failed",
+                    hash_result.context.empty()
+                        ? std::string(to_string(hash_backend.backend)) +
+                              ".finalize"
+                        : hash_result.context,
+                    shard.identity.filename,
+                    shard.identity.file_size,
+                    {},
+                    std::strerror(hash_result.error),
+                    hash_result.error));
+            }
+            shard_stats.sha256 = hash_result.digest->hex();
             if (shard_stats.sha256 != shard.identity.sha256) {
                 return load_failure(make_diagnostic(
                     ResidentLoadErrorCode::kSha256Mismatch,
@@ -1153,6 +1439,10 @@ std::string_view to_string(ResidentLoadErrorCode code) noexcept {
             return "shard_size_mismatch";
         case ResidentLoadErrorCode::kIoFailure:
             return "io_failure";
+        case ResidentLoadErrorCode::kSha256BackendUnavailable:
+            return "sha256_backend_unavailable";
+        case ResidentLoadErrorCode::kSha256Failure:
+            return "sha256_failure";
         case ResidentLoadErrorCode::kSha256Mismatch:
             return "sha256_mismatch";
         case ResidentLoadErrorCode::kCudaFailure:
@@ -1161,6 +1451,18 @@ std::string_view to_string(ResidentLoadErrorCode code) noexcept {
             return "insufficient_device_memory";
         case ResidentLoadErrorCode::kAllocationFailure:
             return "allocation_failure";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const ResidentSha256Backend backend) noexcept {
+    switch (backend) {
+        case ResidentSha256Backend::kAuto:
+            return "auto";
+        case ResidentSha256Backend::kPortable:
+            return "portable";
+        case ResidentSha256Backend::kLinuxAfAlg:
+            return "linux_af_alg";
     }
     return "unknown";
 }

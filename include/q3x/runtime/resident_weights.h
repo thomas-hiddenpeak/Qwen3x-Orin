@@ -45,10 +45,21 @@ enum class ResidentLoadErrorCode : std::uint8_t {
     kShardNotRegular,
     kShardSizeMismatch,
     kIoFailure,
+    kSha256BackendUnavailable,
+    kSha256Failure,
     kSha256Mismatch,
     kCudaFailure,
     kInsufficientDeviceMemory,
     kAllocationFailure,
+};
+
+enum class ResidentSha256Backend : std::uint8_t {
+    // Prefer the Linux AF_ALG SHA-256 implementation, but fall back to the
+    // portable in-process implementation if AF_ALG cannot be initialized
+    // before any shard bytes are consumed.
+    kAuto,
+    kPortable,
+    kLinuxAfAlg,
 };
 
 struct ResidentLoadDiagnostic {
@@ -134,6 +145,9 @@ struct ResidentLoadStats {
     std::uint64_t memcpy_operations = 0;
     std::uint64_t device_free_before = 0;
     std::uint64_t device_total = 0;
+    // The concrete backend used for every shard. A successful load never
+    // reports kAuto and never mixes backends between shards.
+    ResidentSha256Backend sha256_backend = ResidentSha256Backend::kPortable;
     std::vector<ShardLoadStats> shards;
 };
 
@@ -149,6 +163,7 @@ struct ResidentLoadOptions {
     std::size_t max_tensors = 10'000U;
     std::size_t max_shards = 16U;
     std::uint64_t max_memcpy_operations = 1'000'000ULL;
+    ResidentSha256Backend sha256_backend = ResidentSha256Backend::kAuto;
 };
 
 struct ResidentLoadResult;
@@ -224,5 +239,7 @@ struct ResidentLoadResult {
 
 [[nodiscard]] std::string_view to_string(
     ResidentLoadErrorCode code) noexcept;
+[[nodiscard]] std::string_view to_string(
+    ResidentSha256Backend backend) noexcept;
 
 }  // namespace q3x::runtime

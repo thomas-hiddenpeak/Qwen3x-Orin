@@ -190,8 +190,11 @@ void test_success_security_and_failures(TestContext& test) {
     test.expect(cudaPeekAtLastError() != cudaSuccess,
                 "test injected a stale CUDA last error");
 
+    runtime::ResidentLoadOptions portable_options = tiny_options();
+    portable_options.sha256_backend =
+        runtime::ResidentSha256Backend::kPortable;
     runtime::ResidentLoadResult loaded = runtime::load_resident_weights(
-        temporary.path(), manifest, {good}, tiny_options());
+        temporary.path(), manifest, {good}, portable_options);
     if (!loaded) {
         print_diagnostic(loaded.diagnostic);
     }
@@ -211,8 +214,66 @@ void test_success_security_and_failures(TestContext& test) {
     test.expect(stats.shards.size() == 1U &&
                     stats.shards[0].sha256 == good.sha256 &&
                     stats.shards[0].bytes_read == 80U &&
-                    stats.shards[0].bytes_copied == 40U,
-                "per-shard full-file SHA and byte statistics are exposed");
+                    stats.shards[0].bytes_copied == 40U &&
+                    stats.sha256_backend ==
+                        runtime::ResidentSha256Backend::kPortable,
+                "portable full-file SHA and byte statistics are exposed");
+
+    runtime::ResidentLoadOptions accelerated_options = tiny_options();
+    accelerated_options.sha256_backend =
+        runtime::ResidentSha256Backend::kLinuxAfAlg;
+    runtime::ResidentLoadResult accelerated = runtime::load_resident_weights(
+        temporary.path(), manifest, {good}, accelerated_options);
+    const bool af_alg_available = accelerated.ok();
+    if (!accelerated &&
+        accelerated.diagnostic.code !=
+            runtime::ResidentLoadErrorCode::kSha256BackendUnavailable) {
+        print_diagnostic(accelerated.diagnostic);
+    }
+    test.expect(
+        accelerated.ok() ||
+            accelerated.diagnostic.code ==
+                runtime::ResidentLoadErrorCode::kSha256BackendUnavailable,
+        "forced Linux AF_ALG either succeeds or reports unavailable");
+    if (accelerated) {
+        const runtime::ResidentLoadStats& accelerated_stats =
+            accelerated.value->stats();
+        test.expect(accelerated_stats.sha256_backend ==
+                            runtime::ResidentSha256Backend::kLinuxAfAlg &&
+                        accelerated_stats.bytes_read == stats.bytes_read &&
+                        accelerated_stats.bytes_copied == stats.bytes_copied &&
+                        accelerated_stats.chunks == stats.chunks &&
+                        accelerated_stats.shards.size() == 1U &&
+                        accelerated_stats.shards[0].sha256 == good.sha256,
+                    "AF_ALG and portable loaders report identical authenticated bytes");
+        expect_tensor_bytes(test,
+                            *accelerated.value,
+                            "model.language_model.test_b.weight",
+                            std::string_view(data).substr(25U, 24U),
+                            "AF_ALG load preserves cross-chunk device bytes");
+    }
+
+    runtime::ResidentLoadResult automatic = runtime::load_resident_weights(
+        temporary.path(), manifest, {good}, tiny_options());
+    test.expect(automatic.ok() &&
+                    automatic.value->stats().sha256_backend ==
+                        (af_alg_available
+                             ? runtime::ResidentSha256Backend::kLinuxAfAlg
+                             : runtime::ResidentSha256Backend::kPortable),
+                "default auto policy selects AF_ALG when available and otherwise falls back");
+
+    runtime::ResidentLoadOptions invalid_backend_options = tiny_options();
+    invalid_backend_options.sha256_backend =
+        static_cast<runtime::ResidentSha256Backend>(255U);
+    runtime::ResidentLoadResult invalid_backend =
+        runtime::load_resident_weights(temporary.path(),
+                                       manifest,
+                                       {good},
+                                       invalid_backend_options);
+    test.expect(!invalid_backend &&
+                    invalid_backend.diagnostic.code ==
+                        runtime::ResidentLoadErrorCode::kInvalidOption,
+                "unknown SHA-256 backend is rejected before loading");
 
     runtime::ResidentWeights moved;
     moved = std::move(*loaded.value);
@@ -365,7 +426,9 @@ void test_official_checkpoint_if_requested(TestContext& test) {
               << " bytes_read=" << stats.bytes_read
               << " bytes_copied=" << stats.bytes_copied
               << " chunks=" << stats.chunks
-              << " memcpy_ops=" << stats.memcpy_operations << '\n';
+              << " memcpy_ops=" << stats.memcpy_operations
+              << " sha256_backend="
+              << runtime::to_string(stats.sha256_backend) << '\n';
 }
 
 }  // namespace
@@ -380,6 +443,18 @@ int main() {
         return 77;
     }
     TestContext test;
+    test.expect(runtime::to_string(runtime::ResidentSha256Backend::kAuto) ==
+                        "auto" &&
+                    runtime::to_string(
+                        runtime::ResidentSha256Backend::kPortable) ==
+                        "portable" &&
+                    runtime::to_string(
+                        runtime::ResidentSha256Backend::kLinuxAfAlg) ==
+                        "linux_af_alg" &&
+                    runtime::to_string(
+                        runtime::ResidentLoadErrorCode::kSha256Failure) ==
+                        "sha256_failure",
+                "SHA-256 backend and failure names are stable");
     test_success_security_and_failures(test);
     test_official_checkpoint_if_requested(test);
     if (test.failures() != 0) {
