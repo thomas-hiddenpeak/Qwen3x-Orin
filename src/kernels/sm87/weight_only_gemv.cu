@@ -15,6 +15,7 @@ constexpr unsigned int kWarpsPerBlock = 8U;
 constexpr unsigned int kThreads = kWarpSize * kWarpsPerBlock;
 constexpr std::size_t kMaximumBlocks = 65'535U;
 constexpr std::size_t kMaximumSmallMTokens = 8U;
+constexpr std::size_t kFp8EncodedValueCount = 256U;
 constexpr std::size_t kFp8VectorValuesPerLane = 4U;
 constexpr std::size_t kFp8VectorColumnsPerBlock =
     kThreads * kFp8VectorValuesPerLane;
@@ -112,34 +113,6 @@ __device__ __forceinline__ float decode_e4m3fn(const std::uint8_t bits) {
                          (mantissa << 20U));
 }
 
-// Exact finite E4M3FN values are an integer significand in [0, 15] times a
-// power of two. Building that pair without control flow avoids warp-divergent
-// normal/subnormal paths. All operations are exact in FP32; the final mask
-// preserves signed zero and replaces the two reserved encodings with signed
-// canonical quiet NaNs.
-__device__ __forceinline__ float decode_e4m3fn_branchless(
-    const std::uint8_t bits) {
-  const unsigned int sign =
-      static_cast<unsigned int>(bits & 0x80U) << 24U;
-  const unsigned int magnitude = static_cast<unsigned int>(bits & 0x7fU);
-  const unsigned int exponent = magnitude >> 3U;
-  const unsigned int mantissa = magnitude & 0x07U;
-  const unsigned int normal_mask =
-      0U - static_cast<unsigned int>(exponent != 0U);
-  const unsigned int significand = mantissa + (normal_mask & 8U);
-  const unsigned int scale_exponent =
-      118U + (normal_mask & (exponent - 1U));
-  const float finite =
-      __uint2float_rn(significand) *
-      __uint_as_float(scale_exponent << 23U);
-  const unsigned int finite_bits = __float_as_uint(finite) | sign;
-  const unsigned int nan_mask =
-      0U - static_cast<unsigned int>(magnitude == 0x7fU);
-  const unsigned int nan_bits = sign | 0x7fc0'0000U;
-  return __uint_as_float((finite_bits & ~nan_mask) |
-                         (nan_bits & nan_mask));
-}
-
 __device__ __forceinline__ float decode_e2m1(const std::uint8_t nibble) {
   const unsigned int sign =
       static_cast<unsigned int>(nibble & 0x08U) << 28U;
@@ -201,9 +174,15 @@ fp8_w8a16_gemv_bf16_vector_kernel(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
   __shared__ float warp_sums[kWarpsPerBlock];
   const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
   const unsigned int warp = threadIdx.x / kWarpSize;
+  // The E4M3FN code space is only 256 floats. Decode it once per output-row
+  // block, then replace every inner-loop integer decode with a shared lookup.
+  decoded_weights[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  __syncthreads();
   for (std::size_t row = static_cast<std::size_t>(blockIdx.x); row < rows;
        row += static_cast<std::size_t>(gridDim.x)) {
     const std::uint8_t* const row_weights = weights + row * columns;
@@ -229,7 +208,7 @@ fp8_w8a16_gemv_bf16_vector_kernel(
             static_cast<std::uint16_t>(
                 (packed_activation >> (value * 16U)) & 0xffffU);
         accumulators[value] =
-            fmaf(decode_e4m3fn_branchless(encoded_weight),
+            fmaf(decoded_weights[encoded_weight],
                  decode_bf16(encoded_activation), accumulators[value]);
       }
     }
@@ -259,9 +238,14 @@ fp8_w8a16_small_m_gemm_bf16_vector_kernel(
     const std::uint16_t* const activations, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
   static_assert(TokenCount >= 2U && TokenCount <= kMaximumSmallMTokens);
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
   __shared__ float warp_sums[TokenCount][kWarpsPerBlock];
   const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
   const unsigned int warp = threadIdx.x / kWarpSize;
+  // All tokens share the same row weights, including the decoded codebook.
+  decoded_weights[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  __syncthreads();
 
   for (std::size_t row = static_cast<std::size_t>(blockIdx.x); row < rows;
        row += static_cast<std::size_t>(gridDim.x)) {
@@ -290,8 +274,7 @@ fp8_w8a16_small_m_gemm_bf16_vector_kernel(
       for (unsigned int value = 0U; value < kFp8VectorValuesPerLane; ++value) {
         const std::uint8_t encoded_weight = static_cast<std::uint8_t>(
             (packed_weights >> (value * 8U)) & 0xffU);
-        const float decoded_weight =
-            decode_e4m3fn_branchless(encoded_weight);
+        const float decoded_weight = decoded_weights[encoded_weight];
 #pragma unroll
         for (unsigned int token = 0U; token < TokenCount; ++token) {
           const std::uint16_t encoded_activation =
