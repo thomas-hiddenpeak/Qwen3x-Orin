@@ -3,6 +3,8 @@
 #include "q3x/core/sha256.h"
 #include "q3x/text/tokenizer.h"
 
+#include <cuda_runtime_api.h>
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -296,6 +298,37 @@ struct ReferenceEngine::Impl {
           "model directory must not be empty");
       return result;
     }
+    if (!is_valid_projection_backend(options.projection_backend)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument, "projection_backend",
+          "unknown projection backend");
+      return result;
+    }
+    if (options.projection_backend == ProjectionBackend::kSm87WeightOnly) {
+      int device = 0;
+      cudaError_t cuda_status = cudaGetDevice(&device);
+      cudaDeviceProp properties{};
+      if (cuda_status == cudaSuccess) {
+        cuda_status = cudaGetDeviceProperties(&properties, device);
+      }
+      if (cuda_status != cudaSuccess) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerFactoryFailure,
+            "projection_backend_device",
+            "failed to inspect the active CUDA device before model load");
+        result.diagnostic.cuda_error = static_cast<int>(cuda_status);
+        return result;
+      }
+      if (properties.major != 8 || properties.minor != 7) {
+        result.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kInvalidArgument,
+            "projection_backend_device",
+            "sm87 projection backend requires compute capability 8.7",
+            "active_device=sm_" + std::to_string(properties.major) +
+                std::to_string(properties.minor));
+        return result;
+      }
+    }
 
     try {
       const bool tokenizer_was_prepared = prepared_tokenizer != nullptr;
@@ -366,6 +399,7 @@ struct ReferenceEngine::Impl {
       {
         ReferenceRunnerOptions runner_options;
         runner_options.enable_trace = options.enable_trace;
+        runner_options.projection_backend = options.projection_backend;
         const Clock::time_point begin = Clock::now();
         ReferenceRunnerFactoryResult runner = create_reference_runner(
             &*impl->model_weights, &*impl->request_state, runner_options);
@@ -566,7 +600,8 @@ ReferenceOneShotResult generate_reference(
   ReferenceOneShotResult result;
   if (model_directory.empty() || user_prompt.empty() ||
       options.generation.max_new_tokens == 0U ||
-      options.generation.stop_token_id >= kReferenceVocabularySize) {
+      options.generation.stop_token_id >= kReferenceVocabularySize ||
+      !is_valid_projection_backend(options.projection_backend)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         "model directory and prompt must be non-empty; generation options "
@@ -630,6 +665,7 @@ ReferenceOneShotResult generate_reference(
     engine_options.request_options.min_free_bytes_after_create =
         options.request_min_free_bytes_after_create;
     engine_options.enable_trace = options.generation.capture_trace;
+    engine_options.projection_backend = options.projection_backend;
 
     ReferenceEngine::Impl::BuildResult built = ReferenceEngine::Impl::build(
         model_directory, engine_options, std::move(tokenizer.tokenizer),

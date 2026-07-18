@@ -217,6 +217,20 @@ void test_generated_text_stop_semantics(TestContext& test) {
               "a mismatched terminal token is never removed");
 }
 
+void test_engine_backend_validation(TestContext& test) {
+  runtime::ReferenceEngineOptions engine_options;
+  engine_options.projection_backend =
+      static_cast<runtime::ProjectionBackend>(0xffU);
+  const runtime::ReferenceEngineCreateResult created =
+      runtime::create_reference_engine("unused-model-directory",
+                                       engine_options);
+  test.expect(!created &&
+                  created.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  created.diagnostic.stage == "projection_backend",
+              "engine rejects an unknown projection backend before I/O");
+}
+
 }  // namespace
 
 int main() {
@@ -225,6 +239,7 @@ int main() {
   test_max_tokens_and_first_stop(test);
   test_validation_and_runner_failures(test);
   test_generated_text_stop_semantics(test);
+  test_engine_backend_validation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference engine control test(s) failed\n";
     return 1;

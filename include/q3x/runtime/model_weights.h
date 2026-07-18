@@ -65,6 +65,17 @@ enum class LinearWeightKind : std::uint8_t {
   kNvFp4,
 };
 
+// Production projection policy. The correctness reference remains the
+// default; the SM87 backend must be selected explicitly by a caller.
+enum class ProjectionBackend : std::uint8_t {
+  kReference = 0,
+  kSm87WeightOnly,
+};
+
+[[nodiscard]] bool is_valid_projection_backend(
+    ProjectionBackend backend) noexcept;
+[[nodiscard]] std::string_view to_string(ProjectionBackend backend) noexcept;
+
 [[nodiscard]] LinearWeightKind linear_weight_kind(
     const LinearWeight& weight) noexcept;
 [[nodiscard]] std::size_t linear_output_size(
@@ -261,5 +272,18 @@ struct WeightBindResult {
     const LinearWeight& weight, const std::uint16_t* input,
     float* fp32_scratch, std::size_t scratch_elements,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Allocation-free production dispatcher. kReference preserves the two-stage
+// FP32-scratch reference path. kSm87WeightOnly writes FP8/NVFP4 projections
+// directly to BF16 and falls back to that reference path for BF16 weights.
+// Consequently fp32_scratch may be null for an SM87 FP8/NVFP4 launch, but it
+// must satisfy the reference contract for kReference and the BF16 fallback.
+// Unknown backends or invalid/unknown LinearWeight alternatives fail closed
+// with cudaErrorInvalidValue represented as int.
+[[nodiscard]] int launch_projection_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, float* fp32_scratch,
+    std::size_t scratch_elements, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

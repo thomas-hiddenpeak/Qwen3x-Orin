@@ -74,7 +74,7 @@ bool exact_tokens(const std::vector<std::uint32_t>& actual,
 }
 
 std::string model_directory_from(const int argc, char** const argv) {
-  if (argc == 2 && argv[1] != nullptr && argv[1][0] != '\0' &&
+  if (argc >= 2 && argv[1] != nullptr && argv[1][0] != '\0' &&
       std::string_view(argv[1]) != "-") {
     return argv[1];
   }
@@ -83,6 +83,28 @@ std::string model_directory_from(const int argc, char** const argv) {
     return environment;
   }
   return {};
+}
+
+bool projection_backend_from(
+    const int argc, char** const argv,
+    runtime::ProjectionBackend& projection_backend) noexcept {
+  projection_backend = runtime::ProjectionBackend::kReference;
+  if (argc < 3) {
+    return true;
+  }
+  if (argv[2] == nullptr) {
+    return false;
+  }
+
+  const std::string_view value(argv[2]);
+  if (value == "reference") {
+    return true;
+  }
+  if (value == "sm87") {
+    projection_backend = runtime::ProjectionBackend::kSm87WeightOnly;
+    return true;
+  }
+  return false;
 }
 
 void print_diagnostic(const runtime::ReferenceEngineDiagnostic& diagnostic) {
@@ -137,8 +159,15 @@ void check_step_sequence(TestContext& test,
 }  // namespace
 
 int main(const int argc, char** const argv) {
-  if (argc > 2) {
-    std::cerr << "usage: q3x_reference_engine_e2e_test [MODEL_DIR]\n";
+  if (argc > 3) {
+    std::cerr << "usage: q3x_reference_engine_e2e_test "
+                 "[MODEL_DIR|-] [reference|sm87]\n";
+    return 2;
+  }
+
+  runtime::ProjectionBackend projection_backend;
+  if (!projection_backend_from(argc, argv, projection_backend)) {
+    std::cerr << "invalid projection backend: expected reference or sm87\n";
     return 2;
   }
 
@@ -154,6 +183,7 @@ int main(const int argc, char** const argv) {
       static_cast<std::uint32_t>(kExpectedGeneratedIds.size());
   options.generation.stop_token_id = runtime::kQwen36ImEndTokenId;
   options.generation.capture_trace = false;
+  options.projection_backend = projection_backend;
 
   const runtime::ReferenceOneShotResult result = runtime::generate_reference(
       model_directory, kPrompt, options);
@@ -183,7 +213,8 @@ int main(const int argc, char** const argv) {
   if (test.failures() == 0) {
     std::cout << "PASS: pinned Qwen3.6-27B reference generation matched "
                  "19 prompt ids, 26 generated ids, exact text, im_end, and "
-                 "44 steps\n";
+                 "44 steps with projection_backend="
+              << runtime::to_string(projection_backend) << '\n';
     return 0;
   }
   return 1;

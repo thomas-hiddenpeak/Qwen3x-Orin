@@ -55,6 +55,9 @@ struct ReferenceRunnerOptions {
   // Reserve one pinned BF16 trace buffer at factory time. A step only copies
   // activations when ReferenceStepOptions::capture_trace is true.
   bool enable_trace = false;
+  // Explicitly opt into the SM87 weight-only projection kernels. Correctness
+  // reference dispatch remains the stable default.
+  ProjectionBackend projection_backend = ProjectionBackend::kReference;
 };
 
 struct ReferenceStepOptions {
@@ -236,6 +239,7 @@ class ReferenceRunner {
   float* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   Views views_{};
+  ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
   bool trace_enabled_ = false;
   bool trace_valid_ = false;
   bool poisoned_ = false;

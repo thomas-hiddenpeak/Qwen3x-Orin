@@ -112,6 +112,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/nvfp4_reference.cu
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
+  src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
 set_target_properties(q3x_kernels PROPERTIES
@@ -132,6 +133,7 @@ target_compile_options(q3x_kernels PRIVATE
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
+  src/runtime/reference_benchmark.cpp
   src/runtime/reference_engine.cpp
   src/runtime/reference_engine_control.cpp
 )
@@ -180,6 +182,36 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_nvfp4_test)
   add_test(NAME nvfp4_reference COMMAND q3x_nvfp4_test)
+
+  add_executable(q3x_sm87_weight_only_gemv_test
+    tests/sm87_weight_only_gemv_test.cu
+  )
+  target_link_libraries(q3x_sm87_weight_only_gemv_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_sm87_weight_only_gemv_test)
+  add_test(NAME sm87_weight_only_gemv
+    COMMAND q3x_sm87_weight_only_gemv_test
+  )
+  set_tests_properties(sm87_weight_only_gemv PROPERTIES
+    LABELS "cuda;sm87"
+    SKIP_RETURN_CODE 77
+  )
+
+  add_executable(q3x_projection_backend_dispatch_test
+    tests/projection_backend_dispatch_test.cu
+  )
+  target_link_libraries(q3x_projection_backend_dispatch_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_projection_backend_dispatch_test)
+  add_test(NAME projection_backend_dispatch
+    COMMAND q3x_projection_backend_dispatch_test
+  )
+  set_tests_properties(projection_backend_dispatch PROPERTIES
+    LABELS "cuda;sm87"
+    SKIP_RETURN_CODE 77
+  )
 
   add_executable(q3x_fp8_test tests/fp8_test.cu)
   target_link_libraries(q3x_fp8_test PRIVATE q3x::core q3x::kernels)
@@ -283,8 +315,28 @@ if(BUILD_TESTING)
     COMMAND q3x_reference_engine_control_test
   )
 
+  add_executable(q3x_reference_benchmark_control_test
+    tests/reference_benchmark_control_test.cpp
+  )
+  target_link_libraries(q3x_reference_benchmark_control_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_benchmark_control_test)
+  add_test(NAME reference_benchmark_control
+    COMMAND q3x_reference_benchmark_control_test
+  )
+
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for the optional E2E test")
+  set(Q3X_E2E_PROJECTION_BACKEND "reference" CACHE STRING
+      "Projection backend for the optional E2E test (reference or sm87)")
+  set_property(CACHE Q3X_E2E_PROJECTION_BACKEND PROPERTY STRINGS
+      reference sm87)
+  if(NOT Q3X_E2E_PROJECTION_BACKEND STREQUAL "reference" AND
+     NOT Q3X_E2E_PROJECTION_BACKEND STREQUAL "sm87")
+    message(FATAL_ERROR
+      "Q3X_E2E_PROJECTION_BACKEND must be 'reference' or 'sm87'")
+  endif()
   set(_q3x_e2e_model_dir "${Q3X_E2E_MODEL_DIR}")
   if(NOT _q3x_e2e_model_dir AND DEFINED ENV{Q3X_E2E_MODEL_DIR})
     set(_q3x_e2e_model_dir "$ENV{Q3X_E2E_MODEL_DIR}")
@@ -302,6 +354,7 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_reference_engine_e2e_test)
   add_test(NAME reference_engine_e2e
     COMMAND q3x_reference_engine_e2e_test "${_q3x_e2e_model_dir}"
+            "${Q3X_E2E_PROJECTION_BACKEND}"
   )
   set_tests_properties(reference_engine_e2e PROPERTIES
     LABELS "e2e;model"
@@ -431,6 +484,50 @@ if(BUILD_TESTING)
             --prompt test --max-tokens 0
   )
   set_tests_properties(generate_invalid_max PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME generate_invalid_projection_backend
+    COMMAND qwen3x-orin generate unused-model-directory
+            --prompt test --projection-backend invalid
+  )
+  set_tests_properties(generate_invalid_projection_backend
+    PROPERTIES WILL_FAIL TRUE
+  )
+  add_test(NAME generate_duplicate_projection_backend
+    COMMAND qwen3x-orin generate unused-model-directory
+            --prompt test --projection-backend reference
+            --projection-backend sm87
+  )
+  set_tests_properties(generate_duplicate_projection_backend
+    PROPERTIES WILL_FAIL TRUE
+  )
+  add_test(NAME benchmark_help COMMAND qwen3x-orin benchmark --help)
+  add_test(NAME benchmark_invalid_iterations
+    COMMAND qwen3x-orin benchmark unused-model-directory
+            --prompt test --iterations 0
+  )
+  set_tests_properties(benchmark_invalid_iterations PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME benchmark_invalid_projection_backend
+    COMMAND qwen3x-orin benchmark unused-model-directory
+            --prompt test --projection-backend invalid
+  )
+  set_tests_properties(benchmark_invalid_projection_backend
+    PROPERTIES WILL_FAIL TRUE
+  )
+  add_test(NAME benchmark_duplicate_projection_backend
+    COMMAND qwen3x-orin benchmark unused-model-directory
+            --prompt test --projection-backend reference
+            --projection-backend sm87
+  )
+  set_tests_properties(benchmark_duplicate_projection_backend
+    PROPERTIES WILL_FAIL TRUE
+  )
+  add_test(NAME benchmark_request_plan_preflight
+    COMMAND qwen3x-orin benchmark unused-model-directory
+            --prompt test --max-tokens 1
+            --max-sequence-length 262144
+  )
+  set_tests_properties(benchmark_request_plan_preflight
+    PROPERTIES WILL_FAIL TRUE
+  )
 
   add_test(NAME package_consumer
     COMMAND ${CMAKE_COMMAND}

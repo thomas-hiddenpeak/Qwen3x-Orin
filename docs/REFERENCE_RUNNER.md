@@ -18,6 +18,11 @@ factory 创建一个自有 `cudaStreamNonBlocking` stream，并通过一次 `cud
 `cudaHostAlloc` 预留固定大小的 BF16 trace。factory 返回结构化
 `ReferenceRunnerStatus`，不会用异常表达 CUDA/contract 错误。
 
+`ReferenceRunnerOptions::projection_backend` 默认是 `kReference`；只有调用方显式选择
+`kSm87WeightOnly` 时，层内 FP8/NVFP4 projection 才直接写 BF16，BF16 projection 仍回退
+reference。未知 enum 会在 factory 阶段失败。最终 `lm_head` 始终走 FP32 reference 路径，
+因此 backend 选项不会改变 logits 边界的类型与 host 分析流程。
+
 runner 是 move-only，但不拥有 `ModelWeights` 或 `RequestState`。这两个**同一个对象**、
 resident weight arena 和 request arena 必须比 runner 活得更久；runner 存活期间不得移动
 或并发操作它们。析构会先收口自有 stream，再释放 pinned host storage。

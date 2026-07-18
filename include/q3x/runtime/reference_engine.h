@@ -53,6 +53,7 @@ struct ReferenceEngineOptions {
   ResidentLoadOptions resident_options;
   RequestMemoryOptions request_options;
   bool enable_trace = false;
+  ProjectionBackend projection_backend = ProjectionBackend::kReference;
 };
 
 struct ReferenceGenerateOptions {
@@ -179,6 +180,7 @@ struct ReferenceOneShotOptions {
       2ULL * 1024ULL * 1024ULL * 1024ULL;
   std::uint64_t request_min_free_bytes_after_create =
       8ULL * 1024ULL * 1024ULL * 1024ULL;
+  ProjectionBackend projection_backend = ProjectionBackend::kReference;
   ReferenceGenerateOptions generation;
 };
 

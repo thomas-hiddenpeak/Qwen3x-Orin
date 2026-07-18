@@ -1,6 +1,7 @@
 #include "q3x/core/device_info.h"
 #include "q3x/kernels/device_probe.h"
 #include "q3x/model/model_config.h"
+#include "q3x/runtime/reference_benchmark.h"
 #include "q3x/runtime/reference_engine.h"
 #include "q3x/version.h"
 
@@ -23,6 +24,10 @@ namespace {
 
 inline constexpr std::uint32_t kCliDefaultMaxTokens = 16U;
 inline constexpr std::uint32_t kCliMaximumMaxTokens = 4'096U;
+inline constexpr std::uint32_t kCliDefaultWarmupRounds = 1U;
+inline constexpr std::uint32_t kCliDefaultBenchmarkIterations = 3U;
+inline constexpr std::uint32_t kCliMaximumBenchmarkRounds = 10'000U;
+inline constexpr std::uint32_t kCliDefaultMaxSequenceLength = 512U;
 
 void PrintUsage(std::ostream& output) {
   output
@@ -32,7 +37,12 @@ void PrintUsage(std::ostream& output) {
       << "  qwen3x-orin probe      Inspect the CUDA device and run a smoke kernel\n"
       << "  qwen3x-orin models     List catalogued target architectures\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
-         "[--max-tokens N] [--trace]\n"
+         "[--max-tokens N] [--trace] "
+         "[--projection-backend reference|sm87]\n"
+      << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT [--prompt TEXT ...] "
+         "[--max-tokens N] [--warmup N] [--iterations N] "
+         "[--max-sequence-length N] "
+         "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin help       Show this help\n";
 }
 
@@ -40,13 +50,42 @@ void PrintGenerateUsage(std::ostream& output) {
   output
       << "Usage:\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
-         "[--max-tokens N] [--trace]\n\n"
+         "[--max-tokens N] [--trace] "
+         "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
       << "  --prompt TEXT    One user message; thinking is disabled\n"
       << "  --max-tokens N  Greedy output limit (1.."
       << kCliMaximumMaxTokens << ", default " << kCliDefaultMaxTokens
       << ")\n"
-      << "  --trace         Capture per-step activation boundary digests\n";
+      << "  --trace         Capture per-step activation boundary digests\n"
+      << "  --projection-backend reference|sm87\n"
+      << "                  Projection policy (default reference)\n";
+}
+
+void PrintBenchmarkUsage(std::ostream& output) {
+  output
+      << "Usage:\n"
+      << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT "
+         "[--prompt TEXT ...] [--max-tokens N] [--warmup N] "
+         "[--iterations N] [--max-sequence-length N] "
+         "[--projection-backend reference|sm87]\n\n"
+      << "Options:\n"
+      << "  --prompt TEXT              Repeatable non-empty user message\n"
+      << "  --max-tokens N            Uniform greedy output limit (1.."
+      << kCliMaximumMaxTokens << ", default " << kCliDefaultMaxTokens
+      << ")\n"
+      << "  --warmup N                Warmup rounds (0.."
+      << kCliMaximumBenchmarkRounds << ", default "
+      << kCliDefaultWarmupRounds << ")\n"
+      << "  --iterations N            Measured rounds (1.."
+      << kCliMaximumBenchmarkRounds << ", default "
+      << kCliDefaultBenchmarkIterations << ")\n"
+      << "  --max-sequence-length N   Shared request capacity (1.."
+      << q3x::runtime::kAbsoluteRequestMaxSequenceLength << ", default "
+      << kCliDefaultMaxSequenceLength
+      << "; also limited by the default 2 GiB request arena)\n"
+      << "  --projection-backend reference|sm87\n"
+      << "                              Projection policy (default reference)\n";
 }
 
 void PrintEscaped(std::ostream& output, const std::string_view value) {
@@ -114,11 +153,43 @@ void PrintTimings(std::ostream& output, const std::string_view key,
   output.put('\n');
 }
 
+void PrintLatencyStatistics(
+    std::ostream& output, const std::string_view prefix,
+    const q3x::runtime::ReferenceLatencyStatistics& statistics) {
+  output << prefix << ".count=" << statistics.count << '\n'
+         << prefix << ".min_ms=" << statistics.minimum_milliseconds << '\n'
+         << prefix << ".median_ms=" << statistics.median_milliseconds
+         << '\n'
+         << prefix << ".p95_ms=" << statistics.p95_milliseconds << '\n'
+         << prefix << ".max_ms=" << statistics.maximum_milliseconds << '\n';
+}
+
+void PrintBenchmarkSteps(
+    std::ostream& output, const std::string_view key,
+    const std::vector<q3x::runtime::ReferenceBenchmarkStep>& steps) {
+  output << key << '=';
+  for (std::size_t index = 0U; index < steps.size(); ++index) {
+    if (index != 0U) {
+      output.put(',');
+    }
+    const auto& step = steps[index];
+    output << step.position << ':' << step.input_token_id << ':';
+    if (step.predicted_token_id.has_value()) {
+      output << *step.predicted_token_id;
+    } else {
+      output.put('-');
+    }
+  }
+  output.put('\n');
+}
+
 struct GenerateCliOptions {
   std::filesystem::path model_directory;
   std::string prompt;
   std::uint32_t max_tokens = kCliDefaultMaxTokens;
   bool trace = false;
+  q3x::runtime::ProjectionBackend projection_backend =
+      q3x::runtime::ProjectionBackend::kReference;
 };
 
 struct GenerateParseResult {
@@ -126,8 +197,8 @@ struct GenerateParseResult {
   std::string error;
 };
 
-[[nodiscard]] bool ParsePositiveU32(const std::string_view text,
-                                    std::uint32_t& value) noexcept {
+[[nodiscard]] bool ParseU32(const std::string_view text,
+                            std::uint32_t& value) noexcept {
   if (text.empty()) {
     return false;
   }
@@ -136,11 +207,30 @@ struct GenerateParseResult {
   const char* const end = begin + text.size();
   const std::from_chars_result converted =
       std::from_chars(begin, end, parsed, 10);
-  if (converted.ec != std::errc{} || converted.ptr != end || parsed == 0U) {
+  if (converted.ec != std::errc{} || converted.ptr != end) {
     return false;
   }
   value = parsed;
   return true;
+}
+
+[[nodiscard]] bool ParsePositiveU32(const std::string_view text,
+                                    std::uint32_t& value) noexcept {
+  return ParseU32(text, value) && value != 0U;
+}
+
+[[nodiscard]] bool ParseProjectionBackend(
+    const std::string_view text,
+    q3x::runtime::ProjectionBackend& backend) noexcept {
+  if (text == "reference") {
+    backend = q3x::runtime::ProjectionBackend::kReference;
+    return true;
+  }
+  if (text == "sm87") {
+    backend = q3x::runtime::ProjectionBackend::kSm87WeightOnly;
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] GenerateParseResult ParseGenerateArguments(
@@ -161,6 +251,7 @@ struct GenerateParseResult {
   bool prompt_seen = false;
   bool max_tokens_seen = false;
   bool trace_seen = false;
+  bool projection_backend_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
     if (argument == "--prompt") {
@@ -208,11 +299,186 @@ struct GenerateParseResult {
       options.trace = true;
       continue;
     }
+    if (argument == "--projection-backend") {
+      if (projection_backend_seen) {
+        result.error = "--projection-backend may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--projection-backend requires reference or sm87";
+        return result;
+      }
+      projection_backend_seen = true;
+      if (!ParseProjectionBackend(argv[++index],
+                                  options.projection_backend)) {
+        result.error = "--projection-backend must be reference or sm87";
+        return result;
+      }
+      continue;
+    }
     result.error = "unknown generate argument: " + std::string(argument);
     return result;
   }
   if (!prompt_seen) {
     result.error = "missing required --prompt TEXT";
+    return result;
+  }
+  result.value.emplace(std::move(options));
+  return result;
+}
+
+struct BenchmarkCliOptions {
+  std::filesystem::path model_directory;
+  std::vector<std::string> prompts;
+  std::uint32_t max_tokens = kCliDefaultMaxTokens;
+  std::uint32_t warmup_rounds = kCliDefaultWarmupRounds;
+  std::uint32_t iterations = kCliDefaultBenchmarkIterations;
+  std::uint32_t max_sequence_length = kCliDefaultMaxSequenceLength;
+  q3x::runtime::ProjectionBackend projection_backend =
+      q3x::runtime::ProjectionBackend::kReference;
+};
+
+struct BenchmarkParseResult {
+  std::optional<BenchmarkCliOptions> value;
+  std::string error;
+};
+
+[[nodiscard]] BenchmarkParseResult ParseBenchmarkArguments(
+    const int argc, char** const argv) {
+  BenchmarkParseResult result;
+  if (argc < 3) {
+    result.error = "missing MODEL_DIR";
+    return result;
+  }
+
+  BenchmarkCliOptions options;
+  options.model_directory = argv[2];
+  if (options.model_directory.empty()) {
+    result.error = "MODEL_DIR must not be empty";
+    return result;
+  }
+
+  bool max_tokens_seen = false;
+  bool warmup_seen = false;
+  bool iterations_seen = false;
+  bool max_sequence_length_seen = false;
+  bool projection_backend_seen = false;
+  for (int index = 3; index < argc; ++index) {
+    const std::string_view argument(argv[index]);
+    if (argument == "--prompt") {
+      if (index + 1 >= argc) {
+        result.error = "--prompt requires TEXT";
+        return result;
+      }
+      std::string prompt = argv[++index];
+      if (prompt.empty()) {
+        result.error = "--prompt TEXT must not be empty";
+        return result;
+      }
+      options.prompts.push_back(std::move(prompt));
+      continue;
+    }
+    if (argument == "--max-tokens") {
+      if (max_tokens_seen) {
+        result.error = "--max-tokens may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--max-tokens requires N";
+        return result;
+      }
+      max_tokens_seen = true;
+      if (!ParsePositiveU32(argv[++index], options.max_tokens) ||
+          options.max_tokens > kCliMaximumMaxTokens) {
+        result.error = "--max-tokens must be an integer in [1, " +
+                       std::to_string(kCliMaximumMaxTokens) + "]";
+        return result;
+      }
+      continue;
+    }
+    if (argument == "--warmup") {
+      if (warmup_seen) {
+        result.error = "--warmup may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--warmup requires N";
+        return result;
+      }
+      warmup_seen = true;
+      if (!ParseU32(argv[++index], options.warmup_rounds) ||
+          options.warmup_rounds > kCliMaximumBenchmarkRounds) {
+        result.error = "--warmup must be an integer in [0, " +
+                       std::to_string(kCliMaximumBenchmarkRounds) + "]";
+        return result;
+      }
+      continue;
+    }
+    if (argument == "--iterations") {
+      if (iterations_seen) {
+        result.error = "--iterations may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--iterations requires N";
+        return result;
+      }
+      iterations_seen = true;
+      if (!ParsePositiveU32(argv[++index], options.iterations) ||
+          options.iterations > kCliMaximumBenchmarkRounds) {
+        result.error = "--iterations must be an integer in [1, " +
+                       std::to_string(kCliMaximumBenchmarkRounds) + "]";
+        return result;
+      }
+      continue;
+    }
+    if (argument == "--max-sequence-length") {
+      if (max_sequence_length_seen) {
+        result.error = "--max-sequence-length may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--max-sequence-length requires N";
+        return result;
+      }
+      max_sequence_length_seen = true;
+      if (!ParsePositiveU32(argv[++index], options.max_sequence_length) ||
+          options.max_sequence_length >
+              q3x::runtime::kAbsoluteRequestMaxSequenceLength) {
+        result.error = "--max-sequence-length must be an integer in [1, " +
+                       std::to_string(
+                           q3x::runtime::kAbsoluteRequestMaxSequenceLength) +
+                       "]";
+        return result;
+      }
+      continue;
+    }
+    if (argument == "--projection-backend") {
+      if (projection_backend_seen) {
+        result.error = "--projection-backend may be specified only once";
+        return result;
+      }
+      if (index + 1 >= argc) {
+        result.error = "--projection-backend requires reference or sm87";
+        return result;
+      }
+      projection_backend_seen = true;
+      if (!ParseProjectionBackend(argv[++index],
+                                  options.projection_backend)) {
+        result.error = "--projection-backend must be reference or sm87";
+        return result;
+      }
+      continue;
+    }
+    result.error = "unknown benchmark argument: " + std::string(argument);
+    return result;
+  }
+  if (options.prompts.empty()) {
+    result.error = "missing required --prompt TEXT";
+    return result;
+  }
+  if (options.max_tokens > options.max_sequence_length) {
+    result.error = "--max-tokens must not exceed --max-sequence-length";
     return result;
   }
   result.value.emplace(std::move(options));
@@ -268,13 +534,83 @@ void PrintEngineDiagnostic(
   return 5;
 }
 
+void PrintBenchmarkDiagnostic(
+    std::ostream& output,
+    const q3x::runtime::ReferenceBenchmarkDiagnostic& diagnostic) {
+  output << "status=error\n"
+         << "error.code=" << q3x::runtime::to_string(diagnostic.code) << '\n';
+  PrintStringField(output, "error.message", diagnostic.message);
+  if (diagnostic.prompt_index !=
+      q3x::runtime::kReferenceBenchmarkNoPrompt) {
+    output << "error.prompt_index=" << diagnostic.prompt_index << '\n'
+           << "error.round=" << diagnostic.round << '\n'
+           << "error.warmup=" << (diagnostic.warmup ? 1 : 0) << '\n';
+  }
+  if (!diagnostic.mismatch_field.empty()) {
+    PrintStringField(output, "error.mismatch_field",
+                     diagnostic.mismatch_field);
+  }
+  output << "error.cuda_code=" << diagnostic.cuda_error << '\n';
+  if (diagnostic.generation.code !=
+      q3x::runtime::ReferenceEngineError::kNone) {
+    output << "error.generation.code="
+           << q3x::runtime::to_string(diagnostic.generation.code) << '\n';
+    PrintStringField(output, "error.generation.stage",
+                     diagnostic.generation.stage);
+    PrintStringField(output, "error.generation.message",
+                     diagnostic.generation.message);
+    if (!diagnostic.generation.context.empty()) {
+      PrintStringField(output, "error.generation.context",
+                       diagnostic.generation.context);
+    }
+    output << "error.generation.dependency_code="
+           << diagnostic.generation.dependency_error << '\n'
+           << "error.generation.cuda_code="
+           << diagnostic.generation.cuda_error << '\n';
+    if (diagnostic.generation.layer !=
+        q3x::runtime::kReferenceNoLayer) {
+      output << "error.generation.layer=" << diagnostic.generation.layer
+             << '\n';
+    }
+    if (!diagnostic.generation.operation.empty()) {
+      PrintStringField(output, "error.generation.operation",
+                       diagnostic.generation.operation);
+    }
+  }
+}
+
+[[nodiscard]] int BenchmarkFailureExitCode(
+    const q3x::runtime::ReferenceBenchmarkDiagnostic& diagnostic) noexcept {
+  using Error = q3x::runtime::ReferenceBenchmarkError;
+  switch (diagnostic.code) {
+    case Error::kInvalidArgument:
+      return 2;
+    case Error::kGenerationFailure: {
+      const int code = EngineFailureExitCode(diagnostic.generation.code);
+      return code == 0 ? 4 : code;
+    }
+    case Error::kRepeatabilityFailure:
+    case Error::kDeviceMemoryProbeFailure:
+    case Error::kInvalidTiming:
+      return 4;
+    case Error::kAllocationFailure:
+      return 5;
+    case Error::kNone:
+      return 0;
+  }
+  return 5;
+}
+
 void PrintGeneration(
     std::ostream& output,
-    const q3x::runtime::ReferenceOneShotGeneration& result) {
+    const q3x::runtime::ReferenceOneShotGeneration& result,
+    const q3x::runtime::ProjectionBackend projection_backend) {
   const auto& load = result.load;
   const auto& generation = result.generation;
   output << std::fixed << std::setprecision(3)
          << "status=ok\n"
+         << "projection.backend="
+         << q3x::runtime::to_string(projection_backend) << '\n'
          << "load.total_ms=" << load.total_milliseconds << '\n'
          << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
@@ -370,10 +706,14 @@ int RunGenerate(const int argc, char** const argv) {
   q3x::runtime::ReferenceOneShotOptions options;
   options.generation.max_new_tokens = parsed.value->max_tokens;
   options.generation.capture_trace = parsed.value->trace;
+  options.projection_backend = parsed.value->projection_backend;
   std::cerr << "progress=loading_and_generating model_dir=";
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
   std::cerr << " max_tokens=" << parsed.value->max_tokens
-            << " trace=" << (parsed.value->trace ? 1 : 0) << '\n';
+            << " trace=" << (parsed.value->trace ? 1 : 0)
+            << " projection_backend="
+            << q3x::runtime::to_string(parsed.value->projection_backend)
+            << '\n';
   q3x::runtime::ReferenceOneShotResult generated =
       q3x::runtime::generate_reference(parsed.value->model_directory,
                                        parsed.value->prompt, options);
@@ -381,7 +721,177 @@ int RunGenerate(const int argc, char** const argv) {
     PrintEngineDiagnostic(std::cerr, generated.diagnostic);
     return EngineFailureExitCode(generated.diagnostic.code);
   }
-  PrintGeneration(std::cout, *generated.value);
+  PrintGeneration(std::cout, *generated.value,
+                  parsed.value->projection_backend);
+  return 0;
+}
+
+void PrintBenchmarkReport(
+    std::ostream& output,
+    const std::filesystem::path& model_directory,
+    const q3x::runtime::ReferenceEngineLoadStats& load,
+    const q3x::runtime::ReferenceBenchmarkReport& report,
+    const q3x::runtime::ProjectionBackend projection_backend) {
+  output << std::fixed << std::setprecision(3)
+         << "status=ok\n"
+         << "projection.backend="
+         << q3x::runtime::to_string(projection_backend) << '\n'
+         << "load.total_ms=" << load.total_milliseconds << '\n'
+         << "load.tokenizer_ms=" << load.tokenizer_milliseconds << '\n'
+         << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
+         << "load.weight_bind_ms=" << load.weight_bind_milliseconds << '\n'
+         << "load.request_state_ms=" << load.request_state_milliseconds
+         << '\n'
+         << "load.runner_factory_ms=" << load.runner_factory_milliseconds
+         << '\n'
+         << "load.request_arena_bytes=" << load.request_arena_bytes << '\n'
+         << "load.request_max_sequence_length="
+         << load.request_max_sequence_length << '\n'
+         << "benchmark.prompt_count=" << report.prompts.size() << '\n'
+         << "benchmark.warmup_rounds=" << report.warmup_rounds << '\n'
+         << "benchmark.measured_rounds=" << report.measured_rounds << '\n'
+         << "benchmark.max_new_tokens=" << report.max_new_tokens << '\n'
+         << "benchmark.stop_token_id=" << report.stop_token_id << '\n'
+         << "benchmark.sample_count=" << report.samples.size() << '\n';
+  PrintStringField(output, "model.directory", model_directory.string());
+  PrintLatencyStatistics(output, "stats.time_to_first_token",
+                         report.time_to_first_token);
+  PrintLatencyStatistics(output, "stats.total_generation",
+                         report.total_generation);
+  PrintLatencyStatistics(output, "stats.subsequent_token",
+                         report.subsequent_token);
+
+  const auto& memory = report.device_memory;
+  output << "device_memory.start_free_bytes=" << memory.start_free_bytes
+         << '\n'
+         << "device_memory.end_free_bytes=" << memory.end_free_bytes << '\n'
+         << "device_memory.minimum_free_bytes=" << memory.minimum_free_bytes
+         << '\n'
+         << "device_memory.total_bytes=" << memory.total_bytes << '\n'
+         << "device_memory.persistent_drop_bytes="
+         << memory.persistent_drop_bytes << '\n'
+         << "device_memory.maximum_observed_drop_bytes="
+         << memory.maximum_observed_drop_bytes << '\n'
+         << "device_memory.drop_tolerance_bytes="
+         << memory.drop_tolerance_bytes << '\n'
+         << "device_memory.persistent_drop_detected="
+         << (memory.persistent_drop_detected ? 1 : 0) << '\n';
+
+  for (std::size_t index = 0U; index < report.prompts.size(); ++index) {
+    const auto& prompt = report.prompts[index];
+    const std::string prefix = "prompt." + std::to_string(index);
+    PrintStringField(output, prefix + ".text", prompt.prompt);
+    PrintIds(output, prefix + ".prompt_ids", prompt.prompt_token_ids);
+    PrintIds(output, prefix + ".generated_ids", prompt.generated_token_ids);
+    PrintStringField(output, prefix + ".generated_text",
+                     prompt.generated_text);
+    output << prefix << ".stop_reason="
+           << q3x::runtime::to_string(prompt.stop_reason) << '\n'
+           << prefix << ".step_count=" << prompt.step_sequence.size()
+           << '\n';
+    PrintBenchmarkSteps(output, prefix + ".steps", prompt.step_sequence);
+    PrintLatencyStatistics(output, prefix + ".time_to_first_token",
+                           prompt.time_to_first_token);
+    PrintLatencyStatistics(output, prefix + ".total_generation",
+                           prompt.total_generation);
+    PrintLatencyStatistics(output, prefix + ".subsequent_token",
+                           prompt.subsequent_token);
+  }
+
+  for (std::size_t index = 0U; index < report.samples.size(); ++index) {
+    const auto& sample = report.samples[index];
+    const std::string prefix = "sample." + std::to_string(index);
+    output << prefix << ".prompt_index=" << sample.prompt_index << '\n'
+           << prefix << ".measured_round=" << sample.measured_round << '\n'
+           << prefix << ".time_to_first_token_ms="
+           << sample.timing.time_to_first_token_milliseconds << '\n'
+           << prefix << ".total_generation_ms="
+           << sample.timing.total_generation_milliseconds << '\n';
+    PrintTimings(output, prefix + ".subsequent_token_ms",
+                 sample.timing.subsequent_token_milliseconds);
+  }
+}
+
+int RunBenchmark(const int argc, char** const argv) {
+  if (argc == 3 && (std::string_view(argv[2]) == "--help" ||
+                    std::string_view(argv[2]) == "-h")) {
+    PrintBenchmarkUsage(std::cout);
+    return 0;
+  }
+  BenchmarkParseResult parsed = ParseBenchmarkArguments(argc, argv);
+  if (!parsed.value.has_value()) {
+    std::cerr << "error: " << parsed.error << "\n\n";
+    PrintBenchmarkUsage(std::cerr);
+    return 2;
+  }
+
+  q3x::runtime::ReferenceEngineOptions engine_options;
+  engine_options.request_options.batch_size = 1U;
+  engine_options.request_options.max_sequence_length =
+      parsed.value->max_sequence_length;
+  engine_options.projection_backend = parsed.value->projection_backend;
+
+  const q3x::runtime::RequestPlanResult request_plan =
+      q3x::runtime::build_request_memory_plan(engine_options.request_options);
+  if (!request_plan) {
+    q3x::runtime::ReferenceEngineDiagnostic diagnostic;
+    diagnostic.code = q3x::runtime::ReferenceEngineError::kRequestStateFailure;
+    diagnostic.stage = "request_memory_plan";
+    diagnostic.message = request_plan.diagnostic.message;
+    diagnostic.context = request_plan.diagnostic.context;
+    if (!request_plan.diagnostic.expected.empty() ||
+        !request_plan.diagnostic.actual.empty()) {
+      diagnostic.context +=
+          (diagnostic.context.empty() ? "" : "; ") +
+          std::string("expected=") + request_plan.diagnostic.expected +
+          "; actual=" + request_plan.diagnostic.actual;
+    }
+    diagnostic.dependency_error =
+        static_cast<int>(request_plan.diagnostic.code);
+    diagnostic.cuda_error = request_plan.diagnostic.cuda_error;
+    PrintEngineDiagnostic(std::cerr, diagnostic);
+    return EngineFailureExitCode(diagnostic.code);
+  }
+  std::cerr << "progress=loading_benchmark_engine model_dir=";
+  PrintEscaped(std::cerr, parsed.value->model_directory.string());
+  std::cerr << " max_sequence_length="
+            << parsed.value->max_sequence_length
+            << " projection_backend="
+            << q3x::runtime::to_string(parsed.value->projection_backend)
+            << '\n';
+  q3x::runtime::ReferenceEngineCreateResult created =
+      q3x::runtime::create_reference_engine(parsed.value->model_directory,
+                                            engine_options);
+  if (!created) {
+    PrintEngineDiagnostic(std::cerr, created.diagnostic);
+    return EngineFailureExitCode(created.diagnostic.code);
+  }
+
+  q3x::runtime::ReferenceBenchmarkOptions benchmark_options;
+  benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
+  benchmark_options.measured_rounds = parsed.value->iterations;
+  benchmark_options.max_new_tokens = parsed.value->max_tokens;
+  std::cerr << "progress=running_benchmark prompts="
+            << parsed.value->prompts.size()
+            << " warmup_rounds=" << parsed.value->warmup_rounds
+            << " measured_rounds=" << parsed.value->iterations
+            << " max_tokens=" << parsed.value->max_tokens << '\n';
+  q3x::runtime::ReferenceBenchmarkResult benchmark =
+      q3x::runtime::benchmark_reference_engine(
+          *created.value, parsed.value->prompts, benchmark_options);
+  if (!benchmark) {
+    PrintBenchmarkDiagnostic(std::cerr, benchmark.diagnostic);
+    return BenchmarkFailureExitCode(benchmark.diagnostic);
+  }
+  if (benchmark.value->device_memory.persistent_drop_detected) {
+    std::cerr << "warning=device_memory_persistent_drop bytes="
+              << benchmark.value->device_memory.persistent_drop_bytes
+              << " tolerance="
+              << benchmark.value->device_memory.drop_tolerance_bytes << '\n';
+  }
+  PrintBenchmarkReport(std::cout, parsed.value->model_directory,
+                       created.value->load_stats(), *benchmark.value,
+                       parsed.value->projection_backend);
   return 0;
 }
 
@@ -448,6 +958,9 @@ int main(int argc, char** argv) {
     }
     if (command == "generate") {
       return RunGenerate(argc, argv);
+    }
+    if (command == "benchmark") {
+      return RunBenchmark(argc, argv);
     }
     std::cerr << "Unknown command: " << command << "\n\n";
     PrintUsage(std::cerr);

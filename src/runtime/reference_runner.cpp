@@ -585,6 +585,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   views_ = other.views_;
   other.views_ = {};
+  projection_backend_ = std::exchange(
+      other.projection_backend_, ProjectionBackend::kReference);
   trace_enabled_ = std::exchange(other.trace_enabled_, false);
   trace_valid_ = std::exchange(other.trace_valid_, false);
   poisoned_ = std::exchange(other.poisoned_, false);
@@ -620,6 +622,7 @@ void ReferenceRunner::release() noexcept {
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   views_ = {};
+  projection_backend_ = ProjectionBackend::kReference;
   trace_enabled_ = false;
   trace_valid_ = false;
   poisoned_ = false;
@@ -730,8 +733,9 @@ ReferenceStepOutcome ReferenceRunner::step(
                            std::uint16_t* const output,
                            const char* const operation,
                            const std::size_t layer) noexcept {
-    return check_cuda(launch_projection_to_bf16_reference_cuda(
-                          weight, input, views_.fp32_scratch,
+    return check_cuda(launch_projection_to_bf16_cuda(
+                          projection_backend_, weight, input,
+                          views_.fp32_scratch,
                           views_.fp32_scratch_elements, output, stream_),
                       operation, layer);
   };
@@ -1040,6 +1044,11 @@ ReferenceRunnerFactoryResult create_reference_runner(
     const ModelWeights* const weights, RequestState* const state,
     const ReferenceRunnerOptions& options) noexcept {
   ReferenceRunnerFactoryResult result;
+  if (!is_valid_projection_backend(options.projection_backend)) {
+    result.diagnostic = runner_status(
+        ReferenceRunnerError::kInvalidDependency, "projection_backend");
+    return result;
+  }
   const ReferenceRunnerStatus weights_status = validate_model_weights(weights);
   if (!weights_status) {
     result.diagnostic = weights_status;
@@ -1049,6 +1058,7 @@ ReferenceRunnerFactoryResult create_reference_runner(
   ReferenceRunner runner;
   runner.weights_ = weights;
   runner.state_ = state;
+  runner.projection_backend_ = options.projection_backend;
   const ReferenceRunnerStatus state_status =
       ReferenceRunner::collect_request_views(state, runner.views_);
   if (!state_status) {

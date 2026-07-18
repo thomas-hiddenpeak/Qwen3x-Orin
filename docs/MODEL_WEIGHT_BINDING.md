@@ -83,9 +83,24 @@ at least `linear_output_size(weight)` elements and the BF16 output buffer.
 Both APIs accept a CUDA stream and isolate their launch result from an
 unrelated stale CUDA last-error.
 
-These kernels are correctness references. Their typed boundary is intended
-to remain stable when an `sm_87` optimized registry replaces the inner GEMV
-selection.
+The production boundary `launch_projection_to_bf16_cuda` takes the strongly
+typed `ProjectionBackend`. `kReference` is the default and preserves the
+above behavior. Explicit `kSm87WeightOnly` dispatches FP8 and NVFP4 directly
+to BF16 with the checked SM87 kernels; BF16 deliberately falls back to the
+reference path, and LM-head FP32 projection is unaffected. Direct quantized
+launches do not use FP32 scratch. Unknown backends, unknown/invalid variants,
+and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
+path allocates or synchronizes.
+
+The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
+but their warp reduction and global-scale multiplication order are not
+required to be bitwise identical to the deliberately scalar-shaped CUDA
+reference. Optimized results must instead pass the independent per-operation
+tolerance gate and the fixed full-model exact-token/text gate. The initial
+FP8/NVFP4 cases at K=5120 and K=17408 also produced zero BF16 bit mismatches
+against the CUDA reference for their deterministic synthetic inputs. The
+default remains `kReference`; passing one prompt does not make the optimized
+backend a universal floating-point oracle.
 
 ## Validation coverage
 
@@ -99,3 +114,13 @@ and structured failure diagnostics.
 GEMV references on a real CUDA device, checks stale-error isolation, and
 checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
 the official 20 GB checkpoint.
+
+`projection_backend_dispatch` is a small SM87 CUDA gate for all three
+production routes, BF16 fallback, scratch behavior, and fail-closed backend
+and variant validation. It uses only tiny synthetic buffers.
+
+`sm87_weight_only_gemv` covers awkward dimensions, both model reduction
+lengths, an independent host formula, deterministic replay, and direct
+optimized-versus-reference BF16 mismatch/error statistics. Its optional
+production-shape segment is enabled with
+`Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`.

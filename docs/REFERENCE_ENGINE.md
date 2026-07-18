@@ -27,6 +27,9 @@ loads `MODEL_DIR/tokenizer.json` first, formats the prompt to derive the exact
 request capacity, then creates the native chain without parsing the tokenizer
 a second time. Link installed consumers to `q3x::engine`.
 
+For multi-round latency collection and strict replay checks on one reused
+engine, see the [reference benchmark harness](REFERENCE_BENCHMARK.md).
+
 ## Prompt and greedy policy
 
 Each call accepts exactly one user text message. It uses
@@ -94,16 +97,21 @@ statistics, and explicit tolerances rather than requiring equal hashes.
 
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
-  [--max-tokens N] [--trace]
+  [--max-tokens N] [--trace] \
+  [--projection-backend reference|sm87]
 ```
 
 `N` defaults to 16 and the CLI admits 1 through 4096. Duplicate flags,
 unknown arguments, empty prompts, malformed integers, and values outside the
-range fail before model loading.
+range fail before model loading. Projection dispatch defaults to `reference`;
+`sm87` is an explicit, default-off selection for direct FP8/NVFP4-to-BF16
+layer projections. `ReferenceEngineOptions` and `ReferenceOneShotOptions`
+expose the same strongly typed policy. Engine creation verifies that `sm87`
+is running on compute capability 8.7 before loading resident model weights.
 
 On success stdout contains escaped, line-oriented `key=value` records for
-cold-load statistics, rendered prompt/IDs, complete generated IDs, decoded
-text, stop reason, timings, and optional trace hashes. Loading progress and
+cold-load statistics, the actual `projection.backend`, rendered prompt/IDs,
+complete generated IDs, decoded text, stop reason, timings, and optional trace hashes. Loading progress and
 all structured diagnostics go to stderr, so stdout can be redirected as one
 atomic result stream. Exit code 2 denotes input/tokenization errors, 3 denotes
 creation/load failures, 4 denotes execution/trace failures, and 5 denotes host
@@ -178,5 +186,7 @@ native-versus-vLLM boundary characterization remain release gates.
 
 The same exact 19/26-ID, text, stop, and 44-step gate is available as the
 conditional `reference_engine_e2e` CTest. Configure with
-`-DQ3X_E2E_MODEL_DIR=MODEL_DIR` (or set that environment variable); without
-the external pinned model directory it exits with the standard skip code 77.
+`-DQ3X_E2E_MODEL_DIR=MODEL_DIR` (or set that environment variable). Its
+projection policy defaults to `reference`; configure
+`-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
+external pinned model directory it exits with the standard skip code 77.
