@@ -410,15 +410,26 @@ nvfp4_w4a16_gemv_bf16_vector_kernel(
                                                   packed_column);
       const std::size_t first_column =
           packed_column * kNvFp4ValuesPerByte;
+      // Two aligned 64-bit loads replace eight scalar BF16 loads while the
+      // half/value traversal keeps each accumulator's K order unchanged.
 #pragma unroll
-      for (unsigned int value = 0U;
-           value < kNvFp4VectorValuesPerLane; ++value) {
-        const std::uint8_t nibble = static_cast<std::uint8_t>(
-            (packed >> (value * 4U)) & 0x0fU);
-        const float scaled_weight = decode_e2m1(nibble) * block_scale;
-        accumulators[value & 3U] =
-            fmaf(scaled_weight, decode_bf16(activation[first_column + value]),
-                 accumulators[value & 3U]);
+      for (unsigned int half = 0U; half < 2U; ++half) {
+        const std::uint64_t packed_activation =
+            *reinterpret_cast<const std::uint64_t*>(
+                activation + first_column + half * 4U);
+#pragma unroll
+        for (unsigned int value = 0U; value < 4U; ++value) {
+          const unsigned int packed_value = half * 4U + value;
+          const std::uint8_t nibble = static_cast<std::uint8_t>(
+              (packed >> (packed_value * 4U)) & 0x0fU);
+          const std::uint16_t encoded_activation =
+              static_cast<std::uint16_t>(
+                  (packed_activation >> (value * 16U)) & 0xffffU);
+          const float scaled_weight = decode_e2m1(nibble) * block_scale;
+          accumulators[value] =
+              fmaf(scaled_weight, decode_bf16(encoded_activation),
+                   accumulators[value]);
+        }
       }
     }
 
@@ -805,7 +816,9 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
   const bool vector_shape =
       (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
       (reinterpret_cast<std::uintptr_t>(packed_weights) %
-       alignof(std::uint32_t)) == 0U;
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
   if (vector_shape) {
     launch_nvfp4_vector_unchecked(packed_weights, block_scales,
                                   weight_scale_2, activation, rows, columns,
