@@ -113,4 +113,27 @@ enum class GdnStatus : std::uint8_t {
     float l2_epsilon, std::uint16_t* output,
     GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
 
+// Warp-parallel forms of the Gated DeltaNet launches. One 256-thread block
+// owns each value head and maps one warp to each state row, making the 128
+// BF16 state elements of a row contiguous across the warp.
+// The FP32 dot products retain the reference kernel's left-to-right FMA order,
+// so outputs and persisted state are bitwise equivalent to the reference
+// entry points. These calls otherwise share their validation and aliasing
+// contract, including in-place state updates.
+[[nodiscard]] int launch_gated_delta_net_update_warp_parallel_cuda(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* A_log,
+    const std::uint16_t* dt_bias, const std::uint16_t* state_input,
+    std::uint16_t* state_output, float l2_epsilon,
+    std::uint16_t* output, GdnDimensions dimensions = {},
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_gated_delta_net_update_tile_warp_parallel_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::runtime

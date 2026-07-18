@@ -881,7 +881,7 @@ ReferenceStepOutcome ReferenceRunner::step(
                           views_.conv_state[layer], views_.projection[0], {},
                           stream_),
                       "linear_causal_conv", layer) ||
-          !check_cuda(launch_gated_delta_net_update_reference_cuda(
+          !check_cuda(launch_gated_delta_net_update_warp_parallel_cuda(
                           views_.projection[0], views_.linear_a,
                           views_.linear_b, attention->a_log.data,
                           attention->dt_bias.data, views_.gdn_state[layer],
@@ -1280,13 +1280,14 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   views_.conv_state[layer], views_.projection[0], {},
                   stream_),
               "prefill_linear_causal_conv", layer) ||
-          !check_cuda(launch_gated_delta_net_update_tile_reference_cuda(
-                          views_.projection[0], token_count, views_.linear_a,
-                          views_.linear_b, attention->a_log.data,
-                          attention->dt_bias.data, views_.gdn_state[layer],
-                          views_.gdn_state[layer], kRmsEpsilon,
-                          views_.projection[2], {}, stream_),
-                      "prefill_linear_gdn", layer)) {
+          !check_cuda(
+              launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                  views_.projection[0], token_count, views_.linear_a,
+                  views_.linear_b, attention->a_log.data,
+                  attention->dt_bias.data, views_.gdn_state[layer],
+                  views_.gdn_state[layer], kRmsEpsilon, views_.projection[2],
+                  {}, stream_),
+              "prefill_linear_gdn", layer)) {
         return fail_prefill_tile(launch_failure);
       }
       if (!check_cuda(

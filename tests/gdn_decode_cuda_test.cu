@@ -103,6 +103,56 @@ template <typename Launch>
   return ready;
 }
 
+template <typename Launch>
+[[nodiscard]] float measure_average_cuda_milliseconds(
+    TestContext& test, cudaStream_t stream, const std::size_t warmup_count,
+    const std::size_t iteration_count, const std::string& label,
+    Launch&& launch) {
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  bool ready = test.cuda_ok(cudaEventCreate(&start), label + " create start");
+  ready = ready &&
+          test.cuda_ok(cudaEventCreate(&stop), label + " create stop");
+  if (!ready) {
+    if (start != nullptr) {
+      (void)cudaEventDestroy(start);
+    }
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+  for (std::size_t iteration = 0U; iteration < warmup_count; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch()),
+                         label + " warmup launch");
+    if (!ready) {
+      break;
+    }
+  }
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync");
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(start, stream), label + " record start");
+  for (std::size_t iteration = 0U; ready && iteration < iteration_count;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch()),
+                         label + " measured launch");
+  }
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(stop, stream), label + " record stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventSynchronize(stop), label + " synchronize stop");
+  float elapsed = std::numeric_limits<float>::quiet_NaN();
+  if (ready) {
+    float total = 0.0F;
+    ready = test.cuda_ok(cudaEventElapsedTime(&total, start, stop),
+                         label + " elapsed time");
+    if (ready) {
+      elapsed = total / static_cast<float>(iteration_count);
+    }
+  }
+  (void)test.cuda_ok(cudaEventDestroy(start), label + " destroy start");
+  (void)test.cuda_ok(cudaEventDestroy(stop), label + " destroy stop");
+  return elapsed;
+}
+
 void expect_bf16_buffer_near(TestContext& test,
                              const std::uint16_t* const actual,
                              const std::uint16_t* const expected,
@@ -249,6 +299,20 @@ void test_launch_validation(TestContext& test) {
               nullptr, std::numeric_limits<float>::quiet_NaN(), nullptr)) ==
           cudaErrorInvalidValue,
       "CUDA tile GDN rejects NaN epsilon");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+              nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+              1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "CUDA warp-parallel GDN rejects null buffers");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::
+              launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                  nullptr, q3x::runtime::kGdnMaximumTileTokenCount + 1U,
+                  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                  1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "CUDA warp-parallel tile GDN rejects oversized tile");
 }
 
 void test_conv_tile_bitwise(TestContext& test, cudaStream_t stream) {
@@ -564,8 +628,10 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
   ManagedBuffer<std::uint16_t> dt_bias;
   ManagedBuffer<std::uint16_t> sequential_state;
   ManagedBuffer<std::uint16_t> tile_state;
+  ManagedBuffer<std::uint16_t> warp_state;
   ManagedBuffer<std::uint16_t> sequential_output;
   ManagedBuffer<std::uint16_t> tile_output;
+  ManagedBuffer<std::uint16_t> warp_output;
   bool ready = test.cuda_ok(
       conv_qkv.allocate(kMaximumTokens * q3x::runtime::kGdnQkvChannels),
       "tile GDN allocate conv QKV");
@@ -591,6 +657,9 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
                        tile_state.allocate(q3x::runtime::kGdnStateElements),
                        "tile GDN allocate tile state");
   ready = ready && test.cuda_ok(
+                       warp_state.allocate(q3x::runtime::kGdnStateElements),
+                       "tile GDN allocate warp state");
+  ready = ready && test.cuda_ok(
                        sequential_output.allocate(
                            kMaximumTokens * q3x::runtime::kGdnVElements),
                        "tile GDN allocate sequential output");
@@ -598,6 +667,10 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
                        tile_output.allocate(
                            kMaximumTokens * q3x::runtime::kGdnVElements),
                        "tile GDN allocate tile output");
+  ready = ready && test.cuda_ok(
+                       warp_output.allocate(
+                           kMaximumTokens * q3x::runtime::kGdnVElements),
+                       "tile GDN allocate warp output");
   if (!ready) {
     return;
   }
@@ -616,9 +689,12 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
     std::copy(initial_state.begin(), initial_state.end(),
               sequential_state.data());
     std::copy(initial_state.begin(), initial_state.end(), tile_state.data());
+    std::copy(initial_state.begin(), initial_state.end(), warp_state.data());
     std::fill_n(sequential_output.data(), sequential_output.size(),
                 static_cast<std::uint16_t>(0U));
     std::fill_n(tile_output.data(), tile_output.size(),
+                static_cast<std::uint16_t>(0U));
+    std::fill_n(warp_output.data(), warp_output.size(),
                 static_cast<std::uint16_t>(0U));
 
     for (std::size_t token = 0U; token < token_count; ++token) {
@@ -662,6 +738,30 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
         q3x::runtime::kGdnStateElements,
         "CUDA GDN tile BF16 persistent state M=" +
             std::to_string(token_count));
+
+    ready = launch_after_stale(
+        test, stream,
+        "GDN warp-parallel tile M=" + std::to_string(token_count), [&]() {
+          return q3x::runtime::
+              launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                  conv_qkv.data(), token_count, a.data(), b.data(),
+                  A_log.data(), dt_bias.data(), warp_state.data(),
+                  warp_state.data(), 1.0e-6F, warp_output.data(), {},
+                  static_cast<void*>(stream));
+        });
+    if (!ready) {
+      return;
+    }
+    expect_bf16_buffer_bitwise_equal(
+        test, warp_output.data(), sequential_output.data(),
+        token_count * q3x::runtime::kGdnVElements,
+        "CUDA GDN warp-parallel FP32-pre-store output M=" +
+            std::to_string(token_count));
+    expect_bf16_buffer_bitwise_equal(
+        test, warp_state.data(), sequential_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "CUDA GDN warp-parallel BF16 persistent state M=" +
+            std::to_string(token_count));
   }
 
   test.expect(
@@ -671,6 +771,48 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
               dt_bias.data(), tile_state.data(), tile_state.data(), 1.0e-6F,
               conv_qkv.data())) == cudaErrorInvalidValue,
       "CUDA tile GDN rejects output/conv alias");
+
+  constexpr std::size_t kWarmupCount = 5U;
+  constexpr std::size_t kIterationCount = 50U;
+  const float reference_m1_ms = measure_average_cuda_milliseconds(
+      test, stream, kWarmupCount, kIterationCount, "GDN reference M1", [&]() {
+        return q3x::runtime::launch_gated_delta_net_update_reference_cuda(
+            conv_qkv.data(), a.data(), b.data(), A_log.data(), dt_bias.data(),
+            sequential_state.data(), sequential_state.data(), 1.0e-6F,
+            sequential_output.data(), {}, static_cast<void*>(stream));
+      });
+  const float warp_m1_ms = measure_average_cuda_milliseconds(
+      test, stream, kWarmupCount, kIterationCount, "GDN warp M1", [&]() {
+        return q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+            conv_qkv.data(), a.data(), b.data(), A_log.data(), dt_bias.data(),
+            warp_state.data(), warp_state.data(), 1.0e-6F,
+            warp_output.data(), {}, static_cast<void*>(stream));
+      });
+  const float reference_m8_ms = measure_average_cuda_milliseconds(
+      test, stream, kWarmupCount, kIterationCount, "GDN reference M8", [&]() {
+        return q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
+            conv_qkv.data(), kMaximumTokens, a.data(), b.data(), A_log.data(),
+            dt_bias.data(), tile_state.data(), tile_state.data(), 1.0e-6F,
+            tile_output.data(), {}, static_cast<void*>(stream));
+      });
+  const float warp_m8_ms = measure_average_cuda_milliseconds(
+      test, stream, kWarmupCount, kIterationCount, "GDN warp M8", [&]() {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data(), kMaximumTokens, a.data(), b.data(),
+                A_log.data(), dt_bias.data(), warp_state.data(),
+                warp_state.data(), 1.0e-6F, warp_output.data(), {},
+                static_cast<void*>(stream));
+      });
+  if (std::isfinite(reference_m1_ms) && std::isfinite(warp_m1_ms) &&
+      std::isfinite(reference_m8_ms) && std::isfinite(warp_m8_ms)) {
+    std::cout << "GDN CUDA-event benchmark: M1 reference="
+              << reference_m1_ms << " ms, warp=" << warp_m1_ms
+              << " ms, speedup=" << reference_m1_ms / warp_m1_ms
+              << "x; M8 reference=" << reference_m8_ms
+              << " ms, warp=" << warp_m8_ms
+              << " ms, speedup=" << reference_m8_ms / warp_m8_ms << "x\n";
+  }
 }
 
 void test_gdn_multistep(TestContext& test, cudaStream_t stream) {

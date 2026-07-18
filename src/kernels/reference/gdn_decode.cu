@@ -385,6 +385,183 @@ __global__ void gated_delta_net_update_tile_kernel(
   }
 }
 
+// Preserve the reference kernel's scalar accumulation order while fixing its
+// pathological state access pattern. A reference warp visits 32 different
+// rows for a fixed key dimension, which turns each state load/store into 32
+// widely separated memory transactions. Here one warp owns a row: all lanes
+// cooperatively stage its 128 key dimensions, while lane zero performs the
+// two left-to-right dot products. The arithmetic dependency chains therefore
+// remain identical, but state traffic is fully coalesced.
+__global__ void gated_delta_net_update_warp_parallel_kernel(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output) {
+  constexpr unsigned int kWarpSize = 32U;
+  constexpr unsigned int kWarpsPerBlock = 8U;
+  constexpr unsigned int kFullWarpMask = 0xffffffffU;
+  constexpr std::size_t kKeysPerLane =
+      kGdnHeadDimension / static_cast<std::size_t>(kWarpSize);
+  static_assert(kKeysPerLane == 4U);
+
+  __shared__ float normalized_q[kGdnHeadDimension];
+  __shared__ float normalized_k[kGdnHeadDimension];
+  __shared__ float partial[kGdnHeadDimension];
+  __shared__ float recurrence_scalars[2];
+  __shared__ float row_scratch[kWarpsPerBlock * kGdnHeadDimension];
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const unsigned int lane = thread % kWarpSize;
+  const std::size_t value_head = blockIdx.x;
+  const std::size_t qk_head = value_head / 3U;
+  constexpr std::size_t kKOffset = kGdnQElements;
+  constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
+
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    const std::size_t qkv_token_offset = token * kGdnQkvChannels;
+    const std::size_t scalar_token_offset = token * kGdnValueHeadCount;
+    const std::size_t output_token_offset = token * kGdnVElements;
+
+    float q_value = 0.0F;
+    float k_value = 0.0F;
+    if (thread < kGdnHeadDimension) {
+      const std::size_t q_index =
+          qkv_token_offset + qk_head * kGdnHeadDimension + thread;
+      const std::size_t k_index =
+          qkv_token_offset + kKOffset +
+          qk_head * kGdnHeadDimension + thread;
+      q_value = decode_bf16_device(conv_qkv[q_index]);
+      k_value = decode_bf16_device(conv_qkv[k_index]);
+      partial[thread] = q_value * q_value;
+    }
+    __syncthreads();
+    for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+         stride >>= 1U) {
+      if (thread < stride) {
+        partial[thread] += partial[thread + stride];
+      }
+      __syncthreads();
+    }
+    if (thread < kGdnHeadDimension) {
+      const float q_scale =
+          rsqrtf(partial[0] + l2_epsilon) *
+          rsqrtf(static_cast<float>(kGdnHeadDimension));
+      normalized_q[thread] = q_value * q_scale;
+    }
+    // Match the reference boundary before reusing partial for K.
+    __syncthreads();
+
+    if (thread < kGdnHeadDimension) {
+      partial[thread] = k_value * k_value;
+    }
+    __syncthreads();
+    for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+         stride >>= 1U) {
+      if (thread < stride) {
+        partial[thread] += partial[thread + stride];
+      }
+      __syncthreads();
+    }
+    if (thread < kGdnHeadDimension) {
+      normalized_k[thread] =
+          k_value * rsqrtf(partial[0] + l2_epsilon);
+    }
+    if (thread == 0U) {
+      const float gate_input =
+          decode_bf16_device(a[scalar_token_offset + value_head]) +
+          decode_bf16_device(dt_bias[value_head]);
+      const float g = -expf(decode_bf16_device(A_log[value_head])) *
+                      stable_softplus_device(gate_input);
+      recurrence_scalars[0] = expf(g);
+      recurrence_scalars[1] = stable_sigmoid_device(
+          decode_bf16_device(b[scalar_token_offset + value_head]));
+    }
+    __syncthreads();
+
+    const float alpha = recurrence_scalars[0];
+    const float beta = recurrence_scalars[1];
+    const std::uint16_t* const recurrent_state =
+        token == 0U ? state_input : state_output;
+    float* const warp_scratch =
+        row_scratch + static_cast<std::size_t>(warp) * kGdnHeadDimension;
+
+    for (std::size_t row = warp; row < kGdnHeadDimension;
+         row += kWarpsPerBlock) {
+      const std::size_t state_row_offset =
+          value_head * kGdnHeadDimension * kGdnHeadDimension +
+          row * kGdnHeadDimension;
+#pragma unroll
+      for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
+        const std::size_t key_dimension =
+            lane + item * static_cast<std::size_t>(kWarpSize);
+        warp_scratch[key_dimension] =
+            alpha * decode_bf16_device(
+                        recurrent_state[state_row_offset + key_dimension]);
+      }
+      __syncwarp(kFullWarpMask);
+
+      float prediction = 0.0F;
+      if (lane == 0U) {
+#pragma unroll
+        for (std::size_t key_dimension = 0U;
+             key_dimension < kGdnHeadDimension; ++key_dimension) {
+          prediction = fmaf(warp_scratch[key_dimension],
+                            normalized_k[key_dimension], prediction);
+        }
+      }
+      prediction = __shfl_sync(kFullWarpMask, prediction, 0);
+      float delta = 0.0F;
+      if (lane == 0U) {
+        const float value = decode_bf16_device(
+            conv_qkv[qkv_token_offset + kVOffset +
+                     value_head * kGdnHeadDimension + row]);
+        delta = (value - prediction) * beta;
+      }
+      delta = __shfl_sync(kFullWarpMask, delta, 0);
+
+#pragma unroll
+      for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
+        const std::size_t key_dimension =
+            lane + item * static_cast<std::size_t>(kWarpSize);
+        const std::size_t state_index =
+            state_row_offset + key_dimension;
+        const float updated_state =
+            fmaf(delta, normalized_k[key_dimension],
+                 warp_scratch[key_dimension]);
+        state_output[state_index] = encode_bf16_device(updated_state);
+        warp_scratch[key_dimension] = updated_state;
+      }
+      __syncwarp(kFullWarpMask);
+
+      if (lane == 0U) {
+        float result = 0.0F;
+#pragma unroll
+        for (std::size_t key_dimension = 0U;
+             key_dimension < kGdnHeadDimension; ++key_dimension) {
+          result = fmaf(warp_scratch[key_dimension],
+                        normalized_q[key_dimension], result);
+        }
+        output[output_token_offset +
+               value_head * kGdnHeadDimension + row] =
+            encode_bf16_device(result);
+      }
+      // Keep the cooperative writes for the next row from clobbering the
+      // scratch values while lane zero is still consuming this row.
+      __syncwarp(kFullWarpMask);
+    }
+    // Every row must be persisted before the next token uses state_output as
+    // its recurrent input.
+    __syncthreads();
+  }
+}
+
 }  // namespace
 
 int launch_causal_conv1d_silu_update_reference_cuda(
@@ -506,6 +683,75 @@ int launch_gated_delta_net_update_tile_reference_cuda(
       static_cast<unsigned int>(kGdnValueHeadCount), kGdnThreads, 0U, stream>>>(
       conv_qkv, token_count, a, b, A_log, dt_bias, state_input, state_output,
       l2_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gated_delta_net_update_warp_parallel_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output,
+    const GdnDimensions dimensions,
+    void* const cuda_stream) noexcept {
+  if (validate_dimensions(dimensions) != GdnStatus::kSuccess ||
+      !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
+      conv_qkv == nullptr || a == nullptr || b == nullptr || A_log == nullptr ||
+      dt_bias == nullptr || state_input == nullptr || state_output == nullptr ||
+      output == nullptr ||
+      invalid_gdn_alias(conv_qkv, a, b, A_log, dt_bias, state_input,
+                        state_output, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr unsigned int kWarpParallelThreads = 256U;
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_parallel_kernel<<<
+      static_cast<unsigned int>(kGdnValueHeadCount), kWarpParallelThreads,
+      0U, stream>>>(conv_qkv, 1U, a, b, A_log, dt_bias, state_input,
+                    state_output, l2_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gated_delta_net_update_tile_warp_parallel_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output,
+    const GdnDimensions dimensions,
+    void* const cuda_stream) noexcept {
+  if (token_count == 1U) {
+    return launch_gated_delta_net_update_warp_parallel_cuda(
+        conv_qkv, a, b, A_log, dt_bias, state_input, state_output, l2_epsilon,
+        output, dimensions, cuda_stream);
+  }
+  if (token_count == 0U || token_count > kGdnMaximumTileTokenCount ||
+      validate_dimensions(dimensions) != GdnStatus::kSuccess ||
+      !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
+      conv_qkv == nullptr || a == nullptr || b == nullptr || A_log == nullptr ||
+      dt_bias == nullptr || state_input == nullptr || state_output == nullptr ||
+      output == nullptr ||
+      invalid_gdn_alias(conv_qkv, a, b, A_log, dt_bias, state_input,
+                        state_output, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr unsigned int kWarpParallelThreads = 256U;
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_parallel_kernel<<<
+      static_cast<unsigned int>(kGdnValueHeadCount), kWarpParallelThreads,
+      0U, stream>>>(conv_qkv, token_count, a, b, A_log, dt_bias, state_input,
+                    state_output, l2_epsilon, output);
   return static_cast<int>(cudaGetLastError());
 }
 
