@@ -26,6 +26,19 @@ namespace q3x::kernels {
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m8_single_row_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m8_row_pair_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] bool use_sm87_fp8_small_m_row_pair_test(
+    std::size_t token_count, std::size_t rows) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -545,6 +558,96 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
                   false, token_count, use_small_m_api);
 }
 
+void run_fp8_row_pair_direct_comparison(
+    TestContext& test, cudaStream_t stream,
+    const std::vector<std::uint8_t>& weights,
+    const std::vector<std::uint16_t>& activations, const std::size_t rows,
+    const std::size_t columns, const float weight_scale,
+    const std::string& label) {
+  constexpr std::size_t kTokens = 8U;
+  test.expect(weights.size() == rows * columns,
+              label + " weight extent");
+  test.expect(activations.size() == kTokens * columns,
+              label + " activation extent");
+  if (weights.size() != rows * columns ||
+      activations.size() != kTokens * columns) {
+    return;
+  }
+
+  DeviceBuffer<std::uint8_t> device_weights;
+  DeviceBuffer<std::uint16_t> device_activations;
+  DeviceBuffer<std::uint16_t> device_baseline;
+  DeviceBuffer<std::uint16_t> device_candidate;
+  bool ready = test.cuda_ok(device_weights.allocate(weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(
+                       device_activations.allocate(activations.size()),
+                       label + " allocate activations");
+  ready = ready && test.cuda_ok(device_baseline.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(device_candidate.allocate(kTokens * rows),
+                                label + " allocate row-pair output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_weights.get(), weights.data(),
+                                       weights.size(), cudaMemcpyHostToDevice,
+                                       stream),
+                       label + " copy weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_activations.get(), activations.data(),
+                           activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " copy activations");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m8_single_row_test_cuda(
+              device_weights.get(), weight_scale, device_activations.get(),
+              rows, columns, device_baseline.get(),
+              static_cast<void*>(stream))),
+      label + " launch single-row M8 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_fp8_w8a16_small_m8_row_pair_test_cuda(
+                               device_weights.get(), weight_scale,
+                               device_activations.get(), rows, columns,
+                               device_candidate.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch row-pair M8 candidate");
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), device_baseline.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), device_candidate.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy row-pair output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  std::cout << "FP8_ROW_PAIR_DIFF: " << label
+            << " candidate_vs_single_row_m8_bf16=" << mismatches << '/'
+            << baseline.size() << '\n';
+  test.expect(mismatches == 0U,
+              label + " row-pair matches every single-row M8 BF16 bit");
+}
+
 void run_fp8_vector_codebook_case(TestContext& test, cudaStream_t stream) {
   constexpr std::size_t kColumns = 1'024U;
   constexpr std::size_t kBytePositions = 4U;
@@ -587,6 +690,39 @@ void run_fp8_vector_codebook_case(TestContext& test, cudaStream_t stream) {
       test, stream, weights, 1.0F, batched_activation, kRows, kColumns,
       "FP8 small-M8 packed-x4 exhaustive codebook and byte positions", false,
       false, true, kTokens, true);
+  run_fp8_row_pair_direct_comparison(
+      test, stream, weights, batched_activation, kRows, kColumns, 1.0F,
+      "FP8 M8 row-pair exhaustive E4M3FN codebook and byte positions");
+}
+
+void run_fp8_row_pair_odd_rows_case(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kTokens = 8U;
+  constexpr std::size_t kRows = 17U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr float kWeightScale = 1.0F / 128.0F;
+  constexpr std::array<std::uint8_t, 13U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U, 0x3cU,
+      0x40U, 0xb8U, 0x70U, 0x78U, 0x7eU, 0xfeU,
+  }};
+  std::vector<std::uint8_t> weights(kRows * kColumns);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      weights[row * kColumns + column] = kFiniteCodes[
+          (column * 11U + row * 7U + 3U) % kFiniteCodes.size()];
+    }
+  }
+  std::vector<std::uint16_t> activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 5U) % 127U) - 63;
+      activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+  run_fp8_row_pair_direct_comparison(
+      test, stream, weights, activations, kRows, kColumns, kWeightScale,
+      "FP8 M8 row-pair odd N17 K5120 row-distinct finite codebook");
 }
 
 void run_nvfp4_payload(TestContext& test, cudaStream_t stream,
@@ -1788,6 +1924,14 @@ void test_launch_validation(TestContext& test) {
   test.expect(q3x::kernels::use_sm87_nvfp4_small_m_row_pair_test(8U,
                                                                  17'408U),
               "NVFP4 M8 row-pair accepts production output rows");
+  test.expect(!q3x::kernels::use_sm87_fp8_small_m_row_pair_test(2U, 10'240U),
+              "FP8 M2 keeps the single-row production kernel");
+  test.expect(!q3x::kernels::use_sm87_fp8_small_m_row_pair_test(8U, 1'023U),
+              "FP8 M8 row-pair keeps a conservative small-row fallback");
+  test.expect(q3x::kernels::use_sm87_fp8_small_m_row_pair_test(8U, 1'024U),
+              "FP8 M8 row-pair accepts the smallest checkpoint projection");
+  test.expect(q3x::kernels::use_sm87_fp8_small_m_row_pair_test(8U, 10'240U),
+              "FP8 M8 row-pair accepts production QKV output rows");
 }
 
 [[nodiscard]] bool performance_enabled() noexcept {
@@ -1812,6 +1956,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_row_pair_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_ROW_PAIR_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool fp8_row_pair_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_ROW_PAIR_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -1941,6 +2092,242 @@ struct SmallMMeasurement {
             << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
   test.expect(gate_passed, label + " small-M per-shape gate must pass");
   return {baseline_average, batched_average};
+}
+
+struct Fp8RowPairMeasurement {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+};
+
+[[nodiscard]] Fp8RowPairMeasurement benchmark_fp8_row_pair_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 40;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 3U) % 127U) - 63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed finite weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed activations");
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m8_single_row_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            baseline_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_small_m8_row_pair_test_cuda(
+        weights.get(), kWeightScale, activations.get(), rows, columns,
+        candidate_output.get(), static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " correctness baseline launch");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " correctness candidate launch");
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return {};
+  }
+  std::size_t mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  const bool bitwise_equal = mismatches == 0U;
+  std::cout << "FP8_ROW_PAIR_SHAPE_DIFF: " << label
+            << " candidate_vs_single_row_m8_bf16=" << mismatches << '/'
+            << baseline.size() << '\n';
+  test.expect(bitwise_equal,
+              label + " row-pair candidate matches every baseline BF16 bit");
+
+  for (int iteration = 0; iteration < kWarmupIterations && ready;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  const float baseline_first = measure_small_m_tile(
+      test, stream, launch_baseline, kMeasuredIterations,
+      label + " baseline pass 1");
+  const float candidate_first = measure_small_m_tile(
+      test, stream, launch_candidate, kMeasuredIterations,
+      label + " candidate pass 1");
+  const float candidate_second = measure_small_m_tile(
+      test, stream, launch_candidate, kMeasuredIterations,
+      label + " candidate pass 2");
+  const float baseline_second = measure_small_m_tile(
+      test, stream, launch_baseline, kMeasuredIterations,
+      label + " baseline pass 2");
+  if (!(std::isfinite(baseline_first) &&
+        std::isfinite(baseline_second) &&
+        std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second))) {
+    return {};
+  }
+  const float baseline_average =
+      (baseline_first + baseline_second) * 0.5F;
+  const float candidate_average =
+      (candidate_first + candidate_second) * 0.5F;
+  const float speedup = baseline_average / candidate_average;
+  std::cout << "PERF_FP8_ROW_PAIR: " << label << " M=" << kTokens
+            << " baseline_pass1_ms=" << baseline_first
+            << " candidate_pass1_ms=" << candidate_first
+            << " candidate_pass2_ms=" << candidate_second
+            << " baseline_pass2_ms=" << baseline_second
+            << " baseline_average_ms=" << baseline_average
+            << " candidate_average_ms=" << candidate_average
+            << " speedup=" << speedup
+            << " uplift_percent=" << (speedup - 1.0F) * 100.0F << '\n';
+  return {baseline_average, candidate_average, bitwise_equal};
+}
+
+void run_optional_fp8_row_pair_performance(TestContext& test,
+                                            cudaStream_t stream) {
+  if (!fp8_row_pair_performance_enabled()) {
+    std::cout << "SKIP: FP8 M8 row-pair performance segment; set "
+                 "Q3X_RUN_SM87_FP8_ROW_PAIR_PERF=1 to enable\n";
+    return;
+  }
+  constexpr float kMinimumRequiredSpeedup = 1.03F;
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t calls_per_prompt;
+    const char* label;
+  };
+  constexpr std::array<Shape, 5U> kShapes{{
+      {10'240U, 5'120U, 48U, "FP8 linear QKV 10240x5120"},
+      {5'120U, 6'144U, 64U, "FP8 projection 5120x6144"},
+      {6'144U, 5'120U, 48U, "FP8 projection 6144x5120"},
+      {12'288U, 5'120U, 16U, "FP8 linear QKV 12288x5120"},
+      {1'024U, 5'120U, 32U, "FP8 small projection 1024x5120"},
+  }};
+  std::array<Fp8RowPairMeasurement, kShapes.size()> measurements{};
+  measurements[0] = benchmark_fp8_row_pair_shape(
+      test, stream, kShapes[0].rows, kShapes[0].columns, kShapes[0].label);
+  measurements[1] = benchmark_fp8_row_pair_shape(
+      test, stream, kShapes[1].rows, kShapes[1].columns, kShapes[1].label);
+  const auto passes_core_gate = [&](const std::size_t index) noexcept {
+    const Fp8RowPairMeasurement& measurement = measurements[index];
+    return measurement.bitwise_equal &&
+           std::isfinite(measurement.baseline_milliseconds) &&
+           std::isfinite(measurement.candidate_milliseconds) &&
+           measurement.baseline_milliseconds /
+                   measurement.candidate_milliseconds >=
+               kMinimumRequiredSpeedup;
+  };
+  const bool core_gate = passes_core_gate(0U) && passes_core_gate(1U);
+  test.expect(core_gate,
+              "FP8 M8 row-pair both core shapes improve by at least 3%");
+  if (!core_gate) {
+    std::cout << "PERF_FP8_ROW_PAIR_CORE_GATE: gate=FAIL\n";
+    return;
+  }
+  std::cout << "PERF_FP8_ROW_PAIR_CORE_GATE: gate=PASS\n";
+
+  for (std::size_t index = 2U; index < kShapes.size(); ++index) {
+    measurements[index] = benchmark_fp8_row_pair_shape(
+        test, stream, kShapes[index].rows, kShapes[index].columns,
+        kShapes[index].label);
+  }
+  double weighted_baseline = 0.0;
+  double weighted_candidate = 0.0;
+  bool all_correct = true;
+  bool all_finite = true;
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    const Fp8RowPairMeasurement& measurement = measurements[index];
+    all_correct = all_correct && measurement.bitwise_equal;
+    all_finite = all_finite &&
+                 std::isfinite(measurement.baseline_milliseconds) &&
+                 std::isfinite(measurement.candidate_milliseconds);
+    weighted_baseline += static_cast<double>(kShapes[index].calls_per_prompt) *
+                         measurement.baseline_milliseconds;
+    weighted_candidate +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.candidate_milliseconds;
+  }
+  const double weighted_speedup = weighted_baseline / weighted_candidate;
+  const bool aggregate_gate =
+      all_correct && all_finite && std::isfinite(weighted_speedup) &&
+      weighted_speedup >= kMinimumRequiredSpeedup;
+  std::cout << "PERF_FP8_ROW_PAIR_AGGREGATE: weighted_baseline_ms="
+            << weighted_baseline
+            << " weighted_candidate_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumRequiredSpeedup
+            << " all_bitwise_equal=" << (all_correct ? "true" : "false")
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "FP8 M8 row-pair five-shape weighted gate must pass");
 }
 
 [[nodiscard]] bool benchmark_nvfp4_row_pair_shape(
@@ -2737,6 +3124,7 @@ int main() {
   // cover both fixed MLP reduction lengths without allocating full matrices.
   run_fp8_case(test, stream, 13U, 37U, "FP8 awkward 13x37");
   run_fp8_vector_codebook_case(test, stream);
+  run_fp8_row_pair_odd_rows_case(test, stream);
   run_fp8_case(test, stream, 3U, 1'024U,
                "FP8 vector-shaped unaligned-weight scalar fallback", true,
                false);
@@ -2761,6 +3149,7 @@ int main() {
   run_nvfp4_case(test, stream, 3U, 6'144U, "NVFP4 target-K 3x6144");
   run_nvfp4_case(test, stream, 3U, 17'408U,
                   "NVFP4 target-K 3x17408");
+  run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_row_pair_performance(test, stream);
   run_optional_small_m_performance(test, stream);
   run_optional_performance(test, stream);
