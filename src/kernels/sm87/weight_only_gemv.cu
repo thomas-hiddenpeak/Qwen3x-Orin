@@ -548,12 +548,12 @@ nvfp4_w4a16_small_m_gemm_bf16_vector_kernel(
   }
 }
 
-// Production M=8 row-pair path. A warp evaluates two adjacent output rows so
+// Preserved M=8 row-pair baseline without the E4M3FN scale codebook. A warp
+// evaluates two adjacent output rows so
 // token-major BF16 activation words are loaded and decoded once, then reused
 // with the independent packed weights and block scales for both rows. The
 // four-block launch bound keeps the paired accumulator tile spill-free on
-// SM87. The preserved single-row kernel remains the test-only mirrored
-// baseline for both production MLP shapes.
+// SM87. This remains available to mirrored performance tests.
 __global__ __launch_bounds__(kThreads, 4) void
 nvfp4_w4a16_small_m8_gemm_bf16_row_pair_kernel(
     const std::uint8_t* const packed_weights,
@@ -605,6 +605,137 @@ nvfp4_w4a16_small_m8_gemm_bf16_row_pair_kernel(
         block_scale0 = decode_e4m3fn(row0_scales[scale_column]);
         if (has_row1) {
           block_scale1 = decode_e4m3fn(row1_scales[scale_column]);
+        }
+      }
+      const int scale_source = static_cast<int>(lane & ~1U);
+      block_scale0 =
+          __shfl_sync(0xffff'ffffU, block_scale0, scale_source);
+      block_scale1 =
+          __shfl_sync(0xffff'ffffU, block_scale1, scale_source);
+
+      const std::uint32_t packed0 =
+          *reinterpret_cast<const std::uint32_t*>(row0_weights +
+                                                  packed_column);
+      const std::uint32_t packed1 =
+          has_row1 ? *reinterpret_cast<const std::uint32_t*>(
+                         row1_weights + packed_column)
+                   : 0U;
+      const std::size_t first_column =
+          packed_column * kNvFp4ValuesPerByte;
+
+#pragma unroll
+      for (unsigned int half = 0U; half < 2U; ++half) {
+        std::uint64_t packed_activations[kTokenCount];
+#pragma unroll
+        for (unsigned int token = 0U; token < kTokenCount; ++token) {
+          packed_activations[token] =
+              *reinterpret_cast<const std::uint64_t*>(
+                  activations + static_cast<std::size_t>(token) * columns +
+                  first_column + half * 4U);
+        }
+#pragma unroll
+        for (unsigned int value = 0U; value < 4U; ++value) {
+          const unsigned int packed_value = half * 4U + value;
+          const unsigned int shift = packed_value * 4U;
+          const std::uint8_t nibble0 = static_cast<std::uint8_t>(
+              (packed0 >> shift) & 0x0fU);
+          const std::uint8_t nibble1 = static_cast<std::uint8_t>(
+              (packed1 >> shift) & 0x0fU);
+          const float scaled_weight0 =
+              decoded_weights[nibble0] * block_scale0;
+          const float scaled_weight1 =
+              decoded_weights[nibble1] * block_scale1;
+#pragma unroll
+          for (unsigned int token = 0U; token < kTokenCount; ++token) {
+            const std::uint16_t encoded_activation =
+                static_cast<std::uint16_t>(
+                    (packed_activations[token] >> (value * 16U)) & 0xffffU);
+            const float decoded_activation = decode_bf16(encoded_activation);
+            accumulators0[token] =
+                fmaf(scaled_weight0, decoded_activation,
+                     accumulators0[token]);
+            accumulators1[token] =
+                fmaf(scaled_weight1, decoded_activation,
+                     accumulators1[token]);
+          }
+        }
+      }
+    }
+
+#pragma unroll
+    for (unsigned int token = 0U; token < kTokenCount; ++token) {
+      const float sum0 = warp_sum(accumulators0[token]) * weight_scale_2;
+      const float sum1 = warp_sum(accumulators1[token]) * weight_scale_2;
+      if (lane == 0U) {
+        output[static_cast<std::size_t>(token) * rows + row0] =
+            encode_bf16_rne(sum0);
+        if (has_row1) {
+          output[static_cast<std::size_t>(token) * rows + row1] =
+              encode_bf16_rne(sum1);
+        }
+      }
+    }
+  }
+}
+
+// Production M=8 row-pair path. In addition to the existing 16-entry
+// E2M1 table, each block decodes the complete E4M3FN scale code space once.
+// Inner-loop row scale decoding then becomes a shared lookup. Both fixed MLP
+// shapes cleared the mixed-scale mirrored performance gate.
+__global__ __launch_bounds__(kThreads, 4) void
+nvfp4_w4a16_small_m8_gemm_bf16_scale_codebook_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) {
+  constexpr unsigned int kTokenCount = 8U;
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  decoded_scales[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  __syncthreads();
+
+  const std::size_t packed_columns = columns / kNvFp4ValuesPerByte;
+  const std::size_t scale_columns = columns / kNvFp4GroupSize;
+  const std::size_t first_row =
+      2U * (static_cast<std::size_t>(blockIdx.x) * kWarpsPerBlock + warp);
+  const std::size_t row_stride =
+      static_cast<std::size_t>(gridDim.x) * kWarpsPerBlock * 2U;
+
+  for (std::size_t row0 = first_row; row0 < rows; row0 += row_stride) {
+    const std::size_t row1 = row0 + 1U;
+    const bool has_row1 = row1 < rows;
+    const std::uint8_t* const row0_weights =
+        packed_weights + row0 * packed_columns;
+    const std::uint8_t* const row0_scales =
+        block_scales + row0 * scale_columns;
+    const std::uint8_t* const row1_weights =
+        has_row1 ? packed_weights + row1 * packed_columns : row0_weights;
+    const std::uint8_t* const row1_scales =
+        has_row1 ? block_scales + row1 * scale_columns : row0_scales;
+    float accumulators0[kTokenCount]{};
+    float accumulators1[kTokenCount]{};
+
+    for (std::size_t packed_column =
+             static_cast<std::size_t>(lane) *
+             kNvFp4VectorPackedBytesPerLane;
+         packed_column < packed_columns;
+         packed_column += kNvFp4VectorColumnsPerWarp /
+                          kNvFp4ValuesPerByte) {
+      float block_scale0 = 0.0F;
+      float block_scale1 = 0.0F;
+      if ((lane & 1U) == 0U) {
+        const std::size_t scale_column =
+            packed_column / kNvFp4PackedValuesPerScale;
+        block_scale0 = decoded_scales[row0_scales[scale_column]];
+        if (has_row1) {
+          block_scale1 = decoded_scales[row1_scales[scale_column]];
         }
       }
       const int scale_source = static_cast<int>(lane & ~1U);
@@ -913,6 +1044,23 @@ void launch_nvfp4_small_m8_row_pair_unchecked(
           columns, output);
 }
 
+void launch_nvfp4_small_m8_scale_codebook_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr std::size_t kRowsPerBlock = kWarpsPerBlock * 2U;
+  const std::size_t wanted =
+      rows / kRowsPerBlock + (rows % kRowsPerBlock != 0U ? 1U : 0U);
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < kMaximumBlocks ? wanted : kMaximumBlocks);
+  nvfp4_w4a16_small_m8_gemm_bf16_scale_codebook_kernel
+      <<<blocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, rows,
+          columns, output);
+}
+
 }  // namespace
 
 int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
@@ -1028,8 +1176,8 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
   return use_nvfp4_small_m_row_pair(token_count, rows);
 }
 
-// Test-only direct row-pair M=8 entry point. Kept out of the public header so
-// mirrored performance tests can name the implementation explicitly.
+// Test-only direct entry for the preserved row-pair baseline without the
+// shared E4M3FN scale codebook.
 int launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -1061,8 +1209,40 @@ int launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only direct entry for the production shared E4M3FN scale codebook.
+int launch_sm87_nvfp4_w4a16_small_m8_scale_codebook_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 8U;
+  const int validation = validate_nvfp4_small_m_launch(
+      packed_weights, block_scales, weight_scale_2, activations, kTokenCount,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  const bool vector_shape =
+      (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_small_m8_scale_codebook_unchecked(
+      packed_weights, block_scales, weight_scale_2, activations, rows,
+      columns, output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only preserved single-row M=8 baseline. Production dispatch uses the
-// row-pair kernel after both fixed MLP shapes cleared the mirrored event gate.
+// scale-codebook row-pair kernel after both fixed MLP shapes cleared the gate.
 int launch_sm87_nvfp4_w4a16_small_m8_single_row_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -1227,7 +1407,7 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
         break;
       case 8U:
         if (use_nvfp4_small_m_row_pair(token_count, rows)) {
-          launch_nvfp4_small_m8_row_pair_unchecked(
+          launch_nvfp4_small_m8_scale_codebook_unchecked(
               packed_weights, block_scales, weight_scale_2, activations, rows,
               columns, output, stream);
         } else {
