@@ -1,5 +1,7 @@
 #include "q3x/runtime/model_weights.h"
 
+#include "q3x/kernels/sm87_weight_only_gemv.h"
+
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -72,6 +74,59 @@ template <typename T>
       cudaMemcpy(destination.get(), source.data(),
                  source.size() * sizeof(T), cudaMemcpyHostToDevice),
       "upload " + label);
+}
+
+template <typename Launch>
+[[nodiscard]] std::size_t captured_kernel_node_count(
+    TestContext& test, Launch&& launch, const std::string& label) {
+  constexpr std::size_t kInvalidCount =
+      std::numeric_limits<std::size_t>::max();
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+      "create capture stream " + label);
+  ready = ready && test.cuda_ok(
+                       cudaStreamBeginCapture(stream,
+                                              cudaStreamCaptureModeGlobal),
+                       "begin capture " + label);
+  if (ready) {
+    test.expect(static_cast<cudaError_t>(launch(stream)) == cudaSuccess,
+                label + " captured launch succeeds");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "end capture " + label);
+  }
+
+  std::size_t kernel_nodes = kInvalidCount;
+  if (ready && graph != nullptr) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         "count graph nodes " + label);
+    std::vector<cudaGraphNode_t> nodes(node_count);
+    if (ready && node_count != 0U) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &node_count),
+                           "read graph nodes " + label);
+    }
+    if (ready) {
+      kernel_nodes = 0U;
+      for (const cudaGraphNode_t node : nodes) {
+        cudaGraphNodeType type{};
+        ready = test.cuda_ok(cudaGraphNodeGetType(node, &type),
+                             "read graph node type " + label);
+        if (ready && type == cudaGraphNodeTypeKernel) {
+          ++kernel_nodes;
+        }
+      }
+    }
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), "destroy graph " + label);
+  }
+  if (stream != nullptr) {
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy capture stream " + label);
+  }
+  return ready ? kernel_nodes : kInvalidCount;
 }
 
 [[nodiscard]] bool expect_output(TestContext& test,
@@ -369,6 +424,13 @@ void test_tile_routes(TestContext& test) {
                            expected,
                        const bool needs_scratch,
                        const std::string& label) {
+    bool ready = test.cuda_ok(
+        cudaMemset(output.get(), 0xa5,
+                   kMaximumTokens * kRows * sizeof(std::uint16_t)),
+        "initialize output canary " + label);
+    if (!ready) {
+      return;
+    }
     const int status = runtime::launch_projection_tile_to_bf16_cuda(
         backend, weight, activation, token_count,
         needs_scratch ? scratch.get() : nullptr,
@@ -376,11 +438,27 @@ void test_tile_routes(TestContext& test) {
     test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
                 label + " launch succeeds");
     if (static_cast<cudaError_t>(status) == cudaSuccess) {
-      (void)expect_tile_output(
+      ready = expect_tile_output(
           test, output, token_count, kRows,
           std::vector<std::uint16_t>(expected.begin(),
                                      expected.begin() + token_count),
           label);
+      std::vector<std::uint16_t> tail((kMaximumTokens - token_count) * kRows);
+      if (ready && !tail.empty()) {
+        ready = test.cuda_ok(
+            cudaMemcpy(tail.data(), output.get() + token_count * kRows,
+                       tail.size() * sizeof(tail.front()),
+                       cudaMemcpyDeviceToHost),
+            "download output canary " + label);
+      }
+      if (ready) {
+        test.expect(
+            std::all_of(tail.begin(), tail.end(),
+                        [](const std::uint16_t value) noexcept {
+                          return value == 0xa5a5U;
+                        }),
+            label + " preserves every token after the requested tile");
+      }
     }
   };
 
@@ -422,6 +500,242 @@ void test_tile_routes(TestContext& test) {
       std::array<std::uint16_t, kMaximumTokens>{
           0x4180U, 0x4180U, 0x4180U, 0U, 0U, 0U, 0U, 0U},
       false, "SM87 NVFP4 unsupported-shape fallback");
+
+  const auto capture_fp8 = [&](const std::size_t token_count,
+                               const std::string& label) {
+    return captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return runtime::launch_projection_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, fp8,
+              fp8_activation.get(), token_count, nullptr, 0U, output.get(),
+              static_cast<void*>(stream));
+        },
+        label);
+  };
+  test.expect(capture_fp8(9U, "SM87 FP8 M9 dispatch graph") == 2U,
+              "SM87 FP8 M9 remains M8+M1");
+  test.expect(capture_fp8(15U, "SM87 FP8 M15 dispatch graph") == 2U,
+              "SM87 FP8 M15 remains M8+M7");
+  test.expect(capture_fp8(16U, "SM87 FP8 generic M16 dispatch graph") == 2U,
+              "SM87 FP8 generic M16 uses the public two-M8 fallback");
+  const std::size_t nvfp4_m16_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, nvfp4,
+            nvfp4_activation.get(), kMaximumTokens, nullptr, 0U, output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 NVFP4 M16 dispatch graph");
+  test.expect(nvfp4_m16_kernel_nodes == 2U,
+              "SM87 NVFP4 M16 remains two M8 launches");
+}
+
+void test_fp8_m16_production_dispatch(TestContext& test) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 6'144U;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint16_t, kTokens> kActivationValues{
+      0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
+      0x3e80U, 0xbf00U, 0x4080U, 0xc000U,
+      0x3f40U, 0xbf40U, 0x4040U, 0xc040U,
+      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U};
+  constexpr std::array<std::uint16_t, kTokens> kExpected{
+      0x42c0U, 0x4240U, 0xc2c0U, 0x4340U,
+      0x41c0U, 0xc240U, 0x43c0U, 0xc340U,
+      0x4290U, 0xc290U, 0x4390U, 0xc390U,
+      0x4310U, 0xc310U, 0x4440U, 0xc440U};
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<std::uint16_t> output;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  bool ready = weights.allocate(test, kRows * kColumns + 4U,
+                                "production C16 FP8 weights");
+  ready = ready && activations.allocate(
+                       test, kTokens * kColumns + 1U,
+                       "production C16 FP8 activations");
+  ready = ready && companion_scales.allocate(
+                       test, 2U, "production C16 companion scales");
+  ready = ready && output.allocate(test, kTokens * kRows,
+                                   "production C16 output");
+  ready = ready && baseline_output.allocate(
+                       test, kTokens * kRows,
+                       "production C16 fallback baseline output");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    std::fill_n(host_activations.begin() + token * kColumns, kColumns,
+                kActivationValues[token]);
+  }
+  ready = test.cuda_ok(cudaMemset(weights.get(), 0x38, kRows * kColumns),
+                       "initialize production C16 FP8 weights");
+  ready = ready && upload(test, activations, host_activations,
+                          "production C16 FP8 activations");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kWeightScale, 1.0F},
+                       "production C16 companion scales");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight fp8 = runtime::Fp8LinearWeight{
+      weights.get(), companion_scales.get(), companion_scales.get() + 1,
+      kWeightScale, 1.0F, kRows, kColumns};
+  const int status = runtime::launch_projection_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, fp8, activations.get(),
+      kTokens, nullptr, 0U, output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "SM87 FP8 production-shape C16 dispatch succeeds");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, output, kTokens, kRows,
+        std::vector<std::uint16_t>(kExpected.begin(), kExpected.end()),
+        "SM87 FP8 production-shape C16 dispatch");
+  }
+  const std::size_t production_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, fp8,
+            activations.get(), kTokens, nullptr, 0U, output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 FP8 production-shape C16 dispatch graph");
+  test.expect(production_kernel_nodes == 1U,
+              "SM87 FP8 production-shape C16 dispatch uses one WMMA kernel");
+
+  ready = test.cuda_ok(cudaMemset(weights.get() + 4U, 0x38,
+                                  kRows * kColumns),
+                       "initialize 4-byte-aligned production FP8 weights");
+  if (!ready) {
+    return;
+  }
+  const std::size_t weight_fallback_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+            weights.get() + 4U, kWeightScale, activations.get(), kRows,
+            kColumns, output.get(), static_cast<void*>(stream));
+      },
+      "SM87 FP8 production-shape 4-byte weight fallback graph");
+  test.expect(weight_fallback_nodes == 2U,
+              "4-byte but non-16-byte FP8 weights use two M8 kernels");
+  int fallback_status =
+      q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights.get() + 4U, kWeightScale, activations.get(), kRows, kColumns,
+          output.get());
+  test.expect(static_cast<cudaError_t>(fallback_status) == cudaSuccess,
+              "4-byte-aligned production-shape fallback succeeds");
+  if (static_cast<cudaError_t>(fallback_status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, output, kTokens, kRows,
+        std::vector<std::uint16_t>(kExpected.begin(), kExpected.end()),
+        "4-byte-aligned production-shape fallback");
+  }
+
+  ready = test.cuda_ok(
+      cudaMemcpy(activations.get() + 1U, host_activations.data(),
+                 host_activations.size() * sizeof(host_activations.front()),
+                 cudaMemcpyHostToDevice),
+      "upload 2-byte-aligned production C16 activations");
+  if (!ready) {
+    return;
+  }
+  const std::size_t activation_fallback_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+            weights.get(), kWeightScale, activations.get() + 1U, kRows,
+            kColumns, output.get(), static_cast<void*>(stream));
+      },
+      "SM87 FP8 production-shape 2-byte activation fallback graph");
+  test.expect(activation_fallback_nodes == kTokens,
+              "2-byte but non-8-byte activations use sixteen safe M1 kernels");
+  fallback_status =
+      q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights.get(), kWeightScale, activations.get() + 1U, kRows, kColumns,
+          output.get());
+  test.expect(static_cast<cudaError_t>(fallback_status) == cudaSuccess,
+              "2-byte-aligned production-shape fallback succeeds");
+  if (static_cast<cudaError_t>(fallback_status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, output, kTokens, kRows,
+        std::vector<std::uint16_t>(kExpected.begin(), kExpected.end()),
+        "2-byte-aligned production-shape fallback");
+  }
+
+  constexpr std::size_t kFallbackRows = 1'024U;
+  constexpr std::size_t kFallbackColumns = 5'120U;
+  std::vector<std::uint16_t> fallback_activations(kTokens * kFallbackColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    std::fill_n(fallback_activations.begin() + token * kFallbackColumns,
+                kFallbackColumns, kActivationValues[token]);
+  }
+  ready = test.cuda_ok(
+      cudaMemcpy(activations.get(), fallback_activations.data(),
+                 fallback_activations.size() *
+                     sizeof(fallback_activations.front()),
+                 cudaMemcpyHostToDevice),
+      "upload 1024x5120 M16 fallback activations");
+  if (!ready) {
+    return;
+  }
+  const std::size_t small_shape_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+            weights.get(), kWeightScale, activations.get(), kFallbackRows,
+            kFallbackColumns, output.get(), static_cast<void*>(stream));
+      },
+      "SM87 FP8 1024x5120 public M16 fallback graph");
+  test.expect(small_shape_nodes == 2U,
+              "1024x5120 public M16 uses exactly two M8 kernels");
+  fallback_status =
+      q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights.get(), kWeightScale, activations.get(), kFallbackRows,
+          kFallbackColumns, output.get());
+  int baseline_status =
+      q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+          weights.get(), kWeightScale, activations.get(), 8U, kFallbackRows,
+          kFallbackColumns, baseline_output.get());
+  if (baseline_status == static_cast<int>(cudaSuccess)) {
+    baseline_status =
+        q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+            weights.get(), kWeightScale,
+            activations.get() + 8U * kFallbackColumns, 8U, kFallbackRows,
+            kFallbackColumns, baseline_output.get() + 8U * kFallbackRows);
+  }
+  test.expect(static_cast<cudaError_t>(fallback_status) == cudaSuccess &&
+                  static_cast<cudaError_t>(baseline_status) == cudaSuccess,
+              "1024x5120 public and direct two-M8 launches succeed");
+  std::vector<std::uint16_t> public_fallback(kTokens * kFallbackRows);
+  std::vector<std::uint16_t> direct_two_m8(kTokens * kFallbackRows);
+  ready = test.cuda_ok(cudaDeviceSynchronize(),
+                       "synchronize 1024x5120 M16 fallback");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(public_fallback.data(), output.get(),
+                                  public_fallback.size() *
+                                      sizeof(public_fallback.front()),
+                                  cudaMemcpyDeviceToHost),
+                       "download 1024x5120 public M16 fallback");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(direct_two_m8.data(), baseline_output.get(),
+                                  direct_two_m8.size() *
+                                      sizeof(direct_two_m8.front()),
+                                  cudaMemcpyDeviceToHost),
+                       "download 1024x5120 direct two-M8 baseline");
+  if (ready) {
+    test.expect(public_fallback == direct_two_m8,
+                "1024x5120 public M16 is bitwise equal to direct two-M8");
+  }
 }
 
 void test_tile_validation(TestContext& test) {
@@ -712,6 +1026,7 @@ int main() {
   TestContext test;
   test_routes(test);
   test_tile_routes(test);
+  test_fp8_m16_production_dispatch(test);
   test_tile_validation(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " projection dispatch assertion(s) failed\n";

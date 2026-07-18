@@ -290,11 +290,11 @@ struct WeightBindResult {
 // token-major BF16 [token_count, linear_input_size(weight)] and output is
 // contiguous token-major BF16 [token_count, linear_output_size(weight)].
 // token_count must be in [1, 16]. M=1 delegates to the single-token entry
-// point above. SM87 FP8/NVFP4 weights use fused small-M launches of at most
-// eight tokens each; the reference backend and BF16 weights enqueue the
-// existing single-token path in token order while reusing the same
-// output-sized FP32 scratch buffer. The complete tile is validated before any
-// work is enqueued.
+// point above. SM87 FP8 uses its fixed-M16 launcher for an exact 16-token tile;
+// M=2..15 and SM87 NVFP4 use fused launches of at most eight tokens each. The
+// reference backend and BF16 weights enqueue the existing single-token path in
+// token order while reusing the same output-sized FP32 scratch buffer. The
+// complete tile is validated before any work is enqueued.
 [[nodiscard]] int launch_projection_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::size_t token_count,

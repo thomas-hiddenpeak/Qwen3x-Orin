@@ -1,6 +1,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 
 #include <cuda_runtime.h>
+#include <mma.h>
 
 #include <cmath>
 #include <cstddef>
@@ -132,6 +133,16 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
          (rows == 6'144U && columns == 5'120U) ||
          (rows == 12'288U && columns == 5'120U) ||
          (rows == 1'024U && columns == 5'120U);
+}
+
+[[nodiscard]] constexpr bool use_fp8_m16_wmma_fixed_shape(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  // The 1024-row projection is intentionally absent: its measured WMMA path
+  // regresses versus two production M8 launches and must retain that fallback.
+  return (rows == 10'240U && columns == 5'120U) ||
+         (rows == 5'120U && columns == 6'144U) ||
+         (rows == 6'144U && columns == 5'120U) ||
+         (rows == 12'288U && columns == 5'120U);
 }
 
 __device__ __forceinline__ float decode_bf16(const std::uint16_t bits) {
@@ -590,6 +601,164 @@ fp8_w8a16_small_m8_gemm_bf16_fixed_shape_kernel(
             encode_bf16_rne(block_sum1);
       }
     }
+  }
+}
+
+__device__ __forceinline__ void decode_fp8x4_to_bf16x4(
+    const std::uint32_t packed, const std::uint16_t* const decoded_weights,
+    std::uint32_t* const output) {
+  const std::uint16_t value0 =
+      decoded_weights[static_cast<std::uint8_t>(packed & 0xffU)];
+  const std::uint16_t value1 = decoded_weights[static_cast<std::uint8_t>(
+      (packed >> 8U) & 0xffU)];
+  const std::uint16_t value2 = decoded_weights[static_cast<std::uint8_t>(
+      (packed >> 16U) & 0xffU)];
+  const std::uint16_t value3 = decoded_weights[static_cast<std::uint8_t>(
+      (packed >> 24U) & 0xffU)];
+  output[0] = static_cast<std::uint32_t>(value0) |
+              (static_cast<std::uint32_t>(value1) << 16U);
+  output[1] = static_cast<std::uint32_t>(value2) |
+              (static_cast<std::uint32_t>(value3) << 16U);
+}
+
+// Fixed-M16 production kernel. The checkpoint's row-major W[N,K]
+// storage is exactly the column-major B[K,N] operand expected by BF16 WMMA,
+// so a block can decode 128 rows on the fly without an offline transpose.
+// B dies after the final MMA and shares its allocation with the 8 KiB FP32
+// output tile. Production shapes use ldm=72 (20.75 KiB total) to remove shared
+// bank conflicts; only the test-only raw 1024-row characterization retains
+// ldm=64 (18.5 KiB).
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 64U>
+__global__ __launch_bounds__(kThreads, 5) void
+fp8_w8a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kBf16ValuesPerActivationWord = 4U;
+  constexpr unsigned int kActivationWordsPerToken =
+      kColumnsPerStage / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kSharedActivationWordsPerToken =
+      kSharedLeadingDimension / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kWeightVectorsPerRow =
+      kColumnsPerStage / sizeof(uint4);
+  constexpr unsigned int kBf16ValuesPerWeightWord = 2U;
+  constexpr unsigned int kSharedWeightWordsPerRow =
+      kSharedLeadingDimension / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kSharedWeightWordCount =
+      kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
+  constexpr unsigned int kSharedOutputCount =
+      kTokenCount * kOutputColumnsPerBlock;
+  static_assert(kRows % kOutputColumnsPerBlock == 0U);
+  static_assert(kColumns % kColumnsPerStage == 0U);
+  static_assert(kWeightVectorsPerRow == 4U);
+  static_assert(kSharedLeadingDimension >= kColumnsPerStage);
+  static_assert(kSharedLeadingDimension % 8U == 0U);
+
+  union __align__(32) BOrCStorage {
+    std::uint32_t weights[kSharedWeightWordCount];
+    float output[kSharedOutputCount];
+  };
+  __shared__ std::uint16_t decoded_weights[kFp8EncodedValueCount];
+  __shared__ __align__(32) std::uint64_t
+      shared_activations[kTokenCount * kSharedActivationWordsPerToken];
+  __shared__ BOrCStorage b_or_c;
+
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  decoded_weights[thread] = encode_bf16_rne(
+      decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  __syncthreads();
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator;
+  wmma::fill_fragment(accumulator, 0.0F);
+  const unsigned int first_output_column =
+      blockIdx.x * kOutputColumnsPerBlock;
+
+#pragma unroll 1
+  for (unsigned int first_k = 0U; first_k < kColumns;
+       first_k += kColumnsPerStage) {
+    const unsigned int token = thread / kActivationWordsPerToken;
+    const unsigned int activation_word =
+        thread % kActivationWordsPerToken;
+    shared_activations[token * kSharedActivationWordsPerToken +
+                       activation_word] =
+        *reinterpret_cast<const std::uint64_t*>(
+            activations + static_cast<std::size_t>(token) * kColumns +
+            first_k +
+            activation_word * kBf16ValuesPerActivationWord);
+
+#pragma unroll
+    for (unsigned int pass = 0U; pass < 2U; ++pass) {
+      const unsigned int vector_index = thread + pass * kThreads;
+      const unsigned int local_output_column =
+          vector_index / kWeightVectorsPerRow;
+      const unsigned int vector_in_row =
+          vector_index % kWeightVectorsPerRow;
+      const uint4 packed = *reinterpret_cast<const uint4*>(
+          weights +
+          static_cast<std::size_t>(first_output_column +
+                                   local_output_column) *
+              kColumns +
+          first_k + vector_in_row * sizeof(uint4));
+      std::uint32_t* const decoded =
+          b_or_c.weights +
+          local_output_column * kSharedWeightWordsPerRow +
+          vector_in_row * (sizeof(uint4) / sizeof(std::uint16_t));
+      decode_fp8x4_to_bf16x4(packed.x, decoded_weights, decoded);
+      decode_fp8x4_to_bf16x4(packed.y, decoded_weights, decoded + 2U);
+      decode_fp8x4_to_bf16x4(packed.z, decoded_weights, decoded + 4U);
+      decode_fp8x4_to_bf16x4(packed.w, decoded_weights, decoded + 6U);
+    }
+    __syncthreads();
+
+    const auto* const shared_a =
+        reinterpret_cast<const __nv_bfloat16*>(shared_activations);
+    const auto* const shared_b =
+        reinterpret_cast<const __nv_bfloat16*>(b_or_c.weights);
+#pragma unroll 1
+    for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+         inner_k += 16U) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          activation_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>
+          weight_fragment;
+      wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                             kSharedLeadingDimension);
+      wmma::load_matrix_sync(
+          weight_fragment,
+          shared_b +
+              warp * kOutputColumnsPerWarp * kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator, activation_fragment, weight_fragment,
+                     accumulator);
+    }
+    // This barrier protects both the next-stage decode and the B-to-C union
+    // lifetime transition after the final stage.
+    __syncthreads();
+  }
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock;
+    const unsigned int local_output_column =
+        index % kOutputColumnsPerBlock;
+    output[static_cast<std::size_t>(token) * kRows + first_output_column +
+           local_output_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale);
   }
 }
 
@@ -1554,6 +1723,41 @@ void launch_nvfp4_scale_codebook_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+[[nodiscard]] int validate_fp8_m16_launch(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  constexpr std::size_t kTokenCount = 16U;
+  if (!std::isfinite(weight_scale) || weight_scale < 0.0F ||
+      multiply_overflows(rows, columns)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(kTokenCount, columns) ||
+      multiply_overflows(kTokenCount, rows)) {
+    return invalid_value();
+  }
+  const std::size_t activation_elements = kTokenCount * columns;
+  const std::size_t output_elements = kTokenCount * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      weights == nullptr || activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t weight_bytes = rows * columns;
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes = output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, weights, weight_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] int validate_nvfp4_small_m_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -1647,6 +1851,21 @@ void launch_fp8_small_m8_fixed_shape_unchecked(
   constexpr unsigned int kBlocks =
       static_cast<unsigned int>(kRows / 2U);
   fp8_w8a16_small_m8_gemm_bf16_fixed_shape_kernel<kRows, kColumns>
+      <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                         output);
+}
+
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 64U>
+void launch_fp8_small_m16_wmma_fixed_shape_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  fp8_w8a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel<
+      kRows, kColumns, kSharedLeadingDimension>
       <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
                                          output);
 }
@@ -1859,6 +2078,11 @@ int launch_sm87_fp8_w8a16_gemv_bf16_grid_cap_test_cuda(
   return use_fp8_m8_fixed_shape(rows, columns);
 }
 
+[[nodiscard]] bool use_sm87_fp8_m16_wmma_fixed_shape_test(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return use_fp8_m16_wmma_fixed_shape(rows, columns);
+}
+
 // Test-only direct entry points keep the preserved M=8 implementation and the
 // row-pair candidate in the same cubin for bitwise and mirrored event A/B.
 int launch_sm87_fp8_w8a16_small_m8_single_row_test_cuda(
@@ -1954,6 +2178,98 @@ int launch_sm87_fp8_w8a16_small_m8_fixed_shape_test_cuda(
         weights, weight_scale, activations, output, stream);
   } else {
     launch_fp8_small_m8_fixed_shape_unchecked<1'024U, 5'120U>(
+        weights, weight_scale, activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only raw C16 entry retains the rejected 1024-row WMMA characterization.
+// Production uses the separate public M16 wrapper and its two-M8 fallback;
+// the existing variable small-M API remains capped at eight tokens.
+int launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!use_fp8_m8_fixed_shape(rows, columns)) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m16_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) ||
+      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) != 0U) {
+    return validation != static_cast<int>(cudaSuccess) ? validation
+                                                        : invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (rows == 10'240U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 5'120U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 6'144U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 12'288U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<1'024U, 5'120U>(
+        weights, weight_scale, activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only same-cubin entry used to isolate shared-memory leading-dimension
+// effects on the three promoted K=5120 projections. Keeping both variants in
+// one cubin avoids comparing builds with different layout or link decisions.
+int launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t shared_leading_dimension,
+    void* const cuda_stream) noexcept {
+  if (columns != 5'120U ||
+      !use_fp8_m16_wmma_fixed_shape(rows, columns) ||
+      (shared_leading_dimension != 64U &&
+       shared_leading_dimension != 72U)) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m16_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) ||
+      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) != 0U) {
+    return validation != static_cast<int>(cudaSuccess) ? validation
+                                                        : invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (shared_leading_dimension == 64U) {
+    if (rows == 10'240U) {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U, 64U>(
+          weights, weight_scale, activations, output, stream);
+    } else if (rows == 6'144U) {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 64U>(
+          weights, weight_scale, activations, output, stream);
+    } else {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U, 64U>(
+          weights, weight_scale, activations, output, stream);
+    }
+  } else if (rows == 10'240U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 6'144U) {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else {
+    launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U, 72U>(
         weights, weight_scale, activations, output, stream);
   }
   return static_cast<int>(cudaGetLastError());
@@ -2332,6 +2648,55 @@ int launch_sm87_nvfp4_w4a16_small_m8_single_row_test_cuda(
       packed_weights, block_scales, weight_scale_2, activations, rows,
       columns, output, stream);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHalfTokens = 8U;
+  const int validation = validate_fp8_m16_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+
+  const bool wmma_shape =
+      use_fp8_m16_wmma_fixed_shape(rows, columns) &&
+      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (wmma_shape) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    (void)cudaGetLastError();
+    if (rows == 10'240U) {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U, 72U>(
+          weights, weight_scale, activations, output, stream);
+    } else if (rows == 5'120U) {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
+          weights, weight_scale, activations, output, stream);
+    } else if (rows == 6'144U) {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+          weights, weight_scale, activations, output, stream);
+    } else {
+      launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U, 72U>(
+          weights, weight_scale, activations, output, stream);
+    }
+    return static_cast<int>(cudaGetLastError());
+  }
+
+  int status = launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+      weights, weight_scale, activations, kHalfTokens, rows, columns, output,
+      cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+      weights, weight_scale, activations + kHalfTokens * columns, kHalfTokens,
+      rows, columns, output + kHalfTokens * rows, cuda_stream);
+  return status;
 }
 
 int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(

@@ -70,10 +70,26 @@ namespace q3x::kernels {
 [[nodiscard]] bool use_sm87_fp8_m8_fixed_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
+[[nodiscard]] bool use_sm87_fp8_m16_wmma_fixed_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
 [[nodiscard]] int launch_sm87_fp8_w8a16_small_m8_fixed_shape_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, std::size_t shared_leading_dimension,
+    void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
@@ -426,15 +442,21 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
                       const bool unaligned_activation = false,
                       const bool strict_bf16 = false,
                       const std::size_t token_count = 1U,
-                      const bool use_small_m_api = false) {
-  test.expect(token_count >= 1U && token_count <= 8U,
+                      const bool use_small_m_api = false,
+                      const bool use_m16_api = false) {
+  const bool valid_token_count =
+      use_m16_api ? token_count == 16U
+                  : token_count >= 1U && token_count <= 8U;
+  test.expect(valid_token_count,
               label + " valid token count");
-  test.expect(use_small_m_api || token_count == 1U,
-              label + " multi-token payload uses the small-M API");
+  test.expect(!(use_small_m_api && use_m16_api),
+              label + " selects one multi-token API");
+  test.expect(use_small_m_api || use_m16_api || token_count == 1U,
+              label + " multi-token payload uses a tile API");
   test.expect(activation.size() == token_count * columns,
               label + " activation extent");
-  if (token_count < 1U || token_count > 8U ||
-      (!use_small_m_api && token_count != 1U) ||
+  if (!valid_token_count || (use_small_m_api && use_m16_api) ||
+      (!use_small_m_api && !use_m16_api && token_count != 1U) ||
       activation.size() != token_count * columns) {
     return;
   }
@@ -473,7 +495,7 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
                                 label + " allocate reference FP32");
   ready = ready && test.cuda_ok(device_reference_output.allocate(output_count),
                                 label + " allocate reference BF16");
-  if (use_small_m_api) {
+  if (use_small_m_api || use_m16_api) {
     ready = ready && test.cuda_ok(device_baseline.allocate(output_count),
                                   label + " allocate repeated-M1 baseline");
   }
@@ -499,6 +521,11 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
       device_activation.get() + activation_offset;
 
   const auto launch_optimized = [&]() noexcept -> int {
+    if (use_m16_api) {
+      return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights_device, weight_scale, activation_device, rows, columns,
+          device_output.get(), static_cast<void*>(stream));
+    }
     if (use_small_m_api) {
       return q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
           weights_device, weight_scale, activation_device, token_count, rows,
@@ -535,7 +562,7 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
                 device_reference_fp32.get() + token * rows,
                 static_cast<void*>(stream))),
         label + " launch CUDA reference token " + std::to_string(token));
-    if (use_small_m_api) {
+    if (use_small_m_api || use_m16_api) {
       ready = ready && test.cuda_ok(
                            static_cast<cudaError_t>(q3x::kernels::
                                launch_sm87_fp8_w8a16_gemv_bf16_cuda(
@@ -561,7 +588,7 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
                                        reference.size() * sizeof(reference[0]),
                                        cudaMemcpyDeviceToHost, stream),
                        label + " copy CUDA reference");
-  if (use_small_m_api) {
+  if (use_small_m_api || use_m16_api) {
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              baseline.data(), device_baseline.get(),
@@ -594,7 +621,7 @@ void run_fp8_payload(TestContext& test, cudaStream_t stream,
       }
     }
     test.expect(actual == repeated, label + " is bitwise deterministic");
-    if (use_small_m_api) {
+    if (use_small_m_api || use_m16_api) {
       std::size_t mismatches = 0U;
       for (std::size_t index = 0U; index < output_count; ++index) {
         mismatches += actual[index] != baseline[index] ? 1U : 0U;
@@ -614,7 +641,8 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
                   const bool unaligned_weights = false,
                   const bool unaligned_activation = false,
                   const std::size_t token_count = 1U,
-                  const bool use_small_m_api = false) {
+                  const bool use_small_m_api = false,
+                  const bool use_m16_api = false) {
   constexpr float kWeightScale = 1.0F / 128.0F;
   constexpr std::array<std::uint8_t, 13U> kFiniteCodes{{
       0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U, 0x3cU,
@@ -628,7 +656,7 @@ void run_fp8_case(TestContext& test, cudaStream_t stream,
   }
   run_fp8_payload(test, stream, weights, kWeightScale, activation, rows,
                   columns, label, unaligned_weights, unaligned_activation,
-                  false, token_count, use_small_m_api);
+                  false, token_count, use_small_m_api, use_m16_api);
 }
 
 void run_fp8_row_pair_direct_comparison(
@@ -2257,6 +2285,12 @@ void test_launch_validation(TestContext& test) {
   test.expect(
       static_cast<cudaError_t>(q3x::kernels::
           launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 16U, 1U, 1U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 small-M public contract remains capped at M=8");
+  test.expect(
+      static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
               nullptr, 1.0F, activation, 2U, 1U, 1U, output)) ==
           cudaErrorInvalidValue,
       "FP8 small-M rejects null weights");
@@ -2328,6 +2362,135 @@ void test_launch_validation(TestContext& test) {
               byte_pointer, 1.0F, wrapped_activation, 2U, 1U, 16U,
               output)) == cudaErrorInvalidValue,
       "FP8 small-M rejects a wrapping activation address range");
+
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              nullptr, 1.0F, nullptr, 0U, kMaximum, nullptr)) == cudaSuccess,
+      "FP8 M16 zero rows is a no-op before tile-size validation");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              nullptr, 1.0F, nullptr, kMaximum, 0U, nullptr)) == cudaSuccess,
+      "FP8 M16 zero columns is a no-op before tile-size validation");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              nullptr, 1.0F, activation, 1U, 1U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects null weights for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, nullptr, 1U, 1U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects null activations for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 1U, 1U, nullptr)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects null output for a non-empty shape");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, std::numeric_limits<float>::infinity(),
+              activation, 1U, 1U, output)) == cudaErrorInvalidValue,
+      "FP8 M16 rejects a non-finite scale");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, -1.0F, activation, 1U, 1U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects a negative scale");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, kMaximum, 2U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects rows*K overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 1U, kMaximum / 16U + 1U,
+              output)) == cudaErrorInvalidValue,
+      "FP8 M16 rejects 16*K overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, kMaximum / 16U + 1U, 1U,
+              output)) == cudaErrorInvalidValue,
+      "FP8 M16 rejects 16*N overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 1U, kMaximum / 16U,
+              output)) == cudaErrorInvalidValue,
+      "FP8 M16 rejects activation byte-size overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, kMaximum / 16U, 1U,
+              output)) == cudaErrorInvalidValue,
+      "FP8 M16 rejects output byte-size overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, wrapped_activation, 1U, 1U, output)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects a wrapping activation range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 1U, 1U,
+              reinterpret_cast<std::uint16_t*>(
+                  std::numeric_limits<std::uintptr_t>::max() - 15U))) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects a wrapping output range");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              byte_pointer, 1.0F, activation, 1U, 16U,
+              reinterpret_cast<std::uint16_t*>(0x1008U))) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects output overlap with weights");
+
+  constexpr std::uintptr_t kM16ActivationAddress = 0x2'0000'0000ULL;
+  constexpr std::size_t kM16Rows = 10'240U;
+  constexpr std::size_t kM16Columns = 5'120U;
+  constexpr std::size_t kM16HalfActivationBytes =
+      8U * kM16Columns * sizeof(std::uint16_t);
+  constexpr std::size_t kM16HalfOutputBytes =
+      8U * kM16Rows * sizeof(std::uint16_t);
+  auto* const m16_weights =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  auto* const m16_activations =
+      reinterpret_cast<const std::uint16_t*>(kM16ActivationAddress);
+  auto* const m16_output_first_overlaps_activation_second =
+      reinterpret_cast<std::uint16_t*>(kM16ActivationAddress +
+                                       kM16HalfActivationBytes);
+  auto* const m16_output_second_overlaps_activation_first =
+      reinterpret_cast<std::uint16_t*>(
+          kM16ActivationAddress -
+          (kM16HalfOutputBytes + kM16HalfActivationBytes));
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::
+              launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+                  m16_weights, 1.0F, m16_activations, kM16Rows,
+                  kM16Columns,
+                  m16_output_first_overlaps_activation_second)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects output[0:8]/activation[8:16] overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::
+              launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+                  m16_weights, 1.0F, m16_activations, kM16Rows,
+                  kM16Columns,
+                  m16_output_second_overlaps_activation_first)) ==
+          cudaErrorInvalidValue,
+      "FP8 M16 rejects output[8:16]/activation[0:8] overlap");
 
   test.expect(
       static_cast<cudaError_t>(q3x::kernels::
@@ -2543,6 +2706,24 @@ void test_launch_validation(TestContext& test) {
   test.expect(!q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
                   5'120U, 5'120U),
               "FP8 M8 fixed-shape keeps unknown square shapes generic");
+  test.expect(q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  10'240U, 5'120U),
+              "FP8 M16 WMMA predicate accepts 10240x5120");
+  test.expect(q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  5'120U, 6'144U),
+              "FP8 M16 WMMA predicate accepts padded-K 5120x6144");
+  test.expect(q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  6'144U, 5'120U),
+              "FP8 M16 WMMA predicate accepts 6144x5120");
+  test.expect(q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  12'288U, 5'120U),
+              "FP8 M16 WMMA predicate accepts 12288x5120");
+  test.expect(!q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  1'024U, 5'120U),
+              "FP8 M16 WMMA predicate preserves 1024-row two-M8 fallback");
+  test.expect(!q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(
+                  5'120U, 5'120U),
+              "FP8 M16 WMMA predicate rejects unknown square shapes");
   test.expect(!q3x::kernels::use_sm87_fp8_m1_persistent_rows_test(1'023U),
               "FP8 M1 persistent rows keeps the small-row fallback");
   test.expect(q3x::kernels::use_sm87_fp8_m1_persistent_rows_test(1'024U),
@@ -2614,6 +2795,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool fp8_m8_fixed_shape_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M8_FIXED_SHAPE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool fp8_m16_wmma_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M16_WMMA_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -3845,6 +4033,766 @@ void run_optional_fp8_m8_fixed_shape_performance(TestContext& test,
             << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
   test.expect(aggregate_gate,
               "FP8 M8 fixed shapes clear every production gate");
+}
+
+struct Fp8M16WmmaMeasurement {
+  double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  bool deterministic = false;
+  bool within_tolerance = false;
+};
+
+[[nodiscard]] Fp8M16WmmaMeasurement benchmark_fp8_m16_wmma_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kHalfTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 3U) % 127U) - 63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  DeviceBuffer<std::uint16_t> replay_output;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(replay_output.allocate(kTokens * rows),
+                                label + " allocate replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed finite weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize token-distinct activations");
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    int status = q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+        weights.get(), kWeightScale, activations.get(), kHalfTokens, rows,
+        columns, baseline_output.get(), static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    status = q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+        weights.get(), kWeightScale,
+        activations.get() + kHalfTokens * columns, kHalfTokens, rows,
+        columns, baseline_output.get() + kHalfTokens * rows,
+        static_cast<void*>(stream));
+    return status;
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    if (q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(rows,
+                                                              columns)) {
+      return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights.get(), kWeightScale, activations.get(), rows, columns,
+          candidate_output.get(), static_cast<void*>(stream));
+    }
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            candidate_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_replay = [&]() noexcept -> int {
+    if (q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(rows,
+                                                              columns)) {
+      return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+          weights.get(), kWeightScale, activations.get(), rows, columns,
+          replay_output.get(), static_cast<void*>(stream));
+    }
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            replay_output.get(), static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " correctness two-M8 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " correctness WMMA candidate");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " deterministic replay");
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  std::vector<std::uint16_t> replay(kTokens * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           replay.data(), replay_output.get(),
+                           replay.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy replay output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  std::size_t bf16_mismatches = 0U;
+  std::size_t deterministic_mismatches = 0U;
+  float maximum_absolute_error = 0.0F;
+  float maximum_relative_error = 0.0F;
+  bool within_tolerance = true;
+  for (std::size_t index = 0U; index < candidate.size(); ++index) {
+    bf16_mismatches += candidate[index] != baseline[index] ? 1U : 0U;
+    deterministic_mismatches += candidate[index] != replay[index] ? 1U : 0U;
+    if (is_bf16_nan(baseline[index])) {
+      within_tolerance =
+          within_tolerance && is_bf16_nan(candidate[index]);
+      continue;
+    }
+    const float baseline_value = decode_bf16(baseline[index]);
+    const float candidate_value = decode_bf16(candidate[index]);
+    const float absolute_error =
+        std::fabs(candidate_value - baseline_value);
+    const float relative_error =
+        absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+    maximum_absolute_error =
+        std::max(maximum_absolute_error, absolute_error);
+    maximum_relative_error =
+        std::max(maximum_relative_error, relative_error);
+    const float tolerance =
+        2.0e-4F * std::sqrt(static_cast<float>(columns)) +
+        1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+    within_tolerance = within_tolerance &&
+                       std::isfinite(candidate_value) &&
+                       std::isfinite(baseline_value) &&
+                       absolute_error <= tolerance;
+  }
+  bool deterministic = deterministic_mismatches == 0U;
+  std::cout << "FP8_M16_WMMA_DIFF: " << label
+            << " candidate_vs_two_m8_bf16="
+            << bf16_mismatches << '/' << candidate.size()
+            << " deterministic_mismatches=" << deterministic_mismatches
+            << '/' << candidate.size()
+            << " max_abs=" << maximum_absolute_error
+            << " max_rel=" << maximum_relative_error
+            << " tolerance_gate=" << (within_tolerance ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(deterministic,
+              label + " reproduces every M16 BF16 output bitwise");
+  test.expect(within_tolerance,
+              label + " clears the existing FP8 numerical tolerance");
+  compare_cuda_reference_outputs(test, candidate, baseline, columns,
+                                 label + " candidate vs two M8");
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              weights.get(), kWeightScale, activations.get(), rows, columns,
+              replay_output.get(), static_cast<void*>(stream))),
+      label + " public M16 selection launch");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           replay.data(), replay_output.get(),
+                           replay.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy public M16 selection output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " public M16 selection synchronize");
+  if (!ready) {
+    return {};
+  }
+  const bool public_uses_wmma =
+      q3x::kernels::use_sm87_fp8_m16_wmma_fixed_shape_test(rows, columns);
+  const std::vector<std::uint16_t>& public_expected =
+      public_uses_wmma ? candidate : baseline;
+  std::size_t public_selection_mismatches = 0U;
+  for (std::size_t index = 0U; index < replay.size(); ++index) {
+    public_selection_mismatches +=
+        replay[index] != public_expected[index] ? 1U : 0U;
+  }
+  const bool public_selection_matches = public_selection_mismatches == 0U;
+  std::cout << "FP8_M16_PUBLIC_SELECTION_DIFF: " << label
+            << " selected=" << (public_uses_wmma ? "wmma_m16" : "two_m8")
+            << " mismatches=" << public_selection_mismatches << '/'
+            << replay.size() << '\n';
+  test.expect(public_selection_matches,
+              label + " public M16 selects the required production path");
+  deterministic = deterministic && public_selection_matches;
+  within_tolerance = within_tolerance && public_selection_matches;
+
+  // The /256 timing fixture often makes distinct FP32 reduction trees land
+  // on identical BF16 values. Exercise the primary shape once more with
+  // odd, non-power-of-two divisors and values spanning twelve exponents.
+  if (rows == 10'240U && columns == 5'120U) {
+    std::vector<std::uint16_t> nonpower_activations(kTokens * columns);
+    for (std::size_t token = 0U; token < kTokens; ++token) {
+      for (std::size_t column = 0U; column < columns; ++column) {
+        const int centered =
+            static_cast<int>((column * 37U + token * 19U + 11U) % 61U) - 30;
+        const int odd_denominator =
+            3 + 2 * static_cast<int>((column * 7U + token * 5U) % 15U);
+        const int exponent =
+            static_cast<int>((column * 11U + token * 3U) % 12U) - 6;
+        const float value = std::ldexp(
+            static_cast<float>(centered) /
+                static_cast<float>(odd_denominator),
+            exponent);
+        nonpower_activations[token * columns + column] = encode_bf16(value);
+      }
+    }
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(
+            activations.get(), nonpower_activations.data(),
+            nonpower_activations.size() * sizeof(std::uint16_t),
+            cudaMemcpyHostToDevice, stream),
+        label + " initialize nonpower cross-exponent activations");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_baseline()),
+                         label + " nonpower two-M8 baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " nonpower WMMA candidate");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                  label + " nonpower deterministic replay");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy nonpower baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy nonpower candidate output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             replay.data(), replay_output.get(),
+                             replay.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy nonpower replay output");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " nonpower synchronize");
+    if (!ready) {
+      return {};
+    }
+
+    std::size_t nonpower_bf16_mismatches = 0U;
+    std::size_t nonpower_deterministic_mismatches = 0U;
+    float nonpower_maximum_absolute_error = 0.0F;
+    float nonpower_maximum_relative_error = 0.0F;
+    bool nonpower_within_tolerance = true;
+    for (std::size_t index = 0U; index < candidate.size(); ++index) {
+      nonpower_bf16_mismatches +=
+          candidate[index] != baseline[index] ? 1U : 0U;
+      nonpower_deterministic_mismatches +=
+          candidate[index] != replay[index] ? 1U : 0U;
+      if (is_bf16_nan(baseline[index])) {
+        nonpower_within_tolerance =
+            nonpower_within_tolerance && is_bf16_nan(candidate[index]);
+        continue;
+      }
+      const float baseline_value = decode_bf16(baseline[index]);
+      const float candidate_value = decode_bf16(candidate[index]);
+      const float absolute_error =
+          std::fabs(candidate_value - baseline_value);
+      const float relative_error =
+          absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+      nonpower_maximum_absolute_error =
+          std::max(nonpower_maximum_absolute_error, absolute_error);
+      nonpower_maximum_relative_error =
+          std::max(nonpower_maximum_relative_error, relative_error);
+      const float tolerance =
+          2.0e-4F * std::sqrt(static_cast<float>(columns)) +
+          1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+      nonpower_within_tolerance =
+          nonpower_within_tolerance && std::isfinite(candidate_value) &&
+          std::isfinite(baseline_value) && absolute_error <= tolerance;
+    }
+    const bool nonpower_deterministic =
+        nonpower_deterministic_mismatches == 0U;
+    std::cout << "FP8_M16_WMMA_NONPOWER_DIFF: " << label
+              << " candidate_vs_two_m8_bf16=" << nonpower_bf16_mismatches
+              << '/' << candidate.size()
+              << " deterministic_mismatches="
+              << nonpower_deterministic_mismatches << '/' << candidate.size()
+              << " max_abs=" << nonpower_maximum_absolute_error
+              << " max_rel=" << nonpower_maximum_relative_error
+              << " tolerance_gate="
+              << (nonpower_within_tolerance ? "PASS" : "FAIL") << '\n';
+    test.expect(nonpower_deterministic,
+                label + " nonpower activation replay is deterministic");
+    test.expect(nonpower_within_tolerance,
+                label + " nonpower activations clear numerical tolerance");
+    compare_cuda_reference_outputs(
+        test, candidate, baseline, columns,
+        label + " nonpower candidate vs two M8");
+    deterministic = deterministic && nonpower_deterministic;
+    within_tolerance = within_tolerance && nonpower_within_tolerance;
+
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(
+            activations.get(), host_activations.data(),
+            host_activations.size() * sizeof(std::uint16_t),
+            cudaMemcpyHostToDevice, stream),
+        label + " restore timing activations");
+  }
+
+  for (int iteration = 0; iteration < kWarmupIterations && ready;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string suffix = " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 1" + suffix);
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 1" + suffix);
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 2" + suffix);
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 2" + suffix);
+    const bool round_finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    finite = finite && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first + baseline_second;
+      candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_FP8_M16_WMMA_ROUND: " << label
+              << " round=" << round + 1
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double baseline_average = baseline_total / kTimedPasses;
+  const double candidate_average = candidate_total / kTimedPasses;
+  const double speedup = baseline_average / candidate_average;
+  std::cout << "PERF_FP8_M16_WMMA: " << label
+            << " baseline_two_m8_ms="
+            << baseline_average << " candidate_m16_ms=" << candidate_average
+            << " speedup=" << speedup << '\n';
+
+  if (columns == 5'120U && rows != 1'024U) {
+    const auto launch_ldm64 = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
+              weights.get(), kWeightScale, activations.get(), rows, columns,
+              candidate_output.get(), 64U, static_cast<void*>(stream));
+    };
+    const auto launch_ldm72 = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
+              weights.get(), kWeightScale, activations.get(), rows, columns,
+              replay_output.get(), 72U, static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_ldm64()),
+                         label + " ldm64 correctness launch");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_ldm72()),
+                                  label + " ldm72 correctness launch");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy ldm64 output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             replay.data(), replay_output.get(),
+                             replay.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy ldm72 output");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " ldm correctness synchronize");
+    if (!ready) {
+      return {};
+    }
+    std::size_t ldm_mismatches = 0U;
+    for (std::size_t index = 0U; index < candidate.size(); ++index) {
+      ldm_mismatches += candidate[index] != replay[index] ? 1U : 0U;
+    }
+    const bool ldm_bitwise_equal = ldm_mismatches == 0U;
+    std::cout << "FP8_M16_WMMA_LDM_DIFF: " << label
+              << " ldm64_vs_ldm72_bf16=" << ldm_mismatches << '/'
+              << candidate.size() << '\n';
+    test.expect(ldm_bitwise_equal,
+                label + " ldm64 and ldm72 are bitwise identical");
+    deterministic = deterministic && ldm_bitwise_equal;
+    within_tolerance = within_tolerance && ldm_bitwise_equal;
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_ldm64()),
+                           label + " ldm64 warmup");
+      ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_ldm72()),
+                                    label + " ldm72 warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " ldm warmup synchronize");
+    if (!ready) {
+      return {};
+    }
+
+    double ldm64_total = 0.0;
+    double ldm72_total = 0.0;
+    bool ldm_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string suffix = " round=" + std::to_string(round + 1);
+      const float ldm64_first = measure_small_m_tile(
+          test, stream, launch_ldm64, kMeasuredIterations,
+          label + " ldm64 pass 1" + suffix);
+      const float ldm72_first = measure_small_m_tile(
+          test, stream, launch_ldm72, kMeasuredIterations,
+          label + " ldm72 pass 1" + suffix);
+      const float ldm72_second = measure_small_m_tile(
+          test, stream, launch_ldm72, kMeasuredIterations,
+          label + " ldm72 pass 2" + suffix);
+      const float ldm64_second = measure_small_m_tile(
+          test, stream, launch_ldm64, kMeasuredIterations,
+          label + " ldm64 pass 2" + suffix);
+      const bool round_finite =
+          std::isfinite(ldm64_first) && std::isfinite(ldm72_first) &&
+          std::isfinite(ldm72_second) && std::isfinite(ldm64_second);
+      ldm_finite = ldm_finite && round_finite;
+      if (round_finite) {
+        ldm64_total += ldm64_first + ldm64_second;
+        ldm72_total += ldm72_first + ldm72_second;
+      }
+      std::cout << "PERF_FP8_M16_WMMA_LDM_ROUND: " << label
+                << " round=" << round + 1
+                << " ldm64_pass1_ms=" << ldm64_first
+                << " ldm72_pass1_ms=" << ldm72_first
+                << " ldm72_pass2_ms=" << ldm72_second
+                << " ldm64_pass2_ms=" << ldm64_second << '\n';
+    }
+    const double ldm64_average = ldm64_total / kTimedPasses;
+    const double ldm72_average = ldm72_total / kTimedPasses;
+    const double ldm72_speedup = ldm64_average / ldm72_average;
+    finite = finite && ldm_finite && std::isfinite(ldm72_speedup);
+    std::cout << "PERF_FP8_M16_WMMA_LDM: " << label
+              << " ldm64_ms=" << ldm64_average
+              << " ldm72_ms=" << ldm72_average
+              << " ldm72_speedup=" << ldm72_speedup << '\n';
+    test.expect(ldm_finite && std::isfinite(ldm72_speedup),
+                label + " ldm64/ldm72 mirrored timing is finite");
+  }
+
+  // Performance is already frozen above. Reuse the primary-shape buffers to
+  // cover every E4M3FN code in every byte position, including both reserved
+  // NaN encodings, without contaminating the timing fixture.
+  if (rows == 10'240U && columns == 5'120U) {
+    std::fill(host_weights.begin(), host_weights.end(), 0U);
+    constexpr std::size_t kCodes = 256U;
+    constexpr std::size_t kBytePositions = 4U;
+    for (std::size_t code = 0U; code < kCodes; ++code) {
+      for (std::size_t byte_position = 0U;
+           byte_position < kBytePositions; ++byte_position) {
+        const std::size_t row = code * kBytePositions + byte_position;
+        const std::size_t packed_word =
+            (code * 29U + byte_position * 31U) % (columns / 4U);
+        const std::size_t column = packed_word * 4U + byte_position;
+        host_weights[row * columns + column] =
+            static_cast<std::uint8_t>(code);
+      }
+    }
+    std::vector<std::uint16_t> exhaustive_activations(kTokens * columns);
+    for (std::size_t token = 0U; token < kTokens; ++token) {
+      for (std::size_t column = 0U; column < columns; ++column) {
+        const int magnitude =
+            1 + static_cast<int>((column * 13U + token * 7U) % 29U);
+        const int numerator =
+            ((column + token) & 1U) == 0U ? magnitude : -magnitude;
+        const int odd_denominator =
+            3 + 2 * static_cast<int>((column * 5U + token * 3U) % 11U);
+        const int exponent =
+            static_cast<int>((column * 3U + token * 5U) % 8U) - 4;
+        exhaustive_activations[token * columns + column] = encode_bf16(
+            std::ldexp(static_cast<float>(numerator) /
+                           static_cast<float>(odd_denominator),
+                       exponent));
+      }
+    }
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(weights.get(), host_weights.data(),
+                        host_weights.size(), cudaMemcpyHostToDevice, stream),
+        label + " initialize exhaustive FP8 byte-position weights");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             activations.get(), exhaustive_activations.data(),
+                             exhaustive_activations.size() *
+                                 sizeof(std::uint16_t),
+                             cudaMemcpyHostToDevice, stream),
+                         label + " initialize exhaustive activations");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_baseline()),
+                         label + " exhaustive two-M8 baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " exhaustive WMMA candidate");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                  label + " exhaustive deterministic replay");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy exhaustive baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy exhaustive candidate output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             replay.data(), replay_output.get(),
+                             replay.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy exhaustive replay output");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " exhaustive synchronize");
+    if (!ready) {
+      return {};
+    }
+
+    std::size_t exhaustive_bf16_mismatches = 0U;
+    std::size_t exhaustive_deterministic_mismatches = 0U;
+    std::size_t reference_nan_count = 0U;
+    std::size_t nan_class_mismatches = 0U;
+    float exhaustive_maximum_absolute_error = 0.0F;
+    float exhaustive_maximum_relative_error = 0.0F;
+    bool exhaustive_within_tolerance = true;
+    for (std::size_t index = 0U; index < candidate.size(); ++index) {
+      exhaustive_bf16_mismatches +=
+          candidate[index] != baseline[index] ? 1U : 0U;
+      exhaustive_deterministic_mismatches +=
+          candidate[index] != replay[index] ? 1U : 0U;
+      if (is_bf16_nan(baseline[index])) {
+        ++reference_nan_count;
+        const bool candidate_is_nan = is_bf16_nan(candidate[index]);
+        nan_class_mismatches += candidate_is_nan ? 0U : 1U;
+        exhaustive_within_tolerance =
+            exhaustive_within_tolerance && candidate_is_nan;
+        continue;
+      }
+      const float baseline_value = decode_bf16(baseline[index]);
+      const float candidate_value = decode_bf16(candidate[index]);
+      const float absolute_error =
+          std::fabs(candidate_value - baseline_value);
+      const float relative_error =
+          absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+      exhaustive_maximum_absolute_error =
+          std::max(exhaustive_maximum_absolute_error, absolute_error);
+      exhaustive_maximum_relative_error =
+          std::max(exhaustive_maximum_relative_error, relative_error);
+      const float tolerance =
+          2.0e-4F * std::sqrt(static_cast<float>(columns)) +
+          1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+      exhaustive_within_tolerance =
+          exhaustive_within_tolerance && std::isfinite(candidate_value) &&
+          std::isfinite(baseline_value) && absolute_error <= tolerance;
+    }
+    constexpr std::size_t kExpectedNanOutputs =
+        2U * kBytePositions * kTokens;
+    const bool exhaustive_deterministic =
+        exhaustive_deterministic_mismatches == 0U;
+    const bool nan_coverage = reference_nan_count == kExpectedNanOutputs &&
+                              nan_class_mismatches == 0U;
+    std::cout << "FP8_M16_WMMA_EXHAUSTIVE_DIFF: " << label
+              << " candidate_vs_two_m8_bf16="
+              << exhaustive_bf16_mismatches << '/' << candidate.size()
+              << " deterministic_mismatches="
+              << exhaustive_deterministic_mismatches << '/'
+              << candidate.size() << " reference_nan_count="
+              << reference_nan_count
+              << " nan_class_mismatches=" << nan_class_mismatches
+              << " max_abs=" << exhaustive_maximum_absolute_error
+              << " max_rel=" << exhaustive_maximum_relative_error
+              << " tolerance_gate="
+              << (exhaustive_within_tolerance ? "PASS" : "FAIL") << '\n';
+    test.expect(exhaustive_deterministic,
+                label + " exhaustive replay is deterministic");
+    test.expect(nan_coverage,
+                label + " covers both NaN codes in all byte positions");
+    test.expect(exhaustive_within_tolerance,
+                label + " exhaustive codes clear numerical tolerance");
+    compare_cuda_reference_outputs(
+        test, candidate, baseline, columns,
+        label + " exhaustive candidate vs two M8");
+    deterministic = deterministic && exhaustive_deterministic;
+    within_tolerance = within_tolerance && exhaustive_within_tolerance &&
+                       nan_coverage;
+  }
+
+  return {finite ? baseline_average
+                 : std::numeric_limits<double>::quiet_NaN(),
+          finite ? candidate_average
+                 : std::numeric_limits<double>::quiet_NaN(),
+          deterministic, within_tolerance};
+}
+
+void run_optional_fp8_m16_wmma_performance(TestContext& test,
+                                            cudaStream_t stream) {
+  if (!fp8_m16_wmma_performance_enabled()) {
+    std::cout << "SKIP: FP8 M16 WMMA performance segment; set "
+                 "Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1 to enable\n";
+    return;
+  }
+
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t calls_per_prompt;
+    double minimum_speedup;
+    bool allow_fallback;
+    const char* label;
+  };
+  constexpr std::array<Shape, 5U> kShapes{{
+      {10'240U, 5'120U, 96U, 1.15, false,
+       "FP8 M16 WMMA 10240x5120"},
+      {5'120U, 6'144U, 128U, 1.05, false,
+       "FP8 M16 WMMA 5120x6144"},
+      {6'144U, 5'120U, 96U, 1.05, false,
+       "FP8 M16 WMMA 6144x5120"},
+      {12'288U, 5'120U, 32U, 1.05, false,
+       "FP8 M16 WMMA 12288x5120"},
+      {1'024U, 5'120U, 64U, 1.05, true,
+       "FP8 M16 WMMA 1024x5120"},
+  }};
+  std::array<Fp8M16WmmaMeasurement, kShapes.size()> measurements{};
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    measurements[index] = benchmark_fp8_m16_wmma_shape(
+        test, stream, kShapes[index].rows, kShapes[index].columns,
+        kShapes[index].label);
+  }
+
+  double weighted_baseline = 0.0;
+  double weighted_raw_candidate = 0.0;
+  double weighted_selected_candidate = 0.0;
+  bool required_shapes_pass = true;
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    const Fp8M16WmmaMeasurement& measurement = measurements[index];
+    const double speedup = measurement.baseline_milliseconds /
+                           measurement.candidate_milliseconds;
+    const bool finite =
+        std::isfinite(measurement.baseline_milliseconds) &&
+        std::isfinite(measurement.candidate_milliseconds) &&
+        std::isfinite(speedup);
+    const bool raw_performance_gate =
+        finite && speedup >= kShapes[index].minimum_speedup;
+    const bool selected_fallback =
+        kShapes[index].allow_fallback && finite && !raw_performance_gate;
+    const bool shape_gate =
+        measurement.deterministic && measurement.within_tolerance &&
+        (raw_performance_gate || selected_fallback);
+    required_shapes_pass = required_shapes_pass && shape_gate;
+    test.expect(shape_gate,
+                std::string(kShapes[index].label) +
+                    " clears correctness and selected performance policy");
+
+    weighted_baseline +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.baseline_milliseconds;
+    weighted_raw_candidate +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.candidate_milliseconds;
+    weighted_selected_candidate +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        (selected_fallback ? measurement.baseline_milliseconds
+                           : measurement.candidate_milliseconds);
+    std::cout << "PERF_FP8_M16_WMMA_VALIDATION: " << kShapes[index].label
+              << " baseline_two_m8_ms="
+              << measurement.baseline_milliseconds
+              << " candidate_m16_ms=" << measurement.candidate_milliseconds
+              << " speedup=" << speedup
+              << " minimum_speedup=" << kShapes[index].minimum_speedup
+              << " selected="
+              << (selected_fallback ? "two_m8_fallback" : "wmma_m16")
+              << " gate=" << (shape_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const double raw_weighted_speedup =
+      weighted_baseline / weighted_raw_candidate;
+  const double selected_weighted_speedup =
+      weighted_baseline / weighted_selected_candidate;
+  constexpr double kMinimumSelectedWeightedSpeedup = 1.05;
+  const bool aggregate_gate =
+      required_shapes_pass && std::isfinite(selected_weighted_speedup) &&
+      selected_weighted_speedup >= kMinimumSelectedWeightedSpeedup;
+  std::cout << "PERF_FP8_M16_WMMA_AGGREGATE: weighted_baseline_two_m8_ms="
+            << weighted_baseline
+            << " weighted_raw_candidate_ms=" << weighted_raw_candidate
+            << " raw_speedup=" << raw_weighted_speedup
+            << " weighted_selected_candidate_ms="
+            << weighted_selected_candidate
+            << " selected_speedup=" << selected_weighted_speedup
+            << " required_selected_speedup="
+            << kMinimumSelectedWeightedSpeedup
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(aggregate_gate,
+              "FP8 M16 WMMA selected shapes clear weighted speedup gate");
 }
 
 struct Fp8RowPairMeasurement {
@@ -5542,6 +6490,9 @@ int main() {
                  true);
   run_fp8_case(test, stream, 3U, 37U,
                "FP8 small-M3 scalar-K fallback", false, false, 3U, true);
+  run_fp8_case(test, stream, 13U, 37U,
+               "FP8 public M16 two-M8 scalar-K fallback", false, false, 16U,
+               false, true);
   run_fp8_case(test, stream, 3U, 1'024U,
                "FP8 small-M3 unaligned-weight fallback", true, false, 3U,
                true);
@@ -5614,6 +6565,7 @@ int main() {
   run_optional_fp8_m1_grid_cap_performance(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
+  run_optional_fp8_m16_wmma_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
