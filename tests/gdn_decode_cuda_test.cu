@@ -437,6 +437,54 @@ void test_conv_tile_bitwise(TestContext& test, cudaStream_t stream) {
         "CUDA causal conv tile history M=" + std::to_string(token_count));
   }
 
+  constexpr std::size_t kSplitTokens = 8U;
+  static_assert(kMaximumTokens == 2U * kSplitTokens);
+  std::copy(initial_qkv.begin(), initial_qkv.end(), sequential_qkv.data());
+  std::copy(initial_qkv.begin(), initial_qkv.end(), tile_qkv.data());
+  std::copy(initial_history.begin(), initial_history.end(),
+            sequential_history.data());
+  std::copy(initial_history.begin(), initial_history.end(),
+            tile_history.data());
+  ready = launch_after_stale(test, stream, "causal conv C16 oracle", [&]() {
+    return q3x::runtime::launch_causal_conv1d_silu_update_tile_reference_cuda(
+        tile_qkv.data(), kMaximumTokens, weight.data(), tile_history.data(),
+        tile_qkv.data(), {}, static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "causal conv first C8 split oracle", [&]() {
+        return q3x::runtime::
+            launch_causal_conv1d_silu_update_tile_reference_cuda(
+                sequential_qkv.data(), kSplitTokens, weight.data(),
+                sequential_history.data(), sequential_qkv.data(), {},
+                static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "causal conv second C8 split oracle", [&]() {
+        constexpr std::size_t kSecondTokenOffset =
+            kSplitTokens * q3x::runtime::kGdnQkvChannels;
+        return q3x::runtime::
+            launch_causal_conv1d_silu_update_tile_reference_cuda(
+                sequential_qkv.data() + kSecondTokenOffset, kSplitTokens,
+                weight.data(), sequential_history.data(),
+                sequential_qkv.data() + kSecondTokenOffset, {},
+                static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_buffer_bitwise_equal(
+      test, tile_qkv.data(), sequential_qkv.data(), kTileElements,
+      "CUDA causal conv C16 output equals sequential C8+C8");
+  expect_bf16_buffer_bitwise_equal(
+      test, tile_history.data(), sequential_history.data(), kHistoryElements,
+      "CUDA causal conv C16 history equals sequential C8+C8");
+
   test.expect(
       static_cast<cudaError_t>(
           q3x::runtime::
@@ -957,6 +1005,64 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
     }
   }
 
+  constexpr std::size_t kSplitTokens = 8U;
+  static_assert(kMaximumTokens == 2U * kSplitTokens);
+  std::copy(initial_state.begin(), initial_state.end(), tile_state.data());
+  std::copy(initial_state.begin(), initial_state.end(), warp_state.data());
+  std::fill_n(tile_output.data(), tile_output.size(),
+              static_cast<std::uint16_t>(0U));
+  std::fill_n(warp_output.data(), warp_output.size(),
+              static_cast<std::uint16_t>(0U));
+  ready = launch_after_stale(test, stream, "GDN warp C16 oracle", [&]() {
+    return q3x::runtime::launch_gated_delta_net_update_tile_warp_parallel_cuda(
+        conv_qkv.data(), kMaximumTokens, a.data(), b.data(), A_log.data(),
+        dt_bias.data(), tile_state.data(), tile_state.data(), 1.0e-6F,
+        tile_output.data(), {}, static_cast<void*>(stream));
+  });
+  if (!ready) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "GDN warp first C8 split oracle", [&]() {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data(), kSplitTokens, a.data(), b.data(),
+                A_log.data(), dt_bias.data(), warp_state.data(),
+                warp_state.data(), 1.0e-6F, warp_output.data(), {},
+                static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "GDN warp second C8 split oracle", [&]() {
+        constexpr std::size_t kQkvOffset =
+            kSplitTokens * q3x::runtime::kGdnQkvChannels;
+        constexpr std::size_t kScalarOffset =
+            kSplitTokens * q3x::runtime::kGdnValueHeadCount;
+        constexpr std::size_t kOutputOffset =
+            kSplitTokens * q3x::runtime::kGdnVElements;
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data() + kQkvOffset, kSplitTokens,
+                a.data() + kScalarOffset, b.data() + kScalarOffset,
+                A_log.data(), dt_bias.data(), warp_state.data(),
+                warp_state.data(), 1.0e-6F,
+                warp_output.data() + kOutputOffset, {},
+                static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_buffer_bitwise_equal(
+      test, tile_output.data(), warp_output.data(),
+      kMaximumTokens * q3x::runtime::kGdnVElements,
+      "CUDA GDN warp C16 output equals sequential C8+C8");
+  expect_bf16_buffer_bitwise_equal(
+      test, tile_state.data(), warp_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "CUDA GDN warp C16 state equals sequential C8+C8");
+
   test.expect(
       static_cast<cudaError_t>(
           q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
@@ -967,6 +1073,8 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
 
   constexpr std::size_t kWarmupCount = 5U;
   constexpr std::size_t kIterationCount = 50U;
+  constexpr std::size_t kPerformanceTileTokenCount = 8U;
+  static_assert(kPerformanceTileTokenCount <= kMaximumTokens);
   const float reference_m1_ms = measure_average_cuda_milliseconds(
       test, stream, kWarmupCount, kIterationCount, "GDN reference M1", [&]() {
         return q3x::runtime::launch_gated_delta_net_update_reference_cuda(
@@ -984,16 +1092,16 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
   const float reference_m8_ms = measure_average_cuda_milliseconds(
       test, stream, kWarmupCount, kIterationCount, "GDN reference M8", [&]() {
         return q3x::runtime::launch_gated_delta_net_update_tile_reference_cuda(
-            conv_qkv.data(), kMaximumTokens, a.data(), b.data(), A_log.data(),
-            dt_bias.data(), tile_state.data(), tile_state.data(), 1.0e-6F,
-            tile_output.data(), {}, static_cast<void*>(stream));
+            conv_qkv.data(), kPerformanceTileTokenCount, a.data(), b.data(),
+            A_log.data(), dt_bias.data(), tile_state.data(), tile_state.data(),
+            1.0e-6F, tile_output.data(), {}, static_cast<void*>(stream));
       });
   const float warp_m8_ms = measure_average_cuda_milliseconds(
       test, stream, kWarmupCount, kIterationCount, "GDN warp M8", [&]() {
         return q3x::runtime::
             launch_gated_delta_net_update_tile_warp_parallel_cuda(
-                conv_qkv.data(), kMaximumTokens, a.data(), b.data(),
-                A_log.data(), dt_bias.data(), warp_state.data(),
+                conv_qkv.data(), kPerformanceTileTokenCount, a.data(),
+                b.data(), A_log.data(), dt_bias.data(), warp_state.data(),
                 warp_state.data(), 1.0e-6F, warp_output.data(), {},
                 static_cast<void*>(stream));
       });
@@ -1062,7 +1170,7 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
     const std::array<float, 2> m1 = measure_mirrored(1U, "M1");
     const std::array<float, 2> m2 = measure_mirrored(2U, "M2");
     const std::array<float, 2> m8 =
-        measure_mirrored(kMaximumTokens, "M8");
+        measure_mirrored(kPerformanceTileTokenCount, "M8");
     const bool finite =
         std::isfinite(m1[0]) && std::isfinite(m1[1]) &&
         std::isfinite(m2[0]) && std::isfinite(m2[1]) &&

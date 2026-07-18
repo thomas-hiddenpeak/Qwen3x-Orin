@@ -10,7 +10,7 @@ inline constexpr std::size_t kGdnValueHeadCount = 48U;
 inline constexpr std::size_t kGdnHeadDimension = 128U;
 inline constexpr std::size_t kGdnConvHistoryWidth = 3U;
 inline constexpr std::size_t kGdnConvKernelWidth = 4U;
-inline constexpr std::size_t kGdnMaximumTileTokenCount = 8U;
+inline constexpr std::size_t kGdnMaximumTileTokenCount = 16U;
 inline constexpr std::size_t kGdnQElements =
     kGdnQkHeadCount * kGdnHeadDimension;
 inline constexpr std::size_t kGdnKElements = kGdnQElements;
@@ -79,7 +79,7 @@ enum class GdnStatus : std::uint8_t {
 
 // Sequence-tile form of the causal convolution launch above. raw_qkv and
 // conv_qkv_output are contiguous token-major BF16
-// [token_count, kGdnQkvChannels], and token_count must be in [1, 8]. The
+// [token_count, kGdnQkvChannels], and token_count must be in [1, 16]. The
 // history recurrence is evaluated in token order with the same raw-BF16
 // boundary as separate single-token launches. Exact raw/output aliasing is
 // supported, and M=1 delegates to the single-token entry point.
@@ -101,7 +101,7 @@ enum class GdnStatus : std::uint8_t {
 // token-major BF16 [token_count, kGdnQkvChannels], a and b are token-major
 // BF16 [token_count, kGdnValueHeadCount], and output is token-major BF16
 // [token_count, kGdnVElements]. A_log and dt_bias remain per-head constants.
-// token_count must be in [1, 8]. Each recurrence step reads the BF16 state
+// token_count must be in [1, 16]. Each recurrence step reads the BF16 state
 // persisted by the preceding step while its output uses that step's FP32
 // updated state, exactly as separate single-token launches. M=1 delegates to
 // the single-token entry point.
