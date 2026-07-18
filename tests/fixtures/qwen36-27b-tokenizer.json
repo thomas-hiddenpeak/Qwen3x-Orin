@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "reference_runtime": "transformers 5.12.1 / tokenizers 0.22.2",
+    "tokenizer_class": "Qwen2Tokenizer"
+  },
+  "vocabulary": {
+    "base_size": 248044,
+    "size_with_added_tokens": 248077,
+    "pad_token_id": 248044,
+    "eos_token_id": 248046
+  },
+  "encode_cases": [
+    {
+      "text": "Hello, world!",
+      "add_special_tokens": false,
+      "token_ids": [9419, 11, 1814, 0]
+    },
+    {
+      "text": "你好，Jetson Orin。",
+      "add_special_tokens": false,
+      "token_ids": [109266, 3709, 34462, 901, 2441, 258, 1710]
+    },
+    {
+      "text": "用一句话解释 CUDA 是什么。",
+      "add_special_tokens": false,
+      "token_ids": [95826, 110827, 98682, 52965, 220, 98661, 1710]
+    }
+  ],
+  "chat_template_case": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "用一句话解释 CUDA 是什么。"
+      }
+    ],
+    "add_generation_prompt": true,
+    "enable_thinking": false,
+    "rendered": "<|im_start|>user\n用一句话解释 CUDA 是什么。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "token_ids": [
+      248045, 846, 198, 95826, 110827, 98682, 52965, 220, 98661, 1710,
+      248046, 198, 248045, 74455, 198, 248068, 271, 248069, 271
+    ]
+  }
+}

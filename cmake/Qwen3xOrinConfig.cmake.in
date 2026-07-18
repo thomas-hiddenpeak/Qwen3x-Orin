@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(CUDAToolkit 12.0)
+find_dependency(ICU 74 COMPONENTS uc i18n)
+if(NOT ICU_VERSION MATCHES "^74\\.")
+  set(Qwen3xOrin_FOUND FALSE)
+  set(Qwen3xOrin_NOT_FOUND_MESSAGE
+      "q3x::text requires the validated ICU 74.x ABI")
+  return()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/Qwen3xOrinTargets.cmake")
+
+check_required_components(Qwen3xOrin)

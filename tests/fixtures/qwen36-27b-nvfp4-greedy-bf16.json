@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "fixture": "qwen36-27b-nvfp4-text-only-greedy-bf16-cache",
+  "source": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "files": {
+      "model-00001-of-00003.safetensors": {
+        "size_bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      "model-00002-of-00003.safetensors": {
+        "size_bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      "model-00003-of-00003.safetensors": {
+        "size_bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      },
+      "tokenizer.json": {
+        "size_bytes": 12807982,
+        "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+      }
+    }
+  },
+  "oracle": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "python": "3.13.14",
+    "torch": "2.11.0",
+    "cuda": "13.3",
+    "vllm": "0.23.1rc1.dev269+gccd49f682",
+    "vllm_revision": "ccd49f6821ee",
+    "transformers": "5.12.1",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.22.2",
+    "quantization_resolved": "modelopt_mixed",
+    "fp8_linear_backend": "MarlinFP8ScaledMMLinearKernel",
+    "nvfp4_linear_backend": "Marlin W4A16",
+    "sampling_backend": "vLLM PyTorch",
+    "environment": {
+      "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+      "VLLM_USE_FLASHINFER_SAMPLER": "0"
+    },
+    "cache_policy": {
+      "kv_cache_dtype": "bfloat16",
+      "mamba_cache_dtype": "bfloat16",
+      "mamba_ssm_cache_dtype": "bfloat16",
+      "forced": true
+    }
+  },
+  "engine": {
+    "language_model_only": true,
+    "dtype": "bfloat16",
+    "kv_cache_dtype": "bfloat16",
+    "max_model_len": 128,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 128,
+    "gpu_memory_utilization": 0.8,
+    "enforce_eager": true,
+    "enable_prefix_caching": false,
+    "mm_processor_cache_gb": 0,
+    "mamba_cache_dtype": "bfloat16",
+    "mamba_ssm_cache_dtype": "bfloat16"
+  },
+  "sampling": {
+    "temperature": 0.0,
+    "max_tokens": 32,
+    "logprobs": 5,
+    "seed": 0
+  },
+  "prompt": {
+    "user_text": "用一句话解释 CUDA 是什么。",
+    "enable_thinking": false,
+    "rendered": "<|im_start|>user\n用一句话解释 CUDA 是什么。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "token_ids": [
+      248045,
+      846,
+      198,
+      95826,
+      110827,
+      98682,
+      52965,
+      220,
+      98661,
+      1710,
+      248046,
+      198,
+      248045,
+      74455,
+      198,
+      248068,
+      271,
+      248069,
+      271
+    ]
+  },
+  "expected": {
+    "token_ids": [
+      77517,
+      220,
+      95761,
+      32449,
+      220,
+      97039,
+      101692,
+      119548,
+      97792,
+      125574,
+      102027,
+      103725,
+      3709,
+      109238,
+      97327,
+      21966,
+      220,
+      127361,
+      130111,
+      95860,
+      103806,
+      108751,
+      97792,
+      97995,
+      1710,
+      248046
+    ],
+    "text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+    "finish_reason": "stop",
+    "stop_token_id": 248046,
+    "chosen_logprobs": [
+      -0.002902701497077942,
+      -0.021097995340824127,
+      -0.13171952962875366,
+      -0.1833673119544983,
+      -0.001359372865408659,
+      -0.7205266952514648,
+      -0.19168896973133087,
+      -0.07648015767335892,
+      -0.004400332923978567,
+      -0.011901560239493847,
+      -0.0083664171397686,
+      -0.00023541064001619816,
+      -0.0013186577707529068,
+      -0.9797232151031494,
+      -0.10015848278999329,
+      -0.3267558515071869,
+      -0.04167463630437851,
+      -0.6302452087402344,
+      -0.3252127468585968,
+      -0.23947738111019135,
+      -0.045857589691877365,
+      -0.07211997359991074,
+      -0.21735499799251556,
+      -0.07718545943498611,
+      -0.09066446125507355,
+      -0.0014318700414150953
+    ]
+  },
+  "repeatability": {
+    "runs": 1,
+    "single_run_policy_capture": true,
+    "token_ids_match_primary_oracle": true,
+    "text_matches_primary_oracle": true,
+    "run_seconds": [
+      8.252675168001588
+    ]
+  },
+  "comparison_policy": {
+    "token_ids": "exact",
+    "text": "exact UTF-8",
+    "chosen_logprobs_same_oracle_absolute_tolerance": 0.000001,
+    "chosen_logprobs_cross_runtime_diagnostic_tolerance": 0.05,
+    "timings_are_normative": false
+  }
+}

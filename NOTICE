@@ -1,0 +1,16 @@
+Qwen3x-Orin
+Copyright 2026 Qwen3x-Orin contributors
+
+Qwen3x-Orin is an independent community project. It is not affiliated with,
+endorsed by, or an official project of Alibaba, the Qwen team, NVIDIA, or the
+Jetson team.
+
+The software in this repository is licensed under the Apache License, Version
+2.0. Third-party components retain their respective copyright notices and
+licenses. When third-party source is incorporated, its required attribution
+must be preserved here and/or alongside that source.
+
+Qwen model weights, tokenizers, model configuration files, and other model
+artifacts are distributed separately by their respective publishers. They are
+not part of this Work and are not licensed by the repository's Apache-2.0
+license.

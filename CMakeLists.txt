@@ -1,0 +1,467 @@
+cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
+
+project(Qwen3xOrin VERSION 0.1.0 LANGUAGES CXX CUDA)
+
+include(GNUInstallDirs)
+include(CTest)
+include(CMakePackageConfigHelpers)
+include(cmake/CompilerWarnings.cmake)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(Q3X_CUDA_ARCHITECTURES "87" CACHE STRING
+    "CUDA architectures for Qwen3x-Orin (87 is Jetson AGX Orin)")
+set(CMAKE_CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}")
+
+find_package(CUDAToolkit 12.0 REQUIRED)
+find_package(ICU 74 REQUIRED COMPONENTS uc i18n)
+if(NOT ICU_VERSION MATCHES "^74\\.")
+  message(FATAL_ERROR
+    "q3x_text is validated against ICU 74.x; found ICU ${ICU_VERSION}")
+endif()
+
+configure_file(
+  include/q3x/version.h.in
+  generated/q3x/version.h
+  @ONLY
+)
+configure_package_config_file(
+  cmake/Qwen3xOrinConfig.cmake.in
+  generated/Qwen3xOrinConfig.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+)
+write_basic_package_version_file(
+  generated/Qwen3xOrinConfigVersion.cmake
+  VERSION ${PROJECT_VERSION}
+  # The public ABI is not stable during the 0.x bootstrap series. Consumers
+  # must request the exact package version until an explicit compatibility
+  # policy is published.
+  COMPATIBILITY ExactVersion
+)
+
+add_library(q3x_core STATIC
+  src/core/device_info.cpp
+  src/core/sha256.cpp
+  src/io/json.cpp
+  src/io/safetensors.cpp
+  src/model/checkpoint_metadata.cpp
+  src/model/model_config.cpp
+  src/model/weight_manifest.cpp
+  src/runtime/model_weights.cpp
+  src/runtime/reference_oracle.cpp
+  src/runtime/resident_weights.cpp
+  src/runtime/request_state.cpp
+  src/kernels/reference/gemv_reference.cpp
+  src/runtime/reference/decode_ops.cpp
+  src/runtime/reference/gdn_decode.cpp
+  src/runtime/reference/layout_ops.cpp
+  src/quantization/fp8.cpp
+  src/quantization/nvfp4.cpp
+)
+add_library(q3x::core ALIAS q3x_core)
+set_target_properties(q3x_core PROPERTIES
+  EXPORT_NAME core
+  POSITION_INDEPENDENT_CODE ON
+)
+target_compile_features(q3x_core PUBLIC cxx_std_17 cuda_std_17)
+target_include_directories(q3x_core
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(q3x_core PUBLIC CUDA::cudart)
+q3x_enable_warnings(q3x_core)
+
+add_library(q3x_text STATIC
+  src/text/tokenizer.cpp
+)
+add_library(q3x::text ALIAS q3x_text)
+set_target_properties(q3x_text PROPERTIES
+  EXPORT_NAME text
+  POSITION_INDEPENDENT_CODE ON
+)
+target_compile_features(q3x_text PUBLIC cxx_std_17)
+target_include_directories(q3x_text
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+# q3x_text reuses the bounded JSON/SHA implementation from q3x_core. ICU stays
+# isolated on this target and is not part of q3x_core's public link interface.
+target_link_libraries(q3x_text
+  PRIVATE q3x::core
+  PUBLIC ICU::uc ICU::i18n
+)
+q3x_enable_warnings(q3x_text)
+
+add_library(q3x_kernels STATIC
+  src/runtime/reference_runner.cpp
+  src/kernels/reference/decode_ops.cu
+  src/kernels/reference/gdn_decode.cu
+  src/kernels/reference/layout_ops.cu
+  src/kernels/reference/fp8_reference.cu
+  src/kernels/reference/gemv_reference.cu
+  src/kernels/reference/nvfp4_reference.cu
+  src/kernels/reference/projection_dispatch.cpp
+  src/kernels/sm87/device_probe.cu
+)
+add_library(q3x::kernels ALIAS q3x_kernels)
+set_target_properties(q3x_kernels PROPERTIES
+  EXPORT_NAME kernels
+  POSITION_INDEPENDENT_CODE ON
+)
+target_compile_features(q3x_kernels PUBLIC cxx_std_17 cuda_std_17)
+target_include_directories(q3x_kernels
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart)
+target_compile_options(q3x_kernels PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+)
+q3x_enable_warnings(q3x_kernels)
+
+add_library(q3x_engine STATIC
+  src/runtime/reference_engine.cpp
+  src/runtime/reference_engine_control.cpp
+)
+add_library(q3x::engine ALIAS q3x_engine)
+set_target_properties(q3x_engine PROPERTIES
+  EXPORT_NAME engine
+  POSITION_INDEPENDENT_CODE ON
+)
+target_compile_features(q3x_engine PUBLIC cxx_std_17)
+target_include_directories(q3x_engine
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+# The public engine API exposes runner/core result types. The tokenizer is an
+# implementation dependency; CMake still propagates it as LINK_ONLY when this
+# static library is consumed or exported.
+target_link_libraries(q3x_engine
+  PUBLIC q3x::core q3x::kernels
+  PRIVATE q3x::text
+)
+q3x_enable_warnings(q3x_engine)
+
+add_executable(qwen3x-orin src/main.cpp)
+target_link_libraries(qwen3x-orin
+  PRIVATE q3x::engine q3x::text q3x::core q3x::kernels
+)
+q3x_enable_warnings(qwen3x-orin)
+
+add_executable(qwen3x-inspect tools/q3x-inspect/main.cpp)
+target_link_libraries(qwen3x-inspect PRIVATE q3x::core)
+q3x_enable_warnings(qwen3x-inspect)
+
+if(BUILD_TESTING)
+  add_executable(q3x_device_info_test tests/device_info_test.cpp)
+  target_link_libraries(q3x_device_info_test PRIVATE q3x::core q3x::kernels)
+  q3x_enable_warnings(q3x_device_info_test)
+  add_test(NAME device_info COMMAND q3x_device_info_test)
+  set_tests_properties(device_info PROPERTIES SKIP_RETURN_CODE 77)
+
+  add_executable(q3x_nvfp4_test tests/nvfp4_test.cu)
+  target_link_libraries(q3x_nvfp4_test PRIVATE q3x::core q3x::kernels)
+  target_compile_options(q3x_nvfp4_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_nvfp4_test)
+  add_test(NAME nvfp4_reference COMMAND q3x_nvfp4_test)
+
+  add_executable(q3x_fp8_test tests/fp8_test.cu)
+  target_link_libraries(q3x_fp8_test PRIVATE q3x::core q3x::kernels)
+  target_compile_options(q3x_fp8_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_fp8_test)
+  add_test(NAME fp8_reference COMMAND q3x_fp8_test)
+
+  add_executable(q3x_reference_gemv_host_test
+    tests/reference_gemv_host_test.cpp
+  )
+  target_link_libraries(q3x_reference_gemv_host_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_reference_gemv_host_test)
+  add_test(NAME reference_gemv_host COMMAND q3x_reference_gemv_host_test)
+
+  add_executable(q3x_reference_gemv_cuda_test
+    tests/reference_gemv_cuda_test.cu
+  )
+  target_link_libraries(q3x_reference_gemv_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_reference_gemv_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_reference_gemv_cuda_test)
+  add_test(NAME reference_gemv_cuda COMMAND q3x_reference_gemv_cuda_test)
+
+  add_executable(q3x_decode_ops_host_test
+    tests/decode_ops_host_test.cpp
+  )
+  target_link_libraries(q3x_decode_ops_host_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_decode_ops_host_test)
+  add_test(NAME decode_ops_host COMMAND q3x_decode_ops_host_test)
+
+  add_executable(q3x_decode_ops_cuda_test
+    tests/decode_ops_cuda_test.cu
+  )
+  target_link_libraries(q3x_decode_ops_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_decode_ops_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_decode_ops_cuda_test)
+  add_test(NAME decode_ops_cuda COMMAND q3x_decode_ops_cuda_test)
+
+  add_executable(q3x_gdn_decode_host_test
+    tests/gdn_decode_host_test.cpp
+  )
+  target_link_libraries(q3x_gdn_decode_host_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_gdn_decode_host_test)
+  add_test(NAME gdn_decode_host COMMAND q3x_gdn_decode_host_test)
+
+  add_executable(q3x_gdn_decode_cuda_test
+    tests/gdn_decode_cuda_test.cu
+  )
+  target_link_libraries(q3x_gdn_decode_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_gdn_decode_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_gdn_decode_cuda_test)
+  add_test(NAME gdn_decode_cuda COMMAND q3x_gdn_decode_cuda_test)
+
+  add_executable(q3x_layout_ops_host_test
+    tests/layout_ops_host_test.cpp
+  )
+  target_link_libraries(q3x_layout_ops_host_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_layout_ops_host_test)
+  add_test(NAME layout_ops_host COMMAND q3x_layout_ops_host_test)
+
+  add_executable(q3x_layout_ops_cuda_test
+    tests/layout_ops_cuda_test.cu
+  )
+  target_link_libraries(q3x_layout_ops_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_layout_ops_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_layout_ops_cuda_test)
+  add_test(NAME layout_ops_cuda COMMAND q3x_layout_ops_cuda_test)
+
+  add_executable(q3x_reference_runner_host_test
+    tests/reference_runner_host_test.cpp
+  )
+  target_link_libraries(q3x_reference_runner_host_test PRIVATE q3x::kernels)
+  q3x_enable_warnings(q3x_reference_runner_host_test)
+  add_test(NAME reference_runner_host COMMAND q3x_reference_runner_host_test)
+
+  add_executable(q3x_reference_engine_control_test
+    tests/reference_engine_control_test.cpp
+  )
+  target_link_libraries(q3x_reference_engine_control_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_engine_control_test)
+  add_test(NAME reference_engine_control
+    COMMAND q3x_reference_engine_control_test
+  )
+
+  set(Q3X_E2E_MODEL_DIR "" CACHE PATH
+      "Pinned Qwen3.6-27B-NVFP4 model directory for the optional E2E test")
+  set(_q3x_e2e_model_dir "${Q3X_E2E_MODEL_DIR}")
+  if(NOT _q3x_e2e_model_dir AND DEFINED ENV{Q3X_E2E_MODEL_DIR})
+    set(_q3x_e2e_model_dir "$ENV{Q3X_E2E_MODEL_DIR}")
+  endif()
+  if(NOT _q3x_e2e_model_dir)
+    set(_q3x_e2e_model_dir "-")
+  endif()
+
+  add_executable(q3x_reference_engine_e2e_test
+    tests/reference_engine_e2e_test.cpp
+  )
+  target_link_libraries(q3x_reference_engine_e2e_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_engine_e2e_test)
+  add_test(NAME reference_engine_e2e
+    COMMAND q3x_reference_engine_e2e_test "${_q3x_e2e_model_dir}"
+  )
+  set_tests_properties(reference_engine_e2e PROPERTIES
+    LABELS "e2e;model"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 900
+  )
+
+  add_executable(q3x_model_config_test tests/model_config_test.cpp)
+  target_link_libraries(q3x_model_config_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_model_config_test)
+  add_test(NAME model_config COMMAND q3x_model_config_test)
+
+  add_executable(q3x_checkpoint_metadata_test
+    tests/checkpoint_metadata_test.cpp
+  )
+  target_link_libraries(q3x_checkpoint_metadata_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_checkpoint_metadata_test)
+  add_test(NAME checkpoint_metadata COMMAND q3x_checkpoint_metadata_test)
+
+  add_executable(q3x_weight_manifest_test
+    tests/weight_manifest_test.cpp
+  )
+  target_link_libraries(q3x_weight_manifest_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_weight_manifest_test)
+  add_test(NAME weight_manifest COMMAND q3x_weight_manifest_test)
+
+  add_executable(q3x_resident_load_plan_test
+    tests/resident_load_plan_test.cpp
+  )
+  target_link_libraries(q3x_resident_load_plan_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_resident_load_plan_test)
+  add_test(NAME resident_load_plan COMMAND q3x_resident_load_plan_test)
+
+  add_executable(q3x_request_state_plan_test
+    tests/request_state_plan_test.cpp
+  )
+  target_link_libraries(q3x_request_state_plan_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_request_state_plan_test)
+  add_test(NAME request_state_plan COMMAND q3x_request_state_plan_test)
+
+  add_executable(q3x_request_state_cuda_test
+    tests/request_state_cuda_test.cpp
+  )
+  target_link_libraries(q3x_request_state_cuda_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_request_state_cuda_test)
+  add_test(NAME request_state_cuda COMMAND q3x_request_state_cuda_test)
+  set_tests_properties(request_state_cuda PROPERTIES SKIP_RETURN_CODE 77)
+
+  add_executable(q3x_resident_weights_cuda_test
+    tests/resident_weights_cuda_test.cpp
+  )
+  target_link_libraries(q3x_resident_weights_cuda_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_resident_weights_cuda_test)
+  add_test(NAME resident_weights_cuda COMMAND q3x_resident_weights_cuda_test)
+  set_tests_properties(resident_weights_cuda PROPERTIES SKIP_RETURN_CODE 77)
+
+  add_executable(q3x_model_weights_host_test
+    tests/model_weights_host_test.cpp
+  )
+  target_link_libraries(q3x_model_weights_host_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_model_weights_host_test)
+  add_test(NAME model_weights_host COMMAND q3x_model_weights_host_test)
+
+  add_executable(q3x_reference_oracle_test
+    tests/reference_oracle_test.cpp
+  )
+  target_link_libraries(q3x_reference_oracle_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_reference_oracle_test)
+  add_test(NAME reference_oracle COMMAND q3x_reference_oracle_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/qwen36-27b-nvfp4-greedy-bf16.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/qwen36-27b-nvfp4-layers-bf16.json"
+  )
+
+  add_executable(q3x_model_weights_cuda_test
+    tests/model_weights_cuda_test.cu
+  )
+  target_link_libraries(q3x_model_weights_cuda_test
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_model_weights_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_model_weights_cuda_test)
+  add_test(NAME model_weights_cuda COMMAND q3x_model_weights_cuda_test)
+  set_tests_properties(model_weights_cuda PROPERTIES SKIP_RETURN_CODE 77)
+
+  add_executable(q3x_sha256_test tests/sha256_test.cpp)
+  target_link_libraries(q3x_sha256_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_sha256_test)
+  add_test(NAME sha256 COMMAND q3x_sha256_test)
+
+  add_executable(q3x_json_test tests/json_test.cpp)
+  target_link_libraries(q3x_json_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_json_test)
+  add_test(NAME json COMMAND q3x_json_test)
+
+  add_executable(q3x_safetensors_test tests/safetensors_test.cpp)
+  target_link_libraries(q3x_safetensors_test PRIVATE q3x::core)
+  q3x_enable_warnings(q3x_safetensors_test)
+  add_test(NAME safetensors COMMAND q3x_safetensors_test)
+
+  set(Q3X_TOKENIZER_TEST_JSON "" CACHE FILEPATH
+      "Pinned Qwen 3.6 tokenizer.json used by tokenizer differential tests")
+  set(_q3x_tokenizer_test_json "${Q3X_TOKENIZER_TEST_JSON}")
+  if(NOT _q3x_tokenizer_test_json AND
+     DEFINED ENV{Q3X_TOKENIZER_TEST_JSON})
+    set(_q3x_tokenizer_test_json "$ENV{Q3X_TOKENIZER_TEST_JSON}")
+  endif()
+  if(NOT _q3x_tokenizer_test_json)
+    set(_q3x_tokenizer_test_json "-")
+  endif()
+
+  add_executable(q3x_tokenizer_test tests/tokenizer_test.cpp)
+  target_link_libraries(q3x_tokenizer_test PRIVATE q3x::text q3x::core)
+  q3x_enable_warnings(q3x_tokenizer_test)
+  add_test(NAME tokenizer COMMAND q3x_tokenizer_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/qwen36-27b-tokenizer.json"
+    "${_q3x_tokenizer_test_json}"
+  )
+  set_tests_properties(tokenizer PROPERTIES SKIP_RETURN_CODE 77)
+
+  add_test(NAME inspect_help COMMAND qwen3x-inspect help)
+  add_test(NAME generate_help COMMAND qwen3x-orin generate --help)
+  add_test(NAME generate_invalid_max
+    COMMAND qwen3x-orin generate unused-model-directory
+            --prompt test --max-tokens 0
+  )
+  set_tests_properties(generate_invalid_max PROPERTIES WILL_FAIL TRUE)
+
+  add_test(NAME package_consumer
+    COMMAND ${CMAKE_COMMAND}
+      -DQ3X_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+      -DQ3X_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+      -DQ3X_GENERATOR=${CMAKE_GENERATOR}
+      -DQ3X_CONFIG=$<CONFIG>
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/package_consumer_test.cmake
+  )
+endif()
+
+install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
+                qwen3x-orin qwen3x-inspect
+  EXPORT Qwen3xOrinTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  FILES_MATCHING PATTERN "*.h"
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
+)
+install(EXPORT Qwen3xOrinTargets
+  FILE Qwen3xOrinTargets.cmake
+  NAMESPACE q3x::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+)
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/Qwen3xOrinConfigVersion.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Qwen3xOrin
+)

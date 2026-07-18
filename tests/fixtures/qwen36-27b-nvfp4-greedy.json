@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "fixture": "qwen36-27b-nvfp4-text-only-greedy",
+  "source": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "files": {
+      "model-00001-of-00003.safetensors": {
+        "size_bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      "model-00002-of-00003.safetensors": {
+        "size_bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      "model-00003-of-00003.safetensors": {
+        "size_bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      },
+      "tokenizer.json": {
+        "size_bytes": 12807982,
+        "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+      }
+    }
+  },
+  "oracle": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "python": "3.13.14",
+    "torch": "2.11.0",
+    "cuda": "13.3",
+    "vllm": "0.23.1rc1.dev269+gccd49f682",
+    "vllm_revision": "ccd49f6821ee",
+    "transformers": "5.12.1",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.22.2",
+    "quantization_resolved": "modelopt_mixed",
+    "fp8_linear_backend": "MarlinFP8ScaledMMLinearKernel",
+    "nvfp4_linear_backend": "Marlin W4A16",
+    "sampling_backend": "vLLM PyTorch",
+    "environment": {
+      "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+      "VLLM_USE_FLASHINFER_SAMPLER": "0"
+    }
+  },
+  "engine": {
+    "language_model_only": true,
+    "dtype": "bfloat16",
+    "kv_cache_dtype": "fp8_e4m3",
+    "max_model_len": 128,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 128,
+    "gpu_memory_utilization": 0.8,
+    "enforce_eager": true,
+    "enable_prefix_caching": false,
+    "mm_processor_cache_gb": 0
+  },
+  "sampling": {
+    "temperature": 0.0,
+    "max_tokens": 32,
+    "logprobs": 5,
+    "seed": 0
+  },
+  "prompt": {
+    "user_text": "用一句话解释 CUDA 是什么。",
+    "enable_thinking": false,
+    "rendered": "<|im_start|>user\n用一句话解释 CUDA 是什么。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "token_ids": [
+      248045,
+      846,
+      198,
+      95826,
+      110827,
+      98682,
+      52965,
+      220,
+      98661,
+      1710,
+      248046,
+      198,
+      248045,
+      74455,
+      198,
+      248068,
+      271,
+      248069,
+      271
+    ]
+  },
+  "expected": {
+    "token_ids": [
+      77517,
+      220,
+      95761,
+      32449,
+      220,
+      97039,
+      101692,
+      119548,
+      97792,
+      125574,
+      102027,
+      103725,
+      3709,
+      109238,
+      97327,
+      21966,
+      220,
+      127361,
+      130111,
+      95860,
+      103806,
+      108751,
+      97792,
+      97995,
+      1710,
+      248046
+    ],
+    "text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+    "finish_reason": "stop",
+    "stop_token_id": 248046,
+    "chosen_logprobs": [
+      -0.00292397802695632,
+      -0.021089358255267143,
+      -0.1317153424024582,
+      -0.205025777220726,
+      -0.0013724679592996836,
+      -0.8113268613815308,
+      -0.18834207952022552,
+      -0.0756436139345169,
+      -0.0035943682305514812,
+      -0.011899793520569801,
+      -0.008718048222362995,
+      -0.00025078488397412,
+      -0.0012316268403083086,
+      -0.9768542051315308,
+      -0.1124861016869545,
+      -0.299107164144516,
+      -0.03902384638786316,
+      -0.6548300385475159,
+      -0.3749926686286926,
+      -0.2391398400068283,
+      -0.04719109460711479,
+      -0.06109057739377022,
+      -0.25485101342201233,
+      -0.07718943059444427,
+      -0.08845869451761246,
+      -0.0015757775399833918
+    ]
+  },
+  "repeatability": {
+    "runs": 2,
+    "token_ids_identical": true,
+    "text_identical": true,
+    "chosen_logprobs_bitwise_identical_as_reported": true,
+    "warm_run_seconds": [8.225325107574463, 5.5019824504852295]
+  },
+  "comparison_policy": {
+    "token_ids": "exact",
+    "text": "exact UTF-8",
+    "chosen_logprobs_same_oracle_absolute_tolerance": 1e-6,
+    "chosen_logprobs_cross_runtime_diagnostic_tolerance": 0.05,
+    "timings_are_normative": false
+  }
+}

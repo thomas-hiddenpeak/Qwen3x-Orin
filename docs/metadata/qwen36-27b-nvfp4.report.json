@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "status": "evidence-only-not-runtime-support",
+  "inspected_at": "2026-07-18",
+  "source": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "files": {
+      "config.json": {
+        "sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338"
+      },
+      "hf_quant_config.json": {
+        "sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1"
+      },
+      "model.safetensors.index.json": {
+        "sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2"
+      }
+    }
+  },
+  "model": {
+    "descriptor": "Qwen3.6-27B",
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "model_type": "qwen3_5",
+    "text_model_type": "qwen3_5_text",
+    "topology": "dense",
+    "vocab_size": 248320,
+    "hidden_size": 5120,
+    "intermediate_size": 17408,
+    "num_hidden_layers": 64,
+    "num_attention_heads": 24,
+    "num_key_value_heads": 4,
+    "head_dim": 256,
+    "full_attention_interval": 4
+  },
+  "quantization": {
+    "producer": {
+      "name": "modelopt",
+      "version": "0.45.0"
+    },
+    "quant_algo": "MIXED_PRECISION",
+    "kv_cache_quant_algo": "FP8",
+    "quantized_layer_count": 401,
+    "algorithms": {
+      "W4A16_NVFP4": {
+        "count": 193,
+        "group_sizes": [16]
+      },
+      "FP8": {
+        "count": 208
+      }
+    }
+  },
+  "index": {
+    "tensor_count": 2194,
+    "shard_count": 3,
+    "declared_total_size": 21921428072,
+    "declared_total_parameters": 18164649200,
+    "shards": [
+      {
+        "file": "model-00001-of-00003.safetensors",
+        "file_size": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+        "header_size": 126504,
+        "tensor_count": 1043
+      },
+      {
+        "file": "model-00002-of-00003.safetensors",
+        "file_size": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d",
+        "header_size": 135488,
+        "tensor_count": 1089
+      },
+      {
+        "file": "model-00003-of-00003.safetensors",
+        "file_size": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845",
+        "header_size": 7096,
+        "tensor_count": 62
+      }
+    ]
+  },
+  "full_shard_validation": {
+    "validated_at": "2026-07-18",
+    "command": "qwen3x-inspect checkpoint MODEL_DIR --require-shards",
+    "validated_shards": 3,
+    "validated_tensors": 2194,
+    "validated_payload_bytes": 21921428072,
+    "payload_bytes_read_by_inspector": false,
+    "independent_full_file_sha256_verified": true
+  },
+  "storage_sizing": {
+    "dtype_tensor_counts": {
+      "BF16": 798,
+      "F32": 802,
+      "F8_E4M3": 401,
+      "U8": 193
+    },
+    "text_only": {
+      "tensor_count": 1846,
+      "stored_payload_bytes": 20150569096,
+      "naive_bf16_expansion_with_auxiliaries_bytes": 54941010056
+    },
+    "vision": {
+      "tensor_count": 333,
+      "stored_payload_bytes": 921460192
+    },
+    "mtp": {
+      "tensor_count": 15,
+      "stored_payload_bytes": 849398784
+    }
+  },
+  "header_probe": {
+    "file": "model-00001-of-00003.safetensors",
+    "linked_size": 9965652512,
+    "linked_etag": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "header_length": 126504,
+    "tensor_count": 1043,
+    "representative_tensors": [
+      {
+        "name": "model.language_model.embed_tokens.weight",
+        "dtype": "BF16",
+        "shape": [248320, 5120]
+      },
+      {
+        "name": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+        "format": "FP8",
+        "dtype": "F8_E4M3",
+        "shape": [10240, 5120],
+        "scale_dtype": "F32",
+        "scale_shape": []
+      },
+      {
+        "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+        "format": "W4A16_NVFP4",
+        "dtype": "U8",
+        "packed_shape": [17408, 2560],
+        "logical_shape": [17408, 5120],
+        "scale_dtype": "F8_E4M3",
+        "scale_shape": [17408, 320],
+        "scale_2_dtype": "F32",
+        "scale_2_shape": []
+      },
+      {
+        "name": "model.language_model.layers.0.mlp.down_proj.weight",
+        "format": "W4A16_NVFP4",
+        "dtype": "U8",
+        "packed_shape": [5120, 8704],
+        "logical_shape": [5120, 17408],
+        "scale_dtype": "F8_E4M3",
+        "scale_shape": [5120, 1088]
+      },
+      {
+        "name": "model.language_model.layers.3.self_attn.q_proj.weight",
+        "format": "FP8",
+        "dtype": "F8_E4M3",
+        "shape": [12288, 5120]
+      }
+    ]
+  },
+  "benchmark_shapes": [
+    {
+      "id": "dense_decode_nvfp4_gate",
+      "operation": "linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 17408,
+      "k": 5120,
+      "group_size": 16
+    },
+    {
+      "id": "dense_decode_nvfp4_down",
+      "operation": "linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 5120,
+      "k": 17408,
+      "group_size": 16
+    },
+    {
+      "id": "dense_decode_fp8_linear_qkv",
+      "operation": "linear",
+      "weight_format": "FP8",
+      "m": 1,
+      "n": 10240,
+      "k": 5120
+    },
+    {
+      "id": "dense_prefill_nvfp4_gate",
+      "operation": "linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 128,
+      "n": 17408,
+      "k": 5120,
+      "group_size": 16
+    },
+    {
+      "id": "dense_decode_nvfp4_lm_head",
+      "operation": "linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 248320,
+      "k": 5120,
+      "group_size": 16
+    }
+  ]
+}

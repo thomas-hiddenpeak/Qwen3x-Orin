@@ -1,0 +1,35 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "orin-release",
+      "displayName": "Jetson Orin Release (sm_87)",
+      "binaryDir": "${sourceDir}/build/orin-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "Q3X_CUDA_ARCHITECTURES": "87"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "orin-release",
+      "configurePreset": "orin-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "orin-release",
+      "configurePreset": "orin-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace q3x::runtime {
+
+inline constexpr std::size_t kGdnQkHeadCount = 16U;
+inline constexpr std::size_t kGdnValueHeadCount = 48U;
+inline constexpr std::size_t kGdnHeadDimension = 128U;
+inline constexpr std::size_t kGdnConvHistoryWidth = 3U;
+inline constexpr std::size_t kGdnConvKernelWidth = 4U;
+inline constexpr std::size_t kGdnQElements =
+    kGdnQkHeadCount * kGdnHeadDimension;
+inline constexpr std::size_t kGdnKElements = kGdnQElements;
+inline constexpr std::size_t kGdnVElements =
+    kGdnValueHeadCount * kGdnHeadDimension;
+inline constexpr std::size_t kGdnQkvChannels =
+    kGdnQElements + kGdnKElements + kGdnVElements;
+inline constexpr std::size_t kGdnStateElements =
+    kGdnValueHeadCount * kGdnHeadDimension * kGdnHeadDimension;
+
+struct GdnDimensions {
+  std::size_t qk_head_count = kGdnQkHeadCount;
+  std::size_t value_head_count = kGdnValueHeadCount;
+  std::size_t head_dimension = kGdnHeadDimension;
+};
+
+enum class GdnStatus : std::uint8_t {
+  kSuccess = 0,
+  kInvalidArgument,
+  kInvalidDimension,
+  kSizeOverflow,
+  kInvalidAlias,
+};
+
+[[nodiscard]] const char* gdn_status_string(GdnStatus status) noexcept;
+
+// Single-token width-4 depthwise causal convolution over canonical
+// [Q(16,128), K(16,128), V(48,128)] BF16 projection output. history_in_out is
+// channel-major [10240,3] ordered oldest to newest. conv_weight is
+// channel-major [10240,4]. The operation computes in FP32, applies SiLU,
+// writes BF16 RNE conv_qkv, then shifts history and stores the original raw
+// current value (not the convolved output).
+//
+// raw_qkv and conv_qkv_output may be exactly the same pointer. History,
+// weights, and output must otherwise be disjoint; exact invalid aliases are
+// rejected. Partial overlap is outside the API contract.
+[[nodiscard]] GdnStatus causal_conv1d_silu_update_reference_cpu(
+    const std::uint16_t* raw_qkv, const std::uint16_t* conv_weight,
+    std::uint16_t* history_in_out, std::uint16_t* conv_qkv_output,
+    GdnDimensions dimensions = {}) noexcept;
+
+// One canonical Gated DeltaNet recurrence step. conv_qkv uses the same Q/K/V
+// layout as above. a, b, A_log, and dt_bias are BF16 [48]. state_input and
+// state_output use canonical BF16 [48,V=128,K=128] row-major storage; exact
+// state_input == state_output is supported. output is BF16 [48,128].
+//
+// Q/K L2 reductions, decay/gates, state update, and output accumulation are
+// FP32. Q alone receives the additional 1/sqrt(128) scale. State is persisted
+// in BF16 RNE, while output uses the FP32 updated state before that rounding.
+[[nodiscard]] GdnStatus gated_delta_net_update_reference_cpu(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* A_log,
+    const std::uint16_t* dt_bias, const std::uint16_t* state_input,
+    std::uint16_t* state_output, float l2_epsilon,
+    std::uint16_t* output, GdnDimensions dimensions = {}) noexcept;
+
+// Asynchronous CUDA counterparts. All pointers are device-accessible;
+// cuda_stream is cudaStream_t represented as void*. Calls allocate, copy, and
+// synchronize nothing. Invalid host-visible arguments return
+// cudaErrorInvalidValue. Each valid API clears an unrelated stale CUDA
+// last-error immediately before its own launch.
+[[nodiscard]] int launch_causal_conv1d_silu_update_reference_cuda(
+    const std::uint16_t* raw_qkv, const std::uint16_t* conv_weight,
+    std::uint16_t* history_in_out, std::uint16_t* conv_qkv_output,
+    GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_gated_delta_net_update_reference_cuda(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* A_log,
+    const std::uint16_t* dt_bias, const std::uint16_t* state_input,
+    std::uint16_t* state_output, float l2_epsilon,
+    std::uint16_t* output, GdnDimensions dimensions = {},
+    void* cuda_stream = nullptr) noexcept;
+
+}  // namespace q3x::runtime

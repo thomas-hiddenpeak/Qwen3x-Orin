@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-native-reference-run",
+  "status": "fixed-prompt-token-text-match",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "oracle_fixture": "tests/fixtures/qwen36-27b-nvfp4-greedy-bf16.json"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t": "R39.2.0",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3"
+  },
+  "command": {
+    "executable": "qwen3x-orin",
+    "subcommand": "generate",
+    "model_directory": "MODEL_DIR",
+    "prompt": "用一句话解释 CUDA 是什么。",
+    "max_tokens": 26,
+    "trace": true,
+    "thinking": false,
+    "sampling": "greedy"
+  },
+  "prompt": {
+    "token_count": 19,
+    "token_ids": [
+      248045,
+      846,
+      198,
+      95826,
+      110827,
+      98682,
+      52965,
+      220,
+      98661,
+      1710,
+      248046,
+      198,
+      248045,
+      74455,
+      198,
+      248068,
+      271,
+      248069,
+      271
+    ],
+    "matches_oracle_exactly": true
+  },
+  "generation": {
+    "token_count": 26,
+    "token_ids": [
+      77517,
+      220,
+      95761,
+      32449,
+      220,
+      97039,
+      101692,
+      119548,
+      97792,
+      125574,
+      102027,
+      103725,
+      3709,
+      109238,
+      97327,
+      21966,
+      220,
+      127361,
+      130111,
+      95860,
+      103806,
+      108751,
+      97792,
+      97995,
+      1710,
+      248046
+    ],
+    "text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+    "stop_reason": "im_end",
+    "stop_token_id": 248046,
+    "runner_steps": 44,
+    "token_ids_match_oracle_exactly": true,
+    "text_matches_oracle_exactly": true,
+    "stop_matches_oracle_exactly": true
+  },
+  "memory": {
+    "resident_arena_bytes": 20150786560,
+    "request_arena_bytes": 82505216
+  },
+  "timing_milliseconds": {
+    "normative": false,
+    "cold_load_total": 213845.054,
+    "resident_load": 212683.392,
+    "prompt_prefill": 20559.187,
+    "time_to_first_token": 20559.187,
+    "decode_after_first": 28652.488,
+    "generation_total": 49211.675,
+    "subsequent_token_count": 25,
+    "subsequent_token_mean": 1146.09952
+  },
+  "trace": {
+    "capture_policy": "embedding, 64 hidden/residual pairs, final_norm, and full BF16 block after every committed step",
+    "positions": [
+      {
+        "position": 18,
+        "input_token_id": 271,
+        "full_sha256": "a780bede09bb74be107323444ec2be4b2165c89721624025308525c31c1dc226",
+        "final_norm_sha256": "1b4edfc36c9dea31414dc8a1668c8ad10cad9e574ff32871a18c8e0d28131b7b"
+      },
+      {
+        "position": 19,
+        "input_token_id": 77517,
+        "full_sha256": "76b767786fa92b117833e79062aab1e4ea8942e0c61ac8fd7b6840744fbc85f1",
+        "final_norm_sha256": "266c82ecdd4df8e7b3aad8e4de7a78b8c622e3f15129bbfda24bc0c85a23f680"
+      }
+    ],
+    "bitwise_equal_to_vllm_fixture": false,
+    "cross_backend_policy": "compare finite samples/statistics with declared tolerances; hashes are same-backend replay gates"
+  },
+  "known_canonical_differences": [
+    {
+      "boundary": "mixed-precision projections",
+      "native": "preserves each checkpoint tensor's independent ModelOpt scale",
+      "vllm": "fuses projection operands and requantizes the fused representation",
+      "expected_effect": "different intermediate BF16 rounding and boundary hashes"
+    },
+    {
+      "boundary": "Gated DeltaNet prefill state",
+      "native": "updates BF16 state sequentially one token at a time",
+      "vllm": "uses chunk prefill",
+      "expected_effect": "different operation order, low bits, and boundary hashes"
+    }
+  ]
+}

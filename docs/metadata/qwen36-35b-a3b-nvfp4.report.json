@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "status": "evidence-only-not-runtime-support",
+  "inspected_at": "2026-07-18",
+  "source": {
+    "repository": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+    "revision": "491c2f1ea524c639598bf8fa787a93fed5a6fbce",
+    "files": {
+      "config.json": {
+        "sha256": "58aefa1c9eff7989f431d748f2ddec39446cb1fd2a69acc46e285c6a37b0cecc"
+      },
+      "hf_quant_config.json": {
+        "sha256": "75fe7cc8d5836b58734e05ee67423a4ce91d602aaad45c8173a1b7597cd57663"
+      },
+      "model.safetensors.index.json": {
+        "sha256": "d67403a4e9793c0ba8a136baf14b3b76ec7b32c822267978084895e07ebd8a3e"
+      }
+    }
+  },
+  "model": {
+    "descriptor": "Qwen3.6-35B-A3B",
+    "architecture": "Qwen3_5MoeForConditionalGeneration",
+    "model_type": "qwen3_5_moe",
+    "text_model_type": "qwen3_5_moe_text",
+    "topology": "mixture-of-experts",
+    "vocab_size": 248320,
+    "hidden_size": 2048,
+    "num_hidden_layers": 40,
+    "num_attention_heads": 16,
+    "num_key_value_heads": 2,
+    "head_dim": 256,
+    "full_attention_interval": 4,
+    "num_experts": 256,
+    "num_experts_per_token": 8,
+    "moe_intermediate_size": 512,
+    "shared_expert_intermediate_size": 512
+  },
+  "quantization": {
+    "producer": {
+      "name": "modelopt",
+      "version": "0.44.0"
+    },
+    "quant_algo": "MIXED_PRECISION",
+    "kv_cache_quant_algo": "FP8",
+    "quantized_layer_count": 291,
+    "algorithms": {
+      "W4A16_NVFP4": {
+        "count": 161,
+        "group_sizes": [16]
+      },
+      "FP8": {
+        "count": 130
+      }
+    }
+  },
+  "index": {
+    "tensor_count": 124468,
+    "shard_count": 3,
+    "declared_total_size": 23407580856,
+    "declared_total_parameters": 18683860336
+  },
+  "header_probe": {
+    "file": "model-00001-of-00003.safetensors",
+    "linked_size": 10006877608,
+    "linked_etag": "07141c2db92e47bc08777132cd1a0323faf300eab3a7d7c111bc2bf075fda050",
+    "header_length": 6937600,
+    "tensor_count": 51662,
+    "metadata": {
+      "format": "pt"
+    },
+    "representative_tensors": [
+      {
+        "name": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+        "format": "FP8",
+        "dtype": "F8_E4M3",
+        "shape": [8192, 2048]
+      },
+      {
+        "name": "model.language_model.layers.0.mlp.experts.0.gate_proj.weight",
+        "format": "W4A16_NVFP4",
+        "dtype": "U8",
+        "packed_shape": [512, 1024],
+        "logical_shape": [512, 2048],
+        "scale_dtype": "F8_E4M3",
+        "scale_shape": [512, 128],
+        "scale_2_dtype": "F32",
+        "scale_2_shape": []
+      },
+      {
+        "name": "model.language_model.layers.0.mlp.experts.0.down_proj.weight",
+        "format": "W4A16_NVFP4",
+        "dtype": "U8",
+        "packed_shape": [2048, 256],
+        "logical_shape": [2048, 512],
+        "scale_dtype": "F8_E4M3",
+        "scale_shape": [2048, 32]
+      },
+      {
+        "name": "model.language_model.layers.0.mlp.gate.weight",
+        "format": "BF16",
+        "dtype": "BF16",
+        "shape": [256, 2048]
+      },
+      {
+        "name": "model.language_model.layers.3.self_attn.q_proj.weight",
+        "format": "FP8",
+        "dtype": "F8_E4M3",
+        "shape": [8192, 2048]
+      }
+    ]
+  },
+  "benchmark_shapes": [
+    {
+      "id": "moe_decode_nvfp4_expert_gate_up",
+      "operation": "fused-routed-expert-linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 1024,
+      "k": 2048,
+      "group_size": 16,
+      "experts": 256,
+      "top_k": 8
+    },
+    {
+      "id": "moe_decode_nvfp4_expert_down",
+      "operation": "routed-expert-linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 2048,
+      "k": 512,
+      "group_size": 16,
+      "experts": 256,
+      "top_k": 8
+    },
+    {
+      "id": "moe_decode_fp8_linear_qkv",
+      "operation": "linear",
+      "weight_format": "FP8",
+      "m": 1,
+      "n": 8192,
+      "k": 2048
+    },
+    {
+      "id": "moe_grouped_nvfp4_expert_gate_up",
+      "operation": "grouped-fused-routed-expert-linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 16,
+      "n": 1024,
+      "k": 2048,
+      "group_size": 16,
+      "experts": 256,
+      "top_k": 8
+    },
+    {
+      "id": "moe_decode_nvfp4_lm_head",
+      "operation": "linear",
+      "weight_format": "W4A16_NVFP4",
+      "m": 1,
+      "n": 248320,
+      "k": 2048,
+      "group_size": 16
+    }
+  ]
+}

@@ -1,0 +1,1168 @@
+#include "q3x/runtime/resident_weights.h"
+
+#include "q3x/core/sha256.h"
+
+#include <cuda_runtime_api.h>
+
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <fcntl.h>
+#include <limits>
+#include <map>
+#include <new>
+#include <set>
+#include <string>
+#include <string_view>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <utility>
+#include <vector>
+
+namespace q3x::runtime {
+namespace {
+
+namespace st = io::safetensors;
+namespace mw = model::weights;
+
+constexpr std::uint64_t kMaximumChunkBytes =
+    256ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kMaximumArenaBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kMaximumTensors = 1'000'000U;
+constexpr std::size_t kMaximumShards = 1'024U;
+constexpr std::uint64_t kMaximumMemcpyOperations = 10'000'000ULL;
+constexpr std::size_t kStagingSlots = 2U;
+
+ResidentLoadDiagnostic make_diagnostic(ResidentLoadErrorCode code,
+                                       std::string message,
+                                       std::string context = {},
+                                       std::string shard = {},
+                                       std::uint64_t offset = 0,
+                                       std::string expected = {},
+                                       std::string actual = {},
+                                       int system_error = 0,
+                                       int cuda_error = 0) {
+    ResidentLoadDiagnostic diagnostic;
+    diagnostic.code = code;
+    diagnostic.message = std::move(message);
+    diagnostic.context = std::move(context);
+    diagnostic.shard = std::move(shard);
+    diagnostic.offset = offset;
+    diagnostic.system_error = system_error;
+    diagnostic.cuda_error = cuda_error;
+    diagnostic.expected = std::move(expected);
+    diagnostic.actual = std::move(actual);
+    return diagnostic;
+}
+
+PlanResult plan_failure(ResidentLoadDiagnostic diagnostic) {
+    PlanResult result;
+    result.diagnostic = std::move(diagnostic);
+    return result;
+}
+
+ResidentLoadResult load_failure(ResidentLoadDiagnostic diagnostic) {
+    ResidentLoadResult result;
+    result.diagnostic = std::move(diagnostic);
+    return result;
+}
+
+bool checked_add(std::uint64_t left,
+                 std::uint64_t right,
+                 std::uint64_t& output) noexcept {
+    if (right > std::numeric_limits<std::uint64_t>::max() - left) {
+        return false;
+    }
+    output = left + right;
+    return true;
+}
+
+bool checked_multiply(std::uint64_t left,
+                      std::uint64_t right,
+                      std::uint64_t& output) noexcept {
+    if (left != 0U &&
+        right > std::numeric_limits<std::uint64_t>::max() / left) {
+        return false;
+    }
+    output = left * right;
+    return true;
+}
+
+bool checked_align_up(std::uint64_t value,
+                      std::uint64_t alignment,
+                      std::uint64_t& output) noexcept {
+    const std::uint64_t mask = alignment - 1U;
+    if (value > std::numeric_limits<std::uint64_t>::max() - mask) {
+        return false;
+    }
+    output = (value + mask) & ~mask;
+    return true;
+}
+
+bool is_lower_hex_digest(std::string_view digest) noexcept {
+    if (digest.size() != 64U) {
+        return false;
+    }
+    return std::all_of(digest.begin(), digest.end(), [](const char character) {
+        return (character >= '0' && character <= '9') ||
+               (character >= 'a' && character <= 'f');
+    });
+}
+
+bool tensor_bytes_match(const mw::TensorLocator& locator) noexcept {
+    std::uint64_t elements = 1U;
+    for (const std::uint64_t dimension : locator.shape) {
+        if (!checked_multiply(elements, dimension, elements)) {
+            return false;
+        }
+    }
+    std::uint64_t bits = 0;
+    return checked_multiply(
+               elements, static_cast<std::uint64_t>(st::bit_width(locator.dtype)), bits) &&
+           (bits % 8U) == 0U && bits / 8U == locator.byte_size;
+}
+
+class UniqueFd {
+  public:
+    UniqueFd() noexcept = default;
+    explicit UniqueFd(int descriptor) noexcept : descriptor_(descriptor) {}
+    ~UniqueFd() {
+        if (descriptor_ >= 0) {
+            (void)::close(descriptor_);
+        }
+    }
+
+    UniqueFd(const UniqueFd&) = delete;
+    UniqueFd& operator=(const UniqueFd&) = delete;
+    UniqueFd(UniqueFd&& other) noexcept : descriptor_(other.release()) {}
+    UniqueFd& operator=(UniqueFd&& other) noexcept {
+        if (this != &other) {
+            reset(other.release());
+        }
+        return *this;
+    }
+
+    [[nodiscard]] int get() const noexcept { return descriptor_; }
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return descriptor_ >= 0;
+    }
+
+    void reset(int descriptor = -1) noexcept {
+        if (descriptor_ >= 0) {
+            (void)::close(descriptor_);
+        }
+        descriptor_ = descriptor;
+    }
+
+    [[nodiscard]] int release() noexcept {
+        const int descriptor = descriptor_;
+        descriptor_ = -1;
+        return descriptor;
+    }
+
+  private:
+    int descriptor_ = -1;
+};
+
+struct OpenResult {
+    UniqueFd descriptor;
+    int error = 0;
+    std::string component;
+};
+
+OpenResult open_relative_nofollow(const int root_descriptor,
+                                  const std::string& relative_path) {
+    OpenResult result;
+    UniqueFd current_directory;
+    int parent = root_descriptor;
+    std::size_t begin = 0U;
+    while (begin < relative_path.size()) {
+        const std::size_t slash = relative_path.find('/', begin);
+        const bool final_component = slash == std::string::npos;
+        const std::size_t end = final_component ? relative_path.size() : slash;
+        const std::string component = relative_path.substr(begin, end - begin);
+        const int flags = final_component
+                              ? O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+                              : O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY;
+        const int descriptor = ::openat(parent, component.c_str(), flags);
+        if (descriptor < 0) {
+            result.error = errno;
+            result.component = component;
+            return result;
+        }
+        if (final_component) {
+            result.descriptor.reset(descriptor);
+            return result;
+        }
+        current_directory.reset(descriptor);
+        parent = current_directory.get();
+        begin = slash + 1U;
+    }
+    result.error = EINVAL;
+    return result;
+}
+
+struct OpenShard {
+    const PlannedShard* plan = nullptr;
+    UniqueFd descriptor;
+};
+
+struct CudaResources {
+    void* arena = nullptr;
+    cudaStream_t stream = nullptr;
+    std::array<cudaEvent_t, kStagingSlots> events{};
+    std::array<void*, kStagingSlots> staging{};
+
+    CudaResources() = default;
+    CudaResources(const CudaResources&) = delete;
+    CudaResources& operator=(const CudaResources&) = delete;
+
+    ~CudaResources() {
+        if (stream != nullptr) {
+            (void)cudaStreamSynchronize(stream);
+        }
+        for (cudaEvent_t& event : events) {
+            if (event != nullptr) {
+                (void)cudaEventDestroy(event);
+                event = nullptr;
+            }
+        }
+        for (void*& buffer : staging) {
+            if (buffer != nullptr) {
+                (void)cudaFreeHost(buffer);
+                buffer = nullptr;
+            }
+        }
+        if (stream != nullptr) {
+            (void)cudaStreamDestroy(stream);
+            stream = nullptr;
+        }
+        if (arena != nullptr) {
+            (void)cudaFree(arena);
+            arena = nullptr;
+        }
+        (void)cudaGetLastError();
+    }
+};
+
+ResidentLoadDiagnostic cuda_diagnostic(cudaError_t status,
+                                       std::string context,
+                                       std::string shard = {},
+                                       std::uint64_t offset = 0U) {
+    const char* const name = cudaGetErrorName(status);
+    const char* const description = cudaGetErrorString(status);
+    std::string actual = name == nullptr ? "unknown CUDA error" : name;
+    if (description != nullptr) {
+        actual += ": ";
+        actual += description;
+    }
+    return make_diagnostic(ResidentLoadErrorCode::kCudaFailure,
+                           "CUDA operation failed",
+                           std::move(context),
+                           std::move(shard),
+                           offset,
+                           {},
+                           std::move(actual),
+                           0,
+                           static_cast<int>(status));
+}
+
+bool add_stat(std::uint64_t& target, std::uint64_t value) noexcept {
+    return checked_add(target, value, target);
+}
+
+struct ReadChunkResult {
+    std::size_t bytes = 0U;
+    int error = 0;
+    bool eof = false;
+};
+
+ReadChunkResult read_exact_chunk(int descriptor,
+                                 void* destination,
+                                 std::size_t requested) noexcept {
+    auto* output = static_cast<std::uint8_t*>(destination);
+    ReadChunkResult result;
+    while (result.bytes < requested) {
+        const ssize_t count =
+            ::read(descriptor, output + result.bytes, requested - result.bytes);
+        if (count > 0) {
+            result.bytes += static_cast<std::size_t>(count);
+            continue;
+        }
+        if (count == 0) {
+            result.eof = true;
+            return result;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        result.error = errno;
+        return result;
+    }
+    return result;
+}
+
+ResidentLoadDiagnostic from_manifest_failure(
+    const mw::ManifestResult& manifest_result) {
+    if (manifest_result.diagnostics.empty()) {
+        return make_diagnostic(ResidentLoadErrorCode::kInvalidManifest,
+                               "pinned weight manifest validation failed",
+                               "manifest");
+    }
+    const mw::ManifestDiagnostic& source = manifest_result.diagnostics.front();
+    return make_diagnostic(ResidentLoadErrorCode::kInvalidManifest,
+                           source.message,
+                           source.context,
+                           {},
+                           0U,
+                           source.expected,
+                           source.actual);
+}
+
+}  // namespace
+
+const std::vector<ShardIdentity>& pinned_qwen36_27b_shards() noexcept {
+    static const std::vector<ShardIdentity> identities = {
+        {"model-00001-of-00003.safetensors",
+         9'965'652'512ULL,
+         "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"},
+        {"model-00002-of-00003.safetensors",
+         9'985'757'032ULL,
+         "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"},
+        {"model-00003-of-00003.safetensors",
+         1'970'287'640ULL,
+         "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"},
+    };
+    return identities;
+}
+
+PlanResult build_resident_load_plan(
+    const mw::WeightManifest& manifest,
+    const std::vector<ShardIdentity>& identities) {
+    try {
+        if (identities.empty()) {
+            return plan_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidShardIdentity,
+                "at least one shard identity is required",
+                "identities"));
+        }
+
+        std::map<std::string, ShardIdentity, std::less<>> identity_map;
+        std::uint64_t source_bytes = 0U;
+        for (const ShardIdentity& identity : identities) {
+            if (!st::is_safe_relative_shard_path(identity.filename)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kUnsafeShardPath,
+                    "shard identity has an unsafe relative path",
+                    identity.filename,
+                    identity.filename));
+            }
+            if (identity.file_size == 0U ||
+                !is_lower_hex_digest(identity.sha256)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kInvalidShardIdentity,
+                    "shard identity requires a non-zero size and lowercase SHA-256",
+                    identity.filename,
+                    identity.filename));
+            }
+            if (!identity_map.emplace(identity.filename, identity).second) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kDuplicateShard,
+                    "duplicate shard identity",
+                    identity.filename,
+                    identity.filename));
+            }
+            if (!checked_add(source_bytes, identity.file_size, source_bytes)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "aggregate shard size overflows uint64",
+                    identity.filename,
+                    identity.filename));
+            }
+        }
+
+        struct SourceRange {
+            std::string name;
+            std::uint64_t begin = 0U;
+            std::uint64_t end = 0U;
+        };
+        std::map<std::string, std::vector<SourceRange>, std::less<>> ranges;
+        std::set<std::string, std::less<>> manifest_shards;
+        struct Candidate {
+            const std::string* name = nullptr;
+            const mw::TensorLocator* locator = nullptr;
+        };
+        std::vector<Candidate> text_tensors;
+        text_tensors.reserve(manifest.tensors.size());
+
+        for (const auto& item : manifest.tensors) {
+            const std::string& name = item.first;
+            const mw::TensorLocator& locator = item.second;
+            if (!st::is_safe_relative_shard_path(locator.shard)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kUnsafeShardPath,
+                    "manifest tensor has an unsafe shard path",
+                    name,
+                    locator.shard));
+            }
+            const auto identity = identity_map.find(locator.shard);
+            if (identity == identity_map.end()) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kMissingShardIdentity,
+                    "manifest tensor has no authenticated shard identity",
+                    name,
+                    locator.shard));
+            }
+            manifest_shards.emplace(locator.shard);
+
+            const mw::TensorCategory classified = mw::classify_tensor(name);
+            if (locator.file_end <= locator.file_begin) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "tensor source end does not follow source begin (possible offset overflow)",
+                    name,
+                    locator.shard,
+                    locator.file_begin,
+                    "file_end > file_begin",
+                    std::to_string(locator.file_end)));
+            }
+            if (classified == mw::TensorCategory::kUnknown ||
+                locator.category != classified || locator.byte_size == 0U ||
+                locator.file_end - locator.file_begin != locator.byte_size ||
+                locator.file_end > identity->second.file_size ||
+                !tensor_bytes_match(locator)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kInvalidManifest,
+                    "tensor locator is inconsistent with its ABI or shard range",
+                    name,
+                    locator.shard,
+                    locator.file_begin));
+            }
+
+            ranges[locator.shard].push_back(
+                SourceRange{name, locator.file_begin, locator.file_end});
+            if (classified == mw::TensorCategory::kText) {
+                text_tensors.push_back(Candidate{&name, &locator});
+            }
+        }
+
+        for (const auto& identity : identity_map) {
+            if (manifest_shards.find(identity.first) == manifest_shards.end()) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kUnexpectedShardIdentity,
+                    "authenticated shard has no tensor in the manifest",
+                    identity.first,
+                    identity.first));
+            }
+        }
+        if (manifest.summary.shard_count != 0U &&
+            manifest.summary.shard_count != identity_map.size()) {
+            return plan_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidManifest,
+                "manifest shard count disagrees with authenticated identities",
+                "summary.shard_count",
+                {},
+                0U,
+                std::to_string(identity_map.size()),
+                std::to_string(manifest.summary.shard_count)));
+        }
+
+        for (auto& shard_ranges : ranges) {
+            std::sort(shard_ranges.second.begin(),
+                      shard_ranges.second.end(),
+                      [](const SourceRange& left, const SourceRange& right) {
+                          if (left.begin != right.begin) {
+                              return left.begin < right.begin;
+                          }
+                          if (left.end != right.end) {
+                              return left.end < right.end;
+                          }
+                          return left.name < right.name;
+                      });
+            for (std::size_t index = 1U; index < shard_ranges.second.size();
+                 ++index) {
+                if (shard_ranges.second[index].begin <
+                    shard_ranges.second[index - 1U].end) {
+                    return plan_failure(make_diagnostic(
+                        ResidentLoadErrorCode::kInvalidManifest,
+                        "tensor source ranges overlap",
+                        shard_ranges.second[index].name,
+                        shard_ranges.first,
+                        shard_ranges.second[index].begin,
+                        shard_ranges.second[index - 1U].name));
+                }
+            }
+        }
+
+        std::sort(text_tensors.begin(),
+                  text_tensors.end(),
+                  [](const Candidate& left, const Candidate& right) {
+                      if (left.locator->shard != right.locator->shard) {
+                          return left.locator->shard < right.locator->shard;
+                      }
+                      if (left.locator->file_begin != right.locator->file_begin) {
+                          return left.locator->file_begin <
+                                 right.locator->file_begin;
+                      }
+                      return *left.name < *right.name;
+                  });
+
+        ResidentLoadPlan plan;
+        plan.source_bytes = source_bytes;
+        plan.tensors.reserve(text_tensors.size());
+        plan.shards.reserve(identity_map.size());
+        std::map<std::string, std::size_t, std::less<>> shard_indices;
+        for (const auto& identity : identity_map) {
+            shard_indices.emplace(identity.first, plan.shards.size());
+            PlannedShard shard;
+            shard.identity = identity.second;
+            plan.shards.emplace_back(std::move(shard));
+        }
+
+        for (const Candidate& candidate : text_tensors) {
+            std::uint64_t allocation_bytes = 0U;
+            if (!checked_align_up(candidate.locator->byte_size,
+                                  kResidentTensorAlignment,
+                                  allocation_bytes) ||
+                !checked_add(plan.arena_bytes,
+                             allocation_bytes,
+                             plan.arena_bytes) ||
+                !checked_add(plan.copied_bytes,
+                             candidate.locator->byte_size,
+                             plan.copied_bytes)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "text arena or copied-byte total overflows uint64",
+                    *candidate.name,
+                    candidate.locator->shard,
+                    candidate.locator->file_begin));
+            }
+            PlannedTensor tensor;
+            tensor.name = *candidate.name;
+            tensor.shard = candidate.locator->shard;
+            tensor.source_begin = candidate.locator->file_begin;
+            tensor.source_end = candidate.locator->file_end;
+            tensor.arena_offset = plan.arena_bytes - allocation_bytes;
+            tensor.byte_size = candidate.locator->byte_size;
+            tensor.dtype = candidate.locator->dtype;
+            tensor.shape = candidate.locator->shape;
+            const std::size_t tensor_index = plan.tensors.size();
+            plan.tensors.emplace_back(std::move(tensor));
+
+            PlannedShard& shard =
+                plan.shards[shard_indices.at(candidate.locator->shard)];
+            shard.tensor_indices.push_back(tensor_index);
+            if (!checked_add(shard.copied_bytes,
+                             candidate.locator->byte_size,
+                             shard.copied_bytes)) {
+                return plan_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "per-shard copied-byte total overflows uint64",
+                    *candidate.name,
+                    candidate.locator->shard));
+            }
+        }
+
+        if (plan.tensors.empty() ||
+            (manifest.summary.text_tensor_count != 0U &&
+             manifest.summary.text_tensor_count != plan.tensors.size()) ||
+            (manifest.summary.raw_text_bytes != 0U &&
+             manifest.summary.raw_text_bytes != plan.copied_bytes) ||
+            (manifest.summary.arena_alignment != 0U &&
+             manifest.summary.arena_alignment != kResidentTensorAlignment) ||
+            (manifest.summary.estimated_text_arena_bytes != 0U &&
+             manifest.summary.estimated_text_arena_bytes != plan.arena_bytes)) {
+            return plan_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidManifest,
+                "manifest summary disagrees with the deterministic resident plan",
+                "manifest.summary"));
+        }
+
+        PlanResult result;
+        result.value.emplace(std::move(plan));
+        return result;
+    } catch (const std::bad_alloc&) {
+        return plan_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "allocation failed while building resident load plan",
+            "plan"));
+    } catch (const std::length_error&) {
+        return plan_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "container size exceeded while building resident load plan",
+            "plan"));
+    }
+}
+
+ResidentWeights::~ResidentWeights() { release(); }
+
+ResidentWeights::ResidentWeights(ResidentWeights&& other) noexcept
+    : arena_(std::exchange(other.arena_, nullptr)),
+      arena_bytes_(std::exchange(other.arena_bytes_, 0U)),
+      tensors_(std::move(other.tensors_)),
+      stats_(std::move(other.stats_)) {}
+
+ResidentWeights& ResidentWeights::operator=(ResidentWeights&& other) noexcept {
+    if (this != &other) {
+        release();
+        arena_ = std::exchange(other.arena_, nullptr);
+        arena_bytes_ = std::exchange(other.arena_bytes_, 0U);
+        tensors_ = std::move(other.tensors_);
+        stats_ = std::move(other.stats_);
+    }
+    return *this;
+}
+
+void ResidentWeights::release() noexcept {
+    if (arena_ != nullptr) {
+        (void)cudaFree(arena_);
+        arena_ = nullptr;
+        (void)cudaGetLastError();
+    }
+    arena_bytes_ = 0U;
+    tensors_.clear();
+    stats_ = {};
+}
+
+const DeviceTensorView* ResidentWeights::find(
+    const std::string_view name) const noexcept {
+    const auto iterator = tensors_.find(name);
+    return iterator == tensors_.end() ? nullptr : &iterator->second;
+}
+
+ResidentLoadResult load_resident_weights(
+    const std::filesystem::path& directory,
+    const mw::WeightManifest& manifest,
+    const std::vector<ShardIdentity>& identities,
+    const ResidentLoadOptions& options) {
+    if (options.chunk_bytes == 0U ||
+        options.chunk_bytes > kMaximumChunkBytes ||
+        options.chunk_bytes >
+            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) ||
+        options.max_arena_bytes == 0U ||
+        options.max_arena_bytes > kMaximumArenaBytes ||
+        options.max_tensors == 0U || options.max_tensors > kMaximumTensors ||
+        options.max_shards == 0U || options.max_shards > kMaximumShards ||
+        options.max_memcpy_operations == 0U ||
+        options.max_memcpy_operations > kMaximumMemcpyOperations) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kInvalidOption,
+            "resident loader options exceed defensive limits",
+            "options"));
+    }
+
+    try {
+        PlanResult plan_result = build_resident_load_plan(manifest, identities);
+        if (!plan_result) {
+            return load_failure(std::move(plan_result.diagnostic));
+        }
+        ResidentLoadPlan& plan = *plan_result.value;
+        if (plan.arena_bytes > options.max_arena_bytes ||
+            plan.arena_bytes >
+                static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) ||
+            plan.tensors.size() > options.max_tensors ||
+            plan.shards.size() > options.max_shards) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidOption,
+                "resident plan exceeds configured resource limits",
+                "plan"));
+        }
+
+        const std::string directory_text = directory.string();
+        UniqueFd root_descriptor(
+            ::open(directory_text.c_str(),
+                   O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW));
+        if (!root_descriptor) {
+            const int error = errno;
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kOpenDirectoryFailed,
+                "could not securely open checkpoint directory",
+                directory_text,
+                {},
+                0U,
+                {},
+                std::strerror(error),
+                error));
+        }
+
+        std::vector<OpenShard> open_shards;
+        open_shards.reserve(plan.shards.size());
+        for (const PlannedShard& shard : plan.shards) {
+            OpenResult opened = open_relative_nofollow(
+                root_descriptor.get(), shard.identity.filename);
+            if (!opened.descriptor) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kOpenShardFailed,
+                    "could not securely open shard relative to checkpoint root",
+                    opened.component,
+                    shard.identity.filename,
+                    0U,
+                    {},
+                    std::strerror(opened.error),
+                    opened.error));
+            }
+            struct stat status {};
+            if (::fstat(opened.descriptor.get(), &status) != 0) {
+                const int error = errno;
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kIoFailure,
+                    "fstat failed for opened shard",
+                    "fstat",
+                    shard.identity.filename,
+                    0U,
+                    {},
+                    std::strerror(error),
+                    error));
+            }
+            if (!S_ISREG(status.st_mode)) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kShardNotRegular,
+                    "opened shard is not a regular file",
+                    "fstat",
+                    shard.identity.filename));
+            }
+            if (status.st_size < 0 ||
+                static_cast<std::uint64_t>(status.st_size) !=
+                    shard.identity.file_size) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kShardSizeMismatch,
+                    "opened shard size differs from authenticated identity",
+                    "fstat",
+                    shard.identity.filename,
+                    0U,
+                    std::to_string(shard.identity.file_size),
+                    status.st_size < 0
+                        ? "negative"
+                        : std::to_string(
+                              static_cast<std::uint64_t>(status.st_size))));
+            }
+            OpenShard opened_shard;
+            opened_shard.plan = &shard;
+            opened_shard.descriptor = std::move(opened.descriptor);
+            open_shards.emplace_back(std::move(opened_shard));
+        }
+
+        ResidentWeights output;
+        output.arena_bytes_ = plan.arena_bytes;
+        output.stats_.shards.reserve(plan.shards.size());
+        for (const PlannedTensor& tensor : plan.tensors) {
+            DeviceTensorView view;
+            view.arena_offset = tensor.arena_offset;
+            view.byte_size = tensor.byte_size;
+            view.dtype = tensor.dtype;
+            view.shape = tensor.shape;
+            if (!output.tensors_.emplace(tensor.name, std::move(view)).second) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kInvalidManifest,
+                    "duplicate text tensor in resident plan",
+                    tensor.name,
+                    tensor.shard));
+            }
+        }
+
+        // Isolate any prior caller error before interpreting CUDA return codes.
+        (void)cudaGetLastError();
+        CudaResources resources;
+        cudaError_t cuda_status = cudaStreamCreateWithFlags(
+            &resources.stream, cudaStreamNonBlocking);
+        if (cuda_status != cudaSuccess) {
+            return load_failure(cuda_diagnostic(cuda_status,
+                                                "cudaStreamCreateWithFlags"));
+        }
+        for (std::size_t slot = 0U; slot < kStagingSlots; ++slot) {
+            cuda_status = cudaEventCreateWithFlags(
+                &resources.events[slot], cudaEventDisableTiming);
+            if (cuda_status != cudaSuccess) {
+                return load_failure(
+                    cuda_diagnostic(cuda_status, "cudaEventCreateWithFlags"));
+            }
+            cuda_status = cudaHostAlloc(
+                &resources.staging[slot],
+                static_cast<std::size_t>(options.chunk_bytes),
+                cudaHostAllocDefault);
+            if (cuda_status != cudaSuccess) {
+                return load_failure(cuda_diagnostic(cuda_status,
+                                                    "cudaHostAlloc"));
+            }
+        }
+
+        std::size_t free_bytes = 0U;
+        std::size_t total_bytes = 0U;
+        cuda_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+        if (cuda_status != cudaSuccess) {
+            return load_failure(
+                cuda_diagnostic(cuda_status, "cudaMemGetInfo"));
+        }
+        output.stats_.device_free_before =
+            static_cast<std::uint64_t>(free_bytes);
+        output.stats_.device_total = static_cast<std::uint64_t>(total_bytes);
+        const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+        if (plan.arena_bytes > free_u64 ||
+            options.min_free_bytes_after_load > free_u64 - plan.arena_bytes) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInsufficientDeviceMemory,
+                "cudaMemGetInfo cannot satisfy arena plus configured safety margin",
+                "cudaMemGetInfo",
+                {},
+                0U,
+                std::to_string(plan.arena_bytes) + "+" +
+                    std::to_string(options.min_free_bytes_after_load),
+                std::to_string(free_u64)));
+        }
+
+        cuda_status = cudaMalloc(
+            &resources.arena, static_cast<std::size_t>(plan.arena_bytes));
+        if (cuda_status != cudaSuccess) {
+            return load_failure(
+                cuda_diagnostic(cuda_status, "cudaMalloc(resident arena)"));
+        }
+        auto* const arena_bytes = static_cast<std::uint8_t*>(resources.arena);
+        for (auto& tensor : output.tensors_) {
+            tensor.second.device_data =
+                arena_bytes + static_cast<std::size_t>(tensor.second.arena_offset);
+        }
+
+        std::array<bool, kStagingSlots> slot_pending{};
+        std::uint64_t global_chunk_index = 0U;
+        for (OpenShard& opened_shard : open_shards) {
+            const PlannedShard& shard = *opened_shard.plan;
+            ShardLoadStats shard_stats;
+            shard_stats.filename = shard.identity.filename;
+            core::Sha256 hasher;
+            std::uint64_t file_offset = 0U;
+            std::size_t segment_cursor = 0U;
+
+            while (file_offset < shard.identity.file_size) {
+                const std::size_t slot = static_cast<std::size_t>(
+                    global_chunk_index % kStagingSlots);
+                if (slot_pending[slot]) {
+                    cuda_status = cudaEventSynchronize(resources.events[slot]);
+                    if (cuda_status != cudaSuccess) {
+                        return load_failure(cuda_diagnostic(
+                            cuda_status,
+                            "cudaEventSynchronize(staging reuse)",
+                            shard.identity.filename,
+                            file_offset));
+                    }
+                    slot_pending[slot] = false;
+                }
+
+                const std::uint64_t remaining =
+                    shard.identity.file_size - file_offset;
+                const std::size_t chunk_size = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(remaining, options.chunk_bytes));
+                const ReadChunkResult read_result = read_exact_chunk(
+                    opened_shard.descriptor.get(),
+                    resources.staging[slot],
+                    chunk_size);
+                if (read_result.error != 0) {
+                    return load_failure(make_diagnostic(
+                        ResidentLoadErrorCode::kIoFailure,
+                        "sequential shard read failed",
+                        "read",
+                        shard.identity.filename,
+                        file_offset + read_result.bytes,
+                        std::to_string(chunk_size),
+                        std::strerror(read_result.error),
+                        read_result.error));
+                }
+                if (read_result.eof || read_result.bytes != chunk_size) {
+                    return load_failure(make_diagnostic(
+                        ResidentLoadErrorCode::kShardSizeMismatch,
+                        "shard was truncated during sequential load",
+                        "read",
+                        shard.identity.filename,
+                        file_offset + read_result.bytes,
+                        std::to_string(chunk_size),
+                        std::to_string(read_result.bytes)));
+                }
+                if (!hasher.update(resources.staging[slot], chunk_size)) {
+                    return load_failure(make_diagnostic(
+                        ResidentLoadErrorCode::kArithmeticOverflow,
+                        "SHA-256 streaming length overflow",
+                        "sha256",
+                        shard.identity.filename,
+                        file_offset));
+                }
+
+                std::uint64_t chunk_end = 0U;
+                if (!checked_add(file_offset,
+                                 static_cast<std::uint64_t>(chunk_size),
+                                 chunk_end) ||
+                    !add_stat(output.stats_.bytes_read, chunk_size) ||
+                    !add_stat(shard_stats.bytes_read, chunk_size) ||
+                    !add_stat(output.stats_.chunks, 1U) ||
+                    !add_stat(shard_stats.chunks, 1U)) {
+                    return load_failure(make_diagnostic(
+                        ResidentLoadErrorCode::kArithmeticOverflow,
+                        "loader statistics overflow uint64",
+                        "statistics",
+                        shard.identity.filename,
+                        file_offset));
+                }
+
+                while (segment_cursor < shard.tensor_indices.size() &&
+                       plan.tensors[shard.tensor_indices[segment_cursor]]
+                               .source_end <= file_offset) {
+                    ++segment_cursor;
+                }
+                for (std::size_t segment = segment_cursor;
+                     segment < shard.tensor_indices.size(); ++segment) {
+                    const PlannedTensor& tensor =
+                        plan.tensors[shard.tensor_indices[segment]];
+                    if (tensor.source_begin >= chunk_end) {
+                        break;
+                    }
+                    const std::uint64_t copy_begin =
+                        std::max(tensor.source_begin, file_offset);
+                    const std::uint64_t copy_end =
+                        std::min(tensor.source_end, chunk_end);
+                    if (copy_end <= copy_begin) {
+                        continue;
+                    }
+                    const std::uint64_t copy_bytes = copy_end - copy_begin;
+                    std::uint64_t destination_offset = 0U;
+                    if (!checked_add(tensor.arena_offset,
+                                     copy_begin - tensor.source_begin,
+                                     destination_offset) ||
+                        destination_offset > plan.arena_bytes ||
+                        copy_bytes > plan.arena_bytes - destination_offset ||
+                        output.stats_.memcpy_operations >=
+                            options.max_memcpy_operations) {
+                        return load_failure(make_diagnostic(
+                            output.stats_.memcpy_operations >=
+                                    options.max_memcpy_operations
+                                ? ResidentLoadErrorCode::kInvalidOption
+                                : ResidentLoadErrorCode::kArithmeticOverflow,
+                            "scatter copy exceeds arena or operation limit",
+                            tensor.name,
+                            shard.identity.filename,
+                            copy_begin));
+                    }
+                    const std::size_t source_offset = static_cast<std::size_t>(
+                        copy_begin - file_offset);
+                    cuda_status = cudaMemcpyAsync(
+                        arena_bytes +
+                            static_cast<std::size_t>(destination_offset),
+                        static_cast<std::uint8_t*>(resources.staging[slot]) +
+                            source_offset,
+                        static_cast<std::size_t>(copy_bytes),
+                        cudaMemcpyHostToDevice,
+                        resources.stream);
+                    if (cuda_status != cudaSuccess) {
+                        return load_failure(cuda_diagnostic(
+                            cuda_status,
+                            "cudaMemcpyAsync(scatter)",
+                            shard.identity.filename,
+                            copy_begin));
+                    }
+                    if (!add_stat(output.stats_.bytes_copied, copy_bytes) ||
+                        !add_stat(shard_stats.bytes_copied, copy_bytes) ||
+                        !add_stat(output.stats_.memcpy_operations, 1U) ||
+                        !add_stat(shard_stats.memcpy_operations, 1U)) {
+                        return load_failure(make_diagnostic(
+                            ResidentLoadErrorCode::kArithmeticOverflow,
+                            "scatter-copy statistics overflow uint64",
+                            tensor.name,
+                            shard.identity.filename,
+                            copy_begin));
+                    }
+                }
+
+                cuda_status = cudaEventRecord(resources.events[slot],
+                                              resources.stream);
+                if (cuda_status != cudaSuccess) {
+                    return load_failure(cuda_diagnostic(
+                        cuda_status,
+                        "cudaEventRecord(staging lifetime)",
+                        shard.identity.filename,
+                        file_offset));
+                }
+                slot_pending[slot] = true;
+                file_offset = chunk_end;
+                ++global_chunk_index;
+            }
+
+            std::uint8_t extra_byte = 0U;
+            ReadChunkResult extra = read_exact_chunk(
+                opened_shard.descriptor.get(), &extra_byte, 1U);
+            if (extra.error != 0) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kIoFailure,
+                    "failed while checking shard EOF",
+                    "read",
+                    shard.identity.filename,
+                    shard.identity.file_size,
+                    {},
+                    std::strerror(extra.error),
+                    extra.error));
+            }
+            if (extra.bytes != 0U || !extra.eof) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kShardSizeMismatch,
+                    "shard grew during sequential load",
+                    "read",
+                    shard.identity.filename,
+                    shard.identity.file_size));
+            }
+            struct stat final_status {};
+            if (::fstat(opened_shard.descriptor.get(), &final_status) != 0) {
+                const int error = errno;
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kIoFailure,
+                    "final fstat failed for opened shard",
+                    "fstat",
+                    shard.identity.filename,
+                    shard.identity.file_size,
+                    {},
+                    std::strerror(error),
+                    error));
+            }
+            if (!S_ISREG(final_status.st_mode) || final_status.st_size < 0 ||
+                static_cast<std::uint64_t>(final_status.st_size) !=
+                    shard.identity.file_size) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kShardSizeMismatch,
+                    "shard identity changed during sequential load",
+                    "fstat",
+                    shard.identity.filename,
+                    shard.identity.file_size));
+            }
+
+            shard_stats.sha256 = hasher.finalize().hex();
+            if (shard_stats.sha256 != shard.identity.sha256) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kSha256Mismatch,
+                    "full-file SHA-256 differs from authenticated identity",
+                    "sha256",
+                    shard.identity.filename,
+                    0U,
+                    shard.identity.sha256,
+                    shard_stats.sha256));
+            }
+            output.stats_.shards.emplace_back(std::move(shard_stats));
+        }
+
+        cuda_status = cudaStreamSynchronize(resources.stream);
+        if (cuda_status != cudaSuccess) {
+            return load_failure(cuda_diagnostic(cuda_status,
+                                                "cudaStreamSynchronize(final)"));
+        }
+        slot_pending.fill(false);
+        if (output.stats_.bytes_read != plan.source_bytes ||
+            output.stats_.bytes_copied != plan.copied_bytes ||
+            output.stats_.bytes_copied > output.stats_.bytes_read) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidManifest,
+                "completed loader statistics disagree with resident plan",
+                "statistics",
+                {},
+                0U,
+                std::to_string(plan.source_bytes) + "/" +
+                    std::to_string(plan.copied_bytes),
+                std::to_string(output.stats_.bytes_read) + "/" +
+                    std::to_string(output.stats_.bytes_copied)));
+        }
+        output.stats_.bytes_skipped =
+            output.stats_.bytes_read - output.stats_.bytes_copied;
+
+        output.arena_ = resources.arena;
+        resources.arena = nullptr;
+        (void)cudaGetLastError();
+        ResidentLoadResult result;
+        result.value.emplace(std::move(output));
+        return result;
+    } catch (const std::bad_alloc&) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "allocation failed during resident weight load",
+            "loader"));
+    } catch (const std::length_error&) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "container size exceeded during resident weight load",
+            "loader"));
+    } catch (const std::filesystem::filesystem_error& error) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kIoFailure,
+            "filesystem conversion failed during resident weight load",
+            directory.string(),
+            {},
+            0U,
+            {},
+            error.what()));
+    }
+}
+
+ResidentLoadResult load_pinned_qwen36_27b(
+    const std::filesystem::path& directory,
+    const ResidentLoadOptions& options) {
+    mw::ManifestResult manifest =
+        mw::build_qwen36_27b_text_manifest(directory);
+    if (!manifest) {
+        return load_failure(from_manifest_failure(manifest));
+    }
+    if (manifest.value->summary.estimated_text_arena_bytes !=
+            kPinnedQwen36_27BArenaBytes ||
+        manifest.value->summary.raw_text_bytes !=
+            mw::kPinnedQwen36_27BTextBytes) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kInvalidManifest,
+            "pinned Qwen3.6-27B arena contract does not match compiled identity",
+            "manifest.summary",
+            {},
+            0U,
+            std::to_string(kPinnedQwen36_27BArenaBytes),
+            std::to_string(
+                manifest.value->summary.estimated_text_arena_bytes)));
+    }
+    return load_resident_weights(
+        directory, *manifest.value, pinned_qwen36_27b_shards(), options);
+}
+
+std::string_view to_string(ResidentLoadErrorCode code) noexcept {
+    switch (code) {
+        case ResidentLoadErrorCode::kNone:
+            return "none";
+        case ResidentLoadErrorCode::kInvalidOption:
+            return "invalid_option";
+        case ResidentLoadErrorCode::kInvalidManifest:
+            return "invalid_manifest";
+        case ResidentLoadErrorCode::kUnsafeShardPath:
+            return "unsafe_shard_path";
+        case ResidentLoadErrorCode::kDuplicateShard:
+            return "duplicate_shard";
+        case ResidentLoadErrorCode::kMissingShardIdentity:
+            return "missing_shard_identity";
+        case ResidentLoadErrorCode::kUnexpectedShardIdentity:
+            return "unexpected_shard_identity";
+        case ResidentLoadErrorCode::kInvalidShardIdentity:
+            return "invalid_shard_identity";
+        case ResidentLoadErrorCode::kArithmeticOverflow:
+            return "arithmetic_overflow";
+        case ResidentLoadErrorCode::kOpenDirectoryFailed:
+            return "open_directory_failed";
+        case ResidentLoadErrorCode::kOpenShardFailed:
+            return "open_shard_failed";
+        case ResidentLoadErrorCode::kShardNotRegular:
+            return "shard_not_regular";
+        case ResidentLoadErrorCode::kShardSizeMismatch:
+            return "shard_size_mismatch";
+        case ResidentLoadErrorCode::kIoFailure:
+            return "io_failure";
+        case ResidentLoadErrorCode::kSha256Mismatch:
+            return "sha256_mismatch";
+        case ResidentLoadErrorCode::kCudaFailure:
+            return "cuda_failure";
+        case ResidentLoadErrorCode::kInsufficientDeviceMemory:
+            return "insufficient_device_memory";
+        case ResidentLoadErrorCode::kAllocationFailure:
+            return "allocation_failure";
+    }
+    return "unknown";
+}
+
+}  // namespace q3x::runtime
