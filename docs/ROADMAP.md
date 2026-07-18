@@ -2,9 +2,10 @@
 
 This roadmap is ordered by technical dependency, not by calendar date. A phase
 is complete only when its exit criteria are reproducible on a Jetson AGX Orin.
-The project has a complete Phase 1 direct-load reference pipeline and is in
-Phase 2 correctness bring-up for the pinned Qwen3.6 27B model. Qwen3.6 dense
-and MoE metadata evidence is pinned and reproducible; Qwen3.5 ModelOpt
+The project has a complete Phase 1 direct-load pipeline, a fixed-oracle native
+Phase 2 path for the pinned Qwen3.6 27B model, and active Phase 3 SM87
+performance work. Qwen3.6 dense and MoE metadata evidence is pinned and
+reproducible; Qwen3.5 ModelOpt
 packaging remains an explicit gap rather than being inferred from shape
 compatibility.
 
@@ -104,12 +105,21 @@ Exit criteria:
 
 Deliverables:
 
-- `sm_87` NVFP4 and FP8 single-token GEMV kernels.
+- [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
 - Marlin-style W4A16 and W8A16 kernels for small token batches.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
-- Reproducible benchmark harness with Jetson power/clock metadata.
+- [done, initial diagnostic] Reproducible single-load benchmark/replay harness
+  with Jetson power/clock metadata.
+
+Current evidence: Nsight attributes 98.4% of reference GPU kernel time to
+weight-only GEMV. The first direct-BF16 SM87 backend passes awkward/K=5120/
+K=17408 numerical gates and the complete 19/26-token fixed oracle. In a
+same-binary, two-prompt comparison it reduced median TTFT by 45.60%, total
+two-token generation by 45.47%, and subsequent-token latency by 43.05%
+(1.838x, 1.834x, and 1.756x speedups). It remains default-off while prompt and
+shape coverage expands. See [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
 
 Exit criteria:
 

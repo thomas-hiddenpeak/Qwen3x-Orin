@@ -107,3 +107,6 @@ The pure-host `reference_benchmark_control` test supplies fake generation and
 memory callbacks. It covers round ordering, warmup exclusion, per-sample and
 aggregate statistics, exact replay mismatches, nested failures, and memory-drop
 classification without loading a model or executing a CUDA kernel.
+
+The first matched reference/SM87 run and its machine-readable samples are in
+the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md).

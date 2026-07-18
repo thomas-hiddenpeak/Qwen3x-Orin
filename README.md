@@ -13,7 +13,10 @@ and performs sequential greedy generation. This reference path is intended for
 oracle alignment and bring-up. On the target Orin it now reproduces the pinned
 fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
-aggressive performance tuning remain in progress.
+aggressive performance tuning remain in progress. An explicit, default-off
+SM87 weight-only projection backend now passes the same full-model gate and
+reduces median subsequent-token latency from 1,144.108 ms to 651.554 ms in the
+first matched diagnostic benchmark.
 
 > Qwen3x-Orin is an independent community project. It is not an official Qwen,
 > Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -22,7 +25,7 @@ aggressive performance tuning remain in progress.
 
 | Model family | Topology | ModelOpt weights | Initial status |
 | --- | --- | --- | --- |
-| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation; fixed oracle token/text gate passed on Orin |
+| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 projections; both pass the fixed oracle gate on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
 The initial scope is text-only, batch-one correctness and decode performance.
@@ -83,6 +86,10 @@ allocation-free reference projection dispatch are documented in the
 The generation lifecycle, token/stop semantics, timing fields, trace hashes,
 and CLI output contract are documented in the
 [native reference engine contract](docs/REFERENCE_ENGINE.md).
+Reusable single-load latency/replay measurement is specified in the
+[benchmark harness](docs/REFERENCE_BENCHMARK.md), and the first Nsight plus
+matched backend results are recorded in the
+[Phase 3 performance evidence](docs/PERFORMANCE_BASELINE.md).
 
 ## Build and inspect
 
@@ -117,6 +124,18 @@ Run correctness-first batch-one greedy generation with:
 build/orin-release/qwen3x-orin generate MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 32
+```
+
+The correctness reference remains the default. On an SM87 device, select the
+validated direct FP8/NVFP4-to-BF16 layer path explicitly with
+`--projection-backend sm87`. Reuse one loaded engine for repeatability and
+latency distributions with:
+
+```bash
+build/orin-release/qwen3x-orin benchmark MODEL_DIR \
+  --prompt "Explain unified memory in one sentence." \
+  --max-tokens 2 --warmup 1 --iterations 3 \
+  --max-sequence-length 64 --projection-backend sm87
 ```
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
@@ -165,9 +184,10 @@ fail-closed text-only Qwen chat formatter. Its exact schema, resource limits,
 and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
-Native inference is currently a deliberately sequential, batch-one reference
-surface. It does not yet provide optimized multi-token prefill, continuous
-batching, a server, or a performance claim. The independent target-device oracle,
+Native inference is currently a deliberately sequential, batch-one surface
+with a correctness reference and an opt-in M=1 projection optimization. It
+does not yet provide optimized multi-token prefill, continuous batching, a
+server, or a release-grade performance claim. The independent target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as
 [tests/fixtures/qwen36-27b-nvfp4-greedy.json](tests/fixtures/qwen36-27b-nvfp4-greedy.json);

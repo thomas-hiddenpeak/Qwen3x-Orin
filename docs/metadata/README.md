@@ -19,6 +19,15 @@ records the first successful full native 27B generation: exact 19 prompt and
 generation timings, native position-18/19 trace hashes, and the canonical
 reasons native and vLLM boundary hashes are not expected to be bitwise equal.
 
+The diagnostic Phase 3 records are:
+
+- [`qwen36-27b-reference-nsys-baseline.json`](qwen36-27b-reference-nsys-baseline.json),
+  which pins the reference CUDA kernel and launch-shape profile, toolchain,
+  report hash, and reproducible `nsys stats` commands;
+- [`qwen36-27b-projection-backend-benchmark.json`](qwen36-27b-projection-backend-benchmark.json),
+  which retains every paired reference/SM87 sample, strict replay results,
+  exact full-model gate, memory watermarks, microbenchmarks, and limitations.
+
 Each report contains raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
 quantization fields; index counts; representative shapes read from the first
