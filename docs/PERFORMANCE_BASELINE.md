@@ -18,6 +18,8 @@ The first bounded multi-token prefill result is recorded in
 [`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
 The subsequent C8 kernel-optimization milestone is recorded in
 [`qwen36-27b-c8-kernel-optimization-benchmark.json`](metadata/qwen36-27b-c8-kernel-optimization-benchmark.json).
+The bounded C16 runtime and FP8/NVFP4 Tensor Core milestone is recorded in
+[`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 
 ## Method
 
@@ -449,9 +451,72 @@ commit. The raw 871,724-byte report is not checked in; SHA-256
 `da7e5c82cdf38c0471e60ec317f095a7f83924103cf8b9c19c88467b067145aa`
 and the complete hotspot table are retained in the machine-readable record.
 
+## C16 Tensor Core prompt prefill
+
+Commits `c90f37e` and `dda4e3a` raise the causal GDN/Conv and request/runtime
+tile contracts to C16. For the 19-token oracle prompt, the 18-token prefix is
+now scheduled as `16+2`; the final prompt/logits step and all decode work remain
+M1. Quantized M9..M15 projections are split into M8 plus the remaining M1..M7
+rows, preserving the existing small-M kernels and fallbacks.
+
+Commits `e7283d6` and `33948e3` add fixed-M16 FP8 and NVFP4 kernels. They decode
+the canonical checkpoint layouts into BF16 shared-memory tiles and use Ampere
+BF16 Tensor Core MMA with FP32 accumulation; no offline repack or native
+Blackwell NVFP4 instruction is involved. FP8 selects the path for
+`[10240,5120]`, `[5120,6144]`, `[6144,5120]`, and `[12288,5120]` but retains
+two M8 launches for the measured `[1024,5120]` regression and every other
+shape/alignment. NVFP4 selects `[17408,5120]` and `[5120,17408]`; its other
+valid cases likewise retain two M8 launches. Whole-C16 spans are validated
+before the first launch.
+
+The final same-binary CUDA-event gates compare one M16 Tensor Core launch with
+two production M8 launches. Weighting by the production call mix gives
+2.41756x for the selected FP8 shapes and 1.56406x for the two NVFP4 shapes.
+Each gate retains deterministic replay, per-shape BF16 mismatch and
+absolute/relative-error checks, exhaustive encoded-value/NaN coverage where
+applicable, and safe alignment/shape fallbacks.
+The generated cubin contains `HMMA.16816.F32.BF16`. The FP8 kernel uses 43
+registers and 21,248 bytes of shared memory per block; NVFP4 uses 39 registers
+and 28,928 bytes. Both report zero stack/local memory and zero spills.
+
+The end-to-end comparison used four separate same-binary processes in strict
+mirrored order: C8 round 1, C16 round 1, C16 round 2, then C8 round 2. Each
+process ran two prompts, one warmup, and two measured iterations, producing
+four samples; the two retained logs per policy therefore contribute eight
+samples. Every process used this template with `C` set by that order:
+
+```bash
+qwen3x-orin benchmark MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' \
+  --prompt 'Explain CUDA in one sentence.' \
+  --max-tokens 2 --warmup 1 --iterations 2 \
+  --max-sequence-length 64 --projection-backend sm87 \
+  --prefill-chunk-size C
+```
+
+| Median metric | C8 | C16 | C16 reduction vs C8 |
+| --- | ---: | ---: | ---: |
+| Time to first token | 1,021.088 ms | 761.037 ms | 25.468% |
+| Total two-token generation | 1,206.170 ms | 946.217 ms | 21.552% |
+| Subsequent token | 185.084 ms | 185.186 ms | effectively flat |
+
+Strict replay passed. The independent C16 full-model gate also retained all
+19 prompt IDs, 26 output IDs, exact decoded text, `<|im_end|>`, and 44 runner
+steps. At a 64-position capacity, the request arena grows from 85,011,968 bytes
+at C8 to 86,373,376 bytes at C16, an exact 1,361,408-byte workspace increment;
+persistent Conv/GDN/KV state and resident weights do not change.
+
+A final CUDA-only Nsight Systems diagnostic attributes 929.615 ms to 9,210
+kernel instances at C16. The historical optimized-C8 trace above recorded
+1,192.639 ms across 10,107 instances. This comparison is useful hotspot
+context, but it is cross-commit, used unlocked clocks, and does not assign the
+entire difference to Tensor Core projection kernels. Neither profile
+establishes large-prefill, continuous-batching, concurrent-request, or serving
+throughput.
+
 ## Correctness gate
 
-The current `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
+The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
 checkpoint with the SM87 backend at both C1 and C8 and matched all 19 prompt
 IDs, 26 generated IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps.
 The lightweight kernel gate also compared SM87 directly with the CUDA reference for FP8 and
@@ -471,28 +536,37 @@ is independent of that projection choice and is now the default when AF_ALG
 is available. The complete packed-x4 fixed-oracle CTest passed in 40.60
 seconds.
 
+The current sequence through `33948e3` adds C16 projection, causal-state,
+controller, request-plan, and full-model gates. C1, C8, and C16 all retain the
+same fixed 19/26-token, text, stop, and 44-step result; M16 Tensor Core kernels
+are accepted by per-operation tolerance and deterministic-replay gates rather
+than a blanket bitwise-equivalence claim.
+
 ## Phase 3 decision
 
-The first optimized path now includes SM87 single-token decode plus bounded
-small-M prompt-prefix projection reuse:
+The optimized path now includes SM87 single-token decode plus bounded C16
+prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 
 1. keep `sm87` explicit while prompt coverage expands;
 2. retain shape-driven packed-x8 dispatch for aligned canonical NVFP4 M=1;
 3. retain shape-driven packed-x4 dispatch for aligned canonical FP8 M=1;
-4. retain C1 as the compatibility default and expose measured C2 through C8
-   prompt-prefix tiles explicitly;
+4. retain C1 as the compatibility default, expose validated C2 through C16
+   prompt-prefix tiles explicitly, and retain measured C8/C16 evidence;
 5. use fixed NVFP4 M=8 kernels only for exact `[17408,5120]` and
    `[5120,17408]`, while retaining the generic row-pair kernel and independent
    fallbacks for every other shape;
 6. use fixed FP8 M=8 kernels only for exact `[10240,5120]`, `[5120,6144]`,
    `[6144,5120]`, `[12288,5120]`, and `[1024,5120]`, with the same generic and
    fallback coverage elsewhere;
-7. retain exact-token, numerical, replay, and memory gates for every dispatch
+7. use fixed-M16 Tensor Core kernels only for the four measured FP8 shapes and
+   two measured NVFP4 shapes, retaining two-M8 fallback for every other valid
+   shape/alignment and for FP8 `[1024,5120]`;
+8. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-8. lock clocks when privileged access is available before making a formal
+9. lock clocks when privileged access is available before making a formal
    release performance claim.
 
-The small-M and first chunked `C<=8` gates are complete. The next prefill work
+The small-M and bounded `C<=16` gates are complete. The next prefill work
 is broader prompt/shape coverage and a measured dispatch boundary between the
 current bounded tiles and future larger-prefill kernels. `.q3x` repacking
 waits for a stable physical layout.

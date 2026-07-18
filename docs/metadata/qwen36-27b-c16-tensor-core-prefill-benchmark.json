@@ -1,0 +1,580 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-c16-tensor-core-prefill-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-19",
+  "source": {
+    "runtime_prefill_revision": "dda4e3ad3251407693eecb7fc6d8eecd41f158cb",
+    "gdn_tile_revision": "c90f37ecc91234cbd1b1614901c3b8ad69ce5f63",
+    "fp8_tensor_core_revision": "e7283d6e868dc099314f331024a8660a2cce9db8",
+    "nvfp4_tensor_core_revision": "33948e31b4f1f4a229406eae0295bc57eef6d767",
+    "optimization_commits": [
+      {
+        "revision": "dda4e3ad3251407693eecb7fc6d8eecd41f158cb",
+        "change": "extend the bounded prefill runtime and request state to C16"
+      },
+      {
+        "revision": "c90f37ecc91234cbd1b1614901c3b8ad69ce5f63",
+        "change": "extend causal-convolution and GDN sequence tiles to C16"
+      },
+      {
+        "revision": "e7283d6e868dc099314f331024a8660a2cce9db8",
+        "change": "add fixed-shape FP8 BF16 Tensor Core C16 projections"
+      },
+      {
+        "revision": "33948e31b4f1f4a229406eae0295bc57eef6d767",
+        "change": "add fixed-shape NVFP4 BF16 Tensor Core C16 projections"
+      }
+    ],
+    "historical_c8_artifact": "qwen36-27b-c8-kernel-optimization-benchmark",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "cuda_architecture_evidence": "target flags contain --generate-code=arch=compute_87,code=[compute_87,sm_87], and qwen3x-orin version reports CUDA architectures: 87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment",
+    "swap_enabled_bytes": 2147479552,
+    "verification_commands": [
+      "uname -a",
+      "dpkg-query -W -f='${Version}\\n' nvidia-l4t-core",
+      "/usr/local/cuda/bin/nvcc --version",
+      "cmake --version",
+      "c++ --version",
+      "nsys --version",
+      "nvidia-smi --query-gpu=name,compute_cap,driver_version,memory.total --format=csv,noheader",
+      "nvpmodel -q",
+      "build/orin-release/qwen3x-orin version"
+    ]
+  },
+  "implementation": {
+    "batch_size": 1,
+    "projection_backend": "sm87",
+    "supported_prefill_chunk_sizes": {
+      "minimum": 1,
+      "maximum": 16,
+      "default": 1
+    },
+    "chunked_region": "prompt prefix only",
+    "prefix_schedule_for_19_token_oracle_prompt_at_c16": [
+      16,
+      2
+    ],
+    "final_prompt_logits_step": "M=1",
+    "decode_steps": "M=1",
+    "causal_state_policy": "Conv, GDN, KV writes, and GQA lengths advance in token order inside each tile",
+    "request_arena_bytes_at_max_sequence_length_64": {
+      "c8": 85011968,
+      "c16": 86373376
+    },
+    "tensor_core_instruction": "HMMA.16816.F32.BF16",
+    "checkpoint_repack_required": false,
+    "fp8_m16_dispatch": {
+      "format": "ModelOpt FP8 E4M3FN W8A16",
+      "production_enabled": true,
+      "token_tile": 16,
+      "exact_shapes_n_k": [
+        [
+          10240,
+          5120
+        ],
+        [
+          5120,
+          6144
+        ],
+        [
+          6144,
+          5120
+        ],
+        [
+          12288,
+          5120
+        ]
+      ],
+      "fallback": "two sequential production M8 launches",
+      "explicit_fallback_shape_n_k": [
+        1024,
+        5120
+      ],
+      "resources": {
+        "registers_per_thread": 43,
+        "shared_memory_bytes_per_block": 21248,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "spills": 0
+      }
+    },
+    "nvfp4_m16_dispatch": {
+      "format": "ModelOpt NVFP4 E2M1 with E4M3FN block scales, W4A16",
+      "production_enabled": true,
+      "token_tile": 16,
+      "exact_shapes_n_k": [
+        [
+          17408,
+          5120
+        ],
+        [
+          5120,
+          17408
+        ]
+      ],
+      "fallback": "two sequential production M8 launches",
+      "resources": {
+        "registers_per_thread": 39,
+        "shared_memory_bytes_per_block": 28928,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "spills": 0
+      }
+    },
+    "non_m16_dispatch": "C1 through C8 use the existing bounded small-M path; C9 through C15 use an M8 tile plus the remaining bounded small-M tile",
+    "compatibility_defaults_unchanged": {
+      "prefill_chunk_size": 1,
+      "projection_backend": "reference"
+    }
+  },
+  "correctness": {
+    "release_build_passed": true,
+    "strict_benchmark_replay_passed": true,
+    "full_model_oracle": {
+      "projection_backend": "sm87",
+      "prefill_chunk_sizes_tested": [
+        8,
+        16
+      ],
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    },
+    "fp8_m16": {
+      "exhaustive_fixture": "all 256 E4M3FN codes in all four packed-byte positions, including both NaN encodings",
+      "outputs_compared": 163840,
+      "candidate_vs_two_m8_bf16_mismatches": 0,
+      "deterministic_mismatches": 0,
+      "reference_nan_count": 128,
+      "nan_class_mismatches": 0,
+      "maximum_absolute_error": 0.0,
+      "maximum_relative_error": 0.0,
+      "non_power_fixture": {
+        "outputs_compared": 163840,
+        "bf16_mismatches": 853,
+        "deterministic_mismatches": 0,
+        "maximum_absolute_error": 0.00390625,
+        "maximum_relative_error": 0.00561798,
+        "tolerance_gate_passed": true
+      }
+    },
+    "nvfp4_m16": {
+      "exhaustive_fixture": "all E4M3FN block-scale codes crossed with the full E2M1 codebook",
+      "shapes": [
+        {
+          "n": 17408,
+          "k": 5120,
+          "outputs_compared": 278528,
+          "candidate_vs_two_m8_bf16_mismatches": 0,
+          "deterministic_mismatches": 0,
+          "reference_nan_count": 512,
+          "nan_class_mismatches": 0,
+          "maximum_absolute_error": 0.0,
+          "maximum_relative_error": 0.0,
+          "tolerance_gate_passed": true
+        },
+        {
+          "n": 5120,
+          "k": 17408,
+          "outputs_compared": 81920,
+          "candidate_vs_two_m8_bf16_mismatches": 0,
+          "deterministic_mismatches": 0,
+          "reference_nan_count": 512,
+          "nan_class_mismatches": 0,
+          "maximum_absolute_error": 0.0,
+          "maximum_relative_error": 0.0,
+          "tolerance_gate_passed": true
+        }
+      ],
+      "group_scale_fixture_for_n5120_k17408": {
+        "outputs_compared": 81920,
+        "bf16_mismatches": 640,
+        "deterministic_mismatches": 0,
+        "maximum_absolute_error": 0.00195312,
+        "maximum_relative_error": 0.00606061,
+        "tolerance_gate_passed": true
+      }
+    },
+    "public_m16_contract": {
+      "full_16_token_input_output_span_validation_passed": true,
+      "cross_half_alias_rejection_passed": true,
+      "generic_shape_two_m8_dispatch_graph_passed": true
+    }
+  },
+  "same_binary_microbenchmarks": {
+    "fp8_m16_tensor_core": {
+      "comparison": "selected production C16 dispatch versus two production M8 launches in the same binary",
+      "evidence_log": "/tmp/q3x_m16_production_optin.log",
+      "shapes": [
+        {
+          "n": 10240,
+          "k": 5120,
+          "profile_calls": 96,
+          "two_m8_milliseconds": 1.36635,
+          "raw_m16_milliseconds": 0.492631,
+          "raw_speedup": 2.77358,
+          "selected_dispatch": "wmma_m16"
+        },
+        {
+          "n": 5120,
+          "k": 6144,
+          "profile_calls": 128,
+          "two_m8_milliseconds": 0.773925,
+          "raw_m16_milliseconds": 0.371595,
+          "raw_speedup": 2.08271,
+          "selected_dispatch": "wmma_m16"
+        },
+        {
+          "n": 6144,
+          "k": 5120,
+          "profile_calls": 96,
+          "two_m8_milliseconds": 0.827883,
+          "raw_m16_milliseconds": 0.315464,
+          "raw_speedup": 2.62434,
+          "selected_dispatch": "wmma_m16"
+        },
+        {
+          "n": 12288,
+          "k": 5120,
+          "profile_calls": 32,
+          "two_m8_milliseconds": 1.63236,
+          "raw_m16_milliseconds": 0.586165,
+          "raw_speedup": 2.78482,
+          "selected_dispatch": "wmma_m16"
+        },
+        {
+          "n": 1024,
+          "k": 5120,
+          "profile_calls": 64,
+          "two_m8_milliseconds": 0.154988,
+          "raw_m16_milliseconds": 0.267536,
+          "raw_speedup": 0.579316,
+          "selected_dispatch": "two_m8_fallback"
+        }
+      ],
+      "weighted_two_m8_milliseconds": 371.864,
+      "weighted_raw_m16_milliseconds": 161.021,
+      "weighted_raw_speedup": 2.30941,
+      "weighted_selected_milliseconds": 153.818,
+      "weighted_selected_speedup": 2.41756,
+      "gate_passed": true
+    },
+    "nvfp4_m16_tensor_core": {
+      "comparison": "fixed-shape production C16 dispatch versus two production M8 launches in the same binary",
+      "evidence_log": "/tmp/q3x_nvfp4_m16_prod_optin.log",
+      "shapes": [
+        {
+          "n": 17408,
+          "k": 5120,
+          "profile_calls": 256,
+          "two_m8_milliseconds": 1.83263,
+          "m16_milliseconds": 1.11357,
+          "speedup": 1.64572
+        },
+        {
+          "n": 5120,
+          "k": 17408,
+          "profile_calls": 128,
+          "two_m8_milliseconds": 1.787,
+          "m16_milliseconds": 1.25882,
+          "speedup": 1.41958
+        }
+      ],
+      "weighted_two_m8_milliseconds": 697.888,
+      "weighted_m16_milliseconds": 446.203,
+      "weighted_speedup": 1.56406,
+      "gate_passed": true
+    }
+  },
+  "same_binary_end_to_end_benchmark": {
+    "comparison": "mirrored C8/C16/C16/C8 commands from the same 33948e3 binary",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --prompt 'Explain CUDA in one sentence.' --max-tokens 2 --warmup 1 --iterations 2 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size C",
+    "run_order": [
+      "c8_round1",
+      "c16_round1",
+      "c16_round2",
+      "c8_round2"
+    ],
+    "prompt_count": 2,
+    "warmup_rounds_per_command": 1,
+    "measured_rounds_per_command": 2,
+    "measured_samples_per_chunk_size": 8,
+    "max_new_tokens": 2,
+    "strict_replay_passed": true,
+    "raw_logs_checked_in": false,
+    "raw_logs": {
+      "c8_round1": "/tmp/q3x-c16-final-bench-c8-round1.log",
+      "c16_round1": "/tmp/q3x-c16-final-bench-c16-round1.log",
+      "c16_round2": "/tmp/q3x-c16-final-bench-c16-round2.log",
+      "c8_round2": "/tmp/q3x-c16-final-bench-c8-round2.log"
+    },
+    "c8": {
+      "prefill_chunk_size": 8,
+      "request_arena_bytes": 85011968,
+      "samples": [
+        {
+          "command_round": 1,
+          "prompt_index": 0,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 1021.653,
+          "total_generation_milliseconds": 1207.291,
+          "subsequent_token_milliseconds": 185.637
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 1,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 1021.239,
+          "total_generation_milliseconds": 1206.436,
+          "subsequent_token_milliseconds": 185.197
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 0,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 1022.914,
+          "total_generation_milliseconds": 1208.092,
+          "subsequent_token_milliseconds": 185.178
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 1,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 1021.395,
+          "total_generation_milliseconds": 1206.553,
+          "subsequent_token_milliseconds": 185.158
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 0,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 1020.936,
+          "total_generation_milliseconds": 1205.904,
+          "subsequent_token_milliseconds": 184.968
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 1,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 1020.89,
+          "total_generation_milliseconds": 1205.901,
+          "subsequent_token_milliseconds": 185.011
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 0,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 1020.859,
+          "total_generation_milliseconds": 1205.823,
+          "subsequent_token_milliseconds": 184.963
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 1,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 1020.88,
+          "total_generation_milliseconds": 1205.867,
+          "subsequent_token_milliseconds": 184.987
+        }
+      ],
+      "combined_median_time_to_first_token_milliseconds": 1021.088,
+      "combined_median_total_generation_milliseconds": 1206.17,
+      "combined_median_subsequent_token_milliseconds": 185.084
+    },
+    "c16": {
+      "prefill_chunk_size": 16,
+      "request_arena_bytes": 86373376,
+      "samples": [
+        {
+          "command_round": 1,
+          "prompt_index": 0,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 760.378,
+          "total_generation_milliseconds": 945.509,
+          "subsequent_token_milliseconds": 185.131
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 1,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 760.578,
+          "total_generation_milliseconds": 945.646,
+          "subsequent_token_milliseconds": 185.068
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 0,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 760.596,
+          "total_generation_milliseconds": 945.7,
+          "subsequent_token_milliseconds": 185.104
+        },
+        {
+          "command_round": 1,
+          "prompt_index": 1,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 760.797,
+          "total_generation_milliseconds": 945.917,
+          "subsequent_token_milliseconds": 185.119
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 0,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 761.433,
+          "total_generation_milliseconds": 946.683,
+          "subsequent_token_milliseconds": 185.249
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 1,
+          "measured_round": 0,
+          "time_to_first_token_milliseconds": 761.277,
+          "total_generation_milliseconds": 946.518,
+          "subsequent_token_milliseconds": 185.241
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 0,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 761.389,
+          "total_generation_milliseconds": 946.697,
+          "subsequent_token_milliseconds": 185.308
+        },
+        {
+          "command_round": 2,
+          "prompt_index": 1,
+          "measured_round": 1,
+          "time_to_first_token_milliseconds": 761.381,
+          "total_generation_milliseconds": 946.629,
+          "subsequent_token_milliseconds": 185.248
+        }
+      ],
+      "combined_median_time_to_first_token_milliseconds": 761.037,
+      "combined_median_total_generation_milliseconds": 946.217,
+      "combined_median_subsequent_token_milliseconds": 185.186
+    },
+    "c16_versus_c8": {
+      "time_to_first_token_change_milliseconds": -260.051,
+      "time_to_first_token_change_percent": -25.468,
+      "time_to_first_token_speedup": 1.341706,
+      "total_generation_change_milliseconds": -259.953,
+      "total_generation_change_percent": -21.552,
+      "total_generation_speedup": 1.274729,
+      "subsequent_token_change_milliseconds": 0.102,
+      "subsequent_token_change_percent": 0.05511,
+      "request_arena_increment_bytes": 1361408,
+      "request_arena_increment_mibibytes": 1.29834,
+      "request_arena_increment_percent": 1.601431
+    }
+  },
+  "nsight_systems_profile": {
+    "tool_version": "2026.1.3.243-261337792075v0",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o /tmp/q3x-final-tensor-c16 qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --prefill-chunk-size 16 --projection-backend sm87",
+    "raw_report_checked_in": false,
+    "raw_report_path": "/tmp/q3x-final-tensor-c16.nsys-rep",
+    "raw_report_bytes": 813854,
+    "raw_report_sha256": "08868f1af5b843b197cc3cd52ca4da6484dd823a264962fabca72b9d6894ca7b",
+    "profiled_generation": {
+      "prompt_token_count": 19,
+      "generated_token_count": 2,
+      "cuda_kernel_time_milliseconds": 929.615488,
+      "cuda_kernel_instances": 9210
+    },
+    "m16_kernel_families": [
+      {
+        "format": "NVFP4",
+        "n": 17408,
+        "k": 5120,
+        "total_milliseconds": 135.988928,
+        "instances": 128
+      },
+      {
+        "format": "NVFP4",
+        "n": 5120,
+        "k": 17408,
+        "total_milliseconds": 76.929344,
+        "instances": 64
+      },
+      {
+        "format": "FP8",
+        "n": 10240,
+        "k": 5120,
+        "total_milliseconds": 20.98256,
+        "instances": 48
+      },
+      {
+        "format": "FP8",
+        "n": 5120,
+        "k": 6144,
+        "total_milliseconds": 20.571808,
+        "instances": 64
+      },
+      {
+        "format": "FP8",
+        "n": 6144,
+        "k": 5120,
+        "total_milliseconds": 13.554528,
+        "instances": 48
+      },
+      {
+        "format": "FP8",
+        "n": 12288,
+        "k": 5120,
+        "total_milliseconds": 8.314112,
+        "instances": 16
+      }
+    ],
+    "m16_aggregates": {
+      "nvfp4_total_milliseconds": 212.918272,
+      "nvfp4_instances": 192,
+      "fp8_total_milliseconds": 63.423008,
+      "fp8_instances": 176,
+      "combined_total_milliseconds": 276.34128,
+      "combined_instances": 368,
+      "cuda_kernel_time_share_percent": 29.726422
+    }
+  },
+  "limitations": [
+    "the benchmark was not captured with locked clocks",
+    "the benchmark is batch-one and covers two short 19-token prompts with two output tokens",
+    "the mirrored same-binary command order reduces ordering bias but is not a randomized trial",
+    "the result does not establish large-prefill throughput; the measured prompt prefix contains one full C16 tile and a two-token tail",
+    "the result does not establish continuous-batching throughput or concurrent-request behavior",
+    "the Tensor Core path is limited to the listed exact FP8 and NVFP4 M16 shapes; other M16 shapes retain the two-M8 fallback",
+    "the raw benchmark logs and Nsight report are local evidence and are not checked into the repository",
+    "cudaMemGetInfo request-arena size is a planned allocation, not a process peak-memory trace",
+    "the default C1 prefill policy and reference projection backend are unchanged"
+  ],
+  "policy": {
+    "default_prefill_chunk_size": 1,
+    "default_projection_backend": "reference",
+    "sm87_backend_is_opt_in": true,
+    "result_is_release_claim": false
+  }
+}

@@ -1,7 +1,8 @@
-# Single-token Gated DeltaNet reference
+# Single-token and bounded-tile Gated DeltaNet reference
 
 `q3x/runtime/gdn_decode.h` defines the allocation-free CPU and CUDA numerical
-boundary for one Qwen3.6-27B linear-attention decode step. The implementation
+boundary for one Qwen3.6-27B linear-attention decode step and CUDA prompt tiles
+of up to 16 tokens. The implementation
 follows [the pinned runtime contract](QWEN36_27B_RUNTIME_CONTRACT.md#5-linear-attentiongated-deltanet-精确语义)
 and was independently checked against vLLM commit
 `ccd49f6821ee110cc5a2b1aba620a8a1d66c7cbb`. It does not copy third-party
@@ -56,6 +57,23 @@ the quantized state.
 Exact `state_input == state_output` is supported and is the normal persistent
 decode path. State and output use canonical `[head][value][key]` orientation.
 
+## Bounded causal tiles
+
+The CUDA tile entry points accept `token_count=1..16`. Convolution input/output
+is token-major BF16 `[M,10240]`; GDN `a` and `b` are `[M,48]`, and recurrent
+output is `[M,48,128]`. M1 delegates to the corresponding single-token entry
+point. For M2..M16, causal convolution advances raw BF16 history in token order
+and GDN recurrence reads the BF16 state persisted by the preceding row. Thus
+tiling changes launch organization without changing the causal rounding
+boundary. `A_log`, `dt_bias`, convolution weights, and the one persistent
+history/state allocation remain shared across the tile.
+
+Commit `c90f37e` raises the checked tile limit from eight to 16. The C16 CUDA
+gate compares one 16-token launch with two ordered C8 launches and requires
+bitwise-equal convolution output/history and GDN output/state. Invalid zero or
+17-token requests, malformed dimensions, overflow, and forbidden aliasing fail
+before a kernel is accepted.
+
 ## CUDA ownership and verification
 
 CUDA calls accept caller-owned device pointers and an optional stream. They
@@ -70,4 +88,6 @@ orientation, 48-to-16 head sharing, stable softplus and sigmoid extremes,
 canonical state axes, in-place versus separate state, invalid aliases,
 overflow, non-finite epsilon, and FP32-before-BF16 output. SM87 CUDA tests run
 the exact 10240-channel conv and 48x128x128 recurrent shape for multiple
-persistent BF16 steps against the CPU oracle on a non-default stream.
+persistent BF16 steps against the CPU oracle on a non-default stream. They also
+cover every tile size from M1 through M16 and the explicit C16-versus-C8+C8
+causal equivalence gate.

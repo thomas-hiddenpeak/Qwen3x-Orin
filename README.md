@@ -15,11 +15,17 @@ fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
-supports bounded `C=1..8` prompt-prefix tiles. In the current two-prompt,
+supports bounded `C=1..16` prompt-prefix tiles. In the historical two-prompt,
 two-output-token diagnostic, the first `C=8` path reduced median TTFT from
 6,107.420 ms to 2,005.784 ms. The kernel-optimization chain through `5fe0ae0`
 reaches 1,020.755 ms TTFT, 1,205.989 ms total generation, and 185.108 ms for
 the subsequent token without increasing the 85,011,968-byte C8 request arena.
+The subsequent C16 runtime/GDN and FP8/NVFP4 Tensor Core sequence through
+`33948e3` preserves the same fixed oracle. In a mirrored same-binary comparison,
+C16 reduced median TTFT from 1,021.088 to 761.037 ms and total
+two-token generation from 1,206.170 to 946.217 ms; the subsequent-token median
+remained effectively flat at 185.084 versus 185.186 ms. Each policy contributes
+eight measured samples from the mirrored C8/C16/C16/C8 process order.
 The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
@@ -34,7 +40,7 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 
 | Model family | Topology | ModelOpt weights | Initial status |
 | --- | --- | --- | --- |
-| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=8` prompt-prefix projections; both C1 and C8 runs pass the fixed oracle gate on Orin |
+| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=16` prompt-prefix projections; C1, C8, and C16 runs pass the fixed oracle gate on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
 The initial scope is text-only, batch-one correctness and decode performance.
@@ -136,7 +142,7 @@ Run correctness-first batch-one greedy generation with:
 build/orin-release/qwen3x-orin generate MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 32 --projection-backend sm87 \
-  --prefill-chunk-size 8
+  --prefill-chunk-size 16
 ```
 
 The correctness reference remains the default. On an SM87 device, select the
@@ -151,23 +157,30 @@ compile-time shape specializations; other aligned M=8 shapes retain the
 generic row-pair path. The exact FP8 `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, `[12288,5120]`, and `[1024,5120]` M=8 projections likewise use
 compile-time specializations, while other aligned FP8 M=8 shapes retain their
-generic row-pair path. Reuse one loaded engine for repeatability and latency
-distributions with:
+generic row-pair path. At M=16, the FP8 `[10240,5120]`, `[5120,6144]`,
+`[6144,5120]`, and `[12288,5120]` shapes and the NVFP4 `[17408,5120]` and
+`[5120,17408]` shapes decode the canonical checkpoint layout into BF16 tiles
+for Ampere Tensor Core MMA. The smaller FP8 `[1024,5120]` projection, other
+shapes, and insufficiently aligned inputs retain two ordered M=8 launches.
+Reuse one loaded engine for repeatability and latency distributions with:
 
 ```bash
 build/orin-release/qwen3x-orin benchmark MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 2 --warmup 1 --iterations 3 \
   --max-sequence-length 64 --projection-backend sm87 \
-  --prefill-chunk-size 8
+  --prefill-chunk-size 16
 ```
 
-`--prefill-chunk-size` accepts 1 through 8 and defaults to 1. Values above 1
+`--prefill-chunk-size` accepts 1 through 16 and defaults to 1. Values above 1
 batch the prompt prefix into layer-major projection tiles while preserving
 causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
-single-token operations. Trace capture deliberately reports and uses an
-effective chunk size of 1 so existing per-token boundary hashes retain their
-ordering contract.
+single-token operations. With the SM87 backend, M9 through M15 quantized tiles
+are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
+shape-gated Tensor Core path above or safely falls back to two M8 launches;
+the reference backend and BF16 weights retain ordered M1 launches. Trace
+capture deliberately reports and uses an effective chunk size of 1 so existing
+per-token boundary hashes retain their ordering contract.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -198,10 +211,17 @@ SASS from 1,272 to 1,144 instructions. The corresponding FP8 M=8 gate measured
 a 1.13694x call-weighted speedup across five production shapes and reduced
 normalized SASS from 1,864 to 784 instructions. The complete optimized C8
 fixed-oracle run retained all 19 prompt IDs, 26 output IDs, exact text,
-`<|im_end|>`, and all 44 steps. At the earlier
-packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest had fallen
-from 234.35 to 40.60 seconds while retaining exact IDs, text, stop semantics,
-and runner steps. See the
+`<|im_end|>`, and all 44 steps. The C16 path retains that same oracle while
+reserving an 86,373,376-byte 64-position request arena versus 85,011,968 bytes
+at C8. Its same-binary C16 medians reduce TTFT and total generation by 25.468%
+and 21.552% relative to C8; the FP8 and NVFP4 fixed-M16 kernel gates provide
+2.41756x and 1.56406x call-weighted speedups over two production M8 launches.
+The C16 Nsight diagnostic records 929.615 ms across 9,210 kernel instances,
+versus the historical C8 trace's 1,192.639 ms across 10,107 instances. These
+are diagnostic, unlocked-clock measurements rather than a release claim.
+At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
+had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
+semantics, and runner steps. See the
 [updated performance evidence](docs/PERFORMANCE_BASELINE.md) and its
 [machine-readable AF_ALG](docs/metadata/qwen36-27b-afalg-loader-benchmark.json)
 and
@@ -211,6 +231,9 @@ plus the
 [C8 prefill record](docs/metadata/qwen36-27b-c8-prefill-benchmark.json), plus
 the
 [post-C8 kernel record](docs/metadata/qwen36-27b-c8-kernel-optimization-benchmark.json).
+The C16 implementation, same-binary comparison, Tensor Core gates, and profile
+are recorded in the
+[C16 Tensor Core prefill record](docs/metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 
@@ -245,10 +268,10 @@ and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
 Native inference is currently a bounded, batch-one surface with a correctness
-reference, opt-in shape-gated projection optimization, and opt-in `C<=8`
+reference, opt-in shape-gated projection optimization, and opt-in `C<=16`
 prompt-prefix tiling. Recurrent state and causal attention still advance token
-by token inside each tile. It does not yet provide large-prefill kernels, continuous
-batching, a server, or a release-grade performance claim. The independent
+by token inside each tile. It does not yet provide large-prefill kernels,
+continuous batching, a server, or a release-grade performance claim. The independent
 target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as

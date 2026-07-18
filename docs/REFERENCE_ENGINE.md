@@ -3,7 +3,7 @@
 `q3x::engine` is the correctness-first, text-only generation surface for the
 exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one, decodes one
 token at a time, and may execute prompt prefixes in bounded tiles of up to
-eight tokens. The implementation remains a bring-up and oracle-alignment path,
+16 tokens. The implementation remains a bring-up and oracle-alignment path,
 not a large-prefill or serving engine.
 
 ## Ownership and creation
@@ -41,7 +41,7 @@ Prefill preserves token semantics while optionally batching projections:
 
 - with `prefill_chunk_size=1` (the default), every prompt-prefix token executes
   all 64 layers with `compute_logits=false`, preserving the original order;
-- with `prefill_chunk_size=2..8`, the prefix is split into bounded layer-major
+- with `prefill_chunk_size=2..16`, the prefix is split into bounded layer-major
   tiles. Quantized projections consume all tile rows together, while causal
   Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths remain ordered
   per token;
@@ -104,7 +104,7 @@ statistics, and explicit tolerances rather than requiring equal hashes.
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
   [--max-tokens N] [--trace] \
-  [--prefill-chunk-size 1..8] \
+  [--prefill-chunk-size 1..16] \
   [--projection-backend reference|sm87]
 ```
 
@@ -159,6 +159,16 @@ text, stop reason, and 44 transcript steps exactly. Its machine-readable
 aggregate performance record is
 [`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
 
+The C16 runtime (`dda4e3a`) and GDN (`c90f37e`) gates schedule that prefix as
+`16+2`; the nineteenth prompt token and every decode step remain scalar. With
+the SM87 backend, M9..M15 quantized projections split into M8 plus the
+remainder. At exactly M16, the FP8 (`e7283d6`) and NVFP4 (`33948e3`) production
+shapes use canonical-layout decode-to-BF16 Tensor Core kernels, with two M8
+launches retained for other shapes or alignments. The complete C16 run
+reproduces the same 19 prompt IDs, 26 output IDs, decoded text, stop reason,
+and 44 steps exactly. Its implementation and diagnostic performance record is
+[`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
+
 The original C1 single-run timings are evidence, not performance targets:
 
 | Measurement | Observed value |
@@ -210,4 +220,4 @@ projection policy defaults to `reference`; configure
 `-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
 external pinned model directory it exits with the standard skip code 77. The
 test executable also accepts an optional prefill chunk argument, so target
-validation can run the same oracle at C1 and C8.
+validation can run the same oracle at C1, C8, and C16.

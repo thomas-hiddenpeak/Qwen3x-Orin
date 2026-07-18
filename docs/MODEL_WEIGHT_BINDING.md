@@ -93,12 +93,26 @@ and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
 path allocates or synchronizes.
 
 `launch_projection_tile_to_bf16_cuda` extends that boundary to caller-owned
-row-major BF16 input/output tiles with `M=1..8`. M1 delegates to the scalar
-projection API. For explicit SM87 FP8/NVFP4 weights, aligned supported shapes
-use small-M kernels that reuse each loaded weight across all M activation rows;
-unsupported K/alignment, BF16 weights, and the reference backend enqueue M
-checked M1 projections. The launcher validates the complete tile spans,
-scratch capacity, overflow, and input/output overlap before enqueueing work.
+row-major BF16 input/output tiles with `M=1..16`. M1 delegates to the scalar
+projection API. For explicit SM87 FP8/NVFP4 weights, M2..M8 use small-M
+kernels that reuse each loaded weight across all M activation rows; M9..M15
+are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
+format-specific fixed-tile launcher: exact aligned production shapes use
+Ampere BF16 Tensor Core MMA and every other valid case falls back to two
+ordered M8 launches. BF16 weights and the reference backend enqueue M checked
+M1 projections. The launcher validates the complete tile spans, scratch
+capacity, overflow, and input/output overlap before enqueueing any work.
+
+The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
+`[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
+activations are 8-byte aligned. It expands the canonical E4M3FN checkpoint
+bytes into BF16 shared-memory tiles and uses FP32 Tensor Core accumulation;
+the measured `[1024,5120]` shape deliberately retains the two-M8 fallback.
+The fixed-M16 NVFP4 route accepts `[17408,5120]` and `[5120,17408]` when
+packed weights are 16-byte aligned, block scales are 2-byte aligned, and
+activations are 8-byte aligned. It combines canonical E2M1 values with their
+E4M3FN block scales before the same BF16 MMA. Neither route repacks or mutates
+the resident checkpoint.
 
 Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
 256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
@@ -134,7 +148,13 @@ The small-M gate covers M1 through M8 for all three bound weight alternatives,
 production K=5120/6144/17408 shapes, awkward K fallback, unaligned inputs and
 weights, host-double/CUDA references, repeated-M1 equivalence, and deterministic
 replay. The full-model C8 gate separately retains the exact 19/26-token text and
-44-step oracle contract.
+44-step oracle contract. The fixed-M16 gates compare the Tensor Core output
+with two production M8 launches per shape, report BF16 mismatch and
+absolute/relative-error statistics, classify reserved FP8 NaNs separately,
+and require deterministic replay. Their different reduction grouping is not
+a universal bitwise-equivalence promise. The C16 full-model gate nonetheless
+retains the exact 19 prompt IDs, 26 output IDs, decoded text, `<|im_end|>`, and
+44 runner steps.
 
 ## Validation coverage
 
@@ -150,9 +170,10 @@ checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
 the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
-production routes at M1 through M8, BF16/reference fallback, scratch behavior,
-tile overlap/span validation, and fail-closed backend and variant handling. It
-uses only tiny synthetic buffers.
+production routes at M1 through M16, BF16/reference fallback, M9..M15
+segmentation, M16 Tensor Core selection/two-M8 fallback, scratch behavior,
+whole-tile overlap/span validation, and fail-closed backend and variant
+handling. It uses only tiny synthetic buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
 all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
@@ -161,4 +182,7 @@ BF16 mismatch/error statistics. Its optional production-shape segment performs
 a mirrored scalar/vector CUDA-event comparison and enforces a 1.15x minimum
 speedup for the dominant NVFP4 shapes and FP8 shapes with at least 5,120 rows;
 the smaller FP8 shape may regress by at most 2%. It is enabled with
-`Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`.
+`Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`. The fixed-M16 same-binary gates use
+`Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1` and
+`Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1`; their final production-call-weighted
+speedups over two M8 launches are 2.41756x and 1.56406x, respectively.

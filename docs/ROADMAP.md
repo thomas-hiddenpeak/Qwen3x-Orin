@@ -97,7 +97,10 @@ fixed-oracle CTest to 40.60 seconds, again with the exact 19/26-token and
 44-step result. The first C8 chunked-prefix run preserves that same exact
 19/26-token and 44-step oracle result; trace mode continues to use the scalar
 C1 order. The post-C8 kernel sequence through `5fe0ae0` preserves the same
-exact result at the optimized C8 dispatch. Native boundary hashes are not
+exact result at the optimized C8 dispatch. The C16 runtime/GDN sequence
+(`dda4e3a`/`c90f37e`) and FP8/NVFP4 Tensor Core sequence
+(`e7283d6`/`33948e3`) preserve it again with the prefix scheduled as `16+2`.
+Native boundary hashes are not
 required to equal vLLM hashes
 because independent checkpoint
 scales versus fused requantization and sequential versus chunk BF16 GDN updates
@@ -119,8 +122,9 @@ Deliverables:
 - [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
 - [done, shape-gated] Canonical NVFP4 packed-x8 M=1 decode with scalar fallback.
 - [done, shape-gated] Canonical FP8 packed-x4 M=1 decode with scalar fallback.
-- [done, bounded first path] SM87 W4A16/W8A16 weight-reuse kernels and
-  layer-major prompt-prefix dispatch for `C=2..8`, with C1 fallback/default.
+- [done, bounded path] SM87 W4A16/W8A16 weight-reuse kernels, C16 causal
+  Conv/GDN state, and layer-major prompt-prefix dispatch for `C=2..16`, with
+  C1 fallback/default and M9..M15 split into M8 plus the remainder.
 - [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
   independent fallbacks for other shapes.
 - [done, exact-shape gated] Compile-time NVFP4 M=8 specializations for
@@ -128,6 +132,11 @@ Deliverables:
 - [done, exact-shape gated] Compile-time FP8 M=8 specializations for
   `[10240,5120]`, `[5120,6144]`, `[6144,5120]`, `[12288,5120]`, and
   `[1024,5120]`, with the generic row-pair path retained.
+- [done, exact-shape gated] Fixed-M16 FP8 BF16 Tensor Core kernels for
+  `[10240,5120]`, `[5120,6144]`, `[6144,5120]`, and `[12288,5120]`, with
+  two-M8 fallback for `[1024,5120]`, other shapes, and insufficient alignment.
+- [done, exact-shape gated] Fixed-M16 NVFP4 decode-to-BF16 Tensor Core kernels
+  for `[17408,5120]` and `[5120,17408]`, with two-M8 fallback elsewhere.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -148,8 +157,8 @@ conversion as the next M=1 target. The packed-x4 FP8 milestone then reached
 medians by 26.24% and 22.82%. Its same-binary kernel gate measures 2.02x to
 2.36x speedups on the recorded production and mixed-code shapes. The follow-up
 profile assigns 34.2% of GPU time to packed-x4 FP8 and 59.1% to packed-x8
-NVFP4. The bounded small-M milestone now batches only the prompt prefix up to
-C8. In the same two-prompt/two-output-token diagnostic shape, C8 reduced
+NVFP4. The historical bounded small-M milestone batches only the prompt prefix
+up to C8. In the same two-prompt/two-output-token diagnostic shape, C8 reduced
 median TTFT from 6,107.420 to 2,005.784 ms and total generation from 6,492.908
 to 2,389.125 ms, while median subsequent-token latency remained effectively
 flat (385.467 versus 383.320 ms). The 64-position request arena increased by
@@ -168,6 +177,18 @@ same-binary 1.13694x call-weighted speedup across five exact production shapes
 and reduces normalized SASS from 1,864 to 784 instructions while retaining 48
 registers, 1,536 bytes of shared memory, and zero stack/local memory or spills.
 Other aligned FP8 M=8 shapes retain the generic row-pair path.
+The completed C16 milestone then provides 2.41756x FP8 and 1.56406x NVFP4
+production-call-weighted fixed-M16 speedups over two M8 launches. In a mirrored
+same-binary comparison with eight measured samples per policy, C16 reduced
+median TTFT from 1,021.088 to 761.037 ms (25.468%) and total generation from
+1,206.170 to 946.217 ms (21.552%); median subsequent-token latency remained
+effectively flat at 185.084 versus 185.186 ms. The 64-position arena grows from
+85,011,968 bytes at C8 to 86,373,376 bytes at C16, while the exact 19/26-token,
+text, stop, and 44-step gate still passes. A final C16 Nsight diagnostic records
+929.615 ms across 9,210 kernel instances versus the historical optimized-C8
+trace's 1,192.639 ms across 10,107 instances; this is cross-commit hotspot
+context rather than a release or serving-throughput claim. See the
+[C16 metadata record](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

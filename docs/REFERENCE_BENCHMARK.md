@@ -17,7 +17,7 @@ q3x::runtime::ReferenceBenchmarkOptions options;
 options.warmup_rounds = 1;
 options.measured_rounds = 3;
 options.max_new_tokens = 26;
-options.prefill_chunk_size = 8;
+options.prefill_chunk_size = 16;
 
 q3x::runtime::ReferenceBenchmarkResult result =
     q3x::runtime::benchmark_reference_engine(
@@ -88,7 +88,7 @@ qwen3x-orin benchmark MODEL_DIR \
   --iterations 3 \
   --max-sequence-length 512 \
   --projection-backend sm87 \
-  --prefill-chunk-size 8
+  --prefill-chunk-size 16
 ```
 
 `--prompt` is repeatable. Defaults are 16 generated tokens, one warmup round,
@@ -97,9 +97,9 @@ three measured rounds, and a shared request capacity of 512 positions.
 sequence capacity large enough for the longest formatted prompt plus its
 decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
-weights. `--prefill-chunk-size` accepts 1 through 8 and defaults to 1. The
+weights. `--prefill-chunk-size` accepts 1 through 16 and defaults to 1. The
 engine's request arena reserves activation workspace for the selected maximum
-before weights are loaded. C2 through C8 tile only the prompt prefix; the final
+before weights are loaded. C2 through C16 tile only the prompt prefix; the final
 prompt token and all decode steps remain M=1. Projection dispatch defaults to
 `reference`; `sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16
 layer path and checks the active device capability before loading model
@@ -120,4 +120,10 @@ classification without loading a model or executing a CUDA kernel.
 The first matched reference/SM87 run and its machine-readable samples are in
 the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md). The same document
 and its [C8 metadata record](metadata/qwen36-27b-c8-prefill-benchmark.json)
-retain the first C1/C8 prompt-prefix comparison.
+retain the first C1/C8 prompt-prefix comparison. The later
+[C16 Tensor Core record](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json)
+retains the same-binary C8/C16/C16/C8 mirrored process order and eight measured
+samples per chunk size: median TTFT 1,021.088 versus 761.037 ms and median total
+generation 1,206.170 versus 946.217 ms, with strict replay preserved. These
+short-prompt unlocked-clock results remain diagnostic rather than a
+serving-throughput claim.

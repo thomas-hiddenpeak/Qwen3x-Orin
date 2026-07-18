@@ -32,7 +32,7 @@ exactly `[4,256]` BF16 elements and reject `position >= max_seq`.
 ## Reusable decode workspace
 
 The same request arena contains activation workspace for the configured
-`prefill_chunk_size` `C` (1 through 8):
+`prefill_chunk_size` `C` (1 through 16):
 
 - three independent `[C,5120]` BF16 hidden/residual buffers;
 - four independent `[C,17408]` BF16 projection buffers (`P3` can hold the
@@ -97,19 +97,33 @@ The exact C8-minus-C1 increment is 1,190,912 bytes. For the 64-position
 end-to-end benchmark plan, the corresponding arenas are 83,821,056 bytes at
 C1 and 85,011,968 bytes at C8.
 
+Selecting C16 follows the same workspace-only growth rule:
+
+| Default-128 C16 region | Bytes |
+| --- | ---: |
+| Conv + GDN + all K/V persistent storage | 86,835,200 |
+| C16 hidden/projection/`a`/`b` plus FP32 scratch | 3,716,096 |
+| RoPE cosine + sine | 32,768 |
+| **Single request arena** | **90,584,064** |
+
+The exact C16-minus-C1 increment is 2,552,320 bytes. At the 64-position
+end-to-end capacity, C16 uses 86,373,376 bytes, or 1,361,408 bytes more than
+C8. Persistent state, FP32/GQA scratch capacity, and RoPE capacity remain
+unchanged at every chunk size.
+
 At the absolute supported capacity of 262,144 tokens, the caller must
 explicitly raise `max_arena_bytes`:
 
 | Maximum region | Bytes |
 | --- | ---: |
 | Persistent storage | 17,258,315,776 |
-| C8 workspace (`24*max_seq` dominates FP32 scratch) | 26,527,232 |
+| C16 workspace (`24*max_seq` dominates FP32 scratch) | 27,888,640 |
 | RoPE cosine + sine | 67,108,864 |
-| **Single request arena** | **17,351,951,872** |
+| **Single request arena** | **17,353,313,280** |
 
 The planner computes these values with checked `uint64_t` arithmetic before
 CUDA is touched. It rejects batch sizes other than one, chunk sizes outside
-1 through 8, zero sequence capacity,
+1 through 16, zero sequence capacity,
 capacities over 262,144, malicious arithmetic overflow, invalid resource
 limits, and plans larger than `max_arena_bytes`.
 
@@ -137,9 +151,9 @@ empty.
 
 ## Verification
 
-`request_state_plan` checks exact C1 and C8 byte totals, the C8 workspace-only
-delta, default/minimum/maximum sequence totals, overflow and bad options,
-schedule counts, slot mappings, alignment, and non-overlap.
+`request_state_plan` checks exact C1, C8, and C16 byte totals, the C8/C16
+workspace-only deltas, default/minimum/maximum sequence totals, overflow and
+bad options, schedule counts, slot mappings, alignment, and non-overlap.
 `request_state_cuda` uses a small four-token capacity and verifies true device
 allocation, zero samples, pointer ranges, view capacities, BF16-rounded RoPE
 values, stale-error isolation, logical positions, asynchronous reset behavior,

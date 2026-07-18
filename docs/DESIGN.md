@@ -103,7 +103,13 @@ lane. Other shapes use the scalar decoder. This is a measured CUDA-arithmetic
 path, not a claim that Orin has native NVFP4 tensor-core support. The bounded
 M2..M8 path consumes the same canonical layout and reuses each decoded weight
 across the tile's BF16 activation rows; unsupported alignment or K falls back
-to checked M1 launches. It does not introduce a checkpoint repack.
+to checked M1 launches. The fixed-M16 path recognizes the production
+`[17408,5120]` and `[5120,17408]` projections, expands their E2M1 values and
+E4M3FN block scales into BF16 shared-memory tiles, and accumulates with Ampere
+BF16 Tensor Core MMA. It requires 16-byte-aligned packed weights,
+2-byte-aligned block scales, and 8-byte-aligned activations; other valid shapes
+or alignments fall back to two ordered M8 launches. Neither route introduces a
+checkpoint repack or claims native NVFP4 arithmetic.
 
 The NVIDIA artifact also stores an FP32 `input_scale` beside quantized linear
 modules. That value belongs to an activation-quantized W4A4 calibration path.
@@ -129,8 +135,15 @@ NaNs. Other K values or either unaligned pointer use the scalar decoder. This
 is the measured M=1 CUDA-arithmetic route. The bounded M2..M8 route likewise
 uses the canonical row-major checkpoint bytes, reusing one decoded FP8 weight
 across the tile activation rows and falling back to M1 for unsupported
-alignment/K. A tensor-core/repacked large-prefill route remains a separate
-layout and dispatch milestone.
+alignment/K. The fixed-M16 path uses the same checkpoint bytes directly: the
+row-major `W[N,K]` storage is the column-major `B[K,N]` operand consumed after
+E4M3FN-to-BF16 expansion, and Ampere BF16 Tensor Core MMA accumulates FP32.
+It is enabled for `[10240,5120]`, `[5120,6144]`, `[6144,5120]`, and
+`[12288,5120]` with 16-byte-aligned weights and 8-byte-aligned activations.
+The measured `[1024,5120]` case and every other valid shape/alignment retain
+two ordered M8 launches. A repacked or larger dense-prefill route remains a
+separate layout and dispatch milestone; the completed canonical C16 route is
+still bounded prefill.
 
 Likewise, the pinned artifact's FP32 `input_scale` is not applied by the
 W8A16 path: the stored E4M3 weight is multiplied by its `weight_scale`, while
@@ -251,7 +264,9 @@ The expected linear dispatch policy is initially:
 | Work shape | Preferred path | Alternative |
 | --- | --- | --- |
 | Decode, `M = 1` | `sm_87` FP4/FP8 weight-only GEMV | Reference kernel |
-| Small batch / verification | Marlin-style Ampere W4A16/W8A16 | GEMV or reference |
+| Bounded tile, `M = 2..8` | Canonical-layout weight-reuse CUDA kernels | GEMV or reference |
+| Bounded tile, `M = 9..15` | Ordered M8 plus M1..M7 SM87 launches | M scalar reference launches |
+| Exact production tile, `M = 16` | Shape-gated FP8/NVFP4 decode to BF16 plus Ampere Tensor Core MMA | Two ordered M8 launches or scalar reference |
 | Larger dense prefill | Measured Marlin or cuBLASLt-based path | Reference tiles |
 | Routed MoE | Sorted/grouped expert kernels | Per-expert correctness path |
 
