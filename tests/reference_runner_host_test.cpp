@@ -156,11 +156,14 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::kMaximumRequestPrefillChunkSize;
   const runtime::RequestPlanResult chunk_built =
       runtime::build_request_memory_plan(chunk_options);
+  const runtime::ReferencePrefillTileResult tile_result;
   test.expect(chunk_built &&
+                  chunk_built.value->prefill_chunk_size == 16U &&
+                  tile_result.steps.size() == 16U &&
                   detail::validate_reference_workspace_plan(
                       *chunk_built.value) ==
                       runtime::ReferenceRunnerError::kNone,
-              "maximum prefill chunk plan satisfies runner workspace ABI");
+              "chunk-sixteen plan and tile result satisfy the runner workspace ABI");
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
   test.expect(detail::validate_reference_workspace_plan(plan) ==

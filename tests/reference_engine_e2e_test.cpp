@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -113,12 +115,19 @@ bool prefill_chunk_from(const int argc, char** const argv,
   if (argc < 4) {
     return true;
   }
-  if (argv[3] == nullptr || argv[3][0] < '1' || argv[3][0] > '8' ||
-      argv[3][1] != '\0') {
+  if (argv[3] == nullptr) {
     return false;
   }
-  prefill_chunk_size =
-      static_cast<std::uint32_t>(argv[3][0] - '0');
+  const std::string_view value(argv[3]);
+  std::uint32_t parsed = 0U;
+  const auto conversion =
+      std::from_chars(value.data(), value.data() + value.size(), parsed, 10);
+  if (conversion.ec != std::errc{} ||
+      conversion.ptr != value.data() + value.size() || parsed == 0U ||
+      parsed > runtime::kMaximumRequestPrefillChunkSize) {
+    return false;
+  }
+  prefill_chunk_size = parsed;
   return true;
 }
 
@@ -187,7 +196,7 @@ int main(const int argc, char** const argv) {
   }
   std::uint32_t prefill_chunk_size = 1U;
   if (!prefill_chunk_from(argc, argv, prefill_chunk_size)) {
-    std::cerr << "invalid prefill chunk: expected an integer in [1,8]\n";
+    std::cerr << "invalid prefill chunk: expected an integer in [1,16]\n";
     return 2;
   }
 

@@ -227,7 +227,7 @@ class ReferenceRunner {
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
 
-  // Executes 1..8 non-logit prompt-prefix tokens in layer-major order. The
+  // Executes 1..16 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Persistent
   // conv/GDN/KV state is still updated in token order, and the logical request
   // length is committed once only after the complete tile synchronizes.

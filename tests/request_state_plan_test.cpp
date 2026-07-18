@@ -212,6 +212,96 @@ void test_prefill_chunk_layout(TestContext& test) {
                 "chunk-eight leaves RoPE capacities unchanged at exact offsets");
 }
 
+void test_prefill_chunk_sixteen_layout(TestContext& test) {
+    const runtime::RequestPlanResult chunk_one =
+        runtime::build_request_memory_plan();
+    runtime::RequestMemoryOptions options;
+    options.prefill_chunk_size = 16U;
+    const runtime::RequestPlanResult chunk_sixteen =
+        runtime::build_request_memory_plan(options);
+    test.expect(chunk_one && chunk_sixteen,
+                "chunk-one and chunk-sixteen plans both succeed");
+    if (!chunk_one || !chunk_sixteen) {
+        return;
+    }
+
+    const runtime::RequestMemoryPlan& baseline = *chunk_one.value;
+    const runtime::RequestMemoryPlan& plan = *chunk_sixteen.value;
+    test.expect(plan.prefill_chunk_size == 16U &&
+                    plan.persistent_offset == 0U &&
+                    plan.persistent_bytes == 86'835'200U &&
+                    plan.workspace_offset == 86'835'200U &&
+                    plan.workspace_bytes == 3'716'096U &&
+                    plan.rope_offset == 90'551'296U &&
+                    plan.rope_bytes == 32'768U &&
+                    plan.arena_bytes == 90'584'064U &&
+                    plan.arena_bytes - baseline.arena_bytes == 2'552'320U,
+                "chunk-sixteen workspace and arena totals are byte-exact");
+
+    test.expect(same_region(plan.conv_state, baseline.conv_state) &&
+                    same_region(plan.gdn_state, baseline.gdn_state),
+                "chunk-sixteen leaves aggregate persistent state unchanged");
+    for (std::size_t slot = 0U; slot < runtime::kRequestFullLayerCount;
+         ++slot) {
+        test.expect(same_region(plan.key_cache[slot],
+                                baseline.key_cache[slot]) &&
+                        same_region(plan.value_cache[slot],
+                                    baseline.value_cache[slot]),
+                    "chunk-sixteen leaves every K/V cache region unchanged");
+    }
+
+    constexpr std::uint64_t hidden_offsets[] = {
+        86'835'200U, 86'999'040U, 87'162'880U};
+    for (std::size_t index = 0U; index < plan.hidden_bf16.size(); ++index) {
+        const runtime::RequestRegion& region = plan.hidden_bf16[index];
+        test.expect(region.arena_offset == hidden_offsets[index] &&
+                        region.element_capacity == 81'920U &&
+                        region.byte_size == 163'840U,
+                    "chunk-sixteen hidden region layout is byte-exact");
+    }
+    constexpr std::uint64_t projection_offsets[] = {
+        87'326'720U, 87'883'776U, 88'440'832U, 88'997'888U};
+    for (std::size_t index = 0U; index < plan.projection_bf16.size();
+         ++index) {
+        const runtime::RequestRegion& region = plan.projection_bf16[index];
+        test.expect(region.arena_offset == projection_offsets[index] &&
+                        region.element_capacity == 278'528U &&
+                        region.byte_size == 557'056U,
+                    "chunk-sixteen projection region layout is byte-exact");
+    }
+    test.expect(plan.linear_a_bf16.arena_offset == 89'554'944U &&
+                    plan.linear_b_bf16.arena_offset == 89'556'480U &&
+                    plan.linear_a_bf16.element_capacity == 768U &&
+                    plan.linear_b_bf16.element_capacity == 768U &&
+                    plan.linear_a_bf16.byte_size == 1'536U &&
+                    plan.linear_b_bf16.byte_size == 1'536U,
+                "chunk-sixteen linear a/b region layout is byte-exact");
+
+    test.expect(plan.fp32_scratch.arena_offset == 89'558'016U &&
+                    plan.fp32_scratch.byte_size ==
+                        baseline.fp32_scratch.byte_size &&
+                    plan.fp32_scratch.element_capacity ==
+                        baseline.fp32_scratch.element_capacity &&
+                    plan.gqa_probability_scratch.arena_offset ==
+                        plan.fp32_scratch.arena_offset &&
+                    plan.gqa_probability_scratch.byte_size ==
+                        baseline.gqa_probability_scratch.byte_size &&
+                    plan.gqa_probability_scratch.element_capacity ==
+                        baseline.gqa_probability_scratch.element_capacity,
+                "chunk-sixteen leaves FP32 and GQA scratch capacities unchanged");
+    test.expect(plan.rope_cos_fp32.arena_offset == 90'551'296U &&
+                    plan.rope_sin_fp32.arena_offset == 90'567'680U &&
+                    plan.rope_cos_fp32.byte_size ==
+                        baseline.rope_cos_fp32.byte_size &&
+                    plan.rope_sin_fp32.byte_size ==
+                        baseline.rope_sin_fp32.byte_size &&
+                    plan.rope_cos_fp32.element_capacity ==
+                        baseline.rope_cos_fp32.element_capacity &&
+                    plan.rope_sin_fp32.element_capacity ==
+                        baseline.rope_sin_fp32.element_capacity,
+                "chunk-sixteen leaves RoPE capacities unchanged at exact offsets");
+}
+
 void test_alignment_non_overlap_and_schedule(TestContext& test) {
     const runtime::RequestPlanResult result =
         runtime::build_request_memory_plan();
@@ -310,7 +400,7 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                     result.value->arena_bytes ==
                         runtime::kMaximumRequestArenaBytes &&
                     result.value->persistent_bytes == 17'258'315'776ULL &&
-                    result.value->workspace_bytes == 26'527'232U &&
+                    result.value->workspace_bytes == 27'888'640U &&
                     result.value->rope_bytes == 67'108'864U &&
                     result.value->fp32_scratch.element_capacity == 6'291'456U &&
                     result.value->gqa_probability_scratch.element_capacity ==
@@ -332,11 +422,11 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                 "zero prefill chunk size is rejected");
 
     options = {};
-    options.prefill_chunk_size = 9U;
+    options.prefill_chunk_size = 17U;
     result = runtime::build_request_memory_plan(options);
     test.expect(!result && result.diagnostic.code ==
                                runtime::RequestErrorCode::kInvalidOption,
-                "prefill chunk size above eight is rejected");
+                "prefill chunk size above sixteen is rejected");
 
     options = {};
     options.max_sequence_length = 0U;
@@ -386,6 +476,7 @@ int main() {
     TestContext test;
     test_default_exact_plan(test);
     test_prefill_chunk_layout(test);
+    test_prefill_chunk_sixteen_layout(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

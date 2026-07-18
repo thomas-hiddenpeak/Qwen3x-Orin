@@ -71,6 +71,7 @@ struct FakeGenerator {
   bool mismatch = false;
   bool fail = false;
   bool invalid_timing = false;
+  std::uint32_t expected_prefill_chunk_size = 4U;
   std::vector<std::string> prompts;
 };
 
@@ -87,7 +88,7 @@ runtime::ReferenceGenerateResult fake_generate(
     return result;
   }
   if (options.max_new_tokens != 8U || options.capture_trace ||
-      options.prefill_chunk_size != 4U ||
+      options.prefill_chunk_size != fake.expected_prefill_chunk_size ||
       options.stop_token_id != runtime::kQwen36ImEndTokenId) {
     result.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
     return result;
@@ -322,6 +323,24 @@ void test_zero_warmup_and_memory_boundary(TestContext& test) {
               "zero warmup succeeds and a drop equal to tolerance is allowed");
 }
 
+void test_maximum_prefill_chunk_boundary(TestContext& test) {
+  FakeGenerator generator;
+  generator.expected_prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize;
+  FakeMemory memory;
+  memory.free_bytes = {1'000U, 1'000U};
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.warmup_rounds = 0U;
+  options.measured_rounds = 1U;
+  options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+  const auto result = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(result && generator.calls == 1U &&
+                  result.value->prefill_chunk_size == 16U &&
+                  result.value->samples.size() == 1U,
+              "chunk sixteen is accepted and preserved by benchmark control");
+}
+
 void test_step_comparison(TestContext& test) {
   runtime::ReferenceGeneration expected =
       make_generation("alpha", 1.0, 2.0, {1.0});
@@ -352,6 +371,7 @@ int main() {
   test_control_success(test);
   test_repeatability_and_failures(test);
   test_zero_warmup_and_memory_boundary(test);
+  test_maximum_prefill_chunk_boundary(test);
   test_step_comparison(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " benchmark control assertion(s) failed\n";

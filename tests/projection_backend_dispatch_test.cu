@@ -248,20 +248,28 @@ void test_tile_routes(TestContext& test) {
   constexpr std::size_t kFp8Columns = 1024U;
   constexpr std::size_t kNvFp4Columns = 256U;
   constexpr std::size_t kBf16Columns = 4U;
-  constexpr std::size_t kMaximumTokens = 8U;
+  constexpr std::size_t kMaximumTokens = 16U;
   constexpr std::uint16_t kBf16One = 0x3f80U;
   constexpr std::array<std::uint16_t, kMaximumTokens> kActivationValues{
       0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
-      0x3e80U, 0xbf00U, 0x4080U, 0xc000U};
+      0x3e80U, 0xbf00U, 0x4080U, 0xc000U,
+      0x3f40U, 0xbf40U, 0x4040U, 0xc040U,
+      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U};
   constexpr std::array<std::uint16_t, kMaximumTokens> kFp8Expected{
       0x4480U, 0x4400U, 0xc480U, 0x4500U,
-      0x4380U, 0xc400U, 0x4580U, 0xc500U};
+      0x4380U, 0xc400U, 0x4580U, 0xc500U,
+      0x4440U, 0xc440U, 0x4540U, 0xc540U,
+      0x44c0U, 0xc4c0U, 0x4600U, 0xc600U};
   constexpr std::array<std::uint16_t, kMaximumTokens> kNvFp4Expected{
       0x4380U, 0x4300U, 0xc380U, 0x4400U,
-      0x4280U, 0xc300U, 0x4480U, 0xc400U};
+      0x4280U, 0xc300U, 0x4480U, 0xc400U,
+      0x4340U, 0xc340U, 0x4440U, 0xc440U,
+      0x43c0U, 0xc3c0U, 0x4500U, 0xc500U};
   constexpr std::array<std::uint16_t, kMaximumTokens> kBf16Expected{
       0x4080U, 0x4000U, 0xc080U, 0x4100U,
-      0x3f80U, 0xc000U, 0x4180U, 0xc100U};
+      0x3f80U, 0xc000U, 0x4180U, 0xc100U,
+      0x4040U, 0xc040U, 0x4140U, 0xc140U,
+      0x40c0U, 0xc0c0U, 0x4200U, 0xc200U};
 
   DeviceBuffer<std::uint16_t> fp8_activation;
   DeviceBuffer<std::uint16_t> nvfp4_activation;
@@ -421,7 +429,7 @@ void test_tile_validation(TestContext& test) {
   constexpr std::size_t kFp8Columns = 32U;
   constexpr std::size_t kNvFp4Columns = 16U;
   constexpr std::size_t kBf16Columns = 4U;
-  constexpr std::size_t kTokens = 2U;
+  constexpr std::size_t kTokens = 16U;
 
   DeviceBuffer<std::uint16_t> activation;
   DeviceBuffer<std::uint16_t> bf16_weight;
@@ -484,8 +492,8 @@ void test_tile_validation(TestContext& test) {
                  activation.get(), 0U, nullptr, 0U, output.get(),
                  "tile rejects M=0");
   expect_invalid(runtime::ProjectionBackend::kSm87WeightOnly, fp8,
-                 activation.get(), 9U, nullptr, 0U, output.get(),
-                 "tile rejects M=9");
+                 activation.get(), 17U, nullptr, 0U, output.get(),
+                 "tile rejects M=17");
   expect_invalid(static_cast<runtime::ProjectionBackend>(0xffU), fp8,
                  activation.get(), kTokens, nullptr, 0U, output.get(),
                  "tile rejects unknown backend");
@@ -560,10 +568,35 @@ void test_tile_validation(TestContext& test) {
                  activation.get(), kTokens, nullptr, 0U, output.get(),
                  "SM87 BF16 tile requires fallback scratch");
 
-  expect_invalid(runtime::ProjectionBackend::kSm87WeightOnly, fp8,
-                 activation.get(), kTokens, nullptr, 0U,
-                 activation.get() + kFp8Columns,
-                 "tile rejects output overlapping a future input token");
+  ready = upload(test, activation,
+                 std::vector<std::uint16_t>(kTokens * kFp8Columns,
+                                            0x3f80U),
+                 "C16 validation activation sentinel");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(fp8_weight.get(), 0x38,
+                                  kRows * kFp8Columns),
+                       "initialize C16 validation FP8 weights");
+  if (ready) {
+    std::uint16_t* const overlapping_output =
+        activation.get() + 9U * kFp8Columns;
+    const int overlap_status =
+        runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, fp8,
+            activation.get(), kTokens, nullptr, 0U, overlapping_output);
+    test.expect(static_cast<cudaError_t>(overlap_status) ==
+                    cudaErrorInvalidValue,
+                "C16 tile rejects output overlapping only the second input chunk");
+    std::uint16_t preserved = 0U;
+    ready = test.cuda_ok(cudaMemcpy(&preserved, overlapping_output,
+                                    sizeof(preserved),
+                                    cudaMemcpyDeviceToHost),
+                         "read C16 validation activation sentinel");
+    if (ready) {
+      test.expect(
+          preserved == 0x3f80U,
+          "C16 whole-tile validation rejects before the first SM87 launch");
+    }
+  }
   expect_invalid(
       runtime::ProjectionBackend::kSm87WeightOnly, fp8, activation.get(),
       kTokens, nullptr, 0U,

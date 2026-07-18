@@ -18,6 +18,8 @@
 namespace q3x::runtime {
 namespace {
 
+constexpr std::size_t kMaximumSm87SmallMTokens = 8U;
+
 [[nodiscard]] bool valid_scale(const float value) noexcept {
   return std::isfinite(value) && value >= 0.0F;
 }
@@ -380,16 +382,46 @@ int launch_projection_tile_to_bf16_cuda(
   if (backend == ProjectionBackend::kSm87WeightOnly) {
     if (const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
         selected != nullptr) {
-      return kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
-          selected->weight, selected->weight_scale, input, token_count,
-          spans.rows, spans.columns, output, cuda_stream);
+      for (std::size_t token_offset = 0U; token_offset < token_count;) {
+        const std::size_t remaining = token_count - token_offset;
+        const std::size_t launch_tokens =
+            remaining < kMaximumSm87SmallMTokens
+                ? remaining
+                : kMaximumSm87SmallMTokens;
+        const int status =
+            kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+                selected->weight, selected->weight_scale,
+                input + token_offset * spans.columns, launch_tokens,
+                spans.rows, spans.columns, output + token_offset * spans.rows,
+                cuda_stream);
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        token_offset += launch_tokens;
+      }
+      return static_cast<int>(cudaSuccess);
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
-      return kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
-          selected->packed_weight, selected->block_scale,
-          selected->weight_scale_2, input, token_count, spans.rows,
-          spans.columns, output, cuda_stream);
+      for (std::size_t token_offset = 0U; token_offset < token_count;) {
+        const std::size_t remaining = token_count - token_offset;
+        const std::size_t launch_tokens =
+            remaining < kMaximumSm87SmallMTokens
+                ? remaining
+                : kMaximumSm87SmallMTokens;
+        const int status =
+            kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+                selected->packed_weight, selected->block_scale,
+                selected->weight_scale_2,
+                input + token_offset * spans.columns, launch_tokens,
+                spans.rows, spans.columns, output + token_offset * spans.rows,
+                cuda_stream);
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        token_offset += launch_tokens;
+      }
+      return static_cast<int>(cudaSuccess);
     }
   }
 

@@ -252,6 +252,25 @@ void test_chunked_prefix_tiles(TestContext& test) {
                       std::vector<double>({2.0}) &&
                   result.value->timing.total_generation_milliseconds == 33.0,
               "TTFT sums whole-tile times plus the scalar final-prompt step");
+
+  std::vector<std::uint32_t> c16_prompt;
+  for (std::uint32_t token = 200U; token < 221U; ++token) {
+    c16_prompt.push_back(token);
+  }
+  fake = {};
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  const auto c16_result = detail::run_generation_control(
+      c16_prompt, options(1U, 21U, false, 16U), &fake, fake_step,
+      fake_prefill_tile);
+  test.expect(c16_result && fake.tile_inputs.size() == 2U &&
+                  fake.tile_inputs[0] ==
+                      std::vector<std::uint32_t>(c16_prompt.begin(),
+                                                 c16_prompt.begin() + 16) &&
+                  fake.tile_inputs[1] ==
+                      std::vector<std::uint32_t>(c16_prompt.begin() + 16,
+                                                 c16_prompt.begin() + 20) &&
+                  fake.inputs == std::vector<std::uint32_t>({220U}),
+              "chunk sixteen routes a 20-token prefix as 16+4 before the scalar final prompt token");
 }
 
 void test_chunk_fallbacks_and_callback_requirement(TestContext& test) {
@@ -384,7 +403,7 @@ void test_validation_and_runner_failures(TestContext& test) {
   test.expect(!result && result.error == detail::GenerationControlError::kInvalidArgument,
               "zero prefill chunk size is rejected");
   result = detail::run_generation_control(
-      {1U}, options(1U, 1U, false, 9U), &fake, fake_step);
+      {1U}, options(1U, 1U, false, 17U), &fake, fake_step);
   test.expect(!result && result.error == detail::GenerationControlError::kInvalidArgument,
               "prefill chunk size above fixed capacity is rejected");
 

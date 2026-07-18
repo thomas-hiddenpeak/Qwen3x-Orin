@@ -372,6 +372,16 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     TIMEOUT 900
   )
+  add_test(NAME reference_engine_e2e_chunk16
+    COMMAND q3x_reference_engine_e2e_test "${_q3x_e2e_model_dir}"
+            "${Q3X_E2E_PROJECTION_BACKEND}" "16"
+  )
+  set_tests_properties(reference_engine_e2e_chunk16 PROPERTIES
+    LABELS "e2e;model"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 900
+  )
 
   add_executable(q3x_model_config_test tests/model_config_test.cpp)
   target_link_libraries(q3x_model_config_test PRIVATE q3x::core)
@@ -516,11 +526,11 @@ if(BUILD_TESTING)
   set_tests_properties(generate_invalid_prefill_chunk_zero
     PROPERTIES WILL_FAIL TRUE
   )
-  add_test(NAME generate_invalid_prefill_chunk_nine
+  add_test(NAME generate_invalid_prefill_chunk_seventeen
     COMMAND qwen3x-orin generate unused-model-directory
-            --prompt test --prefill-chunk-size 9
+            --prompt test --prefill-chunk-size 17
   )
-  set_tests_properties(generate_invalid_prefill_chunk_nine
+  set_tests_properties(generate_invalid_prefill_chunk_seventeen
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME generate_invalid_prefill_chunk_non_numeric
@@ -533,7 +543,7 @@ if(BUILD_TESTING)
   add_test(NAME generate_duplicate_prefill_chunk
     COMMAND qwen3x-orin generate unused-model-directory
             --prompt test --prefill-chunk-size 1
-            --prefill-chunk-size 8
+            --prefill-chunk-size 16
   )
   set_tests_properties(generate_duplicate_prefill_chunk
     PROPERTIES WILL_FAIL TRUE
@@ -566,11 +576,11 @@ if(BUILD_TESTING)
   set_tests_properties(benchmark_invalid_prefill_chunk_zero
     PROPERTIES WILL_FAIL TRUE
   )
-  add_test(NAME benchmark_invalid_prefill_chunk_nine
+  add_test(NAME benchmark_invalid_prefill_chunk_seventeen
     COMMAND qwen3x-orin benchmark unused-model-directory
-            --prompt test --prefill-chunk-size 9
+            --prompt test --prefill-chunk-size 17
   )
-  set_tests_properties(benchmark_invalid_prefill_chunk_nine
+  set_tests_properties(benchmark_invalid_prefill_chunk_seventeen
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME benchmark_invalid_prefill_chunk_non_numeric
@@ -583,7 +593,7 @@ if(BUILD_TESTING)
   add_test(NAME benchmark_duplicate_prefill_chunk
     COMMAND qwen3x-orin benchmark unused-model-directory
             --prompt test --prefill-chunk-size 1
-            --prefill-chunk-size 8
+            --prefill-chunk-size 16
   )
   set_tests_properties(benchmark_duplicate_prefill_chunk
     PROPERTIES WILL_FAIL TRUE

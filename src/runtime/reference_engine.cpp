@@ -496,7 +496,7 @@ ReferenceGenerateResult ReferenceEngine::generate(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
         "prompt must be non-empty, max_new_tokens must be positive, "
-        "prefill_chunk_size must be in [1,8], and stop_token_id must be in "
+        "prefill_chunk_size must be in [1,16], and stop_token_id must be in "
         "the pinned vocabulary");
     return result;
   }
