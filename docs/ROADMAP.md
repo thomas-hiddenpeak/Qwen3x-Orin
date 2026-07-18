@@ -96,7 +96,9 @@ loader milestone and 45.56 seconds after packed-x8, without changing its exact
 fixed-oracle CTest to 40.60 seconds, again with the exact 19/26-token and
 44-step result. The first C8 chunked-prefix run preserves that same exact
 19/26-token and 44-step oracle result; trace mode continues to use the scalar
-C1 order. Native boundary hashes are not required to equal vLLM hashes
+C1 order. The post-C8 kernel sequence through `4f23fdb` preserves the same
+exact result at the optimized C8 dispatch. Native boundary hashes are not
+required to equal vLLM hashes
 because independent checkpoint
 scales versus fused requantization and sequential versus chunk BF16 GDN updates
 have different rounding/order. Tolerance-based boundary characterization and
@@ -119,6 +121,8 @@ Deliverables:
 - [done, shape-gated] Canonical FP8 packed-x4 M=1 decode with scalar fallback.
 - [done, bounded first path] SM87 W4A16/W8A16 weight-reuse kernels and
   layer-major prompt-prefix dispatch for `C=2..8`, with C1 fallback/default.
+- [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
+  independent fallbacks for other shapes.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -145,7 +149,13 @@ median TTFT from 6,107.420 to 2,005.784 ms and total generation from 6,492.908
 to 2,389.125 ms, while median subsequent-token latency remained effectively
 flat (385.467 versus 383.320 ms). The 64-position request arena increased by
 1,190,912 bytes, and the C8 full-model gate retained the exact 19 prompt IDs,
-26 output IDs, and 44 steps. Separately, default AF_ALG authentication
+26 output IDs, and 44 steps. The post-C8 kernel sequence through `4f23fdb`
+then reached 1,252.651 ms TTFT, 1,451.917 ms total generation, and 199.297 ms
+for the subsequent token without increasing the C8 request arena. That is a
+further 37.55%, 39.23%, and 48.01% reduction from the first C8 medians, and
+the exact 19/26-token, text, stop, and 44-step gate still passes. Production
+NVFP4 output-row pairing is limited to the aligned vector M=8 path.
+Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
 coverage expands. See

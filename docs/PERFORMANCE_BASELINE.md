@@ -16,6 +16,8 @@ and the subsequent FP8 milestone is recorded in
 [`qwen36-27b-fp8-packedx4-benchmark.json`](metadata/qwen36-27b-fp8-packedx4-benchmark.json).
 The first bounded multi-token prefill result is recorded in
 [`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
+The subsequent C8 kernel-optimization milestone is recorded in
+[`qwen36-27b-c8-kernel-optimization-benchmark.json`](metadata/qwen36-27b-c8-kernel-optimization-benchmark.json).
 
 ## Method
 
@@ -340,12 +342,72 @@ new locked-clock environment capture or any large-prefill/concurrent-request
 claim. The checked-in metadata contains the reported aggregates and explicit
 limitations; raw per-sample output was not retained in that artifact.
 
+## Post-C8 kernel optimization
+
+Commits `1ca41d3` through `4f23fdb` retain the same C8 execution policy while
+removing overhead inside it. The sequence batches prefix norms and the logits
+transfer, tiles the GDN prefix recurrence, caches FP8 and NVFP4 decode
+codebooks per block, makes E2M1 decode branchless, vectorizes the NVFP4 M=1
+activation load, coalesces GDN state rows by warp, and finally pairs adjacent
+NVFP4 M=8 output rows so one warp can reuse the decoded activation tile.
+
+The last dispatch change is deliberately narrow: production output-row pairing
+is enabled only for the aligned canonical vector M=8 path. M=1 decode and
+fallback shapes retain their separate dispatches. The C1 compatibility default
+and the default `reference` projection backend are unchanged.
+
+Repeating the same two-prompt, two-output-token C8 benchmark shape at
+`4f23fdb` produced the following medians. The original C1 column is retained
+only as context; the optimization comparison is the matched-shape initial C8
+versus optimized C8 pair.
+
+| Median metric | Original C1 context | Initial C8 (`883a962`) | Optimized C8 (`4f23fdb`) | Reduction vs initial C8 | Speedup vs initial C8 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Time to first token | 6,107.420 ms | 2,005.784 ms | 1,252.651 ms | 37.55% | 1.601x |
+| Total two-token generation | 6,492.908 ms | 2,389.125 ms | 1,451.917 ms | 39.23% | 1.645x |
+| Subsequent token | 385.467 ms | 383.320 ms | 199.297 ms | 48.01% | 1.923x |
+
+Relative to the original C1 context, the optimized C8 run reduces TTFT by
+79.49% (4.876x) and total generation by 77.64% (4.472x). Its 85,011,968-byte
+request arena is unchanged from the first C8 milestone.
+
+The same-binary CUDA-event gates isolate two of the larger kernel changes:
+
+| NVFP4 M=8 shape `[N,K]` | Single-row kernel | Row-pair kernel | Speedup |
+| --- | ---: | ---: | ---: |
+| `[17408,5120]` | 1.36294 ms | 1.16454 ms | 1.17037x |
+| `[5120,17408]` | 1.91616 ms | 1.17258 ms | 1.63414x |
+
+| GDN token tile | Prior kernel | Warp-coalesced rows | Speedup |
+| --- | ---: | ---: | ---: |
+| M=1 | 0.197281 ms | 0.0965267 ms | 2.04379x |
+| M=8 | 1.49476 ms | 0.729171 ms | 2.04995x |
+
+The independent C8 full-model oracle at `4f23fdb` again matched all 19 prompt
+IDs, all 26 generated IDs, exact decoded text, `<|im_end|>`, and all 44 runner
+steps. These end-to-end numbers remain a cross-commit historical diagnostic,
+not a randomized same-binary trial. They cover batch one, two short prompts,
+two generated tokens, and unlocked clocks; they do not establish large-prefill,
+continuous-batching, or concurrent-request throughput.
+
+The final CUDA-only Nsight Systems 2026.1.3 trace provides a separate hotspot
+view for one 19-token prompt and two generated tokens. It reported 1,268.163 ms
+prompt prefill, 201.480 ms after the first token, and 1,469.643 ms total under
+profiling. Its 10,107 CUDA kernel instances consumed 1,444.607 ms. NVFP4 M=8
+row pairing remained the largest family at 448.345 ms (31.0%), followed by
+FP8 M=8 at 282.490 ms (19.6%) and NVFP4 M=1 at 244.082 ms (16.9%). Against
+the immediately preceding `39f0806` trace, row pairing reduced NVFP4 M=8 GPU
+time by 24.05% and aggregate kernel time by 8.99%. The raw 877,371-byte report
+is not checked in; SHA-256
+`03029994219911f3277262b25fa83ec1246a0a3e95fc9f0a4e49a960ff3e77ca`
+and the complete hotspot table are retained in the machine-readable record.
+
 ## Correctness gate
 
-The current `reference_engine_e2e` gate loaded the pinned 27B checkpoint with
-the SM87 backend at both C1 and C8 and matched all 19 prompt IDs, 26 generated
-IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps. The lightweight
-kernel gate also compared SM87 directly with the CUDA reference for FP8 and
+The current `reference_engine_e2e` gate at `4f23fdb` loaded the pinned 27B
+checkpoint with the SM87 backend at both C1 and C8 and matched all 19 prompt
+IDs, 26 generated IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps.
+The lightweight kernel gate also compared SM87 directly with the CUDA reference for FP8 and
 NVFP4 M=1 through M=8 awkward/fallback/vector shapes. It covers every one of
 the 256 E4M3FN codes in all four positions of the packed FP8 load, including both reserved
 NaN encodings; all 16 E2M1 codes in all eight packed nibble positions;
@@ -369,9 +431,11 @@ small-M prompt-prefix projection reuse:
 3. retain shape-driven packed-x4 dispatch for aligned canonical FP8 M=1;
 4. retain C1 as the compatibility default and expose measured C2 through C8
    prompt-prefix tiles explicitly;
-5. retain exact-token, numerical, replay, and memory gates for every dispatch
+5. retain aligned canonical NVFP4 M=8 output-row pairing with independent
+   fallbacks for other shapes;
+6. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-6. lock clocks when privileged access is available before making a formal
+7. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and first chunked `C<=8` gates are complete. The next prefill work

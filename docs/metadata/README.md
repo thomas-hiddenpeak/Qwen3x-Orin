@@ -43,6 +43,10 @@ The diagnostic Phase 3 records are:
   which records the first bounded C1/C8 prompt-prefix comparison, exact C8
   full-model oracle gate, request-arena increment, execution policy, and
   diagnostic limitations.
+- [`qwen36-27b-c8-kernel-optimization-benchmark.json`](qwen36-27b-c8-kernel-optimization-benchmark.json),
+  which records the subsequent C8 kernel-optimization chain, matched-shape
+  end-to-end medians, GDN and NVFP4 row-pair microbenchmarks, unchanged exact
+  full-model gate, dispatch scope, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

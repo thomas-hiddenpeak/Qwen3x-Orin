@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-c8-kernel-optimization-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "initial_c8_revision": "883a962469f2f7a6cce36a9a7c5210a3a807b5f7",
+    "optimized_c8_revision": "4f23fdbb349d4b85e9f9b2d781dc7a92a55c17fd",
+    "optimization_commits": [
+      {
+        "revision": "1ca41d34809b1802a18f1b14c3c95006ca2248b0",
+        "change": "batch prefix norms and logits transfer"
+      },
+      {
+        "revision": "eeed3b725ca57c3954a853c2961b1e4e58a2cf14",
+        "change": "tile GDN prefix recurrence"
+      },
+      {
+        "revision": "d991b54f394c0f5e15dbe43ac1e2f4c9e615a4e8",
+        "change": "cache the FP8 decode codebook per block"
+      },
+      {
+        "revision": "c3df559e4948263534873e273f11e957931d7fa4",
+        "change": "make NVFP4 E2M1 decode branchless"
+      },
+      {
+        "revision": "635385eceeb6ffb037b814bd934cbcb6ffd25540",
+        "change": "vectorize NVFP4 M=1 activation loads"
+      },
+      {
+        "revision": "4833c1ba48ad04bffdde13524dded53745fc876e",
+        "change": "cache the NVFP4 decode codebook per block"
+      },
+      {
+        "revision": "39f080679315fd2772d7b62e2275886833fa236f",
+        "change": "coalesce GDN state rows by warp"
+      },
+      {
+        "revision": "4f23fdbb349d4b85e9f9b2d781dc7a92a55c17fd",
+        "change": "pair NVFP4 M=8 output rows"
+      }
+    ],
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "implementation": {
+    "batch_size": 1,
+    "projection_backend": "sm87",
+    "prefill_chunk_size": 8,
+    "chunked_region": "prompt prefix only",
+    "final_prompt_logits_step": "M=1",
+    "decode_steps": "M=1",
+    "request_arena_bytes": 85011968,
+    "nvfp4_row_pair_dispatch": {
+      "production_enabled": true,
+      "token_tile": 8,
+      "output_rows_per_warp": 2,
+      "scope": "aligned canonical vector M=8 path only"
+    },
+    "compatibility_defaults_unchanged": {
+      "prefill_chunk_size": 1,
+      "projection_backend": "reference"
+    }
+  },
+  "correctness": {
+    "projection_backend": "sm87",
+    "prefill_chunk_size": 8,
+    "strict_benchmark_replay_passed": true,
+    "full_model_oracle": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "end_to_end_benchmark": {
+    "comparison": "matched-shape cross-commit diagnostic using the same two prompts and command options",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --prompt 'Explain CUDA in one sentence.' --max-tokens 2 --warmup 1 --iterations 2 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 8",
+    "prompt_count": 2,
+    "warmup_rounds": 1,
+    "measured_rounds": 2,
+    "measured_samples_per_revision": 4,
+    "max_new_tokens": 2,
+    "initial_c1_context": {
+      "revision": "883a962469f2f7a6cce36a9a7c5210a3a807b5f7",
+      "prefill_chunk_size": 1,
+      "median_time_to_first_token_milliseconds": 6107.420,
+      "median_total_generation_milliseconds": 6492.908,
+      "median_subsequent_token_milliseconds": 385.467,
+      "request_arena_bytes": 83821056
+    },
+    "initial_c8": {
+      "revision": "883a962469f2f7a6cce36a9a7c5210a3a807b5f7",
+      "prefill_chunk_size": 8,
+      "median_time_to_first_token_milliseconds": 2005.784,
+      "median_total_generation_milliseconds": 2389.125,
+      "median_subsequent_token_milliseconds": 383.320,
+      "request_arena_bytes": 85011968
+    },
+    "optimized_c8": {
+      "revision": "4f23fdbb349d4b85e9f9b2d781dc7a92a55c17fd",
+      "prefill_chunk_size": 8,
+      "median_time_to_first_token_milliseconds": 1252.651,
+      "median_total_generation_milliseconds": 1451.917,
+      "median_subsequent_token_milliseconds": 199.297,
+      "request_arena_bytes": 85011968
+    },
+    "optimized_c8_versus_initial_c8": {
+      "time_to_first_token_reduction_milliseconds": 753.133,
+      "time_to_first_token_reduction_percent": 37.548061,
+      "time_to_first_token_speedup": 1.601231,
+      "total_generation_reduction_milliseconds": 937.208,
+      "total_generation_reduction_percent": 39.228086,
+      "total_generation_speedup": 1.645497,
+      "subsequent_token_reduction_milliseconds": 184.023,
+      "subsequent_token_reduction_percent": 48.007670,
+      "subsequent_token_speedup": 1.923361,
+      "request_arena_increment_bytes": 0
+    },
+    "optimized_c8_versus_initial_c1_context": {
+      "time_to_first_token_reduction_milliseconds": 4854.769,
+      "time_to_first_token_reduction_percent": 79.489686,
+      "time_to_first_token_speedup": 4.875596,
+      "total_generation_reduction_milliseconds": 5040.991,
+      "total_generation_reduction_percent": 77.638417,
+      "total_generation_speedup": 4.471955,
+      "subsequent_token_reduction_milliseconds": 186.170,
+      "subsequent_token_reduction_percent": 48.297260,
+      "subsequent_token_speedup": 1.934133,
+      "request_arena_increment_bytes": 1190912
+    }
+  },
+  "same_binary_microbenchmarks": {
+    "nvfp4_m8_output_row_pair": {
+      "comparison": "single-output-row baseline versus paired-output-row kernel",
+      "shapes": [
+        {
+          "n": 17408,
+          "k": 5120,
+          "single_row_milliseconds": 1.36294,
+          "row_pair_milliseconds": 1.16454,
+          "speedup": 1.17037
+        },
+        {
+          "n": 5120,
+          "k": 17408,
+          "single_row_milliseconds": 1.91616,
+          "row_pair_milliseconds": 1.17258,
+          "speedup": 1.63414
+        }
+      ]
+    },
+    "gdn_state_row_coalescing": {
+      "comparison": "prior implementation versus warp-coalesced state rows",
+      "token_tiles": [
+        {
+          "m": 1,
+          "prior_milliseconds": 0.197281,
+          "optimized_milliseconds": 0.0965267,
+          "speedup": 2.04379
+        },
+        {
+          "m": 8,
+          "prior_milliseconds": 1.49476,
+          "optimized_milliseconds": 0.729171,
+          "speedup": 2.04995
+        }
+      ]
+    }
+  },
+  "nsight_systems_profile": {
+    "tool_version": "2026.1.3.243-261337792075v0",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o q3x-post-rowpair-c8 qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --prefill-chunk-size 8 --projection-backend sm87",
+    "raw_report_checked_in": false,
+    "raw_report_bytes": 877371,
+    "raw_report_sha256": "03029994219911f3277262b25fa83ec1246a0a3e95fc9f0a4e49a960ff3e77ca",
+    "profiled_generation": {
+      "prompt_token_count": 19,
+      "generated_token_count": 2,
+      "prompt_prefill_milliseconds": 1268.163,
+      "decode_after_first_milliseconds": 201.480,
+      "total_generation_milliseconds": 1469.643,
+      "cuda_kernel_time_milliseconds": 1444.606816,
+      "cuda_kernel_instances": 10107
+    },
+    "kernel_hotspots": [
+      {
+        "kernel": "nvfp4_m8_row_pair",
+        "total_milliseconds": 448.345024,
+        "instances": 384,
+        "profile_share_percent": 31.0
+      },
+      {
+        "kernel": "fp8_m8",
+        "total_milliseconds": 282.490208,
+        "instances": 416,
+        "profile_share_percent": 19.6
+      },
+      {
+        "kernel": "nvfp4_m1",
+        "total_milliseconds": 244.082176,
+        "instances": 386,
+        "profile_share_percent": 16.9
+      },
+      {
+        "kernel": "nvfp4_m2",
+        "total_milliseconds": 125.622656,
+        "instances": 192,
+        "profile_share_percent": 8.7
+      },
+      {
+        "kernel": "fp8_m1",
+        "total_milliseconds": 125.450112,
+        "instances": 416,
+        "profile_share_percent": 8.7
+      },
+      {
+        "kernel": "gdn_warp_parallel",
+        "total_milliseconds": 88.147840,
+        "instances": 240,
+        "profile_share_percent": 6.1
+      },
+      {
+        "kernel": "fp8_m2",
+        "total_milliseconds": 73.105120,
+        "instances": 208,
+        "profile_share_percent": 5.1
+      },
+      {
+        "kernel": "bf16_reference_gemv",
+        "total_milliseconds": 20.711040,
+        "instances": 1920,
+        "profile_share_percent": 1.4
+      }
+    ],
+    "row_pair_profile_comparison": {
+      "prior_revision": "39f080679315fd2772d7b62e2275886833fa236f",
+      "prior_cuda_kernel_time_milliseconds": 1587.241184,
+      "optimized_cuda_kernel_time_milliseconds": 1444.606816,
+      "cuda_kernel_time_reduction_percent": 8.986307,
+      "prior_nvfp4_m8_milliseconds": 590.332416,
+      "optimized_nvfp4_m8_milliseconds": 448.345024,
+      "nvfp4_m8_reduction_percent": 24.052108
+    }
+  },
+  "limitations": [
+    "the benchmark is batch-one and covers two short prompts with two output tokens",
+    "the end-to-end table is a matched-shape cross-commit historical comparison, not a randomized same-binary trial",
+    "the benchmark was not captured with locked clocks",
+    "the record retains aggregate medians but not raw per-sample output",
+    "the result does not establish large-prefill throughput, continuous-batching throughput, or concurrent-request behavior",
+    "the production NVFP4 output-row pairing applies only to the aligned canonical vector M=8 path",
+    "the default C1 prefill policy and reference projection backend are unchanged",
+    "cudaMemGetInfo request-arena size is a planned allocation, not a process peak-memory trace"
+  ],
+  "policy": {
+    "default_prefill_chunk_size": 1,
+    "default_projection_backend": "reference",
+    "sm87_backend_is_opt_in": true,
+    "result_is_release_claim": false
+  }
+}

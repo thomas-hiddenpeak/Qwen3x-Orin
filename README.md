@@ -16,11 +16,13 @@ exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
 supports bounded `C=1..8` prompt-prefix tiles. In the current two-prompt,
-two-output-token diagnostic, selecting `C=8` reduced median TTFT from
-6,107.420 ms to 2,005.784 ms while leaving median subsequent-token latency
-essentially unchanged at 383.320 ms. The default remains `C=1`, and the result
-is not a serving-throughput claim. Comparisons with the earlier 1,144.108 ms
-reference decode are historical rather than randomized same-binary trials. The
+two-output-token diagnostic, the first `C=8` path reduced median TTFT from
+6,107.420 ms to 2,005.784 ms. The subsequent kernel-optimization chain reaches
+1,252.651 ms TTFT, 1,451.917 ms total generation, and 199.297 ms for the
+subsequent token without increasing the 85,011,968-byte C8 request arena. The
+defaults remain `C=1` and the `reference` backend, and the result is not a
+serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
+decode are historical rather than randomized same-binary trials. The
 default authenticated loader now uses Linux AF_ALG when available, reducing
 the measured resident-load phase for the same pinned model from about 203.7
 seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
@@ -179,11 +181,14 @@ AF_ALG path and the SM87 projection backend, a diagnostic two-token run reported
 21.485 seconds for resident loading and 22.638 seconds for total engine loading;
 the packed-x8 and packed-x4 two-prompt milestones then reached 6.107 seconds
 median TTFT and 385.181 ms median subsequent-token latency. With the same
-two-prompt/two-token benchmark shape, C8 prefix tiling reached 2.006 seconds
-median TTFT, 2.389 seconds total generation, and 383.320 ms median
-subsequent-token latency. Its 64-position request arena grew by 1,190,912
-bytes, from 83,821,056 to 85,011,968 bytes. The complete C8 fixed-oracle run
-retained all 19 prompt IDs, 26 output IDs, and 44 steps exactly. At the earlier
+two-prompt/two-token benchmark shape, the first C8 prefix-tiling milestone
+reached 2.006 seconds median TTFT, 2.389 seconds total generation, and
+383.320 ms median subsequent-token latency. The post-C8 kernel sequence at
+`4f23fdb` then reached 1.253 seconds TTFT, 1.452 seconds total generation, and
+199.297 ms subsequent-token latency. Its 64-position request arena remains
+85,011,968 bytes, 1,190,912 bytes above C1. The complete optimized C8
+fixed-oracle run retained all 19 prompt IDs, 26 output IDs, exact text,
+`<|im_end|>`, and all 44 steps. At the earlier
 packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest had fallen
 from 234.35 to 40.60 seconds while retaining exact IDs, text, stop semantics,
 and runner steps. See the
@@ -193,7 +198,9 @@ and
 [packed-x8 records](docs/metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
 plus the
 [packed-x4 records](docs/metadata/qwen36-27b-fp8-packedx4-benchmark.json) and
-[C8 prefill record](docs/metadata/qwen36-27b-c8-prefill-benchmark.json).
+[C8 prefill record](docs/metadata/qwen36-27b-c8-prefill-benchmark.json), plus
+the
+[post-C8 kernel record](docs/metadata/qwen36-27b-c8-kernel-optimization-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 
@@ -228,9 +235,9 @@ and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
 Native inference is currently a bounded, batch-one surface with a correctness
-reference, opt-in M=1 projection optimization, and opt-in `C<=8` prompt-prefix
-tiling. Recurrent state and causal attention still advance token by token
-inside each tile. It does not yet provide large-prefill kernels, continuous
+reference, opt-in shape-gated projection optimization, and opt-in `C<=8`
+prompt-prefix tiling. Recurrent state and causal attention still advance token
+by token inside each tile. It does not yet provide large-prefill kernels, continuous
 batching, a server, or a release-grade performance claim. The independent
 target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
