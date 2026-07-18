@@ -67,6 +67,14 @@ namespace q3x::kernels {
 [[nodiscard]] bool use_sm87_fp8_small_m_row_pair_test(
     std::size_t token_count, std::size_t rows) noexcept;
 
+[[nodiscard]] bool use_sm87_fp8_m8_fixed_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m8_fixed_shape_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
@@ -2511,6 +2519,30 @@ void test_launch_validation(TestContext& test) {
               "FP8 M8 row-pair accepts the smallest checkpoint projection");
   test.expect(q3x::kernels::use_sm87_fp8_small_m_row_pair_test(8U, 10'240U),
               "FP8 M8 row-pair accepts production QKV output rows");
+  test.expect(q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  10'240U, 5'120U),
+              "FP8 M8 fixed-shape accepts 10240x5120");
+  test.expect(q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  5'120U, 6'144U),
+              "FP8 M8 fixed-shape accepts 5120x6144");
+  test.expect(q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  6'144U, 5'120U),
+              "FP8 M8 fixed-shape accepts 6144x5120");
+  test.expect(q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  12'288U, 5'120U),
+              "FP8 M8 fixed-shape accepts 12288x5120");
+  test.expect(q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  1'024U, 5'120U),
+              "FP8 M8 fixed-shape accepts 1024x5120");
+  test.expect(!q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  10'239U, 5'120U),
+              "FP8 M8 fixed-shape rejects a near-miss row count");
+  test.expect(!q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  10'240U, 5'119U),
+              "FP8 M8 fixed-shape rejects a near-miss K");
+  test.expect(!q3x::kernels::use_sm87_fp8_m8_fixed_shape_test(
+                  5'120U, 5'120U),
+              "FP8 M8 fixed-shape keeps unknown square shapes generic");
   test.expect(!q3x::kernels::use_sm87_fp8_m1_persistent_rows_test(1'023U),
               "FP8 M1 persistent rows keeps the small-row fallback");
   test.expect(q3x::kernels::use_sm87_fp8_m1_persistent_rows_test(1'024U),
@@ -2575,6 +2607,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool fp8_row_pair_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_ROW_PAIR_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool fp8_m8_fixed_shape_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M8_FIXED_SHAPE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -3552,6 +3591,260 @@ void run_optional_fp8_m2_grid_cap_performance(TestContext& test,
     return;
   }
   run_fp8_m2_large_row_grid_stride_coverage(test, stream, selected_cap);
+}
+
+struct Fp8M8FixedShapeMeasurement {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+};
+
+[[nodiscard]] Fp8M8FixedShapeMeasurement
+benchmark_fp8_m8_fixed_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 3U) % 127U) - 63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed finite weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize token-distinct activations");
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_small_m8_row_pair_test_cuda(
+        weights.get(), kWeightScale, activations.get(), rows, columns,
+        baseline_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+        weights.get(), kWeightScale, activations.get(), kTokens, rows, columns,
+        candidate_output.get(), static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " correctness generic row-pair baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " correctness fixed-shape candidate");
+  std::vector<std::uint16_t> baseline(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy generic row-pair output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_output.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy fixed-shape output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return {};
+  }
+  std::size_t mismatches = 0U;
+  for (std::size_t index = 0U; index < baseline.size(); ++index) {
+    mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+  }
+  const bool bitwise_equal = mismatches == 0U;
+  std::cout << "FP8_M8_FIXED_SHAPE_DIFF: " << label
+            << " candidate_vs_generic_row_pair_bf16=" << mismatches << '/'
+            << baseline.size() << '\n';
+  test.expect(bitwise_equal,
+              label + " fixed shape matches every generic row-pair BF16 bit");
+
+  for (int iteration = 0; iteration < kWarmupIterations && ready;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string round_suffix =
+        " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 1" + round_suffix);
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 1" + round_suffix);
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 2" + round_suffix);
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 2" + round_suffix);
+    const bool round_finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    finite = finite && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first + baseline_second;
+      candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_FP8_M8_FIXED_SHAPE_ROUND: " << label
+              << " round=" << round + 1
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second << '\n';
+  }
+  if (!finite) {
+    return {};
+  }
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const float baseline_average =
+      static_cast<float>(baseline_total / kTimedPasses);
+  const float candidate_average =
+      static_cast<float>(candidate_total / kTimedPasses);
+  const float speedup = baseline_average / candidate_average;
+  std::cout << "PERF_FP8_M8_FIXED_SHAPE: " << label
+            << " baseline_average_ms=" << baseline_average
+            << " candidate_average_ms=" << candidate_average
+            << " speedup=" << speedup
+            << " uplift_percent=" << (speedup - 1.0F) * 100.0F
+            << " bitwise_mismatches=" << mismatches << '/' << baseline.size()
+            << '\n';
+  return {baseline_average, candidate_average, bitwise_equal};
+}
+
+void run_optional_fp8_m8_fixed_shape_performance(TestContext& test,
+                                                  cudaStream_t stream) {
+  if (!fp8_m8_fixed_shape_performance_enabled()) {
+    std::cout << "SKIP: FP8 M8 fixed-shape performance segment; set "
+                 "Q3X_RUN_SM87_FP8_M8_FIXED_SHAPE_PERF=1 to enable\n";
+    return;
+  }
+  constexpr float kMinimumWeightedSpeedup = 1.03F;
+  constexpr float kMinimumPerShapeSpeedup = 0.98F;
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t calls_per_prompt;
+    const char* label;
+  };
+  constexpr std::array<Shape, 5U> kShapes{{
+      {10'240U, 5'120U, 48U, "FP8 M8 fixed 10240x5120"},
+      {5'120U, 6'144U, 64U, "FP8 M8 fixed 5120x6144"},
+      {6'144U, 5'120U, 48U, "FP8 M8 fixed 6144x5120"},
+      {12'288U, 5'120U, 16U, "FP8 M8 fixed 12288x5120"},
+      {1'024U, 5'120U, 32U, "FP8 M8 fixed 1024x5120"},
+  }};
+  std::array<Fp8M8FixedShapeMeasurement, kShapes.size()> measurements{};
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    measurements[index] = benchmark_fp8_m8_fixed_shape(
+        test, stream, kShapes[index].rows, kShapes[index].columns,
+        kShapes[index].label);
+  }
+
+  double weighted_baseline = 0.0;
+  double weighted_candidate = 0.0;
+  bool all_bitwise = true;
+  bool all_finite = true;
+  bool no_shape_regression = true;
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    const Fp8M8FixedShapeMeasurement& measurement = measurements[index];
+    const bool finite =
+        std::isfinite(measurement.baseline_milliseconds) &&
+        std::isfinite(measurement.candidate_milliseconds);
+    const float speedup =
+        measurement.baseline_milliseconds / measurement.candidate_milliseconds;
+    all_bitwise = all_bitwise && measurement.bitwise_equal;
+    all_finite = all_finite && finite;
+    no_shape_regression = no_shape_regression && finite &&
+                          speedup >= kMinimumPerShapeSpeedup;
+    weighted_baseline +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.baseline_milliseconds;
+    weighted_candidate +=
+        static_cast<double>(kShapes[index].calls_per_prompt) *
+        measurement.candidate_milliseconds;
+    std::cout << "PERF_FP8_M8_FIXED_SHAPE_VALIDATION: "
+              << kShapes[index].label << " baseline_ms="
+              << measurement.baseline_milliseconds << " candidate_ms="
+              << measurement.candidate_milliseconds << " speedup=" << speedup
+              << " minimum_speedup=" << kMinimumPerShapeSpeedup
+              << " gate="
+              << (finite && speedup >= kMinimumPerShapeSpeedup ? "PASS"
+                                                               : "FAIL")
+              << '\n';
+  }
+  const double weighted_speedup = weighted_baseline / weighted_candidate;
+  const bool aggregate_gate =
+      all_bitwise && all_finite && no_shape_regression &&
+      std::isfinite(weighted_speedup) &&
+      weighted_speedup >= kMinimumWeightedSpeedup;
+  std::cout << "PERF_FP8_M8_FIXED_SHAPE_AGGREGATE: weighted_baseline_ms="
+            << weighted_baseline
+            << " weighted_candidate_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumWeightedSpeedup
+            << " all_bitwise=" << (all_bitwise ? "true" : "false")
+            << " no_shape_regression="
+            << (no_shape_regression ? "true" : "false")
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "FP8 M8 fixed shapes clear every production gate");
 }
 
 struct Fp8RowPairMeasurement {
@@ -5320,6 +5613,7 @@ int main() {
                   "NVFP4 target-K 3x17408");
   run_optional_fp8_m1_grid_cap_performance(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
+  run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
