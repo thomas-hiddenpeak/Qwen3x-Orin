@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-packedx8-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "git_commit": "177c560c88710e93a452f58e3a9ae70d2da41c7f",
+    "parent_commit": "69bd2aa474e40dd18dbf16b40868c1425c23f309",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment",
+    "swap_enabled_bytes": 2147479552
+  },
+  "implementation": {
+    "format": "ModelOpt canonical NVFP4 W4A16",
+    "vector_dispatch": {
+      "columns_multiple": 256,
+      "packed_weight_alignment_bytes": 4,
+      "fallback": "original scalar SM87 kernel"
+    },
+    "packed_bytes_per_lane_load": 4,
+    "e2m1_values_per_lane_load": 8,
+    "logical_columns_per_warp_iteration": 256,
+    "fp32_accumulators_per_lane": 4,
+    "scale_group_values": 16,
+    "scale_shared_by_adjacent_lanes": true,
+    "checkpoint_repack_required": false,
+    "public_api_changed": false
+  },
+  "correctness": {
+    "release_build_passed": true,
+    "non_model_ctest": {
+      "passed": 41,
+      "failed": 0,
+      "seconds": 3.90,
+      "package_consumer_passed": true
+    },
+    "synthetic_kernel_gate": {
+      "cases": [
+        "fp8_13x37",
+        "fp8_3x5120",
+        "fp8_3x17408",
+        "nvfp4_13x48_scalar_fallback",
+        "nvfp4_160x256_codebook_lane_scale",
+        "nvfp4_3x256_unaligned_scalar_fallback",
+        "nvfp4_3x5120_vector",
+        "nvfp4_3x6144_vector",
+        "nvfp4_3x17408_vector"
+      ],
+      "e2m1_codes_covered": 16,
+      "nibble_positions_per_uint32_covered": 8,
+      "lane_scale_halves_covered": 32,
+      "total_bf16_outputs_compared": 204,
+      "bf16_bit_mismatches": 0,
+      "maximum_absolute_error": 0.0,
+      "maximum_relative_error": 0.0,
+      "host_double_oracle_passed": true,
+      "cuda_reference_passed": true,
+      "repeated_output_bitwise_deterministic": true
+    },
+    "full_model_sm87_oracle": {
+      "ctest_name": "reference_engine_e2e",
+      "ctest_seconds": 45.56,
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "same_binary_microbenchmark": {
+    "command": "Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1 q3x_sm87_weight_only_gemv_test",
+    "warmup_iterations_per_path": 5,
+    "measured_iterations_per_pass": 20,
+    "measurement_order": [
+      "scalar",
+      "vector",
+      "vector",
+      "scalar"
+    ],
+    "timer": "CUDA events",
+    "minimum_required_speedup": 1.15,
+    "results": [
+      {
+        "rows": 17408,
+        "columns": 5120,
+        "scalar_average_milliseconds": 1.77453,
+        "vector_average_milliseconds": 1.00099,
+        "speedup": 1.77277,
+        "vector_encoded_weight_gigabytes_per_second": 50.0854,
+        "gate_passed": true
+      },
+      {
+        "rows": 5120,
+        "columns": 17408,
+        "scalar_average_milliseconds": 1.80440,
+        "vector_average_milliseconds": 1.00064,
+        "speedup": 1.80324,
+        "vector_encoded_weight_gigabytes_per_second": 50.1028,
+        "gate_passed": true
+      }
+    ],
+    "sass_resources": {
+      "vector_registers_per_thread": 39,
+      "scalar_registers_per_thread": 34,
+      "vector_stack_bytes": 0,
+      "vector_local_bytes": 0,
+      "vector_shared_bytes": 0,
+      "packed_weight_load_bits": 32,
+      "spills_detected": false
+    }
+  },
+  "end_to_end_benchmark": {
+    "command": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --prompt 'Explain CUDA in one sentence.' --max-tokens 2 --warmup 1 --iterations 2 --max-sequence-length 64 --projection-backend sm87",
+    "prompt_count": 2,
+    "warmup_rounds": 1,
+    "measured_rounds": 2,
+    "measured_samples": 4,
+    "max_new_tokens": 2,
+    "strict_replay_passed": true,
+    "load": {
+      "sha256_backend": "linux_af_alg",
+      "total_milliseconds": 22652.863,
+      "tokenizer_milliseconds": 1135.302,
+      "resident_milliseconds": 21493.872,
+      "weight_bind_milliseconds": 19.837,
+      "request_state_milliseconds": 3.593,
+      "runner_factory_milliseconds": 0.230,
+      "request_arena_bytes": 83821056
+    },
+    "time_to_first_token_milliseconds": {
+      "minimum": 8279.663,
+      "median": 8279.876,
+      "p95": 8280.150,
+      "maximum": 8280.150,
+      "samples": [
+        8280.150,
+        8280.045,
+        8279.706,
+        8279.663
+      ]
+    },
+    "total_generation_milliseconds": {
+      "minimum": 8778.745,
+      "median": 8779.179,
+      "p95": 8779.509,
+      "maximum": 8779.509,
+      "samples": [
+        8779.223,
+        8779.135,
+        8779.509,
+        8778.745
+      ]
+    },
+    "subsequent_token_milliseconds": {
+      "minimum": 499.073,
+      "median": 499.086,
+      "p95": 499.802,
+      "maximum": 499.802,
+      "samples": [
+        499.073,
+        499.090,
+        499.802,
+        499.082
+      ]
+    },
+    "device_memory": {
+      "start_free_bytes": 41535426560,
+      "end_free_bytes": 41534418944,
+      "minimum_free_bytes": 41532362752,
+      "total_bytes": 65932095488,
+      "persistent_drop_bytes": 1007616,
+      "maximum_observed_drop_bytes": 3063808,
+      "drop_tolerance_bytes": 67108864,
+      "persistent_drop_detected": false
+    },
+    "prompts": [
+      {
+        "text": "用一句话解释 CUDA 是什么。",
+        "prompt_token_ids": [
+          248045,
+          846,
+          198,
+          95826,
+          110827,
+          98682,
+          52965,
+          220,
+          98661,
+          1710,
+          248046,
+          198,
+          248045,
+          74455,
+          198,
+          248068,
+          271,
+          248069,
+          271
+        ],
+        "generated_token_ids": [
+          77517,
+          220
+        ],
+        "generated_text": "CUDA ",
+        "stop_reason": "max_new_tokens",
+        "runner_steps": 20
+      },
+      {
+        "text": "Explain CUDA in one sentence.",
+        "prompt_token_ids": [
+          248045,
+          846,
+          198,
+          814,
+          20139,
+          52965,
+          303,
+          799,
+          11316,
+          13,
+          248046,
+          198,
+          248045,
+          74455,
+          198,
+          248068,
+          271,
+          248069,
+          271
+        ],
+        "generated_token_ids": [
+          77517,
+          369
+        ],
+        "generated_text": "CUDA is",
+        "stop_reason": "max_new_tokens",
+        "runner_steps": 20
+      }
+    ]
+  },
+  "derived": {
+    "versus_prior_sm87": {
+      "prior_source_commit": "fb09f4245763e73e5b50c34b09c300fedc4119ac",
+      "time_to_first_token_reduction_milliseconds": 2883.338,
+      "time_to_first_token_reduction_percent": 25.8289,
+      "time_to_first_token_speedup": 1.348234,
+      "total_generation_reduction_milliseconds": 3035.584,
+      "total_generation_reduction_percent": 25.6931,
+      "total_generation_speedup": 1.345771,
+      "subsequent_token_reduction_milliseconds": 152.468,
+      "subsequent_token_reduction_percent": 23.4007,
+      "subsequent_token_speedup": 1.305494
+    },
+    "versus_reference": {
+      "reference_source_commit": "fb09f4245763e73e5b50c34b09c300fedc4119ac",
+      "time_to_first_token_reduction_percent": 59.6536,
+      "time_to_first_token_speedup": 2.478533,
+      "total_generation_reduction_percent": 59.4796,
+      "total_generation_speedup": 2.467891,
+      "subsequent_token_reduction_percent": 56.3777,
+      "subsequent_token_speedup": 2.292407
+    },
+    "subsequent_tokens_per_second": 2.003663
+  },
+  "post_change_profile": {
+    "command": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=true qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 2 --projection-backend sm87",
+    "report": {
+      "filename": "q3x-27b-sm87-packedx8-profile.nsys-rep",
+      "checked_in": false,
+      "size_bytes": 1772922,
+      "sha256": "b2d56d0f296c8d656bf99868b320c2fe6a282f72e69211740d93bb8e2a6f37f9"
+    },
+    "runner_steps": 20,
+    "cuda_kernel_launches": 24042,
+    "generation_milliseconds": {
+      "time_to_first_token": 8336.622,
+      "subsequent_token": 500.670,
+      "total": 8837.292
+    },
+    "kernel_groups": [
+      {
+        "name": "fp8_layer_projections",
+        "instances": 4160,
+        "gpu_milliseconds": 4499.856608,
+        "profile_share_percent": 51.2
+      },
+      {
+        "name": "nvfp4_packed_x8_layer_projections",
+        "instances": 3840,
+        "gpu_milliseconds": 3851.047072,
+        "profile_share_percent": 43.8
+      },
+      {
+        "name": "gated_deltanet",
+        "instances": 960,
+        "gpu_milliseconds": 186.226688,
+        "profile_share_percent": 2.1
+      },
+      {
+        "name": "reference_nvfp4_lm_head",
+        "instances": 2,
+        "gpu_milliseconds": 120.137216,
+        "profile_share_percent": 1.4
+      }
+    ],
+    "nvfp4_shapes": [
+      {
+        "rows": 17408,
+        "columns": 5120,
+        "instances": 2560,
+        "average_milliseconds": 1.0034673,
+        "profile_share_percent": 29.2
+      },
+      {
+        "rows": 5120,
+        "columns": 17408,
+        "instances": 1280,
+        "average_milliseconds": 1.0016960,
+        "profile_share_percent": 14.6
+      }
+    ],
+    "next_decode_target": "FP8 layer projections"
+  },
+  "limitations": [
+    "MAXN was selected but clocks were not locked",
+    "swap was enabled",
+    "the end-to-end comparison reuses the prior cross-commit benchmark artifact rather than randomized same-binary trials",
+    "the microbenchmark uses deterministic synthetic payloads",
+    "the benchmark covers batch-one sequential generation with two short prompts and two output tokens",
+    "cudaMemGetInfo is device-wide and sampled only between invocations",
+    "parallel accumulation remains numerically gated rather than universally bitwise-equivalent"
+  ],
+  "policy": {
+    "default_projection_backend": "reference",
+    "sm87_backend_is_opt_in": true,
+    "result_is_release_claim": false
+  }
+}

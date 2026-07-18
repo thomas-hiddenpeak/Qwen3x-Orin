@@ -90,8 +90,9 @@ output IDs, decoded UTF-8 text, and `<|im_end|>` stop exactly on the target
 Orin. The first reference record used an 82,505,216-byte request arena, a
 213.845-second portable-hash cold load, and 49.212 seconds of sequential
 generation. The current AF_ALG loader reduced a measured resident load to
-21.485 seconds; the SM87 full fixed-oracle CTest now completes in 52.22 seconds
-without changing its exact 19/26-token and 44-step result. Native boundary
+21.485 seconds; the SM87 full fixed-oracle CTest took 52.22 seconds after that
+loader milestone and 45.56 seconds after packed-x8, without changing its exact
+19/26-token and 44-step result. Native boundary
 hashes are not required to equal vLLM hashes because independent checkpoint
 scales versus fused requantization and sequential versus chunk BF16 GDN updates
 have different rounding/order. Tolerance-based boundary characterization and
@@ -110,6 +111,7 @@ Exit criteria:
 Deliverables:
 
 - [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
+- [done, shape-gated] Canonical NVFP4 packed-x8 M=1 decode with scalar fallback.
 - Marlin-style W4A16 and W8A16 kernels for small token batches.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
@@ -122,12 +124,14 @@ weight-only GEMV. The first direct-BF16 SM87 backend passes awkward/K=5120/
 K=17408 numerical gates and the complete 19/26-token fixed oracle. In a
 same-binary, two-prompt comparison it reduced median TTFT by 45.60%, total
 two-token generation by 45.47%, and subsequent-token latency by 43.05%
-(1.838x, 1.834x, and 1.756x speedups). A follow-up optimized profile assigns
-58.3% of GPU time to NVFP4 projections and 38.1% to FP8 projections, selecting
-packed NVFP4 x8 decode as the next M=1 target. Separately, default AF_ALG
-authentication reduced the resident-load phase by 89.45% in a diagnostic
-historical comparison. The projection backend remains default-off while prompt
-and shape coverage expands. See
+(1.838x, 1.834x, and 1.756x speedups). The packed-x8 NVFP4 milestone then
+reduced those SM87 medians by another 25.83%, 25.69%, and 23.40%, reaching
+8.280-second TTFT and 499.086 ms per subsequent token. Its follow-up profile
+assigns 51.2% of GPU time to FP8 projections and 43.8% to NVFP4, selecting FP8
+conversion as the next M=1 target. Separately, default AF_ALG authentication
+reduced the resident-load phase by 89.45% in a diagnostic historical
+comparison. The projection backend remains default-off while prompt and shape
+coverage expands. See
 [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
 
 Exit criteria:

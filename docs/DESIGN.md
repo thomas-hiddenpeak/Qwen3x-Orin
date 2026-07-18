@@ -96,6 +96,13 @@ Orin has no native NVFP4 tensor-core instruction. The `sm_87` path therefore:
 Repacking may permute bits, rows, columns, groups, and scale storage, but it
 must be reversible and must not select a new codebook or fit new scales.
 
+The current canonical M=1 path does not repack. When K is divisible by 256 and
+the packed row is 4-byte aligned, each SM87 lane loads four adjacent packed
+bytes, decodes eight E2M1 values, and shares the group scale with its adjacent
+lane. Other shapes use the scalar decoder. This is a measured CUDA-arithmetic
+step toward the later Marlin-style small-M layout, not a claim that Orin has
+native NVFP4 tensor-core support.
+
 The NVIDIA artifact also stores an FP32 `input_scale` beside quantized linear
 modules. That value belongs to an activation-quantized W4A4 calibration path.
 Qwen3x-Orin's initial W4A16 path keeps BF16 activations, so it validates and

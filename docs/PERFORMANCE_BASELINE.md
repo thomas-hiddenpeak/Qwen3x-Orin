@@ -10,6 +10,8 @@ and
 The subsequent startup diagnosis and authenticated-loader result are retained
 in
 [`qwen36-27b-afalg-loader-benchmark.json`](metadata/qwen36-27b-afalg-loader-benchmark.json).
+The next M=1 NVFP4 milestone is recorded in
+[`qwen36-27b-nvfp4-packedx8-benchmark.json`](metadata/qwen36-27b-nvfp4-packedx8-benchmark.json).
 
 ## Method
 
@@ -104,7 +106,7 @@ IDs, decoded text, stop reason, and step sequence. The four measured samples
 were tightly clustered:
 
 | Median metric | Reference | SM87 | Reduction | Speedup |
-| --- | ---: | ---: | ---: | ---: |
+| --- | ---: | ---: | ---: | --- |
 | Time to first token | 20,521.948 ms | 11,163.214 ms | 45.60% | 1.838x |
 | Total two-token generation | 21,666.056 ms | 11,814.763 ms | 45.47% | 1.834x |
 | Subsequent token | 1,144.108 ms | 651.554 ms | 43.05% | 1.756x |
@@ -168,17 +170,65 @@ whereas the accelerated fields came from `generate`; this is therefore a
 diagnostic historical comparison, not a randomized paired release claim. The
 full-model row is the same `reference_engine_e2e` gate at the two commits.
 
+## Packed-x8 NVFP4 decode
+
+Commit `177c560c88710e93a452f58e3a9ae70d2da41c7f` vectorizes the canonical
+NVFP4 path without repacking the checkpoint. For K divisible by 256 and a
+4-byte-aligned packed-weight pointer, each lane loads one `uint32`, decodes
+eight E2M1 values, shares one 16-value scale with its adjacent lane, and uses
+four FP32 accumulators. Other K values and unaligned pointers retain the
+previous scalar SM87 kernel.
+
+The same-binary, mirrored-order CUDA-event gate used identical buffers for the
+scalar and vector paths:
+
+| Shape `[N,K]` | Scalar | Packed x8 | Speedup | Gate |
+| --- | ---: | ---: | ---: | ---: |
+| `[17408,5120]` | 1.77453 ms | 1.00099 ms | 1.773x | pass |
+| `[5120,17408]` | 1.80440 ms | 1.00064 ms | 1.803x | pass |
+
+Both exceed the required 1.15x speedup. The generated vector kernel uses 39
+registers per thread, no stack/local/shared memory, and no spills; its packed
+weight access is one 32-bit global load per lane and loop iteration.
+
+Repeating the prior two-prompt benchmark command produced exact replay for all
+four measured samples and no persistent device-memory drop above the 64 MiB
+gate:
+
+| Median metric | Reference | First SM87 | Packed x8 | Reduction vs first SM87 | Speedup vs reference |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Time to first token | 20,521.948 ms | 11,163.214 ms | 8,279.876 ms | 25.83% | 2.479x |
+| Total two-token generation | 21,666.056 ms | 11,814.763 ms | 8,779.179 ms | 25.69% | 2.468x |
+| Subsequent token | 1,144.108 ms | 651.554 ms | 499.086 ms | 23.40% | 2.292x |
+
+The reference and first-SM87 columns come from the earlier `fb09f42` artifact;
+the packed-x8 column comes from `177c560`. This end-to-end table is a
+cross-commit historical comparison, not a same-binary paired trial. Only the
+preceding scalar/vector microbenchmark is same-binary.
+
+The last row is approximately 2.004 subsequent tokens per second, a material
+interactive-decode improvement. It is still a batch-one, two-short-prompt result
+with unlocked clocks, not a serving-throughput claim.
+
+The post-change Nsight trace attributes 51.2% of GPU kernel time to FP8 layer
+projections and 43.8% to packed-x8 NVFP4 layer projections. The two NVFP4
+production shapes averaged 1.0035 ms and 1.0017 ms in the full-model trace,
+down from approximately 1.782 ms and 1.818 ms. FP8 is therefore the next M=1
+decode target; multi-token prefill remains a separate small-M milestone.
+
 ## Correctness gate
 
 The current `reference_engine_e2e` CTest loaded the pinned 27B checkpoint with
 `Q3X_E2E_PROJECTION_BACKEND=sm87` and matched all 19 prompt IDs, 26 generated
 IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps. The lightweight
 kernel gate also compared SM87 directly with the CUDA reference for FP8 and
-NVFP4 awkward shapes plus K=5120 and K=17408; all six deterministic cases had
-zero BF16 bit mismatches. Parallel reduction order is still not a general
-bitwise-equivalence promise, so `reference` remains the default projection
-backend. The accelerated loader is independent of that projection choice and
-is now the default when AF_ALG is available.
+NVFP4 awkward/fallback/vector shapes, all 16 E2M1 codes in all eight packed
+nibble positions, adjacent-lane scale selection, and K=5120/6144/17408. All 204
+deterministic BF16 outputs matched the CUDA reference bit-for-bit. Parallel
+reduction order is still not a general bitwise-equivalence promise, so
+`reference` remains the default projection backend. The accelerated loader is
+independent of that projection choice and is now the default when AF_ALG is
+available. The complete packed-x8 fixed-oracle CTest passed in 45.56 seconds.
 
 ## Phase 3 decision
 
@@ -186,14 +236,15 @@ The first optimized path is now implemented as SM87 single-token weight-only
 GEMV:
 
 1. keep `sm87` explicit while prompt coverage expands;
-2. add shape-driven dispatch and small-token Marlin-style kernels;
+2. retain shape-driven packed-x8 dispatch for aligned canonical NVFP4 M=1;
 3. optimize multi-token prefill separately from M=1 decode;
 4. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 5. lock clocks when privileged access is available before making a formal
    release performance claim.
 
-The next measured M=1 target is packed NVFP4 x8 decode, followed by a small-M
-projection gate. Chunked `C<=8` prefill proceeds only if that batched primitive
-beats repeated M=1 projection by the recorded threshold; `.q3x` repacking waits
-for a stable physical layout.
+The next measured M=1 target is packed FP8 conversion. It should retain a
+same-binary gate and is accepted only if the dominant production shapes improve
+materially without changing the full-model oracle. The small-M projection gate
+then decides whether chunked `C<=8` prefill proceeds; `.q3x` repacking waits for
+a stable physical layout.

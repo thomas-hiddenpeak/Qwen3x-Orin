@@ -92,15 +92,22 @@ launches do not use FP32 scratch. Unknown backends, unknown/invalid variants,
 and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
 path allocates or synchronizes.
 
+Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
+256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
+and adjacent lanes share one 16-value block scale. Non-vector K and unaligned
+weight pointers retain the original scalar kernel. This shape dispatch does not
+change the public projection API or require an offline weight layout.
+
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
 but their warp reduction and global-scale multiplication order are not
 required to be bitwise identical to the deliberately scalar-shaped CUDA
 reference. Optimized results must instead pass the independent per-operation
 tolerance gate and the fixed full-model exact-token/text gate. The initial
-FP8/NVFP4 cases at K=5120 and K=17408 also produced zero BF16 bit mismatches
-against the CUDA reference for their deterministic synthetic inputs. The
-default remains `kReference`; passing one prompt does not make the optimized
-backend a universal floating-point oracle.
+The current deterministic gate covers FP8 and NVFP4 K=5120/6144/17408, scalar
+and unaligned fallbacks, all E2M1 codes and packed positions, and adjacent-lane
+scale selection. Its 204 BF16 outputs produced zero bit mismatches against the
+CUDA reference. The default remains `kReference`; passing one prompt does not
+make the optimized backend a universal floating-point oracle.
 
 ## Validation coverage
 
@@ -119,8 +126,10 @@ the official 20 GB checkpoint.
 production routes, BF16 fallback, scratch behavior, and fail-closed backend
 and variant validation. It uses only tiny synthetic buffers.
 
-`sm87_weight_only_gemv` covers awkward dimensions, both model reduction
-lengths, an independent host formula, deterministic replay, and direct
-optimized-versus-reference BF16 mismatch/error statistics. Its optional
-production-shape segment is enabled with
+`sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
+all packed E2M1 positions, the model reduction lengths, an independent host
+formula, deterministic replay, and direct optimized-versus-reference BF16
+mismatch/error statistics. Its optional production-shape segment performs a
+mirrored scalar/vector CUDA-event comparison and enforces a 1.15x minimum
+speedup for both dominant NVFP4 shapes. It is enabled with
 `Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1`.
