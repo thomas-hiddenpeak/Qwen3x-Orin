@@ -1209,6 +1209,222 @@ nvfp4_w4a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
   }
 }
 
+// Down-projection specialization that doubles the K stage from 64 to 128.
+// Two cooperative load passes fill A[16,128] and B[128,128] with a padded
+// shared leading dimension of 136. The eight K16 WMMA operations retain the
+// exact order of two consecutive production K64 stages; the stride-16 product
+// table and the N=128 CTA/warp mapping are otherwise unchanged.
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 136U>
+__global__ __launch_bounds__(kThreads, 3) void
+nvfp4_w4a16_small_m16_gemm_bf16_wmma_k128_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 128U;
+  constexpr unsigned int kBf16ValuesPerActivationWord = 4U;
+  constexpr unsigned int kActivationWordsPerToken =
+      kColumnsPerStage / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kSharedActivationWordsPerToken =
+      kSharedLeadingDimension / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kActivationWordCount =
+      kTokenCount * kActivationWordsPerToken;
+  constexpr unsigned int kActivationLoadPasses =
+      kActivationWordCount / kThreads;
+  constexpr unsigned int kPackedColumns =
+      static_cast<unsigned int>(kColumns / kNvFp4ValuesPerByte);
+  constexpr unsigned int kScaleColumns =
+      static_cast<unsigned int>(kColumns / kNvFp4GroupSize);
+  constexpr unsigned int kValuesPerWeightVector =
+      sizeof(uint4) * kNvFp4ValuesPerByte;
+  constexpr unsigned int kWeightVectorsPerRow =
+      kColumnsPerStage / kValuesPerWeightVector;
+  constexpr unsigned int kWeightLoadPasses = 2U;
+  constexpr unsigned int kWeightLoaderThreadsPerRow =
+      kWeightVectorsPerRow / kWeightLoadPasses;
+  constexpr unsigned int kBf16ValuesPerWeightWord = 2U;
+  constexpr unsigned int kSharedWeightWordsPerRow =
+      kSharedLeadingDimension / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kSharedWeightWordCount =
+      kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
+  constexpr unsigned int kSharedOutputCount =
+      kTokenCount * kOutputColumnsPerBlock;
+  constexpr unsigned int kProductWordCount =
+      kFp8EncodedValueCount * kNvFp4EncodedValueCount /
+      kBf16ValuesPerWeightWord;
+  constexpr unsigned int kProductInitializationPasses =
+      kProductWordCount / kThreads;
+  static_assert(kRows == 5'120U);
+  static_assert(kColumns == 17'408U);
+  static_assert(kRows % kOutputColumnsPerBlock == 0U);
+  static_assert(kColumns % kColumnsPerStage == 0U);
+  static_assert(kActivationWordCount == 512U);
+  static_assert(kActivationLoadPasses == 2U);
+  static_assert(kWeightVectorsPerRow == 4U);
+  static_assert(kWeightLoadPasses == 2U);
+  static_assert(kWeightLoaderThreadsPerRow == 2U);
+  static_assert(kSharedLeadingDimension >= kColumnsPerStage);
+  static_assert(kSharedLeadingDimension % 8U == 0U);
+  static_assert(kProductWordCount == 2'048U);
+  static_assert(kProductInitializationPasses == 8U);
+
+  union __align__(32) BOrCStorage {
+    std::uint32_t weights[kSharedWeightWordCount];
+    float output[kSharedOutputCount];
+  };
+  __shared__ __align__(32)
+      std::uint32_t decoded_product_words[kProductWordCount];
+  __shared__ __align__(32) std::uint64_t
+      shared_activations[kTokenCount * kSharedActivationWordsPerToken];
+  __shared__ BOrCStorage b_or_c;
+
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+
+  // Each pass writes one contiguous 1 KiB stripe. A thread keeps one adjacent
+  // E2M1 pair while scale codes advance by 32, so every uint32 store contains
+  // the low/high nibble products used for one canonical packed byte.
+  const unsigned int product_pair = thread & 7U;
+  const float decoded_low =
+      decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U));
+  const float decoded_high =
+      decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U + 1U));
+#pragma unroll 1
+  for (unsigned int pass = 0U; pass < kProductInitializationPasses; ++pass) {
+    const unsigned int scale_code = (thread >> 3U) + pass * 32U;
+    const float decoded_scale =
+        decode_e4m3fn(static_cast<std::uint8_t>(scale_code));
+    const std::uint16_t low =
+        encode_bf16_rne(decoded_low * decoded_scale);
+    const std::uint16_t high =
+        encode_bf16_rne(decoded_high * decoded_scale);
+    decoded_product_words[thread + pass * kThreads] =
+        static_cast<std::uint32_t>(low) |
+        (static_cast<std::uint32_t>(high) << 16U);
+  }
+  __syncthreads();
+
+  const auto* const decoded_products =
+      reinterpret_cast<const std::uint16_t*>(decoded_product_words);
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator;
+  wmma::fill_fragment(accumulator, 0.0F);
+  const unsigned int first_output_column =
+      blockIdx.x * kOutputColumnsPerBlock;
+  const unsigned int local_output_column =
+      thread / kWeightLoaderThreadsPerRow;
+  const unsigned int vector_in_row_lane =
+      thread % kWeightLoaderThreadsPerRow;
+  const unsigned int output_column =
+      first_output_column + local_output_column;
+
+#pragma unroll 1
+  for (unsigned int first_k = 0U; first_k < kColumns;
+       first_k += kColumnsPerStage) {
+#pragma unroll
+    for (unsigned int load_pass = 0U;
+         load_pass < kActivationLoadPasses; ++load_pass) {
+      const unsigned int activation_index =
+          thread + load_pass * kThreads;
+      const unsigned int token =
+          activation_index / kActivationWordsPerToken;
+      const unsigned int activation_word =
+          activation_index % kActivationWordsPerToken;
+      shared_activations[token * kSharedActivationWordsPerToken +
+                         activation_word] =
+          *reinterpret_cast<const std::uint64_t*>(
+              activations + static_cast<std::size_t>(token) * kColumns +
+              first_k +
+              activation_word * kBf16ValuesPerActivationWord);
+    }
+
+#pragma unroll
+    for (unsigned int load_pass = 0U; load_pass < kWeightLoadPasses;
+         ++load_pass) {
+      const unsigned int vector_in_row =
+          vector_in_row_lane +
+          load_pass * kWeightLoaderThreadsPerRow;
+      const unsigned int first_vector_column =
+          first_k + vector_in_row * kValuesPerWeightVector;
+      const uint4 packed = *reinterpret_cast<const uint4*>(
+          packed_weights +
+          static_cast<std::size_t>(output_column) * kPackedColumns +
+          first_vector_column / kNvFp4ValuesPerByte);
+      const std::uint16_t encoded_scales =
+          *reinterpret_cast<const std::uint16_t*>(
+              block_scales +
+              static_cast<std::size_t>(output_column) * kScaleColumns +
+              first_vector_column / kNvFp4GroupSize);
+      const std::uint8_t scale0 =
+          static_cast<std::uint8_t>(encoded_scales & 0xffU);
+      const std::uint8_t scale1 =
+          static_cast<std::uint8_t>(encoded_scales >> 8U);
+      const std::uint16_t* const products0 =
+          decoded_products +
+          static_cast<unsigned int>(scale0) *
+              kNvFp4EncodedValueCount;
+      const std::uint16_t* const products1 =
+          decoded_products +
+          static_cast<unsigned int>(scale1) *
+              kNvFp4EncodedValueCount;
+      std::uint32_t* const decoded =
+          b_or_c.weights +
+          local_output_column * kSharedWeightWordsPerRow +
+          vector_in_row *
+              (kValuesPerWeightVector / kBf16ValuesPerWeightWord);
+      decode_nvfp4x8_to_bf16x8(packed.x, products0, decoded);
+      decode_nvfp4x8_to_bf16x8(packed.y, products0, decoded + 4U);
+      decode_nvfp4x8_to_bf16x8(packed.z, products1, decoded + 8U);
+      decode_nvfp4x8_to_bf16x8(packed.w, products1, decoded + 12U);
+    }
+    __syncthreads();
+
+    const auto* const shared_a =
+        reinterpret_cast<const __nv_bfloat16*>(shared_activations);
+    const auto* const shared_b =
+        reinterpret_cast<const __nv_bfloat16*>(b_or_c.weights);
+#pragma unroll 1
+    for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+         inner_k += 16U) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          activation_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>
+          weight_fragment;
+      wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                             kSharedLeadingDimension);
+      wmma::load_matrix_sync(
+          weight_fragment,
+          shared_b +
+              warp * kOutputColumnsPerWarp * kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator, activation_fragment, weight_fragment,
+                     accumulator);
+    }
+    __syncthreads();
+  }
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    output[static_cast<std::size_t>(token) * kRows + first_output_column +
+           local_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+  }
+}
+
 __global__ __launch_bounds__(kThreads) void
 nvfp4_w4a16_gemv_bf16_scalar_kernel(
     const std::uint8_t* const packed_weights,
@@ -2789,6 +3005,22 @@ void launch_nvfp4_small_m16_wmma_fixed_shape_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 136U>
+void launch_nvfp4_small_m16_wmma_k128_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  nvfp4_w4a16_small_m16_gemm_bf16_wmma_k128_kernel<
+      kRows, kColumns, kSharedLeadingDimension>
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+}
+
 }  // namespace
 
 int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
@@ -3640,6 +3872,43 @@ int launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only direct entry for the production down-projection K128/LD136 path.
+int launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m16_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
+      packed_weights, block_scales, weight_scale_2, activations, output,
+      stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only direct entry for the preserved row-pair baseline without the
 // shared E4M3FN scale codebook.
 int launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
@@ -3925,7 +4194,7 @@ int launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
           packed_weights, block_scales, weight_scale_2, activations, output,
           stream);
     } else {
-      launch_nvfp4_small_m16_wmma_fixed_shape_unchecked<5'120U, 17'408U>(
+      launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
           packed_weights, block_scales, weight_scale_2, activations, output,
           stream);
     }

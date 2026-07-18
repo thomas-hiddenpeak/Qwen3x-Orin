@@ -195,6 +195,13 @@ launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m8_row_pair_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -3753,6 +3760,13 @@ void test_launch_validation(TestContext& test) {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool nvfp4_m16_k128_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M16_K128_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_row_pair_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_ROW_PAIR_PERF");
@@ -7226,6 +7240,296 @@ void fill_nvfp4_m1_scale_distribution(
   }
 }
 
+constexpr std::array<NvFp4M1ScaleDistribution, 2U>
+    kNvFp4M16K128ScaleDistributions{{
+        NvFp4M1ScaleDistribution::kCheckpointLike,
+        NvFp4M1ScaleDistribution::kSameBankStress,
+    }};
+
+struct NvFp4M16K128DistributionMeasurement {
+  float current_k64_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_k128_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+};
+
+void run_optional_nvfp4_m16_k128_performance(TestContext& test,
+                                               cudaStream_t stream) {
+  if (!nvfp4_m16_k128_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M16 K128/LD136 performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M16_K128_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr float kMinimumCheckpointSpeedup = 1.02F;
+  constexpr float kMinimumStressSpeedup = 0.99F;
+  constexpr double kMinimumAggregateSpeedup = 1.02;
+  const std::string label = "NVFP4 M16 down 5120x17408 K128/LD136";
+  const std::size_t packed_columns = kColumns / 2U;
+  const std::size_t scale_columns = kColumns / 16U;
+
+  std::vector<std::uint8_t> host_packed(kRows * packed_columns);
+  std::array<bool, 16U> low_nibble_covered{};
+  std::array<bool, 16U> high_nibble_covered{};
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+      low_nibble_covered[low] = true;
+      high_nibble_covered[high] = true;
+    }
+  }
+  test.expect(std::all_of(low_nibble_covered.begin(),
+                          low_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers every E2M1 low-nibble code");
+  test.expect(std::all_of(high_nibble_covered.begin(),
+                          high_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " covers every E2M1 high-nibble code");
+
+  std::vector<std::uint8_t> host_scales(kRows * scale_columns);
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> current_k64_output;
+  DeviceBuffer<std::uint16_t> candidate_k128_output;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready &&
+          test.cuda_ok(current_k64_output.allocate(kTokens * kRows),
+                       label + " allocate current K64 output");
+  ready = ready &&
+          test.cuda_ok(candidate_k128_output.allocate(kTokens * kRows),
+                       label + " allocate candidate K128 output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize mixed all-nibble weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> current_k64(kTokens * kRows);
+  std::vector<std::uint16_t> candidate_k128(kTokens * kRows);
+  std::array<NvFp4M16K128DistributionMeasurement,
+             kNvFp4M16K128ScaleDistributions.size()>
+      measurements{};
+  bool all_distribution_gates = true;
+  double aggregate_current_k64 = 0.0;
+  double aggregate_candidate_k128 = 0.0;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize scales");
+    if (!ready) {
+      return;
+    }
+
+    const auto launch_current_k64 = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              kRows, kColumns, current_k64_output.get(),
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate_k128 = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              kRows, kColumns, candidate_k128_output.get(),
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_current_k64()),
+                         distribution_label + " correctness current K64");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate_k128()),
+                         distribution_label + " correctness K128/LD136");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             current_k64.data(), current_k64_output.get(),
+                             current_k64.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy current K64");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_k128.data(),
+                             candidate_k128_output.get(),
+                             candidate_k128.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy candidate K128");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " correctness synchronize");
+    if (!ready) {
+      return;
+    }
+
+    std::size_t mismatches = 0U;
+    for (std::size_t index = 0U; index < current_k64.size(); ++index) {
+      mismatches += current_k64[index] != candidate_k128[index] ? 1U : 0U;
+    }
+    NvFp4M16K128DistributionMeasurement& measurement =
+        measurements[distribution_index];
+    measurement.bitwise_equal = mismatches == 0U;
+    std::cout << "NVFP4_M16_K128_DIFF: " << label << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " current_k64_vs_k128_ld136_mismatches=" << mismatches << '/'
+              << current_k64.size() << '\n';
+    test.expect(measurement.bitwise_equal,
+                distribution_label +
+                    " K128/LD136 is bitwise equal to current K64");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_current_k64()),
+                           distribution_label + " current K64 warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate_k128()),
+                           distribution_label + " K128/LD136 warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  distribution_label + " warmup synchronize");
+    if (!ready) {
+      return;
+    }
+
+    double current_k64_total = 0.0;
+    double candidate_k128_total = 0.0;
+    bool finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string suffix =
+          distribution_label + " round=" + std::to_string(round + 1);
+      const float current_first = measure_small_m_tile(
+          test, stream, launch_current_k64, kMeasuredIterations,
+          suffix + " current K64 pass 1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate_k128, kMeasuredIterations,
+          suffix + " candidate K128 pass 1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate_k128, kMeasuredIterations,
+          suffix + " candidate K128 pass 2");
+      const float current_second = measure_small_m_tile(
+          test, stream, launch_current_k64, kMeasuredIterations,
+          suffix + " current K64 pass 2");
+      const bool round_finite =
+          std::isfinite(current_first) && std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) && std::isfinite(current_second);
+      finite = finite && round_finite;
+      if (round_finite) {
+        current_k64_total += current_first + current_second;
+        candidate_k128_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_NVFP4_M16_K128_ROUND: " << label
+                << " distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " round=" << round + 1
+                << " current_k64_pass1_ms=" << current_first
+                << " candidate_k128_pass1_ms=" << candidate_first
+                << " candidate_k128_pass2_ms=" << candidate_second
+                << " current_k64_pass2_ms=" << current_second << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    measurement.current_k64_milliseconds =
+        finite ? static_cast<float>(current_k64_total / kTimedPasses)
+               : std::numeric_limits<float>::quiet_NaN();
+    measurement.candidate_k128_milliseconds =
+        finite ? static_cast<float>(candidate_k128_total / kTimedPasses)
+               : std::numeric_limits<float>::quiet_NaN();
+    const float speedup = measurement.current_k64_milliseconds /
+                          measurement.candidate_k128_milliseconds;
+    const float required_speedup =
+        distribution == NvFp4M1ScaleDistribution::kCheckpointLike
+            ? kMinimumCheckpointSpeedup
+            : kMinimumStressSpeedup;
+    const bool valid =
+        finite && std::isfinite(measurement.current_k64_milliseconds) &&
+        std::isfinite(measurement.candidate_k128_milliseconds) &&
+        std::isfinite(speedup) &&
+        measurement.current_k64_milliseconds > 0.0F &&
+        measurement.candidate_k128_milliseconds > 0.0F;
+    const bool gate = measurement.bitwise_equal && valid &&
+                      speedup >= required_speedup;
+    all_distribution_gates = all_distribution_gates && gate;
+    test.expect(gate, distribution_label + " clears K128/LD136 gate");
+    std::cout << "PERF_NVFP4_M16_K128_VALIDATION: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " current_k64_ms=" << measurement.current_k64_milliseconds
+              << " candidate_k128_ms="
+              << measurement.candidate_k128_milliseconds
+              << " speedup=" << speedup
+              << " required_speedup=" << required_speedup
+              << " bitwise="
+              << (measurement.bitwise_equal ? "true" : "false")
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    aggregate_current_k64 += measurement.current_k64_milliseconds;
+    aggregate_candidate_k128 += measurement.candidate_k128_milliseconds;
+  }
+
+  const double aggregate_speedup =
+      aggregate_current_k64 / aggregate_candidate_k128;
+  const bool aggregate_gate =
+      all_distribution_gates && std::isfinite(aggregate_speedup) &&
+      aggregate_current_k64 > 0.0 && aggregate_candidate_k128 > 0.0 &&
+      aggregate_speedup >= kMinimumAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M16_K128_AGGREGATE: current_k64_ms="
+            << aggregate_current_k64
+            << " candidate_k128_ms=" << aggregate_candidate_k128
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " all_distributions="
+            << (all_distribution_gates ? "PASS" : "FAIL")
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "NVFP4 M16 down K128/LD136 clears aggregate gate");
+}
+
 constexpr std::array<std::size_t, 6U> kNvFp4GridCaps{{
     96U, 192U, 384U, 768U, 1'024U, 2'048U,
 }};
@@ -10033,6 +10337,7 @@ int main() {
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_wmma_performance(test, stream);
+  run_optional_nvfp4_m16_k128_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
