@@ -117,13 +117,15 @@ __device__ __forceinline__ float decode_e2m1(const std::uint8_t nibble) {
   const unsigned int sign =
       static_cast<unsigned int>(nibble & 0x08U) << 28U;
   const unsigned int magnitude = static_cast<unsigned int>(nibble & 0x07U);
-  if (magnitude == 0U) {
-    return __uint_as_float(sign);
-  }
-  const unsigned int exponent = 126U + (magnitude >> 1U);
+  const unsigned int nonzero_mask =
+      0U - static_cast<unsigned int>(magnitude != 0U);
   const unsigned int mantissa =
-      ((magnitude & 1U) != 0U && magnitude != 1U) ? 0x0040'0000U : 0U;
-  return __uint_as_float(sign | (exponent << 23U) | mantissa);
+      ((magnitude & 1U) &
+       static_cast<unsigned int>(magnitude > 1U))
+      << 22U;
+  const unsigned int finite_bits =
+      ((126U + (magnitude >> 1U)) << 23U) | mantissa;
+  return __uint_as_float(sign | (finite_bits & nonzero_mask));
 }
 
 __device__ __forceinline__ float warp_sum(float value) {
