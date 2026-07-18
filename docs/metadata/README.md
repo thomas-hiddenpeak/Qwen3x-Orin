@@ -39,6 +39,10 @@ The diagnostic Phase 3 records are:
   which records the canonical packed-x4 FP8 dispatch, exhaustive E4M3FN and
   fallback gates, same-binary scalar/vector measurements, exact 27B replay,
   SASS resources, and the post-change Nsight profile.
+- [`qwen36-27b-c8-prefill-benchmark.json`](qwen36-27b-c8-prefill-benchmark.json),
+  which records the first bounded C1/C8 prompt-prefix comparison, exact C8
+  full-model oracle gate, request-arena increment, execution policy, and
+  diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

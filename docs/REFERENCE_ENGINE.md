@@ -1,9 +1,10 @@
 # Native reference engine
 
 `q3x::engine` is the correctness-first, text-only generation surface for the
-exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one and executes
-one token at a time. The implementation is a bring-up and oracle-alignment
-path, not an optimized prefill or serving engine.
+exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one, decodes one
+token at a time, and may execute prompt prefixes in bounded tiles of up to
+eight tokens. The implementation remains a bring-up and oracle-alignment path,
+not a large-prefill or serving engine.
 
 ## Ownership and creation
 
@@ -36,10 +37,14 @@ Each call accepts exactly one user text message. It uses
 `Tokenizer::format_qwen36_chat` with `add_generation_prompt=true` and
 `enable_thinking=false`. The resulting token IDs are the runner inputs.
 
-Prefill is strictly sequential:
+Prefill preserves token semantics while optionally batching projections:
 
-- every prompt-prefix token executes all 64 layers with
-  `compute_logits=false`;
+- with `prefill_chunk_size=1` (the default), every prompt-prefix token executes
+  all 64 layers with `compute_logits=false`, preserving the original order;
+- with `prefill_chunk_size=2..8`, the prefix is split into bounded layer-major
+  tiles. Quantized projections consume all tile rows together, while causal
+  Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths remain ordered
+  per token;
 - the final prompt token executes with `compute_logits=true` and produces the
   first greedy token;
 - each later step consumes the previous prediction and produces the next one;
@@ -64,7 +69,8 @@ resident loading, model binding, request-state creation, runner creation, and
 total wall time. Resident byte/chunk/copy counters, binding counters, and
 request-arena size are also retained.
 
-`prompt_prefill_milliseconds` is the sum of every prompt step.
+`prompt_prefill_milliseconds` is the sum of each whole prefix-tile timing and
+the final prompt step.
 `time_to_first_token_milliseconds` has the same value because the first token
 becomes available after the final prompt step. Later decode latencies are kept
 both individually and in `decode_after_first_milliseconds`.
@@ -98,22 +104,28 @@ statistics, and explicit tolerances rather than requiring equal hashes.
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
   [--max-tokens N] [--trace] \
+  [--prefill-chunk-size 1..8] \
   [--projection-backend reference|sm87]
 ```
 
 `N` defaults to 16 and the CLI admits 1 through 4096. Duplicate flags,
 unknown arguments, empty prompts, malformed integers, and values outside the
-range fail before model loading. Projection dispatch defaults to `reference`;
+range fail before model loading. Prefill chunk size defaults to 1. The request
+arena is created for the selected maximum, and a later generation request may
+not exceed that capacity. Trace capture forces an effective chunk size of 1 so
+its per-token boundary ordering remains unchanged; stdout reports both the
+requested and effective values. Projection dispatch defaults to `reference`;
 `sm87` is an explicit, default-off selection for direct FP8/NVFP4-to-BF16
 layer projections. `ReferenceEngineOptions` and `ReferenceOneShotOptions`
 expose the same strongly typed policy. Engine creation verifies that `sm87`
 is running on compute capability 8.7 before loading resident model weights.
 
 On success stdout contains escaped, line-oriented `key=value` records for
-cold-load statistics, the actual `projection.backend`, rendered prompt/IDs,
-complete generated IDs, decoded text, stop reason, timings, and optional trace hashes. Loading progress and
-all structured diagnostics go to stderr, so stdout can be redirected as one
-atomic result stream. Exit code 2 denotes input/tokenization errors, 3 denotes
+cold-load statistics, the actual `projection.backend`, requested/effective
+prefill chunk sizes, rendered prompt/IDs, complete generated IDs, decoded text,
+stop reason, timings, and optional trace hashes. Loading progress and all
+structured diagnostics go to stderr, so stdout can be redirected as one atomic
+result stream. Exit code 2 denotes input/tokenization errors, 3 denotes
 creation/load failures, 4 denotes execution/trace failures, and 5 denotes host
 allocation failure.
 
@@ -141,7 +153,13 @@ feedback steps produced 44 total runner steps.
 The complete structured record is checked in as
 [`qwen36-27b-native-reference-run.json`](metadata/qwen36-27b-native-reference-run.json).
 
-The single-run timings are evidence, not performance targets:
+The later C8 gate runs the same 19-token prompt prefix as `8+8+2`, keeps the
+final prompt/logits step scalar, and reproduces all 26 output IDs, decoded
+text, stop reason, and 44 transcript steps exactly. Its machine-readable
+aggregate performance record is
+[`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
+
+The original C1 single-run timings are evidence, not performance targets:
 
 | Measurement | Observed value |
 | --- | ---: |
@@ -176,7 +194,8 @@ decoded text, and stop decision match exactly.
 ## Verification scope
 
 `reference_engine_control_test` exercises the pure host controller without
-CUDA or model files. It gates sequential inputs, prefix-logit suppression,
+CUDA or model files. It gates scalar and `8+8+2` prefix scheduling, trace-to-C1
+fallback, sequential inputs, prefix-logit suppression,
 first-token timing, stop/max behavior, capacity checks, nested runner errors,
 missing result fields, and the terminal-stop text rule. CUDA runner tests cover
 factory and primitive behavior separately. An installed-package consumer also
@@ -189,4 +208,6 @@ conditional `reference_engine_e2e` CTest. Configure with
 `-DQ3X_E2E_MODEL_DIR=MODEL_DIR` (or set that environment variable). Its
 projection policy defaults to `reference`; configure
 `-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
-external pinned model directory it exits with the standard skip code 77.
+external pinned model directory it exits with the standard skip code 77. The
+test executable also accepts an optional prefill chunk argument, so target
+validation can run the same oracle at C1 and C8.

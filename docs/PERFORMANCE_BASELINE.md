@@ -14,6 +14,8 @@ The next M=1 NVFP4 milestone is recorded in
 [`qwen36-27b-nvfp4-packedx8-benchmark.json`](metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
 and the subsequent FP8 milestone is recorded in
 [`qwen36-27b-fp8-packedx4-benchmark.json`](metadata/qwen36-27b-fp8-packedx4-benchmark.json).
+The first bounded multi-token prefill result is recorded in
+[`qwen36-27b-c8-prefill-benchmark.json`](metadata/qwen36-27b-c8-prefill-benchmark.json).
 
 ## Method
 
@@ -282,14 +284,70 @@ not checked in; its 1,769,234-byte size and SHA-256
 `e5854b3c163153204c8b871cb8e1cd1614a09622b441e12e1f7bdef1d234df32`
 are retained in the machine-readable record.
 
+## C8 chunked prompt prefill
+
+Commit `44aa676fc9f77d11d0e48f19d9a8caf80561204f` adds the SM87 small-M
+projection substrate for `M=1..8`. The following runtime integration groups
+only the prompt prefix into tiles of at most eight tokens. Quantized layer
+projections share each streamed weight row across the tile; causal Conv/GDN
+updates and per-token attention lengths retain token order. The final prompt
+token still runs as an M=1 logits step, and every later decode step remains
+M=1. Chunk size 1 is the compatibility default.
+
+The comparison reused the packed-x4 two-prompt/two-output-token Release
+benchmark shape. The two commands differed only in the final chunk-size
+option:
+
+```bash
+qwen3x-orin benchmark MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' \
+  --prompt 'Explain CUDA in one sentence.' \
+  --max-tokens 2 --warmup 1 --iterations 2 \
+  --max-sequence-length 64 --projection-backend sm87 \
+  --prefill-chunk-size 1
+
+qwen3x-orin benchmark MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' \
+  --prompt 'Explain CUDA in one sentence.' \
+  --max-tokens 2 --warmup 1 --iterations 2 \
+  --max-sequence-length 64 --projection-backend sm87 \
+  --prefill-chunk-size 8
+```
+
+The benchmark's strict replay gate passed. Aggregate medians were:
+
+| Median metric | C1 | C8 | Reduction | C1/C8 speedup |
+| --- | ---: | ---: | ---: | ---: |
+| Time to first token | 6,107.420 ms | 2,005.784 ms | 67.16% | 3.045x |
+| Total two-token generation | 6,492.908 ms | 2,389.125 ms | 63.20% | 2.718x |
+| Subsequent token | 385.467 ms | 383.320 ms | 0.56% | 1.006x |
+
+The nearly flat subsequent-token row is the expected guardrail: chunking
+changes prompt-prefix work, not decode dispatch. At a 64-position request
+capacity, reserving C8 activation workspace increased the request arena from
+83,821,056 to 85,011,968 bytes, an exact 1,190,912-byte (about 1.136 MiB)
+increment. Persistent Conv/GDN/KV state and the model arena are unchanged.
+
+The independent full-model C8 gate used the pinned 19-token fixture and
+matched all 19 prompt IDs, all 26 generated IDs, exact decoded text,
+`<|im_end|>`, and all 44 transcript steps. For that prompt, the 18-token prefix
+is scheduled as `8+8+2`; the nineteenth prompt token remains the scalar logits
+step. Trace capture intentionally forces effective C1 execution because the
+trace ABI is defined at every token boundary.
+
+This remains a diagnostic batch-one result from two short prompts, without a
+new locked-clock environment capture or any large-prefill/concurrent-request
+claim. The checked-in metadata contains the reported aggregates and explicit
+limitations; raw per-sample output was not retained in that artifact.
+
 ## Correctness gate
 
-The current `reference_engine_e2e` CTest loaded the pinned 27B checkpoint with
-`Q3X_E2E_PROJECTION_BACKEND=sm87` and matched all 19 prompt IDs, 26 generated
+The current `reference_engine_e2e` gate loaded the pinned 27B checkpoint with
+the SM87 backend at both C1 and C8 and matched all 19 prompt IDs, 26 generated
 IDs, exact UTF-8 text, `<|im_end|>`, and all 44 runner steps. The lightweight
 kernel gate also compared SM87 directly with the CUDA reference for FP8 and
-NVFP4 awkward/fallback/vector shapes. It covers every one of the 256 E4M3FN
-codes in all four positions of the packed FP8 load, including both reserved
+NVFP4 M=1 through M=8 awkward/fallback/vector shapes. It covers every one of
+the 256 E4M3FN codes in all four positions of the packed FP8 load, including both reserved
 NaN encodings; all 16 E2M1 codes in all eight packed nibble positions;
 adjacent-lane scale selection; both unaligned FP8 fallbacks; and
 K=5120/6144/17408. All 1,237 deterministic BF16 outputs matched the CUDA
@@ -303,19 +361,20 @@ seconds.
 
 ## Phase 3 decision
 
-The first optimized path is now implemented as SM87 single-token weight-only
-GEMV:
+The first optimized path now includes SM87 single-token decode plus bounded
+small-M prompt-prefix projection reuse:
 
 1. keep `sm87` explicit while prompt coverage expands;
 2. retain shape-driven packed-x8 dispatch for aligned canonical NVFP4 M=1;
 3. retain shape-driven packed-x4 dispatch for aligned canonical FP8 M=1;
-4. optimize multi-token prefill separately from M=1 decode;
+4. retain C1 as the compatibility default and expose measured C2 through C8
+   prompt-prefix tiles explicitly;
 5. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 6. lock clocks when privileged access is available before making a formal
    release performance claim.
 
-The next measured target is a small-M projection gate. M=2 through M=8 must
-improve materially over repeated M=1 without changing the full-model oracle
-before chunked `C<=8` prefill proceeds. `.q3x` repacking waits for a stable
-physical layout.
+The small-M and first chunked `C<=8` gates are complete. The next prefill work
+is broader prompt/shape coverage and a measured dispatch boundary between the
+current bounded tiles and future larger-prefill kernels. `.q3x` repacking
+waits for a stable physical layout.

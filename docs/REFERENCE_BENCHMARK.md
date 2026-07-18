@@ -2,7 +2,7 @@
 
 The reference benchmark reuses one fully created `ReferenceEngine` across
 warmup and measured rounds. It is a reproducibility and correctness harness
-for the sequential batch-one reference path, not a throughput benchmark or a
+for the bounded batch-one generation path, not a throughput benchmark or a
 claim about an optimized serving engine.
 
 ## Runtime API
@@ -17,6 +17,7 @@ q3x::runtime::ReferenceBenchmarkOptions options;
 options.warmup_rounds = 1;
 options.measured_rounds = 3;
 options.max_new_tokens = 26;
+options.prefill_chunk_size = 8;
 
 q3x::runtime::ReferenceBenchmarkResult result =
     q3x::runtime::benchmark_reference_engine(
@@ -52,8 +53,10 @@ sorted[ceil(0.95 * count) - 1]
 The subsequent-token distribution flattens every post-first-token latency
 from the applicable measured invocations. It is valid and has `count=0` when
 all generations stop after their first token. Warmup timings never enter a
-summary. The report also retains `max_new_tokens` and `stop_token_id`, so a
-non-default termination policy remains reproducible.
+summary. The report also retains `max_new_tokens`, `stop_token_id`, and
+`prefill_chunk_size`, so non-default termination and prefix-tiling policies
+remain reproducible. Requested/effective chunk sizes are part of generation
+replay identity; a replay that silently changes execution policy fails.
 
 ## Device-memory accounting
 
@@ -84,7 +87,8 @@ qwen3x-orin benchmark MODEL_DIR \
   --warmup 1 \
   --iterations 3 \
   --max-sequence-length 512 \
-  --projection-backend reference
+  --projection-backend sm87 \
+  --prefill-chunk-size 8
 ```
 
 `--prompt` is repeatable. Defaults are 16 generated tokens, one warmup round,
@@ -93,14 +97,19 @@ three measured rounds, and a shared request capacity of 512 positions.
 sequence capacity large enough for the longest formatted prompt plus its
 decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
-weights. Projection dispatch defaults to `reference`; `sm87` explicitly
-selects the direct SM87 FP8/NVFP4-to-BF16 layer path and checks the active
-device capability before loading model weights.
+weights. `--prefill-chunk-size` accepts 1 through 8 and defaults to 1. The
+engine's request arena reserves activation workspace for the selected maximum
+before weights are loaded. C2 through C8 tile only the prompt prefix; the final
+prompt token and all decode steps remain M=1. Projection dispatch defaults to
+`reference`; `sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16
+layer path and checks the active device capability before loading model
+weights.
 
 The command creates the engine once, then invokes the runtime harness. Stdout
 is escaped line-oriented `key=value` data containing model directory, actual
-projection backend, stop token ID, load information, replay
-references, every measured sample, all summaries, and memory accounting.
+projection backend, requested/effective prefill chunk sizes, stop token ID,
+load information, replay references, every measured sample, all summaries,
+and memory accounting.
 Progress, diagnostics, and the persistent-memory-drop warning go to stderr.
 
 The pure-host `reference_benchmark_control` test supplies fake generation and
@@ -109,4 +118,6 @@ aggregate statistics, exact replay mismatches, nested failures, and memory-drop
 classification without loading a model or executing a CUDA kernel.
 
 The first matched reference/SM87 run and its machine-readable samples are in
-the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md).
+the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md). The same document
+and its [C8 metadata record](metadata/qwen36-27b-c8-prefill-benchmark.json)
+retain the first C1/C8 prompt-prefix comparison.

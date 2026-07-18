@@ -2,7 +2,8 @@
 
 `q3x::runtime::ReferenceRunner` 是当前 Qwen3.6-27B dense text 模型的高层
 correctness 路径。它把已经绑定的 `ModelWeights`、一个 `RequestState` 以及 reference
-CUDA kernels 串成完整的 64 层单 token step。它优先固定执行语义和检查点，不承诺吞吐。
+CUDA kernels 串成完整的 64 层单 token step，并提供最大 8 token 的 prompt-prefix tile。
+它优先固定执行语义和检查点，不承诺大 prefill 或 serving 吞吐。
 
 ## 所有权和创建
 
@@ -10,7 +11,8 @@ CUDA kernels 串成完整的 64 层单 token step。它优先固定执行语义�
 
 - 全局和 64 层权重的精确 shape、非空 payload 与 3-linear/1-full variant schedule；
 - batch 必须为 1，hidden/P0..P3/a/b/FP32 scratch、RoPE、48 份 conv/GDN state、
-  16 对 KV cache 的容量和 schedule slot 必须满足精确 ABI；
+  16 对 KV cache 的容量和 schedule slot 必须满足精确 ABI；tile activation region
+  必须覆盖 request plan 中声明的 `prefill_chunk_size`（1 到 8）；
 - `RequestState` 必须有效，logical length 不能超过 capacity。
 
 factory 创建一个自有 `cudaStreamNonBlocking` stream，并通过一次 `cudaHostAlloc` 预留
@@ -54,6 +56,20 @@ step 在末尾执行一次 `cudaStreamSynchronize`；中途失败也会先 drain
 `compute_logits=false` 仍执行 embedding、全部 64 层、所有 cache/state update 和 final
 norm，只跳过 lm_head 与 logits D2H，适合调用方逐 token 建立 prompt prefix。
 
+## Prompt-prefix tile
+
+`prefill_prefix_tile(ids, M)` 接受 `M=1..8`，且不能超过 request plan 预留的 chunk
+容量或剩余 sequence capacity。M1 直接委托给上述 `step(compute_logits=false)`；M2..M8
+按 layer-major 顺序执行：每层先批量做 norm 与 projection，再按 token 顺序推进 causal
+conv/GDN，或逐 position 写 K/V 并以 `first_position+t+1` 作为 GQA 的 causal length。
+完整 tile 成功同步后才一次性提交新的 sequence length；任何校验、launch 或同步失败都
+保持结构化错误并 poison runner。
+
+SM87 FP8/NVFP4 projection 在 M2..M8 使用 small-M weight-reuse kernel。reference backend
+和 BF16 weight 保留逐行 M1 fallback，因此接口语义不依赖 optimized backend。tile 不计算
+logits，也不采集 trace；generation controller 只对 prompt 的最后一个 token 执行标量 logits
+step。启用 trace 时 controller 会把 effective chunk 强制为 1，以保留逐 token trace ABI。
+
 projection 的具体 BF16/FP8/NVFP4 计算策略完全由 `launch_projection_*` dispatch 决定；
 runner 不复制也不改变底层量化语义。GDN canonical reference 保留 FP32 beta。vLLM
 packed decode 的 BF16 beta 回写与 prefill/通用路径可能产生可解释的舍入差异，不能把
@@ -92,5 +108,6 @@ view 在 reset、runner 析构或下一次 captured step 后失效。trace 只�
 
 `reference_runner_host` 不加载 20GB 权重，验证纯 host BF16/logits oracle、tie/nonfinite
 策略、trace offsets、固定 layer schedule、默认 `RequestMemoryPlan` 以及 null dependency
-factory 错误。完整模型 fixture step 由具备 pinned checkpoint 的集成环境执行；runner
-本身不会把缺少 checkpoint 误报为通过。
+factory 错误。controller/unit gates 覆盖 19-token prompt 的 `8+8+2` prefix 拆分、C1/trace
+fallback、tile malformed result 和失败传播；完整模型 fixture 在目标 Orin 上以 C1/C8
+分别执行。runner 本身不会把缺少 checkpoint 误报为通过。

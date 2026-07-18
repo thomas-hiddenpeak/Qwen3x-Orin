@@ -31,12 +31,13 @@ exactly `[4,256]` BF16 elements and reject `position >= max_seq`.
 
 ## Reusable decode workspace
 
-The same request arena contains:
+The same request arena contains activation workspace for the configured
+`prefill_chunk_size` `C` (1 through 8):
 
-- three independent `[5120]` BF16 hidden/residual buffers;
-- four independent `[17408]` BF16 projection buffers (`P3` can hold contiguous
-  full-attention `q[6144] + gate[6144]`);
-- independent BF16 `a[48]` and `b[48]` buffers, preventing the linear branch
+- three independent `[C,5120]` BF16 hidden/residual buffers;
+- four independent `[C,17408]` BF16 projection buffers (`P3` can hold the
+  full-attention tile's contiguous `q[C,6144] + gate[C,6144]` payload);
+- independent BF16 `a[C,48]` and `b[C,48]` buffers, preventing the linear branch
   from overwriting values still consumed after `P0=qkv`, `P1=z`, and
   `P2=GDN output` are assigned;
 - one FP32 GEMV/logits buffer with capacity
@@ -69,7 +70,7 @@ synchronizes all initialization before returning.
 
 ## Exact memory plans
 
-The default capacity is 128 tokens:
+The default sequence capacity is 128 tokens and the default chunk is C1:
 
 | Default region | Bytes |
 | --- | ---: |
@@ -82,18 +83,33 @@ The default capacity is 128 tokens:
 | RoPE cosine + sine | 32,768 |
 | **Single request arena** | **88,031,744** |
 
+Selecting C8 changes only activation workspace; persistent state, FP32/GQA
+scratch, and RoPE storage stay identical:
+
+| Default-128 C8 region | Bytes |
+| --- | ---: |
+| Conv + GDN + all K/V persistent storage | 86,835,200 |
+| C8 hidden/projection/`a`/`b` plus FP32 scratch | 2,354,688 |
+| RoPE cosine + sine | 32,768 |
+| **Single request arena** | **89,222,656** |
+
+The exact C8-minus-C1 increment is 1,190,912 bytes. For the 64-position
+end-to-end benchmark plan, the corresponding arenas are 83,821,056 bytes at
+C1 and 85,011,968 bytes at C8.
+
 At the absolute supported capacity of 262,144 tokens, the caller must
 explicitly raise `max_arena_bytes`:
 
 | Maximum region | Bytes |
 | --- | ---: |
 | Persistent storage | 17,258,315,776 |
-| Workspace (`24*max_seq` dominates FP32 scratch) | 25,336,320 |
+| C8 workspace (`24*max_seq` dominates FP32 scratch) | 26,527,232 |
 | RoPE cosine + sine | 67,108,864 |
-| **Single request arena** | **17,350,760,960** |
+| **Single request arena** | **17,351,951,872** |
 
 The planner computes these values with checked `uint64_t` arithmetic before
-CUDA is touched. It rejects batch sizes other than one, zero capacity,
+CUDA is touched. It rejects batch sizes other than one, chunk sizes outside
+1 through 8, zero sequence capacity,
 capacities over 262,144, malicious arithmetic overflow, invalid resource
 limits, and plans larger than `max_arena_bytes`.
 
@@ -121,8 +137,9 @@ empty.
 
 ## Verification
 
-`request_state_plan` checks exact default/minimum/maximum byte totals, overflow
-and bad options, schedule counts, slot mappings, alignment, and non-overlap.
+`request_state_plan` checks exact C1 and C8 byte totals, the C8 workspace-only
+delta, default/minimum/maximum sequence totals, overflow and bad options,
+schedule counts, slot mappings, alignment, and non-overlap.
 `request_state_cuda` uses a small four-token capacity and verifies true device
 allocation, zero samples, pointer ranges, view capacities, BF16-rounded RoPE
 values, stale-error isolation, logical positions, asynchronous reset behavior,

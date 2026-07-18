@@ -92,6 +92,14 @@ launches do not use FP32 scratch. Unknown backends, unknown/invalid variants,
 and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
 path allocates or synchronizes.
 
+`launch_projection_tile_to_bf16_cuda` extends that boundary to caller-owned
+row-major BF16 input/output tiles with `M=1..8`. M1 delegates to the scalar
+projection API. For explicit SM87 FP8/NVFP4 weights, aligned supported shapes
+use small-M kernels that reuse each loaded weight across all M activation rows;
+unsupported K/alignment, BF16 weights, and the reference backend enqueue M
+checked M1 projections. The launcher validates the complete tile spans,
+scratch capacity, overflow, and input/output overlap before enqueueing work.
+
 Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
 256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
 and adjacent lanes share one 16-value block scale. Non-vector K and unaligned
@@ -122,6 +130,12 @@ oracle checks reserved E4M3FN outputs by NaN class. The default remains
 passing one prompt does not make the optimized backend a universal
 floating-point oracle.
 
+The small-M gate covers M1 through M8 for all three bound weight alternatives,
+production K=5120/6144/17408 shapes, awkward K fallback, unaligned inputs and
+weights, host-double/CUDA references, repeated-M1 equivalence, and deterministic
+replay. The full-model C8 gate separately retains the exact 19/26-token text and
+44-step oracle contract.
+
 ## Validation coverage
 
 `model_weights_host` builds a complete synthetic 64-layer view table without
@@ -136,8 +150,9 @@ checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
 the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
-production routes, BF16 fallback, scratch behavior, and fail-closed backend
-and variant validation. It uses only tiny synthetic buffers.
+production routes at M1 through M8, BF16/reference fallback, scratch behavior,
+tile overlap/span validation, and fail-closed backend and variant handling. It
+uses only tiny synthetic buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
 all packed E4M3FN and E2M1 positions, the model reduction lengths, independent

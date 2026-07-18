@@ -9,19 +9,21 @@ The project now contains a correctness-first native generation path for the
 exact pinned NVIDIA Qwen3.6-27B-NVFP4 checkpoint. It authenticates and loads
 the text weights into one resident CUDA arena, binds the fixed hybrid decoder,
 creates one bounded batch-one request arena, formats/tokenizes one user prompt,
-and performs sequential greedy generation. This reference path is intended for
+and performs bounded greedy generation. This reference path is intended for
 oracle alignment and bring-up. On the target Orin it now reproduces the pinned
 fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
-reaches 385.181 ms median subsequent-token latency after the packed-x8 NVFP4
-and packed-x4 FP8 milestones, or about 2.60 subsequent tokens/s in the current
-two-prompt diagnostic run. Comparisons with the earlier 1,144.108 ms reference
-are historical rather than randomized same-binary trials. The default authenticated
-loader now uses Linux AF_ALG when available, reducing the measured resident-load
-phase for the same pinned model from about 203.7 seconds to 21.5 seconds without
-weakening the three full-file SHA-256 checks.
+supports bounded `C=1..8` prompt-prefix tiles. In the current two-prompt,
+two-output-token diagnostic, selecting `C=8` reduced median TTFT from
+6,107.420 ms to 2,005.784 ms while leaving median subsequent-token latency
+essentially unchanged at 383.320 ms. The default remains `C=1`, and the result
+is not a serving-throughput claim. Comparisons with the earlier 1,144.108 ms
+reference decode are historical rather than randomized same-binary trials. The
+default authenticated loader now uses Linux AF_ALG when available, reducing
+the measured resident-load phase for the same pinned model from about 203.7
+seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 
 > Qwen3x-Orin is an independent community project. It is not an official Qwen,
 > Alibaba, NVIDIA, or Jetson project and is not endorsed by those organizations.
@@ -30,7 +32,7 @@ weakening the three full-file SHA-256 checks.
 
 | Model family | Topology | ModelOpt weights | Initial status |
 | --- | --- | --- | --- |
-| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 projections; both pass the fixed oracle gate on Orin |
+| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=8` prompt-prefix projections; both C1 and C8 runs pass the fixed oracle gate on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
 The initial scope is text-only, batch-one correctness and decode performance.
@@ -131,7 +133,8 @@ Run correctness-first batch-one greedy generation with:
 ```bash
 build/orin-release/qwen3x-orin generate MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
-  --max-tokens 32
+  --max-tokens 32 --projection-backend sm87 \
+  --prefill-chunk-size 8
 ```
 
 The correctness reference remains the default. On an SM87 device, select the
@@ -147,8 +150,16 @@ loaded engine for repeatability and latency distributions with:
 build/orin-release/qwen3x-orin benchmark MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 2 --warmup 1 --iterations 3 \
-  --max-sequence-length 64 --projection-backend sm87
+  --max-sequence-length 64 --projection-backend sm87 \
+  --prefill-chunk-size 8
 ```
+
+`--prefill-chunk-size` accepts 1 through 8 and defaults to 1. Values above 1
+batch the prompt prefix into layer-major projection tiles while preserving
+causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
+single-token operations. Trace capture deliberately reports and uses an
+effective chunk size of 1 so existing per-token boundary hashes retain their
+ordering contract.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -167,15 +178,22 @@ That is the historical portable-hash reference. With the current automatic
 AF_ALG path and the SM87 projection backend, a diagnostic two-token run reported
 21.485 seconds for resident loading and 22.638 seconds for total engine loading;
 the packed-x8 and packed-x4 two-prompt milestones then reached 6.107 seconds
-median TTFT and 385.181 ms median subsequent-token latency. The complete
-26-token fixed-oracle CTest fell from 234.35 to 40.60 seconds while retaining
-exact IDs, text, stop semantics, and runner steps. See the
+median TTFT and 385.181 ms median subsequent-token latency. With the same
+two-prompt/two-token benchmark shape, C8 prefix tiling reached 2.006 seconds
+median TTFT, 2.389 seconds total generation, and 383.320 ms median
+subsequent-token latency. Its 64-position request arena grew by 1,190,912
+bytes, from 83,821,056 to 85,011,968 bytes. The complete C8 fixed-oracle run
+retained all 19 prompt IDs, 26 output IDs, and 44 steps exactly. At the earlier
+packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest had fallen
+from 234.35 to 40.60 seconds while retaining exact IDs, text, stop semantics,
+and runner steps. See the
 [updated performance evidence](docs/PERFORMANCE_BASELINE.md) and its
 [machine-readable AF_ALG](docs/metadata/qwen36-27b-afalg-loader-benchmark.json)
 and
 [packed-x8 records](docs/metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
 plus the
-[packed-x4 records](docs/metadata/qwen36-27b-fp8-packedx4-benchmark.json).
+[packed-x4 records](docs/metadata/qwen36-27b-fp8-packedx4-benchmark.json) and
+[C8 prefill record](docs/metadata/qwen36-27b-c8-prefill-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 
@@ -209,10 +227,12 @@ fail-closed text-only Qwen chat formatter. Its exact schema, resource limits,
 and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
-Native inference is currently a deliberately sequential, batch-one surface
-with a correctness reference and an opt-in M=1 projection optimization. It
-does not yet provide optimized multi-token prefill, continuous batching, a
-server, or a release-grade performance claim. The independent target-device oracle,
+Native inference is currently a bounded, batch-one surface with a correctness
+reference, opt-in M=1 projection optimization, and opt-in `C<=8` prompt-prefix
+tiling. Recurrent state and causal attention still advance token by token
+inside each tile. It does not yet provide large-prefill kernels, continuous
+batching, a server, or a release-grade performance claim. The independent
+target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as
 [tests/fixtures/qwen36-27b-nvfp4-greedy.json](tests/fixtures/qwen36-27b-nvfp4-greedy.json);

@@ -100,8 +100,10 @@ The current canonical M=1 path does not repack. When K is divisible by 256 and
 the packed row is 4-byte aligned, each SM87 lane loads four adjacent packed
 bytes, decodes eight E2M1 values, and shares the group scale with its adjacent
 lane. Other shapes use the scalar decoder. This is a measured CUDA-arithmetic
-step toward the later Marlin-style small-M layout, not a claim that Orin has
-native NVFP4 tensor-core support.
+path, not a claim that Orin has native NVFP4 tensor-core support. The bounded
+M2..M8 path consumes the same canonical layout and reuses each decoded weight
+across the tile's BF16 activation rows; unsupported alignment or K falls back
+to checked M1 launches. It does not introduce a checkpoint repack.
 
 The NVIDIA artifact also stores an FP32 `input_scale` beside quantized linear
 modules. That value belongs to an activation-quantized W4A4 calibration path.
@@ -124,8 +126,11 @@ with one 32-bit and one 64-bit global load. Four FP32 accumulators amortize the
 loop dependency, and a branchless conversion preserves all finite E4M3FN
 values, signed zero, and the two reserved encodings as signed canonical quiet
 NaNs. Other K values or either unaligned pointer use the scalar decoder. This
-is the measured M=1 CUDA-arithmetic route; Marlin-style W8A16 for small M
-remains a separate layout and dispatch milestone.
+is the measured M=1 CUDA-arithmetic route. The bounded M2..M8 route likewise
+uses the canonical row-major checkpoint bytes, reusing one decoded FP8 weight
+across the tile activation rows and falling back to M1 for unsupported
+alignment/K. A tensor-core/repacked large-prefill route remains a separate
+layout and dispatch milestone.
 
 Likewise, the pinned artifact's FP32 `input_scale` is not applied by the
 W8A16 path: the stored E4M3 weight is multiplied by its `weight_scale`, while

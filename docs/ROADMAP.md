@@ -94,7 +94,9 @@ generation. The current AF_ALG loader reduced a measured resident load to
 loader milestone and 45.56 seconds after packed-x8, without changing its exact
 19/26-token and 44-step result. The packed-x4 FP8 milestone reduced the same
 fixed-oracle CTest to 40.60 seconds, again with the exact 19/26-token and
-44-step result. Native boundary hashes are not required to equal vLLM hashes
+44-step result. The first C8 chunked-prefix run preserves that same exact
+19/26-token and 44-step oracle result; trace mode continues to use the scalar
+C1 order. Native boundary hashes are not required to equal vLLM hashes
 because independent checkpoint
 scales versus fused requantization and sequential versus chunk BF16 GDN updates
 have different rounding/order. Tolerance-based boundary characterization and
@@ -115,7 +117,8 @@ Deliverables:
 - [done, explicit opt-in] `sm_87` NVFP4 and FP8 single-token GEMV kernels.
 - [done, shape-gated] Canonical NVFP4 packed-x8 M=1 decode with scalar fallback.
 - [done, shape-gated] Canonical FP8 packed-x4 M=1 decode with scalar fallback.
-- Marlin-style W4A16 and W8A16 kernels for small token batches.
+- [done, bounded first path] SM87 W4A16/W8A16 weight-reuse kernels and
+  layer-major prompt-prefix dispatch for `C=2..8`, with C1 fallback/default.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -136,8 +139,13 @@ conversion as the next M=1 target. The packed-x4 FP8 milestone then reached
 medians by 26.24% and 22.82%. Its same-binary kernel gate measures 2.02x to
 2.36x speedups on the recorded production and mixed-code shapes. The follow-up
 profile assigns 34.2% of GPU time to packed-x4 FP8 and 59.1% to packed-x8
-NVFP4; the next functional/performance gate is small-M projection before
-chunked prefill. Separately, default AF_ALG authentication
+NVFP4. The bounded small-M milestone now batches only the prompt prefix up to
+C8. In the same two-prompt/two-output-token diagnostic shape, C8 reduced
+median TTFT from 6,107.420 to 2,005.784 ms and total generation from 6,492.908
+to 2,389.125 ms, while median subsequent-token latency remained effectively
+flat (385.467 versus 383.320 ms). The 64-position request arena increased by
+1,190,912 bytes, and the C8 full-model gate retained the exact 19 prompt IDs,
+26 output IDs, and 44 steps. Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
 coverage expands. See

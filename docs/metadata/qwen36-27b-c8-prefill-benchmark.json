@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-c8-prefill-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-18",
+  "source": {
+    "small_m_kernel_commit": "44aa676fc9f77d11d0e48f19d9a8caf80561204f",
+    "runtime_integration_revision": "883a962469f2f7a6cce36a9a7c5210a3a807b5f7",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "implementation": {
+    "batch_size": 1,
+    "supported_prefill_chunk_sizes": {
+      "minimum": 1,
+      "maximum": 8,
+      "default": 1
+    },
+    "chunked_region": "prompt prefix only",
+    "prefix_schedule_for_19_token_oracle_prompt_at_c8": [
+      8,
+      8,
+      2
+    ],
+    "final_prompt_logits_step": "M=1",
+    "decode_steps": "M=1",
+    "trace_effective_chunk_size": 1,
+    "sm87_quantized_projection_path": "small-M weight reuse",
+    "reference_and_bf16_fallback": "sequential M=1 projection calls",
+    "causal_state_policy": "Conv, GDN, KV writes, and GQA lengths advance in token order inside each tile"
+  },
+  "correctness": {
+    "projection_backend": "sm87",
+    "prefill_chunk_size": 8,
+    "full_model_oracle": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "end_to_end_benchmark": {
+    "comparison": "matched two-prompt, two-output-token diagnostic commands",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --prompt 'Explain CUDA in one sentence.' --max-tokens 2 --warmup 1 --iterations 2 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size C",
+    "prompt_count": 2,
+    "warmup_rounds": 1,
+    "measured_rounds": 2,
+    "measured_samples_per_command": 4,
+    "max_new_tokens": 2,
+    "strict_replay_passed": true,
+    "c1": {
+      "prefill_chunk_size": 1,
+      "median_time_to_first_token_milliseconds": 6107.420,
+      "median_total_generation_milliseconds": 6492.908,
+      "median_subsequent_token_milliseconds": 385.467,
+      "request_arena_bytes": 83821056
+    },
+    "c8": {
+      "prefill_chunk_size": 8,
+      "median_time_to_first_token_milliseconds": 2005.784,
+      "median_total_generation_milliseconds": 2389.125,
+      "median_subsequent_token_milliseconds": 383.320,
+      "request_arena_bytes": 85011968
+    },
+    "c8_versus_c1": {
+      "time_to_first_token_reduction_percent": 67.158244,
+      "time_to_first_token_speedup": 3.044904,
+      "total_generation_reduction_percent": 63.204084,
+      "total_generation_speedup": 2.717693,
+      "subsequent_token_reduction_percent": 0.556987,
+      "subsequent_token_speedup": 1.005601,
+      "request_arena_increment_bytes": 1190912,
+      "request_arena_increment_mibibytes": 1.135742
+    }
+  },
+  "limitations": [
+    "the benchmark is batch-one and covers two short prompts with two output tokens",
+    "the record retains aggregate medians but not raw per-sample output",
+    "the C1 and C8 commands were not a randomized paired trial",
+    "the record does not contain a new locked-clock toolchain and environment snapshot",
+    "the record does not establish a dispatch threshold beyond C8 or a large-prefill throughput claim",
+    "the result does not cover continuous batching or concurrent requests",
+    "trace mode intentionally falls back to effective C1 execution",
+    "cudaMemGetInfo request-arena size is a planned allocation, not a process peak-memory trace"
+  ],
+  "policy": {
+    "default_prefill_chunk_size": 1,
+    "default_projection_backend": "reference",
+    "sm87_backend_is_opt_in": true,
+    "result_is_release_claim": false
+  }
+}
