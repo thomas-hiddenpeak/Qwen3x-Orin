@@ -5,9 +5,10 @@
 
 namespace q3x::kernels {
 
-// SM87 batch-one weight-only GEMV prototypes. Both entry points consume the
-// canonical row-major checkpoint layout, accumulate in FP32, round the final
-// row result to BF16 RNE, and write the raw BF16 bits to output.
+// SM87 single-request weight-only projection kernels. Every entry point
+// consumes the canonical row-major checkpoint layout, accumulates in FP32,
+// rounds each final row result to BF16 RNE, and writes the raw BF16 bits to
+// output.
 //
 // The launch is asynchronous on cuda_stream and performs no allocation,
 // copying, or synchronization. cuda_stream is a cudaStream_t represented as
@@ -46,5 +47,27 @@ namespace q3x::kernels {
     const std::uint8_t* block_scales, float weight_scale_2,
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Small-M sequence-tile projections over the same canonical weight layouts.
+// activations is contiguous token-major BF16 [token_count, columns] and output
+// is contiguous token-major BF16 [token_count, rows]. token_count must be in
+// [1, 8]; M=1 delegates to the corresponding GEMV entry point above.
+//
+// The optimized M=2..8 kernels assign one output row to a block/warp and reuse
+// each streamed weight across every token in the tile. Unsupported alignment
+// or K shapes retain correctness by enqueueing the existing M=1 path once per
+// token on the same stream.
+[[nodiscard]] int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::kernels
