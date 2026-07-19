@@ -56,6 +56,13 @@ launch_sm87_fp8_w8a16_m1_row_quad_grid_cap_test_cuda(
     std::uint16_t* output, std::size_t maximum_blocks,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, std::size_t maximum_blocks,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -1170,6 +1177,7 @@ void run_fp8_m1_row_pair_exhaustive_case(TestContext& test,
   DeviceBuffer<std::uint16_t> activation;
   DeviceBuffer<std::uint16_t> baseline_output;
   DeviceBuffer<std::uint16_t> candidate_output;
+  DeviceBuffer<std::uint16_t> swizzled_output;
   bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
                             label + " allocate weights");
   ready = ready && test.cuda_ok(activation.allocate(host_activation.size()),
@@ -1178,6 +1186,8 @@ void run_fp8_m1_row_pair_exhaustive_case(TestContext& test,
                                 label + " allocate baseline output");
   ready = ready && test.cuda_ok(candidate_output.allocate(kRows),
                                 label + " allocate candidate output");
+  ready = ready && test.cuda_ok(swizzled_output.allocate(kRows),
+                                label + " allocate swizzled output");
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(weights.get(), host_weights.data(),
                                        host_weights.size(),
@@ -1207,8 +1217,16 @@ void run_fp8_m1_row_pair_exhaustive_case(TestContext& test,
                                kRows, kColumns, candidate_output.get(),
                                static_cast<void*>(stream))),
                        label + " launch direct row-pair");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
+                               weights.get(), kWeightScale, activation.get(),
+                               kRows, kColumns, swizzled_output.get(), 64U,
+                               static_cast<void*>(stream))),
+                       label + " launch swizzled row-quad cap64");
   std::vector<std::uint16_t> baseline(kRows);
   std::vector<std::uint16_t> candidate(kRows);
+  std::vector<std::uint16_t> swizzled(kRows);
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(
                            baseline.data(), baseline_output.get(),
@@ -1221,6 +1239,12 @@ void run_fp8_m1_row_pair_exhaustive_case(TestContext& test,
                            candidate.size() * sizeof(std::uint16_t),
                            cudaMemcpyDeviceToHost, stream),
                        label + " copy candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           swizzled.data(), swizzled_output.get(),
+                           swizzled.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy swizzled output");
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 label + " synchronize");
   if (!ready) {
@@ -1237,6 +1261,19 @@ void run_fp8_m1_row_pair_exhaustive_case(TestContext& test,
   test.expect(mismatches == 0U,
               label +
                   " row-pair matches every preserved production BF16 bit");
+
+  mismatches = 0U;
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    mismatches += baseline[row] != swizzled[row] ? 1U : 0U;
+  }
+  std::cout << "FP8_M1_SWIZZLED_CODEBOOK_TAIL_DIFF: " << label
+            << " swizzled_quad_cap=64"
+            << " swizzled_vs_preserved_cap2048_bf16=" << mismatches << '/'
+            << kRows << '\n';
+  test.expect(mismatches == 0U,
+              label +
+                  " swizzled row-quad covers all codes/byte positions and "
+                  "matches every preserved BF16 bit");
 
   constexpr std::size_t kPromotedRows = 1'024U;
   ready = test.cuda_ok(
@@ -3993,6 +4030,13 @@ void test_launch_validation(TestContext& test) {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool fp8_m1_swizzled_codebook_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M1_SWIZZLED_CODEBOOK_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
@@ -6584,6 +6628,360 @@ void run_optional_fp8_m1_row_quad_performance(TestContext& test,
             << '\n';
   test.expect(selected_mapping_gate,
               "FP8 M1 shape-selected row-quad mapping clears every gate");
+}
+
+struct Fp8M1SwizzledCodebookDistributionMeasurement {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+  bool output_finite = false;
+  bool timing_finite = false;
+};
+
+struct Fp8M1SwizzledCodebookMeasurement {
+  std::array<Fp8M1SwizzledCodebookDistributionMeasurement,
+             kFp8M1RowQuadDistributions.size()>
+      distributions{};
+};
+
+[[nodiscard]] Fp8M1SwizzledCodebookMeasurement
+benchmark_fp8_m1_swizzled_codebook_shape(
+    TestContext& test, cudaStream_t stream, const Fp8M1RowQuadShape& shape) {
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<float, 2U> kMinimumCellSpeedups{{
+      1.50F,
+      2.00F,
+  }};
+
+  std::vector<std::uint8_t> host_weights(shape.rows * shape.columns);
+  std::vector<std::uint16_t> host_activation(shape.columns);
+  for (std::size_t column = 0U; column < shape.columns; ++column) {
+    const int centered = static_cast<int>((column * 17U + 5U) % 127U) - 63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            std::string(shape.label) + " allocate weights");
+  ready = ready && test.cuda_ok(
+                       activation.allocate(host_activation.size()),
+                       std::string(shape.label) + " allocate activation");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(shape.rows),
+                       std::string(shape.label) + " allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(shape.rows),
+                       std::string(shape.label) + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       std::string(shape.label) + " initialize activation");
+
+  Fp8M1SwizzledCodebookMeasurement measurement;
+  if (!ready) {
+    return measurement;
+  }
+
+  std::vector<std::uint16_t> baseline(shape.rows);
+  std::vector<std::uint16_t> candidate(shape.rows);
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kFp8M1RowQuadDistributions.size();
+       ++distribution_index) {
+    const Fp8M2CodeDistribution distribution =
+        kFp8M1RowQuadDistributions[distribution_index];
+    const std::string label =
+        std::string(shape.label) + " " +
+        fp8_m2_code_distribution_name(distribution) + " cap=" +
+        std::to_string(shape.selected_quad_cap);
+    fill_fp8_m2_code_distribution(host_weights, shape.rows, shape.columns,
+                                  distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(weights.get(), host_weights.data(),
+                        host_weights.size(), cudaMemcpyHostToDevice, stream),
+        label + " initialize weights");
+    if (!ready) {
+      return measurement;
+    }
+
+    const auto launch_baseline = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_row_quad_grid_cap_test_cuda(
+              weights.get(), kWeightScale, activation.get(), shape.rows,
+              shape.columns, baseline_output.get(), shape.selected_quad_cap,
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
+              weights.get(), kWeightScale, activation.get(), shape.rows,
+              shape.columns, candidate_output.get(), shape.selected_quad_cap,
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " launch current row-quad baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " launch swizzled-codebook candidate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy candidate output");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " correctness synchronize");
+    if (!ready) {
+      return measurement;
+    }
+
+    std::size_t mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t row = 0U; row < shape.rows; ++row) {
+      mismatches += baseline[row] != candidate[row] ? 1U : 0U;
+      output_finite = output_finite &&
+                      std::isfinite(decode_bf16(baseline[row])) &&
+                      std::isfinite(decode_bf16(candidate[row]));
+    }
+    auto& distribution_measurement =
+        measurement.distributions[distribution_index];
+    distribution_measurement.bitwise_equal = mismatches == 0U;
+    distribution_measurement.output_finite = output_finite;
+    std::cout << "FP8_M1_SWIZZLED_CODEBOOK_DIFF: " << shape.label
+              << " distribution="
+              << fp8_m2_code_distribution_name(distribution)
+              << " baseline_quad_cap=" << shape.selected_quad_cap
+              << " candidate_swizzled_cap=" << shape.selected_quad_cap
+              << " mismatches=" << mismatches << '/' << shape.rows
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << '\n';
+    test.expect(distribution_measurement.bitwise_equal,
+                label + " swizzled codebook matches every baseline BF16 bit");
+    test.expect(output_finite, label + " outputs remain finite");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " warmup synchronize");
+    if (!ready) {
+      return measurement;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    bool timing_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " baseline pass 1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " candidate pass 1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " candidate pass 2");
+      const float baseline_second = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " baseline pass 2");
+      const bool round_finite =
+          std::isfinite(baseline_first) && baseline_first > 0.0F &&
+          std::isfinite(candidate_first) && candidate_first > 0.0F &&
+          std::isfinite(candidate_second) && candidate_second > 0.0F &&
+          std::isfinite(baseline_second) && baseline_second > 0.0F;
+      timing_finite = timing_finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_FP8_M1_SWIZZLED_CODEBOOK_ROUND: " << shape.label
+                << " distribution="
+                << fp8_m2_code_distribution_name(distribution)
+                << " cap=" << shape.selected_quad_cap
+                << " measured_iterations=" << kMeasuredIterations
+                << " round=" << round + 1
+                << " baseline_pass1_ms=" << baseline_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " baseline_pass2_ms=" << baseline_second << '\n';
+    }
+
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    distribution_measurement.baseline_milliseconds =
+        timing_finite
+            ? static_cast<float>(baseline_total / kTimedPasses)
+            : std::numeric_limits<float>::quiet_NaN();
+    distribution_measurement.candidate_milliseconds =
+        timing_finite
+            ? static_cast<float>(candidate_total / kTimedPasses)
+            : std::numeric_limits<float>::quiet_NaN();
+    distribution_measurement.timing_finite = timing_finite;
+    const float speedup = distribution_measurement.baseline_milliseconds /
+                          distribution_measurement.candidate_milliseconds;
+    const float required_speedup =
+        kMinimumCellSpeedups[distribution_index];
+    const bool cell_gate = distribution_measurement.bitwise_equal &&
+                           distribution_measurement.output_finite &&
+                           distribution_measurement.timing_finite &&
+                           std::isfinite(speedup) &&
+                           speedup >= required_speedup;
+    std::cout << "PERF_FP8_M1_SWIZZLED_CODEBOOK_CELL: " << shape.label
+              << " distribution="
+              << fp8_m2_code_distribution_name(distribution)
+              << " baseline_quad_cap=" << shape.selected_quad_cap
+              << " candidate_swizzled_cap=" << shape.selected_quad_cap
+              << " baseline_ms="
+              << distribution_measurement.baseline_milliseconds
+              << " candidate_ms="
+              << distribution_measurement.candidate_milliseconds
+              << " speedup=" << speedup
+              << " required_speedup=" << required_speedup
+              << " bitwise="
+              << (distribution_measurement.bitwise_equal ? "true" : "false")
+              << " output_finite="
+              << (distribution_measurement.output_finite ? "true" : "false")
+              << " timing_finite="
+              << (distribution_measurement.timing_finite ? "true" : "false")
+              << " hard_gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate,
+                label + " clears bitwise/finite and speedup hard gate");
+  }
+  return measurement;
+}
+
+void run_optional_fp8_m1_swizzled_codebook_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!fp8_m1_swizzled_codebook_performance_enabled()) {
+    std::cout
+        << "SKIP: FP8 M1 swizzled-codebook performance segment; set "
+           "Q3X_RUN_SM87_FP8_M1_SWIZZLED_CODEBOOK_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::array<Fp8M1RowQuadShape, 4U> kShapes{{
+      {10'240U, 5'120U, 48U, 1'536U,
+       "FP8 M1 swizzled QKV 10240x5120"},
+      {5'120U, 6'144U, 64U, 1'280U,
+       "FP8 M1 swizzled projection 5120x6144"},
+      {6'144U, 5'120U, 48U, 768U,
+       "FP8 M1 swizzled projection 6144x5120"},
+      {12'288U, 5'120U, 16U, 2'048U,
+       "FP8 M1 swizzled QKV 12288x5120"},
+  }};
+  constexpr std::array<double, 2U> kMinimumWeightedSpeedups{{
+      1.60,
+      2.20,
+  }};
+
+  std::array<Fp8M1SwizzledCodebookMeasurement, kShapes.size()>
+      measurements{};
+  std::array<double, kFp8M1RowQuadDistributions.size()>
+      weighted_speedups{};
+  bool all_cells_pass = true;
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    const Fp8M1RowQuadShape& shape = kShapes[shape_index];
+    const bool frozen_cap =
+        q3x::kernels::sm87_fp8_m1_row_quad_maximum_blocks_test(
+            shape.rows, shape.columns) == shape.selected_quad_cap;
+    test.expect(frozen_cap,
+                std::string(shape.label) +
+                    " uses the frozen production row-quad cap");
+    all_cells_pass = all_cells_pass && frozen_cap;
+    measurements[shape_index] =
+        benchmark_fp8_m1_swizzled_codebook_shape(test, stream, shape);
+  }
+
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kFp8M1RowQuadDistributions.size();
+       ++distribution_index) {
+    double weighted_baseline = 0.0;
+    double weighted_candidate = 0.0;
+    bool distribution_gate = true;
+    for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+         ++shape_index) {
+      const auto& cell =
+          measurements[shape_index].distributions[distribution_index];
+      const double cell_speedup =
+          static_cast<double>(cell.baseline_milliseconds) /
+          static_cast<double>(cell.candidate_milliseconds);
+      const double required_cell_speedup =
+          distribution_index == 0U ? 1.50 : 2.00;
+      const bool cell_gate = cell.bitwise_equal && cell.output_finite &&
+                             cell.timing_finite &&
+                             std::isfinite(cell_speedup) &&
+                             cell_speedup >= required_cell_speedup;
+      distribution_gate = distribution_gate && cell_gate;
+      weighted_baseline +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.baseline_milliseconds;
+      weighted_candidate +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.candidate_milliseconds;
+    }
+    const double weighted_speedup = weighted_baseline / weighted_candidate;
+    weighted_speedups[distribution_index] = weighted_speedup;
+    const double required_speedup =
+        kMinimumWeightedSpeedups[distribution_index];
+    const bool weighted_finite = std::isfinite(weighted_speedup) &&
+                                 weighted_baseline > 0.0 &&
+                                 weighted_candidate > 0.0;
+    distribution_gate = distribution_gate && weighted_finite &&
+                        weighted_speedup >= required_speedup;
+    all_cells_pass = all_cells_pass && distribution_gate;
+    std::cout << "PERF_FP8_M1_SWIZZLED_CODEBOOK_WEIGHTED: distribution="
+              << fp8_m2_code_distribution_name(
+                     kFp8M1RowQuadDistributions[distribution_index])
+              << " frozen_caps=1536:1280:768:2048"
+              << " weighted_baseline_ms=" << weighted_baseline
+              << " weighted_candidate_ms=" << weighted_candidate
+              << " speedup=" << weighted_speedup
+              << " required_speedup=" << required_speedup
+              << " profile_calls=48:64:48:16"
+              << " hard_gate="
+              << (distribution_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(distribution_gate,
+                std::string("FP8 M1 swizzled ") +
+                    fp8_m2_code_distribution_name(
+                        kFp8M1RowQuadDistributions[distribution_index]) +
+                    " weighted bitwise/finite and speedup gate passes");
+  }
+
+  std::cout << "PERF_FP8_M1_SWIZZLED_CODEBOOK_SELECTED:"
+            << " baseline=current_row_quad candidate=swizzled_codebook"
+            << " frozen_caps=1536:1280:768:2048"
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " profile_calls=48:64:48:16"
+            << " checkpoint_weighted_speedup=" << weighted_speedups[0U]
+            << " stress_weighted_speedup=" << weighted_speedups[1U]
+            << " hard_gate=" << (all_cells_pass ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(all_cells_pass,
+              "FP8 M1 swizzled codebook clears every correctness and "
+              "performance gate");
 }
 
 struct Fp8M1RowPairDistributionMeasurement {
@@ -12932,6 +13330,7 @@ int main() {
   run_optional_fp8_m1_grid_cap_performance(test, stream);
   run_optional_fp8_m1_row_pair_performance(test, stream);
   run_optional_fp8_m1_row_quad_performance(test, stream);
+  run_optional_fp8_m1_swizzled_codebook_performance(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_m2_row_pair_performance(test, stream);
   run_optional_fp8_m2_row_quad_performance(test, stream);

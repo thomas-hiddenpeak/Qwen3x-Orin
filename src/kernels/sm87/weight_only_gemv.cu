@@ -480,15 +480,12 @@ fp8_w8a16_gemv_bf16_row_pair_kernel(
   }
 }
 
-// Production M=1 output-row quad path. Four adjacent output rows share each
-// packed BF16 activation load and decode, while every row retains the production
-// row-pair kernel's four value-position accumulator chains and reduction tree.
-// CompleteRowQuads removes all tail predicates for checkpoint shapes whose row
-// counts are divisible by four; the incomplete specialization is retained for
-// exhaustive test coverage of the final partial quad.
+// Test-only preserved baseline for the production M=1 row-quad path. It keeps
+// the original linear FP8 codebook layout so the bank-swizzled production
+// kernel can be measured against the exact prior implementation in one cubin.
 template <bool CompleteRowQuads>
 __global__ __launch_bounds__(kThreads, 4) void
-fp8_w8a16_gemv_bf16_row_quad_kernel(
+fp8_w8a16_gemv_bf16_row_quad_unswizzled_baseline_test_kernel(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output) {
@@ -552,6 +549,169 @@ fp8_w8a16_gemv_bf16_row_quad_kernel(
             (packed_weights2 >> weight_shift) & 0xffU);
         const std::uint8_t encoded_weight3 = static_cast<std::uint8_t>(
             (packed_weights3 >> weight_shift) & 0xffU);
+        const std::uint16_t encoded_activation =
+            static_cast<std::uint16_t>(
+                (packed_activation >> (value * 16U)) & 0xffffU);
+        const float decoded_activation = decode_bf16(encoded_activation);
+        accumulators0[value] =
+            fmaf(decoded_weights[encoded_weight0], decoded_activation,
+                 accumulators0[value]);
+        accumulators1[value] =
+            fmaf(decoded_weights[encoded_weight1], decoded_activation,
+                 accumulators1[value]);
+        accumulators2[value] =
+            fmaf(decoded_weights[encoded_weight2], decoded_activation,
+                 accumulators2[value]);
+        accumulators3[value] =
+            fmaf(decoded_weights[encoded_weight3], decoded_activation,
+                 accumulators3[value]);
+      }
+    }
+
+    float sum0 = (accumulators0[0] + accumulators0[1]) +
+                 (accumulators0[2] + accumulators0[3]);
+    float sum1 = (accumulators1[0] + accumulators1[1]) +
+                 (accumulators1[2] + accumulators1[3]);
+    float sum2 = (accumulators2[0] + accumulators2[1]) +
+                 (accumulators2[2] + accumulators2[3]);
+    float sum3 = (accumulators3[0] + accumulators3[1]) +
+                 (accumulators3[2] + accumulators3[3]);
+    sum0 = warp_sum(sum0);
+    sum1 = warp_sum(sum1);
+    sum2 = warp_sum(sum2);
+    sum3 = warp_sum(sum3);
+    if (lane == 0U) {
+      warp_sums[0U][warp] = sum0;
+      warp_sums[1U][warp] = sum1;
+      warp_sums[2U][warp] = sum2;
+      warp_sums[3U][warp] = sum3;
+    }
+    __syncthreads();
+    if (warp == 0U) {
+      float block_sum0 =
+          lane < kWarpsPerBlock ? warp_sums[0U][lane] : 0.0F;
+      float block_sum1 =
+          lane < kWarpsPerBlock ? warp_sums[1U][lane] : 0.0F;
+      float block_sum2 =
+          lane < kWarpsPerBlock ? warp_sums[2U][lane] : 0.0F;
+      float block_sum3 =
+          lane < kWarpsPerBlock ? warp_sums[3U][lane] : 0.0F;
+      block_sum0 = warp_sum(block_sum0) * weight_scale;
+      block_sum1 = warp_sum(block_sum1) * weight_scale;
+      block_sum2 = warp_sum(block_sum2) * weight_scale;
+      block_sum3 = warp_sum(block_sum3) * weight_scale;
+      if (lane == 0U) {
+        output[row0] = encode_bf16_rne(block_sum0);
+        if constexpr (CompleteRowQuads) {
+          output[row1] = encode_bf16_rne(block_sum1);
+          output[row2] = encode_bf16_rne(block_sum2);
+          output[row3] = encode_bf16_rne(block_sum3);
+        } else {
+          if (has_row1) {
+            output[row1] = encode_bf16_rne(block_sum1);
+          }
+          if (has_row2) {
+            output[row2] = encode_bf16_rne(block_sum2);
+          }
+          if (has_row3) {
+            output[row3] = encode_bf16_rne(block_sum3);
+          }
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
+
+// Production M=1 output-row quad path. Four adjacent rows share each packed
+// activation load and decode. The eight high-code groups are XOR-folded into
+// the shared-memory bank bits so codes that differ by 0x20 do not serialize on
+// one bank. The bijection changes neither decoded FP32 bits nor FMA/reduction
+// ordering; the incomplete specialization retains exhaustive tail coverage.
+[[nodiscard]] __device__ __forceinline__ unsigned int
+fp8_swizzled_codebook_slot(const std::uint8_t code) {
+  const unsigned int value = static_cast<unsigned int>(code);
+  return value ^ (value >> 5U);
+}
+
+template <bool CompleteRowQuads>
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_row_quad_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  const std::size_t first_row = 4U * static_cast<std::size_t>(blockIdx.x);
+  const std::size_t row_stride =
+      4U * static_cast<std::size_t>(gridDim.x);
+  for (std::size_t row0 = first_row; row0 < rows; row0 += row_stride) {
+    const std::size_t row1 = row0 + 1U;
+    const std::size_t row2 = row0 + 2U;
+    const std::size_t row3 = row0 + 3U;
+    const bool has_row1 = CompleteRowQuads || row1 < rows;
+    const bool has_row2 = CompleteRowQuads || row2 < rows;
+    const bool has_row3 = CompleteRowQuads || row3 < rows;
+    const std::uint8_t* const row0_weights = weights + row0 * columns;
+    const std::uint8_t* const row1_weights =
+        has_row1 ? weights + row1 * columns : row0_weights;
+    const std::uint8_t* const row2_weights =
+        has_row2 ? weights + row2 * columns : row0_weights;
+    const std::uint8_t* const row3_weights =
+        has_row3 ? weights + row3 * columns : row0_weights;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+    for (std::size_t first_column =
+             static_cast<std::size_t>(threadIdx.x) *
+             kFp8VectorValuesPerLane;
+         first_column < columns;
+         first_column += kFp8VectorColumnsPerBlock) {
+      const std::uint32_t packed_weights0 =
+          *reinterpret_cast<const std::uint32_t*>(row0_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights1 =
+          *reinterpret_cast<const std::uint32_t*>(row1_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights2 =
+          *reinterpret_cast<const std::uint32_t*>(row2_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights3 =
+          *reinterpret_cast<const std::uint32_t*>(row3_weights +
+                                                  first_column);
+      // Fold bits 7:5 into bits 2:0 independently in all four bytes. The
+      // mask removes cross-byte bits introduced by the packed right shift, so
+      // each resulting byte is exactly code ^ (code >> 5).
+      constexpr std::uint32_t kFp8PackedHighBits = 0x0707'0707U;
+      const std::uint32_t swizzled_weights0 =
+          packed_weights0 ^ ((packed_weights0 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_weights1 =
+          packed_weights1 ^ ((packed_weights1 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_weights2 =
+          packed_weights2 ^ ((packed_weights2 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_weights3 =
+          packed_weights3 ^ ((packed_weights3 >> 5U) & kFp8PackedHighBits);
+      const std::uint64_t packed_activation =
+          *reinterpret_cast<const std::uint64_t*>(activation + first_column);
+#pragma unroll
+      for (unsigned int value = 0U; value < kFp8VectorValuesPerLane; ++value) {
+        const unsigned int weight_shift = value * 8U;
+        const std::uint8_t encoded_weight0 = static_cast<std::uint8_t>(
+            (swizzled_weights0 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_weight1 = static_cast<std::uint8_t>(
+            (swizzled_weights1 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_weight2 = static_cast<std::uint8_t>(
+            (swizzled_weights2 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_weight3 = static_cast<std::uint8_t>(
+            (swizzled_weights3 >> weight_shift) & 0xffU);
         const std::uint16_t encoded_activation =
             static_cast<std::uint16_t>(
                 (packed_activation >> (value * 16U)) & 0xffffU);
@@ -3292,9 +3452,9 @@ void launch_fp8_m1_row_pair_unchecked(
                                         rows, columns, output);
 }
 
-// Common capped launcher shared by production and the same-cubin row-pair/
-// row-quad A/B tests. RowsPerBlock selects only the output-row grouping; both
-// paths keep the same K partition and accept an identical explicit grid cap.
+// Common capped launcher used by production plus the direct row-pair and
+// swizzled row-quad test entries. RowsPerBlock selects only output grouping;
+// the preserved unswizzled baseline intentionally bypasses this helper.
 template <std::size_t RowsPerBlock>
 void launch_fp8_m1_output_row_group_grid_cap_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
@@ -4117,6 +4277,51 @@ int launch_sm87_fp8_w8a16_m1_row_quad_grid_cap_test_cuda(
   if (!vector_shape) {
     return invalid_value();
   }
+  constexpr std::size_t kRowsPerBlock = 4U;
+  const std::size_t wanted =
+      rows / kRowsPerBlock + (rows % kRowsPerBlock != 0U ? 1U : 0U);
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < maximum_blocks ? wanted : maximum_blocks);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if ((rows % kRowsPerBlock) == 0U) {
+    fp8_w8a16_gemv_bf16_row_quad_unswizzled_baseline_test_kernel<true>
+        <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activation,
+                                          rows, columns, output);
+  } else {
+    fp8_w8a16_gemv_bf16_row_quad_unswizzled_baseline_test_kernel<false>
+        <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activation,
+                                          rows, columns, output);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_launch(
+      weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   launch_fp8_m1_output_row_group_grid_cap_unchecked<4U>(
