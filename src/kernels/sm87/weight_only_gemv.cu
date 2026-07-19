@@ -185,6 +185,23 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
          (rows == 1'024U && columns == 5'120U);
 }
 
+[[nodiscard]] constexpr unsigned int fp8_m2_row_quad_maximum_blocks(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  if (rows == 10'240U && columns == 5'120U) {
+    return 1'536U;
+  }
+  if (rows == 5'120U && columns == 6'144U) {
+    return 768U;
+  }
+  if (rows == 6'144U && columns == 5'120U) {
+    return 1'024U;
+  }
+  if (rows == 12'288U && columns == 5'120U) {
+    return 2'048U;
+  }
+  return 0U;
+}
+
 [[nodiscard]] constexpr bool use_fp8_m16_wmma_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   // The 1024-row projection is intentionally absent: its measured WMMA path
@@ -627,6 +644,190 @@ fp8_w8a16_small_m2_gemm_bf16_row_pair_kernel(
           if (has_row1) {
             output[static_cast<std::size_t>(token) * rows + row1] =
                 encode_bf16_rne(block_sum1);
+          }
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
+
+// Production M=2 output-row quad path. Four adjacent output rows share each
+// packed BF16 activation load and decode, while every (row, token) accumulator
+// retains the row-pair baseline's K update order and reduction tree.
+// CompleteRowQuads removes the tail predicates for the selected checkpoint
+// shapes, all of which have row counts divisible by four.
+template <bool CompleteRowQuads>
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_small_m2_gemm_bf16_row_quad_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) {
+  constexpr unsigned int kTokenCount = 2U;
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[4U][kTokenCount][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  decoded_weights[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  __syncthreads();
+
+  const std::size_t first_row = 4U * static_cast<std::size_t>(blockIdx.x);
+  const std::size_t row_stride =
+      4U * static_cast<std::size_t>(gridDim.x);
+  for (std::size_t row0 = first_row; row0 < rows; row0 += row_stride) {
+    const std::size_t row1 = row0 + 1U;
+    const std::size_t row2 = row0 + 2U;
+    const std::size_t row3 = row0 + 3U;
+    const bool has_row1 = CompleteRowQuads || row1 < rows;
+    const bool has_row2 = CompleteRowQuads || row2 < rows;
+    const bool has_row3 = CompleteRowQuads || row3 < rows;
+    const std::uint8_t* const row0_weights = weights + row0 * columns;
+    const std::uint8_t* const row1_weights =
+        has_row1 ? weights + row1 * columns : row0_weights;
+    const std::uint8_t* const row2_weights =
+        has_row2 ? weights + row2 * columns : row0_weights;
+    const std::uint8_t* const row3_weights =
+        has_row3 ? weights + row3 * columns : row0_weights;
+
+    float accumulator00 = 0.0F;
+    float accumulator01 = 0.0F;
+    float accumulator10 = 0.0F;
+    float accumulator11 = 0.0F;
+    float accumulator20 = 0.0F;
+    float accumulator21 = 0.0F;
+    float accumulator30 = 0.0F;
+    float accumulator31 = 0.0F;
+
+    for (std::size_t first_column =
+             static_cast<std::size_t>(threadIdx.x) *
+             kFp8VectorValuesPerLane;
+         first_column < columns;
+         first_column += kFp8VectorColumnsPerBlock) {
+      const std::uint32_t packed_weights0 =
+          *reinterpret_cast<const std::uint32_t*>(row0_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights1 =
+          *reinterpret_cast<const std::uint32_t*>(row1_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights2 =
+          *reinterpret_cast<const std::uint32_t*>(row2_weights +
+                                                  first_column);
+      const std::uint32_t packed_weights3 =
+          *reinterpret_cast<const std::uint32_t*>(row3_weights +
+                                                  first_column);
+      const std::uint64_t packed_activation0 =
+          *reinterpret_cast<const std::uint64_t*>(activations +
+                                                  first_column);
+      const std::uint64_t packed_activation1 =
+          *reinterpret_cast<const std::uint64_t*>(activations + columns +
+                                                  first_column);
+
+#pragma unroll
+      for (unsigned int value = 0U; value < kFp8VectorValuesPerLane;
+           ++value) {
+        const unsigned int weight_shift = value * 8U;
+        const unsigned int activation_shift = value * 16U;
+        const float decoded_weight0 = decoded_weights[static_cast<std::uint8_t>(
+            (packed_weights0 >> weight_shift) & 0xffU)];
+        const float decoded_weight1 = decoded_weights[static_cast<std::uint8_t>(
+            (packed_weights1 >> weight_shift) & 0xffU)];
+        const float decoded_weight2 = decoded_weights[static_cast<std::uint8_t>(
+            (packed_weights2 >> weight_shift) & 0xffU)];
+        const float decoded_weight3 = decoded_weights[static_cast<std::uint8_t>(
+            (packed_weights3 >> weight_shift) & 0xffU)];
+        const float decoded_activation0 = decode_bf16(
+            static_cast<std::uint16_t>(
+                (packed_activation0 >> activation_shift) & 0xffffU));
+        const float decoded_activation1 = decode_bf16(
+            static_cast<std::uint16_t>(
+                (packed_activation1 >> activation_shift) & 0xffffU));
+        accumulator00 =
+            fmaf(decoded_weight0, decoded_activation0, accumulator00);
+        accumulator01 =
+            fmaf(decoded_weight0, decoded_activation1, accumulator01);
+        accumulator10 =
+            fmaf(decoded_weight1, decoded_activation0, accumulator10);
+        accumulator11 =
+            fmaf(decoded_weight1, decoded_activation1, accumulator11);
+        accumulator20 =
+            fmaf(decoded_weight2, decoded_activation0, accumulator20);
+        accumulator21 =
+            fmaf(decoded_weight2, decoded_activation1, accumulator21);
+        accumulator30 =
+            fmaf(decoded_weight3, decoded_activation0, accumulator30);
+        accumulator31 =
+            fmaf(decoded_weight3, decoded_activation1, accumulator31);
+      }
+    }
+
+    const float sum00 = warp_sum(accumulator00);
+    const float sum01 = warp_sum(accumulator01);
+    const float sum10 = warp_sum(accumulator10);
+    const float sum11 = warp_sum(accumulator11);
+    const float sum20 = warp_sum(accumulator20);
+    const float sum21 = warp_sum(accumulator21);
+    const float sum30 = warp_sum(accumulator30);
+    const float sum31 = warp_sum(accumulator31);
+    if (lane == 0U) {
+      warp_sums[0U][0U][warp] = sum00;
+      warp_sums[0U][1U][warp] = sum01;
+      warp_sums[1U][0U][warp] = sum10;
+      warp_sums[1U][1U][warp] = sum11;
+      warp_sums[2U][0U][warp] = sum20;
+      warp_sums[2U][1U][warp] = sum21;
+      warp_sums[3U][0U][warp] = sum30;
+      warp_sums[3U][1U][warp] = sum31;
+    }
+    __syncthreads();
+
+    if (warp == 0U) {
+      float block_sum00 =
+          lane < kWarpsPerBlock ? warp_sums[0U][0U][lane] : 0.0F;
+      float block_sum01 =
+          lane < kWarpsPerBlock ? warp_sums[0U][1U][lane] : 0.0F;
+      float block_sum10 =
+          lane < kWarpsPerBlock ? warp_sums[1U][0U][lane] : 0.0F;
+      float block_sum11 =
+          lane < kWarpsPerBlock ? warp_sums[1U][1U][lane] : 0.0F;
+      float block_sum20 =
+          lane < kWarpsPerBlock ? warp_sums[2U][0U][lane] : 0.0F;
+      float block_sum21 =
+          lane < kWarpsPerBlock ? warp_sums[2U][1U][lane] : 0.0F;
+      float block_sum30 =
+          lane < kWarpsPerBlock ? warp_sums[3U][0U][lane] : 0.0F;
+      float block_sum31 =
+          lane < kWarpsPerBlock ? warp_sums[3U][1U][lane] : 0.0F;
+      block_sum00 = warp_sum(block_sum00) * weight_scale;
+      block_sum01 = warp_sum(block_sum01) * weight_scale;
+      block_sum10 = warp_sum(block_sum10) * weight_scale;
+      block_sum11 = warp_sum(block_sum11) * weight_scale;
+      block_sum20 = warp_sum(block_sum20) * weight_scale;
+      block_sum21 = warp_sum(block_sum21) * weight_scale;
+      block_sum30 = warp_sum(block_sum30) * weight_scale;
+      block_sum31 = warp_sum(block_sum31) * weight_scale;
+      if (lane == 0U) {
+        output[row0] = encode_bf16_rne(block_sum00);
+        output[rows + row0] = encode_bf16_rne(block_sum01);
+        if constexpr (CompleteRowQuads) {
+          output[row1] = encode_bf16_rne(block_sum10);
+          output[rows + row1] = encode_bf16_rne(block_sum11);
+          output[row2] = encode_bf16_rne(block_sum20);
+          output[rows + row2] = encode_bf16_rne(block_sum21);
+          output[row3] = encode_bf16_rne(block_sum30);
+          output[rows + row3] = encode_bf16_rne(block_sum31);
+        } else {
+          if (has_row1) {
+            output[row1] = encode_bf16_rne(block_sum10);
+            output[rows + row1] = encode_bf16_rne(block_sum11);
+          }
+          if (has_row2) {
+            output[row2] = encode_bf16_rne(block_sum20);
+            output[rows + row2] = encode_bf16_rne(block_sum21);
+          }
+          if (has_row3) {
+            output[row3] = encode_bf16_rne(block_sum30);
+            output[rows + row3] = encode_bf16_rne(block_sum31);
           }
         }
       }
@@ -3260,6 +3461,44 @@ void launch_fp8_small_m2_row_pair_unchecked(
                                         rows, columns, output);
 }
 
+void launch_fp8_small_m2_row_pair_grid_cap_test_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  constexpr std::size_t kRowsPerBlock = 2U;
+  const std::size_t wanted =
+      rows / kRowsPerBlock + (rows % kRowsPerBlock != 0U ? 1U : 0U);
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < maximum_blocks ? wanted : maximum_blocks);
+  fp8_w8a16_small_m2_gemm_bf16_row_pair_kernel
+      <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                        rows, columns, output);
+}
+
+void launch_fp8_small_m2_row_quad_grid_cap_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  constexpr std::size_t kRowsPerBlock = 4U;
+  const std::size_t wanted =
+      rows / kRowsPerBlock + (rows % kRowsPerBlock != 0U ? 1U : 0U);
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < maximum_blocks ? wanted : maximum_blocks);
+  if ((rows % kRowsPerBlock) == 0U) {
+    fp8_w8a16_small_m2_gemm_bf16_row_quad_kernel<true>
+        <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                          rows, columns, output);
+  } else {
+    fp8_w8a16_small_m2_gemm_bf16_row_quad_kernel<false>
+        <<<blocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                          rows, columns, output);
+  }
+}
+
 void launch_fp8_small_m8_row_pair_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t rows,
@@ -3925,9 +4164,80 @@ int launch_sm87_fp8_w8a16_small_m2_row_pair_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only capped launchers keep the exact production row-pair baseline and
+// the row-quad candidate in the same cubin for occupancy-matched A/B sweeps.
+int launch_sm87_fp8_w8a16_small_m2_row_pair_grid_cap_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 2U;
+  const int validation = validate_fp8_small_m_launch(
+      weights, weight_scale, activations, kTokenCount, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_small_m2_row_pair_grid_cap_test_unchecked(
+      weights, weight_scale, activations, rows, columns, output,
+      static_cast<unsigned int>(maximum_blocks), stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_small_m2_row_quad_grid_cap_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 2U;
+  const int validation = validate_fp8_small_m_launch(
+      weights, weight_scale, activations, kTokenCount, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kFp8VectorColumnsPerBlock) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_small_m2_row_quad_grid_cap_unchecked(
+      weights, weight_scale, activations, rows, columns, output,
+      static_cast<unsigned int>(maximum_blocks), stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 [[nodiscard]] bool use_sm87_fp8_m2_row_pair_shape_test(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_fp8_m2_row_pair_shape(rows, columns);
+}
+
+[[nodiscard]] std::size_t sm87_fp8_m2_row_quad_maximum_blocks_test(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return fp8_m2_row_quad_maximum_blocks(rows, columns);
 }
 
 [[nodiscard]] bool use_sm87_fp8_m2_persistent_rows_test(
@@ -4647,7 +4957,13 @@ int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
     (void)cudaGetLastError();
     switch (token_count) {
       case 2U:
-        if (use_fp8_m2_row_pair_shape(rows, columns)) {
+        if (const unsigned int row_quad_blocks =
+                fp8_m2_row_quad_maximum_blocks(rows, columns);
+            row_quad_blocks != 0U) {
+          launch_fp8_small_m2_row_quad_grid_cap_unchecked(
+              weights, weight_scale, activations, rows, columns, output,
+              row_quad_blocks, stream);
+        } else if (use_fp8_m2_row_pair_shape(rows, columns)) {
           launch_fp8_small_m2_row_pair_unchecked(
               weights, weight_scale, activations, rows, columns, output,
               stream);
