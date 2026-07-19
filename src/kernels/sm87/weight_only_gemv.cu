@@ -26,6 +26,7 @@ constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows = kWarpsPerBlock;
 constexpr std::size_t kNvFp4M1ScaleCodebookMinimumColumns = 5'120U;
 constexpr unsigned int kNvFp4M1PersistentMaximumBlocks = 96U;
 constexpr unsigned int kNvFp4M1RowPairMaximumBlocks = 80U;
+constexpr unsigned int kNvFp4M1RowQuadMaximumBlocks = 64U;
 constexpr std::size_t kNvFp4M2ScaleCodebookMinimumRows = kWarpsPerBlock;
 constexpr std::size_t kNvFp4M2ScaleCodebookMinimumColumns = 5'120U;
 constexpr std::size_t kFp8EncodedValueCount = 256U;
@@ -133,11 +134,11 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
          columns >= kNvFp4M1ScaleCodebookMinimumColumns;
 }
 
-[[nodiscard]] constexpr bool use_nvfp4_m1_row_pair_shape(
+[[nodiscard]] constexpr bool use_nvfp4_m1_row_quad_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   // These are the complete M=1 NVFP4 shape families observed in the pinned
   // checkpoint profile. Each cleared checkpoint-like and same-bank-stress
-  // gates at the 80-block residency-matched cap.
+  // row-quad gates at the 64-block residency-matched cap.
   return (rows == 17'408U && columns == 5'120U) ||
          (rows == 5'120U && columns == 17'408U) ||
          (rows == 248'320U && columns == 5'120U);
@@ -1643,7 +1644,7 @@ nvfp4_w4a16_gemv_bf16_scale_codebook_kernel(
   }
 }
 
-// Production M=1 row-pair path. A warp evaluates two adjacent output
+// M=1 row-pair A/B baseline. A warp evaluates two adjacent output
 // rows so both rows share each BF16 activation load and decode, while their
 // packed weights, group scales, four accumulation chains, and reductions stay
 // independent. Keeping the four chains per row preserves the production
@@ -1762,6 +1763,177 @@ nvfp4_w4a16_gemv_bf16_scale_codebook_row_pair_kernel(
       if (has_row1) {
         output[row1] = encode_bf16_rne(sum1);
       }
+    }
+  }
+}
+
+// Production M=1 row-quad path. Four adjacent output rows share every BF16
+// activation load and decode while retaining independent packed weights,
+// scales, four-way accumulation chains, and reductions. Each row therefore
+// preserves the row-pair baseline's exact floating-point order.
+template <bool CompleteRowQuads>
+__global__ __launch_bounds__(kThreads, 4) void
+nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) {
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  decoded_scales[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
+
+  const std::size_t packed_columns = columns / kNvFp4ValuesPerByte;
+  const std::size_t scale_columns = columns / kNvFp4GroupSize;
+  const std::size_t first_row =
+      4U * (static_cast<std::size_t>(blockIdx.x) * kWarpsPerBlock + warp);
+  const std::size_t row_stride =
+      static_cast<std::size_t>(gridDim.x) * kWarpsPerBlock * 4U;
+
+  for (std::size_t row0 = first_row; row0 < rows; row0 += row_stride) {
+    const std::size_t row1 = row0 + 1U;
+    const std::size_t row2 = row0 + 2U;
+    const std::size_t row3 = row0 + 3U;
+    const bool has_row1 = CompleteRowQuads || row1 < rows;
+    const bool has_row2 = CompleteRowQuads || row2 < rows;
+    const bool has_row3 = CompleteRowQuads || row3 < rows;
+    const std::uint8_t* const row0_weights =
+        packed_weights + row0 * packed_columns;
+    const std::uint8_t* const row0_scales =
+        block_scales + row0 * scale_columns;
+    const std::uint8_t* const row1_weights =
+        has_row1 ? packed_weights + row1 * packed_columns : row0_weights;
+    const std::uint8_t* const row1_scales =
+        has_row1 ? block_scales + row1 * scale_columns : row0_scales;
+    const std::uint8_t* const row2_weights =
+        has_row2 ? packed_weights + row2 * packed_columns : row0_weights;
+    const std::uint8_t* const row2_scales =
+        has_row2 ? block_scales + row2 * scale_columns : row0_scales;
+    const std::uint8_t* const row3_weights =
+        has_row3 ? packed_weights + row3 * packed_columns : row0_weights;
+    const std::uint8_t* const row3_scales =
+        has_row3 ? block_scales + row3 * scale_columns : row0_scales;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+    for (std::size_t packed_column =
+             static_cast<std::size_t>(lane) *
+             kNvFp4VectorPackedBytesPerLane;
+         packed_column < packed_columns;
+         packed_column += kNvFp4VectorColumnsPerWarp /
+                          kNvFp4ValuesPerByte) {
+      float block_scale0 = 0.0F;
+      float block_scale1 = 0.0F;
+      float block_scale2 = 0.0F;
+      float block_scale3 = 0.0F;
+      if ((lane & 1U) == 0U) {
+        const std::size_t scale_column =
+            packed_column / kNvFp4PackedValuesPerScale;
+        block_scale0 = decoded_scales[row0_scales[scale_column]];
+        if (has_row1) {
+          block_scale1 = decoded_scales[row1_scales[scale_column]];
+        }
+        if (has_row2) {
+          block_scale2 = decoded_scales[row2_scales[scale_column]];
+        }
+        if (has_row3) {
+          block_scale3 = decoded_scales[row3_scales[scale_column]];
+        }
+      }
+      const int scale_source = static_cast<int>(lane & ~1U);
+      block_scale0 =
+          __shfl_sync(0xffff'ffffU, block_scale0, scale_source);
+      block_scale1 =
+          __shfl_sync(0xffff'ffffU, block_scale1, scale_source);
+      block_scale2 =
+          __shfl_sync(0xffff'ffffU, block_scale2, scale_source);
+      block_scale3 =
+          __shfl_sync(0xffff'ffffU, block_scale3, scale_source);
+
+      const std::uint32_t packed0 =
+          *reinterpret_cast<const std::uint32_t*>(row0_weights +
+                                                  packed_column);
+      const std::uint32_t packed1 =
+          has_row1 ? *reinterpret_cast<const std::uint32_t*>(
+                         row1_weights + packed_column)
+                   : 0U;
+      const std::uint32_t packed2 =
+          has_row2 ? *reinterpret_cast<const std::uint32_t*>(
+                         row2_weights + packed_column)
+                   : 0U;
+      const std::uint32_t packed3 =
+          has_row3 ? *reinterpret_cast<const std::uint32_t*>(
+                         row3_weights + packed_column)
+                   : 0U;
+      const std::size_t first_column =
+          packed_column * kNvFp4ValuesPerByte;
+
+#pragma unroll
+      for (unsigned int half = 0U; half < 2U; ++half) {
+        const std::uint64_t packed_activation =
+            *reinterpret_cast<const std::uint64_t*>(
+                activation + first_column + half * 4U);
+#pragma unroll
+        for (unsigned int value = 0U; value < 4U; ++value) {
+          const unsigned int packed_value = half * 4U + value;
+          const unsigned int shift = packed_value * 4U;
+          const std::uint16_t encoded_activation =
+              static_cast<std::uint16_t>(
+                  (packed_activation >> (value * 16U)) & 0xffffU);
+          const float decoded_activation =
+              decode_bf16(encoded_activation);
+          accumulators0[value] =
+              fmaf(decoded_weights[(packed0 >> shift) & 0x0fU] *
+                       block_scale0,
+                   decoded_activation, accumulators0[value]);
+          accumulators1[value] =
+              fmaf(decoded_weights[(packed1 >> shift) & 0x0fU] *
+                       block_scale1,
+                   decoded_activation, accumulators1[value]);
+          accumulators2[value] =
+              fmaf(decoded_weights[(packed2 >> shift) & 0x0fU] *
+                       block_scale2,
+                   decoded_activation, accumulators2[value]);
+          accumulators3[value] =
+              fmaf(decoded_weights[(packed3 >> shift) & 0x0fU] *
+                       block_scale3,
+                   decoded_activation, accumulators3[value]);
+        }
+      }
+    }
+
+    float sum = (accumulators0[0] + accumulators0[1]) +
+                (accumulators0[2] + accumulators0[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators1[0] + accumulators1[1]) +
+          (accumulators1[2] + accumulators1[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U && has_row1) {
+      output[row1] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators2[0] + accumulators2[1]) +
+          (accumulators2[2] + accumulators2[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U && has_row2) {
+      output[row2] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators3[0] + accumulators3[1]) +
+          (accumulators3[2] + accumulators3[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U && has_row3) {
+      output[row3] = encode_bf16_rne(sum);
     }
   }
 }
@@ -2654,6 +2826,31 @@ void launch_nvfp4_scale_codebook_row_pair_grid_cap_unchecked(
           columns, output);
 }
 
+void launch_nvfp4_scale_codebook_row_quad_grid_cap_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const unsigned int maximum_blocks,
+    cudaStream_t const stream) noexcept {
+  constexpr std::size_t kRowsPerBlock = kWarpsPerBlock * 4U;
+  const std::size_t wanted =
+      rows / kRowsPerBlock + (rows % kRowsPerBlock != 0U ? 1U : 0U);
+  const unsigned int blocks = static_cast<unsigned int>(
+      wanted < maximum_blocks ? wanted : maximum_blocks);
+  if ((rows % 4U) == 0U) {
+    nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_kernel<true>
+        <<<blocks, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activation, rows,
+            columns, output);
+  } else {
+    nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_kernel<false>
+        <<<blocks, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activation, rows,
+            columns, output);
+  }
+}
+
 [[nodiscard]] int validate_fp8_small_m_launch(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t token_count,
@@ -3510,10 +3707,10 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
        alignof(std::uint32_t)) == 0U &&
       (reinterpret_cast<std::uintptr_t>(activation) %
        alignof(std::uint64_t)) == 0U;
-  if (vector_shape && use_nvfp4_m1_row_pair_shape(rows, columns)) {
-    launch_nvfp4_scale_codebook_row_pair_grid_cap_unchecked(
+  if (vector_shape && use_nvfp4_m1_row_quad_shape(rows, columns)) {
+    launch_nvfp4_scale_codebook_row_quad_grid_cap_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, rows,
-        columns, output, kNvFp4M1RowPairMaximumBlocks, stream);
+        columns, output, kNvFp4M1RowQuadMaximumBlocks, stream);
   } else if (vector_shape && use_nvfp4_m1_scale_codebook(rows, columns)) {
     launch_nvfp4_scale_codebook_grid_cap_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, rows,
@@ -3651,8 +3848,7 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_grid_cap_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
-// Test-only capped launch of the M=1 row-pair kernel. Production dispatch uses
-// the same helper for its exact-shape row-pair fast path.
+// Test-only capped launch of the preserved M=1 row-pair A/B baseline.
 int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_row_pair_grid_cap_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -3686,20 +3882,52 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_row_pair_grid_cap_test_cuda
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_grid_cap_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const std::size_t maximum_blocks, void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_launch(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+  if (maximum_blocks == 0U || maximum_blocks > kMaximumBlocks) {
+    return invalid_value();
+  }
+  const bool vector_shape =
+      (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_scale_codebook_row_quad_grid_cap_unchecked(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output, static_cast<unsigned int>(maximum_blocks), stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only query sharing the exact M=1 production gate.
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_nvfp4_m1_scale_codebook(rows, columns);
 }
 
-[[nodiscard]] bool use_sm87_nvfp4_m1_row_pair_shape_test(
+[[nodiscard]] bool use_sm87_nvfp4_m1_row_quad_shape_test(
     const std::size_t rows, const std::size_t columns) noexcept {
-  return use_nvfp4_m1_row_pair_shape(rows, columns);
+  return use_nvfp4_m1_row_quad_shape(rows, columns);
 }
 
-// Test-only query sharing the exact block cap compiled into M=1 production
-// dispatch. Keeping the performance gate tied to this value prevents a test
-// sweep and production launch from silently drifting apart.
+// Test-only queries for the generic persistent cap, preserved row-pair A/B
+// cap, and production row-quad cap.
 [[nodiscard]] std::size_t
 sm87_nvfp4_m1_persistent_maximum_blocks_test() noexcept {
   return kNvFp4M1PersistentMaximumBlocks;
@@ -3708,6 +3936,11 @@ sm87_nvfp4_m1_persistent_maximum_blocks_test() noexcept {
 [[nodiscard]] std::size_t
 sm87_nvfp4_m1_row_pair_maximum_blocks_test() noexcept {
   return kNvFp4M1RowPairMaximumBlocks;
+}
+
+[[nodiscard]] std::size_t
+sm87_nvfp4_m1_row_quad_maximum_blocks_test() noexcept {
+  return kNvFp4M1RowQuadMaximumBlocks;
 }
 
 // Test-only direct M=2 entries preserve the current vector baseline and keep
