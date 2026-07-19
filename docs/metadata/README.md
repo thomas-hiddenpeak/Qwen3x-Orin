@@ -35,6 +35,10 @@ The diagnostic Phase 3 records are:
   which records the same-binary warm-cache one-/two-/three-worker resident-load
   measurements, deterministic loader invariants, derived speedups, and
   measurement limitations.
+- [`qwen36-27b-startup-overlap-benchmark.json`](qwen36-27b-startup-overlap-benchmark.json),
+  which records the same-binary serial/overlapped tokenizer-and-resident
+  startup comparison, exact full-model gates, wall-time contract, fallback
+  behavior, and measurement limitations.
 - [`qwen36-27b-nvfp4-packedx8-benchmark.json`](qwen36-27b-nvfp4-packedx8-benchmark.json),
   which records the canonical packed-x8 NVFP4 dispatch, same-binary scalar/
   vector gate, two-prompt replay benchmark, full-model exact gate, SASS

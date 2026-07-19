@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -230,6 +231,10 @@ int main(const int argc, char** const argv) {
   }
 
   runtime::ReferenceOneShotOptions options;
+  const char* const serial_startup =
+      std::getenv("Q3X_E2E_SERIAL_STARTUP");
+  options.overlap_tokenizer_and_resident_load =
+      serial_startup == nullptr || std::string_view(serial_startup) != "1";
   options.generation.max_new_tokens =
       static_cast<std::uint32_t>(kExpectedGeneratedIds.size());
   options.generation.stop_token_id = runtime::kQwen36ImEndTokenId;
@@ -245,7 +250,39 @@ int main(const int argc, char** const argv) {
   }
 
   const runtime::ReferenceGeneration& generation = result.value->generation;
+  const runtime::ReferenceEngineLoadStats& load = result.value->load;
   TestContext test;
+  // This executable is also the controlled startup-performance gate: a
+  // requested overlap that fell back to serial must remain visible as a test
+  // failure instead of silently weakening the benchmark.
+  test.expect(load.tokenizer_resident_overlap ==
+                  options.overlap_tokenizer_and_resident_load,
+              "load statistics report the selected startup overlap mode");
+  const bool finite_nonnegative_timings =
+      std::isfinite(load.tokenizer_milliseconds) &&
+      load.tokenizer_milliseconds >= 0.0 &&
+      std::isfinite(load.resident_load_milliseconds) &&
+      load.resident_load_milliseconds >= 0.0 &&
+      std::isfinite(load.weight_bind_milliseconds) &&
+      load.weight_bind_milliseconds >= 0.0 &&
+      std::isfinite(load.request_state_milliseconds) &&
+      load.request_state_milliseconds >= 0.0 &&
+      std::isfinite(load.runner_factory_milliseconds) &&
+      load.runner_factory_milliseconds >= 0.0 &&
+      std::isfinite(load.total_milliseconds) &&
+      load.total_milliseconds >= 0.0;
+  test.expect(finite_nonnegative_timings,
+              "all engine load timings are finite and nonnegative");
+  test.expect(load.total_milliseconds >=
+                  std::max(load.tokenizer_milliseconds,
+                           load.resident_load_milliseconds),
+              "load wall time covers every individual startup phase");
+  if (!load.tokenizer_resident_overlap) {
+    test.expect(load.total_milliseconds >=
+                    load.tokenizer_milliseconds +
+                        load.resident_load_milliseconds,
+                "serial load wall time covers tokenizer plus resident phases");
+  }
   test.expect(exact_tokens(generation.prompt_token_ids, kExpectedPromptIds,
                            "prompt_token_ids"),
               "all 19 prompt token ids match the pinned oracle");
@@ -271,7 +308,12 @@ int main(const int argc, char** const argv) {
     std::cout << "PASS: pinned Qwen3.6-27B reference generation matched "
                  "19 prompt ids, 26 generated ids, exact text, im_end, and "
                  "44 steps with projection_backend="
-              << runtime::to_string(projection_backend) << '\n';
+              << runtime::to_string(projection_backend)
+              << " startup_overlap="
+              << (result.value->load.tokenizer_resident_overlap ? 1 : 0)
+              << " load_total_ms=" << load.total_milliseconds
+              << " tokenizer_ms=" << load.tokenizer_milliseconds
+              << " resident_ms=" << load.resident_load_milliseconds << '\n';
     return 0;
   }
   return 1;

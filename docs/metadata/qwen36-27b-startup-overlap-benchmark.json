@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-startup-overlap-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-19",
+  "source": {
+    "base_git_commit": "377ec32f861184050a729188747ffca86ceb47c1",
+    "tree_state_at_measurement": "startup-overlap candidate worktree",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "build_type": "Release",
+    "filesystem_cache": "warm",
+    "cold_cache_benchmark": false,
+    "clocks_locked": false
+  },
+  "implementation": {
+    "default_enabled": true,
+    "control": "ReferenceOneShotOptions::overlap_tokenizer_and_resident_load",
+    "reported_actual_state": "ReferenceEngineLoadStats::tokenizer_resident_overlap",
+    "host_execution": "std::async(std::launch::async)",
+    "parallel_phases": [
+      "CPU tokenizer JSON parse",
+      "checkpoint manifest validation, full-shard authentication, and H2D scatter"
+    ],
+    "cuda_device_policy": "capture caller device and cudaSetDevice in startup worker",
+    "thread_creation_failure_policy": "fall back to serial startup",
+    "failure_join_policy": "join and release any in-flight resident load before return",
+    "diagnostic_priority": "tokenizer, chat, and capacity preflight precede a recorded startup device failure",
+    "total_timing_contract": "one-shot preparation start through completed engine creation wall time"
+  },
+  "same_binary_benchmark": {
+    "same_binary": true,
+    "serial_command": "Q3X_E2E_SERIAL_STARTUP=1 q3x_reference_engine_e2e_test MODEL_DIR sm87 16",
+    "overlap_command": "env -u Q3X_E2E_SERIAL_STARTUP q3x_reference_engine_e2e_test MODEL_DIR sm87 16",
+    "measurement_order": [
+      "serial",
+      "overlap",
+      "overlap",
+      "serial"
+    ],
+    "samples": [
+      {
+        "sequence": 1,
+        "startup_overlap": false,
+        "load_total_milliseconds": 12226.0,
+        "tokenizer_milliseconds": 1138.85,
+        "resident_milliseconds": 11044.8
+      },
+      {
+        "sequence": 2,
+        "startup_overlap": true,
+        "load_total_milliseconds": 11112.1,
+        "tokenizer_milliseconds": 1231.37,
+        "resident_milliseconds": 11060.3
+      },
+      {
+        "sequence": 3,
+        "startup_overlap": true,
+        "load_total_milliseconds": 11094.9,
+        "tokenizer_milliseconds": 1230.26,
+        "resident_milliseconds": 11039.1
+      },
+      {
+        "sequence": 4,
+        "startup_overlap": false,
+        "load_total_milliseconds": 12190.3,
+        "tokenizer_milliseconds": 1136.98,
+        "resident_milliseconds": 11008.1
+      }
+    ],
+    "averages": {
+      "serial_load_total_milliseconds": 12208.15,
+      "overlap_load_total_milliseconds": 11103.5,
+      "serial_tokenizer_milliseconds": 1137.915,
+      "overlap_tokenizer_milliseconds": 1230.815,
+      "serial_resident_milliseconds": 11026.45,
+      "overlap_resident_milliseconds": 11049.7
+    },
+    "derived": {
+      "reduction_milliseconds": 1104.65,
+      "reduction_percent": 9.048463526,
+      "speedup": 1.099486648,
+      "resident_slowdown_milliseconds": 23.25,
+      "resident_slowdown_percent": 0.210856622
+    }
+  },
+  "exactness_gate_per_sample": {
+    "prompt_token_ids_exact": 19,
+    "generated_token_ids_exact": 26,
+    "decoded_text_exact": true,
+    "stop_reason": "im_end",
+    "runner_steps_exact": 44,
+    "all_four_samples_passed": true
+  },
+  "default_cli_gate": {
+    "command": "qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "startup_overlap": true,
+    "load_milliseconds": {
+      "total": 11077.289,
+      "tokenizer": 1243.812,
+      "resident": 11031.07,
+      "weight_bind": 21.756,
+      "request_state": 8.273,
+      "runner_factory": 0.57
+    },
+    "generation_milliseconds": {
+      "prompt": 594.553,
+      "decode": 3052.675,
+      "total": 3647.228
+    },
+    "resident_invariants": {
+      "bytes_read": 21921697184,
+      "bytes_copied": 20150569096,
+      "bytes_skipped": 1771128088,
+      "chunks": 328,
+      "memcpy_operations": 2146,
+      "shard_workers": 3,
+      "sha256_backend": "linux_af_alg"
+    },
+    "prompt_token_ids_exact": 19,
+    "generated_token_ids_exact": 26,
+    "decoded_text_exact": true,
+    "stop_reason": "im_end",
+    "runner_steps_exact": 44,
+    "passed": true
+  },
+  "validation": {
+    "release_build": "passed",
+    "ctest": {
+      "total": 52,
+      "passed": 48,
+      "expected_skips": 4,
+      "failed": 0
+    },
+    "sanitizers": {
+      "address": true,
+      "undefined_behavior": true,
+      "leak_detection_disabled_for_cuda_driver_noise": true,
+      "control_test_passed": true,
+      "official_27b_overlap_e2e_passed": true
+    },
+    "independent_read_only_reviews": 3,
+    "correctness_blockers": 0
+  },
+  "limitations": [
+    "filesystem cache was warm; this is not a cold-cache storage benchmark",
+    "clocks were not locked",
+    "the mirrored comparison has two samples per mode",
+    "tokenizer parsing slowed under checkpoint-load contention, but remained fully hidden behind the longer resident phase",
+    "a CPU preflight failure after async launch waits for the in-flight resident load to finish because the loader has no cancellation contract",
+    "the result covers the exact pinned three-shard 27B checkpoint"
+  ]
+}

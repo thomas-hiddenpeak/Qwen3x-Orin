@@ -119,6 +119,10 @@ struct ReferenceEngineLoadStats {
   std::uint32_t request_max_sequence_length = 0U;
   std::uint32_t request_prefill_chunk_size =
       kDefaultRequestPrefillChunkSize;
+  // True only when tokenizer parsing and resident loading actually executed
+  // concurrently. When true, total_milliseconds is wall time and phase
+  // timings intentionally overlap.
+  bool tokenizer_resident_overlap = false;
 };
 
 struct ReferenceGenerateResult {
@@ -193,6 +197,10 @@ struct ReferenceOneShotOptions {
       8ULL * 1024ULL * 1024ULL * 1024ULL;
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
   ReferenceGenerateOptions generation;
+  // Tokenizer parsing is CPU-only and independent of checkpoint
+  // authentication/copy, so the production one-shot path overlaps them by
+  // default. Disable this only for diagnostics or controlled benchmarks.
+  bool overlap_tokenizer_and_resident_load = true;
 };
 
 struct ReferenceOneShotGeneration {
@@ -211,9 +219,9 @@ struct ReferenceOneShotResult {
 };
 
 // One-shot production path used by the CLI. It loads and validates the pinned
-// tokenizer first, derives the smallest request capacity that can execute the
-// prompt plus max_new_tokens, then creates the four-stage native lifetime chain
-// without parsing tokenizer.json a second time.
+// tokenizer while the resident checkpoint loads, derives the smallest request
+// capacity that can execute the prompt plus max_new_tokens, then creates the
+// four-stage native lifetime chain without loading either asset a second time.
 [[nodiscard]] ReferenceOneShotResult generate_reference(
     const std::filesystem::path& model_directory,
     std::string_view user_prompt,

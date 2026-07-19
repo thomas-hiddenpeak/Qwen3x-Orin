@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <limits>
 #include <memory>
 #include <new>
@@ -15,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,44 @@ using Clock = std::chrono::steady_clock;
   diagnostic.message = std::move(message);
   diagnostic.context = std::move(context);
   return diagnostic;
+}
+
+[[nodiscard]] std::optional<ReferenceEngineDiagnostic>
+sm87_device_diagnostic(const ProjectionBackend backend,
+                       int* const active_device = nullptr) {
+  if (backend != ProjectionBackend::kSm87WeightOnly) {
+    return std::nullopt;
+  }
+
+  int device = 0;
+  // Match the resident loader's error isolation: a stale caller launch error
+  // must not be attributed to this startup device probe.
+  (void)cudaGetLastError();
+  cudaError_t cuda_status = cudaGetDevice(&device);
+  cudaDeviceProp properties{};
+  if (cuda_status == cudaSuccess) {
+    cuda_status = cudaGetDeviceProperties(&properties, device);
+  }
+  if (cuda_status != cudaSuccess) {
+    ReferenceEngineDiagnostic diagnostic = engine_diagnostic(
+        ReferenceEngineError::kRunnerFactoryFailure,
+        "projection_backend_device",
+        "failed to inspect the active CUDA device before model load");
+    diagnostic.cuda_error = static_cast<int>(cuda_status);
+    return diagnostic;
+  }
+  if (properties.major != 8 || properties.minor != 7) {
+    return engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "projection_backend_device",
+        "sm87 projection backend requires compute capability 8.7",
+        "active_device=sm_" + std::to_string(properties.major) +
+            std::to_string(properties.minor));
+  }
+  if (active_device != nullptr) {
+    *active_device = device;
+  }
+  return std::nullopt;
 }
 
 [[nodiscard]] ReferenceEngineDiagnostic tokenizer_diagnostic(
@@ -280,6 +320,31 @@ struct EngineStepContext {
   return true;
 }
 
+struct TimedResidentLoad {
+  ResidentLoadResult result;
+  double milliseconds = 0.0;
+};
+
+[[nodiscard]] TimedResidentLoad load_resident_on_device(
+    const std::filesystem::path& model_directory,
+    const ResidentLoadOptions& options, const int device) {
+  TimedResidentLoad timed;
+  const Clock::time_point begin = Clock::now();
+  const cudaError_t cuda_status = cudaSetDevice(device);
+  if (cuda_status != cudaSuccess) {
+    timed.result.diagnostic.code = ResidentLoadErrorCode::kCudaFailure;
+    timed.result.diagnostic.message =
+        "failed to select the caller CUDA device in the startup worker";
+    timed.result.diagnostic.context = "cudaSetDevice(startup worker)";
+    timed.result.diagnostic.cuda_error = static_cast<int>(cuda_status);
+  } else {
+    (void)cudaGetLastError();
+    timed.result = load_pinned_qwen36_27b(model_directory, options);
+  }
+  timed.milliseconds = elapsed_milliseconds(begin);
+  return timed;
+}
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
@@ -307,7 +372,10 @@ struct ReferenceEngine::Impl {
       const std::filesystem::path& model_directory,
       const ReferenceEngineOptions& options,
       std::unique_ptr<text::Tokenizer> prepared_tokenizer = {},
-      const double prepared_tokenizer_milliseconds = 0.0) {
+      const double prepared_tokenizer_milliseconds = 0.0,
+      std::optional<ResidentWeights> prepared_resident = std::nullopt,
+      const double prepared_resident_milliseconds = 0.0,
+      const double prepared_work_wall_milliseconds = 0.0) {
     BuildResult result;
     if (model_directory.empty()) {
       result.diagnostic = engine_diagnostic(
@@ -321,35 +389,16 @@ struct ReferenceEngine::Impl {
           "unknown projection backend");
       return result;
     }
-    if (options.projection_backend == ProjectionBackend::kSm87WeightOnly) {
-      int device = 0;
-      cudaError_t cuda_status = cudaGetDevice(&device);
-      cudaDeviceProp properties{};
-      if (cuda_status == cudaSuccess) {
-        cuda_status = cudaGetDeviceProperties(&properties, device);
-      }
-      if (cuda_status != cudaSuccess) {
-        result.diagnostic = engine_diagnostic(
-            ReferenceEngineError::kRunnerFactoryFailure,
-            "projection_backend_device",
-            "failed to inspect the active CUDA device before model load");
-        result.diagnostic.cuda_error = static_cast<int>(cuda_status);
-        return result;
-      }
-      if (properties.major != 8 || properties.minor != 7) {
-        result.diagnostic = engine_diagnostic(
-            ReferenceEngineError::kInvalidArgument,
-            "projection_backend_device",
-            "sm87 projection backend requires compute capability 8.7",
-            "active_device=sm_" + std::to_string(properties.major) +
-                std::to_string(properties.minor));
-        return result;
-      }
+    const Clock::time_point build_begin = Clock::now();
+    if (std::optional<ReferenceEngineDiagnostic> diagnostic =
+            sm87_device_diagnostic(options.projection_backend)) {
+      result.diagnostic = std::move(*diagnostic);
+      return result;
     }
 
     try {
       const bool tokenizer_was_prepared = prepared_tokenizer != nullptr;
-      const Clock::time_point build_begin = Clock::now();
+      const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
       if (prepared_tokenizer != nullptr) {
@@ -371,7 +420,12 @@ struct ReferenceEngine::Impl {
         impl->tokenizer = std::move(tokenizer.tokenizer);
       }
 
-      {
+      if (prepared_resident.has_value()) {
+        impl->resident_weights.emplace(std::move(*prepared_resident));
+        impl->load.resident_load_milliseconds =
+            prepared_resident_milliseconds;
+        impl->load.resident = impl->resident_weights->stats();
+      } else {
         const Clock::time_point begin = Clock::now();
         ResidentLoadResult resident = load_pinned_qwen36_27b(
             model_directory, options.resident_options);
@@ -432,9 +486,16 @@ struct ReferenceEngine::Impl {
         impl->runner.emplace(std::move(*runner.value));
       }
 
+      double prepared_milliseconds = 0.0;
+      if (prepared_work_wall_milliseconds > 0.0) {
+        prepared_milliseconds = prepared_work_wall_milliseconds;
+      } else {
+        prepared_milliseconds =
+            (tokenizer_was_prepared ? prepared_tokenizer_milliseconds : 0.0) +
+            (resident_was_prepared ? prepared_resident_milliseconds : 0.0);
+      }
       impl->load.total_milliseconds =
-          elapsed_milliseconds(build_begin) +
-          (tokenizer_was_prepared ? prepared_tokenizer_milliseconds : 0.0);
+          elapsed_milliseconds(build_begin) + prepared_milliseconds;
       result.value = std::move(impl);
       return result;
     } catch (const std::bad_alloc&) {
@@ -656,6 +717,46 @@ ReferenceOneShotResult generate_reference(
   }
 
   try {
+    const Clock::time_point one_shot_prepare_begin = Clock::now();
+    std::optional<std::future<TimedResidentLoad>> resident_future;
+    std::optional<ReferenceEngineDiagnostic> startup_device_diagnostic;
+    if (options.overlap_tokenizer_and_resident_load) {
+      int active_device = 0;
+      startup_device_diagnostic =
+          sm87_device_diagnostic(options.projection_backend, &active_device);
+      if (!startup_device_diagnostic.has_value() &&
+          options.projection_backend != ProjectionBackend::kSm87WeightOnly) {
+        (void)cudaGetLastError();
+        const cudaError_t cuda_status = cudaGetDevice(&active_device);
+        if (cuda_status != cudaSuccess) {
+          startup_device_diagnostic = engine_diagnostic(
+              ReferenceEngineError::kResidentLoadFailure, "resident_load",
+              "failed to inspect the active CUDA device before concurrent "
+              "model load",
+              "cudaGetDevice(startup)");
+          startup_device_diagnostic->cuda_error =
+              static_cast<int>(cuda_status);
+        }
+      }
+
+      if (!startup_device_diagnostic.has_value()) {
+        try {
+          resident_future.emplace(std::async(
+              std::launch::async,
+              [directory = std::filesystem::path(model_directory),
+               resident_options = options.resident_options,
+               active_device]() {
+                return load_resident_on_device(directory, resident_options,
+                                               active_device);
+              }));
+        } catch (const std::system_error&) {
+          // Resource exhaustion in the host scheduler must not make a model
+          // unloadable. Fall back to the existing serial build path.
+          resident_future.reset();
+        }
+      }
+    }
+
     const Clock::time_point tokenizer_begin = Clock::now();
     const std::filesystem::path tokenizer_path =
         model_directory / "tokenizer.json";
@@ -700,6 +801,13 @@ ReferenceOneShotResult generate_reference(
           "required_steps=" + std::to_string(required_steps));
       return result;
     }
+    // Preserve the established tokenizer/chat/capacity diagnostic priority.
+    // A device probe is needed before starting the worker, but its failure is
+    // reported only after all CPU-only preflight checks succeed.
+    if (startup_device_diagnostic.has_value()) {
+      result.diagnostic = std::move(*startup_device_diagnostic);
+      return result;
+    }
 
     ReferenceEngineOptions engine_options;
     engine_options.resident_options = options.resident_options;
@@ -715,13 +823,32 @@ ReferenceOneShotResult generate_reference(
     engine_options.enable_trace = options.generation.capture_trace;
     engine_options.projection_backend = options.projection_backend;
 
-    ReferenceEngine::Impl::BuildResult built = ReferenceEngine::Impl::build(
-        model_directory, engine_options, std::move(tokenizer.tokenizer),
-        tokenizer_milliseconds);
+    ReferenceEngine::Impl::BuildResult built;
+    if (resident_future.has_value()) {
+      TimedResidentLoad resident = resident_future->get();
+      if (!resident.result) {
+        result.diagnostic = resident_diagnostic(resident.result.diagnostic);
+        return result;
+      }
+      std::optional<ResidentWeights> prepared_resident;
+      prepared_resident.emplace(std::move(*resident.result.value));
+      built = ReferenceEngine::Impl::build(
+          model_directory, engine_options, std::move(tokenizer.tokenizer),
+          tokenizer_milliseconds, std::move(prepared_resident),
+          resident.milliseconds,
+          elapsed_milliseconds(one_shot_prepare_begin));
+    } else {
+      built = ReferenceEngine::Impl::build(
+          model_directory, engine_options, std::move(tokenizer.tokenizer),
+          tokenizer_milliseconds, std::nullopt, 0.0,
+          elapsed_milliseconds(one_shot_prepare_begin));
+    }
     if (!built) {
       result.diagnostic = std::move(built.diagnostic);
       return result;
     }
+    built.value->load.tokenizer_resident_overlap =
+        resident_future.has_value();
 
     ReferenceEngine engine(std::move(built.value));
     ReferenceGenerateResult generated =

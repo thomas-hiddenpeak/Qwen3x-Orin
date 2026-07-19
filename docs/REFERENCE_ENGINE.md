@@ -24,9 +24,10 @@ then resident weights. Moving `ReferenceEngine` transfers only the owning
 
 `create_reference_engine` creates a reusable engine from explicit resident and
 request options. `generate_reference` is the one-shot production/CLI path. It
-loads `MODEL_DIR/tokenizer.json` first, formats the prompt to derive the exact
-request capacity, then creates the native chain without parsing the tokenizer
-a second time. Link installed consumers to `q3x::engine`.
+parses `MODEL_DIR/tokenizer.json` while the checkpoint is authenticated and
+copied to the device, formats the prompt to derive the exact request capacity,
+then creates the native chain without loading either asset a second time. Link
+installed consumers to `q3x::engine`.
 
 For multi-round latency collection and strict replay checks on one reused
 engine, see the [reference benchmark harness](REFERENCE_BENCHMARK.md).
@@ -78,6 +79,11 @@ resident loading, model binding, request-state creation, runner creation, and
 total wall time. Resident byte/chunk/copy counters, binding counters, and
 request-arena size are also retained.
 
+Once the one-shot concurrent resident load has started, it is joined on every
+exit path. A tokenizer/chat/capacity failure therefore waits for that in-flight
+load to finish and release its CUDA arena before returning; no detached startup
+work survives a failed call.
+
 `prompt_prefill_milliseconds` is the sum of each whole prefix-tile timing and
 the final prompt step.
 `time_to_first_token_milliseconds` has the same value because the first token
@@ -128,6 +134,14 @@ requested and effective values. Projection dispatch defaults to `reference`;
 layer projections. `ReferenceEngineOptions` and `ReferenceOneShotOptions`
 expose the same strongly typed policy. Engine creation verifies that `sm87`
 is running on compute capability 8.7 before loading resident model weights.
+The one-shot path overlaps CPU-only tokenizer parsing with checkpoint
+authentication and device transfer by default. Its `load.total_ms` is elapsed
+wall time, so the separately reported tokenizer and resident phase timings can
+overlap and need not sum to the total. Library callers can disable the overlap
+with `ReferenceOneShotOptions::overlap_tokenizer_and_resident_load` for
+diagnostics and controlled comparisons. The
+`load.tokenizer_resident_overlap` record reports whether the concurrent path
+actually ran (rather than falling back after host thread creation failed).
 
 On success stdout contains escaped, line-oriented `key=value` records for
 cold-load statistics, the actual `projection.backend`, requested/effective

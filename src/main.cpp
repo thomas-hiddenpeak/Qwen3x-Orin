@@ -680,6 +680,8 @@ void PrintGeneration(
          << "load.request_state_ms=" << load.request_state_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
+         << "load.tokenizer_resident_overlap="
+         << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.bytes_read=" << load.resident.bytes_read << '\n'
          << "load.resident.bytes_copied=" << load.resident.bytes_copied
          << '\n'
@@ -826,6 +828,8 @@ void PrintBenchmarkReport(
          << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
+         << "load.tokenizer_resident_overlap="
+         << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.sha256_backend="
          << q3x::runtime::to_string(load.resident.sha256_backend) << '\n'
          << "load.resident.shard_workers="

@@ -10,6 +10,10 @@ and
 The subsequent startup diagnosis and authenticated-loader result are retained
 in
 [`qwen36-27b-afalg-loader-benchmark.json`](metadata/qwen36-27b-afalg-loader-benchmark.json).
+The later parallel-shard and tokenizer/resident startup records are retained in
+[`qwen36-27b-parallel-loader-benchmark.json`](metadata/qwen36-27b-parallel-loader-benchmark.json)
+and
+[`qwen36-27b-startup-overlap-benchmark.json`](metadata/qwen36-27b-startup-overlap-benchmark.json).
 The next M=1 NVFP4 milestone is recorded in
 [`qwen36-27b-nvfp4-packedx8-benchmark.json`](metadata/qwen36-27b-nvfp4-packedx8-benchmark.json),
 and the subsequent FP8 milestone is recorded in

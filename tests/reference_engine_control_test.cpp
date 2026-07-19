@@ -632,6 +632,8 @@ void test_engine_backend_validation(TestContext& test) {
               "engine rejects an unknown projection backend before I/O");
 
   runtime::ReferenceOneShotOptions one_shot_options;
+  test.expect(one_shot_options.overlap_tokenizer_and_resident_load,
+              "one-shot startup overlaps independent asset loads by default");
   one_shot_options.generation.logits_mode =
       static_cast<runtime::ReferenceLogitsMode>(255U);
   const runtime::ReferenceOneShotResult generated =
