@@ -167,9 +167,18 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 
 [[nodiscard]] constexpr bool use_nvfp4_m1_down_dual_iteration_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
-  // The dual-iteration K loop clears both long-K down-projection gates while
-  // the shorter gate/up and lm-head shapes retain the existing exact kernel.
+  // The dual-iteration K loop clears both long-K down-projection gates. The
+  // gate/up specialization and all remaining shapes use independently gated
+  // production paths.
   return rows == 5'120U && columns == 17'408U;
+}
+
+[[nodiscard]] constexpr bool use_nvfp4_m1_gate_up_xor_dual_shape(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  // The adjacent-lane exchange clears both K=5120 gate/up distributions.
+  // Keep lm-head, down-projection, near-misses, and all other shapes on their
+  // independently gated production paths.
+  return rows == 17'408U && columns == 5'120U;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m2_scale_codebook(
@@ -2994,6 +3003,190 @@ nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_down_dual_iteration_kernel(
   }
 }
 
+// Production gate/up specialization. It preserves the exact row-quad
+// accumulator order while replacing indexed raw-scale broadcasts with one
+// adjacent-lane XOR exchange per two packed-x8 phases. Even lanes own phase 0,
+// odd lanes own phase 1, and every lane sorts local/partner payloads before
+// consuming phase 0 then phase 1.
+template <std::size_t Rows, std::size_t Columns>
+__global__ __launch_bounds__(kThreads, 4) void
+nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, std::uint16_t* const output) {
+  static_assert((Rows % 4U) == 0U);
+  static_assert((Columns % (2U * kNvFp4VectorColumnsPerWarp)) == 0U);
+
+  constexpr std::uint32_t kPackedColumns =
+      static_cast<std::uint32_t>(Columns / kNvFp4ValuesPerByte);
+  constexpr std::uint32_t kScaleColumns =
+      static_cast<std::uint32_t>(Columns / kNvFp4GroupSize);
+  constexpr std::uint32_t kPackedIterationStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kScaleIterationStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4GroupSize;
+  constexpr std::uint32_t kRowStride =
+      kNvFp4M1RowQuadMaximumBlocks * kWarpsPerBlock * 4U;
+  constexpr std::uint32_t kPackedRowStride =
+      kRowStride * kPackedColumns;
+  constexpr std::uint32_t kScaleRowStride =
+      kRowStride * kScaleColumns;
+  static_assert(Rows >= kRowStride);
+  static_assert((Rows + kRowStride) * kPackedColumns <=
+                std::numeric_limits<std::uint32_t>::max());
+  static_assert((Rows + kRowStride) * kScaleColumns <=
+                std::numeric_limits<std::uint32_t>::max());
+
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  decoded_scales[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
+
+  const std::uint32_t first_row =
+      4U * (static_cast<std::uint32_t>(blockIdx.x) * kWarpsPerBlock + warp);
+  std::uint32_t packed_row_offset = first_row * kPackedColumns;
+  std::uint32_t scale_row_offset = first_row * kScaleColumns;
+#pragma unroll 1
+  for (std::uint32_t row0 = first_row; row0 < Rows;
+       row0 += kRowStride) {
+    const std::uint32_t row1 = row0 + 1U;
+    const std::uint32_t row2 = row0 + 2U;
+    const std::uint32_t row3 = row0 + 3U;
+    const auto row0_weights = packed_weights + packed_row_offset;
+    const auto row0_scales = block_scales + scale_row_offset;
+    const auto row1_weights = row0_weights + kPackedColumns;
+    const auto row1_scales = row0_scales + kScaleColumns;
+    const auto row2_weights = row1_weights + kPackedColumns;
+    const auto row2_scales = row1_scales + kScaleColumns;
+    const auto row3_weights = row2_weights + kPackedColumns;
+    const auto row3_scales = row2_scales + kScaleColumns;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+#pragma unroll 1
+    for (std::uint32_t packed_column =
+             lane * kNvFp4VectorPackedBytesPerLane;
+         packed_column < kPackedColumns;
+         packed_column += 2U * kPackedIterationStride) {
+      const std::uint32_t scale_column =
+          packed_column / kNvFp4PackedValuesPerScale +
+          (lane & 1U) * kScaleIterationStride;
+      std::uint32_t local_raw_scale_codes =
+          static_cast<std::uint32_t>(row0_scales[scale_column]) |
+          (static_cast<std::uint32_t>(row1_scales[scale_column]) << 8U) |
+          (static_cast<std::uint32_t>(row2_scales[scale_column]) << 16U) |
+          (static_cast<std::uint32_t>(row3_scales[scale_column]) << 24U);
+      const std::uint32_t partner_raw_scale_codes = __shfl_xor_sync(
+          0xffff'ffffU, local_raw_scale_codes, 1);
+      const std::uint32_t odd_lane_mask = 0U - (lane & 1U);
+      const std::uint32_t phase0_raw_scale_codes =
+          (local_raw_scale_codes & ~odd_lane_mask) |
+          (partner_raw_scale_codes & odd_lane_mask);
+      local_raw_scale_codes ^=
+          partner_raw_scale_codes ^ phase0_raw_scale_codes;
+
+#pragma unroll
+      for (unsigned int phase = 0U; phase < 2U; ++phase) {
+        const std::uint32_t raw_scale_codes =
+            phase == 0U ? phase0_raw_scale_codes : local_raw_scale_codes;
+        const float block_scale0 =
+            decoded_scales[raw_scale_codes & 0xffU];
+        const float block_scale1 =
+            decoded_scales[(raw_scale_codes >> 8U) & 0xffU];
+        const float block_scale2 =
+            decoded_scales[(raw_scale_codes >> 16U) & 0xffU];
+        const float block_scale3 =
+            decoded_scales[(raw_scale_codes >> 24U) & 0xffU];
+        const std::uint32_t phase_packed_column =
+            packed_column + phase * kPackedIterationStride;
+        const std::uint32_t packed0 =
+            *reinterpret_cast<const std::uint32_t*>(
+                row0_weights + phase_packed_column);
+        const std::uint32_t packed1 =
+            *reinterpret_cast<const std::uint32_t*>(
+                row1_weights + phase_packed_column);
+        const std::uint32_t packed2 =
+            *reinterpret_cast<const std::uint32_t*>(
+                row2_weights + phase_packed_column);
+        const std::uint32_t packed3 =
+            *reinterpret_cast<const std::uint32_t*>(
+                row3_weights + phase_packed_column);
+        const std::uint32_t first_column =
+            phase_packed_column * kNvFp4ValuesPerByte;
+
+#pragma unroll
+        for (unsigned int half = 0U; half < 2U; ++half) {
+          const std::uint64_t packed_activation =
+              *reinterpret_cast<const std::uint64_t*>(
+                  activation + first_column + half * 4U);
+#pragma unroll
+          for (unsigned int value = 0U; value < 4U; ++value) {
+            const unsigned int packed_value = half * 4U + value;
+            const unsigned int shift = packed_value * 4U;
+            const std::uint16_t encoded_activation =
+                static_cast<std::uint16_t>(
+                    (packed_activation >> (value * 16U)) & 0xffffU);
+            const float decoded_activation =
+                decode_bf16(encoded_activation);
+            accumulators0[value] =
+                fmaf(decoded_weights[(packed0 >> shift) & 0x0fU] *
+                         block_scale0,
+                     decoded_activation, accumulators0[value]);
+            accumulators1[value] =
+                fmaf(decoded_weights[(packed1 >> shift) & 0x0fU] *
+                         block_scale1,
+                     decoded_activation, accumulators1[value]);
+            accumulators2[value] =
+                fmaf(decoded_weights[(packed2 >> shift) & 0x0fU] *
+                         block_scale2,
+                     decoded_activation, accumulators2[value]);
+            accumulators3[value] =
+                fmaf(decoded_weights[(packed3 >> shift) & 0x0fU] *
+                         block_scale3,
+                     decoded_activation, accumulators3[value]);
+          }
+        }
+      }
+    }
+
+    float sum = (accumulators0[0] + accumulators0[1]) +
+                (accumulators0[2] + accumulators0[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators1[0] + accumulators1[1]) +
+          (accumulators1[2] + accumulators1[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row1] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators2[0] + accumulators2[1]) +
+          (accumulators2[2] + accumulators2[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row2] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators3[0] + accumulators3[1]) +
+          (accumulators3[2] + accumulators3[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row3] = encode_bf16_rne(sum);
+    }
+    packed_row_offset += kPackedRowStride;
+    scale_row_offset += kScaleRowStride;
+  }
+}
+
 template <std::size_t TokenCount>
 __global__ __launch_bounds__(kThreads) void
 nvfp4_w4a16_small_m_gemm_bf16_vector_kernel(
@@ -4248,6 +4441,46 @@ void launch_nvfp4_down_dual_iteration_test_unchecked(
     // The direct ABI admits only this bounded correctness fixture in addition
     // to the production down shape, so no gate/up or lm-head instance exists.
     launch_nvfp4_down_dual_iteration_instance_unchecked<2'048U, 512U>(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
+  }
+}
+
+template <std::size_t Rows, std::size_t Columns>
+void launch_nvfp4_gate_up_xor_dual_instance_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+      Rows, Columns><<<kNvFp4M1RowQuadMaximumBlocks, kThreads, 0U, stream>>>(
+      packed_weights, block_scales, weight_scale_2, activation, output);
+}
+
+void launch_nvfp4_gate_up_xor_dual_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  launch_nvfp4_gate_up_xor_dual_instance_unchecked<17'408U, 5'120U>(
+      packed_weights, block_scales, weight_scale_2, activation, output,
+      stream);
+}
+
+void launch_nvfp4_gate_up_xor_dual_test_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  if (rows == 17'408U && columns == 5'120U) {
+    launch_nvfp4_gate_up_xor_dual_unchecked(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
+  } else {
+    // The direct ABI admits only this bounded correctness fixture in addition
+    // to gate/up, so no down-projection or lm-head instance exists.
+    launch_nvfp4_gate_up_xor_dual_instance_unchecked<2'048U, 512U>(
         packed_weights, block_scales, weight_scale_2, activation, output,
         stream);
   }
@@ -5511,6 +5744,11 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
     launch_nvfp4_down_dual_iteration_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, output,
         stream);
+  } else if (vector_shape &&
+             use_nvfp4_m1_gate_up_xor_dual_shape(rows, columns)) {
+    launch_nvfp4_gate_up_xor_dual_unchecked(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
   } else if (vector_shape && use_nvfp4_m1_row_quad_shape(rows, columns)) {
     launch_nvfp4_scale_codebook_row_quad_exact_shape_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, rows,
@@ -5818,6 +6056,75 @@ int query_sm87_nvfp4_w4a16_m1_down_dual_iteration_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_sm87_nvfp4_w4a16_gemv_bf16_k5120_xor_dual_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_launch(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool supported_shape =
+      (rows == 17'408U && columns == 5'120U) ||
+      (rows == 2'048U && columns == 512U);
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!supported_shape || !aligned) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_gate_up_xor_dual_test_unchecked(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+          17'408U, 5'120U>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+          17'408U, 5'120U>,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
 // Test-only query sharing the exact M=1 production gate.
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     const std::size_t rows, const std::size_t columns) noexcept {
@@ -5832,6 +6139,11 @@ int query_sm87_nvfp4_w4a16_m1_down_dual_iteration_resources_test_cuda(
 [[nodiscard]] bool use_sm87_nvfp4_m1_down_dual_iteration_shape_test(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_nvfp4_m1_down_dual_iteration_shape(rows, columns);
+}
+
+[[nodiscard]] bool use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return use_nvfp4_m1_gate_up_xor_dual_shape(rows, columns);
 }
 
 // Test-only queries for the generic persistent cap, preserved row-pair A/B

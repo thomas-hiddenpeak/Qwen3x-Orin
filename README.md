@@ -149,10 +149,11 @@ The correctness reference remains the default. On an SM87 device, select the
 validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 `--projection-backend sm87`. Aligned canonical NVFP4 projections whose K is a
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
-checked scalar fallback. Within M=1, only aligned exact NVFP4
-`[5120,17408]` uses the dual-iteration down kernel; gate/up, lm-head,
-near-miss shapes, unaligned operands, M2 through M16, and prefill retain their
-previous routes. Canonical FP8 projections whose K is a multiple of
+checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` uses
+the dual-iteration down kernel, while aligned exact `[17408,5120]` gate/up
+projections use the adjacent-lane XOR-dual kernel. The lm-head, near-miss
+shapes, unaligned operands, M2 through M16, and prefill retain their previous
+routes. Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
 the exact NVFP4 `[17408,5120]` and `[5120,17408]` production projections use
@@ -239,6 +240,16 @@ benchmark reduced average total generation by 15.457 ms (0.427106169%) and
 subsequent-token latency by 0.595 ms (0.488724429%). These unlocked-clock
 measurements are diagnostic, not a release claim; see the
 [NVFP4 down dual-iteration record](docs/metadata/qwen36-27b-nvfp4-down-dual-benchmark.json).
+The subsequent aligned M1 NVFP4 `[17408,5120]` gate/up XOR-dual diagnostic
+measured 1.04708x/1.04656x checkpoint-like and 1.06423x/1.06438x same-bank
+speedups in two repeated same-binary gates. Its matched max-26 profile reduced
+3,328 gate/up kernel instances from 1,123.488832 to 1,073.110560 ms and
+reduced aggregate CUDA-kernel time by 49.607008 ms (1.377722691%). The
+mirrored single-load benchmark reduced average total generation by 50.9235 ms
+(1.412995418%) and subsequent-token latency by 1.9465 ms (1.606573208%).
+These unlocked-clock measurements are diagnostic, not a release claim; see
+the
+[NVFP4 gate/up XOR-dual record](docs/metadata/qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

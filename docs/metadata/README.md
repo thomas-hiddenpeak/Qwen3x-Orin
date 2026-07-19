@@ -68,6 +68,11 @@ The diagnostic Phase 3 records are:
   dual-iteration kernel, repeated same-binary gates, unchanged fallbacks,
   max-26-token Nsight comparison, mirrored single-load generation benchmark,
   exact replay gates, and diagnostic limitations.
+- [`qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json`](qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json),
+  which records the aligned M1 NVFP4 `[17408,5120]` gate/up adjacent-lane
+  XOR-dual kernel, repeated same-binary gates, unchanged fallbacks, max-26-token
+  Nsight comparison, mirrored single-load generation benchmark, exact replay
+  gates, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

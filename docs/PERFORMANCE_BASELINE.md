@@ -28,6 +28,8 @@ The subsequent exact-shape FP8 K/V decode-pair diagnostic is recorded in
 [`qwen36-27b-fp8-kv-pair-benchmark.json`](metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
 The aligned M1 NVFP4 down-projection dual-iteration diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-down-dual-benchmark.json).
+The aligned M1 NVFP4 gate/up adjacent-lane XOR-dual diagnostic is recorded in
+[`qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json).
 
 ## Method
 
@@ -599,9 +601,9 @@ For aligned packed weights and BF16 activation, its SM87 row-quad kernel now
 processes two adjacent packed-x8 K iterations per loop trip and broadcasts the
 four rows' raw scale codes from the corresponding lane in each lane pair. The
 kernel uses 64 registers per thread, 1,088 bytes of shared memory, zero local
-memory, 256 threads, and four active blocks per SM. Gate/up, lm-head,
-near-miss shapes, unaligned operands, M2 through M16, and prefill retain their
-previous routes.
+memory, 256 threads, and four active blocks per SM. Gate/up uses the separately
+gated specialization below; lm-head, near-miss shapes, unaligned operands, M2
+through M16, and prefill retain their previous routes.
 
 The same-binary gate preserves the previous exact row-quad kernel as its
 baseline and runs three baseline/candidate/candidate/baseline rounds. Two
@@ -642,6 +644,67 @@ The mirrored single-load baseline/candidate/candidate/baseline benchmark gave:
 | Total generation | 3,619.0065 ms | 3,603.5495 ms | 15.457 ms (0.427106169%) |
 | Time to first token | 575.5240 ms | 574.9025 ms | 0.6215 ms (0.107988546%) |
 | Subsequent token | 121.7455 ms | 121.1505 ms | 0.595 ms (0.488724429%) |
+
+Every run retained the exact 19 prompt IDs, 26 generated IDs, decoded text,
+`<|im_end|>`, and 44 runner steps. Release validation passed 52 tests with four
+skips; ASAN/UBSAN with `detect_leaks=0`, excluding `package_consumer`, passed
+51 tests with four skips. Clocks were unlocked. These measurements are
+diagnostic evidence for one aligned M1 shape, not a release, randomized, or
+serving-throughput claim.
+
+## NVFP4 gate/up adjacent-lane XOR-dual M1 decode
+
+The NVFP4 MLP gate and up projections share the exact M1 `[17408,5120]`
+shape. For aligned packed weights and BF16 activation, each adjacent lane pair
+now loads the four rows' raw scale codes for alternating packed-x8 phases. One
+XOR shuffle reconstructs the ordered phase-zero and phase-one payloads for
+both lanes, after which every lane retains the preserved phase, half, value,
+FMA, reduction, scale, and BF16-encoding order. The kernel uses 64 registers
+per thread, 1,088 bytes of shared memory, zero local memory, 256 threads, and
+four active blocks per SM. Down projection retains its production dual-
+iteration path; lm-head and every other shape, alignment, token count, and
+prefill route remain unchanged.
+
+The same-binary gate preserves the previous exact row-quad kernel as its
+baseline and runs three baseline/candidate/candidate/baseline rounds. Two
+independent production repeats cleared the required 1.01x gate for both
+fixtures:
+
+| Repeat and distribution | Preserved exact row quad | XOR dual | Speedup |
+| --- | ---: | ---: | ---: |
+| 1, checkpoint-like | 0.332866 ms | 0.317900 ms | 1.04708x |
+| 1, same-bank stress | 0.342709 ms | 0.322024 ms | 1.06423x |
+| 2, checkpoint-like | 0.333352 ms | 0.318523 ms | 1.04656x |
+| 2, same-bank stress | 0.343205 ms | 0.322447 ms | 1.06438x |
+
+For both finite distributions, the preserved baseline, direct candidate, and
+public production dispatch matched all 17,408 BF16 outputs bit-for-bit and
+kept all output canaries intact. CUDA graph capture produced one kernel node.
+The packed-weight `+1` and activation `+2` cases each matched the direct scalar
+fallback at all 17,408 outputs. A separate fixture placed `0x7f` and `0xff`
+scale NaNs in both phases: all four outputs retained the baseline bits,
+class, and sign in direct and public paths, while the remaining 17,404 outputs
+stayed finite and bitwise exact.
+
+The matched max-26-token Nsight reports retain 3,328 gate/up launches in both
+profiles. Their time moved from 1,123.488832 to 1,073.110560 ms, saving
+50.378272 ms for a 1.046946022x gate/up speedup. Aggregate CUDA kernel time
+moved from 3,600.652608 to 3,551.045600 ms over the same 23,126 launches,
+saving 49.607008 ms (1.377722691%, 1.013969691x). Non-gate/up kernels increased
+by 0.771264 ms between these separate profiles. The baseline report is
+1,624,642 bytes with SHA-256
+`9c5cbe1f082864516726220f8f692bacce6e4a308cf5a1da862bee710824bd95`;
+the candidate is 1,625,714 bytes with SHA-256
+`652cf9d64e48caf487dee2d999f2740dcbb201155f6bc2482eff2aa748443dc1`.
+The reports are local evidence and are not checked in.
+
+The mirrored single-load baseline/candidate/candidate/baseline benchmark gave:
+
+| Average of two process medians | Baseline | XOR dual | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,603.9395 ms | 3,553.0160 ms | 50.9235 ms (1.412995418%) |
+| Time to first token | 574.8655 ms | 572.9845 ms | 1.8810 ms (0.327206973%) |
+| Subsequent token | 121.1585 ms | 119.2120 ms | 1.9465 ms (1.606573208%) |
 
 Every run retained the exact 19 prompt IDs, 26 generated IDs, decoded text,
 `<|im_end|>`, and 44 runner steps. Release validation passed 52 tests with four
@@ -699,9 +762,12 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
    shape/alignment and for FP8 `[1024,5120]`;
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
-9. retain exact-token, numerical, replay, and memory gates for every dispatch
+9. use the adjacent-lane XOR-dual gate/up kernel only for aligned M1
+   `[17408,5120]`, retaining the down dual-iteration path and all other
+   fallbacks;
+10. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-10. lock clocks when privileged access is available before making a formal
+11. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

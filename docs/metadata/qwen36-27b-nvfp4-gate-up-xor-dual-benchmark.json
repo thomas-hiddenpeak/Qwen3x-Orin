@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-gate-up-xor-dual-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-20",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "70999c86a093e4904e12daa2b35204ab1aeff3df",
+    "tree_state_at_measurement": "NVFP4 M1 gate/up adjacent-lane XOR-dual production worktree based on base_git_commit",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment",
+    "swap_enabled_bytes": 2147479552
+  },
+  "implementation": {
+    "scope": "single-token NVFP4 MLP gate and up projections",
+    "projection_backend": "sm87",
+    "format": "ModelOpt NVFP4 E2M1 W4A16 with E4M3FN block scales",
+    "token_count": 1,
+    "exact_shape_n_k": [
+      17408,
+      5120
+    ],
+    "production_enabled": true,
+    "checkpoint_repack_required": false,
+    "kernel": {
+      "name": "row-quad packed-x8 adjacent-lane XOR dual-phase raw-scale-code exchange",
+      "threads_per_block": 256,
+      "maximum_blocks": 64,
+      "rows_per_warp": 4,
+      "packed_x8_phases_per_loop_trip": 2,
+      "shared_work": "even and odd lanes load four row scale codes for phase zero and phase one; one adjacent-lane XOR exchange reconstructs both ordered phase payloads; every lane consumes phase zero then phase one",
+      "numerical_contract": "each row accumulator, FMA sequence, reduction, scale multiplication, and BF16 encoding preserves the prior exact row-quad result bit-for-bit",
+      "resources": {
+        "registers_per_thread": 64,
+        "static_shared_memory_bytes_per_block": 1088,
+        "local_memory_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      }
+    },
+    "alignment": {
+      "packed_weight_bytes": 4,
+      "activation_bytes": 8,
+      "output_bytes": 2
+    },
+    "dispatch": {
+      "eligible": "aligned SM87 NVFP4 M1 [17408,5120] gate/up projections only",
+      "down_5120x17408": "retains the production dual-iteration down kernel",
+      "lm_head_248320x5120": "retains the prior exact row-quad kernel",
+      "near_miss_shapes": "retain the prior valid fallback",
+      "unaligned_operands": "retain the scalar fallback",
+      "m2_through_m16_and_prefill": "unchanged"
+    },
+    "direct_exact_shape_kernel_api": "rejects null operands, unsupported shapes, aliases, and unaligned pointers with cudaErrorInvalidValue"
+  },
+  "correctness": {
+    "default_test_segment_runs_without_performance_opt_in": true,
+    "finite_distribution_fixtures": [
+      {
+        "name": "checkpoint_like",
+        "preserved_exact_vs_direct_bf16_mismatches": 0,
+        "public_vs_direct_bf16_mismatches": 0,
+        "output_count": 17408,
+        "output_canaries_intact": true,
+        "unexpected_nonfinite_outputs": 0
+      },
+      {
+        "name": "same_bank_stress",
+        "preserved_exact_vs_direct_bf16_mismatches": 0,
+        "public_vs_direct_bf16_mismatches": 0,
+        "output_count": 17408,
+        "output_canaries_intact": true,
+        "unexpected_nonfinite_outputs": 0
+      }
+    ],
+    "dispatch_validation": {
+      "selector_accepts_exact_gate_up_shape": true,
+      "selector_rejects_down_lm_head_and_near_miss_shapes": true,
+      "aligned_public_matches_direct_candidate_bitwise": true,
+      "captured_public_aligned_graph_nodes": 1,
+      "packed_weight_plus_one_public_vs_direct_scalar_bf16_mismatches": 0,
+      "packed_weight_plus_one_output_count": 17408,
+      "activation_plus_two_public_vs_direct_scalar_bf16_mismatches": 0,
+      "activation_plus_two_output_count": 17408,
+      "unaligned_output_canaries_intact": true,
+      "direct_api_fail_before_enqueue_validation_passed": true
+    },
+    "reserved_nan_fixture": {
+      "raw_codes": [
+        "0x7f",
+        "0xff"
+      ],
+      "dual_phases_covered": [
+        0,
+        1
+      ],
+      "classified_outputs": 4,
+      "preserved_exact_vs_direct_nan_bit_mismatches": 0,
+      "public_vs_direct_nan_bit_mismatches": 0,
+      "nan_class_and_sign_match_preserved_exact": true,
+      "remaining_finite_outputs": 17404,
+      "preserved_exact_vs_direct_remaining_bf16_mismatches": 0,
+      "public_vs_direct_remaining_bf16_mismatches": 0,
+      "unexpected_nonfinite_outputs": 0,
+      "output_canaries_intact": true
+    },
+    "full_model_exact_gate": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    },
+    "test_suites": {
+      "release": {
+        "executed_tests": 52,
+        "passed_tests": 52,
+        "failed_tests": 0,
+        "skipped_tests": 4
+      },
+      "asan_ubsan": {
+        "asan_options": "detect_leaks=0",
+        "executed_tests": 51,
+        "passed_tests": 51,
+        "failed_tests": 0,
+        "skipped_tests": 4,
+        "excluded_tests": [
+          "package_consumer"
+        ]
+      }
+    }
+  },
+  "same_binary_optional_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_K5120_XOR_DUAL_GATE_PERF=1 build/q3x_sm87_weight_only_gemv_test",
+    "comparison": "preserved exact row-quad baseline versus production/direct adjacent-lane XOR-dual kernel in the same binary on identical buffers",
+    "shape_n_k": [
+      17408,
+      5120
+    ],
+    "warmup_iterations": 10,
+    "measured_iterations_per_timed_pass": 24,
+    "measurement_rounds": 3,
+    "mirrored_order_per_round": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "minimum_speedup_gate_per_distribution": 1.01,
+    "production_repeats": [
+      {
+        "repeat": 1,
+        "distributions": [
+          {
+            "name": "checkpoint_like",
+            "baseline_preserved_exact_milliseconds": 0.332866,
+            "candidate_xor_dual_milliseconds": 0.3179,
+            "speedup": 1.04708,
+            "gate_passed": true
+          },
+          {
+            "name": "same_bank_stress",
+            "baseline_preserved_exact_milliseconds": 0.342709,
+            "candidate_xor_dual_milliseconds": 0.322024,
+            "speedup": 1.06423,
+            "gate_passed": true
+          }
+        ]
+      },
+      {
+        "repeat": 2,
+        "distributions": [
+          {
+            "name": "checkpoint_like",
+            "baseline_preserved_exact_milliseconds": 0.333352,
+            "candidate_xor_dual_milliseconds": 0.318523,
+            "speedup": 1.04656,
+            "gate_passed": true
+          },
+          {
+            "name": "same_bank_stress",
+            "baseline_preserved_exact_milliseconds": 0.343205,
+            "candidate_xor_dual_milliseconds": 0.322447,
+            "speedup": 1.06438,
+            "gate_passed": true
+          }
+        ]
+      }
+    ],
+    "resource_gate_passed": true,
+    "correctness_gate_passed": true,
+    "overall_gate_passed": true
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "NVFP4 down-dual profile versus NVFP4 gate/up XOR-dual profile; matched command and workload but not a same-binary trial",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-nvfp4-down-dual-final.nsys-rep",
+        "bytes": 1624642,
+        "sha256": "9c5cbe1f082864516726220f8f692bacce6e4a308cf5a1da862bee710824bd95"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-nvfp4-gate-up-xor-dual-final.nsys-rep",
+        "bytes": 1625714,
+        "sha256": "652cf9d64e48caf487dee2d999f2740dcbb201155f6bc2482eff2aa748443dc1"
+      },
+      "checked_in": false
+    },
+    "nvfp4_gate_up_projection_work": {
+      "baseline": {
+        "kernel_instances": 3328,
+        "total_milliseconds": 1123.488832,
+        "execution": "preserved exact row-quad [17408,5120] kernel"
+      },
+      "candidate": {
+        "kernel_instances": 3328,
+        "total_milliseconds": 1073.11056,
+        "execution": "production adjacent-lane XOR-dual [17408,5120] kernel"
+      },
+      "saved_milliseconds": 50.378272,
+      "reduction_percent": 4.484091926,
+      "equivalent_speedup": 1.046946022
+    },
+    "all_cuda_kernels": {
+      "baseline_instances": 23126,
+      "candidate_instances": 23126,
+      "removed_instances": 0,
+      "baseline_total_milliseconds": 3600.652608,
+      "candidate_total_milliseconds": 3551.0456,
+      "saved_milliseconds": 49.607008,
+      "reduction_percent": 1.377722691,
+      "speedup": 1.013969691,
+      "non_gate_up_kernel_time_increase_milliseconds": 0.771264
+    },
+    "exact_generation_gate_passed": true
+  },
+  "single_load_end_to_end_benchmark": {
+    "comparison": "mirrored baseline/candidate/candidate/baseline processes; each process loads one engine and reuses it for one warmup plus five measured generations",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "run_order": [
+      "baseline_round1",
+      "candidate_round1",
+      "candidate_round2",
+      "baseline_round2"
+    ],
+    "binaries": {
+      "baseline": {
+        "base_git_commit": "70999c86a093e4904e12daa2b35204ab1aeff3df",
+        "local_path": "/tmp/qwen3x-orin_70999c8",
+        "bytes": 2597080,
+        "sha256": "88f91403e96ea0956bd33390a8691ae5aa01bc57844fc4e3b9bd3e6b221e8e8a"
+      },
+      "candidate": {
+        "local_path": "/tmp/qwen3x-orin_gate_up_xor_dual",
+        "bytes": 2665112,
+        "sha256": "f16d953b5196b326de7d1095bac26d861898921fdbac3c63e2912f8897961b2e"
+      },
+      "checked_in": false
+    },
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "engine_loads_per_process": 1,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3602.856,
+          "time_to_first_token_milliseconds": 574.817,
+          "subsequent_token_milliseconds": 121.123
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3605.023,
+          "time_to_first_token_milliseconds": 574.914,
+          "subsequent_token_milliseconds": 121.194
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3553.067,
+          "time_to_first_token_milliseconds": 573.093,
+          "subsequent_token_milliseconds": 119.222
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3552.965,
+          "time_to_first_token_milliseconds": 572.876,
+          "subsequent_token_milliseconds": 119.202
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3603.9395,
+        "time_to_first_token_milliseconds": 574.8655,
+        "subsequent_token_milliseconds": 121.1585
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3553.016,
+        "time_to_first_token_milliseconds": 572.9845,
+        "subsequent_token_milliseconds": 119.212
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 50.9235,
+        "total_generation_reduction_percent": 1.412995418,
+        "time_to_first_token_saved_milliseconds": 1.881,
+        "time_to_first_token_reduction_percent": 0.327206973,
+        "subsequent_token_saved_milliseconds": 1.9465,
+        "subsequent_token_reduction_percent": 1.606573208
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "all_warmup_and_measured_runs_passed": true
+    }
+  },
+  "limitations": [
+    "all measurements used unlocked clocks",
+    "the optional microbenchmark is a synthetic exact-shape kernel gate, not a model or serving-throughput result",
+    "the Nsight comparison uses separate historical baseline and candidate reports rather than a same-binary trial",
+    "non-gate/up kernels increased by 0.771264 ms between Nsight reports, so aggregate kernel time does not isolate only the gate/up change",
+    "the end-to-end benchmark has two process medians per implementation in mirrored order and is not a randomized trial",
+    "the end-to-end result is batch-one generation for one short prompt and excludes engine-load time",
+    "the XOR-dual path is limited to aligned SM87 NVFP4 M1 [17408,5120]; every other valid shape, alignment, token count, and prefill route preserves its existing dispatch",
+    "the raw benchmark logs, binaries, and Nsight reports are local evidence and are not checked into the repository",
+    "this diagnostic does not establish continuous-batching, concurrent-request, or serving throughput"
+  ],
+  "policy": {
+    "projection_backend_default": "reference",
+    "sm87_backend_is_explicit": true,
+    "result_is_release_claim": false
+  }
+}
