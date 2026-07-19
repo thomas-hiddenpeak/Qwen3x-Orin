@@ -233,6 +233,28 @@ void test_fake_linear_weight_validation(TestContext& test) {
   test.expect(!detail::valid_reference_linear_weight_contract(weight, 8U,
                                                                 16U),
               "fake linear shape mismatch is rejected");
+
+  std::uint16_t first_bf16 = 0U;
+  std::uint16_t second_bf16 = 0U;
+  const runtime::LinearWeight first_pair = runtime::Bf16LinearWeight{
+      &first_bf16, 48U, runtime::kReferenceHiddenSize};
+  const runtime::LinearWeight second_pair = runtime::Bf16LinearWeight{
+      &second_bf16, 48U, runtime::kReferenceHiddenSize};
+  test.expect(runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_pair,
+                  second_pair) &&
+                  !runtime::supports_bf16_projection_pair(
+                      runtime::ProjectionBackend::kReference, first_pair,
+                      second_pair),
+              "decode A/B production shapes select only the SM87 BF16 pair "
+              "path");
+  const runtime::LinearWeight near_miss = runtime::Bf16LinearWeight{
+      &second_bf16, 47U, runtime::kReferenceHiddenSize};
+  test.expect(!runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_pair,
+                  near_miss),
+              "decode A/B pair selector preserves the split fallback for "
+              "shape mismatches");
 }
 
 void test_trace_layout_and_factory_error(TestContext& test) {

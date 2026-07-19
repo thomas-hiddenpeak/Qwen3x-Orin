@@ -800,6 +800,209 @@ void test_bf16_direct_performance(TestContext& test, cudaStream_t stream) {
   }
 }
 
+void test_bf16_m1_pair_performance(TestContext& test,
+                                   cudaStream_t stream) {
+  const char* const enabled = std::getenv("Q3X_RUN_BF16_M1_PAIR_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: BF16 M1 pair performance gate; set "
+                 "Q3X_RUN_BF16_M1_PAIR_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kWarmupIterations = 128U;
+  constexpr std::size_t kMeasuredIterations = 2'048U;
+  constexpr int kRounds = 4;
+  constexpr double kMinimumSpeedup = 1.20;
+  const std::string label = "BF16 M1 A/B pair production 48x5120 perf";
+
+  std::vector<std::uint16_t> activation(kColumns);
+  std::vector<std::uint16_t> first_weights(kRows * kColumns);
+  fill_bf16_direct_fixture(Bf16DirectFixture::kStructured, &activation,
+                           &first_weights, kRows, kColumns);
+  std::vector<std::uint16_t> second_weights(kRows * kColumns);
+  for (std::size_t index = 0U; index < second_weights.size(); ++index) {
+    const int centered =
+        static_cast<int>((index * 29U + index / kColumns * 11U + 7U) %
+                         127U) -
+        63;
+    second_weights[index] =
+        encode_bf16(static_cast<float>(centered) / 128.0F);
+  }
+
+  DeviceBuffer<std::uint16_t> device_activation;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> baseline_first;
+  DeviceBuffer<std::uint16_t> baseline_second;
+  DeviceBuffer<std::uint16_t> candidate_first;
+  DeviceBuffer<std::uint16_t> candidate_second;
+  bool ready = test.cuda_ok(device_activation.allocate(kColumns),
+                            label + " activation");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(kRows * kColumns),
+                       label + " first row-major weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(kRows * kColumns),
+                       label + " second row-major weights");
+  ready = ready &&
+          test.cuda_ok(baseline_first.allocate(kRows), label + " baseline A");
+  ready = ready && test.cuda_ok(baseline_second.allocate(kRows),
+                                label + " baseline B");
+  ready = ready && test.cuda_ok(candidate_first.allocate(kRows),
+                                label + " candidate A");
+  ready = ready && test.cuda_ok(candidate_second.allocate(kRows),
+                                label + " candidate B");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_activation.get(), activation.data(),
+                           activation.size() * sizeof(activation.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activation");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() *
+                               sizeof(first_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() *
+                               sizeof(second_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload second weights");
+  if (!ready) {
+    return;
+  }
+
+  const auto launch_baseline = [&]() {
+    int status = q3x::kernels::launch_bf16_gemv_bf16_cuda(
+        device_first_weights.get(), device_activation.get(), kRows, kColumns,
+        baseline_first.get(), static_cast<void*>(stream));
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = q3x::kernels::launch_bf16_gemv_bf16_cuda(
+          device_second_weights.get(), device_activation.get(), kRows,
+          kColumns, baseline_second.get(), static_cast<void*>(stream));
+    }
+    return status;
+  };
+  const auto launch_candidate = [&]() {
+    return q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+        device_first_weights.get(), device_second_weights.get(),
+        device_activation.get(), 1U, kRows, kColumns,
+        candidate_first.get(), candidate_second.get(),
+        static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " bitwise baseline");
+  ready = ready &&
+          test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                       label + " bitwise candidate");
+  std::array<std::uint16_t, kRows> host_baseline_first{};
+  std::array<std::uint16_t, kRows> host_baseline_second{};
+  std::array<std::uint16_t, kRows> host_candidate_first{};
+  std::array<std::uint16_t, kRows> host_candidate_second{};
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           host_baseline_first.data(), baseline_first.get(),
+                           sizeof(host_baseline_first), cudaMemcpyDeviceToHost,
+                           stream),
+                       label + " download baseline A");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           host_baseline_second.data(), baseline_second.get(),
+                           sizeof(host_baseline_second),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " download baseline B");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           host_candidate_first.data(), candidate_first.get(),
+                           sizeof(host_candidate_first),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " download candidate A");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(host_candidate_second.data(),
+                                       candidate_second.get(),
+                                       sizeof(host_candidate_second),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " download candidate B");
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " bitwise sync");
+  if (!ready) {
+    return;
+  }
+  test.expect(host_candidate_first == host_baseline_first,
+              label + " first projection is raw-BF16 identical");
+  test.expect(host_candidate_second == host_baseline_second,
+              label + " second projection is raw-BF16 identical");
+
+  for (std::size_t iteration = 0U;
+       ready && iteration < kWarmupIterations; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync");
+  if (!ready) {
+    return;
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool timing_finite = true;
+  for (int round = 0; round < kRounds; ++round) {
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    const float baseline_first_ms = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " baseline pass 1", launch_baseline);
+    const float candidate_first_ms = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " candidate pass 1", launch_candidate);
+    const float candidate_second_ms = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " candidate pass 2", launch_candidate);
+    const float baseline_second_ms = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " baseline pass 2", launch_baseline);
+    const bool round_finite =
+        std::isfinite(baseline_first_ms) && baseline_first_ms > 0.0F &&
+        std::isfinite(candidate_first_ms) && candidate_first_ms > 0.0F &&
+        std::isfinite(candidate_second_ms) && candidate_second_ms > 0.0F &&
+        std::isfinite(baseline_second_ms) && baseline_second_ms > 0.0F;
+    timing_finite = timing_finite && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first_ms + baseline_second_ms;
+      candidate_total += candidate_first_ms + candidate_second_ms;
+    }
+    std::cout << "PERF_BF16_M1_PAIR_ROUND: round=" << round + 1
+              << " baseline1_ms=" << baseline_first_ms
+              << " candidate1_ms=" << candidate_first_ms
+              << " candidate2_ms=" << candidate_second_ms
+              << " baseline2_ms=" << baseline_second_ms << '\n';
+  }
+
+  constexpr double kTimedPasses = 2.0 * static_cast<double>(kRounds);
+  const double baseline_average = baseline_total / kTimedPasses;
+  const double candidate_average = candidate_total / kTimedPasses;
+  const double speedup = baseline_average / candidate_average;
+  const bool gate = timing_finite && std::isfinite(speedup) &&
+                    speedup >= kMinimumSpeedup;
+  std::cout << "PERF_BF16_M1_PAIR: baseline_two_direct_ms="
+            << baseline_average << " candidate_pair_ms=" << candidate_average
+            << " speedup=" << speedup
+            << " required_speedup=" << kMinimumSpeedup
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, label + " clears the 1.20x span gate");
+}
+
 void run_fp8_case(TestContext& test, cudaStream_t stream,
                   const std::size_t rows, const std::size_t columns,
                   const std::string& label) {
@@ -1511,6 +1714,7 @@ int main() {
   test_bf16_pair_readonly_alias(test, stream);
   test_bf16_direct_readonly_alias(test, stream);
   test_bf16_direct_performance(test, stream);
+  test_bf16_m1_pair_performance(test, stream);
   run_fp8_case(test, stream, 7U, 37U, "FP8 awkward 7x37");
   run_fp8_case(test, stream, 3U, 5120U, "FP8 target-K 3x5120");
   run_fp8_static_case(test, stream, 7U, 37U,
