@@ -143,6 +143,8 @@ struct ResidentLoadStats {
     std::uint64_t bytes_skipped = 0;
     std::uint64_t chunks = 0;
     std::uint64_t memcpy_operations = 0;
+    std::size_t shard_workers = 0U;
+    std::uint64_t pinned_staging_bytes = 0U;
     std::uint64_t device_free_before = 0;
     std::uint64_t device_total = 0;
     // The concrete backend used for every shard. A successful load never
@@ -152,8 +154,8 @@ struct ResidentLoadStats {
 };
 
 struct ResidentLoadOptions {
-    // Two page-locked staging buffers of this size are used in ping-pong
-    // fashion. Production defaults to 128 MiB total staging memory.
+    // Each active shard worker uses two page-locked staging buffers of this
+    // size in ping-pong fashion.
     std::uint64_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
     // cudaMalloc is attempted only if this many bytes will remain according
     // to cudaMemGetInfo. The default deliberately fails closed on tight Orin
@@ -164,6 +166,9 @@ struct ResidentLoadOptions {
     std::size_t max_shards = 16U;
     std::uint64_t max_memcpy_operations = 1'000'000ULL;
     ResidentSha256Backend sha256_backend = ResidentSha256Backend::kAuto;
+    // Bound concurrent shard read/hash/scatter pipelines. The effective count
+    // is also capped by the number of authenticated shards in the plan.
+    std::size_t max_parallel_shards = 3U;
 };
 
 struct ResidentLoadResult;
@@ -221,9 +226,10 @@ struct ResidentLoadResult {
 };
 
 // Executes a validated plan through one sequential read of every full shard.
-// The same bytes feed SHA-256 and any intersecting H2D copies; payloads are
-// never reread for hashing. Files are opened relative to an already-open root
-// directory with O_NOFOLLOW on every path component.
+// Shards may load concurrently, but each shard has an independent sequential
+// pipeline. The same bytes feed SHA-256 and any intersecting H2D copies;
+// payloads are never reread for hashing. Files are opened relative to an
+// already-open root directory with O_NOFOLLOW on every path component.
 [[nodiscard]] ResidentLoadResult load_resident_weights(
     const std::filesystem::path& directory,
     const model::weights::WeightManifest& manifest,

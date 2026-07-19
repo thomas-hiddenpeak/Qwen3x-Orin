@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-parallel-loader-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-19",
+  "source": {
+    "base_git_commit": "f94f1a4c284b5abe32f3452eb7b79a3f640faaf9",
+    "tree_state_at_measurement": "parallel-loader candidate worktree",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "build_type": "Release",
+    "filesystem_cache": "warm",
+    "cold_cache_benchmark": false,
+    "clocks_locked": false
+  },
+  "implementation": {
+    "default_shard_workers": 3,
+    "maximum_shard_workers": 16,
+    "chunk_bytes": 67108864,
+    "staging_buffers_per_worker": 2,
+    "pinned_staging_bytes_per_worker": 134217728,
+    "default_pinned_staging_bytes": 402653184,
+    "maximum_total_pinned_staging_bytes": 2147483648,
+    "independent_cuda_stream_per_worker": true,
+    "parallel_pipeline": [
+      "sequential shard read",
+      "full-file SHA-256",
+      "asynchronous H2D scatter"
+    ],
+    "statistics_order": "load plan",
+    "concurrent_failure_selection": "first failed shard in load-plan order",
+    "final_component_open_nonblocking": true
+  },
+  "same_binary_benchmark": {
+    "same_binary": true,
+    "command": "Q3X_OFFICIAL_27B_ROOT=MODEL_DIR Q3X_RESIDENT_LOAD_WORKERS=N q3x_resident_weights_cuda_test",
+    "measurement_order": [
+      1,
+      3,
+      3,
+      1
+    ],
+    "samples": [
+      {
+        "sequence": 1,
+        "shard_workers": 1,
+        "elapsed_seconds": 21.7359
+      },
+      {
+        "sequence": 2,
+        "shard_workers": 3,
+        "elapsed_seconds": 10.9301
+      },
+      {
+        "sequence": 3,
+        "shard_workers": 3,
+        "elapsed_seconds": 10.9303
+      },
+      {
+        "sequence": 4,
+        "shard_workers": 1,
+        "elapsed_seconds": 21.689
+      }
+    ],
+    "derived": {
+      "one_worker_average_seconds": 21.71245,
+      "three_worker_average_seconds": 10.9302,
+      "reduction_seconds": 10.78225,
+      "reduction_percent": 49.65929686,
+      "speedup": 1.98646411
+    },
+    "two_worker_supplement": {
+      "shard_workers": 2,
+      "elapsed_seconds": 12.6207,
+      "reduction_seconds_vs_one_worker_average": 9.09175,
+      "reduction_percent_vs_one_worker_average": 41.87344127,
+      "speedup_vs_one_worker_average": 1.72038397
+    }
+  },
+  "invariant_results_per_load": {
+    "measured_loads_covered": 5,
+    "sha256_backend": "linux_af_alg",
+    "bytes_read": 21921697184,
+    "bytes_copied": 20150569096,
+    "bytes_skipped": 1771128088,
+    "chunks": 328,
+    "memcpy_operations": 2146,
+    "all_three_full_shard_digests_passed": true,
+    "device_samples": [
+      "embedding",
+      "layer-0 FP8 QKV weight",
+      "lm_head.weight_scale_2"
+    ],
+    "all_device_samples_passed": true
+  },
+  "default_three_worker_cli_gate": {
+    "shard_workers": 3,
+    "pinned_staging_bytes": 402653184,
+    "load_milliseconds": {
+      "total": 12227.436,
+      "tokenizer": 1159.766,
+      "resident": 11036.72,
+      "weight_bind": 23.616,
+      "request_state": 6.95,
+      "runner_factory": 0.372
+    },
+    "generation_milliseconds": {
+      "prompt": 597.976,
+      "decode": 3053.563,
+      "total": 3651.54
+    },
+    "prompt_token_ids_exact": 19,
+    "generated_token_ids_exact": 26,
+    "decoded_text_exact": true,
+    "stop_reason": "im_end",
+    "runner_steps_exact": 44,
+    "passed": true
+  },
+  "limitations": [
+    "filesystem cache was warm; this is not a cold-cache storage benchmark",
+    "clocks were not locked",
+    "the mirrored comparison has two samples per one- and three-worker path",
+    "the result covers the exact pinned three-shard 27B checkpoint"
+  ]
+}

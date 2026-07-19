@@ -3,6 +3,7 @@
 include(CMakeFindDependencyMacro)
 find_dependency(CUDAToolkit 12.0)
 find_dependency(ICU 74 COMPONENTS uc i18n)
+find_dependency(Threads)
 if(NOT ICU_VERSION MATCHES "^74\\.")
   set(Qwen3xOrin_FOUND FALSE)
   set(Qwen3xOrin_NOT_FOUND_MESSAGE

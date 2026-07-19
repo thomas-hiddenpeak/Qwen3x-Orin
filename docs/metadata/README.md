@@ -31,6 +31,10 @@ The diagnostic Phase 3 records are:
   which records the post-SM87 startup diagnosis, observed kernel SHA-256
   provider, accelerated full-shard authentication/load timings, unchanged
   exact-generation gates, and historical-comparison limitations.
+- [`qwen36-27b-parallel-loader-benchmark.json`](qwen36-27b-parallel-loader-benchmark.json),
+  which records the same-binary warm-cache one-/two-/three-worker resident-load
+  measurements, deterministic loader invariants, derived speedups, and
+  measurement limitations.
 - [`qwen36-27b-nvfp4-packedx8-benchmark.json`](qwen36-27b-nvfp4-packedx8-benchmark.json),
   which records the canonical packed-x8 NVFP4 dispatch, same-binary scalar/
   vector gate, two-prompt replay benchmark, full-model exact gate, SASS

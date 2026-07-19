@@ -6,18 +6,24 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <limits>
 #include <map>
+#include <memory>
 #include <new>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+#include <system_error>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -38,6 +44,9 @@ constexpr std::uint64_t kMaximumChunkBytes =
 constexpr std::uint64_t kMaximumArenaBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::size_t kMaximumTensors = 1'000'000U;
 constexpr std::size_t kMaximumShards = 1'024U;
+constexpr std::size_t kMaximumParallelShards = 16U;
+constexpr std::uint64_t kMaximumPinnedStagingBytes =
+    2ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kMaximumMemcpyOperations = 10'000'000ULL;
 constexpr std::size_t kStagingSlots = 2U;
 
@@ -424,7 +433,7 @@ OpenResult open_relative_nofollow(const int root_descriptor,
         const std::size_t end = final_component ? relative_path.size() : slash;
         const std::string component = relative_path.substr(begin, end - begin);
         const int flags = final_component
-                              ? O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+                              ? O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
                               : O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY;
         const int descriptor = ::openat(parent, component.c_str(), flags);
         if (descriptor < 0) {
@@ -449,17 +458,40 @@ struct OpenShard {
     UniqueFd descriptor;
 };
 
-struct CudaResources {
-    void* arena = nullptr;
+struct CudaArena {
+    void* data = nullptr;
+
+    CudaArena() = default;
+    CudaArena(const CudaArena&) = delete;
+    CudaArena& operator=(const CudaArena&) = delete;
+
+    ~CudaArena() {
+        if (data != nullptr) {
+            (void)cudaFree(data);
+            data = nullptr;
+        }
+        (void)cudaGetLastError();
+    }
+
+    [[nodiscard]] void* release() noexcept {
+        return std::exchange(data, nullptr);
+    }
+};
+
+struct CudaWorkerResources {
+    int device = -1;
     cudaStream_t stream = nullptr;
     std::array<cudaEvent_t, kStagingSlots> events{};
     std::array<void*, kStagingSlots> staging{};
 
-    CudaResources() = default;
-    CudaResources(const CudaResources&) = delete;
-    CudaResources& operator=(const CudaResources&) = delete;
+    CudaWorkerResources() = default;
+    CudaWorkerResources(const CudaWorkerResources&) = delete;
+    CudaWorkerResources& operator=(const CudaWorkerResources&) = delete;
 
-    ~CudaResources() {
+    ~CudaWorkerResources() {
+        if (device >= 0) {
+            (void)cudaSetDevice(device);
+        }
         if (stream != nullptr) {
             (void)cudaStreamSynchronize(stream);
         }
@@ -479,12 +511,35 @@ struct CudaResources {
             (void)cudaStreamDestroy(stream);
             stream = nullptr;
         }
-        if (arena != nullptr) {
-            (void)cudaFree(arena);
-            arena = nullptr;
-        }
         (void)cudaGetLastError();
     }
+};
+
+class JoiningThreads {
+  public:
+    JoiningThreads() = default;
+    JoiningThreads(const JoiningThreads&) = delete;
+    JoiningThreads& operator=(const JoiningThreads&) = delete;
+
+    ~JoiningThreads() { join_all(); }
+
+    void reserve(const std::size_t count) { threads_.reserve(count); }
+
+    template <typename Function>
+    void emplace_back(Function&& function) {
+        threads_.emplace_back(std::forward<Function>(function));
+    }
+
+    void join_all() {
+        for (std::thread& thread : threads_) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+    }
+
+  private:
+    std::vector<std::thread> threads_;
 };
 
 ResidentLoadDiagnostic cuda_diagnostic(cudaError_t status,
@@ -542,6 +597,321 @@ ReadChunkResult read_exact_chunk(int descriptor,
         return result;
     }
     return result;
+}
+
+struct ShardLoadOutcome {
+    ShardLoadStats stats;
+    ResidentLoadDiagnostic diagnostic;
+    bool attempted = false;
+
+    [[nodiscard]] bool ok() const noexcept {
+        return attempted &&
+               diagnostic.code == ResidentLoadErrorCode::kNone;
+    }
+};
+
+ShardLoadOutcome load_one_shard(
+    const OpenShard& opened_shard,
+    const ResidentLoadPlan& plan,
+    const ResidentLoadOptions& options,
+    const ResidentSha256Backend hash_backend,
+    UniqueFd af_alg_operation,
+    std::uint8_t* const arena_bytes,
+    CudaWorkerResources& resources) {
+    const PlannedShard& shard = *opened_shard.plan;
+    ShardLoadOutcome outcome;
+    outcome.attempted = true;
+    outcome.stats.filename = shard.identity.filename;
+    ShardSha256 hasher(hash_backend, std::move(af_alg_operation));
+    std::array<bool, kStagingSlots> slot_pending{};
+    std::uint64_t file_offset = 0U;
+    std::uint64_t chunk_index = 0U;
+    std::size_t segment_cursor = 0U;
+
+    while (file_offset < shard.identity.file_size) {
+        const std::size_t slot =
+            static_cast<std::size_t>(chunk_index % kStagingSlots);
+        if (slot_pending[slot]) {
+            const cudaError_t cuda_status =
+                cudaEventSynchronize(resources.events[slot]);
+            if (cuda_status != cudaSuccess) {
+                outcome.diagnostic = cuda_diagnostic(
+                    cuda_status,
+                    "cudaEventSynchronize(staging reuse)",
+                    shard.identity.filename,
+                    file_offset);
+                return outcome;
+            }
+            slot_pending[slot] = false;
+        }
+
+        const std::uint64_t remaining =
+            shard.identity.file_size - file_offset;
+        const std::size_t chunk_size = static_cast<std::size_t>(
+            std::min<std::uint64_t>(remaining, options.chunk_bytes));
+        const ReadChunkResult read_result = read_exact_chunk(
+            opened_shard.descriptor.get(), resources.staging[slot], chunk_size);
+        if (read_result.error != 0) {
+            outcome.diagnostic = make_diagnostic(
+                ResidentLoadErrorCode::kIoFailure,
+                "sequential shard read failed",
+                "read",
+                shard.identity.filename,
+                file_offset + read_result.bytes,
+                std::to_string(chunk_size),
+                std::strerror(read_result.error),
+                read_result.error);
+            return outcome;
+        }
+        if (read_result.eof || read_result.bytes != chunk_size) {
+            outcome.diagnostic = make_diagnostic(
+                ResidentLoadErrorCode::kShardSizeMismatch,
+                "shard was truncated during sequential load",
+                "read",
+                shard.identity.filename,
+                file_offset + read_result.bytes,
+                std::to_string(chunk_size),
+                std::to_string(read_result.bytes));
+            return outcome;
+        }
+        int hash_error = 0;
+        if (!hasher.update(resources.staging[slot], chunk_size, hash_error)) {
+            outcome.diagnostic = make_diagnostic(
+                ResidentLoadErrorCode::kSha256Failure,
+                "SHA-256 streaming update failed",
+                std::string(to_string(hash_backend)) + ".update",
+                shard.identity.filename,
+                file_offset,
+                {},
+                std::strerror(hash_error),
+                hash_error);
+            return outcome;
+        }
+
+        std::uint64_t chunk_end = 0U;
+        if (!checked_add(file_offset,
+                         static_cast<std::uint64_t>(chunk_size),
+                         chunk_end) ||
+            !add_stat(outcome.stats.bytes_read, chunk_size) ||
+            !add_stat(outcome.stats.chunks, 1U)) {
+            outcome.diagnostic = make_diagnostic(
+                ResidentLoadErrorCode::kArithmeticOverflow,
+                "loader statistics overflow uint64",
+                "statistics",
+                shard.identity.filename,
+                file_offset);
+            return outcome;
+        }
+
+        while (segment_cursor < shard.tensor_indices.size() &&
+               plan.tensors[shard.tensor_indices[segment_cursor]].source_end <=
+                   file_offset) {
+            ++segment_cursor;
+        }
+        for (std::size_t segment = segment_cursor;
+             segment < shard.tensor_indices.size(); ++segment) {
+            const PlannedTensor& tensor =
+                plan.tensors[shard.tensor_indices[segment]];
+            if (tensor.source_begin >= chunk_end) {
+                break;
+            }
+            const std::uint64_t copy_begin =
+                std::max(tensor.source_begin, file_offset);
+            const std::uint64_t copy_end =
+                std::min(tensor.source_end, chunk_end);
+            if (copy_end <= copy_begin) {
+                continue;
+            }
+            const std::uint64_t copy_bytes = copy_end - copy_begin;
+            std::uint64_t destination_offset = 0U;
+            if (!checked_add(tensor.arena_offset,
+                             copy_begin - tensor.source_begin,
+                             destination_offset) ||
+                destination_offset > plan.arena_bytes ||
+                copy_bytes > plan.arena_bytes - destination_offset ||
+                outcome.stats.memcpy_operations >=
+                    options.max_memcpy_operations) {
+                outcome.diagnostic = make_diagnostic(
+                    outcome.stats.memcpy_operations >=
+                            options.max_memcpy_operations
+                        ? ResidentLoadErrorCode::kInvalidOption
+                        : ResidentLoadErrorCode::kArithmeticOverflow,
+                    "scatter copy exceeds arena or operation limit",
+                    tensor.name,
+                    shard.identity.filename,
+                    copy_begin);
+                return outcome;
+            }
+            const std::size_t source_offset = static_cast<std::size_t>(
+                copy_begin - file_offset);
+            const cudaError_t cuda_status = cudaMemcpyAsync(
+                arena_bytes + static_cast<std::size_t>(destination_offset),
+                static_cast<std::uint8_t*>(resources.staging[slot]) +
+                    source_offset,
+                static_cast<std::size_t>(copy_bytes),
+                cudaMemcpyHostToDevice,
+                resources.stream);
+            if (cuda_status != cudaSuccess) {
+                outcome.diagnostic = cuda_diagnostic(
+                    cuda_status,
+                    "cudaMemcpyAsync(scatter)",
+                    shard.identity.filename,
+                    copy_begin);
+                return outcome;
+            }
+            if (!add_stat(outcome.stats.bytes_copied, copy_bytes) ||
+                !add_stat(outcome.stats.memcpy_operations, 1U)) {
+                outcome.diagnostic = make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "scatter-copy statistics overflow uint64",
+                    tensor.name,
+                    shard.identity.filename,
+                    copy_begin);
+                return outcome;
+            }
+        }
+
+        const cudaError_t cuda_status =
+            cudaEventRecord(resources.events[slot], resources.stream);
+        if (cuda_status != cudaSuccess) {
+            outcome.diagnostic = cuda_diagnostic(
+                cuda_status,
+                "cudaEventRecord(staging lifetime)",
+                shard.identity.filename,
+                file_offset);
+            return outcome;
+        }
+        slot_pending[slot] = true;
+        file_offset = chunk_end;
+        ++chunk_index;
+    }
+
+    std::uint8_t extra_byte = 0U;
+    const ReadChunkResult extra = read_exact_chunk(
+        opened_shard.descriptor.get(), &extra_byte, 1U);
+    if (extra.error != 0) {
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kIoFailure,
+            "failed while checking shard EOF",
+            "read",
+            shard.identity.filename,
+            shard.identity.file_size,
+            {},
+            std::strerror(extra.error),
+            extra.error);
+        return outcome;
+    }
+    if (extra.bytes != 0U || !extra.eof) {
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kShardSizeMismatch,
+            "shard grew during sequential load",
+            "read",
+            shard.identity.filename,
+            shard.identity.file_size);
+        return outcome;
+    }
+    struct stat final_status {};
+    if (::fstat(opened_shard.descriptor.get(), &final_status) != 0) {
+        const int error = errno;
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kIoFailure,
+            "final fstat failed for opened shard",
+            "fstat",
+            shard.identity.filename,
+            shard.identity.file_size,
+            {},
+            std::strerror(error),
+            error);
+        return outcome;
+    }
+    if (!S_ISREG(final_status.st_mode) || final_status.st_size < 0 ||
+        static_cast<std::uint64_t>(final_status.st_size) !=
+            shard.identity.file_size) {
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kShardSizeMismatch,
+            "shard identity changed during sequential load",
+            "fstat",
+            shard.identity.filename,
+            shard.identity.file_size);
+        return outcome;
+    }
+
+    HashOperationResult hash_result = hasher.finalize();
+    if (!hash_result.digest) {
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kSha256Failure,
+            "SHA-256 finalization failed",
+            hash_result.context.empty()
+                ? std::string(to_string(hash_backend)) + ".finalize"
+                : hash_result.context,
+            shard.identity.filename,
+            shard.identity.file_size,
+            {},
+            std::strerror(hash_result.error),
+            hash_result.error);
+        return outcome;
+    }
+    outcome.stats.sha256 = hash_result.digest->hex();
+    if (outcome.stats.sha256 != shard.identity.sha256) {
+        outcome.diagnostic = make_diagnostic(
+            ResidentLoadErrorCode::kSha256Mismatch,
+            "full-file SHA-256 differs from authenticated identity",
+            "sha256",
+            shard.identity.filename,
+            0U,
+            shard.identity.sha256,
+            outcome.stats.sha256);
+        return outcome;
+    }
+
+    const cudaError_t cuda_status = cudaStreamSynchronize(resources.stream);
+    if (cuda_status != cudaSuccess) {
+        outcome.diagnostic = cuda_diagnostic(
+            cuda_status,
+            "cudaStreamSynchronize(shard)",
+            shard.identity.filename,
+            shard.identity.file_size);
+    }
+    return outcome;
+}
+
+ResidentLoadDiagnostic worker_exception_diagnostic(
+    const std::exception_ptr& exception,
+    std::string shard,
+    const std::uint64_t index) {
+    try {
+        std::rethrow_exception(exception);
+    } catch (const std::bad_alloc&) {
+        return make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "allocation failed in resident loader worker",
+            "worker",
+            std::move(shard),
+            index);
+    } catch (const std::length_error&) {
+        return make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "container size exceeded in resident loader worker",
+            "worker",
+            std::move(shard),
+            index);
+    } catch (const std::exception& error) {
+        return make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "unexpected exception in resident loader worker",
+            "worker",
+            std::move(shard),
+            index,
+            {},
+            error.what());
+    } catch (...) {
+        return make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "unknown exception in resident loader worker",
+            "worker",
+            std::move(shard),
+            index);
+    }
 }
 
 ResidentLoadDiagnostic from_manifest_failure(
@@ -887,7 +1257,9 @@ ResidentLoadResult load_resident_weights(
         options.max_shards == 0U || options.max_shards > kMaximumShards ||
         options.max_memcpy_operations == 0U ||
         options.max_memcpy_operations > kMaximumMemcpyOperations ||
-        !is_valid_sha256_backend(options.sha256_backend)) {
+        !is_valid_sha256_backend(options.sha256_backend) ||
+        options.max_parallel_shards == 0U ||
+        options.max_parallel_shards > kMaximumParallelShards) {
         return load_failure(make_diagnostic(
             ResidentLoadErrorCode::kInvalidOption,
             "resident loader options exceed defensive limits",
@@ -909,6 +1281,58 @@ ResidentLoadResult load_resident_weights(
                 ResidentLoadErrorCode::kInvalidOption,
                 "resident plan exceeds configured resource limits",
                 "plan"));
+        }
+
+        const std::size_t worker_count = std::min(
+            options.max_parallel_shards, plan.shards.size());
+        std::uint64_t staging_slots = 0U;
+        std::uint64_t pinned_staging_bytes = 0U;
+        if (!checked_multiply(static_cast<std::uint64_t>(worker_count),
+                              static_cast<std::uint64_t>(kStagingSlots),
+                              staging_slots) ||
+            !checked_multiply(staging_slots,
+                              options.chunk_bytes,
+                              pinned_staging_bytes) ||
+            pinned_staging_bytes > kMaximumPinnedStagingBytes) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidOption,
+                "parallel staging allocation exceeds defensive limit",
+                "options.max_parallel_shards",
+                {},
+                0U,
+                std::to_string(kMaximumPinnedStagingBytes),
+                std::to_string(pinned_staging_bytes)));
+        }
+
+        std::uint64_t planned_memcpy_operations = 0U;
+        for (const PlannedTensor& tensor : plan.tensors) {
+            const std::uint64_t first_chunk =
+                tensor.source_begin / options.chunk_bytes;
+            const std::uint64_t last_chunk =
+                (tensor.source_end - 1U) / options.chunk_bytes;
+            const std::uint64_t tensor_operations =
+                last_chunk - first_chunk + 1U;
+            if (!checked_add(planned_memcpy_operations,
+                             tensor_operations,
+                             planned_memcpy_operations)) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "planned scatter-copy count overflows uint64",
+                    tensor.name,
+                    tensor.shard,
+                    tensor.source_begin));
+            }
+            if (planned_memcpy_operations >
+                options.max_memcpy_operations) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kInvalidOption,
+                    "resident plan exceeds scatter-copy operation limit",
+                    tensor.name,
+                    tensor.shard,
+                    tensor.source_begin,
+                    std::to_string(options.max_memcpy_operations),
+                    std::to_string(planned_memcpy_operations)));
+            }
         }
 
         HashBackendPreparation hash_backend =
@@ -1002,6 +1426,8 @@ ResidentLoadResult load_resident_weights(
         ResidentWeights output;
         output.arena_bytes_ = plan.arena_bytes;
         output.stats_.sha256_backend = hash_backend.backend;
+        output.stats_.shard_workers = worker_count;
+        output.stats_.pinned_staging_bytes = pinned_staging_bytes;
         output.stats_.shards.reserve(plan.shards.size());
         for (const PlannedTensor& tensor : plan.tensors) {
             DeviceTensorView view;
@@ -1020,28 +1446,51 @@ ResidentLoadResult load_resident_weights(
 
         // Isolate any prior caller error before interpreting CUDA return codes.
         (void)cudaGetLastError();
-        CudaResources resources;
-        cudaError_t cuda_status = cudaStreamCreateWithFlags(
-            &resources.stream, cudaStreamNonBlocking);
+        int cuda_device = -1;
+        cudaError_t cuda_status = cudaGetDevice(&cuda_device);
         if (cuda_status != cudaSuccess) {
-            return load_failure(cuda_diagnostic(cuda_status,
-                                                "cudaStreamCreateWithFlags"));
+            return load_failure(
+                cuda_diagnostic(cuda_status, "cudaGetDevice"));
         }
-        for (std::size_t slot = 0U; slot < kStagingSlots; ++slot) {
-            cuda_status = cudaEventCreateWithFlags(
-                &resources.events[slot], cudaEventDisableTiming);
+
+        // Declaration order is intentional: worker streams and staging buffers
+        // are synchronized and released before the arena on every exit path.
+        CudaArena arena;
+        std::vector<std::unique_ptr<CudaWorkerResources>> worker_resources;
+        worker_resources.reserve(worker_count);
+        for (std::size_t worker_index = 0U;
+             worker_index < worker_count; ++worker_index) {
+            auto resources = std::make_unique<CudaWorkerResources>();
+            resources->device = cuda_device;
+            cuda_status = cudaStreamCreateWithFlags(
+                &resources->stream, cudaStreamNonBlocking);
             if (cuda_status != cudaSuccess) {
-                return load_failure(
-                    cuda_diagnostic(cuda_status, "cudaEventCreateWithFlags"));
+                return load_failure(cuda_diagnostic(
+                    cuda_status,
+                    "cudaStreamCreateWithFlags(worker " +
+                        std::to_string(worker_index) + ")"));
             }
-            cuda_status = cudaHostAlloc(
-                &resources.staging[slot],
-                static_cast<std::size_t>(options.chunk_bytes),
-                cudaHostAllocDefault);
-            if (cuda_status != cudaSuccess) {
-                return load_failure(cuda_diagnostic(cuda_status,
-                                                    "cudaHostAlloc"));
+            for (std::size_t slot = 0U; slot < kStagingSlots; ++slot) {
+                cuda_status = cudaEventCreateWithFlags(
+                    &resources->events[slot], cudaEventDisableTiming);
+                if (cuda_status != cudaSuccess) {
+                    return load_failure(cuda_diagnostic(
+                        cuda_status,
+                        "cudaEventCreateWithFlags(worker " +
+                            std::to_string(worker_index) + ")"));
+                }
+                cuda_status = cudaHostAlloc(
+                    &resources->staging[slot],
+                    static_cast<std::size_t>(options.chunk_bytes),
+                    cudaHostAllocDefault);
+                if (cuda_status != cudaSuccess) {
+                    return load_failure(cuda_diagnostic(
+                        cuda_status,
+                        "cudaHostAlloc(worker " +
+                            std::to_string(worker_index) + ")"));
+                }
             }
+            worker_resources.emplace_back(std::move(resources));
         }
 
         std::size_t free_bytes = 0U;
@@ -1069,277 +1518,147 @@ ResidentLoadResult load_resident_weights(
         }
 
         cuda_status = cudaMalloc(
-            &resources.arena, static_cast<std::size_t>(plan.arena_bytes));
+            &arena.data, static_cast<std::size_t>(plan.arena_bytes));
         if (cuda_status != cudaSuccess) {
             return load_failure(
                 cuda_diagnostic(cuda_status, "cudaMalloc(resident arena)"));
         }
-        auto* const arena_bytes = static_cast<std::uint8_t*>(resources.arena);
+        auto* const arena_bytes = static_cast<std::uint8_t*>(arena.data);
         for (auto& tensor : output.tensors_) {
             tensor.second.device_data =
                 arena_bytes + static_cast<std::size_t>(tensor.second.arena_offset);
         }
 
-        std::array<bool, kStagingSlots> slot_pending{};
-        std::uint64_t global_chunk_index = 0U;
+        std::vector<ShardLoadOutcome> shard_outcomes(plan.shards.size());
+        std::vector<std::exception_ptr> shard_exceptions(plan.shards.size());
+        std::vector<ResidentLoadDiagnostic> worker_diagnostics(worker_count);
+        std::vector<std::exception_ptr> worker_exceptions(worker_count);
+        std::atomic<std::size_t> next_shard{0U};
+
+        // Every thread owns one CUDA stream and two staging slots. Atomic shard
+        // assignment keeps the pool fixed while allowing a worker that finishes
+        // a smaller shard to claim more work.
+        JoiningThreads threads;
+        threads.reserve(worker_count);
+        for (std::size_t worker_index = 0U;
+             worker_index < worker_count; ++worker_index) {
+            CudaWorkerResources* const resources =
+                worker_resources[worker_index].get();
+            threads.emplace_back([&, worker_index, resources]() {
+                try {
+                    const cudaError_t set_device_status =
+                        cudaSetDevice(cuda_device);
+                    if (set_device_status != cudaSuccess) {
+                        worker_diagnostics[worker_index] = cuda_diagnostic(
+                            set_device_status,
+                            "cudaSetDevice(worker " +
+                                std::to_string(worker_index) + ")");
+                        return;
+                    }
+                    (void)cudaGetLastError();
+                } catch (...) {
+                    worker_exceptions[worker_index] =
+                        std::current_exception();
+                    return;
+                }
+
+                while (true) {
+                    const std::size_t shard_index =
+                        next_shard.fetch_add(1U, std::memory_order_relaxed);
+                    if (shard_index >= open_shards.size()) {
+                        return;
+                    }
+                    try {
+                        UniqueFd af_alg_operation;
+                        if (hash_backend.backend ==
+                            ResidentSha256Backend::kLinuxAfAlg) {
+                            af_alg_operation = std::move(
+                                hash_backend.af_alg_operations[shard_index]);
+                        }
+                        shard_outcomes[shard_index] = load_one_shard(
+                            open_shards[shard_index],
+                            plan,
+                            options,
+                            hash_backend.backend,
+                            std::move(af_alg_operation),
+                            arena_bytes,
+                            *resources);
+                    } catch (...) {
+                        shard_exceptions[shard_index] =
+                            std::current_exception();
+                        return;
+                    }
+
+                    // A failed shard may have outstanding async H2D work. Stop
+                    // this worker so its staging memory is not reused; cleanup
+                    // synchronizes the stream after all threads are joined.
+                    if (!shard_outcomes[shard_index].ok()) {
+                        return;
+                    }
+                }
+            });
+        }
+        threads.join_all();
+
+        for (std::size_t worker_index = 0U;
+             worker_index < worker_count; ++worker_index) {
+            if (worker_exceptions[worker_index]) {
+                return load_failure(worker_exception_diagnostic(
+                    worker_exceptions[worker_index],
+                    {},
+                    worker_index));
+            }
+            if (worker_diagnostics[worker_index].code !=
+                ResidentLoadErrorCode::kNone) {
+                return load_failure(
+                    std::move(worker_diagnostics[worker_index]));
+            }
+        }
+
         for (std::size_t shard_index = 0U;
-             shard_index < open_shards.size(); ++shard_index) {
-            OpenShard& opened_shard = open_shards[shard_index];
-            const PlannedShard& shard = *opened_shard.plan;
-            ShardLoadStats shard_stats;
-            shard_stats.filename = shard.identity.filename;
-            UniqueFd af_alg_operation;
-            if (hash_backend.backend ==
-                ResidentSha256Backend::kLinuxAfAlg) {
-                af_alg_operation =
-                    std::move(hash_backend.af_alg_operations[shard_index]);
+             shard_index < shard_outcomes.size(); ++shard_index) {
+            if (shard_exceptions[shard_index]) {
+                return load_failure(worker_exception_diagnostic(
+                    shard_exceptions[shard_index],
+                    plan.shards[shard_index].identity.filename,
+                    shard_index));
             }
-            ShardSha256 hasher(hash_backend.backend,
-                               std::move(af_alg_operation));
-            std::uint64_t file_offset = 0U;
-            std::size_t segment_cursor = 0U;
-
-            while (file_offset < shard.identity.file_size) {
-                const std::size_t slot = static_cast<std::size_t>(
-                    global_chunk_index % kStagingSlots);
-                if (slot_pending[slot]) {
-                    cuda_status = cudaEventSynchronize(resources.events[slot]);
-                    if (cuda_status != cudaSuccess) {
-                        return load_failure(cuda_diagnostic(
-                            cuda_status,
-                            "cudaEventSynchronize(staging reuse)",
-                            shard.identity.filename,
-                            file_offset));
-                    }
-                    slot_pending[slot] = false;
-                }
-
-                const std::uint64_t remaining =
-                    shard.identity.file_size - file_offset;
-                const std::size_t chunk_size = static_cast<std::size_t>(
-                    std::min<std::uint64_t>(remaining, options.chunk_bytes));
-                const ReadChunkResult read_result = read_exact_chunk(
-                    opened_shard.descriptor.get(),
-                    resources.staging[slot],
-                    chunk_size);
-                if (read_result.error != 0) {
-                    return load_failure(make_diagnostic(
-                        ResidentLoadErrorCode::kIoFailure,
-                        "sequential shard read failed",
-                        "read",
-                        shard.identity.filename,
-                        file_offset + read_result.bytes,
-                        std::to_string(chunk_size),
-                        std::strerror(read_result.error),
-                        read_result.error));
-                }
-                if (read_result.eof || read_result.bytes != chunk_size) {
-                    return load_failure(make_diagnostic(
-                        ResidentLoadErrorCode::kShardSizeMismatch,
-                        "shard was truncated during sequential load",
-                        "read",
-                        shard.identity.filename,
-                        file_offset + read_result.bytes,
-                        std::to_string(chunk_size),
-                        std::to_string(read_result.bytes)));
-                }
-                int hash_error = 0;
-                if (!hasher.update(resources.staging[slot],
-                                   chunk_size,
-                                   hash_error)) {
-                    return load_failure(make_diagnostic(
-                        ResidentLoadErrorCode::kSha256Failure,
-                        "SHA-256 streaming update failed",
-                        std::string(to_string(hash_backend.backend)) +
-                            ".update",
-                        shard.identity.filename,
-                        file_offset,
-                        {},
-                        std::strerror(hash_error),
-                        hash_error));
-                }
-
-                std::uint64_t chunk_end = 0U;
-                if (!checked_add(file_offset,
-                                 static_cast<std::uint64_t>(chunk_size),
-                                 chunk_end) ||
-                    !add_stat(output.stats_.bytes_read, chunk_size) ||
-                    !add_stat(shard_stats.bytes_read, chunk_size) ||
-                    !add_stat(output.stats_.chunks, 1U) ||
-                    !add_stat(shard_stats.chunks, 1U)) {
-                    return load_failure(make_diagnostic(
-                        ResidentLoadErrorCode::kArithmeticOverflow,
-                        "loader statistics overflow uint64",
-                        "statistics",
-                        shard.identity.filename,
-                        file_offset));
-                }
-
-                while (segment_cursor < shard.tensor_indices.size() &&
-                       plan.tensors[shard.tensor_indices[segment_cursor]]
-                               .source_end <= file_offset) {
-                    ++segment_cursor;
-                }
-                for (std::size_t segment = segment_cursor;
-                     segment < shard.tensor_indices.size(); ++segment) {
-                    const PlannedTensor& tensor =
-                        plan.tensors[shard.tensor_indices[segment]];
-                    if (tensor.source_begin >= chunk_end) {
-                        break;
-                    }
-                    const std::uint64_t copy_begin =
-                        std::max(tensor.source_begin, file_offset);
-                    const std::uint64_t copy_end =
-                        std::min(tensor.source_end, chunk_end);
-                    if (copy_end <= copy_begin) {
-                        continue;
-                    }
-                    const std::uint64_t copy_bytes = copy_end - copy_begin;
-                    std::uint64_t destination_offset = 0U;
-                    if (!checked_add(tensor.arena_offset,
-                                     copy_begin - tensor.source_begin,
-                                     destination_offset) ||
-                        destination_offset > plan.arena_bytes ||
-                        copy_bytes > plan.arena_bytes - destination_offset ||
-                        output.stats_.memcpy_operations >=
-                            options.max_memcpy_operations) {
-                        return load_failure(make_diagnostic(
-                            output.stats_.memcpy_operations >=
-                                    options.max_memcpy_operations
-                                ? ResidentLoadErrorCode::kInvalidOption
-                                : ResidentLoadErrorCode::kArithmeticOverflow,
-                            "scatter copy exceeds arena or operation limit",
-                            tensor.name,
-                            shard.identity.filename,
-                            copy_begin));
-                    }
-                    const std::size_t source_offset = static_cast<std::size_t>(
-                        copy_begin - file_offset);
-                    cuda_status = cudaMemcpyAsync(
-                        arena_bytes +
-                            static_cast<std::size_t>(destination_offset),
-                        static_cast<std::uint8_t*>(resources.staging[slot]) +
-                            source_offset,
-                        static_cast<std::size_t>(copy_bytes),
-                        cudaMemcpyHostToDevice,
-                        resources.stream);
-                    if (cuda_status != cudaSuccess) {
-                        return load_failure(cuda_diagnostic(
-                            cuda_status,
-                            "cudaMemcpyAsync(scatter)",
-                            shard.identity.filename,
-                            copy_begin));
-                    }
-                    if (!add_stat(output.stats_.bytes_copied, copy_bytes) ||
-                        !add_stat(shard_stats.bytes_copied, copy_bytes) ||
-                        !add_stat(output.stats_.memcpy_operations, 1U) ||
-                        !add_stat(shard_stats.memcpy_operations, 1U)) {
-                        return load_failure(make_diagnostic(
-                            ResidentLoadErrorCode::kArithmeticOverflow,
-                            "scatter-copy statistics overflow uint64",
-                            tensor.name,
-                            shard.identity.filename,
-                            copy_begin));
-                    }
-                }
-
-                cuda_status = cudaEventRecord(resources.events[slot],
-                                              resources.stream);
-                if (cuda_status != cudaSuccess) {
-                    return load_failure(cuda_diagnostic(
-                        cuda_status,
-                        "cudaEventRecord(staging lifetime)",
-                        shard.identity.filename,
-                        file_offset));
-                }
-                slot_pending[slot] = true;
-                file_offset = chunk_end;
-                ++global_chunk_index;
-            }
-
-            std::uint8_t extra_byte = 0U;
-            ReadChunkResult extra = read_exact_chunk(
-                opened_shard.descriptor.get(), &extra_byte, 1U);
-            if (extra.error != 0) {
+            if (!shard_outcomes[shard_index].attempted) {
                 return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kIoFailure,
-                    "failed while checking shard EOF",
-                    "read",
-                    shard.identity.filename,
-                    shard.identity.file_size,
-                    {},
-                    std::strerror(extra.error),
-                    extra.error));
+                    ResidentLoadErrorCode::kAllocationFailure,
+                    "resident loader worker did not process assigned shard",
+                    "worker",
+                    plan.shards[shard_index].identity.filename,
+                    shard_index));
             }
-            if (extra.bytes != 0U || !extra.eof) {
-                return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kShardSizeMismatch,
-                    "shard grew during sequential load",
-                    "read",
-                    shard.identity.filename,
-                    shard.identity.file_size));
+            if (!shard_outcomes[shard_index].ok()) {
+                return load_failure(
+                    std::move(shard_outcomes[shard_index].diagnostic));
             }
-            struct stat final_status {};
-            if (::fstat(opened_shard.descriptor.get(), &final_status) != 0) {
-                const int error = errno;
-                return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kIoFailure,
-                    "final fstat failed for opened shard",
-                    "fstat",
-                    shard.identity.filename,
-                    shard.identity.file_size,
-                    {},
-                    std::strerror(error),
-                    error));
-            }
-            if (!S_ISREG(final_status.st_mode) || final_status.st_size < 0 ||
-                static_cast<std::uint64_t>(final_status.st_size) !=
-                    shard.identity.file_size) {
-                return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kShardSizeMismatch,
-                    "shard identity changed during sequential load",
-                    "fstat",
-                    shard.identity.filename,
-                    shard.identity.file_size));
-            }
-
-            HashOperationResult hash_result = hasher.finalize();
-            if (!hash_result.digest) {
-                return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kSha256Failure,
-                    "SHA-256 finalization failed",
-                    hash_result.context.empty()
-                        ? std::string(to_string(hash_backend.backend)) +
-                              ".finalize"
-                        : hash_result.context,
-                    shard.identity.filename,
-                    shard.identity.file_size,
-                    {},
-                    std::strerror(hash_result.error),
-                    hash_result.error));
-            }
-            shard_stats.sha256 = hash_result.digest->hex();
-            if (shard_stats.sha256 != shard.identity.sha256) {
-                return load_failure(make_diagnostic(
-                    ResidentLoadErrorCode::kSha256Mismatch,
-                    "full-file SHA-256 differs from authenticated identity",
-                    "sha256",
-                    shard.identity.filename,
-                    0U,
-                    shard.identity.sha256,
-                    shard_stats.sha256));
-            }
-            output.stats_.shards.emplace_back(std::move(shard_stats));
         }
 
-        cuda_status = cudaStreamSynchronize(resources.stream);
-        if (cuda_status != cudaSuccess) {
-            return load_failure(cuda_diagnostic(cuda_status,
-                                                "cudaStreamSynchronize(final)"));
+        for (ShardLoadOutcome& shard_outcome : shard_outcomes) {
+            if (!add_stat(output.stats_.bytes_read,
+                          shard_outcome.stats.bytes_read) ||
+                !add_stat(output.stats_.bytes_copied,
+                          shard_outcome.stats.bytes_copied) ||
+                !add_stat(output.stats_.chunks,
+                          shard_outcome.stats.chunks) ||
+                !add_stat(output.stats_.memcpy_operations,
+                          shard_outcome.stats.memcpy_operations)) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "aggregate loader statistics overflow uint64",
+                    "statistics",
+                    shard_outcome.stats.filename));
+            }
+            output.stats_.shards.emplace_back(
+                std::move(shard_outcome.stats));
         }
-        slot_pending.fill(false);
+
         if (output.stats_.bytes_read != plan.source_bytes ||
             output.stats_.bytes_copied != plan.copied_bytes ||
+            output.stats_.memcpy_operations != planned_memcpy_operations ||
             output.stats_.bytes_copied > output.stats_.bytes_read) {
             return load_failure(make_diagnostic(
                 ResidentLoadErrorCode::kInvalidManifest,
@@ -1355,8 +1674,7 @@ ResidentLoadResult load_resident_weights(
         output.stats_.bytes_skipped =
             output.stats_.bytes_read - output.stats_.bytes_copied;
 
-        output.arena_ = resources.arena;
-        resources.arena = nullptr;
+        output.arena_ = arena.release();
         (void)cudaGetLastError();
         ResidentLoadResult result;
         result.value.emplace(std::move(output));
@@ -1380,6 +1698,16 @@ ResidentLoadResult load_resident_weights(
             0U,
             {},
             error.what()));
+    } catch (const std::system_error& error) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "could not create or join resident loader worker",
+            "worker threads",
+            {},
+            0U,
+            {},
+            error.what(),
+            error.code().value()));
     }
 }
 

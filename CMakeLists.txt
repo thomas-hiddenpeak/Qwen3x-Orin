@@ -21,6 +21,7 @@ set(CMAKE_CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}")
 
 find_package(CUDAToolkit 12.0 REQUIRED)
 find_package(ICU 74 REQUIRED COMPONENTS uc i18n)
+find_package(Threads REQUIRED)
 if(NOT ICU_VERSION MATCHES "^74\\.")
   message(FATAL_ERROR
     "q3x_text is validated against ICU 74.x; found ICU ${ICU_VERSION}")
@@ -76,7 +77,7 @@ target_include_directories(q3x_core
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_link_libraries(q3x_core PUBLIC CUDA::cudart)
+target_link_libraries(q3x_core PUBLIC CUDA::cudart Threads::Threads)
 q3x_enable_warnings(q3x_core)
 
 add_library(q3x_text STATIC

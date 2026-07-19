@@ -37,6 +37,12 @@ loader uses the portable in-process SHA-256 implementation for the entire load.
 Callers can force `portable` or `linux_af_alg`; the successful concrete choice is
 reported by `ResidentLoadStats::sha256_backend` and is never mixed across shards.
 
+`ResidentLoadOptions::max_parallel_shards` defaults to 3. The effective worker
+count is the smaller of that limit and the number of authenticated shards in the
+plan. Each worker owns an independent nonblocking CUDA stream, two events, and
+two page-locked staging buffers. Worker count is capped at 16, and the aggregate
+staging allocation must not exceed 2 GiB.
+
 ## I/O and identity boundary
 
 The pinned loader compiles in these full-file identities:
@@ -49,15 +55,20 @@ The pinned loader compiles in these full-file identities:
 
 The checkpoint root is opened as a directory. Each relative path component is
 then opened with `openat`, `O_NOFOLLOW`, and `O_CLOEXEC`; intermediate
-components additionally require `O_DIRECTORY`. `fstat` requires a regular file
-and the exact pinned size. The loader never performs a path check followed by a
-plain pathname reopen.
+components additionally require `O_DIRECTORY`, while the final component is
+opened with `O_NONBLOCK`. `fstat` requires a regular file and the exact pinned
+size, so a FIFO or other non-regular final component is rejected without a
+blocking open. The loader never performs a path check followed by a plain
+pathname reopen.
 
 Each open file descriptor is consumed once, sequentially from byte 0 through
-EOF. The same chunk feeds the full-file SHA-256 and every intersecting H2D
-scatter operation. Hash verification is therefore not a separate second pass.
-A final EOF read and `fstat` detect growth or truncation during loading; any
-I/O, hash, or CUDA failure destroys the partial arena.
+EOF. Independent shard workers perform read, full-file SHA-256, and H2D scatter
+in parallel. Within a shard, the same chunk feeds the hash and every
+intersecting scatter operation, so hash verification is not a separate second
+pass. A final EOF read and `fstat` detect growth or truncation during loading;
+any I/O, hash, or CUDA failure destroys the partial arena. Per-shard statistics
+are aggregated in load-plan order, and concurrent failures return the first
+failed shard in that order rather than scheduler-dependent output.
 
 The Linux backend sends each complete chunk to the kernel's streaming AF_ALG
 SHA-256 operation, then receives the standard 32-byte digest. On Jetson AGX
@@ -66,11 +77,12 @@ Backend setup failure is distinct from a streaming/finalization failure: only
 the former may fall back under `auto`, while an error after any bytes have been
 consumed fails closed and releases the partial arena.
 
-Two page-locked staging buffers are used in ping-pong order. A per-slot CUDA
-event must complete before the CPU reuses that slot, allowing the next host
+Each worker uses two page-locked staging buffers in ping-pong order. A per-slot
+CUDA event must complete before the CPU reuses that slot, allowing the next host
 read and SHA update to overlap the prior asynchronous H2D scatter. The default
-chunk is 64 MiB per slot and the hard limit is 256 MiB. The final stream is
-synchronized before ownership is returned.
+chunk is 64 MiB per slot and the hard limit is 256 MiB. With the default three
+workers this is six buffers, or 384 MiB (402,653,184 bytes), of temporary pinned
+memory. Every worker stream is synchronized before ownership is returned.
 
 ## Exact Orin memory budget
 
@@ -86,14 +98,16 @@ artifact, rather than estimated from parameter count:
 | Arena alignment padding | 217,464 | 0.0002 | Included in arena |
 | Vision + MTP tensor payload | 1,770,858,976 | 1.649 | Hash-only, not resident |
 | File bytes skipped by H2D | 1,771,128,088 | 1.649 | Headers plus vision/MTP |
-| Two default staging buffers | 134,217,728 | 0.125 | Page-locked, temporary |
+| Six default staging buffers (3 workers x 2) | 402,653,184 | 0.375 | Page-locked, temporary |
 | Default post-arena free margin | 8,589,934,592 | 8.000 | Required, not allocated |
 
 The staging buffers are allocated before `cudaMemGetInfo`; the loader then
 requires `free >= arena + min_free_bytes_after_load` before calling
-`cudaMalloc`. Thus the default gate accounts for staging pressure and fails
-closed before creating a partial model arena. Callers may tighten the resource
-limits; reducing the 8 GiB margin is an explicit policy decision.
+`cudaMalloc`. Thus the default gate accounts for all active workers' staging
+pressure and fails closed before creating a partial model arena. Callers may
+tighten the resource limits; reducing the 8 GiB margin is an explicit policy
+decision. Irrespective of the configured chunk and worker limits, aggregate
+pinned staging above 2 GiB is rejected before allocation.
 
 ## Reproduced official integration
 
@@ -133,6 +147,39 @@ versus 203.677 seconds in the previous unprofiled SM87 benchmark artifact. This
 is a 9.480x diagnostic historical speedup; clocks were not locked, and the two
 load numbers were not collected as randomized same-binary trials.
 
+### Parallel shard-loader benchmark
+
+On 2026-07-19, the conditional official-checkpoint integration was run from one
+Release binary with a warm filesystem cache. The mirrored order was one worker,
+three workers, three workers, one worker:
+
+| Order | Shard workers | Pinned staging | Elapsed seconds |
+| ---: | ---: | ---: | ---: |
+| 1 | 1 | 128 MiB | 21.7359 |
+| 2 | 3 | 384 MiB | 10.9301 |
+| 3 | 3 | 384 MiB | 10.9303 |
+| 4 | 1 | 128 MiB | 21.6890 |
+
+The one-worker average was 21.71245 seconds and the three-worker average was
+10.93020 seconds: a 10.78225-second (49.6593%) reduction, or 1.98646x speedup.
+A separate two-worker measurement took 12.6207 seconds, a 41.8734% reduction
+and 1.72038x speedup relative to the mirrored one-worker average.
+
+Every measured load selected `linux_af_alg` and reported exactly
+21,921,697,184 bytes read, 20,150,569,096 bytes copied, 328 chunks, and 2,146
+scatter operations. All three full-file digests and the embedding, layer-0 FP8
+QKV, and `lm_head.weight_scale_2` device samples passed on every run. These are
+same-binary, non-cold-cache diagnostic measurements; clocks were not locked.
+The complete machine-readable record is
+[`docs/metadata/qwen36-27b-parallel-loader-benchmark.json`](metadata/qwen36-27b-parallel-loader-benchmark.json).
+
+A subsequent real CLI gate using the default three workers reported 12,227.436
+ms total load time, including 11,036.720 ms in the resident phase and 1,159.766
+ms in tokenizer setup. It reported 402,653,184 pinned staging bytes. All 19
+prompt IDs, 26 generated IDs, decoded text, `im_end` stop, and 44 runner steps
+matched the oracle exactly. Prompt, decode, and total generation took 597.976,
+3,053.563, and 3,651.540 ms respectively.
+
 The test copied samples of the embedding, layer-0 FP8 QKV weight, and
 `lm_head.weight_scale_2` back from the device and compared them byte-for-byte
 with their authenticated source ranges. It never modifies the model directory.
@@ -151,11 +198,16 @@ Q3X_OFFICIAL_27B_ROOT=MODEL_DIR \
   ctest --test-dir build -R resident_weights_cuda --output-on-failure
 ```
 
+Set `Q3X_RESIDENT_LOAD_WORKERS=1`, `2`, or `3` to reproduce a specific worker
+limit with the same test binary; omitting it exercises the default of 3.
+
 Synthetic tests cover chunk-split tensors, skipped regions, incorrect SHA,
 truncation, shard symlinks, unsafe paths, wrapped offsets, stale CUDA last-error
-state, statistics, device round-trips, and RAII moves. When AF_ALG is available,
-the tiny CUDA fixture runs both forced `portable` and forced `linux_af_alg` and
-compares their digest/statistics and cross-chunk device bytes. It also checks
-that default `auto` selects AF_ALG when available and otherwise falls back to
-the portable backend. The CPU plan test is also run under the host ASan/UBSan
-configuration.
+state, statistics, device round-trips, and RAII moves. Parallel cases compare
+one-, two-, three-, and excess-worker limits, reversed identity input,
+plan-ordered failures and statistics, and the exact global scatter-operation
+limit. When AF_ALG is available, the tiny CUDA fixture runs both forced
+`portable` and forced `linux_af_alg` and compares their digest/statistics and
+cross-chunk device bytes. It also checks that default `auto` selects AF_ALG when
+available and otherwise falls back to the portable backend. The CPU plan test
+is also run under the host ASan/UBSan configuration.
