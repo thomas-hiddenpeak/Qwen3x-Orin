@@ -845,17 +845,17 @@ ReferenceStepOutcome ReferenceRunner::step(
                   kReferenceNoLayer)) {
     return fail_step(launch_failure);
   }
+  if (!check_cuda(launch_centered_rms_norm_reference_cuda(
+                      views_.hidden[0],
+                      weights_->layer(0U).input_layernorm.data,
+                      kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
+                      stream_),
+                  "input_layernorm", 0U)) {
+    return fail_step(launch_failure);
+  }
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
-    if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                        views_.hidden[0], layer_weights.input_layernorm.data,
-                        kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
-                        stream_),
-                    "input_layernorm", layer)) {
-      return fail_step(launch_failure);
-    }
-
     const model::LayerType expected =
         reference_runner_detail::expected_reference_layer_type(layer);
     if (expected == model::LayerType::kLinearAttention) {
@@ -992,10 +992,12 @@ ReferenceStepOutcome ReferenceRunner::step(
           layer));
     }
 
-    if (!check_cuda(launch_residual_add_reference_cuda(
+    if (!check_cuda(launch_residual_add_centered_rms_norm_5120_cuda(
                         views_.hidden[0], views_.hidden[1],
-                        kReferenceHiddenSize, views_.hidden[2], stream_),
-                    "attention_residual", layer)) {
+                        layer_weights.post_attention_layernorm.data,
+                        kRmsEpsilon, views_.hidden[2], views_.hidden[1],
+                        stream_),
+                    "attention_residual_post_attention_layernorm", layer)) {
       return fail_step(launch_failure);
     }
     const std::size_t trace_base =
@@ -1006,13 +1008,7 @@ ReferenceStepOutcome ReferenceRunner::step(
       return fail_step(launch_failure);
     }
 
-    if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                        views_.hidden[2],
-                        layer_weights.post_attention_layernorm.data,
-                        kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
-                        stream_),
-                    "post_attention_layernorm", layer) ||
-        !project(layer_weights.mlp.gate_proj, views_.hidden[1],
+    if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
                  views_.projection[0], "mlp_gate_projection", layer) ||
         !project(layer_weights.mlp.up_proj, views_.hidden[1],
                  views_.projection[1], "mlp_up_projection", layer) ||
@@ -1030,21 +1026,24 @@ ReferenceStepOutcome ReferenceRunner::step(
                     layer)) {
       return fail_step(launch_failure);
     }
-    if (!check_cuda(launch_residual_add_reference_cuda(
-                        views_.hidden[2], views_.hidden[1],
-                        kReferenceHiddenSize, views_.hidden[0], stream_),
-                    "layer_residual", layer)) {
+    const bool is_final_layer =
+        layer + 1U == kReferenceDecoderLayerCount;
+    const std::uint16_t* const next_norm_weight =
+        is_final_layer
+            ? weights_->final_norm().data
+            : weights_->layer(layer + 1U).input_layernorm.data;
+    const char* const residual_norm_operation =
+        is_final_layer ? "layer_residual_final_norm"
+                       : "layer_residual_input_layernorm";
+    if (!check_cuda(launch_residual_add_centered_rms_norm_5120_cuda(
+                        views_.hidden[2], views_.hidden[1], next_norm_weight,
+                        kRmsEpsilon, views_.hidden[0], views_.hidden[1],
+                        stream_),
+                    residual_norm_operation, layer)) {
       return fail_step(launch_failure);
     }
   }
 
-  if (!check_cuda(launch_centered_rms_norm_reference_cuda(
-                      views_.hidden[0], weights_->final_norm().data,
-                      kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
-                      stream_),
-                  "final_norm", kReferenceNoLayer)) {
-    return fail_step(launch_failure);
-  }
   if (options.capture_trace &&
       !copy_trace(views_.hidden[1],
                   (1U + 2U * kReferenceDecoderLayerCount) *

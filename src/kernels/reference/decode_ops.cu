@@ -1,5 +1,6 @@
 #include "q3x/runtime/decode_ops.h"
 
+#include <cooperative_groups.h>
 #include <cuda_runtime.h>
 
 #include <cmath>
@@ -12,6 +13,12 @@ namespace {
 
 constexpr unsigned int kThreads = 256U;
 constexpr std::size_t kMaximumBlocks = 65535U;
+constexpr std::size_t kResidualRmsHiddenSize = 5120U;
+constexpr unsigned int kResidualRmsBlocks =
+    kResidualRmsHiddenSize / kThreads;
+constexpr std::size_t kResidualRmsBytes =
+    kResidualRmsHiddenSize * sizeof(std::uint16_t);
+static_assert(kResidualRmsHiddenSize % kThreads == 0U);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -28,6 +35,36 @@ constexpr std::size_t kMaximumBlocks = 65535U;
 
 [[nodiscard]] bool valid_epsilon(const float epsilon) noexcept {
   return std::isfinite(epsilon) && epsilon > 0.0F;
+}
+
+[[nodiscard]] bool byte_range_overflows(const void* const pointer,
+                                        const std::size_t bytes) noexcept {
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return bytes > std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+[[nodiscard]] bool ranges_overlap(const void* const first,
+                                  const std::size_t first_bytes,
+                                  const void* const second,
+                                  const std::size_t second_bytes) noexcept {
+  if (byte_range_overflows(first, first_bytes) ||
+      byte_range_overflows(second, second_bytes)) {
+    return true;
+  }
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  return first_begin < second_begin + second_bytes &&
+         second_begin < first_begin + first_bytes;
+}
+
+[[nodiscard]] bool partially_overlaps(const void* const first,
+                                      const std::size_t first_bytes,
+                                      const void* const second,
+                                      const std::size_t second_bytes) noexcept {
+  return first != second &&
+         ranges_overlap(first, first_bytes, second, second_bytes);
 }
 
 [[nodiscard]] unsigned int block_count(const std::size_t work_items) noexcept {
@@ -159,6 +196,50 @@ __global__ void residual_add_kernel(const std::uint16_t* const left,
        index += static_cast<std::size_t>(blockDim.x) * gridDim.x) {
     output[index] = encode_bf16_device(decode_bf16_device(left[index]) +
                                        decode_bf16_device(right[index]));
+  }
+}
+
+__global__ void residual_add_centered_rms_norm_5120_kernel(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output) {
+  const std::size_t residual_index =
+      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  residual_output[residual_index] =
+      encode_bf16_device(decode_bf16_device(left[residual_index]) +
+                         decode_bf16_device(right[residual_index]));
+
+  cooperative_groups::this_grid().sync();
+  if (blockIdx.x != 0U) {
+    return;
+  }
+
+  __shared__ float partial[kThreads];
+  float sum = 0.0F;
+  for (std::size_t index = threadIdx.x; index < kResidualRmsHiddenSize;
+       index += blockDim.x) {
+    const float value = decode_bf16_device(residual_output[index]);
+    sum = fmaf(value, value, sum);
+  }
+  partial[threadIdx.x] = sum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(partial[0] / static_cast<float>(kResidualRmsHiddenSize) +
+             epsilon);
+  for (std::size_t index = threadIdx.x; index < kResidualRmsHiddenSize;
+       index += blockDim.x) {
+    const float gamma = decode_bf16_device(weight[index]) + 1.0F;
+    normalized_output[index] = encode_bf16_device(
+        decode_bf16_device(residual_output[index]) * inverse_rms * gamma);
   }
 }
 
@@ -562,6 +643,59 @@ int launch_residual_add_reference_cuda(
   (void)cudaGetLastError();
   residual_add_kernel<<<block_count(element_count), kThreads, 0U, stream>>>(
       left, right, element_count, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_residual_add_centered_rms_norm_5120_cuda(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  if (!valid_epsilon(epsilon) || left == nullptr || right == nullptr ||
+      weight == nullptr || residual_output == nullptr ||
+      normalized_output == nullptr ||
+      byte_range_overflows(left, kResidualRmsBytes) ||
+      byte_range_overflows(right, kResidualRmsBytes) ||
+      byte_range_overflows(weight, kResidualRmsBytes) ||
+      byte_range_overflows(residual_output, kResidualRmsBytes) ||
+      byte_range_overflows(normalized_output, kResidualRmsBytes) ||
+      ranges_overlap(residual_output, kResidualRmsBytes, left,
+                     kResidualRmsBytes) ||
+      ranges_overlap(residual_output, kResidualRmsBytes, right,
+                     kResidualRmsBytes) ||
+      ranges_overlap(residual_output, kResidualRmsBytes, weight,
+                     kResidualRmsBytes) ||
+      ranges_overlap(residual_output, kResidualRmsBytes, normalized_output,
+                     kResidualRmsBytes) ||
+      ranges_overlap(normalized_output, kResidualRmsBytes, left,
+                     kResidualRmsBytes) ||
+      partially_overlaps(normalized_output, kResidualRmsBytes, right,
+                         kResidualRmsBytes) ||
+      ranges_overlap(normalized_output, kResidualRmsBytes, weight,
+                     kResidualRmsBytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  const std::uint16_t* left_argument = left;
+  const std::uint16_t* right_argument = right;
+  const std::uint16_t* weight_argument = weight;
+  float epsilon_argument = epsilon;
+  std::uint16_t* residual_argument = residual_output;
+  std::uint16_t* normalized_argument = normalized_output;
+  void* arguments[] = {&left_argument,       &right_argument,
+                       &weight_argument,     &epsilon_argument,
+                       &residual_argument,   &normalized_argument};
+  const cudaError_t launch_status = cudaLaunchCooperativeKernel(
+      residual_add_centered_rms_norm_5120_kernel,
+      dim3{kResidualRmsBlocks}, dim3{kThreads}, arguments, 0U, stream);
+  if (launch_status != cudaSuccess) {
+    return static_cast<int>(launch_status);
+  }
   return static_cast<int>(cudaGetLastError());
 }
 

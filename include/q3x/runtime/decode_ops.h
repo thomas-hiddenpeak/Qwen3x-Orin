@@ -157,6 +157,17 @@ enum class DecodeOpStatus : std::uint8_t {
     std::size_t element_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fixed-width decode residual boundary for hidden_size=5120. This is
+// bitwise-equivalent to a 5120-element residual add followed by centered
+// RMSNorm of the rounded BF16 residual. residual_output must be disjoint from
+// every input and normalized_output. normalized_output may alias right
+// exactly, but must otherwise be disjoint from all inputs.
+[[nodiscard]] int launch_residual_add_centered_rms_norm_5120_cuda(
+    const std::uint16_t* left, const std::uint16_t* right,
+    const std::uint16_t* weight, float epsilon,
+    std::uint16_t* residual_output, std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_fp32_to_bf16_reference_cuda(
     const float* input, std::size_t element_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
