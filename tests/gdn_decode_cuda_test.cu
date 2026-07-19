@@ -41,6 +41,15 @@ namespace q3x::runtime {
     float l2_epsilon, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_gated_delta_net_update_tile_warp_four_row_lane_striped_test_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::runtime
 
 namespace {
@@ -1204,22 +1213,29 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
   }
 }
 
-// "Production" in this mirrored benchmark names the preserved pre-promotion
-// two-row kernel; the public runtime dispatch uses the four-row candidate.
+// This mirrored harness covers two successive promotions: row-pair versus
+// four-row, then preserved four-row versus the production lane-striped path.
 struct GdnRowQuadMeasurement {
   float production_milliseconds = std::numeric_limits<float>::quiet_NaN();
   float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
   bool bitwise_correct = false;
 };
 
-void run_optional_gdn_row_quad_performance(TestContext& test,
-                                            cudaStream_t stream) {
-  const char* const value = std::getenv("Q3X_RUN_GDN_ROW_QUAD_PERF");
+void run_optional_gdn_four_row_candidate_performance(
+    TestContext& test, cudaStream_t stream, const bool lane_striped) {
+  const char* const environment_name =
+      lane_striped ? "Q3X_RUN_GDN_LANE_STRIPED_PERF"
+                   : "Q3X_RUN_GDN_ROW_QUAD_PERF";
+  const char* const candidate_label =
+      lane_striped ? "GDN lane-striped" : "GDN four-row";
+  const char* const metric_label =
+      lane_striped ? "GDN_LANE_STRIPED" : "GDN_ROW_QUAD";
+  const char* const value = std::getenv(environment_name);
   const bool enabled = value != nullptr && value[0] != '\0' &&
                        !(value[0] == '0' && value[1] == '\0');
   if (!enabled) {
-    std::cout << "SKIP: GDN four-row performance segment; set "
-                 "Q3X_RUN_GDN_ROW_QUAD_PERF=1 to enable\n";
+    std::cout << "SKIP: " << candidate_label << " performance segment; set "
+              << environment_name << "=1 to enable\n";
     return;
   }
 
@@ -1240,6 +1256,12 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
       {2U, 48U, 0.99F, "GDN four-row M2"},
       {8U, 0U, 1.02F, "GDN four-row M8"},
       {16U, 48U, 1.03F, "GDN four-row M16"},
+  }};
+  constexpr std::array<const char*, 4U> kLaneStripedLabels{{
+      "GDN lane-striped M1",
+      "GDN lane-striped M2",
+      "GDN lane-striped M8",
+      "GDN lane-striped M16",
   }};
 
   ManagedBuffer<std::uint16_t> conv_qkv;
@@ -1375,6 +1397,13 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
           const std::uint16_t* const state_input,
           std::uint16_t* const state_output,
           std::uint16_t* const output) -> int {
+    if (lane_striped) {
+      return q3x::runtime::
+          launch_gated_delta_net_update_tile_warp_four_row_test_cuda(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), state_input, state_output, kL2Epsilon, output,
+              static_cast<void*>(stream));
+    }
     return q3x::runtime::
         launch_gated_delta_net_update_tile_warp_row_pair_test_cuda(
             conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
@@ -1386,6 +1415,13 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
           const std::uint16_t* const state_input,
           std::uint16_t* const state_output,
           std::uint16_t* const output) -> int {
+    if (lane_striped) {
+      return q3x::runtime::
+          launch_gated_delta_net_update_tile_warp_four_row_lane_striped_test_cuda(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), state_input, state_output, kL2Epsilon, output,
+              static_cast<void*>(stream));
+    }
     return q3x::runtime::
         launch_gated_delta_net_update_tile_warp_four_row_test_cuda(
             conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
@@ -1424,7 +1460,10 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
   std::array<GdnRowQuadMeasurement, kShapes.size()> measurements{};
   for (std::size_t shape_index = 0U; shape_index < kShapes.size();
        ++shape_index) {
-    const Shape& shape = kShapes[shape_index];
+    Shape shape = kShapes[shape_index];
+    if (lane_striped) {
+      shape.label = kLaneStripedLabels[shape_index];
+    }
     const std::size_t output_count =
         shape.token_count * q3x::runtime::kGdnVElements;
     std::copy(initial_state.begin(), initial_state.end(),
@@ -1551,7 +1590,7 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
         inputs_preserved(std::string(shape.label) + " correctness") &&
         bitwise_correct;
     measurements[shape_index].bitwise_correct = bitwise_correct;
-    std::cout << "GDN_ROW_QUAD_DIFF: " << shape.label
+    std::cout << metric_label << "_DIFF: " << shape.label
               << " inplace_disjoint_inputs_preserved="
               << (bitwise_correct ? "true" : "false") << '\n';
 
@@ -1636,7 +1675,7 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
         production_total += production_first + production_second;
         candidate_total += candidate_first + candidate_second;
       }
-      std::cout << "PERF_GDN_ROW_QUAD_ROUND: " << shape.label
+      std::cout << "PERF_" << metric_label << "_ROUND: " << shape.label
                 << " round=" << round + 1
                 << " production_pass1_ms=" << production_first
                 << " candidate_pass1_ms=" << candidate_first
@@ -1653,13 +1692,17 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
                : std::numeric_limits<float>::quiet_NaN();
   }
 
-  const bool final_inputs_preserved = inputs_preserved("GDN four-row final");
+  const bool final_inputs_preserved =
+      inputs_preserved(std::string(candidate_label) + " final");
   double weighted_production = 0.0;
   double weighted_candidate = 0.0;
   bool all_shape_gates = final_inputs_preserved;
   for (std::size_t shape_index = 0U; shape_index < kShapes.size();
        ++shape_index) {
-    const Shape& shape = kShapes[shape_index];
+    Shape shape = kShapes[shape_index];
+    if (lane_striped) {
+      shape.label = kLaneStripedLabels[shape_index];
+    }
     const GdnRowQuadMeasurement& measurement = measurements[shape_index];
     const float speedup = measurement.production_milliseconds /
                           measurement.candidate_milliseconds;
@@ -1668,16 +1711,20 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
                         std::isfinite(speedup) &&
                         measurement.production_milliseconds > 0.0F &&
                         measurement.candidate_milliseconds > 0.0F;
+    constexpr float kMinimumLaneStripedShapeSpeedup = 1.40F;
+    const float required_speedup =
+        lane_striped ? kMinimumLaneStripedShapeSpeedup
+                     : shape.minimum_speedup;
     const bool gate = measurement.bitwise_correct && finite &&
-                      speedup >= shape.minimum_speedup;
+                      speedup >= required_speedup;
     all_shape_gates = all_shape_gates && gate;
     test.expect(gate, std::string(shape.label) +
                           " clears correctness/performance gate");
-    std::cout << "PERF_GDN_ROW_QUAD_VALIDATION: " << shape.label
+    std::cout << "PERF_" << metric_label << "_VALIDATION: " << shape.label
               << " production_ms=" << measurement.production_milliseconds
               << " candidate_ms=" << measurement.candidate_milliseconds
               << " speedup=" << speedup
-              << " required_speedup=" << shape.minimum_speedup
+              << " required_speedup=" << required_speedup
               << " bitwise="
               << (measurement.bitwise_correct ? "true" : "false")
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
@@ -1688,21 +1735,26 @@ void run_optional_gdn_row_quad_performance(TestContext& test,
                           measurement.candidate_milliseconds;
   }
   constexpr double kMinimumAggregateSpeedup = 1.03;
+  constexpr double kMinimumLaneStripedAggregateSpeedup = 1.50;
+  const double required_aggregate_speedup =
+      lane_striped ? kMinimumLaneStripedAggregateSpeedup
+                   : kMinimumAggregateSpeedup;
   const double weighted_speedup = weighted_production / weighted_candidate;
   const bool aggregate_gate =
       all_shape_gates && std::isfinite(weighted_speedup) &&
       weighted_production > 0.0 && weighted_candidate > 0.0 &&
-      weighted_speedup >= kMinimumAggregateSpeedup;
-  std::cout << "PERF_GDN_ROW_QUAD_AGGREGATE: weighted_production_ms="
+      weighted_speedup >= required_aggregate_speedup;
+  std::cout << "PERF_" << metric_label
+            << "_AGGREGATE: weighted_production_ms="
             << weighted_production
             << " weighted_candidate_ms=" << weighted_candidate
             << " speedup=" << weighted_speedup
-            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " required_speedup=" << required_aggregate_speedup
             << " call_weights=96:48:0:48 all_shapes="
             << (all_shape_gates ? "PASS" : "FAIL")
             << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
-  test.expect(aggregate_gate,
-              "GDN four-row clears M16-weighted aggregate gate");
+  test.expect(aggregate_gate, std::string(candidate_label) +
+                                  " clears weighted aggregate gate");
 }
 
 void test_gdn_multistep(TestContext& test, cudaStream_t stream) {
@@ -1813,7 +1865,8 @@ int main() {
   test_conv_tile_bitwise(test, stream);
   test_gdn_multistep(test, stream);
   test_gdn_tile_bitwise(test, stream);
-  run_optional_gdn_row_quad_performance(test, stream);
+  run_optional_gdn_four_row_candidate_performance(test, stream, false);
+  run_optional_gdn_four_row_candidate_performance(test, stream, true);
   (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy GDN stream");
   if (test.failures() != 0) {
     std::cerr << test.failures() << " CUDA GDN assertion(s) failed\n";
