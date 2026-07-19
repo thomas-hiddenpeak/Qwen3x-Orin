@@ -526,6 +526,14 @@ model::LayerType expected_reference_layer_type(
              : model::LayerType::kLinearAttention;
 }
 
+bool use_fused_gqa_sigmoid_gate_tile(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return token_count != 0U &&
+         first_position < kFusedGqaMaximumSequenceLength &&
+         token_count <= kFusedGqaMaximumSequenceLength - first_position;
+}
+
 ReferenceRunnerError validate_reference_workspace_plan(
     const RequestMemoryPlan& plan) noexcept {
   if (plan.batch_size != 1U || plan.prefill_chunk_size == 0U ||
@@ -955,22 +963,40 @@ ReferenceStepOutcome ReferenceRunner::step(
         return fail_step(launch_failure);
       }
 
-      if (!check_cuda(launch_gqa_attention_reference_cuda(
-                          views_.projection[0], views_.key_cache[layer],
-                          views_.value_cache[layer], kFullQueryHeads,
-                          kFullKvHeads,
-                          static_cast<std::size_t>(position) + 1U,
-                          kFullHeadDimension, kAttentionScale,
-                          views_.fp32_scratch,
-                          views_.fp32_scratch_elements, views_.projection[1],
-                          stream_),
-                      "full_gqa", layer) ||
-          !check_cuda(launch_sigmoid_gate_reference_cuda(
-                          views_.projection[1],
-                          views_.projection[3] + kFullQueryElements,
-                          kFullQueryElements, views_.projection[1], stream_),
-                      "full_output_gate", layer) ||
-          !project(attention->o_proj, views_.projection[1], views_.hidden[1],
+      const std::size_t sequence_length =
+          static_cast<std::size_t>(position) + 1U;
+      if (reference_runner_detail::use_fused_gqa_sigmoid_gate_tile(
+              position, 1U)) {
+        if (!check_cuda(
+                launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                    views_.projection[0], views_.key_cache[layer],
+                    views_.value_cache[layer], sequence_length,
+                    kAttentionScale, views_.fp32_scratch,
+                    views_.fp32_scratch_elements,
+                    views_.projection[3] + kFullQueryElements,
+                    views_.projection[1], stream_),
+                "full_gqa_output_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (!check_cuda(launch_gqa_attention_reference_cuda(
+                                 views_.projection[0],
+                                 views_.key_cache[layer],
+                                 views_.value_cache[layer], kFullQueryHeads,
+                                 kFullKvHeads, sequence_length,
+                                 kFullHeadDimension, kAttentionScale,
+                                 views_.fp32_scratch,
+                                 views_.fp32_scratch_elements,
+                                 views_.projection[1], stream_),
+                             "full_gqa", layer) ||
+                 !check_cuda(launch_sigmoid_gate_reference_cuda(
+                                 views_.projection[1],
+                                 views_.projection[3] + kFullQueryElements,
+                                 kFullQueryElements, views_.projection[1],
+                                 stream_),
+                             "full_output_gate", layer)) {
+        return fail_step(launch_failure);
+      }
+      if (!project(attention->o_proj, views_.projection[1], views_.hidden[1],
                    "full_output_projection", layer)) {
         return fail_step(launch_failure);
       }
@@ -1373,30 +1399,47 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           return fail_prefill_tile(launch_failure);
         }
       }
+      const bool fuse_gqa_gate_tile =
+          reference_runner_detail::use_fused_gqa_sigmoid_gate_tile(
+              first_position, token_count);
       for (std::size_t token = 0U; token < token_count; ++token) {
         const std::size_t sequence_length =
             static_cast<std::size_t>(first_position) + token + 1U;
-        if (!check_cuda(launch_gqa_attention_reference_cuda(
-                            views_.projection[0] +
-                                token * kFullQueryElements,
-                            views_.key_cache[layer], views_.value_cache[layer],
-                            kFullQueryHeads, kFullKvHeads, sequence_length,
-                            kFullHeadDimension, kAttentionScale,
-                            views_.fp32_scratch,
-                            views_.fp32_scratch_elements,
-                            views_.projection[1] +
-                                token * kFullQueryElements,
-                            stream_),
-                        "prefill_full_gqa", layer)) {
+        const std::uint16_t* const token_query =
+            views_.projection[0] + token * kFullQueryElements;
+        std::uint16_t* const token_output =
+            views_.projection[1] + token * kFullQueryElements;
+        const int gqa_status =
+            fuse_gqa_gate_tile
+                ? launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                      token_query, views_.key_cache[layer],
+                      views_.value_cache[layer], sequence_length,
+                      kAttentionScale, views_.fp32_scratch,
+                      views_.fp32_scratch_elements,
+                      packed_gates + token * kFullQueryElements,
+                      token_output, stream_)
+                : launch_gqa_attention_reference_cuda(
+                      token_query, views_.key_cache[layer],
+                      views_.value_cache[layer], kFullQueryHeads,
+                      kFullKvHeads, sequence_length, kFullHeadDimension,
+                      kAttentionScale, views_.fp32_scratch,
+                      views_.fp32_scratch_elements, token_output, stream_);
+        if (!check_cuda(gqa_status,
+                        fuse_gqa_gate_tile ? "prefill_full_gqa_output_gate"
+                                           : "prefill_full_gqa",
+                        layer)) {
           return fail_prefill_tile(launch_failure);
         }
       }
-      if (!check_cuda(launch_sigmoid_gate_reference_cuda(
+      if (!fuse_gqa_gate_tile &&
+          !check_cuda(launch_sigmoid_gate_reference_cuda(
                           views_.projection[1], packed_gates,
                           token_count * kFullQueryElements,
                           views_.projection[1], stream_),
-                      "prefill_full_output_gate", layer) ||
-          !project(attention->o_proj, views_.projection[1],
+                      "prefill_full_output_gate", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      if (!project(attention->o_proj, views_.projection[1],
                    views_.hidden[1], "prefill_full_output_projection",
                    layer)) {
         return fail_prefill_tile(launch_failure);

@@ -1310,6 +1310,293 @@ void test_attention(TestContext& test, cudaStream_t stream) {
   }
 }
 
+void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
+                                           cudaStream_t stream,
+                                           const std::size_t sequence_length) {
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr float kScale = 0.0625F;
+  constexpr std::uint16_t kPoison = 0x7fc1U;
+  const std::size_t query_elements = kQueryHeads * kDimension;
+  const std::size_t cache_elements =
+      sequence_length * kKvHeads * kDimension;
+  const std::size_t scratch_elements = kQueryHeads * sequence_length;
+  const std::string label =
+      "fused GQA sigmoid S=" + std::to_string(sequence_length);
+
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<std::uint16_t> gate;
+  ManagedBuffer<float> baseline_scratch;
+  ManagedBuffer<float> candidate_scratch;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(query.allocate(query_elements), label + " query");
+  ready = ready && test.cuda_ok(key.allocate(cache_elements), label + " key");
+  ready = ready &&
+          test.cuda_ok(value.allocate(cache_elements), label + " value");
+  ready = ready && test.cuda_ok(gate.allocate(query_elements), label + " gate");
+  ready = ready && test.cuda_ok(baseline_scratch.allocate(scratch_elements),
+                                label + " baseline scratch");
+  ready = ready && test.cuda_ok(candidate_scratch.allocate(scratch_elements),
+                                label + " candidate scratch");
+  ready = ready && test.cuda_ok(baseline_output.allocate(query_elements),
+                                label + " baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(query_elements),
+                                label + " candidate output");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+    gate[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 23U + 3U) % 97U) -
+                           48) /
+        16.0F);
+  }
+  for (std::size_t index = 0U; index < cache_elements; ++index) {
+    key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 31U + 11U) % 109U) -
+                           54) /
+        32.0F);
+  }
+  std::fill_n(baseline_scratch.data(), scratch_elements,
+              std::numeric_limits<float>::quiet_NaN());
+  std::fill_n(candidate_scratch.data(), scratch_elements,
+              std::numeric_limits<float>::quiet_NaN());
+  std::fill_n(baseline_output.data(), query_elements, kPoison);
+  std::fill_n(candidate_output.data(), query_elements, kPoison);
+
+  ready = launch_after_stale(test, stream, label + " baseline", [&]() {
+    const int attention_status =
+        q3x::runtime::launch_gqa_attention_reference_cuda(
+            query.data(), key.data(), value.data(), kQueryHeads, kKvHeads,
+            sequence_length, kDimension, kScale, baseline_scratch.data(),
+            baseline_scratch.size(), baseline_output.data(),
+            static_cast<void*>(stream));
+    if (attention_status != static_cast<int>(cudaSuccess)) {
+      return attention_status;
+    }
+    return q3x::runtime::launch_sigmoid_gate_reference_cuda(
+        baseline_output.data(), gate.data(), query_elements,
+        baseline_output.data(), static_cast<void*>(stream));
+  });
+  ready = ready &&
+          launch_after_stale(test, stream, label + " candidate", [&]() {
+            return q3x::runtime::
+                launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                    query.data(), key.data(), value.data(), sequence_length,
+                    kScale, candidate_scratch.data(),
+                    candidate_scratch.size(), gate.data(),
+                    candidate_output.data(), static_cast<void*>(stream));
+          });
+  if (!ready) {
+    return;
+  }
+
+  expect_bf16_bits_equal(test, candidate_output.data(),
+                         baseline_output.data(), query_elements,
+                         label + " gated output");
+  test.expect(std::memcmp(candidate_scratch.data(), baseline_scratch.data(),
+                          scratch_elements * sizeof(float)) == 0,
+              label + " probability scratch is bitwise identical");
+}
+
+void test_fused_gqa_sigmoid_gate_exact(TestContext& test,
+                                       cudaStream_t stream) {
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                  nullptr, nullptr, nullptr, 0U, 0.0625F, nullptr, 0U,
+                  nullptr, nullptr)) == cudaErrorInvalidValue,
+      "fused GQA rejects empty sequence");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                  nullptr, nullptr, nullptr, 65U, 0.0625F, nullptr, 0U,
+                  nullptr, nullptr)) == cudaErrorInvalidValue,
+      "fused GQA rejects sequence above 64");
+  for (const std::size_t sequence_length : {1U, 16U, 44U, 64U}) {
+    run_fused_gqa_sigmoid_gate_exact_case(test, stream, sequence_length);
+  }
+}
+
+void test_fused_gqa_sigmoid_gate_perf(TestContext& test,
+                                      cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_GQA_SIGMOID_FUSED_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: fused GQA sigmoid performance gate; set "
+                 "Q3X_RUN_GQA_SIGMOID_FUSED_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kSequence = 44U;
+  constexpr float kScale = 0.0625F;
+  constexpr std::size_t kWarmupIterations = 64U;
+  constexpr std::size_t kMeasuredIterations = 512U;
+  constexpr int kMeasurementRounds = 3;
+  constexpr double kMinimumSpeedup = 1.05;
+  constexpr std::size_t kQueryElements = kQueryHeads * kDimension;
+  constexpr std::size_t kCacheElements =
+      kSequence * kKvHeads * kDimension;
+  constexpr std::size_t kScratchElements = kQueryHeads * kSequence;
+  const std::string label = "fused GQA sigmoid perf S=44";
+
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<std::uint16_t> gate;
+  ManagedBuffer<float> baseline_scratch;
+  ManagedBuffer<float> candidate_scratch;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(query.allocate(kQueryElements), label + " query");
+  ready = ready && test.cuda_ok(key.allocate(kCacheElements), label + " key");
+  ready = ready &&
+          test.cuda_ok(value.allocate(kCacheElements), label + " value");
+  ready = ready && test.cuda_ok(gate.allocate(kQueryElements), label + " gate");
+  ready = ready && test.cuda_ok(baseline_scratch.allocate(kScratchElements),
+                                label + " baseline scratch");
+  ready = ready && test.cuda_ok(candidate_scratch.allocate(kScratchElements),
+                                label + " candidate scratch");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kQueryElements),
+                                label + " baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kQueryElements),
+                                label + " candidate output");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t index = 0U; index < kQueryElements; ++index) {
+    query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+    gate[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 23U + 3U) % 97U) -
+                           48) /
+        16.0F);
+  }
+  for (std::size_t index = 0U; index < kCacheElements; ++index) {
+    key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 31U + 11U) % 109U) -
+                           54) /
+        32.0F);
+  }
+
+  const auto launch_baseline = [&]() {
+    const int attention_status =
+        q3x::runtime::launch_gqa_attention_reference_cuda(
+            query.data(), key.data(), value.data(), kQueryHeads, kKvHeads,
+            kSequence, kDimension, kScale, baseline_scratch.data(),
+            baseline_scratch.size(), baseline_output.data(),
+            static_cast<void*>(stream));
+    if (attention_status != static_cast<int>(cudaSuccess)) {
+      return attention_status;
+    }
+    return q3x::runtime::launch_sigmoid_gate_reference_cuda(
+        baseline_output.data(), gate.data(), kQueryElements,
+        baseline_output.data(), static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() {
+    return q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+            query.data(), key.data(), value.data(), kSequence, kScale,
+            candidate_scratch.data(), candidate_scratch.size(), gate.data(),
+            candidate_output.data(), static_cast<void*>(stream));
+  };
+
+  for (std::size_t iteration = 0U;
+       ready && iteration < kWarmupIterations; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync");
+  if (!ready) {
+    return;
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool timing_finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " baseline pass 1",
+        launch_baseline);
+    const float candidate_first = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " candidate pass 1",
+        launch_candidate);
+    const float candidate_second = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " candidate pass 2",
+        launch_candidate);
+    const float baseline_second = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " baseline pass 2",
+        launch_baseline);
+    const bool round_finite =
+        std::isfinite(baseline_first) && baseline_first > 0.0F &&
+        std::isfinite(candidate_first) && candidate_first > 0.0F &&
+        std::isfinite(candidate_second) && candidate_second > 0.0F &&
+        std::isfinite(baseline_second) && baseline_second > 0.0F;
+    timing_finite = timing_finite && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first + baseline_second;
+      candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_GQA_SIGMOID_FUSED_ROUND: round=" << round + 1
+              << " iterations=" << kMeasuredIterations
+              << " baseline1_ms=" << baseline_first
+              << " candidate1_ms=" << candidate_first
+              << " candidate2_ms=" << candidate_second
+              << " baseline2_ms=" << baseline_second << '\n';
+  }
+
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double baseline_milliseconds = baseline_total / kTimedPasses;
+  const double candidate_milliseconds = candidate_total / kTimedPasses;
+  const double speedup = baseline_milliseconds / candidate_milliseconds;
+  const bool gate_passed =
+      timing_finite && std::isfinite(speedup) &&
+      baseline_milliseconds > 0.0 && candidate_milliseconds > 0.0 &&
+      speedup >= kMinimumSpeedup;
+  std::cout << "PERF_GQA_SIGMOID_FUSED: baseline_ms="
+            << baseline_milliseconds
+            << " candidate_ms=" << candidate_milliseconds
+            << " speedup=" << speedup
+            << " required_speedup=" << kMinimumSpeedup
+            << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
+  test.expect(gate_passed, label + " clears the 1.05x span gate");
+  expect_bf16_bits_equal(test, candidate_output.data(),
+                         baseline_output.data(), kQueryElements,
+                         label + " repeated gated output");
+  test.expect(std::memcmp(candidate_scratch.data(), baseline_scratch.data(),
+                          kScratchElements * sizeof(float)) == 0,
+              label + " repeated probability scratch is bitwise identical");
+}
+
 void test_nonfinite(TestContext& test, cudaStream_t stream) {
   ManagedBuffer<std::uint16_t> left;
   ManagedBuffer<std::uint16_t> right;
@@ -1413,6 +1700,8 @@ int main() {
   test_rope(test, stream);
   test_softmax(test, stream);
   test_attention(test, stream);
+  test_fused_gqa_sigmoid_gate_exact(test, stream);
+  test_fused_gqa_sigmoid_gate_perf(test, stream);
   test_nonfinite(test, stream);
 
   (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy decode-op stream");

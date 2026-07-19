@@ -18,7 +18,11 @@ constexpr unsigned int kResidualRmsBlocks =
     kResidualRmsHiddenSize / kThreads;
 constexpr std::size_t kResidualRmsBytes =
     kResidualRmsHiddenSize * sizeof(std::uint16_t);
+constexpr std::size_t kFusedGqaQueryHeads = 24U;
+constexpr std::size_t kFusedGqaKvHeads = 4U;
+constexpr std::size_t kFusedGqaHeadDimension = 256U;
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
+static_assert(kFusedGqaHeadDimension == kThreads);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -475,6 +479,119 @@ __global__ void attention_values_kernel(
   }
 }
 
+// Each CTA owns one query head, so the score, softmax, value, and gate phases
+// retain the reference kernels' thread mapping and reduction order. The
+// explicit BF16 encode/decode below preserves the observable rounding boundary
+// between attention_values_kernel and sigmoid_gate_kernel.
+__global__ void gqa_sigmoid_gate_24_4_256_kernel(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::size_t sequence_length,
+    const float attention_scale,
+    float* const probabilities_scratch,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output) {
+  __shared__ float partial[kThreads];
+  __shared__ float probabilities[kFusedGqaMaximumSequenceLength];
+
+  const std::size_t query_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t queries_per_kv =
+      kFusedGqaQueryHeads / kFusedGqaKvHeads;
+  const std::size_t kv_head = query_head / queries_per_kv;
+  const std::size_t query_offset =
+      query_head * kFusedGqaHeadDimension;
+
+  for (std::size_t position = 0U; position < sequence_length; ++position) {
+    const std::size_t key_offset =
+        (position * kFusedGqaKvHeads + kv_head) * kFusedGqaHeadDimension;
+    float score = 0.0F;
+    for (std::size_t dimension = threadIdx.x;
+         dimension < kFusedGqaHeadDimension;
+         dimension += blockDim.x) {
+      score = fmaf(decode_bf16_device(query[query_offset + dimension]),
+                   decode_bf16_device(key_cache[key_offset + dimension]),
+                   score);
+    }
+    partial[threadIdx.x] = score;
+    __syncthreads();
+    for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+      if (threadIdx.x < stride) {
+        partial[threadIdx.x] += partial[threadIdx.x + stride];
+      }
+      __syncthreads();
+    }
+    if (threadIdx.x == 0U) {
+      probabilities[position] = partial[0] * attention_scale;
+    }
+    __syncthreads();
+  }
+
+  float maximum = -__int_as_float(0x7f800000);
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    maximum = fmaxf(maximum, probabilities[position]);
+  }
+  partial[threadIdx.x] = maximum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] =
+          fmaxf(partial[threadIdx.x], partial[threadIdx.x + stride]);
+    }
+    __syncthreads();
+  }
+  maximum = partial[0];
+
+  float denominator = 0.0F;
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    denominator += expf(probabilities[position] - maximum);
+  }
+  partial[threadIdx.x] = denominator;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  denominator = partial[0];
+
+  const std::size_t probability_offset = query_head * sequence_length;
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    const float probability =
+        expf(probabilities[position] - maximum) / denominator;
+    probabilities[position] = probability;
+    probabilities_scratch[probability_offset + position] = probability;
+  }
+  __syncthreads();
+
+  for (std::size_t dimension = threadIdx.x;
+       dimension < kFusedGqaHeadDimension;
+       dimension += blockDim.x) {
+    float value = 0.0F;
+    for (std::size_t position = 0U; position < sequence_length; ++position) {
+      const std::size_t value_offset =
+          (position * kFusedGqaKvHeads + kv_head) * kFusedGqaHeadDimension;
+      value = fmaf(probabilities[position],
+                   decode_bf16_device(
+                       value_cache[value_offset + dimension]),
+                   value);
+    }
+    const std::uint16_t encoded_value = encode_bf16_device(value);
+    const float gate_value =
+        decode_bf16_device(gate[query_offset + dimension]);
+    const float sigmoid =
+        gate_value >= 0.0F
+            ? 1.0F / (1.0F + expf(-gate_value))
+            : expf(gate_value) / (1.0F + expf(gate_value));
+    output[query_offset + dimension] = encode_bf16_device(
+        decode_bf16_device(encoded_value) * sigmoid);
+  }
+}
+
 [[nodiscard]] bool valid_attention_dimensions(
     const std::size_t query_head_count,
     const std::size_t kv_head_count,
@@ -878,6 +995,36 @@ int launch_gqa_attention_reference_cuda(
   attention_values_kernel<<<blocks, kThreads, 0U, stream>>>(
       value_cache, probabilities_scratch, query_head_count, kv_head_count,
       sequence_length, head_dimension, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::size_t sequence_length,
+    const float attention_scale,
+    float* const probabilities_scratch,
+    const std::size_t scratch_elements,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (sequence_length == 0U ||
+      sequence_length > kFusedGqaMaximumSequenceLength ||
+      !std::isfinite(attention_scale) || attention_scale < 0.0F ||
+      scratch_elements < kFusedGqaQueryHeads * sequence_length ||
+      query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      probabilities_scratch == nullptr || gate == nullptr ||
+      output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gqa_sigmoid_gate_24_4_256_kernel
+      <<<kFusedGqaQueryHeads, kThreads, 0U, stream>>>(
+          query, key_cache, value_cache, sequence_length, attention_scale,
+          probabilities_scratch, gate, output);
   return static_cast<int>(cudaGetLastError());
 }
 

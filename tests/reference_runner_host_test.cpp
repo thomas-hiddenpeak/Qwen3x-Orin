@@ -140,6 +140,14 @@ void test_schedule_and_workspace(TestContext& test) {
                       q3x::model::LayerType::kInvalid,
               "runner schedule is exactly 48 linear plus 16 full layers");
 
+  test.expect(detail::use_fused_gqa_sigmoid_gate_tile(0U, 16U) &&
+                  detail::use_fused_gqa_sigmoid_gate_tile(48U, 16U) &&
+                  detail::use_fused_gqa_sigmoid_gate_tile(63U, 1U) &&
+                  !detail::use_fused_gqa_sigmoid_gate_tile(64U, 1U) &&
+                  !detail::use_fused_gqa_sigmoid_gate_tile(60U, 5U) &&
+                  !detail::use_fused_gqa_sigmoid_gate_tile(0U, 0U),
+              "fused GQA selector accepts only complete tiles ending by sequence 64");
+
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();
   test.expect(built.ok(), "default request plan builds for runner validation");

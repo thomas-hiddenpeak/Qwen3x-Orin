@@ -197,6 +197,12 @@ struct LogitsAnalysis {
 [[nodiscard]] model::LayerType expected_reference_layer_type(
     std::size_t layer) noexcept;
 
+// Pure-host selector for the exact-shape fused GQA/gate path. first_position
+// is zero-based; a complete tile is selected only when every token's causal
+// sequence length is within the fused kernel limit.
+[[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
+    std::size_t first_position, std::size_t token_count) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(

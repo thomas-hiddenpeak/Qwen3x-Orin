@@ -7,6 +7,7 @@ namespace q3x::runtime {
 
 inline constexpr std::size_t kLinearAttentionHeadDimension = 128U;
 inline constexpr std::size_t kFullAttentionHeadDimension = 256U;
+inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
 
 enum class DecodeOpStatus : std::uint8_t {
@@ -202,6 +203,19 @@ enum class DecodeOpStatus : std::uint8_t {
     std::size_t kv_head_count, std::size_t sequence_length,
     std::size_t head_dimension, float attention_scale,
     float* probabilities_scratch, std::size_t scratch_elements,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Fixed-shape full-attention fast path for Q=24, KV=4, and D=256 with a
+// sequence length in [1, kFusedGqaMaximumSequenceLength]. It is bitwise
+// equivalent to launch_gqa_attention_reference_cuda followed by an in-place
+// sigmoid gate, including the intermediate BF16 rounding boundary. The final
+// FP32 softmax probabilities are written to probabilities_scratch exactly as
+// in the reference GQA entry point.
+[[nodiscard]] int launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, std::size_t sequence_length,
+    float attention_scale, float* probabilities_scratch,
+    std::size_t scratch_elements, const std::uint16_t* gate,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime
