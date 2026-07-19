@@ -190,6 +190,13 @@ launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_grid_cap_test_cuda(
     std::size_t columns, std::uint16_t* output, std::size_t maximum_blocks,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_row_quad_exact_shape_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -3890,6 +3897,30 @@ void test_launch_validation(TestContext& test) {
               "FP8 M2 persistent rows accepts the smallest real projection");
   test.expect(q3x::kernels::use_sm87_fp8_m2_persistent_rows_test(65'537U),
               "FP8 M2 persistent rows accepts grid-stride large-row shapes");
+
+  auto* const exact_packed =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  auto* const exact_scales =
+      reinterpret_cast<const std::uint8_t*>(0x2'0000'0000ULL);
+  auto* const exact_activation =
+      reinterpret_cast<const std::uint16_t*>(0x3'0000'0000ULL);
+  auto* const exact_output =
+      reinterpret_cast<std::uint16_t*>(0x4'0000'0000ULL);
+  const auto exact_shape_status = [&](const std::size_t rows,
+                                      const std::size_t columns) noexcept {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_row_quad_exact_shape_test_cuda(
+            exact_packed, exact_scales, 1.0F, exact_activation, rows, columns,
+            exact_output));
+  };
+  test.expect(exact_shape_status(17'407U, 5'120U) ==
+                  cudaErrorInvalidValue,
+              "NVFP4 M1 exact-shape launcher rejects a near-miss row count");
+  test.expect(exact_shape_status(17'408U, 5'104U) ==
+                  cudaErrorInvalidValue,
+              "NVFP4 M1 exact-shape launcher rejects a near-miss K");
+  test.expect(exact_shape_status(5'120U, 5'120U) == cudaErrorInvalidValue,
+              "NVFP4 M1 exact-shape launcher rejects an unknown shape");
 }
 
 [[nodiscard]] bool performance_enabled() noexcept {
@@ -3935,6 +3966,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_m1_row_quad_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M1_ROW_QUAD_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m1_exact_shape_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M1_EXACT_SHAPE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -9065,6 +9103,25 @@ enum class NvFp4M1ScaleDistribution {
   kSameBankStress,
 };
 
+constexpr std::array<std::uint8_t, 32U> kNvFp4M1CheckpointLikeScaleCodes{{
+    0x4eU, 0x50U, 0x52U, 0x54U, 0x55U, 0x56U, 0x57U, 0x58U,
+    0x58U, 0x58U, 0x59U, 0x59U, 0x59U, 0x5aU, 0x5aU, 0x5bU,
+    0x5bU, 0x5cU, 0x5cU, 0x5dU, 0x5dU, 0x5eU, 0x5fU, 0x60U,
+    0x60U, 0x61U, 0x62U, 0x63U, 0x64U, 0x65U, 0x66U, 0x67U,
+}};
+
+constexpr std::array<std::uint8_t, 3U> kNvFp4M1SameBankScaleCodes{{
+    0x20U,
+    0x40U,
+    0x60U,
+}};
+
+// The exact-shape kernel advances one warp's row quad by 64 blocks * 8 warps
+// * 4 rows = 2048 rows. A prime fixture period prevents an omitted or stale
+// rolling-offset update from aliasing the same packed/scaled input rows.
+constexpr std::size_t kNvFp4M1ExactShapeFixturePeriod = 251U;
+constexpr std::size_t kNvFp4M1ExactShapeRowStride = 2'048U;
+
 [[nodiscard]] const char* nvfp4_m1_scale_distribution_name(
     const NvFp4M1ScaleDistribution distribution) noexcept {
   return distribution == NvFp4M1ScaleDistribution::kCheckpointLike
@@ -9075,27 +9132,41 @@ enum class NvFp4M1ScaleDistribution {
 void fill_nvfp4_m1_scale_distribution(
     std::vector<std::uint8_t>& scales, const std::size_t scale_columns,
     const NvFp4M1ScaleDistribution distribution) {
-  constexpr std::array<std::uint8_t, 32U> kCheckpointLikeCodes{{
-      0x4eU, 0x50U, 0x52U, 0x54U, 0x55U, 0x56U, 0x57U, 0x58U,
-      0x58U, 0x58U, 0x59U, 0x59U, 0x59U, 0x5aU, 0x5aU, 0x5bU,
-      0x5bU, 0x5cU, 0x5cU, 0x5dU, 0x5dU, 0x5eU, 0x5fU, 0x60U,
-      0x60U, 0x61U, 0x62U, 0x63U, 0x64U, 0x65U, 0x66U, 0x67U,
-  }};
-  constexpr std::array<std::uint8_t, 3U> kSameBankCodes{{
-      0x20U, 0x40U, 0x60U,
-  }};
   for (std::size_t index = 0U; index < scales.size(); ++index) {
     const std::size_t row = index / scale_columns;
     const std::size_t scale_column = index - row * scale_columns;
     if (distribution == NvFp4M1ScaleDistribution::kCheckpointLike) {
-      scales[index] = kCheckpointLikeCodes[
+      scales[index] = kNvFp4M1CheckpointLikeScaleCodes[
           (scale_column * 5U + row * 11U + (scale_column >> 3U)) %
-          kCheckpointLikeCodes.size()];
+          kNvFp4M1CheckpointLikeScaleCodes.size()];
     } else {
       // All three codes share their low five bits and therefore map to the
       // same shared-memory bank while retaining different decoded values.
       scales[index] =
-          kSameBankCodes[(scale_column + row * 3U) % kSameBankCodes.size()];
+          kNvFp4M1SameBankScaleCodes[
+              (scale_column + row * 3U) %
+              kNvFp4M1SameBankScaleCodes.size()];
+    }
+  }
+}
+
+void fill_nvfp4_m1_exact_shape_scale_distribution(
+    std::vector<std::uint8_t>& scales, const std::size_t scale_columns,
+    const NvFp4M1ScaleDistribution distribution) {
+  for (std::size_t index = 0U; index < scales.size(); ++index) {
+    const std::size_t row = index / scale_columns;
+    const std::size_t scale_column = index - row * scale_columns;
+    const std::size_t row_phase =
+        row % kNvFp4M1ExactShapeFixturePeriod;
+    if (distribution == NvFp4M1ScaleDistribution::kCheckpointLike) {
+      scales[index] = kNvFp4M1CheckpointLikeScaleCodes[
+          (scale_column * 5U + row_phase * 11U + (scale_column >> 3U)) %
+          kNvFp4M1CheckpointLikeScaleCodes.size()];
+    } else {
+      // Preserve the same-bank stress while varying the decoded value across
+      // rows, including rows separated by the production 2048-row stride.
+      scales[index] = kNvFp4M1SameBankScaleCodes[
+          (scale_column + row_phase) % kNvFp4M1SameBankScaleCodes.size()];
     }
   }
 }
@@ -10812,6 +10883,392 @@ void run_optional_nvfp4_m1_row_quad_performance(TestContext& test,
             << " all_bitwise="
             << (selected_all_bitwise ? "true" : "false")
             << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+}
+
+struct NvFp4M1ExactShapeDistributionMeasurement {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+  bool output_finite = false;
+};
+
+struct NvFp4M1ExactShapeMeasurement {
+  std::array<NvFp4M1ExactShapeDistributionMeasurement,
+             kNvFp4M1RowQuadScaleDistributions.size()>
+      distributions{};
+};
+
+[[nodiscard]] NvFp4M1ExactShapeMeasurement
+benchmark_nvfp4_m1_exact_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::size_t profile_calls,
+    const std::string& label) {
+  constexpr std::size_t kBaselineGridCap = 64U;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr float kMinimumCellSpeedup = 1.015F;
+  constexpr std::uint8_t kBaselineOutputSentinel = 0xa5U;
+  constexpr std::uint8_t kCandidateOutputSentinel = 0x5aU;
+  const int warmup_iterations = rows >= 100'000U ? 4 : 10;
+  const std::size_t packed_count = rows * columns / 2U;
+  const std::size_t packed_columns = columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  std::vector<std::uint8_t> host_scales(rows * scale_columns);
+  std::vector<std::uint16_t> host_activation(columns);
+  for (std::size_t column = 0U; column < columns; ++column) {
+    const int centered =
+        static_cast<int>((column * 17U + 5U) % 127U) - 63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  std::array<std::uint8_t, kNvFp4M1ExactShapeFixturePeriod>
+      host_packed_pattern{};
+  std::array<bool, 16U> low_nibble_covered{};
+  std::array<bool, 16U> high_nibble_covered{};
+  for (std::size_t index = 0U; index < host_packed_pattern.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 3U + (index >> 3U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 4U) * 7U + 3U) & 0x0fU);
+    host_packed_pattern[index] =
+        static_cast<std::uint8_t>(low | (high << 4U));
+    low_nibble_covered[low] = true;
+    high_nibble_covered[high] = true;
+  }
+  test.expect(std::all_of(low_nibble_covered.begin(),
+                          low_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " exact fixture covers every E2M1 low-nibble code");
+  test.expect(std::all_of(high_nibble_covered.begin(),
+                          high_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " exact fixture covers every E2M1 high-nibble code");
+  test.expect(
+      (kNvFp4M1ExactShapeRowStride %
+       kNvFp4M1ExactShapeFixturePeriod) != 0U,
+      label + " exact scale fixture does not alias the 2048-row stride");
+  test.expect(
+      ((kNvFp4M1ExactShapeRowStride %
+        kNvFp4M1ExactShapeFixturePeriod) *
+       (packed_columns % kNvFp4M1ExactShapeFixturePeriod)) %
+              kNvFp4M1ExactShapeFixturePeriod !=
+          0U,
+      label + " exact packed fixture does not alias the 2048-row stride");
+
+  NvFp4M1ExactShapeMeasurement measurement{};
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activation.allocate(host_activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(baseline_output.allocate(rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(rows),
+                                label + " allocate candidate output");
+  const std::size_t initial_packed_bytes =
+      std::min(packed_count, host_packed_pattern.size());
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           packed.get(), host_packed_pattern.data(),
+                           initial_packed_bytes, cudaMemcpyHostToDevice,
+                           stream),
+                       label + " initialize mixed all-nibble packed seed");
+  for (std::size_t initialized = initial_packed_bytes;
+       ready && initialized < packed_count;) {
+    const std::size_t copy_bytes =
+        std::min(initialized, packed_count - initialized);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(packed.get() + initialized, packed.get(), copy_bytes,
+                        cudaMemcpyDeviceToDevice, stream),
+        label + " expand prime-period packed fixture");
+    initialized += copy_bytes;
+  }
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activation");
+  if (!ready) {
+    return measurement;
+  }
+
+  std::vector<std::uint16_t> baseline(rows);
+  std::vector<std::uint16_t> candidate(rows);
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M1RowQuadScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M1RowQuadScaleDistributions[distribution_index];
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_exact_shape_scale_distribution(
+        host_scales, scale_columns, distribution);
+    bool scale_rows_differ_across_stride = false;
+    for (std::size_t scale_column = 0U;
+         scale_column < scale_columns &&
+         !scale_rows_differ_across_stride;
+         ++scale_column) {
+      scale_rows_differ_across_stride =
+          host_scales[scale_column] !=
+          host_scales[kNvFp4M1ExactShapeRowStride * scale_columns +
+                      scale_column];
+    }
+    test.expect(scale_rows_differ_across_stride,
+                distribution_label +
+                    " scales differ across the 2048-row stride");
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize block scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(
+                             baseline_output.get(), kBaselineOutputSentinel,
+                             rows * sizeof(std::uint16_t), stream),
+                         distribution_label +
+                             " initialize baseline output sentinel");
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(
+                             candidate_output.get(), kCandidateOutputSentinel,
+                             rows * sizeof(std::uint16_t), stream),
+                         distribution_label +
+                             " initialize candidate output sentinel");
+    if (!ready) {
+      return measurement;
+    }
+
+    const auto launch_baseline = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_grid_cap_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(),
+              rows, columns, baseline_output.get(), kBaselineGridCap,
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_row_quad_exact_shape_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(),
+              rows, columns, candidate_output.get(),
+              static_cast<void*>(stream));
+    };
+
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         distribution_label + " correctness baseline cap64");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         distribution_label + " correctness exact shape");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline.data(), baseline_output.get(),
+                             baseline.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy baseline output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy candidate output");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " correctness synchronize");
+    if (!ready) {
+      return measurement;
+    }
+
+    std::size_t mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t row = 0U; row < rows; ++row) {
+      mismatches += baseline[row] != candidate[row] ? 1U : 0U;
+      output_finite = output_finite &&
+                      std::isfinite(decode_bf16(baseline[row])) &&
+                      std::isfinite(decode_bf16(candidate[row]));
+    }
+    NvFp4M1ExactShapeDistributionMeasurement& cell =
+        measurement.distributions[distribution_index];
+    cell.bitwise_equal = mismatches == 0U;
+    cell.output_finite = output_finite;
+
+    for (int iteration = 0; iteration < warmup_iterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           distribution_label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           distribution_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  distribution_label + " warmup synchronize");
+    if (!ready) {
+      return measurement;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    bool timings_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          distribution_label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " baseline pass 1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " candidate pass 1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " candidate pass 2");
+      const float baseline_second = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " baseline pass 2");
+      const bool round_finite =
+          std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) && std::isfinite(baseline_second);
+      timings_finite = timings_finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_NVFP4_M1_EXACT_SHAPE_ROUND: " << label
+                << " distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " profile_calls=" << profile_calls
+                << " measured_iterations=" << kMeasuredIterations
+                << " round=" << round + 1
+                << " baseline_pass1_ms=" << baseline_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " baseline_pass2_ms=" << baseline_second << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    if (timings_finite) {
+      cell.baseline_milliseconds =
+          static_cast<float>(baseline_total / kTimedPasses);
+      cell.candidate_milliseconds =
+          static_cast<float>(candidate_total / kTimedPasses);
+    }
+    const float speedup =
+        cell.baseline_milliseconds / cell.candidate_milliseconds;
+    const bool finite = timings_finite && output_finite &&
+                        std::isfinite(speedup) &&
+                        cell.baseline_milliseconds > 0.0F &&
+                        cell.candidate_milliseconds > 0.0F;
+    const bool cell_gate = cell.bitwise_equal && finite &&
+                           speedup >= kMinimumCellSpeedup;
+    test.expect(cell_gate,
+                distribution_label +
+                    " exact-shape correctness, finite, and speedup gate");
+    std::cout << "PERF_NVFP4_M1_EXACT_SHAPE: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " profile_calls=" << profile_calls
+              << " baseline_row_quad_cap64_ms="
+              << cell.baseline_milliseconds
+              << " candidate_exact_shape_ms="
+              << cell.candidate_milliseconds << " speedup=" << speedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " bitwise_mismatches=" << mismatches << '/' << rows
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  return measurement;
+}
+
+void run_optional_nvfp4_m1_exact_shape_performance(TestContext& test,
+                                                    cudaStream_t stream) {
+  if (!nvfp4_m1_exact_shape_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M1 exact-shape performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M1_EXACT_SHAPE_PERF=1 to enable\n";
+    return;
+  }
+  constexpr std::array<NvFp4M1RowQuadShape, 3U> kShapes{{
+      {17'408U, 5'120U, 128U, "NVFP4 M1 exact gate/up 17408x5120"},
+      {5'120U, 17'408U, 64U, "NVFP4 M1 exact down 5120x17408"},
+      {248'320U, 5'120U, 1U, "NVFP4 M1 exact lm_head 248320x5120"},
+  }};
+  constexpr std::array<double, 2U> kMinimumWeightedSpeedups{{
+      1.025,
+      1.020,
+  }};
+  std::array<NvFp4M1ExactShapeMeasurement, kShapes.size()> measurements{};
+  std::array<double, kNvFp4M1RowQuadScaleDistributions.size()>
+      weighted_speedups{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    const NvFp4M1RowQuadShape& shape = kShapes[shape_index];
+    measurements[shape_index] = benchmark_nvfp4_m1_exact_shape(
+        test, stream, shape.rows, shape.columns, shape.profile_calls,
+        shape.label);
+  }
+
+  bool all_gates = true;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M1RowQuadScaleDistributions.size();
+       ++distribution_index) {
+    double weighted_baseline = 0.0;
+    double weighted_candidate = 0.0;
+    bool distribution_gate = true;
+    for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+         ++shape_index) {
+      const NvFp4M1ExactShapeDistributionMeasurement& cell =
+          measurements[shape_index].distributions[distribution_index];
+      const bool finite = std::isfinite(cell.baseline_milliseconds) &&
+                          std::isfinite(cell.candidate_milliseconds) &&
+                          cell.baseline_milliseconds > 0.0F &&
+                          cell.candidate_milliseconds > 0.0F;
+      const double cell_speedup =
+          static_cast<double>(cell.baseline_milliseconds) /
+          static_cast<double>(cell.candidate_milliseconds);
+      distribution_gate = distribution_gate && cell.bitwise_equal &&
+                          cell.output_finite && finite &&
+                          std::isfinite(cell_speedup) &&
+                          cell_speedup >= 1.015;
+      weighted_baseline +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.baseline_milliseconds;
+      weighted_candidate +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.candidate_milliseconds;
+    }
+    const double weighted_speedup = weighted_baseline / weighted_candidate;
+    weighted_speedups[distribution_index] = weighted_speedup;
+    const double required_speedup =
+        kMinimumWeightedSpeedups[distribution_index];
+    distribution_gate = distribution_gate &&
+                        std::isfinite(weighted_speedup) &&
+                        weighted_baseline > 0.0 && weighted_candidate > 0.0 &&
+                        weighted_speedup >= required_speedup;
+    all_gates = all_gates && distribution_gate;
+    std::cout << "PERF_NVFP4_M1_EXACT_SHAPE_WEIGHTED: distribution="
+              << nvfp4_m1_scale_distribution_name(
+                     kNvFp4M1RowQuadScaleDistributions[distribution_index])
+              << " baseline_row_quad_cap64_ms=" << weighted_baseline
+              << " candidate_exact_shape_ms=" << weighted_candidate
+              << " speedup=" << weighted_speedup
+              << " required_speedup=" << required_speedup
+              << " profile_calls=128:64:1"
+              << " gate=" << (distribution_gate ? "PASS" : "FAIL")
+              << '\n';
+  }
+  test.expect(all_gates,
+              "NVFP4 M1 exact-shape clears correctness and performance "
+              "gates");
+  std::cout << "PERF_NVFP4_M1_EXACT_SHAPE_SELECTED: baseline="
+               "current_row_quad_cap64 candidate=exact_shape"
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " profile_calls=128:64:1 checkpoint_weighted_speedup="
+            << weighted_speedups[0U] << " stress_weighted_speedup="
+            << weighted_speedups[1U]
+            << " gate=" << (all_gates ? "PASS" : "FAIL") << '\n';
 }
 
 [[nodiscard]] bool benchmark_nvfp4_m1_scale_codebook_shape(
@@ -13337,6 +13794,7 @@ int main() {
   run_optional_nvfp4_m1_grid_cap_performance(test, stream);
   run_optional_nvfp4_m1_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_row_quad_performance(test, stream);
+  run_optional_nvfp4_m1_exact_shape_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_wmma_performance(test, stream);
