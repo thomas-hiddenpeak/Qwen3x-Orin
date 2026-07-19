@@ -339,7 +339,7 @@ void test_successful_bind(TestContext& test) {
               "non-owning model view is movable");
 }
 
-void test_bf16_projection_pair_eligibility(TestContext& test) {
+void test_projection_pair_eligibility(TestContext& test) {
   std::uint16_t first_storage = 0U;
   std::uint16_t second_storage = 0U;
   const runtime::LinearWeight first = runtime::Bf16LinearWeight{
@@ -378,6 +378,51 @@ void test_bf16_projection_pair_eligibility(TestContext& test) {
   test.expect(!runtime::supports_bf16_projection_pair(
                   runtime::ProjectionBackend::kSm87WeightOnly, first, fp8),
               "pair eligibility does not fuse a non-BF16 projection");
+
+  std::uint8_t second_fp8_storage = 0U;
+  float second_scale = 0.5F;
+  const runtime::LinearWeight first_fp8 = runtime::Fp8LinearWeight{
+      &fp8_storage, &scale, &scale, 1.0F, 1.0F, 1'024U, 5'120U};
+  const runtime::LinearWeight second_fp8 = runtime::Fp8LinearWeight{
+      &second_fp8_storage, &second_scale, &second_scale, 0.5F, 1.0F,
+      1'024U, 5'120U};
+  test.expect(runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_fp8,
+                  second_fp8),
+              "SM87 accepts the exact FP8 K/V projection pair");
+  test.expect(!runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kReference, first_fp8,
+                  second_fp8),
+              "reference backend preserves independent FP8 projections");
+
+  const runtime::LinearWeight wrong_fp8_rows = runtime::Fp8LinearWeight{
+      &second_fp8_storage, &second_scale, &second_scale, 0.5F, 1.0F,
+      1'023U, 5'120U};
+  const runtime::LinearWeight wrong_fp8_columns = runtime::Fp8LinearWeight{
+      &second_fp8_storage, &second_scale, &second_scale, 0.5F, 1.0F,
+      1'024U, 5'119U};
+  const runtime::LinearWeight missing_fp8_companion =
+      runtime::Fp8LinearWeight{&second_fp8_storage, nullptr, &second_scale,
+                               0.5F, 1.0F, 1'024U, 5'120U};
+  const runtime::LinearWeight invalid_fp8_scale = runtime::Fp8LinearWeight{
+      &second_fp8_storage, &second_scale, &second_scale,
+      std::numeric_limits<float>::infinity(), 1.0F, 1'024U, 5'120U};
+  test.expect(!runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_fp8,
+                  wrong_fp8_rows) &&
+                  !runtime::supports_fp8_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      first_fp8, wrong_fp8_columns) &&
+                  !runtime::supports_fp8_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      first_fp8, missing_fp8_companion) &&
+                  !runtime::supports_fp8_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      first_fp8, invalid_fp8_scale) &&
+                  !runtime::supports_fp8_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, first,
+                      second_fp8),
+              "FP8 pair eligibility rejects near-miss and malformed pairs");
 }
 
 void test_source_and_tensor_failures(TestContext& test) {
@@ -549,7 +594,7 @@ void test_scalar_failures(TestContext& test) {
 int main() {
   TestContext test;
   test_successful_bind(test);
-  test_bf16_projection_pair_eligibility(test);
+  test_projection_pair_eligibility(test);
   test_source_and_tensor_failures(test);
   test_scalar_failures(test);
   if (test.failures() != 0) {

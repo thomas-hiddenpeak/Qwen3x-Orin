@@ -1115,11 +1115,25 @@ ReferenceStepOutcome ReferenceRunner::step(
       const std::size_t rope_first_position =
           static_cast<std::size_t>(position);
       if (!project(attention->q_proj, views_.hidden[1], views_.projection[0],
-                   "full_q_gate_projection", layer) ||
-          !project(attention->k_proj, views_.hidden[1], current_key,
-                   "full_k_projection", layer) ||
-          !project(attention->v_proj, views_.hidden[1], current_value,
-                   "full_v_projection", layer)) {
+                   "full_q_gate_projection", layer)) {
+        return fail_step(launch_failure);
+      }
+      if (supports_fp8_projection_pair(
+              projection_backend_, attention->k_proj,
+              attention->v_proj)) {
+        if (!check_cuda(launch_projection_pair_tile_to_bf16_cuda(
+                            projection_backend_, attention->k_proj,
+                            attention->v_proj, views_.hidden[1], 1U,
+                            views_.fp32_scratch,
+                            views_.fp32_scratch_elements, current_key,
+                            current_value, stream_),
+                        "full_k_v_projection", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (!project(attention->k_proj, views_.hidden[1], current_key,
+                          "full_k_projection", layer) ||
+                 !project(attention->v_proj, views_.hidden[1], current_value,
+                          "full_v_projection", layer)) {
         return fail_step(launch_failure);
       }
 

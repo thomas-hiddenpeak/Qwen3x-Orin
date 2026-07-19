@@ -63,6 +63,20 @@ launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
     std::uint16_t* output, std::size_t maximum_blocks,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_kv_pair_row_quad_grid_cap_test_cuda(
+    const std::uint8_t* key_weights, float key_weight_scale,
+    const std::uint8_t* value_weights, float value_weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* key_output, std::uint16_t* value_output,
+    std::size_t maximum_blocks, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_kv_pair_row_quad_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -403,6 +417,10 @@ class EventPair {
 
 [[nodiscard]] bool is_bf16_nan(const std::uint16_t bits) noexcept {
   return (bits & 0x7f80U) == 0x7f80U && (bits & 0x007fU) != 0U;
+}
+
+[[nodiscard]] bool is_bf16_finite(const std::uint16_t bits) noexcept {
+  return (bits & 0x7f80U) != 0x7f80U;
 }
 
 // Independent host decoders intentionally use arithmetic rather than the
@@ -4075,6 +4093,13 @@ void test_launch_validation(TestContext& test) {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool fp8_m1_kv_pair_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
@@ -5098,6 +5123,765 @@ void fill_fp8_m2_code_distribution(
       }
     }
   }
+}
+
+struct Fp8KvPairKernelResources {
+  int registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = 0;
+  int active_blocks_per_sm = 0;
+};
+
+struct Fp8KvPairTiming {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+};
+
+template <std::size_t Count>
+[[nodiscard]] float median_fp8_kv_pair_timing(
+    std::array<float, Count> values) {
+  static_assert(Count != 0U);
+  std::sort(values.begin(), values.end());
+  if constexpr ((Count % 2U) == 0U) {
+    return (values[Count / 2U - 1U] + values[Count / 2U]) * 0.5F;
+  }
+  return values[Count / 2U];
+}
+
+void run_fp8_m1_kv_pair_correctness_and_optional_performance(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr float kKeyWeightScale = 1.0F / 64.0F;
+  constexpr float kValueWeightScale = 1.0F / 96.0F;
+  constexpr int kWarmupIterations = 8;
+  constexpr int kMeasuredIterations = 80;
+  constexpr int kMeasurementRounds = 3;
+  constexpr std::uint16_t kKeyGuard = 0xa5a5U;
+  constexpr std::uint16_t kValueGuard = 0x5a5aU;
+  constexpr std::size_t kComparisonGridCap = 64U;
+  constexpr std::size_t kSelectedGridCap = 128U;
+  constexpr std::array<Fp8M2CodeDistribution, 2U> kDistributions{{
+      Fp8M2CodeDistribution::kCheckpointLike,
+      Fp8M2CodeDistribution::kSameBankStress,
+  }};
+  const std::string label = "FP8 M1 exact K/V pair 1024x5120";
+
+  Fp8KvPairKernelResources row_quad_resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_kv_pair_row_quad_resources_test_cuda(
+              &row_quad_resources.registers_per_thread,
+              &row_quad_resources.static_shared_bytes,
+              &row_quad_resources.local_bytes,
+              &row_quad_resources.maximum_threads_per_block,
+              &row_quad_resources.active_blocks_per_sm)),
+      label + " query production cross-matrix row-quad resources");
+  if (!ready) {
+    return;
+  }
+  const auto report_resources = [&](const char* const candidate,
+                                    const Fp8KvPairKernelResources& resources,
+                                    const std::size_t outputs_per_cta) {
+    std::cout << "PERF_FP8_M1_KV_PAIR_RESOURCES: candidate=" << candidate
+              << " outputs_per_cta=" << outputs_per_cta
+              << " registers_per_thread=" << resources.registers_per_thread
+              << " static_shared_bytes=" << resources.static_shared_bytes
+              << " local_bytes=" << resources.local_bytes
+              << " maximum_threads_per_block="
+              << resources.maximum_threads_per_block
+              << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+              << '\n';
+    test.expect(resources.registers_per_thread > 0 &&
+                    resources.static_shared_bytes > 0U &&
+                    resources.maximum_threads_per_block >= 256 &&
+                    resources.active_blocks_per_sm > 0,
+                label + " " + candidate + " reports usable resources");
+  };
+  report_resources("production_cross_matrix_row_quad_2K2V",
+                   row_quad_resources, 4U);
+  const bool selected_resource_gate =
+      row_quad_resources.registers_per_thread <= 64 &&
+      row_quad_resources.local_bytes == 0U &&
+      row_quad_resources.active_blocks_per_sm >= 4;
+  std::cout << "PERF_FP8_M1_KV_PAIR_RESOURCE_GATE: candidate="
+               "production_cross_matrix_row_quad_2K2V"
+            << " maximum_registers_per_thread=64 minimum_active_blocks_per_sm=4"
+            << " require_zero_local_bytes=true gate="
+            << (selected_resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(selected_resource_gate,
+              label + " selected production kernel clears resource gate");
+  test.expect(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_kv_pair_row_quad_resources_test_cuda(
+              nullptr, &row_quad_resources.static_shared_bytes,
+              &row_quad_resources.local_bytes,
+              &row_quad_resources.maximum_threads_per_block,
+              &row_quad_resources.active_blocks_per_sm)) ==
+          cudaErrorInvalidValue,
+      label + " resource query rejects a null destination");
+
+  std::vector<std::uint8_t> host_key_weights(kRows * kColumns);
+  std::vector<std::uint8_t> host_value_weights(kRows * kColumns);
+  std::vector<std::uint16_t> host_activation(kColumns);
+  const auto fill_mixed_activation = [&]() {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + (column >> 3U) * 5U + 7U) %
+                           127U) -
+          63;
+      host_activation[column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  };
+  fill_mixed_activation();
+
+  DeviceBuffer<std::uint8_t> key_weights;
+  DeviceBuffer<std::uint8_t> value_weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_key_output;
+  DeviceBuffer<std::uint16_t> baseline_value_output;
+  DeviceBuffer<std::uint16_t> candidate_key_storage;
+  DeviceBuffer<std::uint16_t> candidate_value_storage;
+  ready = test.cuda_ok(key_weights.allocate(host_key_weights.size()),
+                       label + " allocate key weights");
+  ready = ready && test.cuda_ok(value_weights.allocate(host_value_weights.size()),
+                                label + " allocate value weights");
+  ready = ready && test.cuda_ok(activation.allocate(host_activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(baseline_key_output.allocate(kRows),
+                                label + " allocate baseline key output");
+  ready = ready && test.cuda_ok(baseline_value_output.allocate(kRows),
+                                label + " allocate baseline value output");
+  ready = ready && test.cuda_ok(
+                       candidate_key_storage.allocate(
+                           kRows + 2U * kGuardElements),
+                       label + " allocate guarded candidate key output");
+  ready = ready && test.cuda_ok(
+                       candidate_value_storage.allocate(
+                           kRows + 2U * kGuardElements),
+                       label + " allocate guarded candidate value output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activation");
+  if (!ready) {
+    return;
+  }
+  std::uint16_t* const candidate_key_output =
+      candidate_key_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_value_output =
+      candidate_value_storage.get() + kGuardElements;
+
+  const auto row_quad_status =
+      [&](const std::size_t rows, const std::size_t columns,
+          const std::size_t cap, std::uint16_t* const key_output,
+          std::uint16_t* const value_output) noexcept {
+        return static_cast<cudaError_t>(q3x::kernels::
+            launch_sm87_fp8_w8a16_m1_kv_pair_row_quad_grid_cap_test_cuda(
+                key_weights.get(), kKeyWeightScale, value_weights.get(),
+                kValueWeightScale, activation.get(), rows, columns,
+                key_output, value_output, cap, static_cast<void*>(stream)));
+      };
+  const auto production_status =
+      [&](const std::uint8_t* const first_weights,
+          const float first_scale, const std::uint8_t* const second_weights,
+          const float second_scale, const std::size_t rows,
+          const std::size_t columns, std::uint16_t* const first_output,
+          std::uint16_t* const second_output) noexcept {
+        return static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(
+                first_weights, first_scale, second_weights, second_scale,
+                activation.get(), rows, columns, first_output, second_output,
+                static_cast<void*>(stream)));
+      };
+  test.expect(production_status(
+                  key_weights.get(), kKeyWeightScale, value_weights.get(),
+                  kValueWeightScale, kRows - 1U, kColumns,
+                  candidate_key_output, candidate_value_output) ==
+                  cudaErrorInvalidValue,
+              label + " production pair rejects near-miss rows");
+  test.expect(production_status(
+                  key_weights.get(), kKeyWeightScale, value_weights.get(),
+                  kValueWeightScale, kRows, kColumns - 1U,
+                  candidate_key_output, candidate_value_output) ==
+                  cudaErrorInvalidValue,
+              label + " production pair rejects near-miss columns");
+  test.expect(row_quad_status(kRows, kColumns, 0U, candidate_key_output,
+                              candidate_value_output) ==
+                  cudaErrorInvalidValue,
+              label + " row-quad rejects zero grid cap");
+  test.expect(row_quad_status(kRows, kColumns, kRows / 2U + 1U,
+                              candidate_key_output,
+                              candidate_value_output) ==
+                  cudaErrorInvalidValue,
+              label + " row-quad rejects more than 512 CTAs");
+  test.expect(production_status(
+                  key_weights.get(), kKeyWeightScale, value_weights.get(),
+                  kValueWeightScale, kRows, kColumns, candidate_key_output,
+                  candidate_key_output) ==
+                  cudaErrorInvalidValue,
+              label + " production pair rejects overlapping outputs");
+  test.expect(
+      production_status(key_weights.get(), -1.0F, value_weights.get(),
+                        kValueWeightScale, kRows, kColumns,
+                        candidate_key_output, candidate_value_output) ==
+          cudaErrorInvalidValue,
+      label + " production pair rejects a negative first scale");
+  test.expect(
+      production_status(
+          key_weights.get(), kKeyWeightScale, value_weights.get(),
+          kValueWeightScale, kRows, kColumns,
+          reinterpret_cast<std::uint16_t*>(value_weights.get()),
+          candidate_value_output) == cudaErrorInvalidValue,
+      label + " production pair rejects first output overlapping second "
+              "weights");
+  test.expect(
+      production_status(key_weights.get() + 1U, kKeyWeightScale,
+                        value_weights.get(), kValueWeightScale, kRows,
+                        kColumns, candidate_key_output,
+                        candidate_value_output) == cudaErrorInvalidValue,
+      label + " production pair rejects unaligned first weights");
+  test.expect(
+      production_status(nullptr, kKeyWeightScale, value_weights.get(),
+                        kValueWeightScale, kRows, kColumns,
+                        candidate_key_output, candidate_value_output) ==
+          cudaErrorInvalidValue,
+      label + " production pair rejects null first weights");
+
+  const auto launch_baseline = [&]() noexcept -> int {
+    const int key_status =
+        q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda(
+            key_weights.get(), kKeyWeightScale, activation.get(), kRows,
+            kColumns, baseline_key_output.get(), static_cast<void*>(stream));
+    if (key_status != static_cast<int>(cudaSuccess)) {
+      return key_status;
+    }
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda(
+        value_weights.get(), kValueWeightScale, activation.get(), kRows,
+        kColumns, baseline_value_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_row_quad = [&](const std::size_t cap) noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_kv_pair_row_quad_grid_cap_test_cuda(
+            key_weights.get(), kKeyWeightScale, value_weights.get(),
+            kValueWeightScale, activation.get(), kRows, kColumns,
+            candidate_key_output, candidate_value_output, cap,
+            static_cast<void*>(stream));
+  };
+  const auto launch_production_pair =
+      [&](const std::size_t) noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(
+        key_weights.get(), kKeyWeightScale, value_weights.get(),
+        kValueWeightScale, activation.get(), kRows, kColumns,
+        candidate_key_output, candidate_value_output,
+        static_cast<void*>(stream));
+  };
+
+  std::vector<std::uint16_t> baseline_key(kRows);
+  std::vector<std::uint16_t> baseline_value(kRows);
+  std::vector<std::uint16_t> candidate_key(kRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> candidate_value(kRows + 2U * kGuardElements);
+  std::array<Fp8KvPairTiming, kDistributions.size()> row_quad_cap64{};
+  std::array<Fp8KvPairTiming, kDistributions.size()> row_quad_cap128{};
+  std::array<bool, kDistributions.size()> row_quad_cap128_correct{};
+  bool full_code_production_correct = false;
+
+  const auto check_candidate =
+      [&](const auto& launch_candidate, const std::size_t cap,
+          const std::string& candidate_label,
+          const bool require_finite = true) {
+        bool candidate_ready = test.cuda_ok(
+            cudaMemsetAsync(candidate_key_storage.get(), 0xa5,
+                            candidate_key.size() * sizeof(std::uint16_t),
+                            stream),
+            candidate_label + " poison guarded key output");
+        candidate_ready = candidate_ready && test.cuda_ok(
+            cudaMemsetAsync(candidate_value_storage.get(), 0x5a,
+                            candidate_value.size() * sizeof(std::uint16_t),
+                            stream),
+            candidate_label + " poison guarded value output");
+        candidate_ready = candidate_ready && test.cuda_ok(
+            static_cast<cudaError_t>(launch_candidate(cap)),
+            candidate_label + " correctness launch");
+        candidate_ready = candidate_ready && test.cuda_ok(
+            cudaMemcpyAsync(candidate_key.data(), candidate_key_storage.get(),
+                            candidate_key.size() * sizeof(std::uint16_t),
+                            cudaMemcpyDeviceToHost, stream),
+            candidate_label + " copy guarded key output");
+        candidate_ready = candidate_ready && test.cuda_ok(
+            cudaMemcpyAsync(candidate_value.data(),
+                            candidate_value_storage.get(),
+                            candidate_value.size() * sizeof(std::uint16_t),
+                            cudaMemcpyDeviceToHost, stream),
+            candidate_label + " copy guarded value output");
+        candidate_ready = candidate_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream),
+            candidate_label + " correctness synchronize");
+        if (!candidate_ready) {
+          return false;
+        }
+        std::size_t key_mismatches = 0U;
+        std::size_t value_mismatches = 0U;
+        std::size_t nonfinite_outputs = 0U;
+        for (std::size_t row = 0U; row < kRows; ++row) {
+          key_mismatches +=
+              baseline_key[row] != candidate_key[kGuardElements + row] ? 1U
+                                                                        : 0U;
+          value_mismatches +=
+              baseline_value[row] !=
+                      candidate_value[kGuardElements + row]
+                  ? 1U
+                  : 0U;
+          nonfinite_outputs += !is_bf16_finite(baseline_key[row]) ? 1U : 0U;
+          nonfinite_outputs += !is_bf16_finite(baseline_value[row]) ? 1U : 0U;
+          nonfinite_outputs +=
+              !is_bf16_finite(candidate_key[kGuardElements + row]) ? 1U : 0U;
+          nonfinite_outputs +=
+              !is_bf16_finite(candidate_value[kGuardElements + row]) ? 1U
+                                                                      : 0U;
+        }
+        bool guards_intact = true;
+        for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+          guards_intact =
+              guards_intact && candidate_key[guard] == kKeyGuard &&
+              candidate_key[kGuardElements + kRows + guard] == kKeyGuard &&
+              candidate_value[guard] == kValueGuard &&
+              candidate_value[kGuardElements + kRows + guard] == kValueGuard;
+        }
+        const bool bitwise =
+            key_mismatches == 0U && value_mismatches == 0U;
+        std::cout << "FP8_M1_KV_PAIR_DIFF: " << candidate_label
+                  << " key_bf16_mismatches=" << key_mismatches << '/'
+                  << kRows << " value_bf16_mismatches=" << value_mismatches
+                  << '/' << kRows
+                  << " output_guards=" << (guards_intact ? "intact" : "BAD")
+                  << " nonfinite_outputs=" << nonfinite_outputs
+                  << '\n';
+        test.expect(bitwise,
+                    candidate_label +
+                        " matches both production row-pair BF16 outputs");
+        test.expect(guards_intact,
+                    candidate_label + " preserves both output guards");
+        if (require_finite) {
+          test.expect(nonfinite_outputs == 0U,
+                      candidate_label + " keeps all four output views finite");
+        }
+        return bitwise && guards_intact &&
+               (!require_finite || nonfinite_outputs == 0U);
+      };
+
+  const auto benchmark_candidate =
+      [&](const auto& launch_candidate, const std::size_t cap,
+          const std::string& candidate_label) {
+        Fp8KvPairTiming timing{};
+        bool timing_ready = true;
+        for (int iteration = 0;
+             iteration < kWarmupIterations && timing_ready; ++iteration) {
+          timing_ready = test.cuda_ok(
+              static_cast<cudaError_t>(launch_baseline()),
+              candidate_label + " baseline warmup");
+          timing_ready = timing_ready && test.cuda_ok(
+              static_cast<cudaError_t>(launch_candidate(cap)),
+              candidate_label + " candidate warmup");
+        }
+        timing_ready = timing_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream),
+            candidate_label + " warmup synchronize");
+        if (!timing_ready) {
+          return timing;
+        }
+        constexpr std::size_t kTimedPasses =
+            2U * static_cast<std::size_t>(kMeasurementRounds);
+        std::array<float, kTimedPasses> baseline_passes{};
+        std::array<float, kTimedPasses> candidate_passes{};
+        bool all_finite = true;
+        for (int round = 0; round < kMeasurementRounds; ++round) {
+          const std::string round_label =
+              candidate_label + " round=" + std::to_string(round + 1);
+          const float baseline_first = measure_small_m_tile(
+              test, stream, launch_baseline, kMeasuredIterations,
+              round_label + " baseline pass 1");
+          const float candidate_first = measure_small_m_tile(
+              test, stream, [&]() noexcept { return launch_candidate(cap); },
+              kMeasuredIterations, round_label + " candidate pass 1");
+          const float candidate_second = measure_small_m_tile(
+              test, stream, [&]() noexcept { return launch_candidate(cap); },
+              kMeasuredIterations, round_label + " candidate pass 2");
+          const float baseline_second = measure_small_m_tile(
+              test, stream, launch_baseline, kMeasuredIterations,
+              round_label + " baseline pass 2");
+          baseline_passes[2U * static_cast<std::size_t>(round)] =
+              baseline_first;
+          baseline_passes[2U * static_cast<std::size_t>(round) + 1U] =
+              baseline_second;
+          candidate_passes[2U * static_cast<std::size_t>(round)] =
+              candidate_first;
+          candidate_passes[2U * static_cast<std::size_t>(round) + 1U] =
+              candidate_second;
+          const bool round_finite =
+              std::isfinite(baseline_first) &&
+              std::isfinite(candidate_first) &&
+              std::isfinite(candidate_second) &&
+              std::isfinite(baseline_second);
+          all_finite = all_finite && round_finite;
+          std::cout << "PERF_FP8_M1_KV_PAIR_ROUND: " << candidate_label
+                    << " round=" << round + 1
+                    << " baseline_pass1_ms=" << baseline_first
+                    << " candidate_pass1_ms=" << candidate_first
+                    << " candidate_pass2_ms=" << candidate_second
+                    << " baseline_pass2_ms=" << baseline_second << '\n';
+        }
+        if (!all_finite) {
+          return timing;
+        }
+        timing.baseline_milliseconds =
+            median_fp8_kv_pair_timing(baseline_passes);
+        timing.candidate_milliseconds =
+            median_fp8_kv_pair_timing(candidate_passes);
+        const float speedup = timing.baseline_milliseconds /
+                              timing.candidate_milliseconds;
+        constexpr double kEncodedWeightBytes =
+            2.0 * static_cast<double>(kRows) *
+            static_cast<double>(kColumns);
+        const double encoded_weight_gigabytes_per_second =
+            kEncodedWeightBytes /
+            (static_cast<double>(timing.candidate_milliseconds) * 1.0e6);
+        std::cout << "PERF_FP8_M1_KV_PAIR: " << candidate_label
+                  << " baseline_two_production_row_pair_median_ms="
+                  << timing.baseline_milliseconds
+                  << " candidate_median_ms=" << timing.candidate_milliseconds
+                  << " speedup=" << speedup
+                  << " uplift_percent=" << (speedup - 1.0F) * 100.0F
+                  << " candidate_encoded_weight_GBps="
+                  << encoded_weight_gigabytes_per_second << '\n';
+        test.expect(std::isfinite(speedup) &&
+                        timing.baseline_milliseconds > 0.0F &&
+                        timing.candidate_milliseconds > 0.0F,
+                    candidate_label + " reports finite positive timing");
+        return timing;
+      };
+
+  // One bounded target-shape fixture puts all 254 finite raw E4M3FN codes in
+  // every byte position of the packed-x4 loads. The two NaN codes have a
+  // separate classification/sign case below so they cannot make every dot
+  // product NaN and erase the finite fixture's bitwise discrimination.
+  std::array<std::array<bool, 256U>, 4U> full_key_code_coverage{};
+  std::array<std::array<bool, 256U>, 4U> full_value_code_coverage{};
+  const auto finite_code = [](const std::size_t index) noexcept {
+    const std::size_t finite_index = index % 254U;
+    return static_cast<std::uint8_t>(
+        finite_index < 127U ? finite_index : finite_index + 1U);
+  };
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const std::size_t byte_position = column & 3U;
+      const std::uint8_t key_code =
+          finite_code((column >> 2U) + row * 13U);
+      host_key_weights[row * kColumns + column] = key_code;
+      const std::uint8_t value_code =
+          finite_code((column >> 2U) * 7U + row * 11U + 3U);
+      host_value_weights[row * kColumns + column] = value_code;
+      full_key_code_coverage[byte_position][key_code] = true;
+      full_value_code_coverage[byte_position][value_code] = true;
+    }
+  }
+  for (std::size_t byte_position = 0U; byte_position < 4U;
+       ++byte_position) {
+    const std::size_t key_codes = static_cast<std::size_t>(std::count(
+        full_key_code_coverage[byte_position].begin(),
+        full_key_code_coverage[byte_position].end(), true));
+    const std::size_t value_codes = static_cast<std::size_t>(std::count(
+        full_value_code_coverage[byte_position].begin(),
+        full_value_code_coverage[byte_position].end(), true));
+    test.expect(key_codes == 254U &&
+                    !full_key_code_coverage[byte_position][0x7fU] &&
+                    !full_key_code_coverage[byte_position][0xffU],
+                label + " full-code key fixture covers byte position " +
+                    std::to_string(byte_position));
+    test.expect(value_codes == 254U &&
+                    !full_value_code_coverage[byte_position][0x7fU] &&
+                    !full_value_code_coverage[byte_position][0xffU],
+                label + " full-code value fixture covers byte position " +
+                    std::to_string(byte_position));
+  }
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(key_weights.get(), host_key_weights.data(),
+                      host_key_weights.size(), cudaMemcpyHostToDevice, stream),
+      label + " initialize full-code key weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           value_weights.get(), host_value_weights.data(),
+                           host_value_weights.size(), cudaMemcpyHostToDevice,
+                           stream),
+                       label + " initialize full-code value weights");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch full-code production baselines");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline_key.data(), baseline_key_output.get(),
+                           baseline_key.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy full-code baseline key output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline_value.data(), baseline_value_output.get(),
+                           baseline_value.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy full-code baseline value output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " full-code baseline synchronize");
+  if (!ready) {
+    return;
+  }
+  full_code_production_correct = check_candidate(
+      launch_production_pair, kSelectedGridCap,
+      label + " distribution=full_codebook_all_byte_positions "
+              "candidate=production_cross_matrix_row_quad_2K2V cap=128");
+
+  std::fill(host_key_weights.begin(), host_key_weights.end(), 0U);
+  std::fill(host_value_weights.begin(), host_value_weights.end(), 0U);
+  std::fill(host_activation.begin(), host_activation.end(),
+            encode_bf16(0.0F));
+  host_activation[0U] = encode_bf16(1.0F);
+  host_key_weights[0U] = 0x7fU;
+  host_key_weights[kColumns] = 0xffU;
+  host_value_weights[0U] = 0xffU;
+  host_value_weights[kColumns] = 0x7fU;
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(key_weights.get(), host_key_weights.data(),
+                      host_key_weights.size(), cudaMemcpyHostToDevice, stream),
+      label + " initialize isolated NaN key weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           value_weights.get(), host_value_weights.data(),
+                           host_value_weights.size(), cudaMemcpyHostToDevice,
+                           stream),
+                       label + " initialize isolated NaN value weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation.get(), host_activation.data(),
+                           host_activation.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize isolated NaN activation");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch isolated NaN production baselines");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline_key.data(), baseline_key_output.get(),
+                           baseline_key.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy isolated NaN baseline key output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline_value.data(), baseline_value_output.get(),
+                           baseline_value.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy isolated NaN baseline value output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " isolated NaN baseline synchronize");
+  if (!ready) {
+    return;
+  }
+  const bool nan_pair_bitwise_and_guards = check_candidate(
+      launch_production_pair, kSelectedGridCap,
+      label + " distribution=isolated_nan_classification "
+              "candidate=production_cross_matrix_row_quad_2K2V cap=128",
+      false);
+  const auto expect_nan_class_and_sign =
+      [&](const std::uint16_t candidate_bits,
+          const std::uint16_t baseline_bits,
+          const std::string& output_label) {
+        test.expect(is_bf16_nan(candidate_bits) && is_bf16_nan(baseline_bits),
+                    output_label + " remains in the BF16 NaN class");
+        test.expect((candidate_bits & 0x8000U) ==
+                        (baseline_bits & 0x8000U),
+                    output_label +
+                        " matches single-projection NaN output sign");
+  };
+  expect_nan_class_and_sign(candidate_key[kGuardElements], baseline_key[0U],
+                            label + " key row0 raw-code-0x7f NaN");
+  expect_nan_class_and_sign(candidate_key[kGuardElements + 1U],
+                            baseline_key[1U],
+                            label + " key row1 raw-code-0xff NaN");
+  expect_nan_class_and_sign(candidate_value[kGuardElements],
+                            baseline_value[0U],
+                            label + " value row0 raw-code-0xff NaN");
+  expect_nan_class_and_sign(candidate_value[kGuardElements + 1U],
+                            baseline_value[1U],
+                            label + " value row1 raw-code-0x7f NaN");
+  std::size_t unexpected_nonfinite = 0U;
+  for (std::size_t row = 2U; row < kRows; ++row) {
+    unexpected_nonfinite +=
+        !is_bf16_finite(candidate_key[kGuardElements + row]) ? 1U : 0U;
+    unexpected_nonfinite +=
+        !is_bf16_finite(candidate_value[kGuardElements + row]) ? 1U : 0U;
+  }
+  test.expect(nan_pair_bitwise_and_guards && unexpected_nonfinite == 0U,
+              label + " isolates signed NaNs to the four classified rows");
+  std::cout << "FP8_M1_KV_PAIR_NAN_CLASSIFICATION: classified_outputs=4"
+            << " unexpected_nonfinite=" << unexpected_nonfinite
+            << " bitwise_and_guards="
+            << (nan_pair_bitwise_and_guards ? "true" : "false") << '\n';
+
+  if (!fp8_m1_kv_pair_performance_enabled()) {
+    std::cout << "SKIP: FP8 M1 K/V pair timing segment; set "
+                 "Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1 to enable\n";
+    return;
+  }
+  fill_mixed_activation();
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(activation.get(), host_activation.data(),
+                      host_activation.size() * sizeof(std::uint16_t),
+                      cudaMemcpyHostToDevice, stream),
+      label + " restore mixed activation for timing");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kDistributions.size(); ++distribution_index) {
+    const Fp8M2CodeDistribution distribution =
+        kDistributions[distribution_index];
+    const std::string distribution_name =
+        fp8_m2_code_distribution_name(distribution);
+    fill_fp8_m2_code_distribution(host_key_weights, kRows, kColumns,
+                                  distribution);
+    for (std::size_t index = 0U; index < host_value_weights.size(); ++index) {
+      host_value_weights[index] =
+          host_key_weights[host_value_weights.size() - 1U - index];
+    }
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(key_weights.get(), host_key_weights.data(),
+                        host_key_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        label + " " + distribution_name + " initialize key weights");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             value_weights.get(), host_value_weights.data(),
+                             host_value_weights.size(), cudaMemcpyHostToDevice,
+                             stream),
+                         label + " " + distribution_name +
+                             " initialize value weights");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_baseline()),
+                         label + " " + distribution_name +
+                             " launch two production row-pair baselines");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline_key.data(), baseline_key_output.get(),
+                             baseline_key.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " " + distribution_name +
+                             " copy baseline key output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline_value.data(),
+                             baseline_value_output.get(),
+                             baseline_value.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " " + distribution_name +
+                             " copy baseline value output");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         label + " " + distribution_name +
+                             " baseline synchronize");
+    if (!ready) {
+      return;
+    }
+
+    const std::string comparison_label =
+        label + " distribution=" + distribution_name +
+        " candidate=cross_matrix_row_quad_2K2V cap=64";
+    (void)check_candidate(launch_row_quad, kComparisonGridCap,
+                          comparison_label);
+    row_quad_cap64[distribution_index] = benchmark_candidate(
+        launch_row_quad, kComparisonGridCap, comparison_label);
+    const std::string production_label =
+        label + " distribution=" + distribution_name +
+        " candidate=production_cross_matrix_row_quad_2K2V cap=128";
+    row_quad_cap128_correct[distribution_index] =
+        check_candidate(launch_production_pair, kSelectedGridCap,
+                        production_label);
+    row_quad_cap128[distribution_index] = benchmark_candidate(
+        launch_production_pair, kSelectedGridCap, production_label);
+  }
+
+  const auto report_cap =
+      [&](const char* const candidate, const std::size_t cap,
+          const std::array<Fp8KvPairTiming, 2U>& timings) {
+        double baseline_total = 0.0;
+        double candidate_total = 0.0;
+        bool finite = true;
+        for (const Fp8KvPairTiming& timing : timings) {
+          finite = finite && std::isfinite(timing.baseline_milliseconds) &&
+                   std::isfinite(timing.candidate_milliseconds);
+          baseline_total += timing.baseline_milliseconds;
+          candidate_total += timing.candidate_milliseconds;
+        }
+        const double speedup = baseline_total / candidate_total;
+        std::cout << "PERF_FP8_M1_KV_PAIR_CAP_AGGREGATE: candidate="
+                  << candidate << " cap=" << cap
+                  << " distributions=checkpoint_like:"
+                                   "same_bank_stress"
+                  << " baseline_two_production_row_pair_ms=" << baseline_total
+                  << " candidate_ms=" << candidate_total
+                  << " speedup=" << speedup
+                  << " uplift_percent=" << (speedup - 1.0) * 100.0
+                  << " timing=" << (finite ? "finite" : "BAD") << '\n';
+        test.expect(finite && std::isfinite(speedup),
+                    label + " " + candidate + " cap" +
+                        std::to_string(cap) +
+                        " aggregate timing is finite");
+      };
+  report_cap("cross_matrix_row_quad_2K2V_comparison", kComparisonGridCap,
+             row_quad_cap64);
+  report_cap("cross_matrix_row_quad_2K2V_selected", kSelectedGridCap,
+             row_quad_cap128);
+
+  constexpr double kMinimumSelectedSpeedup = 1.10;
+  bool selected_production_gate =
+      selected_resource_gate && full_code_production_correct;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kDistributions.size(); ++distribution_index) {
+    const Fp8KvPairTiming& timing = row_quad_cap128[distribution_index];
+    const double speedup =
+        static_cast<double>(timing.baseline_milliseconds) /
+        static_cast<double>(timing.candidate_milliseconds);
+    const bool cell_gate = row_quad_cap128_correct[distribution_index] &&
+                           std::isfinite(speedup) &&
+                           speedup >= kMinimumSelectedSpeedup;
+    selected_production_gate = selected_production_gate && cell_gate;
+    std::cout << "PERF_FP8_M1_KV_PAIR_SELECTED_VALIDATION: distribution="
+              << fp8_m2_code_distribution_name(
+                     kDistributions[distribution_index])
+              << " candidate=production_cross_matrix_row_quad_2K2V cap=128"
+              << " speedup=" << speedup
+              << " required_speedup=" << kMinimumSelectedSpeedup
+              << " bitwise_and_guards="
+              << (row_quad_cap128_correct[distribution_index] ? "true"
+                                                               : "false")
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  std::cout << "PERF_FP8_M1_KV_PAIR_SELECTED: candidate="
+               "production_cross_matrix_row_quad_2K2V cap=128"
+            << " full_code_bitwise_and_guards="
+            << (full_code_production_correct ? "true" : "false")
+            << " resource_gate="
+            << (selected_resource_gate ? "PASS" : "FAIL")
+            << " distribution_gates="
+            << (selected_production_gate ? "PASS" : "FAIL")
+            << " gate=" << (selected_production_gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(selected_production_gate,
+              label + " selected production pair clears exact/resource/"
+                      "per-distribution 1.10x gates");
 }
 
 struct Fp8M2RowPairDistributionMeasurement {
@@ -13948,6 +14732,7 @@ int main() {
   run_optional_fp8_m1_row_pair_performance(test, stream);
   run_optional_fp8_m1_row_quad_performance(test, stream);
   run_optional_fp8_m1_swizzled_codebook_performance(test, stream);
+  run_fp8_m1_kv_pair_correctness_and_optional_performance(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_m2_row_pair_performance(test, stream);
   run_optional_fp8_m2_row_quad_performance(test, stream);

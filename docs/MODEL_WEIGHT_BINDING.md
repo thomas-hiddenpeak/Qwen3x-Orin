@@ -129,6 +129,15 @@ and signed canonical quiet NaNs. Non-vector K and either unaligned pointer
 retain the scalar kernel. This dispatch likewise requires no public API or
 checkpoint-layout change.
 
+`supports_fp8_projection_pair` recognizes only two valid FP8 `[1024,5120]`
+matrices under the explicit SM87 backend. For M1 and aligned operands,
+`launch_projection_pair_tile_to_bf16_cuda` uses one K/V cross-matrix row-quad
+kernel that shares activation decode and codebook setup while preserving each
+single projection's BF16 bits. Eligible unaligned calls, M2..M16 tiles, other
+shapes/types, and other backends retain the existing first-then-second path.
+The runner applies the pair only to full-attention K/V on prompt-final and
+decode steps; chunked prefix projection remains unchanged.
+
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
 but their warp reduction and global-scale multiplication order are not
 required to be bitwise identical to the deliberately scalar-shaped CUDA
@@ -173,7 +182,9 @@ the official 20 GB checkpoint.
 production routes at M1 through M16, BF16/reference fallback, M9..M15
 segmentation, M16 Tensor Core selection/two-M8 fallback, scratch behavior,
 whole-tile overlap/span validation, and fail-closed backend and variant
-handling. It uses only tiny synthetic buffers.
+handling. It also covers exact-shape FP8 M1 pair selection, near-miss and
+unaligned ordered fallbacks, cross-output alias rejection, and stale-error
+isolation. It uses only synthetic buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
 all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
@@ -186,3 +197,8 @@ the smaller FP8 shape may regress by at most 2%. It is enabled with
 `Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1` and
 `Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1`; their final production-call-weighted
 speedups over two M8 launches are 2.41756x and 1.56406x, respectively.
+The FP8 M1 K/V pair correctness segment runs by default and covers all 254
+finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
+bitwise comparison, and output canaries. Its optional mirrored timing gate is
+enabled with `Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1` and requires at least 1.10x
+for both checkpoint-like and same-bank-stress fixtures.

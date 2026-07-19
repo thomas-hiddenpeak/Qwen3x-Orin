@@ -219,6 +219,15 @@ and 21.552% relative to C8; the FP8 and NVFP4 fixed-M16 kernel gates provide
 The C16 Nsight diagnostic records 929.615 ms across 9,210 kernel instances,
 versus the historical C8 trace's 1,192.639 ms across 10,107 instances. These
 are diagnostic, unlocked-clock measurements rather than a release claim.
+The decode-only full-attention FP8 K/V projection-pair path then reduced the
+matched max-26 profile from 832 independent K/V kernel instances taking
+39.328 ms to 416 fused pair instances taking 31.317 ms, a 1.25583x speedup for
+the replaced work. A mirrored baseline/candidate/candidate/baseline diagnostic
+reduced the average total-generation median by 7.123 ms (0.196%) and the
+subsequent-token median by 0.219%, while every run retained the exact 26-token
+oracle. This measurement was also taken with unlocked clocks and is not a
+release claim; see the
+[FP8 K/V projection-pair record](docs/metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

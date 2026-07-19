@@ -34,6 +34,9 @@ constexpr std::size_t kFp8EncodedValueCount = 256U;
 constexpr std::size_t kFp8VectorValuesPerLane = 4U;
 constexpr std::size_t kFp8VectorColumnsPerBlock =
     kThreads * kFp8VectorValuesPerLane;
+constexpr std::size_t kFp8KvPairRows = 1'024U;
+constexpr std::size_t kFp8KvPairColumns = 5'120U;
+constexpr unsigned int kFp8KvPairSelectedMaximumBlocks = 128U;
 constexpr std::size_t kNvFp4GroupSize = 16U;
 constexpr std::size_t kNvFp4ValuesPerByte = 2U;
 constexpr std::size_t kNvFp4EncodedValueCount = 16U;
@@ -780,6 +783,159 @@ fp8_w8a16_gemv_bf16_row_quad_kernel(
             output[row3] = encode_bf16_rne(block_sum3);
           }
         }
+      }
+    }
+    __syncthreads();
+  }
+}
+
+// Exact-shape cross-matrix row-quad kernel. A CTA computes two adjacent rows
+// from both matrices, so one packed activation load/decode feeds all four FP8
+// weight streams. At the selected persistent cap this also amortizes codebook
+// setup across multiple row quads. The individual accumulator and reduction
+// chains retain the single-projection BF16 result exactly.
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel(
+    const std::uint8_t* const key_weights,
+    const float key_weight_scale,
+    const std::uint8_t* const value_weights,
+    const float value_weight_scale,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const key_output,
+    std::uint16_t* const value_output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  const std::size_t first_row = 2U * static_cast<std::size_t>(blockIdx.x);
+  const std::size_t row_stride = 2U * static_cast<std::size_t>(gridDim.x);
+  for (std::size_t row0 = first_row; row0 < rows; row0 += row_stride) {
+    const std::size_t row1 = row0 + 1U;
+    const std::uint8_t* const key_row0_weights =
+        key_weights + row0 * columns;
+    const std::uint8_t* const key_row1_weights =
+        key_weights + row1 * columns;
+    const std::uint8_t* const value_row0_weights =
+        value_weights + row0 * columns;
+    const std::uint8_t* const value_row1_weights =
+        value_weights + row1 * columns;
+    float key_accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float key_accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float value_accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float value_accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+    for (std::size_t first_column =
+             static_cast<std::size_t>(threadIdx.x) *
+             kFp8VectorValuesPerLane;
+         first_column < columns;
+         first_column += kFp8VectorColumnsPerBlock) {
+      const std::uint32_t packed_key_weights0 =
+          *reinterpret_cast<const std::uint32_t*>(key_row0_weights +
+                                                  first_column);
+      const std::uint32_t packed_key_weights1 =
+          *reinterpret_cast<const std::uint32_t*>(key_row1_weights +
+                                                  first_column);
+      const std::uint32_t packed_value_weights0 =
+          *reinterpret_cast<const std::uint32_t*>(value_row0_weights +
+                                                  first_column);
+      const std::uint32_t packed_value_weights1 =
+          *reinterpret_cast<const std::uint32_t*>(value_row1_weights +
+                                                  first_column);
+      constexpr std::uint32_t kFp8PackedHighBits = 0x0707'0707U;
+      const std::uint32_t swizzled_key_weights0 =
+          packed_key_weights0 ^
+          ((packed_key_weights0 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_key_weights1 =
+          packed_key_weights1 ^
+          ((packed_key_weights1 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_value_weights0 =
+          packed_value_weights0 ^
+          ((packed_value_weights0 >> 5U) & kFp8PackedHighBits);
+      const std::uint32_t swizzled_value_weights1 =
+          packed_value_weights1 ^
+          ((packed_value_weights1 >> 5U) & kFp8PackedHighBits);
+      const std::uint64_t packed_activation =
+          *reinterpret_cast<const std::uint64_t*>(activation + first_column);
+#pragma unroll
+      for (unsigned int value = 0U; value < kFp8VectorValuesPerLane;
+           ++value) {
+        const unsigned int weight_shift = value * 8U;
+        const std::uint8_t encoded_key_weight0 =
+            static_cast<std::uint8_t>(
+                (swizzled_key_weights0 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_key_weight1 =
+            static_cast<std::uint8_t>(
+                (swizzled_key_weights1 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_value_weight0 =
+            static_cast<std::uint8_t>(
+                (swizzled_value_weights0 >> weight_shift) & 0xffU);
+        const std::uint8_t encoded_value_weight1 =
+            static_cast<std::uint8_t>(
+                (swizzled_value_weights1 >> weight_shift) & 0xffU);
+        const std::uint16_t encoded_activation =
+            static_cast<std::uint16_t>(
+                (packed_activation >> (value * 16U)) & 0xffffU);
+        const float decoded_activation = decode_bf16(encoded_activation);
+        key_accumulators0[value] =
+            fmaf(decoded_weights[encoded_key_weight0], decoded_activation,
+                 key_accumulators0[value]);
+        key_accumulators1[value] =
+            fmaf(decoded_weights[encoded_key_weight1], decoded_activation,
+                 key_accumulators1[value]);
+        value_accumulators0[value] =
+            fmaf(decoded_weights[encoded_value_weight0], decoded_activation,
+                 value_accumulators0[value]);
+        value_accumulators1[value] =
+            fmaf(decoded_weights[encoded_value_weight1], decoded_activation,
+                 value_accumulators1[value]);
+      }
+    }
+
+    float key_sum0 = (key_accumulators0[0] + key_accumulators0[1]) +
+                     (key_accumulators0[2] + key_accumulators0[3]);
+    float key_sum1 = (key_accumulators1[0] + key_accumulators1[1]) +
+                     (key_accumulators1[2] + key_accumulators1[3]);
+    float value_sum0 =
+        (value_accumulators0[0] + value_accumulators0[1]) +
+        (value_accumulators0[2] + value_accumulators0[3]);
+    float value_sum1 =
+        (value_accumulators1[0] + value_accumulators1[1]) +
+        (value_accumulators1[2] + value_accumulators1[3]);
+    key_sum0 = warp_sum(key_sum0);
+    key_sum1 = warp_sum(key_sum1);
+    value_sum0 = warp_sum(value_sum0);
+    value_sum1 = warp_sum(value_sum1);
+    if (lane == 0U) {
+      warp_sums[0U][warp] = key_sum0;
+      warp_sums[1U][warp] = key_sum1;
+      warp_sums[2U][warp] = value_sum0;
+      warp_sums[3U][warp] = value_sum1;
+    }
+    __syncthreads();
+    if (warp == 0U) {
+      float key_block_sum0 =
+          lane < kWarpsPerBlock ? warp_sums[0U][lane] : 0.0F;
+      float key_block_sum1 =
+          lane < kWarpsPerBlock ? warp_sums[1U][lane] : 0.0F;
+      float value_block_sum0 =
+          lane < kWarpsPerBlock ? warp_sums[2U][lane] : 0.0F;
+      float value_block_sum1 =
+          lane < kWarpsPerBlock ? warp_sums[3U][lane] : 0.0F;
+      key_block_sum0 = warp_sum(key_block_sum0) * key_weight_scale;
+      key_block_sum1 = warp_sum(key_block_sum1) * key_weight_scale;
+      value_block_sum0 = warp_sum(value_block_sum0) * value_weight_scale;
+      value_block_sum1 = warp_sum(value_block_sum1) * value_weight_scale;
+      if (lane == 0U) {
+        key_output[row0] = encode_bf16_rne(key_block_sum0);
+        key_output[row1] = encode_bf16_rne(key_block_sum1);
+        value_output[row0] = encode_bf16_rne(value_block_sum0);
+        value_output[row1] = encode_bf16_rne(value_block_sum1);
       }
     }
     __syncthreads();
@@ -3582,6 +3738,50 @@ nvfp4_w4a16_small_m8_gemm_bf16_fixed_shape_kernel(
   return static_cast<int>(cudaSuccess);
 }
 
+[[nodiscard]] int validate_fp8_pair_launch(
+    const std::uint8_t* const first_weights,
+    const float first_weight_scale,
+    const std::uint8_t* const second_weights,
+    const float second_weight_scale,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    const std::size_t maximum_blocks) noexcept {
+  // The fused kernel is defined only for the checkpoint K/V shape. A CTA owns
+  // two rows from each matrix, so a launch may not request more CTAs than row
+  // pairs even through the test-only cap override.
+  if (rows != kFp8KvPairRows || columns != kFp8KvPairColumns ||
+      maximum_blocks == 0U || maximum_blocks > rows / 2U) {
+    return invalid_value();
+  }
+  const int first_validation = validate_fp8_launch(
+      first_weights, first_weight_scale, activation, rows, columns,
+      first_output);
+  if (first_validation != static_cast<int>(cudaSuccess)) {
+    return first_validation;
+  }
+  const int second_validation = validate_fp8_launch(
+      second_weights, second_weight_scale, activation, rows, columns,
+      second_output);
+  if (second_validation != static_cast<int>(cudaSuccess)) {
+    return second_validation;
+  }
+
+  const std::size_t weight_bytes = rows * columns;
+  const std::size_t output_bytes = rows * sizeof(std::uint16_t);
+  if (ranges_overlap(first_output, output_bytes, second_weights,
+                     weight_bytes) ||
+      ranges_overlap(second_output, output_bytes, first_weights,
+                     weight_bytes) ||
+      ranges_overlap(first_output, output_bytes, second_output,
+                     output_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 void launch_fp8_scalar_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activation, const std::size_t rows,
@@ -4319,6 +4519,52 @@ int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Production exact-shape FP8 K/V projection. One launch shares activation
+// decode and codebook setup across both matrices while preserving each
+// single-projection BF16 result bit-for-bit.
+int launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(
+    const std::uint8_t* const first_weights,
+    const float first_weight_scale,
+    const std::uint8_t* const second_weights,
+    const float second_weight_scale,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_pair_launch(
+      first_weights, first_weight_scale, second_weights, second_weight_scale,
+      activation, rows, columns, first_output, second_output,
+      kFp8KvPairSelectedMaximumBlocks);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool vector_shape =
+      (reinterpret_cast<std::uintptr_t>(first_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(second_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(first_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(second_output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel
+      <<<kFp8KvPairSelectedMaximumBlocks, kThreads, 0U, stream>>>(
+          first_weights, first_weight_scale, second_weights,
+          second_weight_scale, activation, rows, columns, first_output,
+          second_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only scalar baseline for mirrored CUDA-event A/B measurements. It is
 // intentionally omitted from the public header.
 int launch_sm87_fp8_w8a16_gemv_bf16_scalar_test_cuda(
@@ -4540,6 +4786,83 @@ int launch_sm87_fp8_w8a16_m1_row_quad_swizzled_codebook_grid_cap_test_cuda(
       weights, weight_scale, activation, rows, columns, output,
       static_cast<unsigned int>(maximum_blocks), stream);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_m1_kv_pair_row_quad_grid_cap_test_cuda(
+    const std::uint8_t* const key_weights,
+    const float key_weight_scale,
+    const std::uint8_t* const value_weights,
+    const float value_weight_scale,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const key_output,
+    std::uint16_t* const value_output,
+    const std::size_t maximum_blocks,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_pair_launch(
+      key_weights, key_weight_scale, value_weights, value_weight_scale,
+      activation, rows, columns, key_output, value_output, maximum_blocks);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool vector_shape =
+      (reinterpret_cast<std::uintptr_t>(key_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(value_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(key_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(value_output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!vector_shape) {
+    return invalid_value();
+  }
+
+  const unsigned int blocks = static_cast<unsigned int>(maximum_blocks);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel
+      <<<blocks, kThreads, 0U, stream>>>(
+          key_weights, key_weight_scale, value_weights, value_weight_scale,
+          activation, rows, columns, key_output, value_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_m1_kv_pair_row_quad_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(

@@ -59,6 +59,10 @@ The diagnostic Phase 3 records are:
   which records the bounded C16 runtime and GDN extension, fixed-shape FP8 and
   NVFP4 Tensor Core dispatch, exhaustive correctness gates, mirrored same-binary
   C8/C16 samples, and the final C16 Nsight kernel profile.
+- [`qwen36-27b-fp8-kv-pair-benchmark.json`](qwen36-27b-fp8-kv-pair-benchmark.json),
+  which records the exact-shape M1 FP8 K/V projection pair, same-binary
+  synthetic kernel gate, max-26-token Nsight comparison, mirrored single-load
+  generation benchmark, exact replay gates, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

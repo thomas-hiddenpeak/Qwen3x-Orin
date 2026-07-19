@@ -24,6 +24,8 @@ The subsequent C8 kernel-optimization milestone is recorded in
 [`qwen36-27b-c8-kernel-optimization-benchmark.json`](metadata/qwen36-27b-c8-kernel-optimization-benchmark.json).
 The bounded C16 runtime and FP8/NVFP4 Tensor Core milestone is recorded in
 [`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
+The subsequent exact-shape FP8 K/V decode-pair diagnostic is recorded in
+[`qwen36-27b-fp8-kv-pair-benchmark.json`](metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
 
 ## Method
 
@@ -518,6 +520,76 @@ entire difference to Tensor Core projection kernels. Neither profile
 establishes large-prefill, continuous-batching, concurrent-request, or serving
 throughput.
 
+## FP8 K/V paired M1 decode
+
+The full-attention K and V projections are both FP8 `[1024,5120]` matrices
+that consume the same activation. The SM87 M1 pair path replaces their two
+independent launches with one 256-thread cross-matrix row-quad launch. Each CTA
+computes two K and two V rows, sharing activation decode and codebook setup
+while retaining the individual production projection's BF16 bits. The selected
+128-block persistent cap uses 63 registers, 1,152 bytes of shared memory, and
+zero local memory per thread, with four active blocks per SM. The path requires
+aligned exact-shape FP8 operands; eligible unaligned calls and every other valid
+shape/token count retain the ordered independent-projection fallback.
+
+The optional same-binary synthetic gate runs three mirrored timing rounds with
+eight warmups and 80 measured launch pairs per timed pass:
+
+| Distribution | Two production launches | Fused K/V launch | Speedup |
+| --- | ---: | ---: | ---: |
+| Checkpoint-like | 0.117589 ms | 0.0674598 ms | 1.74310x |
+| Same-bank stress | 0.156288 ms | 0.0637426 ms | 2.45187x |
+
+Both clear the required 1.10x gate. The default, non-performance test covers
+all 254 finite E4M3FN codes in every packed byte position for both matrices,
+isolates `0x7f`/`0xff` NaNs for class/sign checks, compares every candidate
+output bit with the two production projections, checks output canaries, and
+exercises alias rejection plus the unaligned dispatcher fallback.
+
+A separate real-model max-26-token Nsight comparison used the exact command
+template below for the historical base and candidate binaries:
+
+```bash
+nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false \
+  --force-overwrite=true -o REPORT \
+  qwen3x-orin generate MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 \
+  --prefill-chunk-size 16 --projection-backend sm87
+```
+
+The 832 separate K/V kernels occupying 39.328192 ms became 416 fused kernels
+occupying 31.316608 ms: 8.011584 ms saved, or an equivalent 1.255825407x
+speedup. Total launches fell from 23,542 to 23,126. Aggregate CUDA kernel time
+moved only from 3,620.029504 to 3,618.054560 ms because other hotspot families
+increased by 6.036640 ms between the two reports. Their SHA-256 values are
+`2982f1fef356e1281d274a56b5a38ee5626ad56564a70f15515c4fd7e1c7920e`
+and `58f194d05118d1d0efe5b1fd95e7ea3960251339a67e2fb700a6389a1707e6c8`.
+This cross-report comparison is hotspot evidence, not a same-binary trial.
+
+The generation gate used four single-load processes in baseline/candidate/
+candidate/baseline order. Each process loaded once, ran one warmup, then five
+measured generations with this command shape:
+
+```bash
+qwen3x-orin benchmark MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' \
+  --max-tokens 26 --warmup 1 --iterations 5 \
+  --max-sequence-length 64 --projection-backend sm87 \
+  --prefill-chunk-size 16
+```
+
+| Average of two process medians | Baseline | Fused K/V | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,628.073 ms | 3,620.950 ms | 7.123 ms (0.196330118%) |
+| Time to first token | 576.0375 ms | 575.6235 ms | 0.414 ms (0.071870321%) |
+| Subsequent token | 122.0775 ms | 121.8100 ms | 0.2675 ms (0.219123098%) |
+
+The total-generation speedup is 1.001967163x. Every warmup and measured run
+retained the exact 19 prompt IDs, 26 generated IDs, decoded text,
+`<|im_end|>`, and 44 steps. These unlocked-clock batch-one results are a
+diagnostic for one exact shape and prompt, not a release or serving-throughput
+claim.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -565,9 +637,11 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 7. use fixed-M16 Tensor Core kernels only for the four measured FP8 shapes and
    two measured NVFP4 shapes, retaining two-M8 fallback for every other valid
    shape/alignment and for FP8 `[1024,5120]`;
-8. retain exact-token, numerical, replay, and memory gates for every dispatch
+8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
+   retaining two ordered projections for every other valid case;
+9. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-9. lock clocks when privileged access is available before making a formal
+10. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

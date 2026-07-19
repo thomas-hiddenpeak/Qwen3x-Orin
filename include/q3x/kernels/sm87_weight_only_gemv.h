@@ -34,6 +34,19 @@ namespace q3x::kernels {
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Fused checkpoint K/V projection for the exact FP8 [1024, 5120] M=1
+// shape. Both matrices consume the same activation while retaining the
+// single-projection BF16 result for every output row. Unsupported shapes or
+// unsafe output aliases or unaligned pointers return cudaErrorInvalidValue
+// represented as int. Weights require 4-byte alignment, activation 8-byte
+// alignment, and outputs 2-byte alignment.
+[[nodiscard]] int launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(
+    const std::uint8_t* first_weights, float first_weight_scale,
+    const std::uint8_t* second_weights, float second_weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* first_output, std::uint16_t* second_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // ModelOpt NVFP4 W4A16 canonical layout. packed_weights is [rows, columns/2],
 // block_scales is E4M3FN [rows, columns/16], low nibble precedes high nibble,
 // and columns must be a multiple of 16:

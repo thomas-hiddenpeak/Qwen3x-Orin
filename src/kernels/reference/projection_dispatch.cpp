@@ -58,6 +58,12 @@ constexpr std::size_t kSm87DirectBf16Columns = 5120U;
          second_begin < first_begin + first_bytes;
 }
 
+[[nodiscard]] bool pointer_is_aligned(
+    const void* const pointer, const std::size_t alignment) noexcept {
+  return pointer != nullptr &&
+         (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+}
+
 struct ProjectionTileSpans {
   std::size_t rows = 0U;
   std::size_t columns = 0U;
@@ -75,7 +81,7 @@ struct ProjectionTileSpans {
     const std::uint16_t* const input, const std::size_t token_count,
     float* const fp32_scratch, const std::size_t scratch_elements,
     std::uint16_t* const output, ProjectionTileSpans* const spans,
-    const bool direct_bf16_output = false) noexcept {
+    const bool direct_output = false) noexcept {
   if (!is_valid_projection_backend(backend) ||
       weight.valueless_by_exception() || token_count == 0U ||
       token_count > kMaximumRequestPrefillChunkSize || input == nullptr ||
@@ -180,7 +186,7 @@ struct ProjectionTileSpans {
   }
 
   const bool requires_reference_scratch =
-      !direct_bf16_output &&
+      !direct_output &&
       (backend == ProjectionBackend::kReference || weight.index() == 0U);
   if (!requires_reference_scratch) {
     return static_cast<int>(cudaSuccess);
@@ -243,7 +249,7 @@ struct ProjectionTileSpans {
     std::uint16_t* const second_output,
     const ProjectionTileSpans& first,
     const ProjectionTileSpans& second,
-    const bool direct_bf16_output) noexcept {
+    const bool direct_output) noexcept {
   if (first.columns != second.columns ||
       ranges_overlap(first_output, first.output_bytes, second_output,
                      second.output_bytes) ||
@@ -253,11 +259,11 @@ struct ProjectionTileSpans {
   }
 
   std::size_t scratch_rows = 0U;
-  if (!direct_bf16_output &&
+  if (!direct_output &&
       requires_projection_scratch(backend, first_weight)) {
     scratch_rows = first.rows;
   }
-  if (!direct_bf16_output &&
+  if (!direct_output &&
       requires_projection_scratch(backend, second_weight) &&
       second.rows > scratch_rows) {
     scratch_rows = second.rows;
@@ -548,36 +554,59 @@ int launch_projection_pair_tile_to_bf16_cuda(
     std::uint16_t* const first_output,
     std::uint16_t* const second_output,
     void* const cuda_stream) noexcept {
-  const bool direct_bf16_output = supports_bf16_projection_pair(
+  const bool fused_bf16_pair = supports_bf16_projection_pair(
       backend, first_weight, second_weight);
+  const bool eligible_fp8_pair =
+      token_count == 1U && supports_fp8_projection_pair(
+                               backend, first_weight, second_weight);
+  bool fused_fp8_pair = false;
+  if (eligible_fp8_pair) {
+    const auto& first = std::get<Fp8LinearWeight>(first_weight);
+    const auto& second = std::get<Fp8LinearWeight>(second_weight);
+    fused_fp8_pair =
+        pointer_is_aligned(first.weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(second.weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(input, alignof(std::uint64_t)) &&
+        pointer_is_aligned(first_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(second_output, alignof(std::uint16_t));
+  }
+  const bool direct_output = fused_bf16_pair || fused_fp8_pair;
   ProjectionTileSpans first_spans;
   ProjectionTileSpans second_spans;
   const int first_validation = validate_projection_tile(
       backend, first_weight, input, token_count, fp32_scratch,
-      scratch_elements, first_output, &first_spans, direct_bf16_output);
+      scratch_elements, first_output, &first_spans, direct_output);
   if (first_validation != static_cast<int>(cudaSuccess)) {
     return first_validation;
   }
   const int second_validation = validate_projection_tile(
       backend, second_weight, input, token_count, fp32_scratch,
-      scratch_elements, second_output, &second_spans, direct_bf16_output);
+      scratch_elements, second_output, &second_spans, direct_output);
   if (second_validation != static_cast<int>(cudaSuccess)) {
     return second_validation;
   }
   const int cross_validation = validate_projection_pair_cross_ranges(
       backend, first_weight, second_weight, input, fp32_scratch,
       first_output, second_output, first_spans, second_spans,
-      direct_bf16_output);
+      direct_output);
   if (cross_validation != static_cast<int>(cudaSuccess)) {
     return cross_validation;
   }
 
-  if (direct_bf16_output) {
+  if (fused_bf16_pair) {
     const auto& first = std::get<Bf16LinearWeight>(first_weight);
     const auto& second = std::get<Bf16LinearWeight>(second_weight);
     return kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
         first.weight, second.weight, input, token_count, first.output_size,
         first.input_size, first_output, second_output, cuda_stream);
+  }
+  if (fused_fp8_pair) {
+    const auto& first = std::get<Fp8LinearWeight>(first_weight);
+    const auto& second = std::get<Fp8LinearWeight>(second_weight);
+    return kernels::launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(
+        first.weight, first.weight_scale, second.weight,
+        second.weight_scale, input, first.output_size, first.input_size,
+        first_output, second_output, cuda_stream);
   }
 
   const int first_status = launch_projection_tile_to_bf16_cuda(

@@ -614,6 +614,34 @@ void test_fake_linear_weight_validation(TestContext& test) {
                   near_miss),
               "decode A/B pair selector preserves the split fallback for "
               "shape mismatches");
+
+  std::uint8_t second_encoded_weight = 0U;
+  float second_device_weight_scale = 0.0F;
+  float second_device_input_scale = 0.0F;
+  const runtime::LinearWeight first_kv = runtime::Fp8LinearWeight{
+      &encoded_weight, &device_weight_scale, &device_input_scale, 0.25F,
+      0.5F, 1'024U, runtime::kReferenceHiddenSize};
+  const runtime::LinearWeight second_kv = runtime::Fp8LinearWeight{
+      &second_encoded_weight, &second_device_weight_scale,
+      &second_device_input_scale, 0.125F, 0.5F, 1'024U,
+      runtime::kReferenceHiddenSize};
+  test.expect(runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_kv,
+                  second_kv) &&
+                  !runtime::supports_fp8_projection_pair(
+                      runtime::ProjectionBackend::kReference, first_kv,
+                      second_kv),
+              "decode K/V production shapes select only the SM87 FP8 M1 "
+              "pair path");
+  const runtime::LinearWeight near_miss_kv = runtime::Fp8LinearWeight{
+      &second_encoded_weight, &second_device_weight_scale,
+      &second_device_input_scale, 0.125F, 0.5F, 1'023U,
+      runtime::kReferenceHiddenSize};
+  test.expect(!runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_kv,
+                  near_miss_kv),
+              "decode K/V pair selector preserves the split fallback for "
+              "shape mismatches");
 }
 
 void test_trace_layout_and_factory_error(TestContext& test) {

@@ -92,6 +92,16 @@ enum class ProjectionBackend : std::uint8_t {
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight) noexcept;
 
+// True only for the production full-attention K/V projection ABI: the
+// explicitly selected SM87 backend and two valid FP8 [1024, 5120] matrices.
+// This is shape/type/payload eligibility only. The fused kernel is M=1-only;
+// launch-time token-count, pointer alignment, input, output, range, and alias
+// validation remains the dispatcher's responsibility. Eligible but unaligned
+// calls preserve the two independent projection fallbacks.
+[[nodiscard]] bool supports_fp8_projection_pair(
+    ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight) noexcept;
+
 struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
@@ -319,9 +329,10 @@ struct WeightBindResult {
 // FP32 scratch must satisfy both independent projection contracts except on
 // the fused SM87 direct-to-BF16 path, where it is unused and may be null.
 //
-// supports_bf16_projection_pair(...) selects one fused SM87 kernel. Every
-// other valid combination preserves the existing first-then-second tile
-// dispatch and its numerical behavior.
+// supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B kernel
+// for M=1..16. supports_fp8_projection_pair(...) selects the fused SM87 FP8
+// K/V kernel only for M=1. Every other valid combination preserves the
+// existing first-then-second tile dispatch and its numerical behavior.
 [[nodiscard]] int launch_projection_pair_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* input,

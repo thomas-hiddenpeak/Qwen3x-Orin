@@ -137,6 +137,8 @@ Deliverables:
   two-M8 fallback for `[1024,5120]`, other shapes, and insufficient alignment.
 - [done, exact-shape gated] Fixed-M16 NVFP4 decode-to-BF16 Tensor Core kernels
   for `[17408,5120]` and `[5120,17408]`, with two-M8 fallback elsewhere.
+- [done, exact-shape gated] Fused full-attention FP8 M1 K/V projection for
+  paired `[1024,5120]` matrices, with ordered independent fallbacks elsewhere.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -189,6 +191,14 @@ text, stop, and 44-step gate still passes. A final C16 Nsight diagnostic records
 trace's 1,192.639 ms across 10,107 instances; this is cross-commit hotspot
 context rather than a release or serving-throughput claim. See the
 [C16 metadata record](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
+The subsequent FP8 K/V pair clears same-binary 1.74310x checkpoint-like and
+2.45187x stress micro-gates. In matched max-26-token profiles it reduces that
+projection work from 39.328192 to 31.316608 ms and removes 416 launches; a
+mirrored single-load generation diagnostic measures a smaller 7.123 ms
+(0.196330118%) average-of-medians reduction while retaining the exact
+19/26-token, text, stop, and 44-step gate. This is exact-shape diagnostic
+evidence, not a release claim; see the
+[FP8 K/V metadata record](metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

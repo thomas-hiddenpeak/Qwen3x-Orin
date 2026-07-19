@@ -877,6 +877,273 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
   }
 }
 
+void test_fp8_projection_pair_dispatch(TestContext& test) {
+  constexpr std::size_t kRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr float kFirstWeightScale = 1.0F / 64.0F;
+  constexpr float kSecondWeightScale = 1.0F / 128.0F;
+  constexpr std::uint16_t kBf16One = 0x3f80U;
+  constexpr std::uint16_t kFirstExpected = 0x42a0U;
+  constexpr std::uint16_t kSecondExpected = 0x4220U;
+
+  DeviceBuffer<std::uint8_t> first_weights;
+  DeviceBuffer<std::uint8_t> second_weights;
+  DeviceBuffer<std::uint8_t> misaligned_first_weight_storage;
+  DeviceBuffer<std::uint8_t> misaligned_activation_storage;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> first_output;
+  DeviceBuffer<std::uint16_t> second_output;
+  bool ready = first_weights.allocate(
+      test, kRows * kColumns, "pair first FP8 weights");
+  ready = ready && second_weights.allocate(
+                       test, kRows * kColumns, "pair second FP8 weights");
+  ready = ready && misaligned_first_weight_storage.allocate(
+                       test, kRows * kColumns + 1U,
+                       "pair misaligned first FP8 weight storage");
+  ready = ready && misaligned_activation_storage.allocate(
+                       test, 2U * kColumns * sizeof(std::uint16_t) + 2U,
+                       "pair misaligned FP8 activation storage");
+  ready = ready && activation.allocate(test, 2U * kColumns,
+                                       "pair FP8 activations");
+  ready = ready && companion_scales.allocate(
+                       test, 4U, "pair FP8 companion scales");
+  ready = ready && scratch.allocate(test, kRows, "pair FP8 scratch");
+  ready = ready && first_output.allocate(
+                       test, 2U * kRows, "pair first FP8 output");
+  ready = ready && second_output.allocate(
+                       test, 2U * kRows, "pair second FP8 output");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      cudaMemset(first_weights.get(), 0x38, kRows * kColumns),
+      "initialize pair first FP8 weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(second_weights.get(), 0x38,
+                                  kRows * kColumns),
+                       "initialize pair second FP8 weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(misaligned_first_weight_storage.get(),
+                                  0x38, kRows * kColumns + 1U),
+                       "initialize pair misaligned first FP8 weights");
+  const std::vector<std::uint16_t> host_activations(
+      2U * kColumns, kBf16One);
+  ready = ready && upload(
+                       test, activation, host_activations,
+                       "pair FP8 activations");
+  std::uint16_t* const misaligned_activation =
+      reinterpret_cast<std::uint16_t*>(
+          misaligned_activation_storage.get() + 2U);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(misaligned_activation,
+                                  host_activations.data(),
+                                  host_activations.size() *
+                                      sizeof(host_activations.front()),
+                                  cudaMemcpyHostToDevice),
+                       "upload pair misaligned FP8 activations");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kFirstWeightScale, 1.0F,
+                                          kSecondWeightScale, 1.0F},
+                       "pair FP8 companion scales");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight first = runtime::Fp8LinearWeight{
+      first_weights.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kFirstWeightScale, 1.0F, kRows,
+      kColumns};
+  const runtime::LinearWeight second = runtime::Fp8LinearWeight{
+      second_weights.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kSecondWeightScale, 1.0F, kRows,
+      kColumns};
+  test.expect(runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first,
+                  second),
+              "production FP8 K/V pair selects the SM87 fast path");
+
+  int status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+      activation.get(), 1U, nullptr, 0U, first_output.get(),
+      second_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "SM87 production FP8 pair M1 accepts null unused scratch");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, first_output, 1U, kRows,
+        std::vector<std::uint16_t>{kFirstExpected},
+        "SM87 production FP8 pair M1 first output");
+    (void)expect_tile_output(
+        test, second_output, 1U, kRows,
+        std::vector<std::uint16_t>{kSecondExpected},
+        "SM87 production FP8 pair M1 second output");
+  }
+
+  std::size_t total_nodes = 0U;
+  const std::size_t fused_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+            activation.get(), 1U, nullptr, 0U, first_output.get(),
+            second_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 production FP8 pair M1 graph", &total_nodes);
+  test.expect(total_nodes == 1U && fused_kernel_nodes == 1U,
+              "FP8 K/V M1 graph contains exactly one fused kernel node");
+
+  const runtime::LinearWeight unaligned_first = runtime::Fp8LinearWeight{
+      misaligned_first_weight_storage.get() + 1U, companion_scales.get(),
+      companion_scales.get() + 1U, kFirstWeightScale, 1.0F, kRows,
+      kColumns};
+  test.expect(runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  unaligned_first, second),
+              "FP8 K/V model eligibility is independent of launch "
+              "alignment");
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, unaligned_first, second,
+      misaligned_activation, 1U, nullptr, 0U, first_output.get(),
+      second_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "unaligned exact FP8 K/V M1 preserves the split fallback");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, first_output, 1U, kRows,
+        std::vector<std::uint16_t>{kFirstExpected},
+        "unaligned exact FP8 pair first fallback output");
+    (void)expect_tile_output(
+        test, second_output, 1U, kRows,
+        std::vector<std::uint16_t>{kSecondExpected},
+        "unaligned exact FP8 pair second fallback output");
+  }
+  std::size_t unaligned_total_nodes = 0U;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, unaligned_first,
+            second, misaligned_activation, 1U, nullptr, 0U,
+            first_output.get(), second_output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 unaligned exact FP8 pair M1 graph", &unaligned_total_nodes);
+  test.expect(unaligned_total_nodes == 2U &&
+                  unaligned_kernel_nodes == 2U,
+              "unaligned exact FP8 K/V M1 graph preserves two fallback "
+              "kernels");
+
+  std::size_t m2_total_nodes = 0U;
+  const std::size_t m2_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+            activation.get(), 2U, nullptr, 0U, first_output.get(),
+            second_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 production FP8 pair M2 graph", &m2_total_nodes);
+  test.expect(m2_total_nodes == 2U && m2_kernel_nodes == 2U,
+              "FP8 K/V M2 preserves two independent projection kernels");
+
+  const runtime::LinearWeight near_miss = runtime::Fp8LinearWeight{
+      second_weights.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kSecondWeightScale, 1.0F, kRows - 1U,
+      kColumns};
+  test.expect(!runtime::supports_fp8_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first,
+                  near_miss),
+              "near-miss FP8 K/V shape does not select the fused kernel");
+  std::size_t near_miss_total_nodes = 0U;
+  const std::size_t near_miss_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, first, near_miss,
+            activation.get(), 1U, nullptr, 0U, first_output.get(),
+            second_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 near-miss FP8 pair M1 graph", &near_miss_total_nodes);
+  test.expect(near_miss_total_nodes == 2U && near_miss_kernel_nodes == 2U,
+              "near-miss FP8 K/V shape preserves split M1 projections");
+
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, first, second,
+            activation.get(), 1U, scratch.get(), kRows, first_output.get(),
+            second_output.get(), static_cast<void*>(stream));
+      },
+      "reference FP8 pair M1 graph", &reference_total_nodes);
+  test.expect(reference_total_nodes == 4U &&
+                  reference_kernel_nodes == 4U,
+              "reference FP8 K/V pair preserves two GEMV-plus-convert paths");
+
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+      activation.get(), 1U, nullptr, 0U, first_output.get(),
+      first_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 K/V pair rejects overlapping outputs");
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+      activation.get(), 1U, nullptr, 0U,
+      reinterpret_cast<std::uint16_t*>(second_weights.get()),
+      second_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 K/V pair rejects output overlapping peer weights");
+
+  const runtime::LinearWeight mismatched_columns =
+      runtime::Fp8LinearWeight{
+          second_weights.get(), companion_scales.get() + 2U,
+          companion_scales.get() + 3U, kSecondWeightScale, 1.0F, kRows,
+          kColumns - 1U};
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first,
+      mismatched_columns, activation.get(), 1U, nullptr, 0U,
+      first_output.get(), second_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 K/V pair rejects mismatched input sizes");
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+      activation.get(), 0U, nullptr, 0U, first_output.get(),
+      second_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "FP8 K/V pair rejects M=0");
+
+  const runtime::LinearWeight malformed_second = runtime::Fp8LinearWeight{
+      second_weights.get(), nullptr, companion_scales.get() + 3U,
+      kSecondWeightScale, 1.0F, kRows, kColumns};
+  ready = test.cuda_ok(
+      cudaMemset(first_output.get(), 0xa5,
+                 2U * kRows * sizeof(std::uint16_t)),
+      "initialize FP8 pair fail-before-enqueue canary");
+  if (ready) {
+    status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, first,
+        malformed_second, activation.get(), 1U, nullptr, 0U,
+        first_output.get(), second_output.get());
+    test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+                "FP8 pair validates the second projection before enqueue");
+    std::uint16_t preserved = 0U;
+    ready = test.cuda_ok(cudaMemcpy(&preserved, first_output.get(),
+                                    sizeof(preserved),
+                                    cudaMemcpyDeviceToHost),
+                         "read FP8 pair fail-before-enqueue canary");
+    if (ready) {
+      test.expect(preserved == 0xa5a5U,
+                  "invalid second FP8 projection leaves first output "
+                  "untouched");
+    }
+  }
+}
+
 void test_fp8_m16_production_dispatch(TestContext& test) {
   constexpr std::size_t kTokens = 16U;
   constexpr std::size_t kRows = 5'120U;
@@ -1537,6 +1804,7 @@ int main() {
   test_bf16_direct_production_dispatch(test);
   test_tile_routes(test);
   test_bf16_projection_pair_dispatch(test);
+  test_fp8_projection_pair_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

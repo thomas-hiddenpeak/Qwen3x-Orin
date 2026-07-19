@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-kv-pair-benchmark",
+  "status": "diagnostic-benchmark",
+  "recorded_at": "2026-07-19",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "a3b8e4307877392d9c76146acac771a01331b43a",
+    "tree_state_at_measurement": "FP8 K/V projection-pair candidate worktree based on base_git_commit",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment",
+    "swap_enabled_bytes": 2147479552
+  },
+  "implementation": {
+    "scope": "full-attention FP8 K/V projections during M=1 prompt-final and decode steps",
+    "projection_backend": "sm87",
+    "format": "ModelOpt FP8 E4M3FN W8A16",
+    "token_count": 1,
+    "exact_shape_n_k": [
+      1024,
+      5120
+    ],
+    "production_enabled": true,
+    "checkpoint_repack_required": false,
+    "kernel": {
+      "name": "cross-matrix row-quad 2K+2V",
+      "threads_per_block": 256,
+      "maximum_blocks": 128,
+      "rows_per_matrix_per_cta_iteration": 2,
+      "outputs_per_cta_iteration": 4,
+      "shared_work": "one activation decode and one E4M3FN codebook setup feed two adjacent rows from each K/V matrix",
+      "numerical_contract": "each K and V accumulator/reduction chain preserves the corresponding production single-projection BF16 result bit-for-bit",
+      "resources": {
+        "registers_per_thread": 63,
+        "static_shared_memory_bytes_per_block": 1152,
+        "local_memory_bytes": 0,
+        "active_blocks_per_sm": 4
+      }
+    },
+    "alignment": {
+      "each_weight_bytes": 4,
+      "activation_bytes": 8,
+      "each_output_bytes": 2
+    },
+    "fallbacks": {
+      "higher_level_pair_dispatch": "eligible but unaligned calls and every non-M1/non-shape/non-FP8 combination retain two ordered independent projection launches",
+      "direct_exact_shape_kernel_api": "rejects unsupported shapes, aliases, and unaligned pointers with cudaErrorInvalidValue",
+      "prefill_tiles": "M2 through M16 retain the existing independent projection-tile routes"
+    }
+  },
+  "correctness": {
+    "default_test_segment_runs_without_performance_opt_in": true,
+    "finite_e4m3fn_fixture": {
+      "finite_raw_codes_per_packed_byte_position": 254,
+      "packed_byte_positions": 4,
+      "matrices": [
+        "K",
+        "V"
+      ],
+      "excluded_reserved_nan_codes": [
+        "0x7f",
+        "0xff"
+      ],
+      "candidate_vs_two_production_single_projection_bf16_mismatches": 0,
+      "output_canaries_intact": true
+    },
+    "reserved_nan_fixture": {
+      "raw_codes": [
+        "0x7f",
+        "0xff"
+      ],
+      "classified_outputs": 4,
+      "nan_class_and_sign_match_single_projection": true,
+      "unexpected_nonfinite_outputs": 0,
+      "output_canaries_intact": true
+    },
+    "dispatch_validation": {
+      "shape_and_payload_eligibility_passed": true,
+      "range_and_cross_output_alias_rejection_passed": true,
+      "eligible_unaligned_pair_uses_two_projection_fallback": true,
+      "non_m1_and_near_miss_shapes_use_two_projection_fallback": true,
+      "stale_cuda_error_isolation_passed": true
+    },
+    "full_model_exact_gate": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "passed": true
+    }
+  },
+  "same_binary_optional_microbenchmark": {
+    "command": "Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "comparison": "two production FP8 row-pair launches versus one fused FP8 K/V launch in the same binary on identical buffers",
+    "shape_n_k_per_matrix": [
+      1024,
+      5120
+    ],
+    "warmup_iterations": 8,
+    "measured_iterations_per_timed_pass": 80,
+    "measurement_rounds": 3,
+    "mirrored_order_per_round": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "selected_maximum_blocks": 128,
+    "minimum_speedup_gate": 1.1,
+    "distributions": [
+      {
+        "name": "checkpoint_like",
+        "baseline_two_projection_milliseconds": 0.117589,
+        "candidate_fused_pair_milliseconds": 0.0674598,
+        "speedup": 1.7431,
+        "gate_passed": true
+      },
+      {
+        "name": "same_bank_stress",
+        "baseline_two_projection_milliseconds": 0.156288,
+        "candidate_fused_pair_milliseconds": 0.0637426,
+        "speedup": 2.45187,
+        "gate_passed": true
+      }
+    ],
+    "resource_gate_passed": true,
+    "correctness_gate_passed": true,
+    "overall_gate_passed": true
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "historical base profile versus candidate profile; matched command and workload but not a same-binary trial",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-gpu-argmax-final-c16.nsys-rep",
+        "bytes": 1644726,
+        "sha256": "2982f1fef356e1281d274a56b5a38ee5626ad56564a70f15515c4fd7e1c7920e"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-fp8-kv-pair-final.nsys-rep",
+        "bytes": 1626708,
+        "sha256": "58f194d05118d1d0efe5b1fd95e7ea3960251339a67e2fb700a6389a1707e6c8"
+      },
+      "checked_in": false
+    },
+    "fp8_kv_projection_work": {
+      "baseline": {
+        "kernel_instances": 832,
+        "total_milliseconds": 39.328192,
+        "execution": "two independent [1024,5120] FP8 launches per K/V pair"
+      },
+      "candidate": {
+        "kernel_instances": 416,
+        "total_milliseconds": 31.316608,
+        "execution": "one fused [1024,5120] FP8 K/V launch per pair"
+      },
+      "saved_milliseconds": 8.011584,
+      "equivalent_speedup": 1.255825407
+    },
+    "all_cuda_kernels": {
+      "baseline_instances": 23542,
+      "candidate_instances": 23126,
+      "removed_instances": 416,
+      "baseline_total_milliseconds": 3620.029504,
+      "candidate_total_milliseconds": 3618.05456,
+      "saved_milliseconds": 1.974944,
+      "speedup": 1.000545858,
+      "non_kv_hotspot_noise_increase_milliseconds": 6.03664
+    },
+    "exact_generation_gate_passed": true
+  },
+  "single_load_end_to_end_benchmark": {
+    "comparison": "mirrored baseline/candidate/candidate/baseline processes; each process loads one engine and reuses it for one warmup plus five measured generations",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "run_order": [
+      "baseline_round1",
+      "candidate_round1",
+      "candidate_round2",
+      "baseline_round2"
+    ],
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "engine_loads_per_process": 1,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3628.682,
+          "time_to_first_token_milliseconds": 576.006,
+          "subsequent_token_milliseconds": 122.097
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3627.464,
+          "time_to_first_token_milliseconds": 576.069,
+          "subsequent_token_milliseconds": 122.058
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3619.387,
+          "time_to_first_token_milliseconds": 575.528,
+          "subsequent_token_milliseconds": 121.765
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3622.513,
+          "time_to_first_token_milliseconds": 575.719,
+          "subsequent_token_milliseconds": 121.855
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3628.073,
+        "time_to_first_token_milliseconds": 576.0375,
+        "subsequent_token_milliseconds": 122.0775
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3620.95,
+        "time_to_first_token_milliseconds": 575.6235,
+        "subsequent_token_milliseconds": 121.81
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 7.123,
+        "total_generation_reduction_percent": 0.196330118,
+        "total_generation_speedup": 1.001967163,
+        "time_to_first_token_saved_milliseconds": 0.414,
+        "time_to_first_token_reduction_percent": 0.071870321,
+        "subsequent_token_saved_milliseconds": 0.2675,
+        "subsequent_token_reduction_percent": 0.219123098
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "all_warmup_and_measured_runs_passed": true
+    }
+  },
+  "limitations": [
+    "all measurements used unlocked clocks",
+    "the optional microbenchmark is a synthetic exact-shape kernel gate, not a model or serving-throughput result",
+    "the Nsight comparison uses separate historical baseline and candidate reports rather than a same-binary trial",
+    "other kernel families increased by 6.036640 ms between Nsight reports, so aggregate kernel time does not isolate the K/V change",
+    "the end-to-end benchmark has two process medians per implementation in mirrored order and is not a randomized trial",
+    "the end-to-end result is batch-one generation for one short prompt and excludes engine-load time",
+    "the fused path is limited to aligned SM87 FP8 M1 [1024,5120] K/V pairs; every other valid case preserves the existing fallback",
+    "the raw benchmark logs and Nsight reports are local evidence and are not checked into the repository",
+    "this diagnostic does not establish continuous-batching, concurrent-request, or serving throughput"
+  ],
+  "policy": {
+    "projection_backend_default": "reference",
+    "sm87_backend_is_explicit": true,
+    "result_is_release_claim": false
+  }
+}

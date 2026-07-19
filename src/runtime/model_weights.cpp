@@ -622,6 +622,34 @@ bool supports_bf16_projection_pair(
          second->input_size == kPairColumns;
 }
 
+bool supports_fp8_projection_pair(
+    const ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight) noexcept {
+  constexpr std::size_t kPairRows = 1'024U;
+  constexpr std::size_t kPairColumns = 5'120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      first_weight.valueless_by_exception() ||
+      second_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const first = std::get_if<Fp8LinearWeight>(&first_weight);
+  const auto* const second = std::get_if<Fp8LinearWeight>(&second_weight);
+  const auto valid = [](const Fp8LinearWeight* const weight) noexcept {
+    return weight != nullptr && weight->weight != nullptr &&
+           weight->weight_scale_device != nullptr &&
+           weight->input_scale_device != nullptr &&
+           std::isfinite(weight->weight_scale) &&
+           weight->weight_scale >= 0.0F &&
+           std::isfinite(weight->input_scale) &&
+           weight->input_scale >= 0.0F;
+  };
+  return valid(first) && valid(second) &&
+         first->output_size == kPairRows &&
+         second->output_size == kPairRows &&
+         first->input_size == kPairColumns &&
+         second->input_size == kPairColumns;
+}
+
 WeightBindResult bind_qwen36_27b_weights(
     const WeightBindingSource& source) {
   try {
