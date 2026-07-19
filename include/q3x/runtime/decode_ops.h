@@ -203,6 +203,21 @@ enum class DecodeOpStatus : std::uint8_t {
     const float* sines, std::size_t first_position,
     std::size_t token_count, void* cuda_stream = nullptr) noexcept;
 
+// Fixed full-attention preprocessing fast path for Q=24, KV=4, D=256, and
+// rotary=64. interleaved_q_gate is [token_count, 24, 2, 256]; query_output and
+// gate_output are separate [token_count, 24, 256] arrays, while key is updated
+// in place as [token_count, 4, 256]. The operation splits Q/gate raw BF16,
+// applies centered headwise Q/K RMSNorm, then rotates Q/K using base
+// [position, 32] FP32 tables. token_count must be in [1, 16]. Writable arrays
+// must not overlap each other or any read-only input.
+[[nodiscard]] int launch_full_attention_preprocess_24_4_256_64_cuda(
+    const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
+    const std::uint16_t* q_weight, const std::uint16_t* k_weight,
+    float epsilon, std::uint16_t* query_output,
+    std::uint16_t* gate_output, const float* cosines, const float* sines,
+    std::size_t first_position, std::size_t token_count,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_softmax_reference_cuda(
     const float* input, std::size_t rows, std::size_t columns, float* output,
     void* cuda_stream = nullptr) noexcept;

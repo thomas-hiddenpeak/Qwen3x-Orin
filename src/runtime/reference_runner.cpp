@@ -949,49 +949,57 @@ ReferenceStepOutcome ReferenceRunner::step(
       std::uint16_t* const current_value =
           views_.value_cache[layer] +
           static_cast<std::size_t>(position) * kFullKvElements;
+      std::uint16_t* const packed_gates =
+          views_.projection[3] + kFullQueryElements;
+      std::uint16_t* full_query = views_.projection[0];
+      const std::size_t rope_first_position =
+          static_cast<std::size_t>(position);
       if (!project(attention->q_proj, views_.hidden[1], views_.projection[0],
                    "full_q_gate_projection", layer) ||
           !project(attention->k_proj, views_.hidden[1], current_key,
                    "full_k_projection", layer) ||
           !project(attention->v_proj, views_.hidden[1], current_value,
-                   "full_v_projection", layer) ||
-          !check_cuda(launch_split_interleaved_q_gate_reference_cuda(
-                          views_.projection[0], kFullQueryHeads,
-                          kFullHeadDimension, views_.projection[3],
-                          views_.projection[3] + kFullQueryElements, stream_),
-                      "full_split_q_gate", layer) ||
-          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          views_.projection[3], attention->q_norm.data,
-                          kFullQueryHeads, kFullHeadDimension, kRmsEpsilon,
-                          views_.projection[0], stream_),
-                      "full_q_norm", layer) ||
-          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          current_key, attention->k_norm.data,
-                          kFullKvHeads, kFullHeadDimension, kRmsEpsilon,
-                          current_key, stream_),
-                      "full_k_norm", layer)) {
+                   "full_v_projection", layer)) {
         return fail_step(launch_failure);
       }
 
-      const std::size_t rope_first_position =
-          static_cast<std::size_t>(position);
       if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
                                                      1U)) {
-        if (!check_cuda(
-                launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
-                    views_.projection[0], current_key, views_.rope_cos,
-                    views_.rope_sin, rope_first_position, 1U, stream_),
-                "full_qk_rope", layer)) {
+        full_query = views_.projection[3];
+        if (!check_cuda(launch_full_attention_preprocess_24_4_256_64_cuda(
+                            views_.projection[0], current_key,
+                            attention->q_norm.data, attention->k_norm.data,
+                            kRmsEpsilon, full_query, packed_gates,
+                            views_.rope_cos, views_.rope_sin,
+                            rope_first_position, 1U, stream_),
+                        "full_preprocess", layer)) {
           return fail_step(launch_failure);
         }
       } else {
+        if (!check_cuda(launch_split_interleaved_q_gate_reference_cuda(
+                            views_.projection[0], kFullQueryHeads,
+                            kFullHeadDimension, views_.projection[3],
+                            packed_gates, stream_),
+                        "full_split_q_gate_fallback", layer) ||
+            !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                            views_.projection[3], attention->q_norm.data,
+                            kFullQueryHeads, kFullHeadDimension, kRmsEpsilon,
+                            full_query, stream_),
+                        "full_q_norm_fallback", layer) ||
+            !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                            current_key, attention->k_norm.data,
+                            kFullKvHeads, kFullHeadDimension, kRmsEpsilon,
+                            current_key, stream_),
+                        "full_k_norm_fallback", layer)) {
+          return fail_step(launch_failure);
+        }
         const float* const cosines =
             views_.rope_cos + rope_first_position * kRopePairs;
         const float* const sines =
             views_.rope_sin + rope_first_position * kRopePairs;
         if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                            views_.projection[0], cosines, sines,
-                            kFullQueryHeads, views_.projection[0], stream_),
+                            full_query, cosines, sines, kFullQueryHeads,
+                            full_query, stream_),
                         "full_q_rope_fallback", layer) ||
             !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
                             current_key, cosines, sines, kFullKvHeads,
@@ -1007,18 +1015,16 @@ ReferenceStepOutcome ReferenceRunner::step(
               position, 1U)) {
         if (!check_cuda(
                 launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
-                    views_.projection[0], views_.key_cache[layer],
+                    full_query, views_.key_cache[layer],
                     views_.value_cache[layer], sequence_length,
                     kAttentionScale, views_.fp32_scratch,
-                    views_.fp32_scratch_elements,
-                    views_.projection[3] + kFullQueryElements,
+                    views_.fp32_scratch_elements, packed_gates,
                     views_.projection[1], stream_),
                 "full_gqa_output_gate", layer)) {
           return fail_step(launch_failure);
         }
       } else if (!check_cuda(launch_gqa_attention_reference_cuda(
-                                 views_.projection[0],
-                                 views_.key_cache[layer],
+                                 full_query, views_.key_cache[layer],
                                  views_.value_cache[layer], kFullQueryHeads,
                                  kFullKvHeads, sequence_length,
                                  kFullHeadDimension, kAttentionScale,
@@ -1027,8 +1033,7 @@ ReferenceStepOutcome ReferenceRunner::step(
                                  views_.projection[1], stream_),
                              "full_gqa", layer) ||
                  !check_cuda(launch_sigmoid_gate_reference_cuda(
-                                 views_.projection[1],
-                                 views_.projection[3] + kFullQueryElements,
+                                 views_.projection[1], packed_gates,
                                  kFullQueryElements, views_.projection[1],
                                  stream_),
                              "full_output_gate", layer)) {
@@ -1388,6 +1393,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       std::uint16_t* const tile_value =
           views_.value_cache[layer] +
           static_cast<std::size_t>(first_position) * kFullKvElements;
+      std::uint16_t* tile_query = views_.projection[0];
+      const std::size_t rope_first_position =
+          static_cast<std::size_t>(first_position);
       if (!project(attention->q_proj, views_.hidden[1],
                    views_.projection[0], "prefill_full_q_gate_projection",
                    layer) ||
@@ -1396,38 +1404,42 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                    layer) ||
           !project(attention->v_proj, views_.hidden[1],
                    tile_value, "prefill_full_v_projection",
-                   layer) ||
-          !check_cuda(launch_split_interleaved_q_gate_reference_cuda(
-                          views_.projection[0], token_count * kFullQueryHeads,
-                          kFullHeadDimension, views_.projection[3],
-                          packed_gates, stream_),
-                      "prefill_full_split_q_gate", layer) ||
-          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          views_.projection[3], attention->q_norm.data,
-                          token_count * kFullQueryHeads, kFullHeadDimension,
-                          kRmsEpsilon, views_.projection[0], stream_),
-                      "prefill_full_q_norm", layer) ||
-          !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          tile_key, attention->k_norm.data,
-                          token_count * kFullKvHeads, kFullHeadDimension,
-                          kRmsEpsilon, tile_key, stream_),
-                      "prefill_full_k_norm", layer)) {
+                   layer)) {
         return fail_prefill_tile(launch_failure);
       }
 
-      const std::size_t rope_first_position =
-          static_cast<std::size_t>(first_position);
       if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
                                                      token_count)) {
-        if (!check_cuda(
-                launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
-                    views_.projection[0], tile_key, views_.rope_cos,
-                    views_.rope_sin, rope_first_position, token_count,
-                    stream_),
-                "prefill_full_qk_rope", layer)) {
+        tile_query = views_.projection[3];
+        if (!check_cuda(launch_full_attention_preprocess_24_4_256_64_cuda(
+                            views_.projection[0], tile_key,
+                            attention->q_norm.data, attention->k_norm.data,
+                            kRmsEpsilon, tile_query, packed_gates,
+                            views_.rope_cos, views_.rope_sin,
+                            rope_first_position, token_count, stream_),
+                        "prefill_full_preprocess", layer)) {
           return fail_prefill_tile(launch_failure);
         }
       } else {
+        if (!check_cuda(launch_split_interleaved_q_gate_reference_cuda(
+                            views_.projection[0],
+                            token_count * kFullQueryHeads,
+                            kFullHeadDimension, views_.projection[3],
+                            packed_gates, stream_),
+                        "prefill_full_split_q_gate_fallback", layer) ||
+            !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                            views_.projection[3], attention->q_norm.data,
+                            token_count * kFullQueryHeads,
+                            kFullHeadDimension, kRmsEpsilon, tile_query,
+                            stream_),
+                        "prefill_full_q_norm_fallback", layer) ||
+            !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                            tile_key, attention->k_norm.data,
+                            token_count * kFullKvHeads, kFullHeadDimension,
+                            kRmsEpsilon, tile_key, stream_),
+                        "prefill_full_k_norm_fallback", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
         for (std::size_t token = 0U; token < token_count; ++token) {
           const std::size_t position = rope_first_position + token;
           const float* const cosines =
@@ -1435,11 +1447,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           const float* const sines =
               views_.rope_sin + position * kRopePairs;
           if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                              views_.projection[0] +
-                                  token * kFullQueryElements,
+                              tile_query + token * kFullQueryElements,
                               cosines, sines, kFullQueryHeads,
-                              views_.projection[0] +
-                                  token * kFullQueryElements,
+                              tile_query + token * kFullQueryElements,
                               stream_),
                           "prefill_full_q_rope_fallback", layer) ||
               !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
@@ -1459,7 +1469,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         const std::size_t sequence_length =
             static_cast<std::size_t>(first_position) + token + 1U;
         const std::uint16_t* const token_query =
-            views_.projection[0] + token * kFullQueryElements;
+            tile_query + token * kFullQueryElements;
         std::uint16_t* const token_output =
             views_.projection[1] + token * kFullQueryElements;
         const int gqa_status =

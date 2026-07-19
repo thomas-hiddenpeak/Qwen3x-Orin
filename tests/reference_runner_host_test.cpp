@@ -164,8 +164,8 @@ void test_schedule_and_workspace(TestContext& test) {
               kMaximum /
                   ((runtime::kQwenRotaryDimension / 2U) * sizeof(float)),
               1U),
-      "Q/K RoPE selector accepts M=1..16 and rejects M=0, M=17, and "
-      "position/table byte-offset overflow");
+      "fused full-attention preprocess selector accepts M=1..16 and rejects "
+      "M=0, M=17, and position/table byte-offset overflow");
 
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();

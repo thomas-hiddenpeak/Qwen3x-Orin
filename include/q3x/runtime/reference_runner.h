@@ -203,8 +203,9 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
-// Pure-host selector for the fixed Q=24, KV=4, D=256, rotary=64 Q/K RoPE
-// tile. It also rejects position-table arithmetic overflow.
+// Pure-host selector for the fixed Q=24, KV=4, D=256, rotary=64 fused
+// full-attention preprocessing tile. It also rejects position-table
+// arithmetic overflow; callers retain the split/norm/RoPE fallback.
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
