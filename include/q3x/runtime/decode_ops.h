@@ -20,6 +20,19 @@ enum class DecodeOpStatus : std::uint8_t {
   kInsufficientScratch,
 };
 
+// Compact device result for BF16 greedy selection. value_bits retains the
+// exact selected BF16 payload (including the sign of an earliest zero tie),
+// while has_nonfinite is non-zero when any input is NaN or infinity.
+struct Bf16GreedyArgmaxResult {
+  std::uint32_t index = 0U;
+  std::uint16_t value_bits = 0U;
+  std::uint16_t has_nonfinite = 0U;
+};
+
+static_assert(sizeof(Bf16GreedyArgmaxResult) == 8U);
+
+inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
+
 [[nodiscard]] const char* decode_op_status_string(
     DecodeOpStatus status) noexcept;
 
@@ -172,6 +185,17 @@ enum class DecodeOpStatus : std::uint8_t {
 
 [[nodiscard]] int launch_fp32_to_bf16_reference_cuda(
     const float* input, std::size_t element_count, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Greedy selection over an already-rounded BF16 vector. The comparison is
+// identical to a strict left-to-right FP32 argmax: equal maxima select the
+// smallest index, including signed-zero ties. result_workspace must contain
+// kBf16GreedyArgmaxWorkspaceResults device-accessible elements and be disjoint
+// from input. The final result is written to element zero; remaining elements
+// are launch-private scratch.
+[[nodiscard]] int launch_bf16_greedy_argmax_cuda(
+    const std::uint16_t* input, std::size_t element_count,
+    Bf16GreedyArgmaxResult* result_workspace,
     void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int launch_silu_mul_reference_cuda(

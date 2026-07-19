@@ -45,7 +45,8 @@ GenerationControlResult run_generation_control(
       options.max_sequence_length == 0U || step_function == nullptr ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
-      options.stop_token_id >= kReferenceVocabularySize) {
+      options.stop_token_id >= kReferenceVocabularySize ||
+      !is_valid_reference_logits_mode(options.logits_mode)) {
     return failure(GenerationControlError::kInvalidArgument);
   }
   for (const std::uint32_t token : prompt_token_ids) {
@@ -79,6 +80,7 @@ GenerationControlResult run_generation_control(
       step_options.compute_logits = compute_logits;
       step_options.capture_trace = options.capture_trace;
       step_options.measure_timing = true;
+      step_options.logits_mode = options.logits_mode;
       ReferenceStepOutcome outcome =
           step_function(step_context, input_token, step_options);
       if (!outcome) {
@@ -89,21 +91,40 @@ GenerationControlResult run_generation_control(
       if (outcome.value->position !=
               static_cast<std::uint32_t>(expected_position) ||
           outcome.value->input_token_id != input_token ||
-          (!compute_logits && outcome.value->logits.has_value())) {
+          (!compute_logits &&
+           (outcome.value->logits.has_value() ||
+            outcome.value->prediction.has_value()))) {
         return GenerationControlError::kUnexpectedStep;
       }
       if (!outcome.value->timing.has_value()) {
         return GenerationControlError::kMissingTiming;
       }
-      if (compute_logits && !outcome.value->logits.has_value()) {
-        return GenerationControlError::kMissingLogits;
+      if (compute_logits) {
+        if (options.logits_mode == ReferenceLogitsMode::kFullStatistics) {
+          if (outcome.value->prediction.has_value()) {
+            return GenerationControlError::kUnexpectedStep;
+          }
+          if (!outcome.value->logits.has_value()) {
+            return GenerationControlError::kMissingLogits;
+          }
+        } else {
+          if (outcome.value->logits.has_value()) {
+            return GenerationControlError::kUnexpectedStep;
+          }
+          if (!outcome.value->prediction.has_value()) {
+            return GenerationControlError::kMissingPrediction;
+          }
+        }
       }
       elapsed = outcome.value->timing->elapsed_milliseconds;
-      if (!(elapsed >= 0.0)) {
+      if (!std::isfinite(elapsed) || elapsed < 0.0) {
         return GenerationControlError::kUnexpectedStep;
       }
       if (compute_logits) {
-        predicted_token = outcome.value->logits->predicted_token_id;
+        predicted_token =
+            options.logits_mode == ReferenceLogitsMode::kFullStatistics
+                ? outcome.value->logits->predicted_token_id
+                : outcome.value->prediction->predicted_token_id;
         if (predicted_token >= kReferenceVocabularySize) {
           return GenerationControlError::kUnexpectedStep;
         }
@@ -159,6 +180,7 @@ GenerationControlResult run_generation_control(
               step.input_token_id !=
                   prompt_token_ids[prefix_index + tile_index] ||
               step.logits.has_value() ||
+              step.prediction.has_value() ||
               (step.timing.has_value() &&
                (!std::isfinite(step.timing->elapsed_milliseconds) ||
                 step.timing->elapsed_milliseconds < 0.0))) {
@@ -277,6 +299,8 @@ std::string_view to_string(const GenerationControlError error) noexcept {
       return "missing_timing";
     case GenerationControlError::kAllocationFailure:
       return "allocation_failure";
+    case GenerationControlError::kMissingPrediction:
+      return "missing_prediction";
   }
   return "unknown";
 }

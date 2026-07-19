@@ -18,6 +18,7 @@ options.warmup_rounds = 1;
 options.measured_rounds = 3;
 options.max_new_tokens = 26;
 options.prefill_chunk_size = 16;
+options.logits_mode = q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
 
 q3x::runtime::ReferenceBenchmarkResult result =
     q3x::runtime::benchmark_reference_engine(
@@ -32,8 +33,8 @@ replay reference. Every later warmup and measured result must have identical:
 - formatted prompt token IDs;
 - generated token IDs and decoded text;
 - stop reason;
-- step count and each step's position, input token ID, logits presence, and
-  predicted token ID.
+- step count and each step's position, input token ID, result arm
+  (`logits` or `prediction`), and predicted token ID.
 
 Timing and floating-point logit values are deliberately excluded from the
 replay identity. A mismatch fails with `repeatability_failure` and identifies
@@ -49,6 +50,11 @@ count. P95 uses nearest rank:
 ```text
 sorted[ceil(0.95 * count) - 1]
 ```
+
+`ReferenceBenchmarkOptions::logits_mode` defaults to full statistics for API
+compatibility and is retained in the report. The CLI benchmark explicitly
+selects prediction-only because its replay signature and reports consume only
+greedy token IDs.
 
 The subsequent-token distribution flattens every post-first-token latency
 from the applicable measured invocations. It is valid and has `count=0` when

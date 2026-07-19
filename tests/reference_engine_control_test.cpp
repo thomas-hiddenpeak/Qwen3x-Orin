@@ -38,7 +38,12 @@ struct FakeRunner {
   std::size_t fail_at = static_cast<std::size_t>(-1);
   std::size_t tile_fail_at = static_cast<std::size_t>(-1);
   bool omit_timing = false;
+  bool override_timing = false;
+  double timing_milliseconds = 0.0;
   bool omit_logits = false;
+  bool force_full_logits_arm = false;
+  bool force_prediction_arm = false;
+  bool add_opposite_result_arm = false;
   bool wrong_position = false;
   bool tile_omit_timing = false;
   bool tile_wrong_count = false;
@@ -69,16 +74,40 @@ runtime::ReferenceStepOutcome fake_step(
   step.input_token_id = input_token;
   if (!fake.omit_timing) {
     runtime::ReferenceStepTiming timing;
-    timing.elapsed_milliseconds = static_cast<double>(call + 1U);
+    timing.elapsed_milliseconds =
+        fake.override_timing ? fake.timing_milliseconds
+                             : static_cast<double>(call + 1U);
     step.timing.emplace(timing);
   }
   if (options.compute_logits && !fake.omit_logits) {
-    runtime::ReferenceStepLogits logits;
-    logits.predicted_token_id = fake.predictions.at(fake.next_prediction++);
-    logits.chosen_logit = 1.0F;
-    logits.max_log_probability = -0.5;
-    logits.logsumexp = 1.5;
-    step.logits.emplace(logits);
+    const std::uint32_t predicted =
+        fake.predictions.at(fake.next_prediction++);
+    const auto add_full_logits = [&]() {
+      runtime::ReferenceStepLogits logits;
+      logits.predicted_token_id = predicted;
+      logits.chosen_logit = 1.0F;
+      logits.max_log_probability = -0.5;
+      logits.logsumexp = 1.5;
+      step.logits.emplace(logits);
+    };
+    const bool use_prediction_arm =
+        fake.force_prediction_arm ||
+        (options.logits_mode ==
+             runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
+         !fake.force_full_logits_arm);
+    if (use_prediction_arm) {
+      step.prediction.emplace(runtime::ReferenceStepPrediction{predicted});
+    } else {
+      add_full_logits();
+    }
+    if (fake.add_opposite_result_arm) {
+      if (!step.logits.has_value()) {
+        add_full_logits();
+      }
+      if (!step.prediction.has_value()) {
+        step.prediction.emplace(runtime::ReferenceStepPrediction{predicted});
+      }
+    }
   }
   ++fake.next_position;
   outcome.value.emplace(std::move(step));
@@ -129,14 +158,118 @@ runtime::ReferencePrefillTileOutcome fake_prefill_tile(
 detail::GenerationControlOptions options(const std::uint32_t max_new_tokens,
                                          const std::uint32_t capacity,
                                          const bool trace = false,
-                                         const std::uint32_t chunk_size = 1U) {
+                                         const std::uint32_t chunk_size = 1U,
+                                         const runtime::ReferenceLogitsMode
+                                             logits_mode = runtime::
+                                                 ReferenceLogitsMode::
+                                                     kFullStatistics) {
   detail::GenerationControlOptions result;
   result.max_new_tokens = max_new_tokens;
   result.max_sequence_length = capacity;
   result.capture_trace = trace;
   result.prefill_chunk_size = chunk_size;
   result.stop_token_id = runtime::kQwen36ImEndTokenId;
+  result.logits_mode = logits_mode;
   return result;
+}
+
+void test_prediction_only_control(TestContext& test) {
+  FakeRunner fake;
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  const auto prediction_options = options(
+      2U, 3U, false, 1U,
+      runtime::ReferenceLogitsMode::kPredictedTokenOnly);
+  auto result = detail::run_generation_control(
+      {10U, 11U}, prediction_options, &fake, fake_step);
+  bool mode_propagated = fake.options.size() == 3U;
+  for (const runtime::ReferenceStepOptions& step_options : fake.options) {
+    mode_propagated =
+        mode_propagated &&
+        step_options.logits_mode ==
+            runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  }
+  test.expect(result && mode_propagated &&
+                  result.value->generated_token_ids ==
+                      std::vector<std::uint32_t>(
+                          {42U, runtime::kQwen36ImEndTokenId}) &&
+                  !result.value->steps[0].logits.has_value() &&
+                  !result.value->steps[0].prediction.has_value() &&
+                  !result.value->steps[1].logits.has_value() &&
+                  result.value->steps[1].prediction.has_value() &&
+                  result.value->steps[1].prediction->predicted_token_id ==
+                      42U,
+              "prediction-only control propagates mode and preserves result arms");
+
+  fake = {};
+  fake.predictions = {42U};
+  fake.force_full_logits_arm = true;
+  result = detail::run_generation_control(
+      {10U}, options(1U, 1U, false, 1U,
+                     runtime::ReferenceLogitsMode::kPredictedTokenOnly),
+      &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "prediction-only control rejects a full-statistics result arm");
+
+  fake = {};
+  fake.predictions = {42U};
+  fake.omit_logits = true;
+  result = detail::run_generation_control(
+      {10U}, options(1U, 1U, false, 1U,
+                     runtime::ReferenceLogitsMode::kPredictedTokenOnly),
+      &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kMissingPrediction &&
+                  detail::to_string(result.error) == "missing_prediction",
+              "prediction-only control rejects a missing prediction arm");
+
+  fake = {};
+  fake.predictions = {
+      static_cast<std::uint32_t>(runtime::kReferenceVocabularySize)};
+  result = detail::run_generation_control(
+      {10U}, options(1U, 1U, false, 1U,
+                     runtime::ReferenceLogitsMode::kPredictedTokenOnly),
+      &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "prediction-only control rejects an out-of-vocabulary token");
+}
+
+void test_result_arm_validation(TestContext& test) {
+  FakeRunner fake;
+  fake.predictions = {42U};
+  fake.force_prediction_arm = true;
+  auto result = detail::run_generation_control(
+      {10U}, options(1U, 1U), &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "full-statistics control rejects a prediction-only result arm");
+
+  fake = {};
+  fake.predictions = {42U};
+  fake.add_opposite_result_arm = true;
+  result = detail::run_generation_control(
+      {10U}, options(1U, 1U), &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "full-statistics control rejects simultaneous result arms");
+
+  fake = {};
+  fake.predictions = {42U};
+  fake.add_opposite_result_arm = true;
+  result = detail::run_generation_control(
+      {10U}, options(1U, 1U, false, 1U,
+                     runtime::ReferenceLogitsMode::kPredictedTokenOnly),
+      &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "prediction-only control rejects simultaneous result arms");
 }
 
 void test_prefill_decode_and_stop(TestContext& test) {
@@ -406,6 +539,15 @@ void test_validation_and_runner_failures(TestContext& test) {
       {1U}, options(1U, 1U, false, 17U), &fake, fake_step);
   test.expect(!result && result.error == detail::GenerationControlError::kInvalidArgument,
               "prefill chunk size above fixed capacity is rejected");
+  detail::GenerationControlOptions invalid_mode = options(1U, 1U);
+  invalid_mode.logits_mode =
+      static_cast<runtime::ReferenceLogitsMode>(255U);
+  result = detail::run_generation_control(
+      {1U}, invalid_mode, &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument,
+              "unknown logits mode is rejected before callback");
 
   fake = {};
   fake.fail_at = 0U;
@@ -431,6 +573,21 @@ void test_validation_and_runner_failures(TestContext& test) {
       {1U}, options(1U, 1U), &fake, fake_step);
   test.expect(!result && result.error == detail::GenerationControlError::kMissingTiming,
               "missing requested timing is rejected");
+
+  for (const double invalid_timing : {
+           -1.0, std::numeric_limits<double>::quiet_NaN(),
+           std::numeric_limits<double>::infinity()}) {
+    fake = {};
+    fake.predictions = {1U};
+    fake.override_timing = true;
+    fake.timing_milliseconds = invalid_timing;
+    result = detail::run_generation_control(
+        {1U}, options(1U, 1U), &fake, fake_step);
+    test.expect(!result &&
+                    result.error ==
+                        detail::GenerationControlError::kUnexpectedStep,
+                "scalar step rejects negative and non-finite timing");
+  }
 
   fake = {};
   fake.predictions = {1U};
@@ -473,6 +630,18 @@ void test_engine_backend_validation(TestContext& test) {
                       runtime::ReferenceEngineError::kInvalidArgument &&
                   created.diagnostic.stage == "projection_backend",
               "engine rejects an unknown projection backend before I/O");
+
+  runtime::ReferenceOneShotOptions one_shot_options;
+  one_shot_options.generation.logits_mode =
+      static_cast<runtime::ReferenceLogitsMode>(255U);
+  const runtime::ReferenceOneShotResult generated =
+      runtime::generate_reference("unused-model-directory", "prompt",
+                                  one_shot_options);
+  test.expect(!generated &&
+                  generated.diagnostic.code ==
+                      runtime::ReferenceEngineError::kInvalidArgument &&
+                  generated.diagnostic.stage == "one_shot_options",
+              "one-shot generation rejects an unknown logits mode before I/O");
 }
 
 }  // namespace
@@ -480,6 +649,8 @@ void test_engine_backend_validation(TestContext& test) {
 int main() {
   TestContext test;
   test_prefill_decode_and_stop(test);
+  test_prediction_only_control(test);
+  test_result_arm_validation(test);
   test_max_tokens_and_first_stop(test);
   test_chunked_prefix_tiles(test);
   test_chunk_fallbacks_and_callback_requirement(test);

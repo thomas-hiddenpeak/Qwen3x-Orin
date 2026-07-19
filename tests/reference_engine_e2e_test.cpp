@@ -180,6 +180,28 @@ void check_step_sequence(TestContext& test,
   test.expect(coherent, "all 44 steps have exact positions and input tokens");
 }
 
+void check_default_full_statistics_arms(
+    TestContext& test, const runtime::ReferenceGeneration& generation) {
+  constexpr std::size_t kPrefixStepCount = kExpectedPromptIds.size() - 1U;
+  bool coherent = true;
+  for (std::size_t index = 0U; index < generation.steps.size(); ++index) {
+    const bool expects_logits = index >= kPrefixStepCount;
+    const auto& step = generation.steps[index];
+    if (step.logits.has_value() != expects_logits ||
+        step.prediction.has_value()) {
+      std::cerr << "  result-arm mismatch index=" << index
+                << " has_logits=" << step.logits.has_value()
+                << " has_prediction=" << step.prediction.has_value()
+                << " expected_logits=" << expects_logits << '\n';
+      coherent = false;
+      break;
+    }
+  }
+  test.expect(coherent,
+              "default full-statistics mode returns only the logits arm on "
+              "compute steps");
+}
+
 }  // namespace
 
 int main(const int argc, char** const argv) {
@@ -243,6 +265,7 @@ int main(const int argc, char** const argv) {
                       prefill_chunk_size,
               "generation reports the requested and effective prefill chunk");
   check_step_sequence(test, generation);
+  check_default_full_statistics_arms(test, generation);
 
   if (test.failures() == 0) {
     std::cout << "PASS: pinned Qwen3.6-27B reference generation matched "

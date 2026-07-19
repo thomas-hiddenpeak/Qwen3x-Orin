@@ -58,6 +58,8 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   result.input_token_id = step.input_token_id;
   if (step.logits.has_value()) {
     result.predicted_token_id = step.logits->predicted_token_id;
+  } else if (step.prediction.has_value()) {
+    result.predicted_token_id = step.prediction->predicted_token_id;
   }
   return result;
 }
@@ -75,6 +77,34 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
     result.step_sequence.push_back(benchmark_step(step));
   }
   return result;
+}
+
+[[nodiscard]] std::string logits_mode_mismatch_field(
+    const ReferenceGeneration& generation,
+    const ReferenceLogitsMode mode) {
+  if (generation.prompt_token_ids.empty() ||
+      generation.steps.size() < generation.prompt_token_ids.size()) {
+    return "step_sequence.size";
+  }
+  const std::size_t first_compute_step =
+      generation.prompt_token_ids.size() - 1U;
+  for (std::size_t index = 0U; index < generation.steps.size(); ++index) {
+    const ReferenceStepResult& step = generation.steps[index];
+    const bool compute_logits = index >= first_compute_step;
+    const bool has_logits = step.logits.has_value();
+    const bool has_prediction = step.prediction.has_value();
+    bool valid = !has_logits && !has_prediction;
+    if (compute_logits) {
+      valid = mode == ReferenceLogitsMode::kFullStatistics
+                  ? has_logits && !has_prediction
+                  : !has_logits && has_prediction;
+    }
+    if (!valid) {
+      return "step_sequence[" + std::to_string(index) +
+             "].logits_mode";
+    }
+  }
+  return {};
 }
 
 [[nodiscard]] bool checked_product(const std::size_t lhs,
@@ -162,9 +192,18 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
     if (expected_step.logits.has_value() != actual_step.logits.has_value()) {
       return prefix + ".predicted_token_id.presence";
     }
+    if (expected_step.prediction.has_value() !=
+        actual_step.prediction.has_value()) {
+      return prefix + ".predicted_token_id.presence";
+    }
     if (expected_step.logits.has_value() &&
         expected_step.logits->predicted_token_id !=
             actual_step.logits->predicted_token_id) {
+      return prefix + ".predicted_token_id";
+    }
+    if (expected_step.prediction.has_value() &&
+        expected_step.prediction->predicted_token_id !=
+            actual_step.prediction->predicted_token_id) {
       return prefix + ".predicted_token_id";
     }
   }
@@ -183,7 +222,8 @@ ReferenceBenchmarkResult run_benchmark_control(
       options.measured_rounds == 0U || options.max_new_tokens == 0U ||
       options.stop_token_id >= kReferenceVocabularySize ||
       options.prefill_chunk_size == 0U ||
-      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize) {
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
+      !is_valid_reference_logits_mode(options.logits_mode)) {
     result.diagnostic = benchmark_diagnostic(
         ReferenceBenchmarkError::kInvalidArgument,
         "callbacks and prompts must be present; measured_rounds and "
@@ -225,6 +265,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     ReferenceBenchmarkReport report;
     report.warmup_rounds = options.warmup_rounds;
     report.measured_rounds = options.measured_rounds;
+    report.logits_mode = options.logits_mode;
     report.max_new_tokens = options.max_new_tokens;
     report.stop_token_id = options.stop_token_id;
     report.prefill_chunk_size = options.prefill_chunk_size;
@@ -251,6 +292,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     generation_options.stop_token_id = options.stop_token_id;
     generation_options.capture_trace = false;
     generation_options.prefill_chunk_size = options.prefill_chunk_size;
+    generation_options.logits_mode = options.logits_mode;
 
     auto run_phase = [&](const std::uint32_t rounds,
                          const bool warmup) -> bool {
@@ -267,6 +309,20 @@ ReferenceBenchmarkResult run_benchmark_control(
             result.diagnostic.round = round;
             result.diagnostic.warmup = warmup;
             result.diagnostic.generation = std::move(generated.diagnostic);
+            return false;
+          }
+
+          const std::string mode_mismatch = logits_mode_mismatch_field(
+              *generated.value, options.logits_mode);
+          if (!mode_mismatch.empty()) {
+            result.diagnostic = benchmark_diagnostic(
+                ReferenceBenchmarkError::kGenerationFailure,
+                "generation result arms do not match the requested logits "
+                "mode");
+            result.diagnostic.prompt_index = prompt_index;
+            result.diagnostic.round = round;
+            result.diagnostic.warmup = warmup;
+            result.diagnostic.mismatch_field = mode_mismatch;
             return false;
           }
 

@@ -22,8 +22,9 @@ factory 创建一个自有 `cudaStreamNonBlocking` stream，并通过一次 `cud
 
 `ReferenceRunnerOptions::projection_backend` 默认是 `kReference`；只有调用方显式选择
 `kSm87WeightOnly` 时，层内 FP8/NVFP4 projection 才直接写 BF16，BF16 projection 仍回退
-reference。未知 enum 会在 factory 阶段失败。最终 `lm_head` 始终走 FP32 reference 路径，
-因此 backend 选项不会改变 logits 边界的类型与 host 分析流程。
+reference。未知 enum 会在 factory 阶段失败。reference/BF16 fallback 的 `lm_head` 走
+FP32 projection 与 host BF16 rounding；SM87 FP8/NVFP4 `lm_head` 直接写 BF16。后者在
+full-statistics 模式 D2H 后做 host 统计，在 prediction-only 模式做 device argmax。
 
 runner 是 move-only，但不拥有 `ModelWeights` 或 `RequestState`。这两个**同一个对象**、
 resident weight arena 和 request arena 必须比 runner 活得更久；runner 存活期间不得移动
@@ -49,9 +50,13 @@ step 在末尾执行一次 `cudaStreamSynchronize`；中途失败也会先 drain
    - post-attention centered norm，MLP gate/up，`SiLU(gate)*up`，`down_proj -> H1`；
    - `H0 = BF16(H2 + H1)`。
 3. `centered_rmsnorm(H0, final_norm) -> H1`。
-4. `compute_logits=true` 时执行 `lm_head -> FP32 scratch` 和异步 D2H。host 将每个
-   logit 先按 BF16 RNE 量化、再扩展回 FP32，然后做稳定 logsumexp 和 argmax；相同最大
-   值选择最小 token id。NaN 或 infinity 是硬错误。
+4. `compute_logits=true` 时执行 `lm_head`。默认
+   `ReferenceLogitsMode::kFullStatistics` 保留完整 reference 语义：异步 D2H 后，host 将
+   每个 logit 先按 BF16 RNE 量化、再扩展回 FP32，然后做稳定 logsumexp 和 argmax。
+   显式 `kPredictedTokenOnly` 只返回 greedy token；SM87 BF16 输出由 32-block 归约和
+   1-warp finalize 在 device 上检查有限性并选择最大值，只 D2H 一个 8-byte 结果。
+   reference projection backend 保留同语义的 host BF16-round/argmax fallback。两种模式
+   都对相同最大值选择最小 token id，NaN 或 infinity 都是硬错误。
 
 `compute_logits=false` 仍执行 embedding、全部 64 层、所有 cache/state update 和 final
 norm，只跳过 lm_head 与 logits D2H，适合调用方逐 token 建立 prompt prefix。
@@ -88,9 +93,11 @@ device 工作、可选 D2H 和 host logits 检查都成功后才调用 `RequestS
 state。只有成功的 `reset()` 会清零完整 persistent span、同步 owned stream、把 logical
 position 置零并恢复 runner。
 
-每个成功结果包含输入 token 和提交前的绝对 `position`；有 logits 时包含 predicted id、
-chosen/max logit、max log-probability 和 logsumexp。`measure_timing` 可附带包含末尾同步与
-host logits 分析的端到端毫秒数。
+每个成功结果包含输入 token 和提交前的绝对 `position`。完整模式只填充 `logits`，其中
+包含 predicted id、chosen/max logit、max log-probability 和 logsumexp；prediction-only
+模式只填充独立的 `prediction`，不会用零或 NaN 伪造未计算的统计。`compute_logits=false`
+时两个 optional 都为空。`measure_timing` 可附带包含末尾同步与所选 logits 分析的端到端
+毫秒数。
 
 ## Trace 与 fixture
 

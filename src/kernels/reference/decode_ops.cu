@@ -26,6 +26,13 @@ constexpr std::size_t kQkRopeKvHeads = 4U;
 constexpr std::size_t kFullPreprocessQueryHeads = 24U;
 constexpr std::size_t kFullPreprocessKvHeads = 4U;
 constexpr std::size_t kFullPreprocessHeadDimension = 256U;
+constexpr unsigned int kBf16GreedyArgmaxBlocks =
+    static_cast<unsigned int>(kBf16GreedyArgmaxWorkspaceResults - 1U);
+constexpr std::size_t kBf16GreedyArgmaxStride =
+    kBf16GreedyArgmaxBlocks * kThreads;
+static_assert((kThreads & (kThreads - 1U)) == 0U);
+static_assert(kBf16GreedyArgmaxBlocks != 0U &&
+              kBf16GreedyArgmaxBlocks <= 32U);
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
 static_assert(kFusedGqaHeadDimension == kThreads);
 
@@ -102,6 +109,126 @@ __device__ __forceinline__ std::uint16_t encode_bf16_device(
   }
   bits += 0x7fffU + ((bits >> 16U) & 1U);
   return static_cast<std::uint16_t>(bits >> 16U);
+}
+
+__device__ __forceinline__ bool finite_bf16_device(
+    const std::uint16_t value) {
+  return (value & 0x7f80U) != 0x7f80U;
+}
+
+__global__ __launch_bounds__(kThreads, 1) void bf16_greedy_argmax_kernel(
+    const std::uint16_t* const input, const std::size_t element_count,
+    Bf16GreedyArgmaxResult* const partial_results) {
+  __shared__ float maxima[kThreads];
+  __shared__ std::uint32_t indices[kThreads];
+  __shared__ std::uint16_t value_bits[kThreads];
+  __shared__ std::uint16_t nonfinite[kThreads];
+
+  std::uint32_t local_index = std::numeric_limits<std::uint32_t>::max();
+  std::uint16_t local_bits = 0U;
+  float local_maximum = __uint_as_float(0xff80'0000U);
+  std::uint16_t local_nonfinite = 0U;
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < element_count; index += kBf16GreedyArgmaxStride) {
+    const std::uint16_t bits = input[index];
+    if (!finite_bf16_device(bits)) {
+      local_nonfinite = 1U;
+      continue;
+    }
+    const float value = decode_bf16_device(bits);
+    if (local_index == std::numeric_limits<std::uint32_t>::max() ||
+        value > local_maximum) {
+      local_index = static_cast<std::uint32_t>(index);
+      local_bits = bits;
+      local_maximum = value;
+    }
+  }
+
+  maxima[threadIdx.x] = local_maximum;
+  indices[threadIdx.x] = local_index;
+  value_bits[threadIdx.x] = local_bits;
+  nonfinite[threadIdx.x] = local_nonfinite;
+  __syncthreads();
+
+  for (unsigned int offset = kThreads / 2U; offset != 0U; offset /= 2U) {
+    if (threadIdx.x < offset) {
+      const unsigned int other = threadIdx.x + offset;
+      const std::uint32_t other_index = indices[other];
+      const bool take_other =
+          other_index != std::numeric_limits<std::uint32_t>::max() &&
+          (indices[threadIdx.x] ==
+               std::numeric_limits<std::uint32_t>::max() ||
+           maxima[other] > maxima[threadIdx.x] ||
+           (maxima[other] == maxima[threadIdx.x] &&
+            other_index < indices[threadIdx.x]));
+      if (take_other) {
+        maxima[threadIdx.x] = maxima[other];
+        indices[threadIdx.x] = other_index;
+        value_bits[threadIdx.x] = value_bits[other];
+      }
+      nonfinite[threadIdx.x] = static_cast<std::uint16_t>(
+          nonfinite[threadIdx.x] | nonfinite[other]);
+    }
+    __syncthreads();
+  }
+
+  if (threadIdx.x == 0U) {
+    Bf16GreedyArgmaxResult& partial = partial_results[blockIdx.x];
+    partial.index = indices[0];
+    partial.value_bits = value_bits[0];
+    partial.has_nonfinite = nonfinite[0];
+  }
+}
+
+__global__ void bf16_greedy_argmax_finalize_kernel(
+    const std::uint16_t* const input,
+    const Bf16GreedyArgmaxResult* const partial_results,
+    Bf16GreedyArgmaxResult* const result) {
+  const unsigned int lane = threadIdx.x;
+  std::uint32_t index = std::numeric_limits<std::uint32_t>::max();
+  std::uint16_t bits = 0U;
+  std::uint16_t has_nonfinite = 0U;
+  float maximum = __uint_as_float(0xff80'0000U);
+  if (lane < kBf16GreedyArgmaxBlocks) {
+    const Bf16GreedyArgmaxResult partial = partial_results[lane];
+    index = partial.index;
+    bits = partial.value_bits;
+    has_nonfinite = partial.has_nonfinite;
+    if (index != std::numeric_limits<std::uint32_t>::max()) {
+      maximum = decode_bf16_device(bits);
+    }
+  }
+
+  constexpr unsigned int kMask = 0xffff'ffffU;
+  for (unsigned int offset = 16U; offset != 0U; offset /= 2U) {
+    const std::uint32_t other_index =
+        __shfl_down_sync(kMask, index, offset);
+    const std::uint16_t other_bits = static_cast<std::uint16_t>(
+        __shfl_down_sync(kMask, static_cast<unsigned int>(bits), offset));
+    const std::uint16_t other_nonfinite = static_cast<std::uint16_t>(
+        __shfl_down_sync(kMask, static_cast<unsigned int>(has_nonfinite),
+                         offset));
+    const float other_maximum =
+        __shfl_down_sync(kMask, maximum, offset);
+    if (other_index != std::numeric_limits<std::uint32_t>::max() &&
+        (index == std::numeric_limits<std::uint32_t>::max() ||
+         other_maximum > maximum ||
+         (other_maximum == maximum && other_index < index))) {
+      index = other_index;
+      bits = other_bits;
+      maximum = other_maximum;
+    }
+    has_nonfinite = static_cast<std::uint16_t>(has_nonfinite |
+                                               other_nonfinite);
+  }
+  if (lane == 0U) {
+    result->index = index;
+    result->value_bits =
+        index == std::numeric_limits<std::uint32_t>::max() ? 0U
+                                                           : input[index];
+    result->has_nonfinite = has_nonfinite;
+  }
 }
 
 __global__ void embedding_gather_kernel(
@@ -973,6 +1100,36 @@ int launch_fp32_to_bf16_reference_cuda(
   (void)cudaGetLastError();
   fp32_to_bf16_kernel<<<block_count(element_count), kThreads, 0U, stream>>>(
       input, element_count, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_bf16_greedy_argmax_cuda(
+    const std::uint16_t* const input,
+    const std::size_t element_count,
+    Bf16GreedyArgmaxResult* const result_workspace,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kWorkspaceBytes =
+      kBf16GreedyArgmaxWorkspaceResults *
+      sizeof(Bf16GreedyArgmaxResult);
+  if (input == nullptr || result_workspace == nullptr ||
+      element_count == 0U ||
+      element_count > std::numeric_limits<std::uint32_t>::max() ||
+      multiply_overflows(element_count, sizeof(std::uint16_t)) ||
+      ranges_overlap(input, element_count * sizeof(std::uint16_t),
+                     result_workspace, kWorkspaceBytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_greedy_argmax_kernel<<<kBf16GreedyArgmaxBlocks, kThreads, 0U,
+                              stream>>>(
+      input, element_count, result_workspace + 1U);
+  cudaError_t status = cudaGetLastError();
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  bf16_greedy_argmax_finalize_kernel<<<1U, 32U, 0U, stream>>>(
+      input, result_workspace + 1U, result_workspace);
   return static_cast<int>(cudaGetLastError());
 }
 

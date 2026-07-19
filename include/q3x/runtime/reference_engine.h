@@ -36,6 +36,7 @@ enum class ReferenceEngineError : std::uint8_t {
   kDecodeFailure,
   kTraceFailure,
   kAllocationFailure,
+  kMissingPrediction,
 };
 
 struct ReferenceEngineDiagnostic {
@@ -61,6 +62,9 @@ struct ReferenceGenerateOptions {
   bool capture_trace = false;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
   std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
+  // Full statistics is the compatibility default. Prediction-only compute
+  // steps populate ReferenceStepResult::prediction instead of logits.
+  ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -230,6 +234,7 @@ enum class GenerationControlError : std::uint8_t {
   kMissingLogits,
   kMissingTiming,
   kAllocationFailure,
+  kMissingPrediction,
 };
 
 using StepFunction = ReferenceStepOutcome (*)(
@@ -245,6 +250,7 @@ struct GenerationControlOptions {
   std::uint32_t max_sequence_length = 0U;
   std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   bool capture_trace = false;
+  ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
 };
 
 struct GenerationControl {

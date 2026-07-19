@@ -38,6 +38,10 @@ gate without an intermediate launch.
   residual add, `SiLU(gate) * up`, and
   `value * sigmoid(gate)` for the full-attention output gate.
 - FP32 GEMV-output to BF16 RNE conversion.
+- BF16 greedy argmax with full-vector finite validation and earliest-index tie
+  breaking. Its CUDA path uses caller-provided
+  `kBf16GreedyArgmaxWorkspaceResults` scratch, writes the final compact result
+  at element zero, and performs no allocation or copy.
 - Per-head GDN L2 normalization and fixed full-attention 256/64 partial NeoX
   RoPE.
 - Stable row-wise FP32 softmax.

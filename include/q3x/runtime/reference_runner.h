@@ -35,6 +35,7 @@ enum class ReferenceRunnerError : std::uint8_t {
   kTraceUnavailable,
   kNonFiniteLogits,
   kStateCommitFailure,
+  kInvalidStepOptions,
 };
 
 struct ReferenceRunnerStatus {
@@ -61,12 +62,28 @@ struct ReferenceRunnerOptions {
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
 };
 
+enum class ReferenceLogitsMode : std::uint8_t {
+  // Preserve the exact public reference result: chosen logit, stable
+  // logsumexp, maximum log-probability, and greedy token id.
+  kFullStatistics = 0,
+  // Validate finiteness and return only the greedy token id. This is intended
+  // for callers such as the CLI that do not expose probability statistics.
+  kPredictedTokenOnly,
+};
+
+[[nodiscard]] constexpr bool is_valid_reference_logits_mode(
+    const ReferenceLogitsMode mode) noexcept {
+  return mode == ReferenceLogitsMode::kFullStatistics ||
+         mode == ReferenceLogitsMode::kPredictedTokenOnly;
+}
+
 struct ReferenceStepOptions {
   // False is the prompt-prefix path: all 64 layers and persistent-state
   // updates still execute, while lm_head and the logits D2H copy are skipped.
   bool compute_logits = true;
   bool capture_trace = false;
   bool measure_timing = false;
+  ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
 };
 
 struct ReferenceStepLogits {
@@ -74,6 +91,10 @@ struct ReferenceStepLogits {
   float chosen_logit = 0.0F;
   double max_log_probability = 0.0;
   double logsumexp = 0.0;
+};
+
+struct ReferenceStepPrediction {
+  std::uint32_t predicted_token_id = 0U;
 };
 
 struct ReferenceStepTiming {
@@ -87,6 +108,7 @@ struct ReferenceStepResult {
   std::uint32_t input_token_id = 0U;
   std::optional<ReferenceStepLogits> logits;
   std::optional<ReferenceStepTiming> timing;
+  std::optional<ReferenceStepPrediction> prediction;
 };
 
 struct ReferenceStepOutcome {
@@ -185,6 +207,10 @@ struct LogitsAnalysis {
 [[nodiscard]] LogitsAnalysis analyze_bf16_logits_in_place(
     float* logits, std::size_t element_count) noexcept;
 [[nodiscard]] LogitsAnalysis analyze_bf16_logits_bits(
+    const std::uint16_t* logits, std::size_t element_count) noexcept;
+[[nodiscard]] LogitsAnalysis analyze_bf16_argmax_in_place(
+    float* logits, std::size_t element_count) noexcept;
+[[nodiscard]] LogitsAnalysis analyze_bf16_argmax_bits(
     const std::uint16_t* logits, std::size_t element_count) noexcept;
 
 // Exact payload/dimension preflight used by the runner factory. Exposed here

@@ -189,6 +189,37 @@ void expect_bf16_bits_equal(TestContext& test,
   return result;
 }
 
+[[nodiscard]] q3x::runtime::Bf16GreedyArgmaxResult
+bf16_greedy_argmax_cpu_oracle(const std::uint16_t* const input,
+                              const std::size_t element_count) {
+  q3x::runtime::Bf16GreedyArgmaxResult result;
+  result.index = std::numeric_limits<std::uint32_t>::max();
+  float maximum = -std::numeric_limits<float>::infinity();
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    const std::uint16_t bits = input[index];
+    if ((bits & 0x7f80U) == 0x7f80U) {
+      result.has_nonfinite = 1U;
+      continue;
+    }
+    const float value = decode_bf16(bits);
+    if (result.index == std::numeric_limits<std::uint32_t>::max() ||
+        value > maximum) {
+      result.index = static_cast<std::uint32_t>(index);
+      result.value_bits = bits;
+      maximum = value;
+    }
+  }
+  return result;
+}
+
+[[nodiscard]] std::uint32_t next_deterministic_random(
+    std::uint32_t& state) noexcept {
+  state ^= state << 13U;
+  state ^= state >> 17U;
+  state ^= state << 5U;
+  return state;
+}
+
 [[nodiscard]] float float_from_bits(const std::uint32_t bits) {
   float result = 0.0F;
   std::memcpy(&result, &bits, sizeof(result));
@@ -286,6 +317,7 @@ void test_launch_validation(TestContext& test) {
       preprocess_validation_storage{};
   static std::array<float, 64U> preprocess_cosines{};
   static std::array<float, 64U> preprocess_sines{};
+  static q3x::runtime::Bf16GreedyArgmaxResult argmax_validation_storage{};
   const std::uint16_t* const fused_left = fused_validation_storage.data();
   const std::uint16_t* const fused_right =
       fused_left + kFusedHiddenSize;
@@ -344,6 +376,44 @@ void test_launch_validation(TestContext& test) {
                   q3x::runtime::launch_fp32_to_bf16_reference_cuda(
                       nullptr, 1U, nullptr)) == cudaErrorInvalidValue,
               "CUDA FP32 conversion rejects null storage");
+  test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                      nullptr, 1U, &argmax_validation_storage)) ==
+                  cudaErrorInvalidValue,
+              "CUDA BF16 greedy argmax rejects null input");
+  test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                      reinterpret_cast<const std::uint16_t*>(
+                          &argmax_validation_storage),
+                      1U, nullptr)) == cudaErrorInvalidValue,
+              "CUDA BF16 greedy argmax rejects null result storage");
+  test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                      reinterpret_cast<const std::uint16_t*>(
+                          &argmax_validation_storage),
+                      0U, &argmax_validation_storage)) ==
+                  cudaErrorInvalidValue,
+              "CUDA BF16 greedy argmax rejects empty input");
+  test.expect(static_cast<cudaError_t>(
+                  q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                      reinterpret_cast<const std::uint16_t*>(
+                          &argmax_validation_storage),
+                      sizeof(argmax_validation_storage) /
+                          sizeof(std::uint16_t),
+                      &argmax_validation_storage)) ==
+                  cudaErrorInvalidValue,
+              "CUDA BF16 greedy argmax rejects overlapping result");
+  if constexpr (sizeof(std::size_t) > sizeof(std::uint32_t)) {
+    test.expect(static_cast<cudaError_t>(
+                    q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                        preprocess_interleaved,
+                        static_cast<std::size_t>(
+                            std::numeric_limits<std::uint32_t>::max()) +
+                            1U,
+                        &argmax_validation_storage)) ==
+                    cudaErrorInvalidValue,
+                "CUDA BF16 greedy argmax rejects an unrepresentable index range");
+  }
   test.expect(static_cast<cudaError_t>(
                   q3x::runtime::launch_sigmoid_gate_reference_cuda(
                       nullptr, nullptr, 1U, nullptr)) == cudaErrorInvalidValue,
@@ -1231,6 +1301,163 @@ void test_fp32_conversion(TestContext& test, cudaStream_t stream) {
     test.expect(std::isnan(decode_bf16(output[2])) &&
                     (output[2] & 0x0040U) != 0U,
                 "CUDA BF16 conversion quiets tiny-payload NaN");
+  }
+}
+
+void test_bf16_greedy_argmax(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kVocabularySize = 248'320U;
+  ManagedBuffer<std::uint16_t> input;
+  ManagedBuffer<q3x::runtime::Bf16GreedyArgmaxResult> result;
+  bool ready = test.cuda_ok(input.allocate(kVocabularySize),
+                            "BF16 greedy argmax allocate input");
+  ready = ready && test.cuda_ok(
+                                result.allocate(
+                                    q3x::runtime::
+                                        kBf16GreedyArgmaxWorkspaceResults),
+                                "BF16 greedy argmax allocate result");
+  if (!ready) {
+    return;
+  }
+
+  const auto launch = [&](const std::size_t count,
+                          const std::string& label) {
+    return launch_after_stale(test, stream, label, [&]() {
+      return q3x::runtime::launch_bf16_greedy_argmax_cuda(
+          input.data(), count, result.data(), static_cast<void*>(stream));
+    });
+  };
+
+  for (std::size_t index = 0U; index < kVocabularySize; ++index) {
+    const int centered = static_cast<int>((index * 131U) % 2'047U) - 1'023;
+    input[index] = encode_bf16(static_cast<float>(centered) / 32.0F);
+  }
+  constexpr std::size_t kEarliestMaximum = 17U;
+  constexpr std::size_t kRepeatedMaximum = 200'003U;
+  input[kEarliestMaximum] = 0x7f7fU;
+  input[kRepeatedMaximum] = 0x7f7fU;
+  ready = launch(kVocabularySize, "BF16 greedy argmax vocabulary");
+  if (ready) {
+    test.expect(result[0].index == kEarliestMaximum &&
+                    result[0].value_bits == 0x7f7fU &&
+                    result[0].has_nonfinite == 0U,
+                "CUDA BF16 greedy argmax selects earliest finite maximum");
+  }
+
+  input[0] = 0x8000U;
+  input[1] = 0x0000U;
+  ready = launch(2U, "BF16 greedy argmax signed zero");
+  if (ready) {
+    test.expect(result[0].index == 0U && result[0].value_bits == 0x8000U &&
+                    result[0].has_nonfinite == 0U,
+                "CUDA BF16 greedy argmax preserves earliest signed-zero tie");
+  }
+
+  constexpr std::array<std::size_t, 7U> kTailLengths{{
+      1U, 255U, 256U, 257U, 2'047U, 2'048U, 2'049U,
+  }};
+  for (const std::size_t count : kTailLengths) {
+    for (std::size_t index = 0U; index < count; ++index) {
+      input[index] = encode_bf16(
+          -1'000.0F + static_cast<float>((index * 73U) % 4'093U) / 8.0F);
+    }
+    const std::size_t first_maximum = std::min<std::size_t>(17U, count - 1U);
+    input[first_maximum] = encode_bf16(-1.0F);
+    if (count > 1'000U) {
+      input[1'000U] = encode_bf16(-1.0F);
+    }
+    ready = launch(count, "BF16 greedy argmax tail length");
+    if (ready) {
+      test.expect(result[0].index == first_maximum &&
+                      result[0].value_bits == encode_bf16(-1.0F) &&
+                      result[0].has_nonfinite == 0U,
+                  "CUDA BF16 greedy argmax handles singleton, warp, block, and tail lengths");
+    }
+  }
+
+  constexpr std::array<std::size_t, 8U> kRandomLengths{{
+      3U, 31U, 33U, 511U, 513U, 4'093U, 65'537U, kVocabularySize,
+  }};
+  std::uint32_t random_state = 0x6d2b'79f5U;
+  for (const std::size_t count : kRandomLengths) {
+    for (std::size_t index = 0U; index < count; ++index) {
+      std::uint16_t bits =
+          static_cast<std::uint16_t>(next_deterministic_random(random_state));
+      if ((bits & 0x7f80U) == 0x7f80U) {
+        bits = static_cast<std::uint16_t>(bits & ~0x0080U);
+      }
+      input[index] = bits;
+    }
+    const q3x::runtime::Bf16GreedyArgmaxResult expected =
+        bf16_greedy_argmax_cpu_oracle(input.data(), count);
+    const std::string label =
+        "BF16 greedy argmax deterministic random count=" +
+        std::to_string(count);
+    ready = launch(count, label);
+    if (ready) {
+      test.expect(result[0].index == expected.index &&
+                      result[0].value_bits == expected.value_bits &&
+                      result[0].has_nonfinite == expected.has_nonfinite,
+                  label + " matches the independent CPU oracle");
+    }
+  }
+
+  constexpr std::array<std::uint16_t, 6U> kNonfiniteValues{{
+      0x7f80U, 0xff80U, 0x7f81U, 0xff81U, 0x7fc1U, 0xffc1U,
+  }};
+  input[0] = encode_bf16(-2.0F);
+  input[1] = encode_bf16(4.0F);
+  for (std::size_t index = 0U; index < kNonfiniteValues.size(); ++index) {
+    input[index + 2U] = kNonfiniteValues[index];
+  }
+  ready = launch(kNonfiniteValues.size() + 2U,
+                 "BF16 greedy argmax nonfinite");
+  if (ready) {
+    test.expect(result[0].index == 1U &&
+                    result[0].value_bits == encode_bf16(4.0F) &&
+                    result[0].has_nonfinite != 0U,
+                "CUDA BF16 greedy argmax reports every nonfinite class");
+  }
+  for (std::size_t index = 0U; index < kNonfiniteValues.size(); ++index) {
+    input[index] = kNonfiniteValues[index];
+  }
+  ready = launch(kNonfiniteValues.size(),
+                 "BF16 greedy argmax all nonfinite");
+  if (ready) {
+    test.expect(result[0].index ==
+                        std::numeric_limits<std::uint32_t>::max() &&
+                    result[0].value_bits == 0U &&
+                    result[0].has_nonfinite != 0U,
+                "CUDA BF16 greedy argmax safely rejects an all-nonfinite vector");
+  }
+
+  if (std::getenv("Q3X_RUN_BF16_GREEDY_ARGMAX_PERF") != nullptr) {
+    for (std::size_t index = 0U; index < kVocabularySize; ++index) {
+      input[index] = static_cast<std::uint16_t>(
+          0x3b00U + ((index * 17U) % 0x0400U));
+    }
+    for (int warmup = 0; warmup < 10; ++warmup) {
+      ready = ready && test.cuda_ok(
+          static_cast<cudaError_t>(
+              q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                  input.data(), kVocabularySize, result.data(),
+                  static_cast<void*>(stream))),
+          "BF16 greedy argmax performance warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  "BF16 greedy argmax warmup synchronize");
+    if (ready) {
+      constexpr std::size_t kMeasuredIterations = 200U;
+      const float milliseconds = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations,
+          "BF16 greedy argmax performance", [&]() {
+            return q3x::runtime::launch_bf16_greedy_argmax_cuda(
+                input.data(), kVocabularySize, result.data(),
+                static_cast<void*>(stream));
+          });
+      std::cout << "PERF_BF16_GREEDY_ARGMAX: length=" << kVocabularySize
+                << " kernel_ms=" << milliseconds
+                << " measured_iterations=" << kMeasuredIterations << '\n';
+    }
   }
 }
 
@@ -2839,6 +3066,7 @@ int main() {
   test_residual_rms_fused_perf(test, stream);
   test_outer_rms_tile_exact(test, stream);
   test_fp32_conversion(test, stream);
+  test_bf16_greedy_argmax(test, stream);
   run_headwise_norm_case(test, stream, 24U,
                          q3x::runtime::kFullAttentionHeadDimension,
                          HeadwiseNormKind::kCentered,

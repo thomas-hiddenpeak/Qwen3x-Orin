@@ -582,6 +582,7 @@ void PrintEngineDiagnostic(
     case Error::kMissingLogits:
     case Error::kMissingTiming:
     case Error::kTraceFailure:
+    case Error::kMissingPrediction:
       return 4;
     case Error::kAllocationFailure:
       return 5;
@@ -772,6 +773,8 @@ int RunGenerate(const int argc, char** const argv) {
   options.generation.max_new_tokens = parsed.value->max_tokens;
   options.generation.capture_trace = parsed.value->trace;
   options.generation.prefill_chunk_size = parsed.value->prefill_chunk_size;
+  options.generation.logits_mode =
+      q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   options.projection_backend = parsed.value->projection_backend;
   std::cerr << "progress=loading_and_generating model_dir=";
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
@@ -829,6 +832,12 @@ void PrintBenchmarkReport(
          << "benchmark.prompt_count=" << report.prompts.size() << '\n'
          << "benchmark.warmup_rounds=" << report.warmup_rounds << '\n'
          << "benchmark.measured_rounds=" << report.measured_rounds << '\n'
+         << "benchmark.logits_mode="
+         << (report.logits_mode ==
+                     q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly
+                 ? "predicted_token_only"
+                 : "full_statistics")
+         << '\n'
          << "benchmark.max_new_tokens=" << report.max_new_tokens << '\n'
          << "benchmark.stop_token_id=" << report.stop_token_id << '\n'
          << "benchmark.sample_count=" << report.samples.size() << '\n';
@@ -957,6 +966,8 @@ int RunBenchmark(const int argc, char** const argv) {
   benchmark_options.measured_rounds = parsed.value->iterations;
   benchmark_options.max_new_tokens = parsed.value->max_tokens;
   benchmark_options.prefill_chunk_size = parsed.value->prefill_chunk_size;
+  benchmark_options.logits_mode =
+      q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   std::cerr << "progress=running_benchmark prompts="
             << parsed.value->prompts.size()
             << " warmup_rounds=" << parsed.value->warmup_rounds

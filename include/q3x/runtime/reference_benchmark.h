@@ -35,6 +35,9 @@ struct ReferenceBenchmarkOptions {
   // report. It does not discard otherwise valid latency measurements.
   std::uint64_t device_memory_drop_tolerance_bytes =
       64ULL * 1024ULL * 1024ULL;
+  // The CLI explicitly selects prediction-only; direct API callers retain
+  // the full-statistics generation default unless they opt in here.
+  ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
 };
 
 // count==0 means that no values exist for this metric. Median is the middle
@@ -97,6 +100,7 @@ struct ReferenceBenchmarkReport {
   ReferenceLatencyStatistics total_generation;
   ReferenceLatencyStatistics subsequent_token;
   ReferenceBenchmarkMemory device_memory;
+  ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
 };
 
 struct ReferenceBenchmarkDiagnostic {

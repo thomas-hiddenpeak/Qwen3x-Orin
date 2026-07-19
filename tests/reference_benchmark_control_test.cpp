@@ -72,6 +72,11 @@ struct FakeGenerator {
   bool fail = false;
   bool invalid_timing = false;
   std::uint32_t expected_prefill_chunk_size = 4U;
+  runtime::ReferenceLogitsMode expected_logits_mode =
+      runtime::ReferenceLogitsMode::kFullStatistics;
+  bool preserve_full_arm = false;
+  bool add_both_arms = false;
+  bool add_prefix_prediction = false;
   std::vector<std::string> prompts;
 };
 
@@ -89,7 +94,8 @@ runtime::ReferenceGenerateResult fake_generate(
   }
   if (options.max_new_tokens != 8U || options.capture_trace ||
       options.prefill_chunk_size != fake.expected_prefill_chunk_size ||
-      options.stop_token_id != runtime::kQwen36ImEndTokenId) {
+      options.stop_token_id != runtime::kQwen36ImEndTokenId ||
+      options.logits_mode != fake.expected_logits_mode) {
     result.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
     return result;
   }
@@ -100,6 +106,30 @@ runtime::ReferenceGenerateResult fake_generate(
       {1.0}, {2.0}, {3.0, 4.0}, {5.0}, {6.0, 7.0}, {}};
   runtime::ReferenceGeneration generation = make_generation(
       prompt, kTtft[call], kTotal[call], kSubsequent[call]);
+  if (options.logits_mode ==
+          runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
+      !fake.preserve_full_arm) {
+    for (runtime::ReferenceStepResult& step : generation.steps) {
+      if (step.logits.has_value()) {
+        step.prediction.emplace(runtime::ReferenceStepPrediction{
+            step.logits->predicted_token_id});
+        step.logits.reset();
+      }
+    }
+  }
+  if (fake.add_both_arms) {
+    for (runtime::ReferenceStepResult& step : generation.steps) {
+      if (step.prediction.has_value()) {
+        runtime::ReferenceStepLogits logits;
+        logits.predicted_token_id = step.prediction->predicted_token_id;
+        step.logits.emplace(logits);
+      }
+    }
+  }
+  if (fake.add_prefix_prediction) {
+    generation.steps.front().prediction.emplace(
+        runtime::ReferenceStepPrediction{999U});
+  }
   generation.requested_prefill_chunk_size = options.prefill_chunk_size;
   generation.effective_prefill_chunk_size = options.prefill_chunk_size;
   if (fake.invalid_timing) {
@@ -226,6 +256,46 @@ void test_control_success(TestContext& test) {
               "memory is sampled at start and after every invocation");
 }
 
+void test_prediction_only_mode(TestContext& test) {
+  FakeGenerator generator;
+  generator.expected_logits_mode =
+      runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  FakeMemory memory = benchmark_memory();
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.logits_mode = runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+  const auto result = detail::run_benchmark_control(
+      {"alpha", "beta"}, options, &generator, fake_generate,
+      &memory, fake_memory);
+  test.expect(result &&
+                  result.value->logits_mode ==
+                      runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
+                  result.value->prompts[0]
+                          .step_sequence[1]
+                          .predicted_token_id ==
+                      std::optional<std::uint32_t>(201U),
+              "benchmark propagates and records prediction-only mode");
+
+  for (int malformed = 0; malformed < 3; ++malformed) {
+    generator = {};
+    generator.expected_logits_mode =
+        runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+    generator.preserve_full_arm = malformed == 0;
+    generator.add_both_arms = malformed == 1;
+    generator.add_prefix_prediction = malformed == 2;
+    memory = benchmark_memory();
+    const auto rejected = detail::run_benchmark_control(
+        {"alpha"}, options, &generator, fake_generate,
+        &memory, fake_memory);
+    test.expect(!rejected &&
+                    rejected.diagnostic.code ==
+                        runtime::ReferenceBenchmarkError::
+                            kGenerationFailure &&
+                    rejected.diagnostic.mismatch_field.find(
+                        ".logits_mode") != std::string::npos,
+                "benchmark rejects a result arm inconsistent with logits mode");
+  }
+}
+
 void test_repeatability_and_failures(TestContext& test) {
   FakeGenerator generator;
   generator.mismatch = true;
@@ -292,6 +362,15 @@ void test_repeatability_and_failures(TestContext& test) {
                              runtime::ReferenceBenchmarkError::kInvalidArgument,
               "oversized prefill chunk size is rejected before callbacks");
 
+  invalid = benchmark_options();
+  invalid.logits_mode =
+      static_cast<runtime::ReferenceLogitsMode>(255U);
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidArgument,
+              "unknown benchmark logits mode is rejected before callbacks");
+
   generator = {};
   generator.invalid_timing = true;
   memory.free_bytes = {1'000U, 1'000U};
@@ -352,6 +431,14 @@ void test_step_comparison(TestContext& test) {
   test.expect(detail::generation_mismatch_field(expected, actual) ==
                   "step_sequence[1].predicted_token_id",
               "step prediction changes are localized");
+  expected.steps[1].prediction.emplace(
+      runtime::ReferenceStepPrediction{201U});
+  expected.steps[1].logits.reset();
+  actual = expected;
+  actual.steps[1].prediction->predicted_token_id = 998U;
+  test.expect(detail::generation_mismatch_field(expected, actual) ==
+                  "step_sequence[1].predicted_token_id",
+              "prediction-only step changes are localized");
   actual = expected;
   actual.effective_prefill_chunk_size = 2U;
   test.expect(detail::generation_mismatch_field(expected, actual) ==
@@ -369,6 +456,7 @@ int main() {
   TestContext test;
   test_statistics(test);
   test_control_success(test);
+  test_prediction_only_mode(test);
   test_repeatability_and_failures(test);
   test_zero_warmup_and_memory_boundary(test);
   test_maximum_prefill_chunk_boundary(test);

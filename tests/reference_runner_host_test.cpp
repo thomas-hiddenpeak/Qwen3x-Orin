@@ -176,6 +176,49 @@ void test_logits_analysis(TestContext& test) {
   }
 }
 
+void test_bf16_argmax_analysis(TestContext& test) {
+  std::array<float, 7U> full_values{
+      1.00390625F, 2.0F, 2.0F, -4.0F, -0.0F, 0.0F, 1.5F};
+  std::array<float, 7U> greedy_values = full_values;
+  const detail::LogitsAnalysis full =
+      detail::analyze_bf16_logits_in_place(full_values.data(),
+                                           full_values.size());
+  const detail::LogitsAnalysis greedy =
+      detail::analyze_bf16_argmax_in_place(greedy_values.data(),
+                                           greedy_values.size());
+  test.expect(full.ok() && greedy.ok() &&
+                  greedy.predicted_index == full.predicted_index &&
+                  same_bits(greedy.maximum, full.maximum) &&
+                  std::memcmp(greedy_values.data(), full_values.data(),
+                              full_values.size() * sizeof(float)) == 0,
+              "prediction-only FP32 analysis preserves BF16 rounding and argmax");
+
+  const std::array<std::uint16_t, 6U> bits{
+      0x8000U, 0x0000U, 0xbf80U, 0x8000U, 0x0000U, 0xbf00U};
+  const detail::LogitsAnalysis full_bits =
+      detail::analyze_bf16_logits_bits(bits.data(), bits.size());
+  const detail::LogitsAnalysis greedy_bits =
+      detail::analyze_bf16_argmax_bits(bits.data(), bits.size());
+  test.expect(full_bits.ok() && greedy_bits.ok() &&
+                  greedy_bits.predicted_index == 0U &&
+                  greedy_bits.predicted_index == full_bits.predicted_index &&
+                  same_bits(greedy_bits.maximum, full_bits.maximum) &&
+                  detail::float_to_bf16_rne(greedy_bits.maximum) == 0x8000U,
+              "prediction-only BF16 bits preserve the earliest signed-zero tie");
+
+  test.expect(detail::analyze_bf16_argmax_bits(nullptr, 1U).status ==
+                      detail::LogitsAnalysisStatus::kInvalidArgument &&
+                  detail::analyze_bf16_argmax_in_place(nullptr, 1U).status ==
+                      detail::LogitsAnalysisStatus::kInvalidArgument,
+              "prediction-only analyzers reject null storage");
+  constexpr std::array<std::uint16_t, 4U> kPoisoned{
+      0x3f80U, 0x7f80U, 0x4000U, 0x7fc1U};
+  test.expect(detail::analyze_bf16_argmax_bits(kPoisoned.data(),
+                                               kPoisoned.size())
+                      .status == detail::LogitsAnalysisStatus::kNonFinite,
+              "prediction-only BF16 analysis retains nonfinite rejection");
+}
+
 void test_bf16_logits_bits_analysis(TestContext& test) {
   std::vector<float> rounded_source{1.25F, -2.0F, 3.5F, 3.5F, 0.0F};
   std::vector<std::uint16_t> bits;
@@ -601,6 +644,16 @@ void test_trace_layout_and_factory_error(TestContext& test) {
                   runtime::ReferenceRunnerError::kNonFiniteLogits)) ==
                   "nonfinite_logits",
               "runner diagnostic strings are stable");
+  test.expect(runtime::is_valid_reference_logits_mode(
+                  runtime::ReferenceLogitsMode::kFullStatistics) &&
+                  runtime::is_valid_reference_logits_mode(
+                      runtime::ReferenceLogitsMode::kPredictedTokenOnly) &&
+                  !runtime::is_valid_reference_logits_mode(
+                      static_cast<runtime::ReferenceLogitsMode>(255U)) &&
+                  std::string_view(runtime::reference_runner_error_string(
+                      runtime::ReferenceRunnerError::kInvalidStepOptions)) ==
+                      "invalid_step_options",
+              "logits modes and invalid-step diagnostics are stable");
 }
 
 }  // namespace
@@ -609,6 +662,7 @@ int main() {
   TestContext test;
   test_bf16_rounding(test);
   test_logits_analysis(test);
+  test_bf16_argmax_analysis(test);
   test_bf16_logits_bits_analysis(test);
   test_bf16_logits_memo_perf(test);
   test_schedule_and_workspace(test);

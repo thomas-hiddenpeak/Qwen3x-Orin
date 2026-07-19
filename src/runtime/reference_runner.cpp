@@ -360,6 +360,8 @@ const char* reference_runner_error_string(
       return "nonfinite_logits";
     case ReferenceRunnerError::kStateCommitFailure:
       return "state_commit_failure";
+    case ReferenceRunnerError::kInvalidStepOptions:
+      return "invalid_step_options";
   }
   return "unknown";
 }
@@ -426,6 +428,66 @@ float bf16_to_float(const std::uint16_t bits) noexcept {
 
 float round_float_to_bf16(const float value) noexcept {
   return bf16_to_float(float_to_bf16_rne(value));
+}
+
+LogitsAnalysis analyze_bf16_argmax_in_place(
+    float* const logits, const std::size_t element_count) noexcept {
+  LogitsAnalysis result;
+  if (logits == nullptr || element_count == 0U) {
+    result.status = LogitsAnalysisStatus::kInvalidArgument;
+    return result;
+  }
+
+  std::size_t maximum_index = 0U;
+  float maximum = 0.0F;
+  bool all_finite = true;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    const float value = round_float_to_bf16(logits[index]);
+    logits[index] = value;
+    all_finite = all_finite && std::isfinite(value);
+    if (index == 0U || value > maximum) {
+      maximum = value;
+      maximum_index = index;
+    }
+  }
+  if (!all_finite) {
+    result.status = LogitsAnalysisStatus::kNonFinite;
+    return result;
+  }
+  result.status = LogitsAnalysisStatus::kSuccess;
+  result.predicted_index = maximum_index;
+  result.maximum = maximum;
+  return result;
+}
+
+LogitsAnalysis analyze_bf16_argmax_bits(
+    const std::uint16_t* const logits,
+    const std::size_t element_count) noexcept {
+  LogitsAnalysis result;
+  if (logits == nullptr || element_count == 0U) {
+    result.status = LogitsAnalysisStatus::kInvalidArgument;
+    return result;
+  }
+
+  std::size_t maximum_index = 0U;
+  float maximum = bf16_to_float(logits[0]);
+  bool all_finite = std::isfinite(maximum);
+  for (std::size_t index = 1U; index < element_count; ++index) {
+    const float value = bf16_to_float(logits[index]);
+    all_finite = all_finite && std::isfinite(value);
+    if (value > maximum) {
+      maximum = value;
+      maximum_index = index;
+    }
+  }
+  if (!all_finite) {
+    result.status = LogitsAnalysisStatus::kNonFinite;
+    return result;
+  }
+  result.status = LogitsAnalysisStatus::kSuccess;
+  result.predicted_index = maximum_index;
+  result.maximum = maximum;
+  return result;
 }
 
 namespace {
@@ -891,6 +953,10 @@ ReferenceStepOutcome ReferenceRunner::step(
         runner_status(ReferenceRunnerError::kPoisoned, "step");
     return outcome;
   }
+  if (!is_valid_reference_logits_mode(options.logits_mode)) {
+    return fail_step(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions, "logits_mode"));
+  }
   if (input_token_id >= kReferenceVocabularySize) {
     return fail_step(runner_status(ReferenceRunnerError::kTokenOutOfRange,
                                    "input_token"));
@@ -1203,10 +1269,14 @@ ReferenceStepOutcome ReferenceRunner::step(
     return fail_step(launch_failure);
   }
 
+  const bool prediction_only =
+      options.compute_logits &&
+      options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly;
+  const bool use_sm87_bf16_logits =
+      options.compute_logits &&
+      projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+      linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
   if (options.compute_logits) {
-    const bool use_sm87_bf16_logits =
-        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
-        linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
     if (use_sm87_bf16_logits) {
       auto* const device_bf16_logits =
           reinterpret_cast<std::uint16_t*>(views_.fp32_scratch);
@@ -1214,13 +1284,44 @@ ReferenceStepOutcome ReferenceRunner::step(
                           projection_backend_, weights_->lm_head(),
                           views_.hidden[1], nullptr, 0U,
                           device_bf16_logits, stream_),
-                      "lm_head_sm87_bf16", kReferenceNoLayer) ||
-          !check_cuda(
-              static_cast<int>(cudaMemcpyAsync(
-                  pinned_logits_, device_bf16_logits,
-                  kReferenceVocabularySize * sizeof(std::uint16_t),
-                  cudaMemcpyDeviceToHost, stream)),
-              "logits_bf16_d2h", kReferenceNoLayer)) {
+                      "lm_head_sm87_bf16", kReferenceNoLayer)) {
+        return fail_step(launch_failure);
+      }
+      if (prediction_only) {
+        constexpr std::size_t kGreedyWorkspaceBytes =
+            kReferenceVocabularySize * sizeof(std::uint16_t) +
+            kBf16GreedyArgmaxWorkspaceResults *
+                sizeof(Bf16GreedyArgmaxResult);
+        static_assert((kReferenceVocabularySize * sizeof(std::uint16_t)) %
+                              alignof(Bf16GreedyArgmaxResult) ==
+                          0U);
+        if (views_.fp32_scratch_elements <
+            (kGreedyWorkspaceBytes + sizeof(float) - 1U) / sizeof(float)) {
+          return fail_step(runner_status(
+              ReferenceRunnerError::kInvalidRequestState,
+              "bf16_greedy_argmax_workspace"));
+        }
+        auto* const greedy_workspace =
+            reinterpret_cast<Bf16GreedyArgmaxResult*>(
+                device_bf16_logits + kReferenceVocabularySize);
+        if (!check_cuda(launch_bf16_greedy_argmax_cuda(
+                            device_bf16_logits, kReferenceVocabularySize,
+                            greedy_workspace, stream_),
+                        "bf16_greedy_argmax", kReferenceNoLayer) ||
+            !check_cuda(
+                static_cast<int>(cudaMemcpyAsync(
+                    pinned_logits_, greedy_workspace,
+                    sizeof(Bf16GreedyArgmaxResult),
+                    cudaMemcpyDeviceToHost, stream)),
+                "logits_prediction_d2h", kReferenceNoLayer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (!check_cuda(
+                     static_cast<int>(cudaMemcpyAsync(
+                         pinned_logits_, device_bf16_logits,
+                         kReferenceVocabularySize * sizeof(std::uint16_t),
+                         cudaMemcpyDeviceToHost, stream)),
+                     "logits_bf16_d2h", kReferenceNoLayer)) {
         return fail_step(launch_failure);
       }
     } else if (!check_cuda(launch_projection_reference_cuda(
@@ -1248,28 +1349,53 @@ ReferenceStepOutcome ReferenceRunner::step(
   result.position = position;
   result.input_token_id = input_token_id;
   if (options.compute_logits) {
-    const bool used_sm87_bf16_logits =
-        projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
-        linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
-    const reference_runner_detail::LogitsAnalysis analysis =
-        used_sm87_bf16_logits
-            ? reference_runner_detail::analyze_bf16_logits_bits(
-                  static_cast<const std::uint16_t*>(pinned_logits_),
-                  kReferenceVocabularySize)
-            : reference_runner_detail::analyze_bf16_logits_in_place(
-                  static_cast<float*>(pinned_logits_),
-                  kReferenceVocabularySize);
-    if (!analysis.ok()) {
-      return fail_step(runner_status(
-          ReferenceRunnerError::kNonFiniteLogits, "bf16_logits_analysis"));
+    if (prediction_only && use_sm87_bf16_logits) {
+      const auto& greedy =
+          *static_cast<const Bf16GreedyArgmaxResult*>(pinned_logits_);
+      if (greedy.has_nonfinite != 0U) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kNonFiniteLogits,
+            "bf16_greedy_argmax"));
+      }
+      if (greedy.index >= kReferenceVocabularySize) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "bf16_greedy_argmax_result"));
+      }
+      result.prediction.emplace(
+          ReferenceStepPrediction{greedy.index});
+    } else {
+      const reference_runner_detail::LogitsAnalysis analysis =
+          use_sm87_bf16_logits
+              ? reference_runner_detail::analyze_bf16_logits_bits(
+                    static_cast<const std::uint16_t*>(pinned_logits_),
+                    kReferenceVocabularySize)
+              : (prediction_only
+                     ? reference_runner_detail::analyze_bf16_argmax_in_place(
+                           static_cast<float*>(pinned_logits_),
+                           kReferenceVocabularySize)
+                     : reference_runner_detail::
+                           analyze_bf16_logits_in_place(
+                               static_cast<float*>(pinned_logits_),
+                               kReferenceVocabularySize));
+      if (!analysis.ok()) {
+        return fail_step(runner_status(
+            ReferenceRunnerError::kNonFiniteLogits,
+            "bf16_logits_analysis"));
+      }
+      if (prediction_only) {
+        result.prediction.emplace(ReferenceStepPrediction{
+            static_cast<std::uint32_t>(analysis.predicted_index)});
+      } else {
+        ReferenceStepLogits logits;
+        logits.predicted_token_id =
+            static_cast<std::uint32_t>(analysis.predicted_index);
+        logits.chosen_logit = analysis.maximum;
+        logits.max_log_probability = analysis.max_log_probability;
+        logits.logsumexp = analysis.logsumexp;
+        result.logits.emplace(logits);
+      }
     }
-    ReferenceStepLogits logits;
-    logits.predicted_token_id =
-        static_cast<std::uint32_t>(analysis.predicted_index);
-    logits.chosen_logit = analysis.maximum;
-    logits.max_log_probability = analysis.max_log_probability;
-    logits.logsumexp = analysis.logsumexp;
-    result.logits.emplace(logits);
   }
 
   const RequestOperationStatus commit_status = state_->commit_token();

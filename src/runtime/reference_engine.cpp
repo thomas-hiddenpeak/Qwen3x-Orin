@@ -139,6 +139,9 @@ using Clock = std::chrono::steady_clock;
     case ControlError::kAllocationFailure:
       code = ReferenceEngineError::kAllocationFailure;
       break;
+    case ControlError::kMissingPrediction:
+      code = ReferenceEngineError::kMissingPrediction;
+      break;
   }
   ReferenceEngineDiagnostic diagnostic = engine_diagnostic(
       code, "generation_control",
@@ -492,7 +495,8 @@ ReferenceGenerateResult ReferenceEngine::generate(
   if (user_prompt.empty() || options.max_new_tokens == 0U ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
-      options.stop_token_id >= kReferenceVocabularySize) {
+      options.stop_token_id >= kReferenceVocabularySize ||
+      !is_valid_reference_logits_mode(options.logits_mode)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "generation_options",
         "prompt must be non-empty, max_new_tokens must be positive, "
@@ -553,6 +557,7 @@ ReferenceGenerateResult ReferenceEngine::generate(
         impl_->request_state->max_sequence_length();
     control_options.prefill_chunk_size = options.prefill_chunk_size;
     control_options.capture_trace = options.capture_trace;
+    control_options.logits_mode = options.logits_mode;
     reference_engine_detail::GenerationControlResult control =
         reference_engine_detail::run_generation_control(
             chat.token_ids, control_options, &step_context, step_with_trace,
@@ -641,6 +646,7 @@ ReferenceOneShotResult generate_reference(
       options.generation.prefill_chunk_size >
           kMaximumRequestPrefillChunkSize ||
       options.generation.stop_token_id >= kReferenceVocabularySize ||
+      !is_valid_reference_logits_mode(options.generation.logits_mode) ||
       !is_valid_projection_backend(options.projection_backend)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
@@ -780,6 +786,8 @@ std::string_view to_string(const ReferenceEngineError error) noexcept {
       return "trace_failure";
     case ReferenceEngineError::kAllocationFailure:
       return "allocation_failure";
+    case ReferenceEngineError::kMissingPrediction:
+      return "missing_prediction";
   }
   return "unknown";
 }

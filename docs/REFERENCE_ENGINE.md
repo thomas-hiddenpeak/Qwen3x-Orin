@@ -56,6 +56,15 @@ The required request capacity is therefore
 prediction of the final prompt step and is never fed back unless another token
 is requested.
 
+`ReferenceGenerateOptions::logits_mode` defaults to
+`kFullStatistics`, preserving the complete `ReferenceStepLogits` result for
+library callers. A caller that only needs greedy IDs may explicitly select
+`kPredictedTokenOnly`; those compute steps expose `ReferenceStepPrediction`
+instead of a partial or fabricated logits-statistics object. The production
+CLI selects prediction-only because it prints token IDs/text but no logit
+probabilities. Token choice, non-finite rejection, stop behavior, and trace
+digests are identical between the two modes.
+
 `generated_token_ids` retains an observed terminal `248046` so exact-token
 fixtures can compare it. `generated_text` decodes only the preceding prefix,
 so the stop marker is not exposed as user text. The stop ID is removed from
