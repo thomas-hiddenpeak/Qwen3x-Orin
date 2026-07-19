@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -534,6 +535,19 @@ bool use_fused_gqa_sigmoid_gate_tile(
          token_count <= kFusedGqaMaximumSequenceLength - first_position;
 }
 
+bool use_qk_rope_tile(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  if (token_count == 0U || token_count > kQkRopeTileMaximumTokens ||
+      first_position >
+          std::numeric_limits<std::size_t>::max() - token_count) {
+    return false;
+  }
+  return first_position + token_count <=
+         std::numeric_limits<std::size_t>::max() /
+             (kRopePairs * sizeof(float));
+}
+
 ReferenceRunnerError validate_reference_workspace_plan(
     const RequestMemoryPlan& plan) noexcept {
   if (plan.batch_size != 1U || plan.prefill_chunk_size == 0U ||
@@ -959,19 +973,32 @@ ReferenceStepOutcome ReferenceRunner::step(
         return fail_step(launch_failure);
       }
 
-      const float* const cosines =
-          views_.rope_cos + static_cast<std::size_t>(position) * kRopePairs;
-      const float* const sines =
-          views_.rope_sin + static_cast<std::size_t>(position) * kRopePairs;
-      if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                          views_.projection[0], cosines, sines,
-                          kFullQueryHeads, views_.projection[0], stream_),
-                      "full_q_rope", layer) ||
-          !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                          current_key, cosines, sines, kFullKvHeads,
-                          current_key, stream_),
-                      "full_k_rope", layer)) {
-        return fail_step(launch_failure);
+      const std::size_t rope_first_position =
+          static_cast<std::size_t>(position);
+      if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
+                                                     1U)) {
+        if (!check_cuda(
+                launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+                    views_.projection[0], current_key, views_.rope_cos,
+                    views_.rope_sin, rope_first_position, 1U, stream_),
+                "full_qk_rope", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else {
+        const float* const cosines =
+            views_.rope_cos + rope_first_position * kRopePairs;
+        const float* const sines =
+            views_.rope_sin + rope_first_position * kRopePairs;
+        if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                            views_.projection[0], cosines, sines,
+                            kFullQueryHeads, views_.projection[0], stream_),
+                        "full_q_rope_fallback", layer) ||
+            !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                            current_key, cosines, sines, kFullKvHeads,
+                            current_key, stream_),
+                        "full_k_rope_fallback", layer)) {
+          return fail_step(launch_failure);
+        }
       }
 
       const std::size_t sequence_length =
@@ -1388,26 +1415,41 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
 
-      for (std::size_t token = 0U; token < token_count; ++token) {
-        const std::size_t position =
-            static_cast<std::size_t>(first_position) + token;
-        const float* const cosines = views_.rope_cos + position * kRopePairs;
-        const float* const sines = views_.rope_sin + position * kRopePairs;
-        if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                            views_.projection[0] +
-                                token * kFullQueryElements,
-                            cosines, sines, kFullQueryHeads,
-                            views_.projection[0] +
-                                token * kFullQueryElements,
-                            stream_),
-                        "prefill_full_q_rope", layer) ||
-            !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                            tile_key + token * kFullKvElements,
-                            cosines, sines, kFullKvHeads,
-                            tile_key + token * kFullKvElements,
-                            stream_),
-                        "prefill_full_k_rope", layer)) {
+      const std::size_t rope_first_position =
+          static_cast<std::size_t>(first_position);
+      if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
+                                                     token_count)) {
+        if (!check_cuda(
+                launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+                    views_.projection[0], tile_key, views_.rope_cos,
+                    views_.rope_sin, rope_first_position, token_count,
+                    stream_),
+                "prefill_full_qk_rope", layer)) {
           return fail_prefill_tile(launch_failure);
+        }
+      } else {
+        for (std::size_t token = 0U; token < token_count; ++token) {
+          const std::size_t position = rope_first_position + token;
+          const float* const cosines =
+              views_.rope_cos + position * kRopePairs;
+          const float* const sines =
+              views_.rope_sin + position * kRopePairs;
+          if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                              views_.projection[0] +
+                                  token * kFullQueryElements,
+                              cosines, sines, kFullQueryHeads,
+                              views_.projection[0] +
+                                  token * kFullQueryElements,
+                              stream_),
+                          "prefill_full_q_rope_fallback", layer) ||
+              !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                              tile_key + token * kFullKvElements,
+                              cosines, sines, kFullKvHeads,
+                              tile_key + token * kFullKvElements,
+                              stream_),
+                          "prefill_full_k_rope_fallback", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
         }
       }
       const bool fuse_gqa_gate_tile =

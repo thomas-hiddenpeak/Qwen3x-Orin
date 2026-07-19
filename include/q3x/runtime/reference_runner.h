@@ -203,6 +203,11 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Pure-host selector for the fixed Q=24, KV=4, D=256, rotary=64 Q/K RoPE
+// tile. It also rejects position-table arithmetic overflow.
+[[nodiscard]] bool use_qk_rope_tile(
+    std::size_t first_position, std::size_t token_count) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(

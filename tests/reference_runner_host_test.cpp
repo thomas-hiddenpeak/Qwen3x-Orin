@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_runner.h"
 
+#include "q3x/runtime/decode_ops.h"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -147,6 +149,23 @@ void test_schedule_and_workspace(TestContext& test) {
                   !detail::use_fused_gqa_sigmoid_gate_tile(60U, 5U) &&
                   !detail::use_fused_gqa_sigmoid_gate_tile(0U, 0U),
               "fused GQA selector accepts only complete tiles ending by sequence 64");
+
+  constexpr std::size_t kMaximum =
+      std::numeric_limits<std::size_t>::max();
+  test.expect(
+      detail::use_qk_rope_tile(0U, 1U) &&
+          detail::use_qk_rope_tile(11U,
+                                   runtime::kQkRopeTileMaximumTokens) &&
+          !detail::use_qk_rope_tile(0U, 0U) &&
+          !detail::use_qk_rope_tile(
+              0U, runtime::kQkRopeTileMaximumTokens + 1U) &&
+          !detail::use_qk_rope_tile(kMaximum, 1U) &&
+          !detail::use_qk_rope_tile(
+              kMaximum /
+                  ((runtime::kQwenRotaryDimension / 2U) * sizeof(float)),
+              1U),
+      "Q/K RoPE selector accepts M=1..16 and rejects M=0, M=17, and "
+      "position/table byte-offset overflow");
 
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();

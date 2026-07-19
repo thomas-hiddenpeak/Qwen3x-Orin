@@ -21,6 +21,8 @@ constexpr std::size_t kResidualRmsBytes =
 constexpr std::size_t kFusedGqaQueryHeads = 24U;
 constexpr std::size_t kFusedGqaKvHeads = 4U;
 constexpr std::size_t kFusedGqaHeadDimension = 256U;
+constexpr std::size_t kQkRopeQueryHeads = 24U;
+constexpr std::size_t kQkRopeKvHeads = 4U;
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
 static_assert(kFusedGqaHeadDimension == kThreads);
 
@@ -356,6 +358,49 @@ __global__ void partial_neox_rope_kernel(
           kQwenRotaryDimension + (local - kHalfRotary);
       output[offset + dimension] = input[offset + dimension];
     }
+  }
+}
+
+// One warp owns one Q or K head for one token. Its per-pair arithmetic remains
+// bitwise equivalent to the reference kernel while non-rotary BF16 payload is
+// already in place and does not need to be copied.
+__global__ void qk_partial_neox_rope_tile_24_4_256_64_kernel(
+    std::uint16_t* const query,
+    std::uint16_t* const key,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position) {
+  constexpr std::size_t kCombinedHeads =
+      kQkRopeQueryHeads + kQkRopeKvHeads;
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  const std::size_t combined_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token = combined_head / kCombinedHeads;
+  const std::size_t token_head = combined_head - token * kCombinedHeads;
+  const bool is_query = token_head < kQkRopeQueryHeads;
+  const std::size_t head =
+      is_query ? token_head : token_head - kQkRopeQueryHeads;
+  std::uint16_t* const token_data =
+      is_query
+          ? query + token * kQkRopeQueryHeads *
+                        kFullAttentionHeadDimension
+          : key + token * kQkRopeKvHeads *
+                      kFullAttentionHeadDimension;
+  std::uint16_t* const head_data =
+      token_data + head * kFullAttentionHeadDimension;
+  const std::size_t position = first_position + token;
+  const float* const token_cosines =
+      cosines + position * kHalfRotary;
+  const float* const token_sines = sines + position * kHalfRotary;
+
+  if (threadIdx.x < kHalfRotary) {
+    const std::size_t pair = threadIdx.x;
+    const float first = decode_bf16_device(head_data[pair]);
+    const float second =
+        decode_bf16_device(head_data[pair + kHalfRotary]);
+    head_data[pair] = encode_bf16_device(
+        first * token_cosines[pair] - second * token_sines[pair]);
+    head_data[pair + kHalfRotary] = encode_bf16_device(
+        second * token_cosines[pair] + first * token_sines[pair]);
   }
 }
 
@@ -922,6 +967,37 @@ int launch_partial_neox_rope_256_64_reference_cuda(
   (void)cudaGetLastError();
   partial_neox_rope_kernel<<<block_count(work_items), kThreads, 0U, stream>>>(
       input, cosines, sines, head_count, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+    std::uint16_t* const query,
+    std::uint16_t* const key,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  if (token_count == 0U || token_count > kQkRopeTileMaximumTokens ||
+      first_position >
+          std::numeric_limits<std::size_t>::max() - token_count ||
+      product3_overflows(first_position + token_count, kHalfRotary,
+                         sizeof(float)) ||
+      query == nullptr || key == nullptr || cosines == nullptr ||
+      sines == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  constexpr std::size_t kCombinedHeads =
+      kQkRopeQueryHeads + kQkRopeKvHeads;
+  constexpr unsigned int kRopeThreads =
+      static_cast<unsigned int>(kHalfRotary);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  qk_partial_neox_rope_tile_24_4_256_64_kernel
+      <<<static_cast<unsigned int>(token_count * kCombinedHeads),
+         kRopeThreads, 0U, stream>>>(query, key, cosines, sines,
+                                     first_position);
   return static_cast<int>(cudaGetLastError());
 }
 

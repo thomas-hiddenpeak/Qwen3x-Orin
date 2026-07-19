@@ -9,6 +9,7 @@ inline constexpr std::size_t kLinearAttentionHeadDimension = 128U;
 inline constexpr std::size_t kFullAttentionHeadDimension = 256U;
 inline constexpr std::size_t kFusedGqaMaximumSequenceLength = 64U;
 inline constexpr std::size_t kQwenRotaryDimension = 64U;
+inline constexpr std::size_t kQkRopeTileMaximumTokens = 16U;
 
 enum class DecodeOpStatus : std::uint8_t {
   kSuccess = 0,
@@ -192,6 +193,15 @@ enum class DecodeOpStatus : std::uint8_t {
     const std::uint16_t* input, const float* cosines, const float* sines,
     std::size_t head_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
+
+// Fixed full-attention Q/K tile fast path. query is [token_count, 24, 256]
+// BF16 and key is [token_count, 4, 256] BF16; both are rotated in place.
+// cosines and sines are base pointers to [position, 32] FP32 tables.
+// token_count must be in [1, kQkRopeTileMaximumTokens].
+[[nodiscard]] int launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+    std::uint16_t* query, std::uint16_t* key, const float* cosines,
+    const float* sines, std::size_t first_position,
+    std::size_t token_count, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int launch_softmax_reference_cuda(
     const float* input, std::size_t rows, std::size_t columns, float* output,

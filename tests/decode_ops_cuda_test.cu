@@ -334,6 +334,40 @@ void test_launch_validation(TestContext& test) {
                           1U,
                       nullptr)) == cudaErrorInvalidValue,
               "CUDA RoPE rejects overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              nullptr, nullptr, nullptr, nullptr, 0U, 0U)) ==
+          cudaErrorInvalidValue,
+      "CUDA Q/K RoPE tile rejects M=0");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              nullptr, nullptr, nullptr, nullptr, 0U,
+              q3x::runtime::kQkRopeTileMaximumTokens + 1U)) ==
+          cudaErrorInvalidValue,
+      "CUDA Q/K RoPE tile rejects M=17");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              nullptr, nullptr, nullptr, nullptr, 0U, 1U)) ==
+          cudaErrorInvalidValue,
+      "CUDA Q/K RoPE tile rejects null storage");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              nullptr, nullptr, nullptr, nullptr, kMaximum, 1U)) ==
+          cudaErrorInvalidValue,
+      "CUDA Q/K RoPE tile rejects position addition overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              nullptr, nullptr, nullptr, nullptr,
+              kMaximum /
+                  ((q3x::runtime::kQwenRotaryDimension / 2U) *
+                   sizeof(float)),
+              1U)) == cudaErrorInvalidValue,
+      "CUDA Q/K RoPE tile rejects table byte-offset overflow");
   test.expect(static_cast<cudaError_t>(
                   q3x::runtime::launch_softmax_reference_cuda(
                       nullptr, kMaximum, 2U, nullptr)) ==
@@ -1213,6 +1247,462 @@ void test_rope(TestContext& test, cudaStream_t stream) {
   }
 }
 
+enum class QkRopeTileFixture {
+  kFinite,
+  kNonfinite,
+};
+
+void run_qk_rope_tile_exact_case(TestContext& test, cudaStream_t stream,
+                                 const std::size_t token_count,
+                                 const std::size_t first_position,
+                                 const QkRopeTileFixture fixture) {
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKeyHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kHalfRotary = 32U;
+  constexpr std::size_t kQueryElementsPerToken =
+      kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElementsPerToken = kKeyHeads * kDimension;
+  const std::size_t query_elements = token_count * kQueryElementsPerToken;
+  const std::size_t key_elements = token_count * kKeyElementsPerToken;
+  const std::size_t table_elements =
+      (first_position + token_count) * kHalfRotary;
+  const std::string fixture_name =
+      fixture == QkRopeTileFixture::kFinite ? "finite" : "nonfinite";
+  const std::string label =
+      "Q/K RoPE tile M=" + std::to_string(token_count) +
+      " first_position=" + std::to_string(first_position) + " " +
+      fixture_name;
+
+  GuardedBf16Buffer baseline_query;
+  GuardedBf16Buffer baseline_key;
+  GuardedBf16Buffer candidate_query;
+  GuardedBf16Buffer candidate_key;
+  ManagedBuffer<float> cosines;
+  ManagedBuffer<float> sines;
+  bool ready = baseline_query.allocate(test, query_elements,
+                                       label + " baseline query");
+  ready = ready && baseline_key.allocate(test, key_elements,
+                                          label + " baseline key");
+  ready = ready && candidate_query.allocate(test, query_elements,
+                                             label + " candidate query");
+  ready = ready && candidate_key.allocate(test, key_elements,
+                                           label + " candidate key");
+  ready = ready && test.cuda_ok(cosines.allocate(table_elements),
+                                label + " cosine table");
+  ready = ready && test.cuda_ok(sines.allocate(table_elements),
+                                label + " sine table");
+  if (!ready) {
+    return;
+  }
+
+  baseline_query.initialize(0U, 0x2a15U, 0xd4e9U);
+  baseline_key.initialize(0U, 0x35a6U, 0xcb59U);
+  candidate_query.initialize(0U, 0x4b27U, 0xb4d8U);
+  candidate_key.initialize(0U, 0x5c38U, 0xa3c7U);
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    baseline_query.data()[index] = encode_bf16(
+        static_cast<float>(
+            static_cast<int>((index * 37U + token_count * 11U) % 257U) -
+            128) /
+        64.0F);
+  }
+  for (std::size_t index = 0U; index < key_elements; ++index) {
+    baseline_key.data()[index] = encode_bf16(
+        static_cast<float>(
+            static_cast<int>((index * 43U + first_position * 7U) % 251U) -
+            125) /
+        32.0F);
+  }
+
+  if (fixture == QkRopeTileFixture::kNonfinite) {
+    constexpr std::array<std::uint16_t, 8U> kSpecialBf16Bits = {
+        0x7f80U, 0xff80U, 0x7fc1U, 0xffc1U,
+        0x0000U, 0x8000U, 0x0001U, 0x8001U};
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      for (std::size_t sample = 0U; sample < kSpecialBf16Bits.size();
+           ++sample) {
+        const std::size_t query_head =
+            (sample * 5U + token) % kQueryHeads;
+        const std::size_t key_head = (sample + token) % kKeyHeads;
+        const std::size_t pair = (sample * 3U + token) % kHalfRotary;
+        const std::size_t query_offset =
+            token * kQueryElementsPerToken + query_head * kDimension + pair;
+        const std::size_t key_offset =
+            token * kKeyElementsPerToken + key_head * kDimension + pair;
+        baseline_query.data()[query_offset] = kSpecialBf16Bits[sample];
+        baseline_query.data()[query_offset + kHalfRotary] =
+            kSpecialBf16Bits[(sample + 3U) % kSpecialBf16Bits.size()];
+        baseline_key.data()[key_offset] =
+            kSpecialBf16Bits[(sample + 1U) % kSpecialBf16Bits.size()];
+        baseline_key.data()[key_offset + kHalfRotary] =
+            kSpecialBf16Bits[(sample + 4U) % kSpecialBf16Bits.size()];
+      }
+    }
+  }
+
+  std::copy_n(baseline_query.data(), query_elements,
+              candidate_query.data());
+  std::copy_n(baseline_key.data(), key_elements, candidate_key.data());
+  const std::vector<std::uint16_t> original_query(
+      baseline_query.data(), baseline_query.data() + query_elements);
+  const std::vector<std::uint16_t> original_key(
+      baseline_key.data(), baseline_key.data() + key_elements);
+  for (std::size_t index = 0U; index < table_elements; ++index) {
+    const float angle =
+        static_cast<float>(static_cast<int>(index % 1'009U) - 504) /
+        2'048.0F;
+    cosines[index] = std::cos(angle);
+    sines[index] = std::sin(angle);
+  }
+  const std::vector<float> original_cosines(cosines.data(),
+                                             cosines.data() + table_elements);
+  const std::vector<float> original_sines(sines.data(),
+                                           sines.data() + table_elements);
+
+  const auto launch_baseline = [&]() {
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      const std::size_t table_offset =
+          (first_position + token) * kHalfRotary;
+      const int query_status =
+          q3x::runtime::launch_partial_neox_rope_256_64_reference_cuda(
+              baseline_query.data() + token * kQueryElementsPerToken,
+              cosines.data() + table_offset, sines.data() + table_offset,
+              kQueryHeads,
+              baseline_query.data() + token * kQueryElementsPerToken,
+              static_cast<void*>(stream));
+      if (query_status != static_cast<int>(cudaSuccess)) {
+        return query_status;
+      }
+      const int key_status =
+          q3x::runtime::launch_partial_neox_rope_256_64_reference_cuda(
+              baseline_key.data() + token * kKeyElementsPerToken,
+              cosines.data() + table_offset, sines.data() + table_offset,
+              kKeyHeads,
+              baseline_key.data() + token * kKeyElementsPerToken,
+              static_cast<void*>(stream));
+      if (key_status != static_cast<int>(cudaSuccess)) {
+        return key_status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_candidate = [&]() {
+    return q3x::runtime::
+        launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+            candidate_query.data(), candidate_key.data(), cosines.data(),
+            sines.data(), first_position, token_count,
+            static_cast<void*>(stream));
+  };
+
+  const bool baseline_ready =
+      launch_after_stale(test, stream, label + " old 2xM launches",
+                         launch_baseline);
+  const bool candidate_ready =
+      launch_after_stale(test, stream, label + " one tile launch",
+                         launch_candidate);
+  if (baseline_ready && candidate_ready) {
+    expect_bf16_bits_equal(test, candidate_query.data(),
+                           baseline_query.data(), query_elements,
+                           label + " query");
+    expect_bf16_bits_equal(test, candidate_key.data(), baseline_key.data(),
+                           key_elements, label + " key");
+
+    bool query_nonrotary_unchanged = true;
+    bool key_nonrotary_unchanged = true;
+    for (std::size_t token = 0U; token < token_count; ++token) {
+      for (std::size_t head = 0U; head < kQueryHeads; ++head) {
+        const std::size_t offset =
+            token * kQueryElementsPerToken + head * kDimension;
+        query_nonrotary_unchanged =
+            query_nonrotary_unchanged &&
+            std::equal(candidate_query.data() + offset + 2U * kHalfRotary,
+                       candidate_query.data() + offset + kDimension,
+                       original_query.data() + offset + 2U * kHalfRotary);
+      }
+      for (std::size_t head = 0U; head < kKeyHeads; ++head) {
+        const std::size_t offset =
+            token * kKeyElementsPerToken + head * kDimension;
+        key_nonrotary_unchanged =
+            key_nonrotary_unchanged &&
+            std::equal(candidate_key.data() + offset + 2U * kHalfRotary,
+                       candidate_key.data() + offset + kDimension,
+                       original_key.data() + offset + 2U * kHalfRotary);
+      }
+    }
+    test.expect(query_nonrotary_unchanged,
+                label + " query non-rotary raw BF16 is unchanged");
+    test.expect(key_nonrotary_unchanged,
+                label + " key non-rotary raw BF16 is unchanged");
+  }
+
+  baseline_query.expect_guards(test, label + " baseline query");
+  baseline_key.expect_guards(test, label + " baseline key");
+  candidate_query.expect_guards(test, label + " candidate query");
+  candidate_key.expect_guards(test, label + " candidate key");
+  test.expect(std::memcmp(cosines.data(), original_cosines.data(),
+                          table_elements * sizeof(float)) == 0,
+              label + " cosine table is unchanged");
+  test.expect(std::memcmp(sines.data(), original_sines.data(),
+                          table_elements * sizeof(float)) == 0,
+              label + " sine table is unchanged");
+}
+
+void test_qk_rope_tile_exact(TestContext& test, cudaStream_t stream) {
+  run_qk_rope_tile_exact_case(test, stream, 1U, 0U,
+                              QkRopeTileFixture::kFinite);
+  run_qk_rope_tile_exact_case(test, stream, 2U, 5U,
+                              QkRopeTileFixture::kFinite);
+  run_qk_rope_tile_exact_case(test, stream, 8U, 17U,
+                              QkRopeTileFixture::kFinite);
+  run_qk_rope_tile_exact_case(test, stream, 16U, 33U,
+                              QkRopeTileFixture::kFinite);
+  run_qk_rope_tile_exact_case(test, stream, 2U, 9U,
+                              QkRopeTileFixture::kNonfinite);
+}
+
+void test_qk_rope_tile_perf(TestContext& test, cudaStream_t stream) {
+  const char* const enabled = std::getenv("Q3X_RUN_QK_ROPE_TILE_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: Q/K RoPE tile performance gate; set "
+                 "Q3X_RUN_QK_ROPE_TILE_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKeyHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kHalfRotary = 32U;
+  constexpr std::size_t kMaximumTokens = 16U;
+  constexpr std::size_t kFirstPosition = 11U;
+  constexpr std::size_t kQueryElementsPerToken =
+      kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElementsPerToken = kKeyHeads * kDimension;
+  constexpr std::size_t kWarmupIterations = 64U;
+  constexpr std::size_t kMeasuredIterations = 512U;
+  constexpr int kMeasurementRounds = 3;
+  constexpr double kMinimumCellSpeedup = 1.10;
+  constexpr double kMinimumWeightedSpeedup = 1.20;
+  constexpr double kMinimumSavedMilliseconds = 1.5;
+  const std::string label = "Q/K RoPE tile perf";
+
+  ManagedBuffer<std::uint16_t> baseline_query;
+  ManagedBuffer<std::uint16_t> baseline_key;
+  ManagedBuffer<std::uint16_t> candidate_query;
+  ManagedBuffer<std::uint16_t> candidate_key;
+  ManagedBuffer<float> cosines;
+  ManagedBuffer<float> sines;
+  bool ready = test.cuda_ok(
+      baseline_query.allocate(kMaximumTokens * kQueryElementsPerToken),
+      label + " baseline query");
+  ready = ready && test.cuda_ok(
+                       baseline_key.allocate(kMaximumTokens *
+                                             kKeyElementsPerToken),
+                       label + " baseline key");
+  ready = ready && test.cuda_ok(
+                       candidate_query.allocate(kMaximumTokens *
+                                                kQueryElementsPerToken),
+                       label + " candidate query");
+  ready = ready && test.cuda_ok(
+                       candidate_key.allocate(kMaximumTokens *
+                                              kKeyElementsPerToken),
+                       label + " candidate key");
+  ready = ready && test.cuda_ok(
+                       cosines.allocate((kFirstPosition + kMaximumTokens) *
+                                        kHalfRotary),
+                       label + " cosine table");
+  ready = ready && test.cuda_ok(
+                       sines.allocate((kFirstPosition + kMaximumTokens) *
+                                      kHalfRotary),
+                       label + " sine table");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t index = 0U; index < baseline_query.size(); ++index) {
+    baseline_query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+    candidate_query[index] = baseline_query[index];
+  }
+  for (std::size_t index = 0U; index < baseline_key.size(); ++index) {
+    baseline_key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+    candidate_key[index] = baseline_key[index];
+  }
+  std::fill_n(cosines.data(), cosines.size(), 1.0F);
+  std::fill_n(sines.data(), sines.size(), 0.0F);
+
+  struct PerfCell {
+    std::size_t token_count;
+    double baseline_milliseconds =
+        std::numeric_limits<double>::quiet_NaN();
+    double candidate_milliseconds =
+        std::numeric_limits<double>::quiet_NaN();
+    bool timing_finite = false;
+  };
+  std::array<PerfCell, 4U> cells = {
+      PerfCell{1U}, PerfCell{2U}, PerfCell{8U}, PerfCell{16U}};
+  bool all_cell_gates = true;
+
+  for (PerfCell& cell : cells) {
+    const auto launch_baseline = [&]() {
+      for (std::size_t token = 0U; token < cell.token_count; ++token) {
+        const std::size_t table_offset =
+            (kFirstPosition + token) * kHalfRotary;
+        const int query_status =
+            q3x::runtime::launch_partial_neox_rope_256_64_reference_cuda(
+                baseline_query.data() + token * kQueryElementsPerToken,
+                cosines.data() + table_offset, sines.data() + table_offset,
+                kQueryHeads,
+                baseline_query.data() + token * kQueryElementsPerToken,
+                static_cast<void*>(stream));
+        if (query_status != static_cast<int>(cudaSuccess)) {
+          return query_status;
+        }
+        const int key_status =
+            q3x::runtime::launch_partial_neox_rope_256_64_reference_cuda(
+                baseline_key.data() + token * kKeyElementsPerToken,
+                cosines.data() + table_offset, sines.data() + table_offset,
+                kKeyHeads,
+                baseline_key.data() + token * kKeyElementsPerToken,
+                static_cast<void*>(stream));
+        if (key_status != static_cast<int>(cudaSuccess)) {
+          return key_status;
+        }
+      }
+      return static_cast<int>(cudaSuccess);
+    };
+    const auto launch_candidate = [&]() {
+      return q3x::runtime::
+          launch_qk_partial_neox_rope_tile_24_4_256_64_cuda(
+              candidate_query.data(), candidate_key.data(), cosines.data(),
+              sines.data(), kFirstPosition, cell.token_count,
+              static_cast<void*>(stream));
+    };
+    const std::string cell_label =
+        label + " M=" + std::to_string(cell.token_count);
+
+    for (std::size_t iteration = 0U;
+         ready && iteration < kWarmupIterations; ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           cell_label + " baseline warmup");
+      ready = ready &&
+              test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                           cell_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " warmup sync");
+    if (!ready) {
+      return;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    cell.timing_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          cell_label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations,
+          round_label + " baseline pass 1", launch_baseline);
+      const float candidate_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations,
+          round_label + " candidate pass 1", launch_candidate);
+      const float candidate_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations,
+          round_label + " candidate pass 2", launch_candidate);
+      const float baseline_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations,
+          round_label + " baseline pass 2", launch_baseline);
+      const bool round_finite =
+          std::isfinite(baseline_first) && baseline_first > 0.0F &&
+          std::isfinite(candidate_first) && candidate_first > 0.0F &&
+          std::isfinite(candidate_second) && candidate_second > 0.0F &&
+          std::isfinite(baseline_second) && baseline_second > 0.0F;
+      cell.timing_finite = cell.timing_finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_QK_ROPE_TILE_ROUND: M=" << cell.token_count
+                << " round=" << round + 1
+                << " iterations=" << kMeasuredIterations
+                << " baseline1_ms=" << baseline_first
+                << " candidate1_ms=" << candidate_first
+                << " candidate2_ms=" << candidate_second
+                << " baseline2_ms=" << baseline_second << '\n';
+    }
+
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    cell.baseline_milliseconds = baseline_total / kTimedPasses;
+    cell.candidate_milliseconds = candidate_total / kTimedPasses;
+    const double speedup =
+        cell.baseline_milliseconds / cell.candidate_milliseconds;
+    const bool cell_gate =
+        cell.timing_finite && std::isfinite(speedup) &&
+        cell.baseline_milliseconds > 0.0 &&
+        cell.candidate_milliseconds > 0.0 &&
+        speedup >= kMinimumCellSpeedup;
+    all_cell_gates = all_cell_gates && cell_gate;
+    std::cout << "PERF_QK_ROPE_TILE_CELL: M=" << cell.token_count
+              << " baseline_old_2xM_ms=" << cell.baseline_milliseconds
+              << " candidate_one_tile_ms=" << cell.candidate_milliseconds
+              << " speedup=" << speedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate,
+                cell_label + " clears the 1.10x per-cell gate");
+  }
+
+  // One real C=16 profile: 416 decode tiles at M=1 and 32 prefill tiles,
+  // split evenly between the full M=16 tile and the M=2 remainder.
+  constexpr std::array<double, 4U> kProfileCallCounts = {
+      416.0, 16.0, 0.0, 16.0};
+  double weighted_baseline_milliseconds = 0.0;
+  double weighted_candidate_milliseconds = 0.0;
+  bool all_timings_finite = true;
+  for (std::size_t index = 0U; index < cells.size(); ++index) {
+    all_timings_finite = all_timings_finite && cells[index].timing_finite;
+    weighted_baseline_milliseconds +=
+        cells[index].baseline_milliseconds * kProfileCallCounts[index];
+    weighted_candidate_milliseconds +=
+        cells[index].candidate_milliseconds * kProfileCallCounts[index];
+  }
+  const double weighted_speedup =
+      weighted_baseline_milliseconds / weighted_candidate_milliseconds;
+  const double saved_milliseconds =
+      weighted_baseline_milliseconds - weighted_candidate_milliseconds;
+  const bool gate =
+      all_cell_gates && all_timings_finite &&
+      std::isfinite(weighted_speedup) &&
+      std::isfinite(saved_milliseconds) &&
+      weighted_speedup >= kMinimumWeightedSpeedup &&
+      saved_milliseconds >= kMinimumSavedMilliseconds;
+  std::cout << "PERF_QK_ROPE_TILE_WEIGHTED: decode_M1_calls=416 "
+               "prefill_M2_calls=16 prefill_M16_calls=16 "
+            << "baseline_estimated_ms=" << weighted_baseline_milliseconds
+            << " candidate_estimated_ms=" << weighted_candidate_milliseconds
+            << " saved_estimated_ms=" << saved_milliseconds
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumWeightedSpeedup
+            << " required_saved_ms=" << kMinimumSavedMilliseconds
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              label + " clears weighted 1.20x and 1.5 ms saved gates");
+
+  expect_bf16_bits_equal(test, candidate_query.data(), baseline_query.data(),
+                         baseline_query.size(),
+                         label + " repeated identity query");
+  expect_bf16_bits_equal(test, candidate_key.data(), baseline_key.data(),
+                         baseline_key.size(),
+                         label + " repeated identity key");
+}
+
 void test_softmax(TestContext& test, cudaStream_t stream) {
   constexpr std::size_t kRows = 5U;
   constexpr std::size_t kColumns = 37U;
@@ -1698,6 +2188,8 @@ int main() {
               q3x::runtime::kLinearAttentionHeadDimension,
               "GDN L2 target 16x128");
   test_rope(test, stream);
+  test_qk_rope_tile_exact(test, stream);
+  test_qk_rope_tile_perf(test, stream);
   test_softmax(test, stream);
   test_attention(test, stream);
   test_fused_gqa_sigmoid_gate_exact(test, stream);
