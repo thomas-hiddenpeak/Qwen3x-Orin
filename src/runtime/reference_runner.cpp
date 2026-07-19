@@ -6,6 +6,7 @@
 
 #include <cuda_runtime.h>
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -427,6 +428,78 @@ float round_float_to_bf16(const float value) noexcept {
   return bf16_to_float(float_to_bf16_rne(value));
 }
 
+namespace {
+
+constexpr std::size_t kBf16CodeCount = 1U << 16U;
+
+struct Bf16ExpMemoCache {
+  std::array<double, kBf16CodeCount> values{};
+  std::array<std::uint8_t, kBf16CodeCount> seen_stamps{};
+  std::uint8_t generation = 0U;
+  bool in_use = false;
+};
+
+thread_local Bf16ExpMemoCache bf16_exp_memo_cache{};
+
+class ScopedBf16ExpMemoUse {
+ public:
+  explicit ScopedBf16ExpMemoUse(Bf16ExpMemoCache& cache) noexcept
+      : cache_(cache) {
+    cache_.in_use = true;
+  }
+
+  ScopedBf16ExpMemoUse(const ScopedBf16ExpMemoUse&) = delete;
+  ScopedBf16ExpMemoUse& operator=(const ScopedBf16ExpMemoUse&) = delete;
+
+  ~ScopedBf16ExpMemoUse() noexcept { cache_.in_use = false; }
+
+ private:
+  Bf16ExpMemoCache& cache_;
+};
+
+[[nodiscard]] LogitsAnalysis analyze_bf16_logits_bits_scalar(
+    const std::uint16_t* const logits,
+    const std::size_t element_count) noexcept {
+  LogitsAnalysis result;
+  if (logits == nullptr || element_count == 0U) {
+    result.status = LogitsAnalysisStatus::kInvalidArgument;
+    return result;
+  }
+
+  std::size_t maximum_index = 0U;
+  float maximum = bf16_to_float(logits[0]);
+  bool all_finite = std::isfinite(maximum);
+  for (std::size_t index = 1U; index < element_count; ++index) {
+    const float value = bf16_to_float(logits[index]);
+    all_finite = all_finite && std::isfinite(value);
+    if (value > maximum) {
+      maximum = value;
+      maximum_index = index;
+    }
+  }
+  if (!all_finite) {
+    result.status = LogitsAnalysisStatus::kNonFinite;
+    return result;
+  }
+
+  double exponential_sum = 0.0;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    exponential_sum +=
+        std::exp(static_cast<double>(bf16_to_float(logits[index])) -
+                 static_cast<double>(maximum));
+  }
+  const double logsumexp =
+      static_cast<double>(maximum) + std::log(exponential_sum);
+  result.status = LogitsAnalysisStatus::kSuccess;
+  result.predicted_index = maximum_index;
+  result.maximum = maximum;
+  result.logsumexp = logsumexp;
+  result.max_log_probability = static_cast<double>(maximum) - logsumexp;
+  return result;
+}
+
+}  // namespace
+
 LogitsAnalysis analyze_bf16_logits_in_place(
     float* const logits, const std::size_t element_count) noexcept {
   LogitsAnalysis result;
@@ -479,6 +552,13 @@ LogitsAnalysis analyze_bf16_logits_bits(
     return result;
   }
 
+  Bf16ExpMemoCache& cache = bf16_exp_memo_cache;
+  if (cache.in_use) {
+    // A same-thread reentrant call must not overwrite the outer invocation's
+    // stamps or memoized values.
+    return analyze_bf16_logits_bits_scalar(logits, element_count);
+  }
+  const ScopedBf16ExpMemoUse cache_use(cache);
   std::size_t maximum_index = 0U;
   float maximum = bf16_to_float(logits[0]);
   bool all_finite = std::isfinite(maximum);
@@ -495,14 +575,28 @@ LogitsAnalysis analyze_bf16_logits_bits(
     return result;
   }
 
+  if (cache.generation == std::numeric_limits<std::uint8_t>::max()) {
+    cache.seen_stamps.fill(0U);
+    cache.generation = 1U;
+  } else {
+    cache.generation =
+        static_cast<std::uint8_t>(cache.generation + 1U);
+  }
+  const double maximum_double = static_cast<double>(maximum);
   double exponential_sum = 0.0;
   for (std::size_t index = 0U; index < element_count; ++index) {
-    exponential_sum +=
-        std::exp(static_cast<double>(bf16_to_float(logits[index])) -
-                 static_cast<double>(maximum));
+    const std::uint16_t code = logits[index];
+    if (cache.seen_stamps[code] != cache.generation) {
+      cache.seen_stamps[code] = cache.generation;
+      cache.values[code] =
+          std::exp(static_cast<double>(bf16_to_float(code)) -
+                   maximum_double);
+    }
+    // Preserve the scalar oracle's original index order and double-addition
+    // order. Only the repeated, deterministic exp evaluation is memoized.
+    exponential_sum += cache.values[code];
   }
-  const double logsumexp =
-      static_cast<double>(maximum) + std::log(exponential_sum);
+  const double logsumexp = maximum_double + std::log(exponential_sum);
   result.status = LogitsAnalysisStatus::kSuccess;
   result.predicted_index = maximum_index;
   result.maximum = maximum;

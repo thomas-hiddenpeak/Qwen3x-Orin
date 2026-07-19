@@ -2,13 +2,18 @@
 
 #include "q3x/runtime/decode_ops.h"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -33,6 +38,88 @@ class TestContext {
 [[nodiscard]] bool close(const double left, const double right,
                          const double tolerance = 1.0e-12) {
   return std::abs(left - right) <= tolerance;
+}
+
+[[nodiscard]] bool same_bits(const float left, const float right) noexcept {
+  return std::memcmp(&left, &right, sizeof(left)) == 0;
+}
+
+[[nodiscard]] bool same_bits(const double left, const double right) noexcept {
+  return std::memcmp(&left, &right, sizeof(left)) == 0;
+}
+
+[[nodiscard]] bool same_analysis_bits(
+    const detail::LogitsAnalysis& left,
+    const detail::LogitsAnalysis& right) noexcept {
+  return left.status == right.status &&
+         left.predicted_index == right.predicted_index &&
+         same_bits(left.maximum, right.maximum) &&
+         same_bits(left.logsumexp, right.logsumexp) &&
+         same_bits(left.max_log_probability, right.max_log_probability);
+}
+
+[[nodiscard]] detail::LogitsAnalysis scalar_bf16_logits_bits_analysis(
+    const std::uint16_t* const logits,
+    const std::size_t element_count) noexcept {
+  detail::LogitsAnalysis result;
+  if (logits == nullptr || element_count == 0U) {
+    result.status = detail::LogitsAnalysisStatus::kInvalidArgument;
+    return result;
+  }
+
+  std::size_t maximum_index = 0U;
+  float maximum = detail::bf16_to_float(logits[0]);
+  bool all_finite = std::isfinite(maximum);
+  for (std::size_t index = 1U; index < element_count; ++index) {
+    const float value = detail::bf16_to_float(logits[index]);
+    all_finite = all_finite && std::isfinite(value);
+    if (value > maximum) {
+      maximum = value;
+      maximum_index = index;
+    }
+  }
+  if (!all_finite) {
+    result.status = detail::LogitsAnalysisStatus::kNonFinite;
+    return result;
+  }
+
+  double exponential_sum = 0.0;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    exponential_sum +=
+        std::exp(static_cast<double>(detail::bf16_to_float(logits[index])) -
+                 static_cast<double>(maximum));
+  }
+  const double logsumexp =
+      static_cast<double>(maximum) + std::log(exponential_sum);
+  result.status = detail::LogitsAnalysisStatus::kSuccess;
+  result.predicted_index = maximum_index;
+  result.maximum = maximum;
+  result.logsumexp = logsumexp;
+  result.max_log_probability = static_cast<double>(maximum) - logsumexp;
+  return result;
+}
+
+class DeterministicRng {
+ public:
+  [[nodiscard]] std::uint32_t next() noexcept {
+    state_ ^= state_ << 13U;
+    state_ ^= state_ >> 17U;
+    state_ ^= state_ << 5U;
+    return state_;
+  }
+
+ private:
+  std::uint32_t state_ = 0x8f31'a6d5U;
+};
+
+void expect_bits_analysis_matches_scalar(
+    TestContext& test, const std::vector<std::uint16_t>& logits,
+    const std::string_view message) {
+  const detail::LogitsAnalysis expected =
+      scalar_bf16_logits_bits_analysis(logits.data(), logits.size());
+  const detail::LogitsAnalysis actual =
+      detail::analyze_bf16_logits_bits(logits.data(), logits.size());
+  test.expect(same_analysis_bits(actual, expected), message);
 }
 
 void test_bf16_rounding(TestContext& test) {
@@ -118,6 +205,216 @@ void test_bf16_logits_bits_analysis(TestContext& test) {
   test.expect(detail::analyze_bf16_logits_bits(kNonFinite, 2U).status ==
                   detail::LogitsAnalysisStatus::kNonFinite,
               "packed BF16 logits reject non-finite values");
+
+  const std::vector<std::uint16_t> signed_zero_tie{
+      0x8000U, 0x0000U, 0xbf80U, 0x8000U, 0x0000U};
+  expect_bits_analysis_matches_scalar(
+      test, signed_zero_tie,
+      "memoized packed logits preserve negative-zero earliest ties");
+  const detail::LogitsAnalysis signed_zero_analysis =
+      detail::analyze_bf16_logits_bits(signed_zero_tie.data(),
+                                       signed_zero_tie.size());
+  test.expect(signed_zero_analysis.predicted_index == 0U &&
+                  detail::float_to_bf16_rne(
+                      signed_zero_analysis.maximum) == 0x8000U,
+              "memoized packed logits retain the first signed-zero maximum");
+
+  DeterministicRng rng;
+  std::array<std::uint16_t, 257U> repeated_codes{};
+  for (std::size_t index = 0U; index < repeated_codes.size(); ++index) {
+    std::uint16_t code = static_cast<std::uint16_t>(rng.next());
+    if ((code & 0x7f80U) == 0x7f80U) {
+      code ^= 0x0080U;
+    }
+    repeated_codes[index] = code;
+  }
+  std::vector<std::uint16_t> repeated_logits(32'769U);
+  for (std::uint16_t& code : repeated_logits) {
+    code = repeated_codes[rng.next() % repeated_codes.size()];
+  }
+  repeated_logits[0U] = 0x4200U;
+  repeated_logits[17'003U] = 0x4200U;
+  expect_bits_analysis_matches_scalar(
+      test, repeated_logits,
+      "memoized packed logits match scalar order for repeated random codes");
+
+  std::vector<std::uint16_t> all_finite_codes;
+  all_finite_codes.reserve(65'280U);
+  for (std::uint32_t code = 0U; code <= 0xffffU; ++code) {
+    if ((code & 0x7f80U) != 0x7f80U) {
+      all_finite_codes.push_back(static_cast<std::uint16_t>(code));
+    }
+  }
+  for (std::size_t remaining = all_finite_codes.size(); remaining > 1U;
+       --remaining) {
+    const std::size_t selected = rng.next() % remaining;
+    const std::uint16_t temporary = all_finite_codes[remaining - 1U];
+    all_finite_codes[remaining - 1U] = all_finite_codes[selected];
+    all_finite_codes[selected] = temporary;
+  }
+  test.expect(all_finite_codes.size() == 65'280U,
+              "exhaustive finite BF16 fixture covers every finite code");
+  expect_bits_analysis_matches_scalar(
+      test, all_finite_codes,
+      "memoized packed logits match scalar order for every finite BF16 code");
+
+  constexpr std::array<std::uint16_t, 6U> kNonFiniteCodes{
+      0x7f80U, 0xff80U, 0x7f81U, 0x7fc0U, 0xff81U, 0xffffU};
+  for (const std::uint16_t nonfinite : kNonFiniteCodes) {
+    const std::vector<std::uint16_t> poisoned{
+        0x3f80U, nonfinite, 0x4000U, 0x3f80U};
+    expect_bits_analysis_matches_scalar(
+        test, poisoned,
+        "memoized packed logits match scalar rejection for non-finite codes");
+  }
+
+  // Exercise two complete uint8 generation cycles. Reusing every code while
+  // changing both the maximum and its earliest position catches stale memo
+  // values if the wrap path fails to invalidate old stamps.
+  std::array<std::uint16_t, 255U> wrap_probe_codes{};
+  for (std::size_t index = 0U; index < wrap_probe_codes.size(); ++index) {
+    // Distinct finite negative codes that never become the maximum.
+    wrap_probe_codes[index] =
+        static_cast<std::uint16_t>(0xbf80U + index);
+  }
+  std::vector<std::uint16_t> wrap_logits(7U);
+  for (std::size_t iteration = 0U; iteration < 512U; ++iteration) {
+    const std::uint16_t maximum = detail::float_to_bf16_rne(
+        2.0F + static_cast<float>(iteration % 31U) / 8.0F);
+    const std::uint16_t probe =
+        wrap_probe_codes[iteration % wrap_probe_codes.size()];
+    wrap_logits = {0x3f00U, maximum, probe, 0x8000U,
+                   maximum, 0x0000U, 0x3f80U};
+    const std::size_t shift = iteration % wrap_logits.size();
+    std::rotate(wrap_logits.begin(), wrap_logits.begin() + shift,
+                wrap_logits.end());
+    expect_bits_analysis_matches_scalar(
+        test, wrap_logits,
+        "memoized packed logits invalidate stale values across stamp wrap");
+  }
+}
+
+using BitsAnalyzer = detail::LogitsAnalysis (*)(
+    const std::uint16_t*, std::size_t) noexcept;
+
+struct TimedBitsAnalysis {
+  detail::LogitsAnalysis analysis{};
+  double milliseconds = 0.0;
+};
+
+[[nodiscard]] TimedBitsAnalysis time_bits_analysis(
+    const BitsAnalyzer analyzer,
+    const std::vector<std::uint16_t>& logits) {
+  const auto started = std::chrono::steady_clock::now();
+  const detail::LogitsAnalysis analysis =
+      analyzer(logits.data(), logits.size());
+  const auto stopped = std::chrono::steady_clock::now();
+  return {analysis,
+          std::chrono::duration<double, std::milli>(stopped - started)
+              .count()};
+}
+
+[[nodiscard]] std::size_t count_unique_codes(
+    const std::vector<std::uint16_t>& logits) {
+  std::array<bool, 1U << 16U> seen{};
+  std::size_t count = 0U;
+  for (const std::uint16_t code : logits) {
+    if (!seen[code]) {
+      seen[code] = true;
+      ++count;
+    }
+  }
+  return count;
+}
+
+void test_bf16_logits_memo_perf(TestContext& test) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_BF16_LOGITS_MEMO_PERF");
+  if (enabled == nullptr || enabled[0] == '\0' ||
+      std::string_view(enabled) == "0") {
+    return;
+  }
+
+  constexpr std::size_t kLength = runtime::kReferenceVocabularySize;
+  constexpr std::size_t kPoolSize = 4'096U;
+  constexpr std::size_t kMeasurementRounds = 3U;
+  constexpr double kRequiredSpeedup = 2.0;
+  constexpr double kRequiredSavedMilliseconds = 0.75;
+  std::array<std::uint16_t, kPoolSize> code_pool{};
+  for (std::size_t index = 0U; index < code_pool.size(); ++index) {
+    const float value =
+        static_cast<float>(static_cast<int>(index) - 2'048) / 64.0F;
+    code_pool[index] = detail::float_to_bf16_rne(value);
+  }
+
+  DeterministicRng rng;
+  std::vector<std::uint16_t> logits(kLength);
+  for (std::uint16_t& code : logits) {
+    code = code_pool[rng.next() % code_pool.size()];
+  }
+  logits[0U] = code_pool.back();
+  logits[kLength / 2U] = code_pool.back();
+  const std::size_t unique_count = count_unique_codes(logits);
+  const detail::LogitsAnalysis expected =
+      scalar_bf16_logits_bits_analysis(logits.data(), logits.size());
+  const detail::LogitsAnalysis warmed =
+      detail::analyze_bf16_logits_bits(logits.data(), logits.size());
+  test.expect(same_analysis_bits(warmed, expected),
+              "memoized packed-logits perf fixture matches scalar warmup");
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool exact = true;
+  for (std::size_t round = 0U; round < kMeasurementRounds; ++round) {
+    const TimedBitsAnalysis baseline_first =
+        time_bits_analysis(scalar_bf16_logits_bits_analysis, logits);
+    const TimedBitsAnalysis candidate_first =
+        time_bits_analysis(detail::analyze_bf16_logits_bits, logits);
+    const TimedBitsAnalysis candidate_second =
+        time_bits_analysis(detail::analyze_bf16_logits_bits, logits);
+    const TimedBitsAnalysis baseline_second =
+        time_bits_analysis(scalar_bf16_logits_bits_analysis, logits);
+    baseline_total +=
+        baseline_first.milliseconds + baseline_second.milliseconds;
+    candidate_total +=
+        candidate_first.milliseconds + candidate_second.milliseconds;
+    exact = exact && same_analysis_bits(baseline_first.analysis, expected) &&
+            same_analysis_bits(candidate_first.analysis, expected) &&
+            same_analysis_bits(candidate_second.analysis, expected) &&
+            same_analysis_bits(baseline_second.analysis, expected);
+    std::cout << "PERF_BF16_LOGITS_MEMO_ROUND: round=" << round + 1U
+              << " length=" << kLength << " unique=" << unique_count
+              << " baseline_pass1_ms=" << baseline_first.milliseconds
+              << " candidate_pass1_ms=" << candidate_first.milliseconds
+              << " candidate_pass2_ms=" << candidate_second.milliseconds
+              << " baseline_pass2_ms=" << baseline_second.milliseconds
+              << '\n';
+  }
+
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double baseline_milliseconds = baseline_total / kTimedPasses;
+  const double candidate_milliseconds = candidate_total / kTimedPasses;
+  const double speedup = baseline_milliseconds / candidate_milliseconds;
+  const double saved_milliseconds =
+      baseline_milliseconds - candidate_milliseconds;
+  const bool gate = exact && std::isfinite(speedup) &&
+                    baseline_milliseconds > 0.0 &&
+                    candidate_milliseconds > 0.0 &&
+                    speedup >= kRequiredSpeedup &&
+                    saved_milliseconds >= kRequiredSavedMilliseconds;
+  std::cout << "PERF_BF16_LOGITS_MEMO: length=" << kLength
+            << " unique=" << unique_count
+            << " baseline_ms=" << baseline_milliseconds
+            << " candidate_ms=" << candidate_milliseconds
+            << " saved_ms=" << saved_milliseconds
+            << " speedup=" << speedup
+            << " required_speedup=" << kRequiredSpeedup
+            << " required_saved_ms=" << kRequiredSavedMilliseconds
+            << " exact=" << (exact ? "true" : "false")
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              "memoized packed-logits analyzer clears the B-C-C-B gate");
 }
 
 void test_schedule_and_workspace(TestContext& test) {
@@ -313,6 +610,7 @@ int main() {
   test_bf16_rounding(test);
   test_logits_analysis(test);
   test_bf16_logits_bits_analysis(test);
+  test_bf16_logits_memo_perf(test);
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_trace_layout_and_factory_error(test);
