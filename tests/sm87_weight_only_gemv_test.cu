@@ -237,6 +237,19 @@ query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_xor_dual_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_lm_head_xor_dual_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -247,6 +260,9 @@ query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
     std::size_t rows, std::size_t columns) noexcept;
 
 [[nodiscard]] bool use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] bool use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
 [[nodiscard]] std::size_t
@@ -3792,6 +3808,30 @@ void test_launch_validation(TestContext& test) {
           17'408U, 17'408U),
       "NVFP4 M1 gate/up XOR-dual selector rejects an unknown square");
   test.expect(
+      q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          248'320U, 5'120U),
+      "NVFP4 M1 lm-head XOR-dual selector accepts lm_head");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          17'408U, 5'120U),
+      "NVFP4 M1 lm-head XOR-dual selector rejects gate/up");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          5'120U, 17'408U),
+      "NVFP4 M1 lm-head XOR-dual selector rejects down");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          248'319U, 5'120U),
+      "NVFP4 M1 lm-head XOR-dual selector rejects near-miss rows");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          248'320U, 5'104U),
+      "NVFP4 M1 lm-head XOR-dual selector rejects near-miss columns");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+          248'320U, 17'408U),
+      "NVFP4 M1 lm-head XOR-dual selector rejects an unknown long-K shape");
+  test.expect(
       q3x::kernels::sm87_nvfp4_m1_row_pair_maximum_blocks_test() == 80U,
       "NVFP4 M1 row-pair A/B baseline grid cap is frozen at 80 blocks");
   test.expect(
@@ -4083,6 +4123,13 @@ void test_launch_validation(TestContext& test) {
     noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M1_K5120_XOR_DUAL_GATE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m1_lm_head_xor_dual_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_XOR_DUAL_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -13163,9 +13210,15 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
       "NVFP4 M1 down dual exact 5120x17408");
 }
 
+enum class NvFp4M1K5120XorDualProbe {
+  kGateUp,
+  kLmHead,
+};
+
 [[nodiscard]] bool run_nvfp4_m1_k5120_xor_dual_fixture(
     TestContext& test, cudaStream_t stream, const std::size_t rows,
     const std::size_t columns, const bool run_performance,
+    const NvFp4M1K5120XorDualProbe probe,
     const std::string& label) {
   constexpr std::size_t kGuardElements = 16U;
   constexpr std::size_t kGridCap = 64U;
@@ -13176,7 +13229,12 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 3;
-  constexpr float kMinimumSpeedup = 1.01F;
+  const bool lm_head_probe = probe == NvFp4M1K5120XorDualProbe::kLmHead;
+  const bool verify_public_dispatch = run_performance;
+  const float minimum_speedup = lm_head_probe ? 1.02F : 1.01F;
+  const char* const metric_tag =
+      lm_head_probe ? "NVFP4_M1_LM_HEAD_XOR_DUAL"
+                    : "NVFP4_M1_K5120_XOR_DUAL";
   constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
       NvFp4M1ScaleDistribution::kCheckpointLike,
       NvFp4M1ScaleDistribution::kSameBankStress,
@@ -13239,7 +13297,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
   ready = ready && test.cuda_ok(
                        candidate_storage.allocate(rows + 2U * kGuardElements),
                        label + " allocate guarded candidate output");
-  if (run_performance) {
+  if (verify_public_dispatch) {
     ready = ready && test.cuda_ok(
                          production_storage.allocate(
                              rows + 2U * kGuardElements),
@@ -13274,7 +13332,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                            columns * sizeof(std::uint16_t),
                            cudaMemcpyHostToDevice, stream),
                        label + " initialize activation");
-  if (run_performance) {
+  if (verify_public_dispatch) {
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              unaligned_packed_storage.get() + 1U,
@@ -13299,7 +13357,9 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
   std::uint16_t* const candidate_output =
       candidate_storage.get() + kGuardElements;
   std::uint16_t* const production_output =
-      run_performance ? production_storage.get() + kGuardElements : nullptr;
+      verify_public_dispatch
+          ? production_storage.get() + kGuardElements
+          : nullptr;
   const auto candidate_status =
       [&](const std::uint8_t* const candidate_packed,
           const std::uint8_t* const candidate_scales,
@@ -13307,6 +13367,13 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
           const std::size_t candidate_rows,
           const std::size_t candidate_columns,
           std::uint16_t* const candidate_result) noexcept {
+        if (lm_head_probe) {
+          return static_cast<cudaError_t>(q3x::kernels::
+              launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_xor_dual_test_cuda(
+                  candidate_packed, candidate_scales, kWeightScale2,
+                  candidate_activation, candidate_rows, candidate_columns,
+                  candidate_result, static_cast<void*>(stream)));
+        }
         return static_cast<cudaError_t>(q3x::kernels::
             launch_sm87_nvfp4_w4a16_gemv_bf16_k5120_xor_dual_test_cuda(
                 candidate_packed, candidate_scales, kWeightScale2,
@@ -13380,10 +13447,17 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                                     fake_activation, 5'120U, 17'408U,
                                     fake_output),
                    "down-projection shape");
-    expect_invalid(candidate_status(fake_packed, fake_scales,
-                                    fake_activation, 248'320U, 5'120U,
-                                    fake_output),
-                   "lm-head shape");
+    if (lm_head_probe) {
+      expect_invalid(candidate_status(fake_packed, fake_scales,
+                                      fake_activation, 17'408U, 5'120U,
+                                      fake_output),
+                     "gate/up shape");
+    } else {
+      expect_invalid(candidate_status(fake_packed, fake_scales,
+                                      fake_activation, 248'320U, 5'120U,
+                                      fake_output),
+                     "lm-head shape");
+    }
     const bool stream_empty = cudaStreamQuery(stream) == cudaSuccess;
     validation_gate = validation_gate && stream_empty;
     test.expect(stream_empty, label + " rejected calls leave stream empty");
@@ -13424,6 +13498,12 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
             static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept -> int {
+    if (lm_head_probe) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_xor_dual_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(),
+              rows, columns, candidate_output, static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_gemv_bf16_k5120_xor_dual_test_cuda(
             packed.get(), scales.get(), kWeightScale2, activation.get(), rows,
@@ -13450,7 +13530,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
   std::vector<std::uint16_t> baseline(rows + 2U * kGuardElements);
   std::vector<std::uint16_t> candidate(rows + 2U * kGuardElements);
   std::vector<std::uint16_t> production(
-      run_performance ? rows + 2U * kGuardElements : 0U);
+      verify_public_dispatch ? rows + 2U * kGuardElements : 0U);
   bool all_distribution_gates = full_codebook;
   bool all_production_dispatch_gates = true;
   for (const NvFp4M1ScaleDistribution distribution : kDistributions) {
@@ -13472,7 +13552,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                              candidate_storage.get(), 0x5a,
                              candidate.size() * sizeof(std::uint16_t), stream),
                          distribution_label + " poison candidate guards");
-    if (run_performance) {
+    if (verify_public_dispatch) {
       ready = ready && test.cuda_ok(
                            cudaMemsetAsync(
                                production_storage.get(), 0x3c,
@@ -13486,7 +13566,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
     ready = ready && test.cuda_ok(
                          static_cast<cudaError_t>(launch_candidate()),
                          distribution_label + " correctness candidate");
-    if (run_performance) {
+    if (verify_public_dispatch) {
       ready = ready && test.cuda_ok(
                            static_cast<cudaError_t>(launch_public(
                                packed.get(), activation.get(),
@@ -13505,7 +13585,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                              candidate.size() * sizeof(std::uint16_t),
                              cudaMemcpyDeviceToHost, stream),
                          distribution_label + " copy guarded candidate");
-    if (run_performance) {
+    if (verify_public_dispatch) {
       ready = ready && test.cuda_ok(
                            cudaMemcpyAsync(
                                production.data(), production_storage.get(),
@@ -13528,7 +13608,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
       mismatches += baseline_bits != candidate_bits ? 1U : 0U;
       nonfinite_outputs += !is_bf16_finite(baseline_bits) ? 1U : 0U;
       nonfinite_outputs += !is_bf16_finite(candidate_bits) ? 1U : 0U;
-      if (run_performance) {
+      if (verify_public_dispatch) {
         const std::uint16_t production_bits =
             production[kGuardElements + row];
         public_mismatches += production_bits != candidate_bits ? 1U : 0U;
@@ -13542,7 +13622,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
           baseline[kGuardElements + rows + guard] == kBaselineGuard &&
           candidate[guard] == kCandidateGuard &&
           candidate[kGuardElements + rows + guard] == kCandidateGuard;
-      if (run_performance) {
+      if (verify_public_dispatch) {
         guards_intact =
             guards_intact && production[guard] == kProductionGuard &&
             production[kGuardElements + rows + guard] == kProductionGuard;
@@ -13554,11 +13634,11 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
     test.expect(correctness_gate,
                 distribution_label +
                     " is bitwise, finite, and preserves both canaries");
-    std::cout << "NVFP4_M1_K5120_XOR_DUAL_DIFF: " << distribution_label
+    std::cout << metric_tag << "_DIFF: " << distribution_label
               << " rows=" << rows << " columns=" << columns
               << " bf16_mismatches=" << mismatches << '/' << rows
               << " public_vs_direct_bf16_mismatches=" << public_mismatches
-              << '/' << (run_performance ? rows : 0U)
+              << '/' << (verify_public_dispatch ? rows : 0U)
               << " output_guards=" << (guards_intact ? "intact" : "BAD")
               << " nonfinite_outputs=" << nonfinite_outputs << '\n';
     if (!run_performance) {
@@ -13567,7 +13647,8 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
       continue;
     }
 
-    if (distribution == NvFp4M1ScaleDistribution::kCheckpointLike) {
+    if (verify_public_dispatch &&
+        distribution == NvFp4M1ScaleDistribution::kCheckpointLike) {
       cudaGraph_t graph = nullptr;
       bool graph_ready = test.cuda_ok(
           cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
@@ -13590,15 +13671,16 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
       }
       const bool graph_gate = graph_ready && graph_node_count == 1U;
       test.expect(graph_gate,
-                  distribution_label +
-                      " public aligned gate/up capture has one kernel node");
+                  distribution_label + " public aligned " +
+                      (lm_head_probe ? "lm-head" : "gate/up") +
+                      " capture has one kernel node");
       all_production_dispatch_gates =
           all_production_dispatch_gates && graph_gate;
       if (graph != nullptr) {
         (void)test.cuda_ok(cudaGraphDestroy(graph),
                            distribution_label + " destroy public graph");
       }
-      std::cout << "NVFP4_M1_K5120_XOR_DUAL_GRAPH: nodes="
+      std::cout << metric_tag << "_GRAPH: nodes="
                 << graph_node_count << " required=1 gate="
                 << (graph_gate ? "PASS" : "FAIL") << '\n';
 
@@ -13665,7 +13747,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
             fallback_guards;
         test.expect(fallback_gate,
                     fallback_label + " matches direct scalar bitwise");
-        std::cout << "NVFP4_M1_K5120_XOR_DUAL_FALLBACK_DIFF: "
+        std::cout << metric_tag << "_FALLBACK_DIFF: "
                   << fallback_label
                   << " public_vs_scalar_bf16_mismatches="
                   << fallback_mismatches << '/' << rows
@@ -13733,7 +13815,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
           std::isfinite(candidate_second) &&
           std::isfinite(baseline_second);
       timings_finite = timings_finite && round_finite;
-      std::cout << "PERF_NVFP4_M1_K5120_XOR_DUAL_ROUND: "
+      std::cout << "PERF_" << metric_tag << "_ROUND: "
                 << distribution_label << " round=" << round + 1
                 << " baseline_pass1_ms=" << baseline_first
                 << " candidate_pass1_ms=" << candidate_first
@@ -13752,23 +13834,29 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
     const bool performance_gate =
         correctness_gate && timings_finite && std::isfinite(speedup) &&
         baseline_milliseconds > 0.0F && candidate_milliseconds > 0.0F &&
-        speedup >= kMinimumSpeedup;
+        speedup >= minimum_speedup;
     test.expect(performance_gate,
-                distribution_label + " clears gate/up 1.01 speedup gate");
+                distribution_label + " clears " +
+                    (lm_head_probe ? "lm-head 1.02" : "gate/up 1.01") +
+                    " speedup gate");
     all_distribution_gates =
         all_distribution_gates && performance_gate;
-    std::cout << "PERF_NVFP4_M1_K5120_XOR_DUAL: " << distribution_label
+    std::cout << "PERF_" << metric_tag << ": " << distribution_label
               << " baseline_preserved_exact_row_quad_median_ms="
               << baseline_milliseconds
               << " candidate_single_xor_dual_median_ms="
               << candidate_milliseconds << " speedup=" << speedup
-              << " required_speedup=" << kMinimumSpeedup
+              << " required_speedup=" << minimum_speedup
               << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
   }
 
   if (run_performance) {
     test.expect(all_distribution_gates,
-                label + " clears both full gate/up distribution gates");
+                label + (lm_head_probe
+                             ? " clears both full lm-head distribution gates"
+                             : " clears both full gate/up distribution gates"));
+  }
+  if (verify_public_dispatch) {
     test.expect(all_production_dispatch_gates,
                 label + " clears graph and unaligned production gates");
   }
@@ -13809,7 +13897,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                            candidate_storage.get(), 0x5a,
                            candidate.size() * sizeof(std::uint16_t), stream),
                        label + " poison isolated-NaN candidate guards");
-  if (run_performance) {
+  if (verify_public_dispatch) {
     ready = ready && test.cuda_ok(
                          cudaMemsetAsync(
                              production_storage.get(), 0x3c,
@@ -13823,7 +13911,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(launch_candidate()),
                        label + " isolated-NaN candidate");
-  if (run_performance) {
+  if (verify_public_dispatch) {
     ready = ready && test.cuda_ok(
                          static_cast<cudaError_t>(launch_public(
                              packed.get(), activation.get(),
@@ -13842,7 +13930,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
                            candidate.size() * sizeof(std::uint16_t),
                            cudaMemcpyDeviceToHost, stream),
                        label + " copy isolated-NaN candidate");
-  if (run_performance) {
+  if (verify_public_dispatch) {
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              production.data(), production_storage.get(),
@@ -13866,7 +13954,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
         nan_class_and_sign && is_bf16_nan(baseline_bits) &&
         is_bf16_nan(candidate_bits) &&
         ((baseline_bits ^ candidate_bits) & 0x8000U) == 0U;
-    if (run_performance) {
+    if (verify_public_dispatch) {
       const std::uint16_t production_bits =
           production[kGuardElements + row];
       nan_public_mismatches += production_bits != candidate_bits ? 1U : 0U;
@@ -13884,7 +13972,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
     finite_mismatches += baseline_bits != candidate_bits ? 1U : 0U;
     unexpected_nonfinite += !is_bf16_finite(baseline_bits) ? 1U : 0U;
     unexpected_nonfinite += !is_bf16_finite(candidate_bits) ? 1U : 0U;
-    if (run_performance) {
+    if (verify_public_dispatch) {
       const std::uint16_t production_bits =
           production[kGuardElements + row];
       finite_public_mismatches +=
@@ -13899,7 +13987,7 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
         baseline[kGuardElements + rows + guard] == kBaselineGuard &&
         candidate[guard] == kCandidateGuard &&
         candidate[kGuardElements + rows + guard] == kCandidateGuard;
-    if (run_performance) {
+    if (verify_public_dispatch) {
       nan_guards_intact =
           nan_guards_intact && production[guard] == kProductionGuard &&
           production[kGuardElements + rows + guard] == kProductionGuard;
@@ -13914,32 +14002,38 @@ void run_nvfp4_m1_down_dual_iteration_probe(TestContext& test,
               label + " preserves both-phase signed NaNs and canaries");
   const bool overall_gate = validation_gate && all_distribution_gates &&
                             nan_gate &&
-                            (!run_performance ||
+                            (!verify_public_dispatch ||
                              all_production_dispatch_gates);
   test.expect(overall_gate,
-              label + (run_performance ? " clears complete production gate"
-                                       : " clears complete lightweight gate"));
-  std::cout << "NVFP4_M1_K5120_XOR_DUAL_NAN: classified_outputs=4"
+              label + (verify_public_dispatch
+                           ? " clears complete production gate"
+                           : run_performance ? " clears complete full gate"
+                                             : " clears complete lightweight gate"));
+  std::cout << metric_tag << "_NAN: classified_outputs=4"
             << " nan_bitwise_mismatches=" << nan_bitwise_mismatches << "/4"
             << " public_vs_direct_nan_mismatches=" << nan_public_mismatches
-            << '/' << (run_performance ? 4U : 0U)
+            << '/' << (verify_public_dispatch ? 4U : 0U)
             << " class_and_sign="
             << (nan_class_and_sign ? "true" : "false")
             << " finite_mismatches=" << finite_mismatches << '/'
             << (rows - 4U)
             << " public_vs_direct_finite_mismatches="
             << finite_public_mismatches << '/'
-            << (run_performance ? rows - 4U : 0U)
+            << (verify_public_dispatch ? rows - 4U : 0U)
             << " unexpected_nonfinite=" << unexpected_nonfinite
             << " output_guards="
             << (nan_guards_intact ? "intact" : "BAD")
             << " gate=" << (overall_gate ? "PASS" : "FAIL") << '\n';
   if (run_performance) {
-    std::cout << "PERF_NVFP4_M1_K5120_XOR_DUAL_SELECTED: baseline="
-                 "preserved_exact_row_quad_17408x5120"
-              << " candidate=production_gate_up_xor_dual"
+    std::cout << "PERF_" << metric_tag << "_SELECTED: baseline="
+              << (lm_head_probe
+                      ? "preserved_exact_row_quad_248320x5120"
+                      : "preserved_exact_row_quad_17408x5120")
+              << " candidate="
+              << (lm_head_probe ? "production_lm_head_xor_dual"
+                                : "production_gate_up_xor_dual")
               << " distributions=checkpoint_like:same_bank_stress"
-              << " required_each=" << kMinimumSpeedup
+              << " required_each=" << minimum_speedup
               << " all_correct=" << (overall_gate ? "true" : "false")
               << " gate=" << (overall_gate ? "PASS" : "FAIL") << '\n';
   }
@@ -13988,6 +14082,7 @@ void run_nvfp4_m1_k5120_xor_dual_probe(TestContext& test,
 
   const bool lightweight_gate = run_nvfp4_m1_k5120_xor_dual_fixture(
       test, stream, 2'048U, 512U, false,
+      NvFp4M1K5120XorDualProbe::kGateUp,
       "NVFP4 M1 K5120 XOR-dual lightweight 2048x512");
   if (!nvfp4_m1_k5120_xor_dual_gate_performance_enabled()) {
     std::cout
@@ -14003,7 +14098,71 @@ void run_nvfp4_m1_k5120_xor_dual_probe(TestContext& test,
   }
   (void)run_nvfp4_m1_k5120_xor_dual_fixture(
       test, stream, 17'408U, 5'120U, true,
+      NvFp4M1K5120XorDualProbe::kGateUp,
       "NVFP4 M1 K5120 XOR-dual gate/up exact 17408x5120");
+}
+
+void run_nvfp4_m1_lm_head_xor_dual_probe(TestContext& test,
+                                          cudaStream_t stream) {
+  NvFp4M1DownDualKernelResources resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_lm_head_xor_dual_resources_test_cuda(
+              &resources.registers_per_thread,
+              &resources.static_shared_bytes, &resources.local_bytes,
+              &resources.maximum_threads_per_block,
+              &resources.active_blocks_per_sm)),
+      "query NVFP4 M1 lm-head XOR-dual resources");
+  const bool null_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_lm_head_xor_dual_resources_test_cuda(
+              nullptr, &resources.static_shared_bytes,
+              &resources.local_bytes,
+              &resources.maximum_threads_per_block,
+              &resources.active_blocks_per_sm)) == cudaErrorInvalidValue;
+  test.expect(null_rejected,
+              "NVFP4 M1 lm-head XOR-dual resource query rejects null");
+  const bool resource_gate =
+      ready && resources.registers_per_thread <= 64 &&
+      resources.static_shared_bytes <= 1'088U &&
+      resources.local_bytes == 0U &&
+      resources.maximum_threads_per_block >= 256 &&
+      resources.active_blocks_per_sm >= 4;
+  test.expect(
+      resource_gate,
+      "NVFP4 M1 lm-head XOR-dual clears 64r/1088B/0local/active4 gate");
+  std::cout << "PERF_NVFP4_M1_LM_HEAD_XOR_DUAL_RESOURCES: "
+            << "registers_per_thread=" << resources.registers_per_thread
+            << " static_shared_bytes=" << resources.static_shared_bytes
+            << " local_bytes=" << resources.local_bytes
+            << " maximum_threads_per_block="
+            << resources.maximum_threads_per_block
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready) {
+    return;
+  }
+
+  const bool lightweight_gate = run_nvfp4_m1_k5120_xor_dual_fixture(
+      test, stream, 2'048U, 512U, false,
+      NvFp4M1K5120XorDualProbe::kLmHead,
+      "NVFP4 M1 lm-head XOR-dual lightweight 2048x512");
+  if (!nvfp4_m1_lm_head_xor_dual_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 M1 lm-head XOR-dual full segment; set "
+           "Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_XOR_DUAL_PERF=1 to enable\n";
+    return;
+  }
+  if (!resource_gate || !lightweight_gate) {
+    test.expect(false,
+                "NVFP4 M1 lm-head XOR-dual full run requires resource and "
+                "lightweight gates");
+    return;
+  }
+  (void)run_nvfp4_m1_k5120_xor_dual_fixture(
+      test, stream, 248'320U, 5'120U, true,
+      NvFp4M1K5120XorDualProbe::kLmHead,
+      "NVFP4 M1 lm-head XOR-dual exact 248320x5120");
 }
 
 [[nodiscard]] bool benchmark_nvfp4_m1_scale_codebook_shape(
@@ -16532,6 +16691,7 @@ int main() {
   run_optional_nvfp4_m1_row_quad_performance(test, stream);
   run_nvfp4_m1_down_dual_iteration_probe(test, stream);
   run_nvfp4_m1_k5120_xor_dual_probe(test, stream);
+  run_nvfp4_m1_lm_head_xor_dual_probe(test, stream);
   run_optional_nvfp4_m1_exact_shape_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);

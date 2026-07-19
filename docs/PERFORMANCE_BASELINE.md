@@ -30,6 +30,8 @@ The aligned M1 NVFP4 down-projection dual-iteration diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-down-dual-benchmark.json).
 The aligned M1 NVFP4 gate/up adjacent-lane XOR-dual diagnostic is recorded in
 [`qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json).
+The aligned M1 NVFP4 lm-head adjacent-lane XOR-dual diagnostic is recorded in
+[`qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json).
 
 ## Method
 
@@ -602,8 +604,10 @@ processes two adjacent packed-x8 K iterations per loop trip and broadcasts the
 four rows' raw scale codes from the corresponding lane in each lane pair. The
 kernel uses 64 registers per thread, 1,088 bytes of shared memory, zero local
 memory, 256 threads, and four active blocks per SM. Gate/up uses the separately
-gated specialization below; lm-head, near-miss shapes, unaligned operands, M2
-through M16, and prefill retain their previous routes.
+gated specialization below. At this down-projection milestone, lm-head still
+used the prior exact path; its subsequent specialization is also recorded
+below. Near-miss shapes, unaligned operands, M2 through M16, and prefill retain
+their previous routes.
 
 The same-binary gate preserves the previous exact row-quad kernel as its
 baseline and runs three baseline/candidate/candidate/baseline rounds. Two
@@ -662,8 +666,9 @@ both lanes, after which every lane retains the preserved phase, half, value,
 FMA, reduction, scale, and BF16-encoding order. The kernel uses 64 registers
 per thread, 1,088 bytes of shared memory, zero local memory, 256 threads, and
 four active blocks per SM. Down projection retains its production dual-
-iteration path; lm-head and every other shape, alignment, token count, and
-prefill route remain unchanged.
+iteration path. At this gate/up milestone, lm-head remained unchanged; the
+subsequent exact-shape specialization is recorded in the next section. Every
+other shape, alignment, token count, and prefill route remains unchanged.
 
 The same-binary gate preserves the previous exact row-quad kernel as its
 baseline and runs three baseline/candidate/candidate/baseline rounds. Two
@@ -712,6 +717,68 @@ skips; ASAN/UBSAN with `detect_leaks=0`, excluding `package_consumer`, passed
 51 tests with four skips. Clocks were unlocked. These measurements are
 diagnostic evidence for one aligned M1 shape, not a release, randomized, or
 serving-throughput claim.
+
+## NVFP4 lm-head adjacent-lane XOR-dual M1 decode
+
+The NVFP4 language head is the exact M1 `[248320,5120]` shape. It now uses a
+separately gated instance of the K=5120 adjacent-lane XOR-dual kernel described
+above. The larger row count changes only the grid-stride row-quad schedule: the
+ordered phase, half, value, FMA, reduction, scale, and BF16-encoding sequence
+remains bit-for-bit identical to the preserved exact row-quad kernel. Resources
+remain 64 registers per thread, 1,088 bytes of shared memory, zero local memory,
+256 threads, and four active blocks per SM. The down dual-iteration and gate/up
+XOR-dual routes remain active; near-miss shapes, unaligned operands, M2 through
+M16, and prefill retain their preceding routes.
+
+The optional same-binary gate runs three mirrored
+baseline/candidate/candidate/baseline timing rounds with 10 warmups and 24
+measured launches per pass. The production full-shape run cleared its required
+1.02x threshold for both distributions:
+
+| Distribution | XOR-dual speedup | Required |
+| --- | ---: | ---: |
+| Checkpoint-like | 1.05649x | 1.02x |
+| Same-bank stress | 1.07370x | 1.02x |
+
+For both distributions, the preserved baseline, direct candidate, and public
+production dispatch matched all 248,320 BF16 outputs bit-for-bit and kept all
+output canaries intact. CUDA graph capture produced one kernel node. The
+packed-weight `+1` and activation `+2` paths each matched the scalar fallback
+at all 248,320 outputs. A separate fixture covered both `0x7f` and `0xff` scale
+NaNs in both XOR phases: all four classified outputs and the remaining 248,316
+finite outputs matched the preserved exact path in direct and public dispatch.
+The gate/up regression run still measured 1.04808x checkpoint-like and
+1.06432x same-bank speedups.
+
+The matched max-26-token Nsight reports retain 26 lm-head launches in both
+profiles. Their time moved from 125.008736 to 117.825600 ms, saving 7.183136 ms
+for a 1.060964137x lm-head speedup. Aggregate CUDA kernel time moved from
+3,551.045600 to 3,543.031168 ms over the same 23,126 launches, saving 8.014432
+ms (0.225692174%, 1.002262027x). Non-lm-head kernels decreased by 0.831296 ms
+between the separate reports, so the aggregate difference is not attributed
+entirely to this specialization. The baseline report is 1,625,714 bytes with
+SHA-256
+`652cf9d64e48caf487dee2d999f2740dcbb201155f6bc2482eff2aa748443dc1`;
+the candidate is 1,626,252 bytes with SHA-256
+`5e55f08d6b53d65683699281695b2a33130c933a42ab5cc4b817a050f6b05983`.
+The reports are local evidence and are not checked in.
+
+The mirrored single-load baseline/candidate/candidate/baseline benchmark gave
+the following average of two per-process medians:
+
+| Average of two process medians | Baseline | XOR dual | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,554.7025 ms | 3,547.2890 ms | 7.4135 ms (0.208554724%) |
+| Time to first token | 573.1200 ms | 572.7695 ms | 0.3505 ms (0.061156477%) |
+| Subsequent token | 119.2710 ms | 119.0040 ms | 0.2670 ms (0.223859949%) |
+
+Every warmup and measured generation retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 runner steps. Release
+validation passed 52 tests with four skips; ASAN/UBSAN with `detect_leaks=0`,
+excluding `package_consumer`, passed 51 tests with four skips. Independent
+review found zero blockers. Clocks were unlocked. These measurements are
+diagnostic evidence for one aligned M1 shape and short prompt, not a release,
+randomized, or serving-throughput claim.
 
 ## Correctness gate
 
@@ -762,9 +829,9 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
    shape/alignment and for FP8 `[1024,5120]`;
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
-9. use the adjacent-lane XOR-dual gate/up kernel only for aligned M1
-   `[17408,5120]`, retaining the down dual-iteration path and all other
-   fallbacks;
+9. use separately gated adjacent-lane XOR-dual instances only for aligned M1
+   gate/up `[17408,5120]` and lm-head `[248320,5120]`, retaining the down
+   dual-iteration path and all other fallbacks;
 10. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 11. lock clocks when privileged access is available before making a formal

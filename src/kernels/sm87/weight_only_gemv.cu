@@ -181,6 +181,13 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   return rows == 17'408U && columns == 5'120U;
 }
 
+[[nodiscard]] constexpr bool use_nvfp4_m1_lm_head_xor_dual_shape(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  // Keep this exact vocabulary projection separate from gate/up so each
+  // production promotion remains independently testable and reviewable.
+  return rows == 248'320U && columns == 5'120U;
+}
+
 [[nodiscard]] constexpr bool use_nvfp4_m2_scale_codebook(
     const std::size_t rows, const std::size_t columns) noexcept {
   return rows >= kNvFp4M2ScaleCodebookMinimumRows &&
@@ -3003,14 +3010,14 @@ nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_down_dual_iteration_kernel(
   }
 }
 
-// Production gate/up specialization. It preserves the exact row-quad
+// Production K=5120 specialization. It preserves the exact row-quad
 // accumulator order while replacing indexed raw-scale broadcasts with one
 // adjacent-lane XOR exchange per two packed-x8 phases. Even lanes own phase 0,
 // odd lanes own phase 1, and every lane sorts local/partner payloads before
 // consuming phase 0 then phase 1.
 template <std::size_t Rows, std::size_t Columns>
 __global__ __launch_bounds__(kThreads, 4) void
-nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel(
+nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation, std::uint16_t* const output) {
@@ -4447,12 +4454,12 @@ void launch_nvfp4_down_dual_iteration_test_unchecked(
 }
 
 template <std::size_t Rows, std::size_t Columns>
-void launch_nvfp4_gate_up_xor_dual_instance_unchecked(
+void launch_nvfp4_k5120_xor_dual_instance_unchecked(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
-  nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+  nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel<
       Rows, Columns><<<kNvFp4M1RowQuadMaximumBlocks, kThreads, 0U, stream>>>(
       packed_weights, block_scales, weight_scale_2, activation, output);
 }
@@ -4462,7 +4469,7 @@ void launch_nvfp4_gate_up_xor_dual_unchecked(
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
-  launch_nvfp4_gate_up_xor_dual_instance_unchecked<17'408U, 5'120U>(
+  launch_nvfp4_k5120_xor_dual_instance_unchecked<17'408U, 5'120U>(
       packed_weights, block_scales, weight_scale_2, activation, output,
       stream);
 }
@@ -4480,7 +4487,36 @@ void launch_nvfp4_gate_up_xor_dual_test_unchecked(
   } else {
     // The direct ABI admits only this bounded correctness fixture in addition
     // to gate/up, so no down-projection or lm-head instance exists.
-    launch_nvfp4_gate_up_xor_dual_instance_unchecked<2'048U, 512U>(
+    launch_nvfp4_k5120_xor_dual_instance_unchecked<2'048U, 512U>(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
+  }
+}
+
+void launch_nvfp4_lm_head_xor_dual_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  launch_nvfp4_k5120_xor_dual_instance_unchecked<248'320U, 5'120U>(
+      packed_weights, block_scales, weight_scale_2, activation, output,
+      stream);
+}
+
+void launch_nvfp4_lm_head_xor_dual_test_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  if (rows == 248'320U && columns == 5'120U) {
+    launch_nvfp4_lm_head_xor_dual_unchecked(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
+  } else {
+    // The direct ABI admits only this bounded correctness fixture in addition
+    // to lm-head, so no gate/up or down-projection instance exists.
+    launch_nvfp4_k5120_xor_dual_instance_unchecked<2'048U, 512U>(
         packed_weights, block_scales, weight_scale_2, activation, output,
         stream);
   }
@@ -5749,6 +5785,11 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
     launch_nvfp4_gate_up_xor_dual_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, output,
         stream);
+  } else if (vector_shape &&
+             use_nvfp4_m1_lm_head_xor_dual_shape(rows, columns)) {
+    launch_nvfp4_lm_head_xor_dual_unchecked(
+        packed_weights, block_scales, weight_scale_2, activation, output,
+        stream);
   } else if (vector_shape && use_nvfp4_m1_row_quad_shape(rows, columns)) {
     launch_nvfp4_scale_codebook_row_quad_exact_shape_unchecked(
         packed_weights, block_scales, weight_scale_2, activation, rows,
@@ -6103,7 +6144,7 @@ int query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel<
           17'408U, 5'120U>);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -6111,8 +6152,77 @@ int query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_gate_up_xor_dual_kernel<
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel<
           17'408U, 5'120U>,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_xor_dual_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_launch(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool supported_shape =
+      (rows == 248'320U && columns == 5'120U) ||
+      (rows == 2'048U && columns == 512U);
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!supported_shape || !aligned) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_lm_head_xor_dual_test_unchecked(
+      packed_weights, block_scales, weight_scale_2, activation, rows, columns,
+      output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_m1_lm_head_xor_dual_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel<
+          248'320U, 5'120U>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_xor_dual_kernel<
+          248'320U, 5'120U>,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -6144,6 +6254,11 @@ int query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
 [[nodiscard]] bool use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_nvfp4_m1_gate_up_xor_dual_shape(rows, columns);
+}
+
+[[nodiscard]] bool use_sm87_nvfp4_m1_lm_head_xor_dual_shape_test(
+    const std::size_t rows, const std::size_t columns) noexcept {
+  return use_nvfp4_m1_lm_head_xor_dual_shape(rows, columns);
 }
 
 // Test-only queries for the generic persistent cap, preserved row-pair A/B
