@@ -910,11 +910,17 @@ ReferenceStepOutcome ReferenceRunner::step(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "full_attention_variant", layer));
       }
+      std::uint16_t* const current_key =
+          views_.key_cache[layer] +
+          static_cast<std::size_t>(position) * kFullKvElements;
+      std::uint16_t* const current_value =
+          views_.value_cache[layer] +
+          static_cast<std::size_t>(position) * kFullKvElements;
       if (!project(attention->q_proj, views_.hidden[1], views_.projection[0],
                    "full_q_gate_projection", layer) ||
-          !project(attention->k_proj, views_.hidden[1], views_.projection[1],
+          !project(attention->k_proj, views_.hidden[1], current_key,
                    "full_k_projection", layer) ||
-          !project(attention->v_proj, views_.hidden[1], views_.projection[2],
+          !project(attention->v_proj, views_.hidden[1], current_value,
                    "full_v_projection", layer) ||
           !check_cuda(launch_split_interleaved_q_gate_reference_cuda(
                           views_.projection[0], kFullQueryHeads,
@@ -927,9 +933,9 @@ ReferenceStepOutcome ReferenceRunner::step(
                           views_.projection[0], stream_),
                       "full_q_norm", layer) ||
           !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          views_.projection[1], attention->k_norm.data,
+                          current_key, attention->k_norm.data,
                           kFullKvHeads, kFullHeadDimension, kRmsEpsilon,
-                          views_.projection[1], stream_),
+                          current_key, stream_),
                       "full_k_norm", layer)) {
         return fail_step(launch_failure);
       }
@@ -943,31 +949,13 @@ ReferenceStepOutcome ReferenceRunner::step(
                           kFullQueryHeads, views_.projection[0], stream_),
                       "full_q_rope", layer) ||
           !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                          views_.projection[1], cosines, sines, kFullKvHeads,
-                          views_.projection[1], stream_),
+                          current_key, cosines, sines, kFullKvHeads,
+                          current_key, stream_),
                       "full_k_rope", layer)) {
         return fail_step(launch_failure);
       }
 
-      std::uint16_t* const current_key =
-          views_.key_cache[layer] +
-          static_cast<std::size_t>(position) * kFullKvElements;
-      std::uint16_t* const current_value =
-          views_.value_cache[layer] +
-          static_cast<std::size_t>(position) * kFullKvElements;
-      if (!check_cuda(
-              static_cast<int>(cudaMemcpyAsync(
-                  current_key, views_.projection[1],
-                  kFullKvElements * sizeof(std::uint16_t),
-                  cudaMemcpyDeviceToDevice, stream)),
-              "full_key_cache_write", layer) ||
-          !check_cuda(
-              static_cast<int>(cudaMemcpyAsync(
-                  current_value, views_.projection[2],
-                  kFullKvElements * sizeof(std::uint16_t),
-                  cudaMemcpyDeviceToDevice, stream)),
-              "full_value_cache_write", layer) ||
-          !check_cuda(launch_gqa_attention_reference_cuda(
+      if (!check_cuda(launch_gqa_attention_reference_cuda(
                           views_.projection[0], views_.key_cache[layer],
                           views_.value_cache[layer], kFullQueryHeads,
                           kFullKvHeads,
@@ -1330,14 +1318,20 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       }
       std::uint16_t* const packed_gates =
           views_.projection[3] + token_count * kFullQueryElements;
+      std::uint16_t* const tile_key =
+          views_.key_cache[layer] +
+          static_cast<std::size_t>(first_position) * kFullKvElements;
+      std::uint16_t* const tile_value =
+          views_.value_cache[layer] +
+          static_cast<std::size_t>(first_position) * kFullKvElements;
       if (!project(attention->q_proj, views_.hidden[1],
                    views_.projection[0], "prefill_full_q_gate_projection",
                    layer) ||
           !project(attention->k_proj, views_.hidden[1],
-                   views_.projection[1], "prefill_full_k_projection",
+                   tile_key, "prefill_full_k_projection",
                    layer) ||
           !project(attention->v_proj, views_.hidden[1],
-                   views_.projection[2], "prefill_full_v_projection",
+                   tile_value, "prefill_full_v_projection",
                    layer) ||
           !check_cuda(launch_split_interleaved_q_gate_reference_cuda(
                           views_.projection[0], token_count * kFullQueryHeads,
@@ -1350,9 +1344,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           kRmsEpsilon, views_.projection[0], stream_),
                       "prefill_full_q_norm", layer) ||
           !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                          views_.projection[1], attention->k_norm.data,
+                          tile_key, attention->k_norm.data,
                           token_count * kFullKvHeads, kFullHeadDimension,
-                          kRmsEpsilon, views_.projection[1], stream_),
+                          kRmsEpsilon, tile_key, stream_),
                       "prefill_full_k_norm", layer)) {
         return fail_prefill_tile(launch_failure);
       }
@@ -1371,37 +1365,11 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                             stream_),
                         "prefill_full_q_rope", layer) ||
             !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                            views_.projection[1] + token * kFullKvElements,
+                            tile_key + token * kFullKvElements,
                             cosines, sines, kFullKvHeads,
-                            views_.projection[1] + token * kFullKvElements,
+                            tile_key + token * kFullKvElements,
                             stream_),
                         "prefill_full_k_rope", layer)) {
-          return fail_prefill_tile(launch_failure);
-        }
-      }
-      // Populate the complete tile's cache before GQA overwrites projection[1]
-      // with query-sized outputs. Each query still uses only its causal prefix.
-      for (std::size_t token = 0U; token < token_count; ++token) {
-        const std::size_t position =
-            static_cast<std::size_t>(first_position) + token;
-        std::uint16_t* const current_key =
-            views_.key_cache[layer] + position * kFullKvElements;
-        std::uint16_t* const current_value =
-            views_.value_cache[layer] + position * kFullKvElements;
-        if (!check_cuda(
-                static_cast<int>(cudaMemcpyAsync(
-                    current_key,
-                    views_.projection[1] + token * kFullKvElements,
-                    kFullKvElements * sizeof(std::uint16_t),
-                    cudaMemcpyDeviceToDevice, stream)),
-                "prefill_full_key_cache_write", layer) ||
-            !check_cuda(
-                static_cast<int>(cudaMemcpyAsync(
-                    current_value,
-                    views_.projection[2] + token * kFullKvElements,
-                    kFullKvElements * sizeof(std::uint16_t),
-                    cudaMemcpyDeviceToDevice, stream)),
-                "prefill_full_value_cache_write", layer)) {
           return fail_prefill_tile(launch_failure);
         }
       }
