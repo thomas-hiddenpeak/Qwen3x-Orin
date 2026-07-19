@@ -185,8 +185,28 @@ launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_pair_test_cuda(
     std::size_t rows, std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_pair_grid_cap_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    std::size_t maximum_blocks, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_quad_grid_cap_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    std::size_t maximum_blocks, void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m2_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] bool use_sm87_nvfp4_m2_row_quad_shape_test(
+    std::size_t rows, std::size_t columns) noexcept;
+
+[[nodiscard]] std::size_t
+sm87_nvfp4_m2_row_quad_maximum_blocks_test() noexcept;
 
 [[nodiscard]] bool use_sm87_nvfp4_small_m_row_pair_test(
     std::size_t token_count, std::size_t rows) noexcept;
@@ -3620,6 +3640,27 @@ void test_launch_validation(TestContext& test) {
   test.expect(q3x::kernels::use_sm87_nvfp4_m2_scale_codebook_test(
                   5'120U, 17'408U),
               "NVFP4 M2 scale codebook accepts down shape");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  17'408U, 5'120U),
+              "NVFP4 M2 row-quad accepts gate/up shape");
+  test.expect(q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  5'120U, 17'408U),
+              "NVFP4 M2 row-quad accepts down shape");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  17'407U, 5'120U),
+              "NVFP4 M2 row-quad rejects a near-miss row count");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  17'408U, 5'104U),
+              "NVFP4 M2 row-quad rejects a near-miss K");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  248'320U, 5'120U),
+              "NVFP4 M2 row-quad keeps lm_head on the preserved path");
+  test.expect(!q3x::kernels::use_sm87_nvfp4_m2_row_quad_shape_test(
+                  5'120U, 5'120U),
+              "NVFP4 M2 row-quad keeps unknown square shapes preserved");
+  test.expect(
+      q3x::kernels::sm87_nvfp4_m2_row_quad_maximum_blocks_test() == 64U,
+      "NVFP4 M2 row-quad production grid cap is frozen at 64 blocks");
   test.expect(!q3x::kernels::use_sm87_fp8_small_m_row_pair_test(2U, 10'240U),
               "FP8 M2 uses its dedicated production-shape predicate");
   test.expect(q3x::kernels::use_sm87_fp8_m2_row_pair_shape_test(
@@ -3789,6 +3830,13 @@ void test_launch_validation(TestContext& test) {
 [[nodiscard]] bool nvfp4_m2_row_pair_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M2_ROW_PAIR_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m2_row_quad_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M2_ROW_QUAD_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -9751,6 +9799,688 @@ void run_optional_nvfp4_m2_row_pair_performance(TestContext& test,
               "NVFP4 M2 row-pair clears every production gate");
 }
 
+constexpr std::array<std::size_t, 3U> kNvFp4M2RowQuadPairGridCaps{{
+    64U,
+    80U,
+    96U,
+}};
+
+constexpr std::array<std::size_t, 3U> kNvFp4M2RowQuadGridCaps{{
+    48U,
+    64U,
+    80U,
+}};
+
+constexpr std::size_t kNvFp4M2NaturalGridCap = 65'535U;
+
+constexpr std::array<NvFp4M1ScaleDistribution, 2U>
+    kNvFp4M2RowQuadScaleDistributions{{
+        NvFp4M1ScaleDistribution::kCheckpointLike,
+        NvFp4M1ScaleDistribution::kSameBankStress,
+    }};
+
+struct NvFp4M2RowQuadComparison {
+  float natural_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  bool bitwise_equal = false;
+};
+
+struct NvFp4M2RowQuadDistributionMeasurement {
+  std::array<NvFp4M2RowQuadComparison,
+             kNvFp4M2RowQuadPairGridCaps.size()>
+      row_pair{};
+  std::array<NvFp4M2RowQuadComparison, kNvFp4M2RowQuadGridCaps.size()>
+      row_quad{};
+};
+
+struct NvFp4M2RowQuadMeasurement {
+  std::array<NvFp4M2RowQuadDistributionMeasurement,
+             kNvFp4M2RowQuadScaleDistributions.size()>
+      distributions{};
+};
+
+struct NvFp4M2RowQuadShape {
+  std::size_t rows;
+  std::size_t columns;
+  std::size_t checkpoint_calls;
+  const char* label;
+};
+
+void initialize_nvfp4_m2_row_quad_mixed_weights(
+    TestContext& test, cudaStream_t stream, DeviceBuffer<std::uint8_t>& packed,
+    const std::size_t packed_count, const std::string& label,
+    bool& ready) {
+  constexpr std::size_t kPatternBytes = 256U;
+  std::array<std::uint8_t, kPatternBytes> pattern{};
+  std::array<bool, 16U> low_nibble_covered{};
+  std::array<bool, 16U> high_nibble_covered{};
+  for (std::size_t index = 0U; index < pattern.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 3U + (index >> 3U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 4U) * 7U + 3U) & 0x0fU);
+    pattern[index] = static_cast<std::uint8_t>(low | (high << 4U));
+    low_nibble_covered[low] = true;
+    high_nibble_covered[high] = true;
+  }
+  const bool all_low_codes =
+      std::all_of(low_nibble_covered.begin(), low_nibble_covered.end(),
+                  [](const bool covered) { return covered; });
+  const bool all_high_codes =
+      std::all_of(high_nibble_covered.begin(), high_nibble_covered.end(),
+                  [](const bool covered) { return covered; });
+  test.expect(all_low_codes, label + " covers every E2M1 low-nibble code");
+  test.expect(all_high_codes,
+              label + " covers every E2M1 high-nibble code");
+  if (!ready || packed_count == 0U) {
+    return;
+  }
+  const std::size_t seed_bytes = std::min(packed_count, pattern.size());
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(packed.get(), pattern.data(), seed_bytes,
+                      cudaMemcpyHostToDevice, stream),
+      label + " initialize mixed all-nibble weight seed");
+  for (std::size_t initialized = seed_bytes;
+       ready && initialized < packed_count;) {
+    const std::size_t copy_bytes =
+        std::min(initialized, packed_count - initialized);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(packed.get() + initialized, packed.get(), copy_bytes,
+                        cudaMemcpyDeviceToDevice, stream),
+        label + " expand mixed all-nibble weights");
+    initialized += copy_bytes;
+  }
+}
+
+void run_nvfp4_m2_row_quad_tail_correctness(TestContext& test,
+                                             cudaStream_t stream) {
+  constexpr std::size_t kTokens = 2U;
+  constexpr std::size_t kColumns = 256U;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr std::array<std::size_t, 3U> kRows{{257U, 258U, 259U}};
+  const std::size_t max_rows = kRows.back();
+  const std::size_t packed_columns = kColumns / 2U;
+  const std::size_t scale_columns = kColumns / 16U;
+  const std::size_t packed_count = max_rows * packed_columns;
+  std::vector<std::uint8_t> host_scales(max_rows * scale_columns);
+  fill_nvfp4_m1_scale_distribution(
+      host_scales, scale_columns,
+      NvFp4M1ScaleDistribution::kCheckpointLike);
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 19U + token * 37U + 11U) % 127U) -
+                           63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+  test.expect(host_activations[0U] != host_activations[kColumns],
+              "NVFP4 M2 row-quad tail uses distinct token activations");
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  const std::string label = "NVFP4 M2 row-quad tails rows257/258/259";
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(kTokens * max_rows),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * max_rows),
+                                label + " allocate candidate output");
+  initialize_nvfp4_m2_row_quad_mixed_weights(
+      test, stream, packed, packed_count, label, ready);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize block scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize two token activations");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> baseline(kTokens * max_rows);
+  std::vector<std::uint16_t> candidate(kTokens * max_rows);
+  for (const std::size_t rows : kRows) {
+    const std::string row_label = label + " rows=" + std::to_string(rows);
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_test_cuda(
+                packed.get(), scales.get(), kWeightScale2, activations.get(),
+                rows, kColumns, baseline_output.get(),
+                static_cast<void*>(stream))),
+        row_label + " launch single-row baseline");
+    for (const std::size_t cap : kNvFp4M2RowQuadGridCaps) {
+      if (!ready) {
+        return;
+      }
+      const std::string cap_label =
+          row_label + " quad_cap=" + std::to_string(cap);
+      ready = test.cuda_ok(
+          cudaMemsetAsync(candidate_output.get(), 0xa5,
+                          kTokens * max_rows * sizeof(std::uint16_t), stream),
+          cap_label + " poison candidate output");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(q3x::kernels::
+                               launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_quad_grid_cap_test_cuda(
+                                   packed.get(), scales.get(), kWeightScale2,
+                                   activations.get(), rows, kColumns,
+                                   candidate_output.get(), cap,
+                                   static_cast<void*>(stream))),
+                           cap_label + " launch tail-safe row-quad");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               baseline.data(), baseline_output.get(),
+                               kTokens * rows * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cap_label + " copy baseline output");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               candidate.data(), candidate_output.get(),
+                               kTokens * rows * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cap_label + " copy candidate output");
+      ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                    cap_label + " synchronize");
+      if (!ready) {
+        return;
+      }
+      std::size_t mismatches = 0U;
+      for (std::size_t index = 0U; index < kTokens * rows; ++index) {
+        mismatches += baseline[index] != candidate[index] ? 1U : 0U;
+      }
+      std::cout << "NVFP4_M2_ROW_QUAD_TAIL_DIFF: rows=" << rows
+                << " columns=" << kColumns << " quad_cap=" << cap
+                << " mismatches=" << mismatches << '/' << kTokens * rows
+                << '\n';
+      test.expect(mismatches == 0U,
+                  cap_label + " matches every single-row baseline BF16 bit");
+    }
+  }
+}
+
+[[nodiscard]] NvFp4M2RowQuadMeasurement
+benchmark_nvfp4_m2_row_quad_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 2U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  const std::size_t packed_count = rows * columns / 2U;
+  const std::size_t scale_columns = columns / 16U;
+  std::vector<std::uint8_t> host_scales(rows * scale_columns);
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 17U + token * 29U + 5U) % 127U) -
+                           63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+  test.expect(host_activations[0U] != host_activations[columns],
+              label + " uses distinct token activations");
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> natural_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(packed_count),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate block scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(natural_output.allocate(kTokens * rows),
+                                label + " allocate production output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(kTokens * rows),
+                                label + " allocate candidate output");
+  initialize_nvfp4_m2_row_quad_mixed_weights(
+      test, stream, packed, packed_count, label, ready);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize two token activations");
+  NvFp4M2RowQuadMeasurement measurement;
+  if (!ready) {
+    return measurement;
+  }
+
+  std::vector<std::uint16_t> natural(kTokens * rows);
+  std::vector<std::uint16_t> candidate(kTokens * rows);
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M2RowQuadScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M2RowQuadScaleDistributions[distribution_index];
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize block scales");
+    if (!ready) {
+      return measurement;
+    }
+
+    const auto launch_natural = [&]() noexcept -> int {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_pair_grid_cap_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              rows, columns, natural_output.get(),
+              kNvFp4M2NaturalGridCap, static_cast<void*>(stream));
+    };
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_natural()),
+                         distribution_label +
+                             " correctness production natural");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             natural.data(), natural_output.get(),
+                             natural.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy production output");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  distribution_label +
+                                      " production synchronize");
+    if (!ready) {
+      return measurement;
+    }
+
+    const auto benchmark_candidate =
+        [&](const bool row_quad, const std::size_t cap,
+            NvFp4M2RowQuadComparison& comparison) {
+          const char* const kind = row_quad ? "row_quad" : "row_pair";
+          const std::string cap_label =
+              distribution_label + " " + kind + "_cap=" +
+              std::to_string(cap);
+          const auto launch_candidate = [&]() noexcept -> int {
+            if (row_quad) {
+              return q3x::kernels::
+                  launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_quad_grid_cap_test_cuda(
+                      packed.get(), scales.get(), kWeightScale2,
+                      activations.get(), rows, columns, candidate_output.get(),
+                      cap, static_cast<void*>(stream));
+            }
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_small_m2_scale_codebook_row_pair_grid_cap_test_cuda(
+                    packed.get(), scales.get(), kWeightScale2,
+                    activations.get(), rows, columns, candidate_output.get(),
+                    cap, static_cast<void*>(stream));
+          };
+
+          ready = test.cuda_ok(
+              static_cast<cudaError_t>(launch_candidate()),
+              cap_label + " correctness candidate");
+          ready = ready && test.cuda_ok(
+                               cudaMemcpyAsync(
+                                   candidate.data(), candidate_output.get(),
+                                   candidate.size() * sizeof(std::uint16_t),
+                                   cudaMemcpyDeviceToHost, stream),
+                               cap_label + " copy candidate output");
+          ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                        cap_label +
+                                            " correctness synchronize");
+          if (!ready) {
+            return;
+          }
+          std::size_t mismatches = 0U;
+          for (std::size_t index = 0U; index < natural.size(); ++index) {
+            mismatches += natural[index] != candidate[index] ? 1U : 0U;
+          }
+          comparison.bitwise_equal = mismatches == 0U;
+          std::cout << "NVFP4_M2_ROW_QUAD_DIFF: " << label
+                    << " distribution="
+                    << nvfp4_m1_scale_distribution_name(distribution)
+                    << " candidate_kind=" << kind << " candidate_cap=" << cap
+                    << " mismatches=" << mismatches << '/' << natural.size()
+                    << '\n';
+          test.expect(comparison.bitwise_equal,
+                      cap_label +
+                          " matches every production natural BF16 bit");
+
+          for (int iteration = 0; iteration < kWarmupIterations && ready;
+               ++iteration) {
+            ready = test.cuda_ok(static_cast<cudaError_t>(launch_natural()),
+                                 cap_label + " natural warmup");
+            ready = ready && test.cuda_ok(
+                                 static_cast<cudaError_t>(launch_candidate()),
+                                 cap_label + " candidate warmup");
+          }
+          ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                        cap_label + " warmup synchronize");
+          if (!ready) {
+            return;
+          }
+
+          double natural_total = 0.0;
+          double candidate_total = 0.0;
+          bool all_finite = true;
+          for (int round = 0; round < kMeasurementRounds; ++round) {
+            const std::string round_label =
+                cap_label + " round=" + std::to_string(round + 1);
+            const float natural_first = measure_small_m_tile(
+                test, stream, launch_natural, kMeasuredIterations,
+                round_label + " natural pass 1");
+            const float candidate_first = measure_small_m_tile(
+                test, stream, launch_candidate, kMeasuredIterations,
+                round_label + " candidate pass 1");
+            const float candidate_second = measure_small_m_tile(
+                test, stream, launch_candidate, kMeasuredIterations,
+                round_label + " candidate pass 2");
+            const float natural_second = measure_small_m_tile(
+                test, stream, launch_natural, kMeasuredIterations,
+                round_label + " natural pass 2");
+            const bool round_finite =
+                std::isfinite(natural_first) &&
+                std::isfinite(candidate_first) &&
+                std::isfinite(candidate_second) &&
+                std::isfinite(natural_second);
+            all_finite = all_finite && round_finite;
+            if (round_finite) {
+              natural_total += natural_first + natural_second;
+              candidate_total += candidate_first + candidate_second;
+            }
+            std::cout << "PERF_NVFP4_M2_ROW_QUAD_ROUND: " << label
+                      << " distribution="
+                      << nvfp4_m1_scale_distribution_name(distribution)
+                      << " candidate_kind=" << kind
+                      << " candidate_cap=" << cap
+                      << " measured_iterations=" << kMeasuredIterations
+                      << " round=" << round + 1
+                      << " natural_pass1_ms=" << natural_first
+                      << " candidate_pass1_ms=" << candidate_first
+                      << " candidate_pass2_ms=" << candidate_second
+                      << " natural_pass2_ms=" << natural_second << '\n';
+          }
+          constexpr double kTimedPasses =
+              2.0 * static_cast<double>(kMeasurementRounds);
+          comparison.natural_milliseconds =
+              all_finite
+                  ? static_cast<float>(natural_total / kTimedPasses)
+                  : std::numeric_limits<float>::quiet_NaN();
+          comparison.candidate_milliseconds =
+              all_finite
+                  ? static_cast<float>(candidate_total / kTimedPasses)
+                  : std::numeric_limits<float>::quiet_NaN();
+          const float speedup = comparison.natural_milliseconds /
+                                comparison.candidate_milliseconds;
+          std::cout << "PERF_NVFP4_M2_ROW_QUAD_CELL: " << label
+                    << " distribution="
+                    << nvfp4_m1_scale_distribution_name(distribution)
+                    << " candidate_kind=" << kind << " candidate_cap=" << cap
+                    << " production_natural_ms="
+                    << comparison.natural_milliseconds
+                    << " candidate_ms=" << comparison.candidate_milliseconds
+                    << " speedup=" << speedup
+                    << " bitwise="
+                    << (comparison.bitwise_equal ? "true" : "false")
+                    << '\n';
+        };
+
+    NvFp4M2RowQuadDistributionMeasurement& distribution_measurement =
+        measurement.distributions[distribution_index];
+    for (std::size_t cap_index = 0U;
+         cap_index < kNvFp4M2RowQuadPairGridCaps.size(); ++cap_index) {
+      benchmark_candidate(false, kNvFp4M2RowQuadPairGridCaps[cap_index],
+                          distribution_measurement.row_pair[cap_index]);
+      if (!ready) {
+        return measurement;
+      }
+    }
+    for (std::size_t cap_index = 0U;
+         cap_index < kNvFp4M2RowQuadGridCaps.size(); ++cap_index) {
+      benchmark_candidate(true, kNvFp4M2RowQuadGridCaps[cap_index],
+                          distribution_measurement.row_quad[cap_index]);
+      if (!ready) {
+        return measurement;
+      }
+    }
+  }
+  return measurement;
+}
+
+void run_optional_nvfp4_m2_row_quad_performance(TestContext& test,
+                                                 cudaStream_t stream) {
+  if (!nvfp4_m2_row_quad_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M2 row-quad cap/correctness performance "
+                 "segment; set Q3X_RUN_SM87_NVFP4_M2_ROW_QUAD_PERF=1 to "
+                 "enable\n";
+    return;
+  }
+  constexpr float kMinimumPerCellSpeedup = 1.02F;
+  constexpr double kMinimumCheckpointWeightedSpeedup = 1.05;
+  constexpr std::array<NvFp4M2RowQuadShape, 2U> kShapes{{
+      {17'408U, 5'120U, 128U, "NVFP4 M2 row-quad gate/up 17408x5120"},
+      {5'120U, 17'408U, 64U, "NVFP4 M2 row-quad down 5120x17408"},
+  }};
+
+  run_nvfp4_m2_row_quad_tail_correctness(test, stream);
+  std::array<NvFp4M2RowQuadMeasurement, kShapes.size()> measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] = benchmark_nvfp4_m2_row_quad_shape(
+        test, stream, kShapes[shape_index].rows, kShapes[shape_index].columns,
+        kShapes[shape_index].label);
+  }
+
+  const auto checkpoint_weighted_speedup =
+      [&](const bool row_quad, const std::size_t cap_index) {
+        double natural_total = 0.0;
+        double candidate_total = 0.0;
+        for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+             ++shape_index) {
+          const NvFp4M2RowQuadDistributionMeasurement& checkpoint =
+              measurements[shape_index].distributions[0U];
+          const NvFp4M2RowQuadComparison& comparison =
+              row_quad ? checkpoint.row_quad[cap_index]
+                       : checkpoint.row_pair[cap_index];
+          natural_total +=
+              static_cast<double>(kShapes[shape_index].checkpoint_calls) *
+              comparison.natural_milliseconds;
+          candidate_total +=
+              static_cast<double>(kShapes[shape_index].checkpoint_calls) *
+              comparison.candidate_milliseconds;
+        }
+        return natural_total / candidate_total;
+      };
+
+  std::size_t best_pair_index = 0U;
+  double best_pair_weighted_speedup = -std::numeric_limits<double>::infinity();
+  for (std::size_t cap_index = 0U;
+       cap_index < kNvFp4M2RowQuadPairGridCaps.size(); ++cap_index) {
+    const double speedup = checkpoint_weighted_speedup(false, cap_index);
+    std::cout << "PERF_NVFP4_M2_ROW_QUAD_PAIR_CAP: cap="
+              << kNvFp4M2RowQuadPairGridCaps[cap_index]
+              << " checkpoint_weighted_vs_natural=" << speedup << '\n';
+    if (std::isfinite(speedup) && speedup > best_pair_weighted_speedup) {
+      best_pair_weighted_speedup = speedup;
+      best_pair_index = cap_index;
+    }
+  }
+
+  std::size_t best_quad_index = 0U;
+  double best_quad_weighted_speedup = -std::numeric_limits<double>::infinity();
+  for (std::size_t cap_index = 0U;
+       cap_index < kNvFp4M2RowQuadGridCaps.size(); ++cap_index) {
+    const double speedup = checkpoint_weighted_speedup(true, cap_index);
+    std::cout << "PERF_NVFP4_M2_ROW_QUAD_CAP: cap="
+              << kNvFp4M2RowQuadGridCaps[cap_index]
+              << " checkpoint_weighted_vs_natural=" << speedup << '\n';
+    if (std::isfinite(speedup) && speedup > best_quad_weighted_speedup) {
+      best_quad_weighted_speedup = speedup;
+      best_quad_index = cap_index;
+    }
+  }
+
+  const std::size_t production_quad_cap =
+      q3x::kernels::sm87_nvfp4_m2_row_quad_maximum_blocks_test();
+  test.expect(production_quad_cap == 64U,
+              "NVFP4 M2 selected production row-quad cap is frozen at 64");
+  const auto production_quad_iterator =
+      std::find(kNvFp4M2RowQuadGridCaps.begin(),
+                kNvFp4M2RowQuadGridCaps.end(), production_quad_cap);
+  const bool production_cap_measured =
+      production_quad_iterator != kNvFp4M2RowQuadGridCaps.end();
+  test.expect(production_cap_measured,
+              "NVFP4 M2 production row-quad cap is present in the sweep");
+  if (!production_cap_measured) {
+    return;
+  }
+  const std::size_t production_quad_index = static_cast<std::size_t>(
+      production_quad_iterator - kNvFp4M2RowQuadGridCaps.begin());
+  const bool production_matches_dynamic_winner =
+      production_quad_index == best_quad_index;
+  test.expect(production_matches_dynamic_winner,
+              "NVFP4 M2 production cap64 remains the measured row-quad "
+              "winner");
+
+  bool all_candidate_bits_equal = true;
+  bool all_winner_cells_pass = true;
+  double checkpoint_natural_total = 0.0;
+  double checkpoint_pair_total = 0.0;
+  double checkpoint_quad_total = 0.0;
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    for (std::size_t distribution_index = 0U;
+         distribution_index < kNvFp4M2RowQuadScaleDistributions.size();
+         ++distribution_index) {
+      const NvFp4M2RowQuadDistributionMeasurement& distribution =
+          measurements[shape_index].distributions[distribution_index];
+      for (const NvFp4M2RowQuadComparison& comparison :
+           distribution.row_pair) {
+        all_candidate_bits_equal =
+            all_candidate_bits_equal && comparison.bitwise_equal;
+      }
+      for (const NvFp4M2RowQuadComparison& comparison :
+           distribution.row_quad) {
+        all_candidate_bits_equal =
+            all_candidate_bits_equal && comparison.bitwise_equal;
+      }
+
+      const NvFp4M2RowQuadComparison& best_pair =
+          distribution.row_pair[best_pair_index];
+      const NvFp4M2RowQuadComparison& winner =
+          distribution.row_quad[production_quad_index];
+      const NvFp4M2RowQuadComparison& quad64 =
+          distribution.row_quad[production_quad_index];
+      const double pair_vs_natural =
+          static_cast<double>(best_pair.natural_milliseconds) /
+          best_pair.candidate_milliseconds;
+      const double winner_vs_natural =
+          static_cast<double>(winner.natural_milliseconds) /
+          winner.candidate_milliseconds;
+      const double winner_vs_pair =
+          static_cast<double>(best_pair.candidate_milliseconds) /
+          winner.candidate_milliseconds;
+      const double quad64_vs_natural =
+          static_cast<double>(quad64.natural_milliseconds) /
+          quad64.candidate_milliseconds;
+      const double quad64_vs_pair =
+          static_cast<double>(best_pair.candidate_milliseconds) /
+          quad64.candidate_milliseconds;
+      const bool finite = std::isfinite(pair_vs_natural) &&
+                          std::isfinite(winner_vs_natural) &&
+                          std::isfinite(winner_vs_pair);
+      const bool cell_gate =
+          winner.bitwise_equal && best_pair.bitwise_equal && finite &&
+          winner_vs_natural >= kMinimumPerCellSpeedup &&
+          winner_vs_pair >= kMinimumPerCellSpeedup;
+      all_winner_cells_pass = all_winner_cells_pass && cell_gate;
+      test.expect(
+          cell_gate,
+          std::string(kShapes[shape_index].label) + " " +
+              nvfp4_m1_scale_distribution_name(
+                  kNvFp4M2RowQuadScaleDistributions[distribution_index]) +
+              " winning row-quad cap beats natural and best row-pair");
+      std::cout << "PERF_NVFP4_M2_ROW_QUAD_VALIDATION: "
+                << kShapes[shape_index].label << " distribution="
+                << nvfp4_m1_scale_distribution_name(
+                       kNvFp4M2RowQuadScaleDistributions[distribution_index])
+                << " best_pair_cap="
+                << kNvFp4M2RowQuadPairGridCaps[best_pair_index]
+                << " dynamic_best_quad_cap="
+                << kNvFp4M2RowQuadGridCaps[best_quad_index]
+                << " production_quad_cap=" << production_quad_cap
+                << " pair_vs_natural=" << pair_vs_natural
+                << " winner_vs_natural=" << winner_vs_natural
+                << " winner_vs_pair=" << winner_vs_pair
+                << " quad64_vs_natural=" << quad64_vs_natural
+                << " quad64_vs_pair=" << quad64_vs_pair
+                << " required_speedup=" << kMinimumPerCellSpeedup
+                << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    }
+
+    const NvFp4M2RowQuadDistributionMeasurement& checkpoint =
+        measurements[shape_index].distributions[0U];
+    const NvFp4M2RowQuadComparison& best_pair =
+        checkpoint.row_pair[best_pair_index];
+    const NvFp4M2RowQuadComparison& winner =
+        checkpoint.row_quad[production_quad_index];
+    const double calls =
+        static_cast<double>(kShapes[shape_index].checkpoint_calls);
+    checkpoint_natural_total += calls * winner.natural_milliseconds;
+    checkpoint_pair_total += calls * best_pair.candidate_milliseconds;
+    checkpoint_quad_total += calls * winner.candidate_milliseconds;
+  }
+
+  const double checkpoint_winner_vs_natural =
+      checkpoint_natural_total / checkpoint_quad_total;
+  const double checkpoint_winner_vs_pair =
+      checkpoint_pair_total / checkpoint_quad_total;
+  const bool aggregate_gate =
+      production_matches_dynamic_winner && all_candidate_bits_equal &&
+      all_winner_cells_pass &&
+      std::isfinite(checkpoint_winner_vs_natural) &&
+      std::isfinite(checkpoint_winner_vs_pair) &&
+      checkpoint_winner_vs_natural >= kMinimumCheckpointWeightedSpeedup &&
+      checkpoint_winner_vs_pair >= kMinimumCheckpointWeightedSpeedup;
+  std::cout << "PERF_NVFP4_M2_ROW_QUAD_SELECTED: best_pair_cap="
+            << kNvFp4M2RowQuadPairGridCaps[best_pair_index]
+            << " dynamic_best_quad_cap="
+            << kNvFp4M2RowQuadGridCaps[best_quad_index]
+            << " production_quad_cap=" << production_quad_cap
+            << " production_matches_dynamic_winner="
+            << (production_matches_dynamic_winner ? "true" : "false")
+            << " best_pair_weighted_vs_natural="
+            << best_pair_weighted_speedup
+            << " best_quad_weighted_vs_natural="
+            << best_quad_weighted_speedup
+            << " winner_checkpoint_weighted_vs_natural="
+            << checkpoint_winner_vs_natural
+            << " winner_checkpoint_weighted_vs_pair="
+            << checkpoint_winner_vs_pair
+            << " required_weighted_speedup="
+            << kMinimumCheckpointWeightedSpeedup
+            << " profile_calls=128:64 all_candidate_bitwise="
+            << (all_candidate_bits_equal ? "true" : "false")
+            << " all_cells="
+            << (all_winner_cells_pass ? "PASS" : "FAIL")
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "NVFP4 M2 production cap64 clears every production gate");
+}
+
 struct NvFp4M8FixedShapeMeasurement {
   float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
   float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
@@ -10854,6 +11584,7 @@ int main() {
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_row_pair_performance(test, stream);
+  run_optional_nvfp4_m2_row_quad_performance(test, stream);
   run_optional_nvfp4_m8_fixed_shape_performance(test, stream);
   run_optional_nvfp4_row_pair_performance(test, stream);
   run_optional_small_m_performance(test, stream);
