@@ -1551,7 +1551,10 @@ __device__ __forceinline__ void decode_nvfp4x8_to_bf16x8(
   }
 }
 
-// Production C16 kernel for the two checkpoint-bound NVFP4 MLP projections.
+// Preserved K64 C16 baseline for the two checkpoint-bound NVFP4 MLP
+// projections. Production uses the K128 exact-shape specialization below;
+// this implementation remains test-addressable for bitwise and performance
+// comparisons.
 // Each block decodes an N=128, K=64 tile directly from canonical row-major
 // packed E2M1 plus row-major E4M3FN group scales. The decoded W[N,K] tile is
 // the column-major B[K,N] operand consumed by BF16 WMMA, so no offline
@@ -1741,7 +1744,8 @@ nvfp4_w4a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
   }
 }
 
-// Down-projection specialization that doubles the K stage from 64 to 128.
+// Production exact-shape specialization that doubles the K stage from 64 to
+// 128 for both checkpoint-bound NVFP4 MLP projections.
 // Two cooperative load passes fill A[16,128] and B[128,128] with a padded
 // shared leading dimension of 136. The eight K16 WMMA operations retain the
 // exact order of two consecutive production K64 stages; the stride-16 product
@@ -1789,8 +1793,8 @@ nvfp4_w4a16_small_m16_gemm_bf16_wmma_k128_kernel(
       kBf16ValuesPerWeightWord;
   constexpr unsigned int kProductInitializationPasses =
       kProductWordCount / kThreads;
-  static_assert(kRows == 5'120U);
-  static_assert(kColumns == 17'408U);
+  static_assert((kRows == 5'120U && kColumns == 17'408U) ||
+                (kRows == 17'408U && kColumns == 5'120U));
   static_assert(kRows % kOutputColumnsPerBlock == 0U);
   static_assert(kColumns % kColumnsPerStage == 0U);
   static_assert(kActivationWordCount == 512U);
@@ -5458,14 +5462,14 @@ int launch_sm87_nvfp4_w4a16_small_m16_wmma_fixed_shape_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
-// Test-only direct entry for the production down-projection K128/LD136 path.
+// Test-only direct entry for the K128/LD136 exact-shape candidates.
 int launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (rows != 5'120U || columns != 17'408U) {
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns)) {
     return invalid_value();
   }
   const int validation = validate_nvfp4_m16_launch(
@@ -5489,9 +5493,15 @@ int launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
-      packed_weights, block_scales, weight_scale_2, activations, output,
-      stream);
+  if (rows == 17'408U) {
+    launch_nvfp4_small_m16_wmma_k128_unchecked<17'408U, 5'120U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else {
+    launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  }
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -5782,7 +5792,7 @@ int launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
     const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
     (void)cudaGetLastError();
     if (rows == 17'408U) {
-      launch_nvfp4_small_m16_wmma_fixed_shape_unchecked<17'408U, 5'120U>(
+      launch_nvfp4_small_m16_wmma_k128_unchecked<17'408U, 5'120U>(
           packed_weights, block_scales, weight_scale_2, activations, output,
           stream);
     } else {

@@ -9181,27 +9181,39 @@ struct NvFp4M16K128DistributionMeasurement {
   float current_k64_milliseconds = std::numeric_limits<float>::quiet_NaN();
   float candidate_k128_milliseconds = std::numeric_limits<float>::quiet_NaN();
   bool bitwise_equal = false;
+  bool output_finite = false;
+  bool production_bitwise_equal = false;
+  bool production_output_finite = false;
 };
 
-void run_optional_nvfp4_m16_k128_performance(TestContext& test,
-                                               cudaStream_t stream) {
-  if (!nvfp4_m16_k128_performance_enabled()) {
-    std::cout << "SKIP: NVFP4 M16 K128/LD136 performance segment; set "
-                 "Q3X_RUN_SM87_NVFP4_M16_K128_PERF=1 to enable\n";
-    return;
-  }
+struct NvFp4M16K128ShapeMeasurement {
+  std::array<NvFp4M16K128DistributionMeasurement,
+             kNvFp4M16K128ScaleDistributions.size()>
+      distributions{};
+};
 
+struct NvFp4M16K128Shape {
+  std::size_t rows;
+  std::size_t columns;
+  std::size_t profile_calls;
+  const char* label;
+};
+
+[[nodiscard]] NvFp4M16K128ShapeMeasurement
+benchmark_nvfp4_m16_k128_shape(TestContext& test, cudaStream_t stream,
+                                const NvFp4M16K128Shape& shape) {
   constexpr std::size_t kTokens = 16U;
-  constexpr std::size_t kRows = 5'120U;
-  constexpr std::size_t kColumns = 17'408U;
+  const std::size_t kRows = shape.rows;
+  const std::size_t kColumns = shape.columns;
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 3;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
-  constexpr float kMinimumCheckpointSpeedup = 1.02F;
-  constexpr float kMinimumStressSpeedup = 0.99F;
-  constexpr double kMinimumAggregateSpeedup = 1.02;
-  const std::string label = "NVFP4 M16 down 5120x17408 K128/LD136";
+  constexpr float kMinimumCellSpeedup = 1.02F;
+  constexpr std::uint8_t kCurrentOutputSentinel = 0xa5U;
+  constexpr std::uint8_t kCandidateOutputSentinel = 0x5aU;
+  constexpr std::uint8_t kProductionOutputSentinel = 0x3cU;
+  const std::string label = shape.label;
   const std::size_t packed_columns = kColumns / 2U;
   const std::size_t scale_columns = kColumns / 16U;
 
@@ -9272,17 +9284,12 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
                            cudaMemcpyHostToDevice, stream),
                        label + " initialize activations");
   if (!ready) {
-    return;
+    return {};
   }
 
   std::vector<std::uint16_t> current_k64(kTokens * kRows);
   std::vector<std::uint16_t> candidate_k128(kTokens * kRows);
-  std::array<NvFp4M16K128DistributionMeasurement,
-             kNvFp4M16K128ScaleDistributions.size()>
-      measurements{};
-  bool all_distribution_gates = true;
-  double aggregate_current_k64 = 0.0;
-  double aggregate_candidate_k128 = 0.0;
+  NvFp4M16K128ShapeMeasurement shape_measurement{};
   for (std::size_t distribution_index = 0U;
        distribution_index < kNvFp4M16K128ScaleDistributions.size();
        ++distribution_index) {
@@ -9296,8 +9303,21 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
         cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
                         cudaMemcpyHostToDevice, stream),
         distribution_label + " initialize scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(
+                             current_k64_output.get(), kCurrentOutputSentinel,
+                             kTokens * kRows * sizeof(std::uint16_t), stream),
+                         distribution_label +
+                             " initialize current K64 output sentinel");
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(
+                             candidate_k128_output.get(),
+                             kCandidateOutputSentinel,
+                             kTokens * kRows * sizeof(std::uint16_t), stream),
+                         distribution_label +
+                             " initialize candidate K128 output sentinel");
     if (!ready) {
-      return;
+      return shape_measurement;
     }
 
     const auto launch_current_k64 = [&]() noexcept -> int {
@@ -9313,6 +9333,11 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
               packed.get(), scales.get(), kWeightScale2, activations.get(),
               kRows, kColumns, candidate_k128_output.get(),
               static_cast<void*>(stream));
+    };
+    const auto launch_production = [&]() noexcept -> int {
+      return q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+          packed.get(), scales.get(), kWeightScale2, activations.get(), kRows,
+          kColumns, candidate_k128_output.get(), static_cast<void*>(stream));
     };
 
     ready = test.cuda_ok(static_cast<cudaError_t>(launch_current_k64()),
@@ -9337,23 +9362,81 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
                          cudaStreamSynchronize(stream),
                          distribution_label + " correctness synchronize");
     if (!ready) {
-      return;
+      return shape_measurement;
     }
 
     std::size_t mismatches = 0U;
+    bool output_finite = true;
     for (std::size_t index = 0U; index < current_k64.size(); ++index) {
       mismatches += current_k64[index] != candidate_k128[index] ? 1U : 0U;
+      output_finite = output_finite &&
+                      std::isfinite(decode_bf16(current_k64[index])) &&
+                      std::isfinite(decode_bf16(candidate_k128[index]));
     }
     NvFp4M16K128DistributionMeasurement& measurement =
-        measurements[distribution_index];
+        shape_measurement.distributions[distribution_index];
     measurement.bitwise_equal = mismatches == 0U;
+    measurement.output_finite = output_finite;
     std::cout << "NVFP4_M16_K128_DIFF: " << label << " distribution="
               << nvfp4_m1_scale_distribution_name(distribution)
               << " current_k64_vs_k128_ld136_mismatches=" << mismatches << '/'
-              << current_k64.size() << '\n';
+              << current_k64.size()
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << '\n';
     test.expect(measurement.bitwise_equal,
                 distribution_label +
                     " K128/LD136 is bitwise equal to current K64");
+    test.expect(output_finite,
+                distribution_label + " K64 and K128 outputs remain finite");
+
+    ready = test.cuda_ok(
+        cudaMemsetAsync(candidate_k128_output.get(),
+                        kProductionOutputSentinel,
+                        kTokens * kRows * sizeof(std::uint16_t), stream),
+        distribution_label + " poison production output");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_production()),
+                         distribution_label + " launch production M16");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_k128.data(),
+                             candidate_k128_output.get(),
+                             candidate_k128.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy production M16 output");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label +
+                             " production correctness synchronize");
+    if (!ready) {
+      return shape_measurement;
+    }
+
+    std::size_t production_mismatches = 0U;
+    bool production_output_finite = true;
+    for (std::size_t index = 0U; index < current_k64.size(); ++index) {
+      production_mismatches +=
+          current_k64[index] != candidate_k128[index] ? 1U : 0U;
+      production_output_finite =
+          production_output_finite &&
+          std::isfinite(decode_bf16(current_k64[index])) &&
+          std::isfinite(decode_bf16(candidate_k128[index]));
+    }
+    measurement.production_bitwise_equal = production_mismatches == 0U;
+    measurement.production_output_finite = production_output_finite;
+    std::cout << "NVFP4_M16_K128_PRODUCTION_DIFF: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " current_k64_vs_public_m16_mismatches="
+              << production_mismatches << '/' << current_k64.size()
+              << " output_finite="
+              << (production_output_finite ? "true" : "false") << '\n';
+    test.expect(measurement.production_bitwise_equal,
+                distribution_label +
+                    " public production M16 is bitwise equal to current K64");
+    test.expect(production_output_finite,
+                distribution_label +
+                    " public production M16 output remains finite");
 
     for (int iteration = 0; iteration < kWarmupIterations && ready;
          ++iteration) {
@@ -9366,7 +9449,7 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
     ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                   distribution_label + " warmup synchronize");
     if (!ready) {
-      return;
+      return shape_measurement;
     }
 
     double current_k64_total = 0.0;
@@ -9414,19 +9497,16 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
                : std::numeric_limits<float>::quiet_NaN();
     const float speedup = measurement.current_k64_milliseconds /
                           measurement.candidate_k128_milliseconds;
-    const float required_speedup =
-        distribution == NvFp4M1ScaleDistribution::kCheckpointLike
-            ? kMinimumCheckpointSpeedup
-            : kMinimumStressSpeedup;
     const bool valid =
         finite && std::isfinite(measurement.current_k64_milliseconds) &&
         std::isfinite(measurement.candidate_k128_milliseconds) &&
         std::isfinite(speedup) &&
         measurement.current_k64_milliseconds > 0.0F &&
         measurement.candidate_k128_milliseconds > 0.0F;
-    const bool gate = measurement.bitwise_equal && valid &&
-                      speedup >= required_speedup;
-    all_distribution_gates = all_distribution_gates && gate;
+    const bool gate = measurement.bitwise_equal && measurement.output_finite &&
+                      measurement.production_bitwise_equal &&
+                      measurement.production_output_finite && valid &&
+                      speedup >= kMinimumCellSpeedup;
     test.expect(gate, distribution_label + " clears K128/LD136 gate");
     std::cout << "PERF_NVFP4_M16_K128_VALIDATION: " << label
               << " distribution="
@@ -9435,30 +9515,110 @@ void run_optional_nvfp4_m16_k128_performance(TestContext& test,
               << " candidate_k128_ms="
               << measurement.candidate_k128_milliseconds
               << " speedup=" << speedup
-              << " required_speedup=" << required_speedup
+              << " required_speedup=" << kMinimumCellSpeedup
               << " bitwise="
               << (measurement.bitwise_equal ? "true" : "false")
+              << " output_finite="
+              << (measurement.output_finite ? "true" : "false")
+              << " production_bitwise="
+              << (measurement.production_bitwise_equal ? "true" : "false")
+              << " production_output_finite="
+              << (measurement.production_output_finite ? "true" : "false")
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-    aggregate_current_k64 += measurement.current_k64_milliseconds;
-    aggregate_candidate_k128 += measurement.candidate_k128_milliseconds;
+  }
+  return shape_measurement;
+}
+
+void run_optional_nvfp4_m16_k128_performance(TestContext& test,
+                                               cudaStream_t stream) {
+  if (!nvfp4_m16_k128_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M16 K128/LD136 performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M16_K128_PERF=1 to enable\n";
+    return;
   }
 
-  const double aggregate_speedup =
-      aggregate_current_k64 / aggregate_candidate_k128;
+  constexpr float kMinimumCellSpeedup = 1.02F;
+  constexpr double kMinimumWeightedSpeedup = 1.05;
+  constexpr std::array<NvFp4M16K128Shape, 2U> kShapes{{
+      {17'408U, 5'120U, 128U,
+       "NVFP4 M16 gate/up 17408x5120 K128/LD136"},
+      {5'120U, 17'408U, 64U,
+       "NVFP4 M16 down 5120x17408 K128/LD136"},
+  }};
+
+  std::array<NvFp4M16K128ShapeMeasurement, kShapes.size()> measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] =
+        benchmark_nvfp4_m16_k128_shape(test, stream, kShapes[shape_index]);
+  }
+
+  double weighted_current_k64 = 0.0;
+  double weighted_candidate_k128 = 0.0;
+  bool all_cells_pass = true;
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    double shape_current_k64 = 0.0;
+    double shape_candidate_k128 = 0.0;
+    bool shape_cells_pass = true;
+    for (std::size_t distribution_index = 0U;
+         distribution_index < kNvFp4M16K128ScaleDistributions.size();
+         ++distribution_index) {
+      const NvFp4M16K128DistributionMeasurement& cell =
+          measurements[shape_index].distributions[distribution_index];
+      const double speedup =
+          static_cast<double>(cell.current_k64_milliseconds) /
+          static_cast<double>(cell.candidate_k128_milliseconds);
+      const bool finite =
+          std::isfinite(cell.current_k64_milliseconds) &&
+          std::isfinite(cell.candidate_k128_milliseconds) &&
+          cell.current_k64_milliseconds > 0.0F &&
+          cell.candidate_k128_milliseconds > 0.0F &&
+          std::isfinite(speedup);
+      const bool cell_gate =
+          cell.bitwise_equal && cell.output_finite &&
+          cell.production_bitwise_equal && cell.production_output_finite &&
+          finite && speedup >= kMinimumCellSpeedup;
+      shape_cells_pass = shape_cells_pass && cell_gate;
+      all_cells_pass = all_cells_pass && cell_gate;
+      shape_current_k64 += cell.current_k64_milliseconds;
+      shape_candidate_k128 += cell.candidate_k128_milliseconds;
+      weighted_current_k64 +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.current_k64_milliseconds;
+      weighted_candidate_k128 +=
+          static_cast<double>(kShapes[shape_index].profile_calls) *
+          cell.candidate_k128_milliseconds;
+    }
+    const double shape_speedup = shape_current_k64 / shape_candidate_k128;
+    std::cout << "PERF_NVFP4_M16_K128_SHAPE_AGGREGATE: "
+              << kShapes[shape_index].label
+              << " current_k64_ms=" << shape_current_k64
+              << " candidate_k128_ms=" << shape_candidate_k128
+              << " speedup=" << shape_speedup
+              << " profile_calls=" << kShapes[shape_index].profile_calls
+              << " all_cells=" << (shape_cells_pass ? "PASS" : "FAIL")
+              << '\n';
+  }
+
+  const double weighted_speedup =
+      weighted_current_k64 / weighted_candidate_k128;
   const bool aggregate_gate =
-      all_distribution_gates && std::isfinite(aggregate_speedup) &&
-      aggregate_current_k64 > 0.0 && aggregate_candidate_k128 > 0.0 &&
-      aggregate_speedup >= kMinimumAggregateSpeedup;
-  std::cout << "PERF_NVFP4_M16_K128_AGGREGATE: current_k64_ms="
-            << aggregate_current_k64
-            << " candidate_k128_ms=" << aggregate_candidate_k128
-            << " speedup=" << aggregate_speedup
-            << " required_speedup=" << kMinimumAggregateSpeedup
-            << " all_distributions="
-            << (all_distribution_gates ? "PASS" : "FAIL")
+      all_cells_pass && std::isfinite(weighted_speedup) &&
+      weighted_current_k64 > 0.0 && weighted_candidate_k128 > 0.0 &&
+      weighted_speedup >= kMinimumWeightedSpeedup;
+  std::cout << "PERF_NVFP4_M16_K128_AGGREGATE: weighted_current_k64_ms="
+            << weighted_current_k64
+            << " weighted_candidate_k128_ms=" << weighted_candidate_k128
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumWeightedSpeedup
+            << " profile_calls=128:64"
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " all_cells=" << (all_cells_pass ? "PASS" : "FAIL")
             << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
   test.expect(aggregate_gate,
-              "NVFP4 M16 down K128/LD136 clears aggregate gate");
+              "NVFP4 M16 gate/up and down K128/LD136 clear the weighted "
+              "production gate");
 }
 
 constexpr std::array<std::size_t, 6U> kNvFp4GridCaps{{
