@@ -78,9 +78,13 @@ template <typename T>
 
 template <typename Launch>
 [[nodiscard]] std::size_t captured_kernel_node_count(
-    TestContext& test, Launch&& launch, const std::string& label) {
+    TestContext& test, Launch&& launch, const std::string& label,
+    std::size_t* const total_node_count = nullptr) {
   constexpr std::size_t kInvalidCount =
       std::numeric_limits<std::size_t>::max();
+  if (total_node_count != nullptr) {
+    *total_node_count = kInvalidCount;
+  }
   cudaStream_t stream = nullptr;
   cudaGraph_t graph = nullptr;
   bool ready = test.cuda_ok(
@@ -108,6 +112,9 @@ template <typename Launch>
                            "read graph nodes " + label);
     }
     if (ready) {
+      if (total_node_count != nullptr) {
+        *total_node_count = node_count;
+      }
       kernel_nodes = 0U;
       for (const cudaGraphNode_t node : nodes) {
         cudaGraphNodeType type{};
@@ -538,6 +545,212 @@ void test_tile_routes(TestContext& test) {
   test.expect(
       capture_nvfp4(16U, "SM87 NVFP4 generic M16 dispatch graph") == 2U,
       "SM87 NVFP4 generic M16 uses the public two-M8 fallback");
+}
+
+void test_bf16_projection_pair_dispatch(TestContext& test) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::uint16_t kBf16One = 0x3f80U;
+  constexpr std::uint16_t kBf16Half = 0x3f00U;
+  constexpr std::uint16_t kFirstExpected = 0x45a0U;
+  constexpr std::uint16_t kSecondExpected = 0x4520U;
+
+  DeviceBuffer<std::uint16_t> first_weights;
+  DeviceBuffer<std::uint16_t> second_weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> first_output;
+  DeviceBuffer<std::uint16_t> second_output;
+  bool ready = first_weights.allocate(
+      test, kRows * kColumns, "pair first BF16 weights");
+  ready = ready && second_weights.allocate(
+                       test, kRows * kColumns,
+                       "pair second BF16 weights");
+  ready = ready && activation.allocate(
+                       test, kTokens * kColumns,
+                       "pair BF16 activations");
+  ready = ready && scratch.allocate(test, kRows, "pair FP32 scratch");
+  ready = ready && first_output.allocate(
+                       test, kTokens * kRows, "pair first output");
+  ready = ready && second_output.allocate(
+                       test, kTokens * kRows, "pair second output");
+  if (!ready) {
+    return;
+  }
+
+  ready = upload(test, first_weights,
+                 std::vector<std::uint16_t>(kRows * kColumns, kBf16One),
+                 "pair first BF16 weights");
+  ready = ready && upload(
+                       test, second_weights,
+                       std::vector<std::uint16_t>(kRows * kColumns,
+                                                  kBf16Half),
+                       "pair second BF16 weights");
+  ready = ready && upload(
+                       test, activation,
+                       std::vector<std::uint16_t>(kTokens * kColumns,
+                                                  kBf16One),
+                       "pair BF16 activations");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight first = runtime::Bf16LinearWeight{
+      first_weights.get(), kRows, kColumns};
+  const runtime::LinearWeight second = runtime::Bf16LinearWeight{
+      second_weights.get(), kRows, kColumns};
+  test.expect(runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first,
+                  second),
+              "production BF16 A/B pair selects the SM87 fast path");
+
+  const auto run_fast = [&](const std::size_t token_count,
+                            const std::string& label) {
+    const int status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+        activation.get(), token_count, nullptr, 0U, first_output.get(),
+        second_output.get());
+    test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+                label + " accepts null unused scratch");
+    if (static_cast<cudaError_t>(status) == cudaSuccess) {
+      (void)expect_tile_output(
+          test, first_output, token_count, kRows,
+          std::vector<std::uint16_t>(token_count, kFirstExpected),
+          label + " first output");
+      (void)expect_tile_output(
+          test, second_output, token_count, kRows,
+          std::vector<std::uint16_t>(token_count, kSecondExpected),
+          label + " second output");
+    }
+
+    std::size_t total_nodes = 0U;
+    const std::size_t kernel_nodes = captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return runtime::launch_projection_pair_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+              activation.get(), token_count, nullptr, 0U,
+              first_output.get(), second_output.get(),
+              static_cast<void*>(stream));
+        },
+        label + " graph", &total_nodes);
+    test.expect(total_nodes == 1U && kernel_nodes == 1U,
+                label + " graph contains exactly one fused kernel node");
+  };
+  run_fast(1U, "SM87 production BF16 pair M1");
+  run_fast(kTokens, "SM87 production BF16 pair M16");
+
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, first, second,
+            activation.get(), 1U, scratch.get(), kRows,
+            first_output.get(), second_output.get(),
+            static_cast<void*>(stream));
+      },
+      "reference BF16 pair M1 graph", &reference_total_nodes);
+  test.expect(reference_total_nodes == 4U &&
+                  reference_kernel_nodes == 4U,
+              "reference BF16 pair preserves two GEMV-plus-convert paths");
+  test.expect(static_cast<cudaError_t>(
+                  runtime::launch_projection_pair_tile_to_bf16_cuda(
+                      runtime::ProjectionBackend::kReference, first, second,
+                      activation.get(), 1U, nullptr, 0U,
+                      first_output.get(), second_output.get())) ==
+                  cudaErrorInvalidValue,
+              "reference BF16 pair still requires FP32 scratch");
+
+  const runtime::LinearWeight awkward_first = runtime::Bf16LinearWeight{
+      first_weights.get(), kRows - 1U, kColumns};
+  const runtime::LinearWeight awkward_second = runtime::Bf16LinearWeight{
+      second_weights.get(), kRows - 1U, kColumns};
+  test.expect(!runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  awkward_first, awkward_second),
+              "near-miss BF16 shape does not select the fused kernel");
+  std::size_t awkward_total_nodes = 0U;
+  const std::size_t awkward_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, awkward_first,
+            awkward_second, activation.get(), 1U, scratch.get(), kRows,
+            first_output.get(), second_output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 awkward BF16 pair M1 graph", &awkward_total_nodes);
+  test.expect(awkward_total_nodes == 4U && awkward_kernel_nodes == 4U,
+              "near-miss BF16 shape preserves two independent fallbacks");
+
+  const auto expect_invalid = [&](const runtime::LinearWeight& first_arg,
+                                  const runtime::LinearWeight& second_arg,
+                                  const std::uint16_t* const input_arg,
+                                  const std::size_t token_count,
+                                  float* const scratch_arg,
+                                  const std::size_t scratch_elements,
+                                  std::uint16_t* const first_output_arg,
+                                  std::uint16_t* const second_output_arg,
+                                  const std::string& label) {
+    const int status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, first_arg, second_arg,
+        input_arg, token_count, scratch_arg, scratch_elements,
+        first_output_arg, second_output_arg);
+    test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+                label);
+  };
+  const runtime::LinearWeight mismatched_columns =
+      runtime::Bf16LinearWeight{second_weights.get(), kRows,
+                                kColumns - 1U};
+  const runtime::LinearWeight null_second = runtime::Bf16LinearWeight{
+      nullptr, kRows, kColumns};
+  expect_invalid(first, mismatched_columns, activation.get(), 1U,
+                 scratch.get(), kRows, first_output.get(),
+                 second_output.get(),
+                 "pair rejects projections with different input sizes");
+  expect_invalid(first, second, activation.get(), 0U, nullptr, 0U,
+                 first_output.get(), second_output.get(),
+                 "pair rejects M=0");
+  expect_invalid(first, second, activation.get(), kTokens + 1U, nullptr, 0U,
+                 first_output.get(), second_output.get(),
+                 "pair rejects M=17");
+  expect_invalid(first, second, activation.get(), 1U, nullptr, 0U,
+                 reinterpret_cast<std::uint16_t*>(second_weights.get()),
+                 second_output.get(),
+                 "pair rejects first output overlapping second weights");
+  expect_invalid(first, second, activation.get(), 1U, nullptr, 0U,
+                 first_output.get(),
+                 reinterpret_cast<std::uint16_t*>(first_weights.get()),
+                 "pair rejects second output overlapping first weights");
+  expect_invalid(first, second, activation.get(), 1U, nullptr, 0U,
+                 first_output.get(), first_output.get(),
+                 "pair rejects overlapping outputs");
+  expect_invalid(awkward_first, awkward_second, activation.get(), 1U,
+                 reinterpret_cast<float*>(second_output.get()), kRows,
+                 first_output.get(), second_output.get(),
+                 "pair fallback rejects scratch overlapping second output");
+
+  ready = test.cuda_ok(
+      cudaMemset(first_output.get(), 0xa5,
+                 kTokens * kRows * sizeof(std::uint16_t)),
+      "initialize pair fail-before-enqueue canary");
+  if (ready) {
+    expect_invalid(first, null_second, activation.get(), kTokens,
+                   scratch.get(), kRows, first_output.get(),
+                   second_output.get(),
+                   "pair validates the second projection before enqueue");
+    std::uint16_t preserved = 0U;
+    ready = test.cuda_ok(cudaMemcpy(&preserved, first_output.get(),
+                                    sizeof(preserved),
+                                    cudaMemcpyDeviceToHost),
+                         "read pair fail-before-enqueue canary");
+    if (ready) {
+      test.expect(preserved == 0xa5a5U,
+                  "invalid second projection leaves first output untouched");
+    }
+  }
 }
 
 void test_fp8_m16_production_dispatch(TestContext& test) {
@@ -1198,6 +1411,7 @@ int main() {
   TestContext test;
   test_routes(test);
   test_tile_routes(test);
+  test_bf16_projection_pair_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

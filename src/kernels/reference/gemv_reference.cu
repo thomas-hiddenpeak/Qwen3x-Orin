@@ -15,11 +15,19 @@ namespace {
 
 constexpr unsigned int kThreads = 256U;
 constexpr std::size_t kMaximumBlocks = 65535U;
+constexpr std::size_t kMaximumPairTokens = 16U;
+constexpr std::size_t kMaximumGridX =
+    static_cast<std::size_t>(std::numeric_limits<int>::max());
+
+[[nodiscard]] bool multiply_overflows(const std::size_t left,
+                                      const std::size_t right) noexcept {
+  return right != 0U &&
+         left > std::numeric_limits<std::size_t>::max() / right;
+}
 
 [[nodiscard]] bool element_count_overflows(const std::size_t rows,
                                            const std::size_t columns) noexcept {
-  return columns != 0U &&
-         rows > std::numeric_limits<std::size_t>::max() / columns;
+  return multiply_overflows(rows, columns);
 }
 
 [[nodiscard]] bool is_empty(const std::size_t rows,
@@ -30,6 +38,16 @@ constexpr std::size_t kMaximumBlocks = 65535U;
 __device__ __forceinline__ float decode_bf16_device(
     const std::uint16_t value) {
   return __uint_as_float(static_cast<unsigned int>(value) << 16U);
+}
+
+__device__ __forceinline__ std::uint16_t encode_bf16_device(
+    const float value) {
+  unsigned int bits = __float_as_uint(value);
+  if ((bits & 0x7fffffffU) > 0x7f800000U) {
+    return static_cast<std::uint16_t>((bits >> 16U) | 0x0040U);
+  }
+  bits += 0x7fffU + ((bits >> 16U) & 1U);
+  return static_cast<std::uint16_t>(bits >> 16U);
 }
 
 __device__ __forceinline__ float decode_e4m3fn_device(
@@ -154,6 +172,43 @@ __global__ void gemv_kernel(const WeightAccessor weights,
   }
 }
 
+__global__ void bf16_gemv_pair_tile_bf16_kernel(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const first_output,
+    std::uint16_t* const second_output) {
+  __shared__ float partial[kThreads];
+
+  const std::size_t row = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token = static_cast<std::size_t>(blockIdx.y);
+  const bool second_projection = blockIdx.z != 0U;
+  const std::uint16_t* const weights =
+      second_projection ? second_weights : first_weights;
+  std::uint16_t* const output =
+      second_projection ? second_output : first_output;
+  const std::uint16_t* const token_input = input + token * columns;
+
+  float sum = 0.0F;
+  for (std::size_t column = threadIdx.x; column < columns;
+       column += blockDim.x) {
+    sum = fmaf(decode_bf16_device(weights[row * columns + column]),
+               decode_bf16_device(token_input[column]), sum);
+  }
+  partial[threadIdx.x] = sum;
+  __syncthreads();
+
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0U) {
+    output[token * rows + row] = encode_bf16_device(partial[0]);
+  }
+}
+
 __global__ void fp8_static_gemv_kernel(
     const Fp8StaticWeightAccessor weights,
     const std::uint16_t* const activation,
@@ -207,6 +262,27 @@ template <typename WeightAccessor>
   return static_cast<int>(cudaGetLastError());
 }
 
+[[nodiscard]] bool byte_range_overflows(const void* const pointer,
+                                        const std::size_t bytes) noexcept {
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return bytes > std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+[[nodiscard]] bool ranges_overlap(const void* const first,
+                                  const std::size_t first_bytes,
+                                  const void* const second,
+                                  const std::size_t second_bytes) noexcept {
+  if (byte_range_overflows(first, first_bytes) ||
+      byte_range_overflows(second, second_bytes)) {
+    return true;
+  }
+  const auto first_begin = reinterpret_cast<std::uintptr_t>(first);
+  const auto second_begin = reinterpret_cast<std::uintptr_t>(second);
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_begin < second_end && second_begin < first_end;
+}
+
 }  // namespace
 
 int launch_bf16_gemv_reference_cuda(
@@ -227,6 +303,67 @@ int launch_bf16_gemv_reference_cuda(
   }
   return launch_gemv(Bf16WeightAccessor{weights, columns}, activation, rows,
                      columns, output, cuda_stream);
+}
+
+int launch_bf16_gemv_pair_tile_bf16_cuda(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input,
+    const std::size_t token_count,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  if (token_count == 0U || token_count > kMaximumPairTokens ||
+      multiply_overflows(rows, columns)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (is_empty(rows, columns)) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(token_count, columns) ||
+      multiply_overflows(token_count, rows) || rows > kMaximumGridX) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t weight_elements = rows * columns;
+  const std::size_t input_elements = token_count * columns;
+  const std::size_t output_elements = token_count * rows;
+  if (multiply_overflows(weight_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(input_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      first_weights == nullptr || second_weights == nullptr ||
+      input == nullptr || first_output == nullptr ||
+      second_output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t weight_bytes = weight_elements * sizeof(std::uint16_t);
+  const std::size_t input_bytes = input_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes = output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(first_output, output_bytes, first_weights,
+                     weight_bytes) ||
+      ranges_overlap(first_output, output_bytes, second_weights,
+                     weight_bytes) ||
+      ranges_overlap(first_output, output_bytes, input, input_bytes) ||
+      ranges_overlap(second_output, output_bytes, first_weights,
+                     weight_bytes) ||
+      ranges_overlap(second_output, output_bytes, second_weights,
+                     weight_bytes) ||
+      ranges_overlap(second_output, output_bytes, input, input_bytes) ||
+      ranges_overlap(first_output, output_bytes, second_output,
+                     output_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const dim3 blocks(static_cast<unsigned int>(rows),
+                    static_cast<unsigned int>(token_count), 2U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_gemv_pair_tile_bf16_kernel<<<blocks, kThreads, 0U, stream>>>(
+      first_weights, second_weights, input, rows, columns, first_output,
+      second_output);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int launch_fp8_gemv_reference_cuda(

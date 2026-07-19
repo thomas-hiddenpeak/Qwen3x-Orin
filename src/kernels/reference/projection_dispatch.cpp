@@ -72,9 +72,10 @@ struct ProjectionTileSpans {
     const ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* const input, const std::size_t token_count,
     float* const fp32_scratch, const std::size_t scratch_elements,
-    std::uint16_t* const output, ProjectionTileSpans* const spans) noexcept {
+    std::uint16_t* const output, ProjectionTileSpans* const spans,
+    const bool direct_bf16_output = false) noexcept {
   if (!is_valid_projection_backend(backend) ||
-      weight.valueless_by_exception() || token_count < 2U ||
+      weight.valueless_by_exception() || token_count == 0U ||
       token_count > kMaximumRequestPrefillChunkSize || input == nullptr ||
       output == nullptr || spans == nullptr) {
     return invalid_value();
@@ -177,7 +178,8 @@ struct ProjectionTileSpans {
   }
 
   const bool requires_reference_scratch =
-      backend == ProjectionBackend::kReference || weight.index() == 0U;
+      !direct_bf16_output &&
+      (backend == ProjectionBackend::kReference || weight.index() == 0U);
   if (!requires_reference_scratch) {
     return static_cast<int>(cudaSuccess);
   }
@@ -205,6 +207,77 @@ struct ProjectionTileSpans {
                        sizeof(float))) {
       return invalid_value();
     }
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] bool overlaps_projection_weights(
+    const void* const pointer, const std::size_t bytes,
+    const ProjectionTileSpans& spans) noexcept {
+  if (ranges_overlap(pointer, bytes, spans.weight, spans.weight_bytes) ||
+      (spans.auxiliary_weight != nullptr &&
+       ranges_overlap(pointer, bytes, spans.auxiliary_weight,
+                      spans.auxiliary_weight_bytes))) {
+    return true;
+  }
+  for (const void* const scalar_weight : spans.scalar_weights) {
+    if (scalar_weight != nullptr &&
+        ranges_overlap(pointer, bytes, scalar_weight, sizeof(float))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] bool requires_projection_scratch(
+    const ProjectionBackend backend, const LinearWeight& weight) noexcept {
+  return backend == ProjectionBackend::kReference || weight.index() == 0U;
+}
+
+[[nodiscard]] int validate_projection_pair_cross_ranges(
+    const ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight, const std::uint16_t* const input,
+    float* const fp32_scratch, std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    const ProjectionTileSpans& first,
+    const ProjectionTileSpans& second,
+    const bool direct_bf16_output) noexcept {
+  if (first.columns != second.columns ||
+      ranges_overlap(first_output, first.output_bytes, second_output,
+                     second.output_bytes) ||
+      overlaps_projection_weights(first_output, first.output_bytes, second) ||
+      overlaps_projection_weights(second_output, second.output_bytes, first)) {
+    return invalid_value();
+  }
+
+  std::size_t scratch_rows = 0U;
+  if (!direct_bf16_output &&
+      requires_projection_scratch(backend, first_weight)) {
+    scratch_rows = first.rows;
+  }
+  if (!direct_bf16_output &&
+      requires_projection_scratch(backend, second_weight) &&
+      second.rows > scratch_rows) {
+    scratch_rows = second.rows;
+  }
+  if (scratch_rows == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (fp32_scratch == nullptr ||
+      multiply_overflows(scratch_rows, sizeof(float))) {
+    return invalid_value();
+  }
+  const std::size_t scratch_bytes = scratch_rows * sizeof(float);
+  if (byte_range_overflows(fp32_scratch, scratch_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, input,
+                     first.input_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, first_output,
+                     first.output_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, second_output,
+                     second.output_bytes) ||
+      overlaps_projection_weights(fp32_scratch, scratch_bytes, first) ||
+      overlaps_projection_weights(fp32_scratch, scratch_bytes, second)) {
+    return invalid_value();
   }
   return static_cast<int>(cudaSuccess);
 }
@@ -445,6 +518,57 @@ int launch_projection_tile_to_bf16_cuda(
     }
   }
   return static_cast<int>(cudaSuccess);
+}
+
+int launch_projection_pair_tile_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight, const std::uint16_t* const input,
+    const std::size_t token_count, float* const fp32_scratch,
+    const std::size_t scratch_elements,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  const bool direct_bf16_output = supports_bf16_projection_pair(
+      backend, first_weight, second_weight);
+  ProjectionTileSpans first_spans;
+  ProjectionTileSpans second_spans;
+  const int first_validation = validate_projection_tile(
+      backend, first_weight, input, token_count, fp32_scratch,
+      scratch_elements, first_output, &first_spans, direct_bf16_output);
+  if (first_validation != static_cast<int>(cudaSuccess)) {
+    return first_validation;
+  }
+  const int second_validation = validate_projection_tile(
+      backend, second_weight, input, token_count, fp32_scratch,
+      scratch_elements, second_output, &second_spans, direct_bf16_output);
+  if (second_validation != static_cast<int>(cudaSuccess)) {
+    return second_validation;
+  }
+  const int cross_validation = validate_projection_pair_cross_ranges(
+      backend, first_weight, second_weight, input, fp32_scratch,
+      first_output, second_output, first_spans, second_spans,
+      direct_bf16_output);
+  if (cross_validation != static_cast<int>(cudaSuccess)) {
+    return cross_validation;
+  }
+
+  if (direct_bf16_output) {
+    const auto& first = std::get<Bf16LinearWeight>(first_weight);
+    const auto& second = std::get<Bf16LinearWeight>(second_weight);
+    return kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+        first.weight, second.weight, input, token_count, first.output_size,
+        first.input_size, first_output, second_output, cuda_stream);
+  }
+
+  const int first_status = launch_projection_tile_to_bf16_cuda(
+      backend, first_weight, input, token_count, fp32_scratch,
+      scratch_elements, first_output, cuda_stream);
+  if (first_status != static_cast<int>(cudaSuccess)) {
+    return first_status;
+  }
+  return launch_projection_tile_to_bf16_cuda(
+      backend, second_weight, input, token_count, fp32_scratch,
+      scratch_elements, second_output, cuda_stream);
 }
 
 }  // namespace q3x::runtime

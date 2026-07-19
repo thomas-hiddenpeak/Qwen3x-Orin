@@ -83,6 +83,15 @@ enum class ProjectionBackend : std::uint8_t {
 [[nodiscard]] std::size_t linear_input_size(
     const LinearWeight& weight) noexcept;
 
+// True only for the production fused linear-attention A/B projection ABI:
+// the explicitly selected SM87 backend and two valid BF16 [48, 5120]
+// matrices. This is a shape/type eligibility check; launch-time input,
+// output, scratch, range, and alias validation remains the dispatcher's
+// responsibility.
+[[nodiscard]] bool supports_bf16_projection_pair(
+    ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight) noexcept;
+
 struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
@@ -300,5 +309,22 @@ struct WeightBindResult {
     const std::uint16_t* input, std::size_t token_count,
     float* fp32_scratch, std::size_t scratch_elements,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Validates and launches two projections over the same token-major input.
+// The two weights may have different output sizes but must have the same
+// input size. All host-visible arguments, byte ranges, and cross-projection
+// aliases are rejected before either projection is enqueued. The caller's
+// FP32 scratch must satisfy both independent projection contracts except on
+// the fused SM87 direct-to-BF16 path, where it is unused and may be null.
+//
+// supports_bf16_projection_pair(...) selects one fused SM87 kernel. Every
+// other valid combination preserves the existing first-then-second tile
+// dispatch and its numerical behavior.
+[[nodiscard]] int launch_projection_pair_tile_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight, const std::uint16_t* input,
+    std::size_t token_count, float* fp32_scratch,
+    std::size_t scratch_elements, std::uint16_t* first_output,
+    std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

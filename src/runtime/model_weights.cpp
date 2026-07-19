@@ -601,6 +601,27 @@ std::size_t linear_input_size(const LinearWeight& weight) noexcept {
       weight);
 }
 
+bool supports_bf16_projection_pair(
+    const ProjectionBackend backend, const LinearWeight& first_weight,
+    const LinearWeight& second_weight) noexcept {
+  constexpr std::size_t kPairRows = 48U;
+  constexpr std::size_t kPairColumns = 5120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      first_weight.valueless_by_exception() ||
+      second_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const first =
+      std::get_if<Bf16LinearWeight>(&first_weight);
+  const auto* const second =
+      std::get_if<Bf16LinearWeight>(&second_weight);
+  return first != nullptr && second != nullptr && first->weight != nullptr &&
+         second->weight != nullptr && first->output_size == kPairRows &&
+         second->output_size == kPairRows &&
+         first->input_size == kPairColumns &&
+         second->input_size == kPairColumns;
+}
+
 WeightBindResult bind_qwen36_27b_weights(
     const WeightBindingSource& source) {
   try {

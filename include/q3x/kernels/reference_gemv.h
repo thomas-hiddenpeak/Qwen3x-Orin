@@ -66,6 +66,22 @@ enum class GemvStatus : std::uint8_t {
     std::size_t rows, std::size_t columns, float* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fused pair of BF16 projection tiles. Both weights are row-major
+// [rows, columns], input is token-major [token_count, columns], and each
+// output is token-major [token_count, rows]. token_count must be in [1, 16].
+// Every CTA computes exactly one (projection, token, row) dot product using
+// the same FP32 FMA and shared-memory reduction order as the scalar reference
+// above, then rounds the result directly to BF16 RNE. With a valid token
+// count, an empty shape is a successful no-op and may use null pointers. For
+// a non-empty shape, the two outputs must be disjoint from one another and
+// from every input range; the read-only weights and input may alias.
+[[nodiscard]] int launch_bf16_gemv_pair_tile_bf16_cuda(
+    const std::uint16_t* first_weights,
+    const std::uint16_t* second_weights,
+    const std::uint16_t* input, std::size_t token_count, std::size_t rows,
+    std::size_t columns, std::uint16_t* first_output,
+    std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_fp8_gemv_reference_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,

@@ -1,4 +1,5 @@
 #include "q3x/kernels/reference_gemv.h"
+#include "q3x/runtime/decode_ops.h"
 
 #include <cuda_runtime.h>
 
@@ -74,6 +75,9 @@ class DeviceBuffer {
 [[nodiscard]] std::uint16_t encode_bf16(const float value) {
   std::uint32_t bits = 0U;
   std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & 0x7fffffffU) > 0x7f800000U) {
+    return static_cast<std::uint16_t>((bits >> 16U) | 0x0040U);
+  }
   bits += 0x7fffU + ((bits >> 16U) & 1U);
   return static_cast<std::uint16_t>(bits >> 16U);
 }
@@ -155,6 +159,236 @@ void run_bf16_case(TestContext& test, cudaStream_t stream,
   if (ready) {
     compare_outputs(test, gpu, cpu, columns, label);
   }
+}
+
+void run_bf16_pair_tile_case(TestContext& test, cudaStream_t stream,
+                             const std::size_t token_count,
+                             const std::size_t rows,
+                             const std::size_t columns,
+                             const std::string& label) {
+  std::vector<std::uint16_t> input(token_count * columns);
+  std::vector<std::uint16_t> first_weights(rows * columns);
+  std::vector<std::uint16_t> second_weights(rows * columns);
+  for (std::size_t index = 0; index < input.size(); ++index) {
+    const int centered = static_cast<int>((index * 11U + 5U) % 31U) - 15;
+    input[index] = encode_bf16(static_cast<float>(centered) / 32.0F);
+  }
+  for (std::size_t index = 0; index < first_weights.size(); ++index) {
+    const int first_centered =
+        static_cast<int>((index * 7U + 3U) % 29U) - 14;
+    const int second_centered =
+        static_cast<int>((index * 13U + 9U) % 37U) - 18;
+    first_weights[index] =
+        encode_bf16(static_cast<float>(first_centered) / 64.0F);
+    second_weights[index] =
+        encode_bf16(static_cast<float>(second_centered) / 128.0F);
+  }
+
+  constexpr std::size_t kGuardElements = 8U;
+  constexpr std::uint16_t kGuard = 0xa55aU;
+  const std::size_t output_elements = token_count * rows;
+  const std::size_t output_storage_elements =
+      output_elements + 2U * kGuardElements;
+  std::vector<std::uint16_t> first_expected(output_elements);
+  std::vector<std::uint16_t> second_expected(output_elements);
+  std::vector<std::uint16_t> first_actual(output_storage_elements, kGuard);
+  std::vector<std::uint16_t> second_actual(output_storage_elements, kGuard);
+  std::vector<std::uint16_t> input_after(input.size());
+  std::vector<std::uint16_t> first_weights_after(first_weights.size());
+  std::vector<std::uint16_t> second_weights_after(second_weights.size());
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<float> device_first_reference;
+  DeviceBuffer<float> device_second_reference;
+  DeviceBuffer<std::uint16_t> device_first_expected;
+  DeviceBuffer<std::uint16_t> device_second_expected;
+  DeviceBuffer<std::uint16_t> device_first_output;
+  DeviceBuffer<std::uint16_t> device_second_output;
+  bool ready = test.cuda_ok(device_input.allocate(input.size()),
+                            label + " allocate input");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(first_weights.size()),
+                       label + " allocate first weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(second_weights.size()),
+                       label + " allocate second weights");
+  ready = ready && test.cuda_ok(
+                       device_first_reference.allocate(output_elements),
+                       label + " allocate first reference");
+  ready = ready && test.cuda_ok(
+                       device_second_reference.allocate(output_elements),
+                       label + " allocate second reference");
+  ready = ready && test.cuda_ok(
+                       device_first_expected.allocate(output_elements),
+                       label + " allocate first expected");
+  ready = ready && test.cuda_ok(
+                       device_second_expected.allocate(output_elements),
+                       label + " allocate second expected");
+  ready = ready && test.cuda_ok(
+                       device_first_output.allocate(output_storage_elements),
+                       label + " allocate first output");
+  ready = ready && test.cuda_ok(
+                       device_second_output.allocate(output_storage_elements),
+                       label + " allocate second output");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(device_input.get(), input.data(),
+                      input.size() * sizeof(input[0]), cudaMemcpyHostToDevice,
+                      stream),
+      label + " copy input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() * sizeof(first_weights[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " copy first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() * sizeof(second_weights[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " copy second weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_output.get(), first_actual.data(),
+                           output_storage_elements * sizeof(first_actual[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize first output guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_output.get(), second_actual.data(),
+                           output_storage_elements * sizeof(second_actual[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize second output guards");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t token = 0U; token < token_count && ready; ++token) {
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::launch_bf16_gemv_reference_cuda(
+            device_first_weights.get(), device_input.get() + token * columns,
+            rows, columns, device_first_reference.get() + token * rows,
+            static_cast<void*>(stream))),
+        label + " launch first reference token " + std::to_string(token));
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(
+                             q3x::kernels::launch_bf16_gemv_reference_cuda(
+                                 device_second_weights.get(),
+                                 device_input.get() + token * columns, rows,
+                                 columns,
+                                 device_second_reference.get() + token * rows,
+                                 static_cast<void*>(stream))),
+                         label + " launch second reference token " +
+                             std::to_string(token));
+  }
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           q3x::runtime::launch_fp32_to_bf16_reference_cuda(
+                               device_first_reference.get(), output_elements,
+                               device_first_expected.get(),
+                               static_cast<void*>(stream))),
+                       label + " convert first reference to BF16");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           q3x::runtime::launch_fp32_to_bf16_reference_cuda(
+                               device_second_reference.get(), output_elements,
+                               device_second_expected.get(),
+                               static_cast<void*>(stream))),
+                       label + " convert second reference to BF16");
+  (void)seed_stale_error(test);
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+                               device_first_weights.get(),
+                               device_second_weights.get(), device_input.get(),
+                               token_count, rows, columns,
+                               device_first_output.get() + kGuardElements,
+                               device_second_output.get() + kGuardElements,
+                               static_cast<void*>(stream))),
+                       label + " launch pair after stale error");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           first_expected.data(), device_first_expected.get(),
+                           output_elements * sizeof(first_expected[0]),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy first expected");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(second_expected.data(),
+                                       device_second_expected.get(),
+                                       output_elements *
+                                           sizeof(second_expected[0]),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy second expected");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(first_actual.data(),
+                                       device_first_output.get(),
+                                       output_storage_elements *
+                                           sizeof(first_actual[0]),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy first output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(second_actual.data(),
+                                       device_second_output.get(),
+                                       output_storage_elements *
+                                           sizeof(second_actual[0]),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy second output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(input_after.data(), device_input.get(),
+                                       input.size() * sizeof(input_after[0]),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy input after launch");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           first_weights_after.data(),
+                           device_first_weights.get(),
+                           first_weights.size() *
+                               sizeof(first_weights_after[0]),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy first weights after launch");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           second_weights_after.data(),
+                           device_second_weights.get(),
+                           second_weights.size() *
+                               sizeof(second_weights_after[0]),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy second weights after launch");
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t index = 0; index < output_elements; ++index) {
+    test.expect(first_actual[kGuardElements + index] ==
+                    first_expected[index],
+                label + " first output " + std::to_string(index) +
+                    " matches two-stage CUDA oracle bitwise");
+    test.expect(second_actual[kGuardElements + index] ==
+                    second_expected[index],
+                label + " second output " + std::to_string(index) +
+                    " matches two-stage CUDA oracle bitwise");
+  }
+  for (std::size_t index = 0; index < kGuardElements; ++index) {
+    test.expect(first_actual[index] == kGuard &&
+                    first_actual[kGuardElements + output_elements + index] ==
+                        kGuard,
+                label + " first output canaries are intact");
+    test.expect(second_actual[index] == kGuard &&
+                    second_actual[kGuardElements + output_elements + index] ==
+                        kGuard,
+                label + " second output canaries are intact");
+  }
+  test.expect(input_after == input, label + " leaves input immutable");
+  test.expect(first_weights_after == first_weights,
+              label + " leaves first weights immutable");
+  test.expect(second_weights_after == second_weights,
+              label + " leaves second weights immutable");
 }
 
 void run_fp8_case(TestContext& test, cudaStream_t stream,
@@ -379,8 +613,178 @@ void run_nvfp4_case(TestContext& test, cudaStream_t stream,
   }
 }
 
+void test_bf16_pair_numeric_edges(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kTokenCount = 2U;
+  constexpr std::size_t kRows = 6U;
+  constexpr std::size_t kColumns = 256U;
+  std::vector<std::uint16_t> input(kTokenCount * kColumns, 0x0000U);
+  input[0U] = encode_bf16(1.0F);
+  input[1U] = encode_bf16(1.0F / 256.0F);
+  std::fill(input.begin() + static_cast<std::ptrdiff_t>(kColumns), input.end(),
+            0x0080U);
+
+  std::vector<std::uint16_t> first_weights(kRows * kColumns, 0x0000U);
+  std::vector<std::uint16_t> second_weights(kRows * kColumns, 0x0000U);
+  first_weights[0U * kColumns] = encode_bf16(1.0F);
+  first_weights[0U * kColumns + 1U] = encode_bf16(1.0F);
+  first_weights[1U * kColumns] = encode_bf16(1.0F);
+  first_weights[1U * kColumns + 1U] = encode_bf16(3.0F);
+  second_weights[0U * kColumns] = encode_bf16(-1.0F);
+  second_weights[0U * kColumns + 1U] = encode_bf16(-1.0F);
+  second_weights[1U * kColumns] = encode_bf16(-1.0F);
+  second_weights[1U * kColumns + 1U] = encode_bf16(-3.0F);
+  std::fill_n(first_weights.data() + 2U * kColumns, kColumns, 0x8080U);
+  std::fill_n(first_weights.data() + 3U * kColumns, kColumns, 0x0080U);
+  std::fill_n(second_weights.data() + 2U * kColumns, kColumns, 0x0080U);
+  std::fill_n(second_weights.data() + 3U * kColumns, kColumns, 0x8080U);
+  first_weights[4U * kColumns] = 0x7f81U;
+  second_weights[4U * kColumns] = 0xff81U;
+  first_weights[5U * kColumns] = 0x7f80U;
+  second_weights[5U * kColumns] = 0xff80U;
+
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> device_first_output;
+  DeviceBuffer<std::uint16_t> device_second_output;
+  bool ready = test.cuda_ok(device_input.allocate(input.size()),
+                            "BF16 pair numeric allocate input");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(first_weights.size()),
+                       "BF16 pair numeric allocate first weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(second_weights.size()),
+                       "BF16 pair numeric allocate second weights");
+  ready = ready && test.cuda_ok(
+                       device_first_output.allocate(kTokenCount * kRows),
+                       "BF16 pair numeric allocate first output");
+  ready = ready && test.cuda_ok(
+                       device_second_output.allocate(kTokenCount * kRows),
+                       "BF16 pair numeric allocate second output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_input.get(), input.data(),
+                                       input.size() * sizeof(input[0]),
+                                       cudaMemcpyHostToDevice, stream),
+                       "BF16 pair numeric copy input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() * sizeof(first_weights[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       "BF16 pair numeric copy first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() * sizeof(second_weights[0]),
+                           cudaMemcpyHostToDevice, stream),
+                       "BF16 pair numeric copy second weights");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              device_first_weights.get(), device_second_weights.get(),
+              device_input.get(), kTokenCount, kRows, kColumns,
+              device_first_output.get(), device_second_output.get(),
+              static_cast<void*>(stream))),
+      "BF16 pair numeric launch");
+  std::vector<std::uint16_t> first_output(kTokenCount * kRows);
+  std::vector<std::uint16_t> second_output(kTokenCount * kRows);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           first_output.data(), device_first_output.get(),
+                           first_output.size() * sizeof(first_output[0]),
+                           cudaMemcpyDeviceToHost, stream),
+                       "BF16 pair numeric copy first output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           second_output.data(), device_second_output.get(),
+                           second_output.size() * sizeof(second_output[0]),
+                           cudaMemcpyDeviceToHost, stream),
+                       "BF16 pair numeric copy second output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                "BF16 pair numeric synchronize");
+  if (!ready) {
+    return;
+  }
+
+  test.expect(first_output[0U] == 0x3f80U,
+              "BF16 pair RNE midpoint rounds down to even");
+  test.expect(first_output[1U] == 0x3f82U,
+              "BF16 pair RNE midpoint rounds up to even");
+  test.expect(second_output[0U] == 0xbf80U &&
+                  second_output[1U] == 0xbf82U,
+              "BF16 pair preserves RNE midpoint behavior for negatives");
+  test.expect(first_output[kRows + 2U] == 0x8000U &&
+                  first_output[kRows + 3U] == 0x0000U &&
+                  second_output[kRows + 2U] == 0x0000U &&
+                  second_output[kRows + 3U] == 0x8000U,
+              "BF16 pair preserves signed zero from FP32 accumulation");
+  test.expect(first_output[5U] == 0x7f80U &&
+                  second_output[5U] == 0xff80U,
+              "BF16 pair preserves signed infinity");
+  const auto is_quiet_nan = [](const std::uint16_t bits) {
+    return (bits & 0x7f80U) == 0x7f80U && (bits & 0x007fU) != 0U &&
+           (bits & 0x0040U) != 0U;
+  };
+  test.expect(is_quiet_nan(first_output[4U]) &&
+                  is_quiet_nan(second_output[4U]),
+              "BF16 pair canonicalizes signaling NaNs to quiet BF16 NaNs");
+}
+
+void test_bf16_pair_readonly_alias(TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kColumns = 256U;
+  std::vector<std::uint16_t> shared(kColumns, encode_bf16(1.0F));
+  DeviceBuffer<std::uint16_t> device_shared;
+  DeviceBuffer<std::uint16_t> device_first_output;
+  DeviceBuffer<std::uint16_t> device_second_output;
+  bool ready = test.cuda_ok(device_shared.allocate(shared.size()),
+                            "BF16 pair alias allocate shared input");
+  ready = ready && test.cuda_ok(device_first_output.allocate(1U),
+                                "BF16 pair alias allocate first output");
+  ready = ready && test.cuda_ok(device_second_output.allocate(1U),
+                                "BF16 pair alias allocate second output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(device_shared.get(), shared.data(),
+                                       shared.size() * sizeof(shared[0]),
+                                       cudaMemcpyHostToDevice, stream),
+                       "BF16 pair alias copy shared input");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              device_shared.get(), device_shared.get(), device_shared.get(),
+              1U, 1U, kColumns, device_first_output.get(),
+              device_second_output.get(), static_cast<void*>(stream))),
+      "BF16 pair permits exact alias among read-only inputs");
+  std::uint16_t first = 0U;
+  std::uint16_t second = 0U;
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(&first, device_first_output.get(),
+                                       sizeof(first), cudaMemcpyDeviceToHost,
+                                       stream),
+                       "BF16 pair alias copy first output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(&second, device_second_output.get(),
+                                       sizeof(second), cudaMemcpyDeviceToHost,
+                                       stream),
+                       "BF16 pair alias copy second output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                "BF16 pair alias synchronize");
+  if (ready) {
+    test.expect(first == second && first == encode_bf16(256.0F),
+                "BF16 pair read-only alias produces both projections");
+  }
+}
+
 void test_launch_validation(TestContext& test) {
   constexpr std::size_t kMaximum = std::numeric_limits<std::size_t>::max();
+  constexpr std::size_t kBeyondGridX =
+      static_cast<std::size_t>(std::numeric_limits<int>::max()) + 1U;
   test.expect(static_cast<cudaError_t>(
                   q3x::kernels::launch_bf16_gemv_reference_cuda(
                       nullptr, nullptr, 0U, 7U, nullptr)) == cudaSuccess,
@@ -395,6 +799,118 @@ void test_launch_validation(TestContext& test) {
                       nullptr, nullptr, kMaximum, 2U, nullptr)) ==
                   cudaErrorInvalidValue,
               "CUDA BF16 rejects dimension overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 1U, 0U, 7U, nullptr, nullptr)) ==
+          cudaSuccess,
+      "empty CUDA BF16 pair shape is a no-op");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 1U, kBeyondGridX, 0U, nullptr,
+              nullptr)) == cudaSuccess,
+      "empty CUDA BF16 pair ignores the non-launched grid dimension");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 0U, 1U, 1U, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects M=0");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 17U, 1U, 1U, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects M=17");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 1U, 1U, 1U, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects null non-empty pointers");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              nullptr, nullptr, nullptr, 1U, kMaximum, 2U, nullptr,
+              nullptr)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects dimension overflow");
+
+  std::uint16_t alias_storage[40]{};
+  const auto* const first_weights = alias_storage;
+  const auto* const second_weights = alias_storage + 8U;
+  const auto* const input = alias_storage + 16U;
+  auto* const first_output = alias_storage + 24U;
+  auto* const second_output = alias_storage + 28U;
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 2U, 2U, 4U,
+              const_cast<std::uint16_t*>(first_weights), second_output)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects first output/weight overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 2U, 2U, 4U,
+              const_cast<std::uint16_t*>(second_weights + 1U),
+              second_output)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects cross-projection output/weight overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 2U, 2U, 4U, first_output,
+              const_cast<std::uint16_t*>(input + 1U))) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects second output/input overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 2U, 2U, 4U, first_output,
+              first_output + 1U)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects partial output/output overlap");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 2U, 2U, 4U, first_output,
+              first_output)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects exact output/output alias");
+  const auto* const overflowing_pointer =
+      reinterpret_cast<const std::uint16_t*>(
+          std::numeric_limits<std::uintptr_t>::max() - 1U);
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              overflowing_pointer, second_weights, input, 2U, 2U, 4U,
+              first_output, second_output)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects pointer range overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 1U, kBeyondGridX, 1U,
+              first_output, second_output)) == cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects grid-x overflow for non-empty shapes");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 1U, 1U,
+              kMaximum / 2U + 1U, first_output, second_output)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects BF16 byte-count overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 16U, 1U,
+              kMaximum / 16U + 1U, first_output, second_output)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects M*K overflow");
+  test.expect(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              first_weights, second_weights, input, 16U,
+              kMaximum / 16U + 1U, 1U, first_output, second_output)) ==
+          cudaErrorInvalidValue,
+      "CUDA BF16 pair rejects M*N overflow");
   test.expect(static_cast<cudaError_t>(
                   q3x::kernels::launch_fp8_gemv_reference_cuda(
                       nullptr, std::numeric_limits<float>::quiet_NaN(), nullptr,
@@ -486,6 +1002,17 @@ int main() {
   // dimensions without allocating full production matrices in a unit test.
   run_bf16_case(test, stream, 7U, 37U, "BF16 awkward 7x37");
   run_bf16_case(test, stream, 3U, 6144U, "BF16 target-K 3x6144");
+  for (const std::size_t token_count : {1U, 2U, 8U, 16U}) {
+    run_bf16_pair_tile_case(
+        test, stream, token_count, 7U, 37U,
+        "BF16 pair M" + std::to_string(token_count) + " awkward 7x37");
+    run_bf16_pair_tile_case(
+        test, stream, token_count, 48U, 5120U,
+        "BF16 pair M" + std::to_string(token_count) +
+            " production 48x5120");
+  }
+  test_bf16_pair_numeric_edges(test, stream);
+  test_bf16_pair_readonly_alias(test, stream);
   run_fp8_case(test, stream, 7U, 37U, "FP8 awkward 7x37");
   run_fp8_case(test, stream, 3U, 5120U, "FP8 target-K 3x5120");
   run_fp8_static_case(test, stream, 7U, 37U,

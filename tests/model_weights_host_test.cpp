@@ -339,6 +339,47 @@ void test_successful_bind(TestContext& test) {
               "non-owning model view is movable");
 }
 
+void test_bf16_projection_pair_eligibility(TestContext& test) {
+  std::uint16_t first_storage = 0U;
+  std::uint16_t second_storage = 0U;
+  const runtime::LinearWeight first = runtime::Bf16LinearWeight{
+      &first_storage, 48U, 5120U};
+  const runtime::LinearWeight second = runtime::Bf16LinearWeight{
+      &second_storage, 48U, 5120U};
+  test.expect(runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first,
+                  second),
+              "SM87 accepts only the exact BF16 A/B projection pair");
+  test.expect(!runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kReference, first, second),
+              "reference backend preserves independent BF16 projections");
+
+  const runtime::LinearWeight wrong_rows = runtime::Bf16LinearWeight{
+      &second_storage, 47U, 5120U};
+  const runtime::LinearWeight wrong_columns = runtime::Bf16LinearWeight{
+      &second_storage, 48U, 5119U};
+  const runtime::LinearWeight null_weight = runtime::Bf16LinearWeight{
+      nullptr, 48U, 5120U};
+  test.expect(!runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first,
+                  wrong_rows) &&
+                  !runtime::supports_bf16_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, first,
+                      wrong_columns) &&
+                  !runtime::supports_bf16_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, first,
+                      null_weight),
+              "pair eligibility rejects near-miss shapes and null payloads");
+
+  std::uint8_t fp8_storage = 0U;
+  float scale = 1.0F;
+  const runtime::LinearWeight fp8 = runtime::Fp8LinearWeight{
+      &fp8_storage, &scale, &scale, 1.0F, 1.0F, 48U, 5120U};
+  test.expect(!runtime::supports_bf16_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first, fp8),
+              "pair eligibility does not fuse a non-BF16 projection");
+}
+
 void test_source_and_tensor_failures(TestContext& test) {
   runtime::WeightBindingSource invalid;
   test.expect(runtime::bind_qwen36_27b_weights(invalid).diagnostic.code ==
@@ -508,6 +549,7 @@ void test_scalar_failures(TestContext& test) {
 int main() {
   TestContext test;
   test_successful_bind(test);
+  test_bf16_projection_pair_eligibility(test);
   test_source_and_tensor_failures(test);
   test_scalar_failures(test);
   if (test.failures() != 0) {
