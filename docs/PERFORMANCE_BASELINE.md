@@ -26,6 +26,8 @@ The bounded C16 runtime and FP8/NVFP4 Tensor Core milestone is recorded in
 [`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 The subsequent exact-shape FP8 K/V decode-pair diagnostic is recorded in
 [`qwen36-27b-fp8-kv-pair-benchmark.json`](metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
+The aligned M1 NVFP4 down-projection dual-iteration diagnostic is recorded in
+[`qwen36-27b-nvfp4-down-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-down-dual-benchmark.json).
 
 ## Method
 
@@ -589,6 +591,64 @@ retained the exact 19 prompt IDs, 26 generated IDs, decoded text,
 `<|im_end|>`, and 44 steps. These unlocked-clock batch-one results are a
 diagnostic for one exact shape and prompt, not a release or serving-throughput
 claim.
+
+## NVFP4 down dual-iteration M1 decode
+
+The long-K NVFP4 MLP down projection is the exact M1 `[5120,17408]` shape.
+For aligned packed weights and BF16 activation, its SM87 row-quad kernel now
+processes two adjacent packed-x8 K iterations per loop trip and broadcasts the
+four rows' raw scale codes from the corresponding lane in each lane pair. The
+kernel uses 64 registers per thread, 1,088 bytes of shared memory, zero local
+memory, 256 threads, and four active blocks per SM. Gate/up, lm-head,
+near-miss shapes, unaligned operands, M2 through M16, and prefill retain their
+previous routes.
+
+The same-binary gate preserves the previous exact row-quad kernel as its
+baseline and runs three baseline/candidate/candidate/baseline rounds. Two
+independent production repeats cleared the required 1.025x gate for both
+fixtures:
+
+| Repeat and distribution | Preserved exact row quad | Dual iteration | Speedup |
+| --- | ---: | ---: | ---: |
+| 1, checkpoint-like | 0.340377 ms | 0.331082 ms | 1.02808x |
+| 1, same-bank stress | 0.344832 ms | 0.332624 ms | 1.03670x |
+| 2, checkpoint-like | 0.341337 ms | 0.332121 ms | 1.02775x |
+| 2, same-bank stress | 0.345657 ms | 0.333736 ms | 1.03572x |
+
+For both finite distributions, the preserved baseline, direct candidate, and
+public production dispatch matched all 5,120 BF16 outputs bit-for-bit and kept
+all output canaries intact. CUDA graph capture produced one kernel node. The
+packed-weight `+1` and activation `+2` cases each matched the direct scalar
+fallback at all 5,120 outputs. A separate fixture placed `0x7f` and `0xff`
+scale NaNs in both dual sub-iterations: all four outputs retained the baseline
+class/sign in direct and public paths, while the remaining 5,116 outputs stayed
+finite and bitwise exact.
+
+The matched max-26-token Nsight reports retain 1,664 down launches in both
+profiles. Their time moved from 586.411200 to 568.161568 ms, saving 18.249632
+ms for a 1.032120497x down-projection speedup. Aggregate CUDA kernel time moved
+from 3,618.054560 to 3,600.652608 ms over the same 23,126 launches, saving
+17.401952 ms (0.480975389%, 1.004832999x). The baseline report is 1,626,708
+bytes with SHA-256
+`58f194d05118d1d0efe5b1fd95e7ea3960251339a67e2fb700a6389a1707e6c8`;
+the candidate is 1,624,642 bytes with SHA-256
+`9c5cbe1f082864516726220f8f692bacce6e4a308cf5a1da862bee710824bd95`.
+The reports are local evidence and are not checked in.
+
+The mirrored single-load baseline/candidate/candidate/baseline benchmark gave:
+
+| Average of two process medians | Baseline | Dual iteration | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,619.0065 ms | 3,603.5495 ms | 15.457 ms (0.427106169%) |
+| Time to first token | 575.5240 ms | 574.9025 ms | 0.6215 ms (0.107988546%) |
+| Subsequent token | 121.7455 ms | 121.1505 ms | 0.595 ms (0.488724429%) |
+
+Every run retained the exact 19 prompt IDs, 26 generated IDs, decoded text,
+`<|im_end|>`, and 44 runner steps. Release validation passed 52 tests with four
+skips; ASAN/UBSAN with `detect_leaks=0`, excluding `package_consumer`, passed
+51 tests with four skips. Clocks were unlocked. These measurements are
+diagnostic evidence for one aligned M1 shape, not a release, randomized, or
+serving-throughput claim.
 
 ## Correctness gate
 

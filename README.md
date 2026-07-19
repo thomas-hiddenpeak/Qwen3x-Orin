@@ -149,7 +149,10 @@ The correctness reference remains the default. On an SM87 device, select the
 validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 `--projection-backend sm87`. Aligned canonical NVFP4 projections whose K is a
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
-checked scalar fallback. Canonical FP8 projections whose K is a multiple of
+checked scalar fallback. Within M=1, only aligned exact NVFP4
+`[5120,17408]` uses the dual-iteration down kernel; gate/up, lm-head,
+near-miss shapes, unaligned operands, M2 through M16, and prefill retain their
+previous routes. Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
 the exact NVFP4 `[17408,5120]` and `[5120,17408]` production projections use
@@ -228,6 +231,14 @@ subsequent-token median by 0.219%, while every run retained the exact 26-token
 oracle. This measurement was also taken with unlocked clocks and is not a
 release claim; see the
 [FP8 K/V projection-pair record](docs/metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
+The subsequent aligned M1 NVFP4 `[5120,17408]` down-projection diagnostic
+measured 1.02808x/1.02775x checkpoint-like and 1.03670x/1.03572x same-bank
+speedups in two repeated same-binary gates. Its matched max-26 profile reduced
+that down work from 586.411200 to 568.161568 ms and the mirrored single-load
+benchmark reduced average total generation by 15.457 ms (0.427106169%) and
+subsequent-token latency by 0.595 ms (0.488724429%). These unlocked-clock
+measurements are diagnostic, not a release claim; see the
+[NVFP4 down dual-iteration record](docs/metadata/qwen36-27b-nvfp4-down-dual-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the
