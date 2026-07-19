@@ -305,6 +305,130 @@ void test_routes(TestContext& test) {
               "SM87 NVFP4 route validates its active variant");
 }
 
+void test_bf16_direct_production_dispatch(TestContext& test) {
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kTokens = 2U;
+  constexpr std::uint16_t kBf16One = 0x3f80U;
+  constexpr std::uint16_t kExpected = 0x45a0U;
+
+  DeviceBuffer<std::uint16_t> weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> output;
+  bool ready = weights.allocate(test, kRows * kColumns,
+                                "direct BF16 dispatch weights");
+  ready = ready && activation.allocate(
+                       test, kTokens * kColumns,
+                       "direct BF16 dispatch activations");
+  ready = ready && scratch.allocate(test, kRows,
+                                    "direct BF16 dispatch scratch");
+  ready = ready && output.allocate(test, kTokens * kRows,
+                                   "direct BF16 dispatch output");
+  if (!ready) {
+    return;
+  }
+  ready = upload(test, weights,
+                 std::vector<std::uint16_t>(kRows * kColumns, kBf16One),
+                 "direct BF16 dispatch weights");
+  ready = ready && upload(
+                       test, activation,
+                       std::vector<std::uint16_t>(kTokens * kColumns,
+                                                  kBf16One),
+                       "direct BF16 dispatch activations");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight production = runtime::Bf16LinearWeight{
+      weights.get(), kRows, kColumns};
+  test.expect(static_cast<cudaError_t>(runtime::launch_projection_to_bf16_cuda(
+                  runtime::ProjectionBackend::kSm87WeightOnly, production,
+                  activation.get(), nullptr, 0U, output.get())) == cudaSuccess,
+              "exact SM87 BF16 production shape accepts null scratch");
+  (void)expect_output(test, output, kExpected,
+                      "exact SM87 BF16 direct dispatch");
+
+  std::size_t direct_total_nodes = 0U;
+  const std::size_t direct_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, production,
+            activation.get(), nullptr, 0U, output.get(),
+            static_cast<void*>(stream));
+      },
+      "exact SM87 BF16 direct dispatch graph", &direct_total_nodes);
+  test.expect(direct_total_nodes == 1U && direct_kernel_nodes == 1U,
+              "exact SM87 BF16 production shape dispatches one kernel");
+
+  test.expect(static_cast<cudaError_t>(runtime::launch_projection_to_bf16_cuda(
+                  runtime::ProjectionBackend::kReference, production,
+                  activation.get(), nullptr, 0U, output.get())) ==
+                  cudaErrorInvalidValue,
+              "reference BF16 production shape still requires scratch");
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, production,
+            activation.get(), scratch.get(), kRows, output.get(),
+            static_cast<void*>(stream));
+      },
+      "reference BF16 production dispatch graph", &reference_total_nodes);
+  test.expect(reference_total_nodes == 2U && reference_kernel_nodes == 2U,
+              "reference BF16 production shape preserves GEMV plus convert");
+
+  const auto check_near_miss = [&](const std::size_t rows,
+                                   const std::size_t columns,
+                                   const std::string& label) {
+    const runtime::LinearWeight near_miss = runtime::Bf16LinearWeight{
+        weights.get(), rows, columns};
+    test.expect(static_cast<cudaError_t>(
+                    runtime::launch_projection_to_bf16_cuda(
+                        runtime::ProjectionBackend::kSm87WeightOnly,
+                        near_miss, activation.get(), nullptr, 0U,
+                        output.get())) == cudaErrorInvalidValue,
+                label + " requires fallback scratch");
+    std::size_t total_nodes = 0U;
+    const std::size_t kernel_nodes = captured_kernel_node_count(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return runtime::launch_projection_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, near_miss,
+              activation.get(), scratch.get(), kRows, output.get(),
+              static_cast<void*>(stream));
+        },
+        label + " graph", &total_nodes);
+    test.expect(total_nodes == 2U && kernel_nodes == 2U,
+                label + " preserves GEMV plus convert fallback");
+  };
+  check_near_miss(kRows - 1U, kColumns,
+                  "SM87 BF16 near-miss 47x5120");
+  check_near_miss(kRows, kColumns - 1U,
+                  "SM87 BF16 near-miss 48x5119");
+
+  test.expect(static_cast<cudaError_t>(
+                  runtime::launch_projection_tile_to_bf16_cuda(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      production, activation.get(), kTokens, nullptr, 0U,
+                      output.get())) == cudaErrorInvalidValue,
+              "BF16 production prefill remains scratch-backed");
+  std::size_t prefill_total_nodes = 0U;
+  const std::size_t prefill_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, production,
+            activation.get(), kTokens, scratch.get(), kRows, output.get(),
+            static_cast<void*>(stream));
+      },
+      "SM87 BF16 production prefill M2 graph", &prefill_total_nodes);
+  test.expect(prefill_total_nodes == 4U && prefill_kernel_nodes == 4U,
+              "BF16 production prefill M2 remains two reference pairs");
+}
+
 void test_tile_routes(TestContext& test) {
   constexpr std::size_t kRows = 2U;
   constexpr std::size_t kFp8Columns = 1024U;
@@ -1410,6 +1534,7 @@ int main() {
 
   TestContext test;
   test_routes(test);
+  test_bf16_direct_production_dispatch(test);
   test_tile_routes(test);
   test_bf16_projection_pair_dispatch(test);
   test_fp8_m16_production_dispatch(test);

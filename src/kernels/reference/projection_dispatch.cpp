@@ -19,6 +19,8 @@ namespace q3x::runtime {
 namespace {
 
 constexpr std::size_t kMaximumSm87SmallMTokens = 8U;
+constexpr std::size_t kSm87DirectBf16Rows = 48U;
+constexpr std::size_t kSm87DirectBf16Columns = 5120U;
 
 [[nodiscard]] bool valid_scale(const float value) noexcept {
   return std::isfinite(value) && value >= 0.0F;
@@ -390,11 +392,20 @@ int launch_projection_to_bf16_cuda(
   }
 
   switch (weight.index()) {
-    case 0U:
-      // The optimized policy is weight-only. Preserve the BF16 reference
-      // contract rather than silently changing its accumulation behavior.
+    case 0U: {
+      const auto* const selected = std::get_if<Bf16LinearWeight>(&weight);
+      if (selected != nullptr &&
+          selected->output_size == kSm87DirectBf16Rows &&
+          selected->input_size == kSm87DirectBf16Columns) {
+        return kernels::launch_bf16_gemv_bf16_cuda(
+            selected->weight, input, selected->output_size,
+            selected->input_size, output, cuda_stream);
+      }
+      // Preserve the FP32-scratch reference path for every BF16 shape that
+      // is not the production single-token linear-attention projection.
       return launch_projection_to_bf16_reference_cuda(
           weight, input, fp32_scratch, scratch_elements, output, cuda_stream);
+    }
     case 1U: {
       const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
       if (selected == nullptr || selected->output_size == 0U ||
@@ -510,9 +521,18 @@ int launch_projection_tile_to_bf16_cuda(
   }
 
   for (std::size_t token = 0U; token < token_count; ++token) {
-    const int status = launch_projection_to_bf16_cuda(
-        backend, weight, input + token * spans.columns, fp32_scratch,
-        scratch_elements, output + token * spans.rows, cuda_stream);
+    // Keep the existing multi-token BF16 fallback contract. The dedicated
+    // direct-output BF16 route is intentionally limited to the M=1 entry
+    // point above; eligible projection pairs use their separate fused path.
+    const int status =
+        backend == ProjectionBackend::kSm87WeightOnly && weight.index() == 0U
+            ? launch_projection_to_bf16_reference_cuda(
+                  weight, input + token * spans.columns, fp32_scratch,
+                  scratch_elements, output + token * spans.rows, cuda_stream)
+            : launch_projection_to_bf16_cuda(
+                  backend, weight, input + token * spans.columns,
+                  fp32_scratch, scratch_elements,
+                  output + token * spans.rows, cuda_stream);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }

@@ -66,6 +66,17 @@ enum class GemvStatus : std::uint8_t {
     std::size_t rows, std::size_t columns, float* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Single-token BF16 projection with direct BF16 output. This preserves the
+// FP32 FMA and shared-memory reduction order of
+// launch_bf16_gemv_reference_cuda, then rounds the completed row result to
+// BF16 RNE. Empty shapes are successful no-ops and may use null pointers. For
+// a non-empty shape, output must be disjoint from both read-only input ranges;
+// weights and activation may alias one another.
+[[nodiscard]] int launch_bf16_gemv_bf16_cuda(
+    const std::uint16_t* weights, const std::uint16_t* activation,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Fused pair of BF16 projection tiles. Both weights are row-major
 // [rows, columns], input is token-major [token_count, columns], and each
 // output is token-major [token_count, rows]. token_count must be in [1, 16].

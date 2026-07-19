@@ -282,11 +282,12 @@ struct WeightBindResult {
     float* fp32_scratch, std::size_t scratch_elements,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
-// Allocation-free production dispatcher. kReference preserves the two-stage
-// FP32-scratch reference path. kSm87WeightOnly writes FP8/NVFP4 projections
-// directly to BF16 and falls back to that reference path for BF16 weights.
-// Consequently fp32_scratch may be null for an SM87 FP8/NVFP4 launch, but it
-// must satisfy the reference contract for kReference and the BF16 fallback.
+// Allocation-free single-token production dispatcher. kReference preserves
+// the two-stage FP32-scratch reference path. kSm87WeightOnly writes FP8/NVFP4
+// projections directly to BF16 and also directly handles the exact BF16
+// [output_size=48, input_size=5120] linear-attention shape. Consequently
+// fp32_scratch may be null for those SM87 direct-output launches, but it must
+// satisfy the reference contract for kReference and every other BF16 shape.
 // Unknown backends or invalid/unknown LinearWeight alternatives fail closed
 // with cudaErrorInvalidValue represented as int.
 [[nodiscard]] int launch_projection_to_bf16_cuda(
@@ -301,9 +302,10 @@ struct WeightBindResult {
 // token_count must be in [1, 16]. M=1 delegates to the single-token entry
 // point above. SM87 FP8 and NVFP4 use their fixed-M16 launchers for an exact
 // 16-token tile; M=2..15 use fused launches of at most eight tokens each. The
-// reference backend and BF16 weights enqueue the existing single-token path
-// in token order while reusing the same output-sized FP32 scratch buffer. The
-// complete tile is validated before any work is enqueued.
+// reference backend and BF16 weights enqueue the existing FP32-scratch
+// reference path in token order while reusing the same output-sized buffer;
+// only M=1 may select the exact-shape BF16 direct-output route described
+// above. The complete tile is validated before any work is enqueued.
 [[nodiscard]] int launch_projection_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::size_t token_count,

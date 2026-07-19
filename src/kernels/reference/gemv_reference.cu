@@ -172,6 +172,38 @@ __global__ void gemv_kernel(const WeightAccessor weights,
   }
 }
 
+__global__ void bf16_gemv_bf16_kernel(
+    const Bf16WeightAccessor weights,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const output) {
+  __shared__ float partial[kThreads];
+
+  for (std::size_t row = static_cast<std::size_t>(blockIdx.x); row < rows;
+       row += static_cast<std::size_t>(gridDim.x)) {
+    float sum = 0.0F;
+    for (std::size_t column = threadIdx.x; column < columns;
+         column += blockDim.x) {
+      sum = fmaf(weights.at(row, column), decode_bf16_device(activation[column]),
+                 sum);
+    }
+    partial[threadIdx.x] = sum;
+    __syncthreads();
+
+    for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+      if (threadIdx.x < stride) {
+        partial[threadIdx.x] += partial[threadIdx.x + stride];
+      }
+      __syncthreads();
+    }
+    if (threadIdx.x == 0U) {
+      output[row] = encode_bf16_device(partial[0]);
+    }
+    __syncthreads();
+  }
+}
+
 __global__ void bf16_gemv_pair_tile_bf16_kernel(
     const std::uint16_t* const first_weights,
     const std::uint16_t* const second_weights,
@@ -303,6 +335,52 @@ int launch_bf16_gemv_reference_cuda(
   }
   return launch_gemv(Bf16WeightAccessor{weights, columns}, activation, rows,
                      columns, output, cuda_stream);
+}
+
+int launch_bf16_gemv_bf16_cuda(
+    const std::uint16_t* const weights,
+    const std::uint16_t* const activation,
+    const std::size_t rows,
+    const std::size_t columns,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (element_count_overflows(rows, columns)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  if (is_empty(rows, columns)) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (weights == nullptr || activation == nullptr || output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t weight_elements = rows * columns;
+  if (multiply_overflows(weight_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(columns, sizeof(std::uint16_t)) ||
+      multiply_overflows(rows, sizeof(std::uint16_t))) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::size_t weight_bytes =
+      weight_elements * sizeof(std::uint16_t);
+  const std::size_t activation_bytes = columns * sizeof(std::uint16_t);
+  const std::size_t output_bytes = rows * sizeof(std::uint16_t);
+  if (byte_range_overflows(weights, weight_bytes) ||
+      byte_range_overflows(activation, activation_bytes) ||
+      byte_range_overflows(output, output_bytes) ||
+      ranges_overlap(output, output_bytes, weights, weight_bytes) ||
+      ranges_overlap(output, output_bytes, activation, activation_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const std::size_t wanted_blocks =
+      rows < kMaximumBlocks ? rows : kMaximumBlocks;
+  const auto blocks = static_cast<unsigned int>(wanted_blocks);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_gemv_bf16_kernel<<<blocks, kThreads, 0U, stream>>>(
+      Bf16WeightAccessor{weights, columns}, activation, rows, columns,
+      output);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int launch_bf16_gemv_pair_tile_bf16_cuda(
