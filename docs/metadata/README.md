@@ -143,6 +143,15 @@ The diagnostic Phase 3 records are:
   B-C-C-B and 5,905-line full-trace equality, C1/C8/C16 exact-model gates,
   release/sanitizer suites, and diagnostic limitations. Five earlier probes
   remain explicitly excluded as pre-production prototype inventory.
+- [`qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json`](qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json),
+  which records the exact shared-prefix/warp-zero reduction tail inside that
+  production fused GDN kernel, the test-only full shared-tree predecessor,
+  identical launch/resource and three-step bitwise contracts, the 28-to-24
+  SASS `BAR` reduction, five hardened cold-state same-binary gates, the
+  directly attributed max-26 target-kernel delta, exact model/trace suites,
+  and the absence of an attributable detached-process end-to-end gain. Early
+  prototypes and the test-only launcher are explicitly excluded from the
+  production claim.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

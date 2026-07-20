@@ -60,6 +60,9 @@ diagnostic is recorded in
 The subsequent canonical M1 GDN/plain-RMSNorm/SiLU-gate fusion diagnostic is
 recorded in
 [`qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json`](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
+The reduction-only warp-tail follow-up inside that fused GDN kernel is recorded
+in
+[`qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json`](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json).
 
 ## Method
 
@@ -1768,6 +1771,102 @@ claims. Exact paths, byte counts, SHA-256 identities, and calculation details
 are in the
 [GDN fusion metadata record](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
 
+## Fused GDN RMSNorm warp-tail reduction
+
+Commit `c4625b6bf8c31d9b23de030e4bfff04aa5cc3035` follows base
+`21bb8ac47c4d2c68ca2ebd07a8a7b0c47a7865ad` by changing only the exact
+256-thread RMS reduction inside the canonical M1 fused GDN/plain-RMSNorm/
+SiLU-gate kernel. Production retains the shared-memory 128/64/32 pairings,
+then warp zero performs the same 16/8/4/2/1 pairings with shuffle-down. Lane
+zero publishes the sum to shared element zero before one final block barrier.
+The complete shared-memory tree is preserved behind a test-local entry point;
+it is neither a public route nor part of the production claim.
+
+Both variants launch 48 CTAs by 256 threads with zero dynamic-shared bytes,
+use 40 registers per thread, 34,568 static-shared bytes and zero local bytes,
+and permit four active blocks per SM. CUDA graph capture confirms the public
+and detail exact routes use the same production function and launch parameters,
+while the test-only shared-tree function is distinct but has the same topology.
+A three-step direct test compares all 786,432 BF16 state elements and all 6,144
+BF16 output elements bitwise after every step. Disassembly counts 28 `BAR`
+instructions in the full-tree instantiation and 24 in production, matching the
+four removed reduction barriers.
+
+The final same-binary gate rotates 24 independent 1.5 MiB states per variant,
+or 36 MiB per bank against the 4 MiB device L2. Every timed pass resets the
+bank, runs 48 warmup and 480 measured logical chains, and each process repeats
+five symmetric B-C-C-B rounds. The reported process statistic divides the
+median of ten shared-tree pass means by the median of ten production pass
+means. The complete state bank and final output are compared bitwise after
+timing. All five independent processes clear the frozen 1.005x threshold:
+
+| Independent process | Test-only shared tree | Production warp tail | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.0320791 ms | 0.0317545 ms | 1.01022x |
+| 2 | 0.0320421 ms | 0.0317470 ms | 1.00930x |
+| 3 | 0.0320664 ms | 0.0317624 ms | 1.00957x |
+| 4 | 0.0320384 ms | 0.0317359 ms | 1.00953x |
+| 5 | 0.0320527 ms | 0.0317946 ms | 1.00812x |
+
+The shared-tree and warp-tail means are 0.032055740 and 0.031758880 ms,
+a 0.296860 us saving and 1.009347307x ratio of means. The speedup
+min/median/arithmetic-mean/max is
+1.00812x/1.00953x/1.009348x/1.01022x. A separate regression run still measures
+the ordered GDN-plus-norm/gate chain at 0.0357226 ms and the production fused
+kernel at 0.0317504 ms, or 1.12511x; its full state/output bitwise and resource
+gates pass.
+
+Matched max-26 Nsight profiles retain the same launch count and isolate the
+reduction change within the production fused kernel:
+
+| Profile group | Fused shared-tree base | Warp-tail candidate | Change |
+| --- | ---: | ---: | ---: |
+| Decode fused GDN target | 1,248 / 40.273216 ms | 1,248 / 39.977728 ms | -0.295488 ms (0.733708%, 1.007391315x) |
+| All CUDA kernels | 13,558 / 3,345.617760 ms | 13,558 / 3,338.262016 ms | -7.355744 ms (0.219862%, 1.002203465x) |
+| Profiled generation | 3,373.952 ms | 3,367.721 ms | -6.231 ms (0.184680%, 1.001850213x) |
+
+Only the decode-target row is directly attributed to this change. Other
+kernels account for 7.060256 ms of the all-kernel movement, so the all-kernel
+and generation rows remain diagnostic rather than attributable results. Both
+profiles preserve the exact 19 prompt IDs, 26 generated IDs, decoded text,
+`<|im_end|>` stop, and all 44 runner steps.
+
+The detached-base B-C-C-B comparison loads one engine per process, warms once,
+and measures five max-26 generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,338.588 ms | 553.915 ms | 111.392 ms |
+| Candidate 1 | 3,338.842 ms | 553.905 ms | 111.390 ms |
+| Candidate 2 | 3,340.697 ms | 553.697 ms | 111.478 ms |
+| Base 2 | 3,339.659 ms | 553.920 ms | 111.428 ms |
+
+| Average of two process medians | Fused shared-tree base | Warp-tail candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,339.1235 ms | 3,339.7695 ms | -0.6460 ms (-0.019346%, 0.999806573x) |
+| Time to first token | 553.9175 ms | 553.8010 ms | 0.1165 ms (0.021032%, 1.000210364x) |
+| Subsequent token | 111.4100 ms | 111.4340 ms | -0.0240 ms (-0.021542%, 0.999784626x) |
+
+The mixed sub-millisecond movements include a 0.646 ms total-generation
+regression and therefore establish no end-to-end gain; they are reported as
+unlocked-clock noise. All four processes still preserve the exact generation
+contract. Dedicated C1, C8 and C16 oracle runs pass. An independent trace
+comparison emits 5,905 canonical lines per binary; both streams hash to
+`8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789`
+and have an empty diff. The synchronized main Release suite reports zero
+failures across 52 discovered tests with four skips. ASan/UBSan reports zero
+failures across 51 discovered tests with four skips and `package_consumer`
+excluded; leak detection remains disabled for the CUDA driver environment.
+
+Clocks remained unlocked. The hardened same-binary gate, matched profiles,
+two-process-per-policy end-to-end comparison and single-prompt exact gates are
+separate batch-one diagnostics, not randomized-clock, continuous-batching,
+concurrent-request, release or serving-throughput claims. Early exploratory
+prototype timings and the test-only shared-tree implementation are explicitly
+excluded from production acceptance. Exact paths, byte counts, SHA-256
+identities and calculation details are in the
+[GDN warp-tail metadata record](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json).
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1845,9 +1944,12 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 15. fuse the canonical M1 GDN update with its 48x128 headwise plain-RMSNorm
     and SiLU gate in one 48-CTA kernel, retaining the ordered two-launch path
     for other valid norm partitions and multi-token prefill;
-16. retain exact-token, numerical, replay, and memory gates for every dispatch
+16. retain shared-memory strides 128/64/32 but finish the fused GDN kernel's
+    exact RMS reduction with warp-zero shuffle-down strides 16/8/4/2/1,
+    retaining the full shared tree as a test-only same-binary predecessor;
+17. retain exact-token, numerical, replay, and memory gates for every dispatch
     change;
-17. lock clocks when privileged access is available before making a formal
+18. lock clocks when privileged access is available before making a formal
     release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

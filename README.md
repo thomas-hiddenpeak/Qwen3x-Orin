@@ -229,6 +229,11 @@ canonical route, ordered fallbacks, aliases, in-place and disjoint state, and
 pre-enqueue failures. Five early same-binary probes remain catalogued as
 excluded prototype inventory; the hardened production microbenchmark and
 separate exact-model, full-trace, end-to-end, and Nsight diagnostics are final.
+Production now also finishes that fused kernel's RMS sum with the exact
+warp-zero shuffle-down tail after shared strides 128/64/32. The test-only full
+shared tree remains available for direct same-binary comparison. Both use the
+same 40-register/34,568-byte-shared launch resources, while SASS `BAR` count
+drops from 28 to 24.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -438,6 +443,18 @@ discovered tests and ASan/UBSan reports zero across 51; both retain four
 model-dependent skips. Clocks remained unlocked, so these remain diagnostic
 rather than release or serving-throughput claims; see the
 [GDN/plain-RMSNorm/SiLU-gate fusion record](docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
+The reduction-only follow-up inside that fused GDN kernel preserves exact
+floating-point pairings while replacing the shared 16/8/4/2/1 tail with warp
+shuffle-down. Five final 36 MiB cold-state same-binary processes measure
+1.00812x to 1.01022x against the test-only full shared tree; all compare the
+complete state bank and output bitwise after timing. The matched max-26 profile
+reduces the unchanged 1,248-launch target from 40.273216 to 39.977728 ms
+(1.007391315x). C1/C8/C16 and all 5,905 trace lines remain exact, while the
+detached B-C-C-B result is honestly recorded as no end-to-end gain because
+average total generation regresses by 0.646 ms. Release and sanitizer suites
+remain failure-free with four model-dependent skips. Clocks were unlocked and
+the shared-tree launcher is excluded from production; see the
+[GDN RMSNorm warp-tail record](docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the
