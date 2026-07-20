@@ -217,6 +217,18 @@ raw output in the now-dead up workspace for trace capture, the residual in
 `hidden[0]`, and the normalized next-layer input in `hidden[1]`. Near-miss or
 unaligned operands, C2 through C16 prefill, other weight types, and the
 reference backend retain the fully prevalidated down-then-residual/norm chain.
+The canonical M1 linear-attention GDN update and its following 48-head by
+128-wide plain-RMSNorm/SiLU-gate boundary can also use one 48-CTA launch. Each
+CTA owns one complete value head, publishes the raw GDN result to BF16, and
+reads that exact rounded boundary back after a block barrier before the norm
+and gate overwrite; the kernel needs neither a cooperative launch nor a grid
+barrier. Other valid norm partitions and multi-token prefill retain the
+prevalidated two-launch path. The final 40-register, 34,568-byte-shared kernel
+permits four active blocks per SM; graph and bitwise gates cover its one-node
+canonical route, ordered fallbacks, aliases, in-place and disjoint state, and
+pre-enqueue failures. Five early same-binary probes remain catalogued as
+excluded prototype inventory; the hardened production microbenchmark and
+separate exact-model, full-trace, end-to-end, and Nsight diagnostics are final.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -410,6 +422,22 @@ the full 5,902-line contract across all 44 steps, and C1, C8, and C16 preserve
 the exact oracle. Clocks remained unlocked, and the zero-margin cooperative
 capacity makes this evidence specific to the tested Jetson AGX Orin; see the
 [NVFP4 down/residual/norm fusion record](docs/metadata/qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json).
+The subsequent canonical M1 GDN boundary fusion combines the production
+eight-row update with its 48x128 headwise plain-RMSNorm/SiLU gate. Five
+hardened same-binary B-C-C-B processes rotate 36 MiB of state per variant,
+compare the complete bank bitwise after timing, and measure 1.11078x to
+1.11610x against the ordered two-launch chain. The matched max-26 profile
+replaces 2,496 decode target launches taking 44.600480 ms with 1,248 fused
+launches taking 40.273216 ms, a directly attributed 4.327264 ms saving. A
+detached-base B-C-C-B diagnostic reduces average total generation from
+3,345.1885 to 3,339.2345 ms (0.177987%) and subsequent-token latency from
+111.6535 to 111.4235 ms (0.205994%). C1, C8, and C16 preserve the exact
+19/26-token oracle, and the independent base/candidate trace comparison
+matches all 5,905 canonical lines. Release reports zero failures across 52
+discovered tests and ASan/UBSan reports zero across 51; both retain four
+model-dependent skips. Clocks remained unlocked, so these remain diagnostic
+rather than release or serving-throughput claims; see the
+[GDN/plain-RMSNorm/SiLU-gate fusion record](docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

@@ -57,6 +57,9 @@ in
 The subsequent exact NVFP4 M1 down/residual/centered-RMSNorm cooperative fusion
 diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json).
+The subsequent canonical M1 GDN/plain-RMSNorm/SiLU-gate fusion diagnostic is
+recorded in
+[`qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json`](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
 
 ## Method
 
@@ -1662,6 +1665,109 @@ The synthetic microbenchmark, independent profiles, detached-base B-C-C-B,
 and trace comparison remain distinct batch-one local-artifact diagnostics,
 not randomized, release, concurrent-request, or serving-throughput claims.
 
+## GDN/plain-RMSNorm/SiLU-gate one-kernel fusion
+
+Commit `71be7d3ec6a3d9a48510b4c66b01846fde757a16` extends the canonical
+single-token eight-row lane-striped GDN update from base
+`3175e9d66fc12e15c743df1c8081df76f8b4daa9` across its following headwise
+plain-RMSNorm and SiLU-gate boundary. One CTA owns each of the 48 value heads,
+so the exact 48x128 route needs only a block barrier: the GDN phase publishes
+its raw result to global BF16, the same CTA reads that rounded boundary back,
+performs the existing 256-thread RMS reduction, applies the shared plain norm
+weight and elementwise SiLU gate, and overwrites the output in BF16. The launch
+is 48 CTAs by 256 threads and needs neither a cooperative launch nor grid
+synchronization.
+
+The final kernel uses 40 registers per thread, 34,568 static-shared bytes,
+zero local bytes, supports 1,024 threads per block, and permits four active
+blocks per SM. All 48 CTAs therefore fit one resident wave across the tested
+16-SM Orin. The composite supports exact in-place state or disjoint
+state-input/state-output buffers, rejects partial state overlap, and validates
+all pointers, dimensions, epsilons, byte-range overflows, alignments, writable
+spans, aliases, and fallback requirements before enqueue. Canonical M1 48x128
+captures one kernel node; a valid 24x256 partition and the explicit ordered
+reference capture two; invalid calls capture zero. Multi-token prefill remains
+on the ordered path.
+
+The production same-binary gate rotates 24 independent 1.5 MiB persistent
+states per variant, or 36 MiB per bank versus the device's 4 MiB L2. It resets
+each bank before a timed pass, runs 48 warmup and 480 measured logical chains,
+and repeats five B-C-C-B rounds per process. Each row is the ratio of the
+medians of ten ordered and ten fused pass means. After timing, the complete
+state bank and final output are compared bitwise. All five runs cleared the
+frozen 1.005x threshold:
+
+| Independent process | Ordered GDN + norm/gate | One fused kernel | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.0356057 ms | 0.0320374 ms | 1.11138x |
+| 2 | 0.0356020 ms | 0.0320513 ms | 1.11078x |
+| 3 | 0.0357769 ms | 0.0320749 ms | 1.11542x |
+| 4 | 0.0356452 ms | 0.0320201 ms | 1.11321x |
+| 5 | 0.0357787 ms | 0.0320570 ms | 1.11610x |
+
+The ordered and fused means are 0.035681700 and 0.032048140 ms, a
+3.633560 us saving and 1.113378187x ratio of means. Speedup
+min/median/mean/max is 1.11078x/1.11321x/1.113378x/1.11610x. Every run also
+passed the post-timing bitwise and resource gates. The measured test binary is
+776,120 bytes with SHA-256
+`d5ad8847800ccb45637d5cdb429b8a2db9bfacd29594bbff8fb571665954da4a`.
+The earlier fixed-order, single-state prototype probes remain catalogued in
+metadata but are explicitly excluded from production acceptance.
+
+Matched max-26 Nsight profiles compare the immediately preceding post-attention
+binary with the candidate under the same exact generation contract:
+
+| Profile group | Detached base | Candidate | Change |
+| --- | ---: | ---: | ---: |
+| Decode GDN + standalone norm/gate | 2,496 / 44.600480 ms | 1,248 / 40.273216 ms | -1,248 / -4.327264 ms (9.702281%, 1.107447689x) |
+| Prefill GDN + norm/gate | 192 / 22.383360 ms | 192 / 22.386752 ms | +0.003392 ms |
+| All CUDA kernels | 14,806 / 3,357.897920 ms | 13,558 / 3,345.617760 ms | -1,248 / -12.280160 ms (0.365710%, 1.003670521x) |
+| Profiled generation | 3,390.068 ms | 3,373.952 ms | -16.116 ms (0.475389%, 1.004776594x) |
+
+The decode target row is the isolated fusion attribution: its base side is
+1,248 GDN launches taking 39.241600 ms plus 1,248 norm/gate launches taking
+5.358880 ms. Unrelated kernels independently move by -7.956288 ms, so neither
+the all-kernel nor generation delta is attributed wholly to this fusion. Both
+profiles preserve the exact 19 prompt IDs, 26 generated IDs, decoded text,
+`<|im_end|>` stop, and 44 runner steps.
+
+The detached-base B-C-C-B comparison loads one engine per process, warms once,
+and measures five max-26 generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,346.852 ms | 554.031 ms | 111.715 ms |
+| Candidate 1 | 3,337.188 ms | 553.630 ms | 111.353 ms |
+| Candidate 2 | 3,341.281 ms | 554.053 ms | 111.494 ms |
+| Base 2 | 3,343.525 ms | 553.961 ms | 111.592 ms |
+
+| Average of two process medians | Detached base | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,345.1885 ms | 3,339.2345 ms | 5.9540 ms (0.177987%, 1.001783043x) |
+| Time to first token | 553.9960 ms | 553.8415 ms | 0.1545 ms (0.027888%, 1.000278961x) |
+| Subsequent token | 111.6535 ms | 111.4235 ms | 0.2300 ms (0.205994%, 1.002064197x) |
+
+All four processes preserve the exact generation contract and share canonical
+contract SHA-256
+`db918ca4ff54455c4b035d4ae851d38a02b97df9a3088414de1d354366c9585a`.
+Dedicated C1, C8, and C16 oracle runs also pass. An independent base/candidate
+trace comparison requests C16, follows the intentional effective-C1 trace
+order, and produces 5,905 canonical prompt/generated/boundary lines per log;
+both streams hash to
+`8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789`
+with an empty diff. Release reports zero failures across 52 discovered tests
+with four skips; ASan/UBSan reports zero failures across 51 discovered tests
+with four skips and
+`package_consumer` excluded.
+
+Clocks remained unlocked. The hardened microbenchmark, matched profiles,
+two-process-per-policy end-to-end comparison, and single-prompt exact gates
+remain separate batch-one diagnostics rather than randomized-clock,
+continuous-batching, concurrent-request, release, or serving-throughput
+claims. Exact paths, byte counts, SHA-256 identities, and calculation details
+are in the
+[GDN fusion metadata record](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json).
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1736,9 +1842,12 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 14. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
     retaining the four-row lane-striped predecessor as a same-binary test
     baseline;
-15. retain exact-token, numerical, replay, and memory gates for every dispatch
+15. fuse the canonical M1 GDN update with its 48x128 headwise plain-RMSNorm
+    and SiLU gate in one 48-CTA kernel, retaining the ordered two-launch path
+    for other valid norm partitions and multi-token prefill;
+16. retain exact-token, numerical, replay, and memory gates for every dispatch
     change;
-16. lock clocks when privileged access is available before making a formal
+17. lock clocks when privileged access is available before making a formal
     release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

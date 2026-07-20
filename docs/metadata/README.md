@@ -136,6 +136,13 @@ The diagnostic Phase 3 records are:
   gates, finite and signed-nonfinite bitwise contracts, zero-node validation,
   matched profiles, detached-base B-C-C-B and full-trace equality, exact model
   gates, the zero-residency-margin AGX Orin constraint, and diagnostic limits.
+- [`qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json`](qwen36-27b-gdn-rmsnorm-silu-gate-fusion-benchmark.json),
+  which records the canonical M1 GDN plus 48x128 headwise plain-RMSNorm/SiLU
+  gate implementation, its one-node/fallback/alias/resource contracts, the
+  hardened 24-state same-binary gate, matched max-26 profiles, detached-base
+  B-C-C-B and 5,905-line full-trace equality, C1/C8/C16 exact-model gates,
+  release/sanitizer suites, and diagnostic limitations. Five earlier probes
+  remain explicitly excluded as pre-production prototype inventory.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
