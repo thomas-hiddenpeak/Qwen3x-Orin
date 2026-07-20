@@ -90,6 +90,12 @@ The diagnostic Phase 3 records are:
   identity gates, same-binary performance and bitwise gates, an independently
   rebuilt-base B-C-C-B generation benchmark, matched max-26-token profiles,
   exact replay, and diagnostic limitations.
+- [`qwen36-27b-nvfp4-down-activation-staged-benchmark.json`](qwen36-27b-nvfp4-down-activation-staged-benchmark.json),
+  which records the follow-up aligned M1 `[5120,17408]` down CTA
+  activation-staged route, its preserved direct-XOR baseline and scalar
+  fallbacks, same-binary performance and bitwise gates, a saved-base B-C-C-B
+  generation benchmark, matched max-26-token profiles,
+  exact replay, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

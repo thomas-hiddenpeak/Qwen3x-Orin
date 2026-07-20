@@ -36,6 +36,8 @@ The subsequent down/lm-head data-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-data-reuse-benchmark.json`](metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
 The follow-up gate/up activation-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
+The follow-up down activation-reuse diagnostic is recorded in
+[`qwen36-27b-nvfp4-down-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
 
 ## Method
 
@@ -932,6 +934,49 @@ and scalar-function identity recommendations were added before commit. Clocks
 were unlocked. These results remain single-prompt diagnostic evidence, not a
 randomized, release, or serving-throughput claim.
 
+## NVFP4 down activation-reuse follow-up
+
+The follow-up worktree based on `b7418c1bb2d40f0bff408bf7ae4d4719a7585490`
+moves exact aligned M1 `[5120,17408]` down from direct activation reads to CTA
+activation staging. Each CTA copies the 34-KiB BF16 activation once with
+8-byte global loads and reuses it across its grid-stride row quads. The direct
+XOR kernel remains the same-binary baseline. Candidate resources are
+64 registers, 35,904 static-shared bytes, zero local bytes, 256 threads, and
+four active blocks per SM, versus 64/1,088/0/256/four for the baseline.
+Near-miss shapes, packed-weight or activation misalignment, M2 through M16,
+and prefill retain their preceding routes.
+
+| Distribution | Direct XOR | CTA staged | Speedup |
+| --- | ---: | ---: | ---: |
+| Checkpoint-like | 0.314312 ms | 0.305565 ms | 1.02862x |
+| Same-bank stress | 0.316203 ms | 0.306915 ms | 1.03026x |
+
+Both clear the 1.005x gate with zero BF16 mismatches. Default capture-only
+coverage verifies public/direct staged `func`, grid, block, and dynamic-shared
+launch-field identity; direct XOR remains distinct, while packed-weight `+1`
+and activation `+2` select the scalar function and launch configuration.
+
+| Kernel group | Instances | Base commit | Staged down | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Down projection | 1,664 | 536.467904 ms | 516.386464 ms | 20.081440 ms (3.743270%) |
+| All CUDA kernels | 23,126 | 3,490.693120 ms | 3,471.580320 ms | 19.112800 ms (0.547536%) |
+
+Non-target kernels increased by 0.968640 ms between these separate Nsight
+reports, so only the down row isolates the change. The saved base-commit binary
+and candidate were measured in B-C-C-B process order:
+
+| Average of two process medians | Base commit | Staged down | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,498.3615 ms | 3,478.2960 ms | 20.0655 ms (0.573569%) |
+| Time to first token | 570.8060 ms | 570.0515 ms | 0.7545 ms (0.132182%) |
+| Subsequent token | 117.1025 ms | 116.3305 ms | 0.7720 ms (0.659252%) |
+
+Every run retained the exact 19/26-token text, `<|im_end|>`, and 44-step
+oracle. Release passed 52/52 tests; ASan/UBSan with `detect_leaks=0`, excluding
+`package_consumer`, passed 51/51. Independent review found no blocker, raised
+the initial 1.002 gate to 1.005, and corrected diagnostic wording. Clocks were
+unlocked, so this remains diagnostic rather than a release or serving claim.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -981,9 +1026,9 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
    shape/alignment and for FP8 `[1024,5120]`;
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
-9. use the separately gated adjacent-lane XOR-dual instance for aligned M1 down
-   `[5120,17408]`, and use CTA activation staging for aligned M1 gate/up
-   `[17408,5120]` and lm-head `[248320,5120]`, retaining all other fallbacks;
+9. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
+   `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
+   test baseline and all other fallbacks;
 10. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 11. lock clocks when privileged access is available before making a formal

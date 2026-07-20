@@ -139,8 +139,9 @@ Deliverables:
   for `[17408,5120]` and `[5120,17408]`, with two-M8 fallback elsewhere.
 - [done, exact-shape gated] Fused full-attention FP8 M1 K/V projection for
   paired `[1024,5120]` matrices, with ordered independent fallbacks elsewhere.
-- [done, exact-shape gated] Adjacent-lane XOR-dual NVFP4 M1 down projection
-  for `[5120,17408]`, retaining scalar and near-miss fallbacks.
+- [done, exact-shape gated] CTA activation-staged NVFP4 M1 down projection for
+  `[5120,17408]`, retaining the direct XOR test baseline plus scalar and
+  near-miss fallbacks.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 gate/up projection
   for `[17408,5120]`, preserving the 8-byte activation alignment contract and
   preceding fallbacks elsewhere.
@@ -223,6 +224,14 @@ The independent-base B-C-C-B diagnostic reduces average total generation by
 17.426 ms (0.495685%) and subsequent-token latency by 0.668 ms (0.567253%),
 while retaining the full exact oracle. See the
 [NVFP4 gate/up activation-staging record](metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
+The following down activation-reuse milestone stages its 34-KiB input once per
+CTA. Its same-binary gate clears 1.02862x checkpoint-like and 1.03026x
+same-bank-stress speedups. The matched max-26 profile saves 20.081440 ms across
+1,664 down kernels and 19.112800 ms (0.547536%) across all CUDA kernels. The
+saved-base B-C-C-B diagnostic reduces average total generation by
+20.0655 ms (0.573569%) and subsequent-token latency by 0.7720 ms (0.659252%),
+with the full exact oracle retained. See the
+[NVFP4 down activation-staging record](metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
