@@ -148,6 +148,18 @@ shapes/types, and other backends retain the existing first-then-second path.
 The runner applies the pair only to full-attention K/V on prompt-final and
 decode steps; chunked prefix projection remains unchanged.
 
+`supports_fp8_qkv_z_projection_pair` recognizes the ordered linear-attention
+FP8 `[10240,5120]` QKV plus `[6144,5120]` Z pair under the same explicit
+backend. At aligned M1, one 1,536-CTA two-phase launch first preserves the QKV
+row-quad grid/stride and then lets its first 768 CTAs preserve the Z
+grid/stride. Both phases reuse one decoded E4M3FN codebook and retain the two
+production single-projection BF16 results bit-for-bit. Reversed or near-miss
+shapes, M2..M16, other backends, 4-byte weight misalignment, 8-byte activation
+misalignment, or 2-byte output misalignment retain two ordered projections.
+The scalar runner step, including `prefill_prefix_tile(..., 1)`, uses the pair
+dispatcher; layer-major C2..C16 prefix tiles remain independent QKV and Z
+projections.
+
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
 but their warp reduction and global-scale multiplication order are not
 required to be bitwise identical to the deliberately scalar-shaped CUDA
@@ -192,9 +204,10 @@ the official 20 GB checkpoint.
 production routes at M1 through M16, BF16/reference fallback, M9..M15
 segmentation, M16 Tensor Core selection/two-M8 fallback, scratch behavior,
 whole-tile overlap/span validation, and fail-closed backend and variant
-handling. It also covers exact-shape FP8 M1 pair selection, near-miss and
-unaligned ordered fallbacks, cross-output alias rejection, and stale-error
-isolation. It uses only synthetic buffers.
+handling. It also covers exact-shape FP8 M1 K/V and QKV/Z pair selection,
+near-miss and unaligned ordered fallbacks, different output sizes,
+cross-output alias rejection, fail-before-enqueue behavior, CUDA Graph node
+counts, and stale-error isolation. It uses only synthetic buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
 all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
@@ -212,6 +225,17 @@ finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
 bitwise comparison, and output canaries. Its optional mirrored timing gate is
 enabled with `Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1` and requires at least 1.10x
 for both checkpoint-like and same-bank-stress fixtures.
+The FP8 M1 QKV/Z two-phase gate is enabled with
+`Q3X_RUN_SM87_FP8_M1_QKV_Z_FUSION_PERF=1`; production evidence additionally
+requires `Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_FILE` and the decimal
+`Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_OFFSETS=QKV:Z` pair. It compares the exact
+production kernel with two production row-quad launches in five
+baseline/candidate/candidate/baseline rounds, requires at least 1.02x on the
+actual checkpoint and 1.00x on the same-bank stress guard, and reports the
+stricter symmetric 1.01x result as an exploratory diagnostic rather than a
+promotion criterion. It also covers all 254 finite codes in all four packed
+positions for both matrices, isolated signed NaNs, replay, guards, input
+preservation, resources, alignment, shape, scale, cap, and alias contracts.
 The exact M1 NVFP4 data-reuse gates are enabled with
 `Q3X_RUN_SM87_NVFP4_M1_DOWN_XOR_DUAL_PERF=1` and
 `Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1`. The gate/up staged

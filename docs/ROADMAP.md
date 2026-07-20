@@ -143,6 +143,10 @@ Deliverables:
   for `[17408,5120]` and `[5120,17408]`, with two-M8 fallback elsewhere.
 - [done, exact-shape gated] Fused full-attention FP8 M1 K/V projection for
   paired `[1024,5120]` matrices, with ordered independent fallbacks elsewhere.
+- [done, exact-shape gated] Fused linear-attention FP8 M1 QKV/Z projection for
+  ordered `[10240,5120]` and `[6144,5120]` matrices, with independent
+  fallbacks for C2..C16, near-miss shapes, other backends, and insufficient
+  alignment.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 down projection for
   `[5120,17408]`, retaining the direct XOR test baseline plus scalar and
   near-miss fallbacks.
@@ -247,6 +251,17 @@ detached-base B-C-C-B diagnostic reduces average total generation by 22.1845
 ms (0.637601%) and TTFT by 11.8840 ms (2.084512%), with the full exact oracle
 retained. See the
 [GDN row8 metadata record](metadata/qwen36-27b-gdn-eight-row-benchmark.json).
+The following exact FP8 QKV/Z milestone replaces the two linear-attention M1
+launches with one topology-preserving two-phase launch. Five frozen
+same-binary processes measure 1.05501x to 1.05868x on actual checkpoint bytes
+and 1.00832x to 1.01092x on the same-bank stress guard. The matched max-26
+profile removes 1,248 launches, reduces target work from 634.147712 to
+615.753920 ms, and reduces all CUDA time by 18.585920 ms (0.539336%). Its
+detached-base B-C-C-B diagnostic reduces average total generation by 18.4605
+ms (0.534646%) and subsequent-token latency by 0.7280 ms (0.628746%),
+while C1/C8/C16 retain the exact 19/26-token, text, stop, and 44-step oracle.
+This remains unlocked-clock diagnostic evidence; see the
+[FP8 QKV/Z fusion metadata record](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

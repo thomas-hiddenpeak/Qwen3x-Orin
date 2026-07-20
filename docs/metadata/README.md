@@ -102,6 +102,11 @@ The diagnostic Phase 3 records are:
   mirrored same-binary measurements with current-profile call weights, matched
   max-26 profiles, compiler resources, exact replay, and diagnostic
   limitations.
+- [`qwen36-27b-fp8-qkv-z-fusion-benchmark.json`](qwen36-27b-fp8-qkv-z-fusion-benchmark.json),
+  which records the exact aligned FP8 M1 linear-attention QKV/Z two-phase
+  fusion, five frozen actual-checkpoint/stress gates, compiler resources,
+  matched max-26 profiles, detached-base B-C-C-B generation evidence, C1/C8/C16
+  exact replay, ordered fallbacks, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

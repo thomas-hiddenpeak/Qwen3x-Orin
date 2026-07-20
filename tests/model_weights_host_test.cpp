@@ -425,6 +425,114 @@ void test_projection_pair_eligibility(TestContext& test) {
               "FP8 pair eligibility rejects near-miss and malformed pairs");
 }
 
+void test_fp8_qkv_z_projection_pair_eligibility(TestContext& test) {
+  std::uint8_t qkv_storage = 0U;
+  std::uint8_t z_storage = 0U;
+  float qkv_weight_scale_device = 1.0F;
+  float qkv_input_scale_device = 1.0F;
+  float z_weight_scale_device = 0.5F;
+  float z_input_scale_device = 0.25F;
+  const runtime::LinearWeight qkv = runtime::Fp8LinearWeight{
+      &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 10'240U, 5'120U};
+  const runtime::LinearWeight z = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, 0.25F, 6'144U, 5'120U};
+
+  test.expect(runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, qkv, z),
+              "SM87 accepts the exact ordered FP8 QKV/Z projection pair");
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, z, qkv),
+              "QKV/Z eligibility rejects the reversed projection order");
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kReference, qkv, z),
+              "reference backend preserves independent QKV/Z projections");
+
+  const runtime::LinearWeight wrong_qkv_rows = runtime::Fp8LinearWeight{
+      &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 10'239U, 5'120U};
+  const runtime::LinearWeight wrong_z_rows = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, 0.25F, 6'143U, 5'120U};
+  const runtime::LinearWeight wrong_qkv_columns = runtime::Fp8LinearWeight{
+      &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 10'240U, 5'119U};
+  const runtime::LinearWeight wrong_z_columns = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, 0.25F, 6'144U, 5'119U};
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  wrong_qkv_rows, z) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                      wrong_z_rows) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      wrong_qkv_columns, z) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                      wrong_z_columns),
+              "QKV/Z eligibility rejects every near-miss matrix shape");
+
+  std::uint16_t bf16_storage = 0U;
+  const runtime::LinearWeight bf16_qkv = runtime::Bf16LinearWeight{
+      &bf16_storage, 10'240U, 5'120U};
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, bf16_qkv, z),
+              "QKV/Z eligibility rejects a non-FP8 projection");
+
+  const runtime::LinearWeight null_qkv_payload = runtime::Fp8LinearWeight{
+      nullptr, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 10'240U, 5'120U};
+  const runtime::LinearWeight missing_qkv_weight_scale =
+      runtime::Fp8LinearWeight{&qkv_storage, nullptr, &qkv_input_scale_device,
+                               1.0F, 0.75F, 10'240U, 5'120U};
+  const runtime::LinearWeight missing_z_input_scale = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, nullptr,
+      0.5F, 0.25F, 6'144U, 5'120U};
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  null_qkv_payload, z) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly,
+                      missing_qkv_weight_scale, z) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                      missing_z_input_scale),
+              "QKV/Z eligibility rejects null payload and scale companions");
+
+  const runtime::LinearWeight negative_qkv_weight_scale =
+      runtime::Fp8LinearWeight{
+          &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+          -0.01F, 0.75F, 10'240U, 5'120U};
+  const runtime::LinearWeight nan_z_input_scale = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, std::numeric_limits<float>::quiet_NaN(), 6'144U, 5'120U};
+  const runtime::LinearWeight infinite_z_weight_scale =
+      runtime::Fp8LinearWeight{
+          &z_storage, &z_weight_scale_device, &z_input_scale_device,
+          std::numeric_limits<float>::infinity(), 0.25F, 6'144U, 5'120U};
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  negative_qkv_weight_scale, z) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                      nan_z_input_scale) &&
+                  !runtime::supports_fp8_qkv_z_projection_pair(
+                      runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                      infinite_z_weight_scale),
+              "QKV/Z eligibility rejects negative and non-finite scales");
+
+  const runtime::LinearWeight zero_scales = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.0F, 0.0F, 6'144U, 5'120U};
+  test.expect(runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                  zero_scales),
+              "QKV/Z eligibility accepts finite zero scales");
+}
+
 void test_source_and_tensor_failures(TestContext& test) {
   runtime::WeightBindingSource invalid;
   test.expect(runtime::bind_qwen36_27b_weights(invalid).diagnostic.code ==
@@ -595,6 +703,7 @@ int main() {
   TestContext test;
   test_successful_bind(test);
   test_projection_pair_eligibility(test);
+  test_fp8_qkv_z_projection_pair_eligibility(test);
   test_source_and_tensor_failures(test);
   test_scalar_failures(test);
   if (test.failures() != 0) {

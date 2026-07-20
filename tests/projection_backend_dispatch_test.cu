@@ -1144,6 +1144,238 @@ void test_fp8_projection_pair_dispatch(TestContext& test) {
   }
 }
 
+void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
+  constexpr std::size_t kQkvRows = 10'240U;
+  constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr float kQkvWeightScale = 1.0F / 64.0F;
+  constexpr float kZWeightScale = 1.0F / 128.0F;
+  constexpr std::uint16_t kBf16One = 0x3f80U;
+  constexpr std::uint16_t kQkvExpected = 0x42a0U;
+  constexpr std::uint16_t kZExpected = 0x4220U;
+
+  DeviceBuffer<std::uint8_t> qkv_weights;
+  DeviceBuffer<std::uint8_t> z_weights;
+  DeviceBuffer<std::uint8_t> misaligned_activation_storage;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> qkv_output;
+  DeviceBuffer<std::uint16_t> z_output;
+  bool ready = qkv_weights.allocate(
+      test, kQkvRows * kColumns, "QKV/Z QKV FP8 weights");
+  ready = ready && z_weights.allocate(
+                       test, kZRows * kColumns, "QKV/Z Z FP8 weights");
+  ready = ready && misaligned_activation_storage.allocate(
+                       test, 2U * kColumns * sizeof(std::uint16_t) + 2U,
+                       "QKV/Z misaligned activation storage");
+  ready = ready && activation.allocate(
+                       test, 2U * kColumns, "QKV/Z FP8 activations");
+  ready = ready && companion_scales.allocate(
+                       test, 4U, "QKV/Z FP8 companion scales");
+  ready = ready && scratch.allocate(
+                       test, kQkvRows, "QKV/Z FP8 reference scratch");
+  ready = ready && qkv_output.allocate(
+                       test, 2U * kQkvRows, "QKV/Z QKV output");
+  ready = ready && z_output.allocate(
+                       test, 2U * kZRows, "QKV/Z Z output");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      cudaMemset(qkv_weights.get(), 0x38, kQkvRows * kColumns),
+      "initialize QKV/Z QKV FP8 weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(z_weights.get(), 0x38,
+                                  kZRows * kColumns),
+                       "initialize QKV/Z Z FP8 weights");
+  const std::vector<std::uint16_t> host_activations(
+      2U * kColumns, kBf16One);
+  ready = ready && upload(test, activation, host_activations,
+                           "QKV/Z FP8 activations");
+  std::uint16_t* const misaligned_activation =
+      reinterpret_cast<std::uint16_t*>(
+          misaligned_activation_storage.get() + 2U);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(misaligned_activation,
+                                  host_activations.data(),
+                                  host_activations.size() *
+                                      sizeof(host_activations.front()),
+                                  cudaMemcpyHostToDevice),
+                       "upload QKV/Z misaligned FP8 activations");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kQkvWeightScale, 1.0F,
+                                          kZWeightScale, 1.0F},
+                       "QKV/Z FP8 companion scales");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight qkv = runtime::Fp8LinearWeight{
+      qkv_weights.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kQkvWeightScale, 1.0F, kQkvRows,
+      kColumns};
+  const runtime::LinearWeight z = runtime::Fp8LinearWeight{
+      z_weights.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kZWeightScale, 1.0F, kZRows, kColumns};
+  test.expect(runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, qkv, z),
+              "production FP8 QKV/Z pair selects the SM87 fast path");
+
+  int status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+      activation.get(), 1U, nullptr, 0U, qkv_output.get(), z_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "SM87 production FP8 QKV/Z M1 accepts null unused scratch");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, qkv_output, 1U, kQkvRows,
+        std::vector<std::uint16_t>{kQkvExpected},
+        "SM87 production FP8 QKV/Z QKV output");
+    (void)expect_tile_output(
+        test, z_output, 1U, kZRows,
+        std::vector<std::uint16_t>{kZExpected},
+        "SM87 production FP8 QKV/Z Z output");
+  }
+
+  std::size_t fused_total_nodes = 0U;
+  const std::size_t fused_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+            activation.get(), 1U, nullptr, 0U, qkv_output.get(),
+            z_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 production FP8 QKV/Z M1 graph", &fused_total_nodes);
+  test.expect(fused_total_nodes == 1U && fused_kernel_nodes == 1U,
+              "FP8 QKV/Z M1 graph contains one fused kernel node");
+
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+      misaligned_activation, 1U, nullptr, 0U, qkv_output.get(),
+      z_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "unaligned FP8 QKV/Z M1 preserves split fallback");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, qkv_output, 1U, kQkvRows,
+        std::vector<std::uint16_t>{kQkvExpected},
+        "unaligned FP8 QKV/Z QKV fallback output");
+    (void)expect_tile_output(
+        test, z_output, 1U, kZRows,
+        std::vector<std::uint16_t>{kZExpected},
+        "unaligned FP8 QKV/Z Z fallback output");
+  }
+  std::size_t unaligned_total_nodes = 0U;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+            misaligned_activation, 1U, nullptr, 0U, qkv_output.get(),
+            z_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 unaligned FP8 QKV/Z M1 graph", &unaligned_total_nodes);
+  test.expect(unaligned_total_nodes == 2U &&
+                  unaligned_kernel_nodes == 2U,
+              "unaligned FP8 QKV/Z M1 graph preserves two kernels");
+
+  std::size_t m2_total_nodes = 0U;
+  const std::size_t m2_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+            activation.get(), 2U, nullptr, 0U, qkv_output.get(),
+            z_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 FP8 QKV/Z M2 graph", &m2_total_nodes);
+  test.expect(m2_total_nodes == 2U && m2_kernel_nodes == 2U,
+              "FP8 QKV/Z M2 preserves two projection kernels");
+
+  const runtime::LinearWeight near_miss_z = runtime::Fp8LinearWeight{
+      z_weights.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kZWeightScale, 1.0F, kZRows - 1U,
+      kColumns};
+  test.expect(!runtime::supports_fp8_qkv_z_projection_pair(
+                  runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                  near_miss_z),
+              "near-miss FP8 QKV/Z shape preserves split fallback");
+  std::size_t near_miss_total_nodes = 0U;
+  const std::size_t near_miss_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, near_miss_z,
+            activation.get(), 1U, nullptr, 0U, qkv_output.get(),
+            z_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 near-miss FP8 QKV/Z M1 graph", &near_miss_total_nodes);
+  test.expect(near_miss_total_nodes == 2U &&
+                  near_miss_kernel_nodes == 2U,
+              "near-miss FP8 QKV/Z graph preserves two kernels");
+
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, qkv, z,
+            activation.get(), 1U, scratch.get(), kQkvRows,
+            qkv_output.get(), z_output.get(), static_cast<void*>(stream));
+      },
+      "reference FP8 QKV/Z M1 graph", &reference_total_nodes);
+  test.expect(reference_total_nodes == 4U &&
+                  reference_kernel_nodes == 4U,
+              "reference FP8 QKV/Z preserves two GEMV-plus-convert paths");
+
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+      activation.get(), 1U, nullptr, 0U, qkv_output.get(),
+      qkv_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 QKV/Z rejects overlapping outputs");
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+      activation.get(), 1U, nullptr, 0U,
+      reinterpret_cast<std::uint16_t*>(z_weights.get()), z_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 QKV/Z rejects QKV output over Z weights");
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+      activation.get(), 1U, nullptr, 0U, qkv_output.get(),
+      reinterpret_cast<std::uint16_t*>(z_weights.get()));
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+              "fused FP8 QKV/Z rejects Z output over its weights");
+
+  const runtime::LinearWeight malformed_z = runtime::Fp8LinearWeight{
+      z_weights.get(), nullptr, companion_scales.get() + 3U,
+      kZWeightScale, 1.0F, kZRows, kColumns};
+  ready = test.cuda_ok(
+      cudaMemset(qkv_output.get(), 0xa5,
+                 2U * kQkvRows * sizeof(std::uint16_t)),
+      "initialize QKV/Z fail-before-enqueue canary");
+  if (ready) {
+    status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, qkv, malformed_z,
+        activation.get(), 1U, nullptr, 0U, qkv_output.get(), z_output.get());
+    test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+                "FP8 QKV/Z validates Z before enqueue");
+    std::uint16_t preserved = 0U;
+    ready = test.cuda_ok(cudaMemcpy(&preserved, qkv_output.get(),
+                                    sizeof(preserved),
+                                    cudaMemcpyDeviceToHost),
+                         "read QKV/Z fail-before-enqueue canary");
+    if (ready) {
+      test.expect(preserved == 0xa5a5U,
+                  "invalid Z leaves QKV output untouched");
+    }
+  }
+}
+
 void test_fp8_m16_production_dispatch(TestContext& test) {
   constexpr std::size_t kTokens = 16U;
   constexpr std::size_t kRows = 5'120U;
@@ -1805,6 +2037,7 @@ int main() {
   test_tile_routes(test);
   test_bf16_projection_pair_dispatch(test);
   test_fp8_projection_pair_dispatch(test);
+  test_fp8_qkv_z_projection_pair_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

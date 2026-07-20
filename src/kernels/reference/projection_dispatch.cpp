@@ -556,21 +556,24 @@ int launch_projection_pair_tile_to_bf16_cuda(
     void* const cuda_stream) noexcept {
   const bool fused_bf16_pair = supports_bf16_projection_pair(
       backend, first_weight, second_weight);
-  const bool eligible_fp8_pair =
+  const bool eligible_fp8_kv_pair =
       token_count == 1U && supports_fp8_projection_pair(
                                backend, first_weight, second_weight);
-  bool fused_fp8_pair = false;
-  if (eligible_fp8_pair) {
+  const bool eligible_fp8_qkv_z_pair =
+      token_count == 1U && supports_fp8_qkv_z_projection_pair(
+                               backend, first_weight, second_weight);
+  bool aligned_fp8_pair = false;
+  if (eligible_fp8_kv_pair || eligible_fp8_qkv_z_pair) {
     const auto& first = std::get<Fp8LinearWeight>(first_weight);
     const auto& second = std::get<Fp8LinearWeight>(second_weight);
-    fused_fp8_pair =
+    aligned_fp8_pair =
         pointer_is_aligned(first.weight, alignof(std::uint32_t)) &&
         pointer_is_aligned(second.weight, alignof(std::uint32_t)) &&
         pointer_is_aligned(input, alignof(std::uint64_t)) &&
         pointer_is_aligned(first_output, alignof(std::uint16_t)) &&
         pointer_is_aligned(second_output, alignof(std::uint16_t));
   }
-  const bool direct_output = fused_bf16_pair || fused_fp8_pair;
+  const bool direct_output = fused_bf16_pair || aligned_fp8_pair;
   ProjectionTileSpans first_spans;
   ProjectionTileSpans second_spans;
   const int first_validation = validate_projection_tile(
@@ -600,7 +603,15 @@ int launch_projection_pair_tile_to_bf16_cuda(
         first.weight, second.weight, input, token_count, first.output_size,
         first.input_size, first_output, second_output, cuda_stream);
   }
-  if (fused_fp8_pair) {
+  if (aligned_fp8_pair && eligible_fp8_qkv_z_pair) {
+    const auto& qkv = std::get<Fp8LinearWeight>(first_weight);
+    const auto& z = std::get<Fp8LinearWeight>(second_weight);
+    return kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_cuda(
+        qkv.weight, qkv.weight_scale, z.weight, z.weight_scale, input,
+        qkv.output_size, z.output_size, qkv.input_size, first_output,
+        second_output, cuda_stream);
+  }
+  if (aligned_fp8_pair && eligible_fp8_kv_pair) {
     const auto& first = std::get<Fp8LinearWeight>(first_weight);
     const auto& second = std::get<Fp8LinearWeight>(second_weight);
     return kernels::launch_sm87_fp8_w8a16_gemv_pair_bf16_cuda(

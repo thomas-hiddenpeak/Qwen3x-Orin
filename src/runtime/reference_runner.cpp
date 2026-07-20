@@ -1048,10 +1048,13 @@ ReferenceStepOutcome ReferenceRunner::step(
             ReferenceRunnerError::kInvalidLayerSchedule,
             "linear_attention_variant", layer));
       }
-      if (!project(attention->in_proj_qkv, views_.hidden[1],
-                   views_.projection[0], "linear_qkv_projection", layer) ||
-          !project(attention->in_proj_z, views_.hidden[1],
-                   views_.projection[1], "linear_z_projection", layer)) {
+      if (!check_cuda(launch_projection_pair_tile_to_bf16_cuda(
+                          projection_backend_, attention->in_proj_qkv,
+                          attention->in_proj_z, views_.hidden[1], 1U,
+                          views_.fp32_scratch,
+                          views_.fp32_scratch_elements, views_.projection[0],
+                          views_.projection[1], stream_),
+                      "linear_qkv_z_projection", layer)) {
         return fail_step(launch_failure);
       }
       if (supports_bf16_projection_pair(

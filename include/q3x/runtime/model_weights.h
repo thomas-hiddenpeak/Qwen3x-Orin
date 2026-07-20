@@ -102,6 +102,16 @@ enum class ProjectionBackend : std::uint8_t {
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight) noexcept;
 
+// True only for the production linear-attention QKV/Z projection ABI: the
+// explicitly selected SM87 backend followed by a valid FP8 [10240, 5120] QKV
+// matrix and a valid FP8 [6144, 5120] Z matrix, in that order. This is
+// shape/type/payload eligibility only; launch-time token-count, pointer
+// alignment, input, output, range, and alias validation remains the
+// dispatcher's responsibility.
+[[nodiscard]] bool supports_fp8_qkv_z_projection_pair(
+    ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight) noexcept;
+
 struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
@@ -331,8 +341,11 @@ struct WeightBindResult {
 //
 // supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B kernel
 // for M=1..16. supports_fp8_projection_pair(...) selects the fused SM87 FP8
-// K/V kernel only for M=1. Every other valid combination preserves the
-// existing first-then-second tile dispatch and its numerical behavior.
+// K/V kernel only for M=1. supports_fp8_qkv_z_projection_pair(...) selects
+// the fused SM87 FP8 QKV/Z kernel only for M=1 and the exact ordered
+// [10240, 5120] then [6144, 5120] shapes. Every other valid combination,
+// including unaligned exact-shape inputs, preserves the existing
+// first-then-second tile dispatch and its numerical behavior.
 [[nodiscard]] int launch_projection_pair_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* input,

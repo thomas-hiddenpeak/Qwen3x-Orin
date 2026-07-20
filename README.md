@@ -188,6 +188,9 @@ shape-gated Tensor Core path above or safely falls back to two M8 launches;
 the reference backend and BF16 weights retain ordered M1 launches. Trace
 capture deliberately reports and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
+Exact aligned SM87 FP8 M1 linear-attention QKV/Z projections use one
+two-phase launch; C2 through C16 prefix tiles, near-miss shapes, unaligned
+operands, and other backends retain two ordered projections.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -297,6 +300,18 @@ latency from 117.1025 to 116.3305 ms (0.659252%), with the exact oracle
 preserved. Clocks remained unlocked, so this is diagnostic evidence rather
 than a release claim; see the
 [NVFP4 down activation-staging record](docs/metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
+The subsequent exact aligned FP8 M1 QKV/Z fusion shares one decoded codebook
+across topology-preserving QKV and Z phases. Five frozen same-binary processes
+measure 1.05501x to 1.05868x on actual checkpoint bytes and 1.00832x to
+1.01092x on the same-bank stress guard. A matched max-26 profile removes 1,248
+launches and reduces target work from 634.147712 to 615.753920 ms. A B-C-C-B
+diagnostic against a detached base reduces average total generation from
+3,452.8470 to 3,434.3865 ms (0.534646%) and subsequent-token latency from
+115.7860 to 115.0580 ms (0.628746%). C1, C8, and C16 retain the exact
+19/26-token oracle.
+Clocks remained unlocked and the result is diagnostic, not a release or
+serving-throughput claim; see the
+[FP8 QKV/Z fusion record](docs/metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

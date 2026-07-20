@@ -40,6 +40,9 @@ The follow-up down activation-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
 The subsequent eight-row lane-striped GDN diagnostic is recorded in
 [`qwen36-27b-gdn-eight-row-benchmark.json`](metadata/qwen36-27b-gdn-eight-row-benchmark.json).
+The subsequent exact FP8 M1 linear-attention QKV/Z fusion diagnostic is
+recorded in
+[`qwen36-27b-fp8-qkv-z-fusion-benchmark.json`](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
 
 ## Method
 
@@ -1047,6 +1050,104 @@ disabled on this device. Independent review found no blocker or medium issue.
 Clocks were unlocked, and this single-prompt, batch-one result is diagnostic
 rather than randomized, release, or serving-throughput evidence.
 
+## FP8 linear-attention QKV/Z two-phase fusion
+
+The worktree based on `e103c7f655b75a4b2c74e53b156902ea5261ffc5`
+replaces the two exact aligned M1 linear-attention projections
+`[10240,5120]` QKV then `[6144,5120]` Z with one two-phase launch. Its fixed
+1,536-CTA grid preserves the production QKV grid/stride across 2,560 row
+quads; the first 768 CTAs then preserve the production Z grid/stride across
+1,536 row quads. Both phases reuse one decoded E4M3FN codebook. The row-quad
+FMA, reduction, scale, and BF16-RNE order remains the same as the two preceding
+production launches, so their outputs compare bit-for-bit.
+
+The route is deliberately narrow. It requires the explicit SM87 backend,
+M1, the ordered exact shapes, 4-byte-aligned weights, an 8-byte-aligned BF16
+activation, and 2-byte-aligned outputs. M2 through M16, reversed or near-miss
+shapes, unaligned operands, and other backends retain two ordered projections.
+The scalar runner step and `prefill_prefix_tile(..., 1)` may select the fused
+route; layer-major C2 through C16 prefix tiles remain two independent tile
+projections.
+
+The frozen promotion policy was stated before the five independent process
+repeats. Actual checkpoint bytes carry a 1.02x production-value threshold; the
+synthetic same-bank distribution is a 1.00x non-regression guard. The earlier
+symmetric 1.01x threshold remains visible as an exploratory diagnostic but is
+not the promotion criterion: it fails in four of the five stress repeats.
+The fixture reads layer 0 QKV and Z at absolute shard offsets 3,485,125,152 and
+3,537,553,952. Their payload SHA-256 values are
+`66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7`
+and
+`79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae`.
+
+Each process uses 10 warmups, 80 logical QKV/Z pairs per timed pass, and five
+baseline/candidate/candidate/baseline measurement rounds. All five clear the
+frozen policy:
+
+| Independent process | Actual checkpoint | Same-bank stress | Frozen gate | Exploratory symmetric 1.01x |
+| ---: | ---: | ---: | --- | --- |
+| 1 | 1.05824x | 1.00985x | pass | fail |
+| 2 | 1.05542x | 1.00992x | pass | fail |
+| 3 | 1.05868x | 1.01092x | pass | pass |
+| 4 | 1.05501x | 1.00832x | pass | fail |
+| 5 | 1.05575x | 1.00833x | pass | fail |
+
+The actual-checkpoint minimum/median/maximum is
+1.05501x/1.05575x/1.05868x. The stress minimum/median/maximum is
+1.00832x/1.00985x/1.01092x. The fused kernel uses 64 registers per thread,
+1,152 static-shared bytes, zero local bytes, 256 threads, and four active
+blocks per SM. The same-binary correctness gate covers all 254 finite E4M3FN
+codes in all four packed byte positions for both matrices, isolated signed NaN
+classifications, bitwise output equality, deterministic replay, output
+canaries, input preservation, and null/alignment/shape/scale/cap/alias
+contracts.
+
+Matched max-26-token Nsight profiles use an independently detached base build
+and the candidate with the same command and workload. They are not a
+same-binary trial:
+
+| Profile group | Base | Fused QKV/Z | Reduction |
+| --- | ---: | ---: | ---: |
+| QKV/Z kernel instances | 2,496 | 1,248 | 1,248 (50.000000%) |
+| QKV/Z kernel time | 634.147712 ms | 615.753920 ms | 18.393792 ms (2.900553%) |
+| All CUDA kernel instances | 23,126 | 21,878 | 1,248 (5.396523%) |
+| All CUDA kernel time | 3,446.077312 ms | 3,427.491392 ms | 18.585920 ms (0.539336%) |
+| Profiled generation | 3,486.520 ms | 3,465.799 ms | 20.721 ms (0.594318%) |
+
+Non-target kernels decreased by 0.192128 ms between the separate profiles, so
+only the QKV/Z row isolates the specialization. The baseline report is
+1,633,525 bytes with SHA-256
+`7b9a6c5bffacd524d22214a8efeb7807f5894d6aed156b8d82b4db4effdd1143`;
+the candidate is 1,550,518 bytes with SHA-256
+`0a5ce00f21ffa6f14a370be6a6651f34b6368ce724b75b9ff768e948750c88af`.
+Both reports are local evidence and are not checked in.
+
+A detached-base B-C-C-B process comparison loaded one engine per process,
+warmed up once, and measured five generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,453.668 ms | 558.294 ms | 115.808 ms |
+| Candidate 1 | 3,435.461 ms | 557.490 ms | 115.082 ms |
+| Candidate 2 | 3,433.312 ms | 557.280 ms | 115.034 ms |
+| Base 2 | 3,452.026 ms | 558.089 ms | 115.764 ms |
+
+| Average of two process medians | Two-launch base | Fused QKV/Z | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,452.8470 ms | 3,434.3865 ms | 18.4605 ms (0.534646%) |
+| Time to first token | 558.1915 ms | 557.3850 ms | 0.8065 ms (0.144484%) |
+| Subsequent token | 115.7860 ms | 115.0580 ms | 0.7280 ms (0.628746%) |
+
+Every warmup and measured generation retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 runner steps. Dedicated C1,
+C8, and C16 27B oracle runs all passed. Release reported zero failures across
+52 discovered tests, with four skipped; ASan/UBSan with `detect_leaks=0` and
+`package_consumer` excluded reported zero failures across 51 discovered tests,
+with four skipped. Clocks were unlocked. The microbenchmark, separate Nsight
+profiles, and two-process-per-policy B-C-C-B comparison remain batch-one,
+single-prompt diagnostic evidence rather than randomized, release,
+concurrent-request, or serving-throughput claims.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1096,15 +1197,18 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
    shape/alignment and for FP8 `[1024,5120]`;
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
-9. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
+9. pair linear-attention FP8 QKV/Z only for aligned ordered M1
+   `[10240,5120]` and `[6144,5120]` operands, retaining two ordered
+   projections for C2 through C16 and every other valid case;
+10. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
    `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
    test baseline and all other fallbacks;
-10. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
+11. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
     retaining the four-row lane-striped predecessor as a same-binary test
     baseline;
-11. retain exact-token, numerical, replay, and memory gates for every dispatch
+12. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-12. lock clocks when privileged access is available before making a formal
+13. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

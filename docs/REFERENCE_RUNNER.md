@@ -40,8 +40,11 @@ step 在末尾执行一次 `cudaStreamSynchronize`；中途失败也会先 drain
 1. `embed_tokens[input_id] -> H0`。
 2. 对层 `0..63`：
    - `centered_rmsnorm(H0, input_layernorm) -> H1`；
-   - linear 层依次投影 QKV/Z/A/B，原位 width-4 causal conv，原位 BF16 GDN state
-     recurrence，逐 value-head plain norm × `SiLU(z)`，然后 `out_proj -> H1`；
+   - linear 层通过 pair dispatch 投影 QKV/Z，再投影 A/B；显式 SM87 backend
+     下精确、对齐的 FP8 M1 `[10240,5120]` QKV 与 `[6144,5120]` Z
+     合并为一次 two-phase launch，其他有效组合保留 QKV 后 Z 的有序
+     投影；随后执行原位 width-4 causal conv、原位 BF16 GDN state
+     recurrence、逐 value-head plain norm × `SiLU(z)` 与 `out_proj -> H1`；
    - full 层投影 `[Q|gate]`/K/V，将 per-head interleaved Q/gate 拆到 P3，Q/K 逐 head
      centered norm，使用 `RequestState` 中已 BF16-round 的 RoPE table 做 256/64 partial
      NeoX RoPE；当前 K/V 先 D2D 写入 position `p`，GQA 再读取 `0..p`，固定
@@ -79,6 +82,11 @@ M1 fallback，因此接口语义不依赖 optimized backend。C16 causal conv/GD
 tile 不计算 logits，也不采集 trace；generation controller 只对 prompt 的最后一个 token
 执行标量 logits step。启用 trace 时 controller 会把 effective chunk 强制为 1，以保留
 逐 token trace ABI。
+
+`prefill_prefix_tile(..., 1)` 直接委托标量 step，因此可选中上述 QKV/Z
+融合。C2..C16 的 layer-major prefix 路径继续调用两个独立 tile
+projection；这个优化不改变 prefix 分片、causal state 更新或对齐不足时的
+fallback 语义。
 
 projection 的具体 BF16/FP8/NVFP4 计算策略完全由 `launch_projection_*` dispatch 决定；
 runner 不复制也不改变底层量化语义。GDN canonical reference 保留 FP32 beta。vLLM

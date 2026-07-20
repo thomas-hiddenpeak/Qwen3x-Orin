@@ -78,6 +78,15 @@ template <typename Weight>
   return weight.input_size;
 }
 
+[[nodiscard]] bool has_valid_fp8_payload(
+    const Fp8LinearWeight* const weight) noexcept {
+  return weight != nullptr && weight->weight != nullptr &&
+         weight->weight_scale_device != nullptr &&
+         weight->input_scale_device != nullptr &&
+         std::isfinite(weight->weight_scale) && weight->weight_scale >= 0.0F &&
+         std::isfinite(weight->input_scale) && weight->input_scale >= 0.0F;
+}
+
 }  // namespace
 
 class ModelWeightBinder {
@@ -634,20 +643,29 @@ bool supports_fp8_projection_pair(
   }
   const auto* const first = std::get_if<Fp8LinearWeight>(&first_weight);
   const auto* const second = std::get_if<Fp8LinearWeight>(&second_weight);
-  const auto valid = [](const Fp8LinearWeight* const weight) noexcept {
-    return weight != nullptr && weight->weight != nullptr &&
-           weight->weight_scale_device != nullptr &&
-           weight->input_scale_device != nullptr &&
-           std::isfinite(weight->weight_scale) &&
-           weight->weight_scale >= 0.0F &&
-           std::isfinite(weight->input_scale) &&
-           weight->input_scale >= 0.0F;
-  };
-  return valid(first) && valid(second) &&
+  return has_valid_fp8_payload(first) && has_valid_fp8_payload(second) &&
          first->output_size == kPairRows &&
          second->output_size == kPairRows &&
          first->input_size == kPairColumns &&
          second->input_size == kPairColumns;
+}
+
+bool supports_fp8_qkv_z_projection_pair(
+    const ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight) noexcept {
+  constexpr std::size_t kQkvRows = 10'240U;
+  constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kColumns = 5'120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      qkv_weight.valueless_by_exception() ||
+      z_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const qkv = std::get_if<Fp8LinearWeight>(&qkv_weight);
+  const auto* const z = std::get_if<Fp8LinearWeight>(&z_weight);
+  return has_valid_fp8_payload(qkv) && has_valid_fp8_payload(z) &&
+         qkv->output_size == kQkvRows && z->output_size == kZRows &&
+         qkv->input_size == kColumns && z->input_size == kColumns;
 }
 
 WeightBindResult bind_qwen36_27b_weights(
