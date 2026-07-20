@@ -1,0 +1,631 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark",
+  "status": "production-diagnostic",
+  "recorded_at": "2026-07-20",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "d047007d37264793153b0d81d1c5f30bd4bf30cc",
+    "tree_state_at_measurement": "production NVFP4 M1 down projection plus residual-add and centered-RMSNorm fusion worktree based on base_git_commit",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation": {
+    "scope": "single-token dense-MLP NVFP4 down projection followed by the decoder BF16 residual-add and centered-RMSNorm boundary",
+    "projection_shape_n_k": [5120, 17408],
+    "hidden_width": 5120,
+    "dtype": "NVFP4 E2M1 packed weights with FP8 E4M3FN block scales; BF16 activation, residual, norm weight, and outputs",
+    "kernel": "nvfp4_w4a16_down_residual_norm_activation_staged_kernel<5120,17408>",
+    "grid_blocks": 64,
+    "threads_per_block": 256,
+    "warps_per_block": 8,
+    "cooperative_grid_sync": true,
+    "baseline_launches_per_logical_chain": 2,
+    "candidate_launches_per_logical_chain": 1,
+    "baseline_order": [
+      "production CTA-activation-staged NVFP4 down projection and BF16-RNE raw output",
+      "20-CTA residual-add plus centered-RMSNorm kernel"
+    ],
+    "candidate_order": [
+      "the same activation-staged down projection and BF16-RNE raw output",
+      "each owning CTA writes BF16-RNE residual values for its down rows",
+      "64-CTA cooperative grid barrier",
+      "all 64 CTAs repeat the old 256-thread, 20-elements-per-thread fmaf RMS reduction and reduction tree",
+      "the first 20 CTAs write disjoint 256-element normalized BF16 slices"
+    ],
+    "output_contract": {
+      "raw_down_output": "BF16 down projection, retained as a distinct global boundary for decode trace observability",
+      "residual_output": "BF16(residual_left + raw_down_output)",
+      "normalized_output": "BF16(residual_output * rsqrt(mean_square + epsilon) * (BF16(norm_weight) + 1))"
+    },
+    "numerical_order_contract": "down FMA/reduction/scale/BF16 order, residual BF16 boundary, 256-thread RMS accumulation and reduction tree, rsqrtf, centered gamma, and final BF16-RNE order are bitwise identical to the ordered baseline",
+    "shared_memory_reuse": "the 34-KiB staged BF16 activation and decode codebooks are retained from the production down kernel; the dead FP8 scale codebook area is reused for the 256-float RMS reduction",
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "cooperative_launch_supported": true,
+      "device_sm_count": 16,
+      "resident_grid_capacity_blocks": 64,
+      "launched_grid_blocks": 64,
+      "resident_capacity_margin_blocks": 0
+    },
+    "eligibility": "explicit SM87 backend, valid NVFP4 down weight with exact [5120,17408] shape, M=1, finite nonnegative weight scale, positive finite epsilon, required alignments, and valid disjoint writable ranges",
+    "alignment": {
+      "packed_weight_bytes": 4,
+      "activation_bytes": 8,
+      "residual_norm_and_output_bytes": 2
+    },
+    "runtime_graph_kernel_nodes": {
+      "aligned_exact_sm87_nvfp4_m1": 1,
+      "safe_read_only_residual_norm_overlap": 1,
+      "unaligned_exact_sm87_nvfp4_m1": 2,
+      "near_shape_sm87_nvfp4_m1": 2,
+      "reference_nvfp4_m1": 3
+    },
+    "validation_contract": "the complete composite validates before its first enqueue, including payloads, exact hidden output width, epsilon, address-range overflow, every writable/input/weight/device-scalar alias, and reference scratch size and overlap",
+    "fallback_contract": "every valid non-exact, unaligned, non-NVFP4, or non-SM87 case preserves the ordered projection then residual/norm path",
+    "prefill_note": "the exact route is M=1 only; multi-token prefill retains its existing ordered projection and norm paths"
+  },
+  "policy": {
+    "projection_backend_default": "reference",
+    "sm87_backend_is_explicit": true,
+    "minimum_production_shaped_microbenchmark_speedup": 1.005,
+    "microbenchmark_fixture": "deterministic checkpoint-like NVFP4 code and block-scale distribution at the exact production shape",
+    "policy_note": "the same-binary synthetic gate establishes kernel non-regression; detached-base profiles, B-C-C-B generation, full trace equality, and exact model gates provide separate integration evidence",
+    "result_is_release_claim": false
+  },
+  "same_binary_optional_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_DOWN_RESIDUAL_NORM_PERF=1 build/q3x_sm87_weight_only_gemv_test",
+    "binary": {
+      "local_path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 3307976,
+      "sha256": "3757ef5dae0ed36898345857285349dd8259269daa984c54e8dab31c6383dc32"
+    },
+    "comparison": "the public production down kernel followed by the public residual-add/centered-RMSNorm kernel versus the public single cooperative down/residual/norm kernel on identical buffers",
+    "fixture": "deterministic checkpoint-like NVFP4 packed codes, E4M3FN block scales, BF16 activation, residual input, and centered norm weight at exact [5120,17408]",
+    "warmup_logical_chains": 10,
+    "measured_logical_chains_per_timed_pass": 40,
+    "measurement_rounds": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "statistic_per_process": "arithmetic mean of ten baseline pass means divided by the arithmetic mean of ten candidate pass means",
+    "independent_process_repeats": 5,
+    "resources": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "cooperative_launch": true,
+      "sm_count": 16,
+      "resident_grid_capacity": 64,
+      "gate_passed": true
+    },
+    "correctness": {
+      "finite_raw_down_bit_mismatches": "0/5120",
+      "finite_residual_bit_mismatches": "0/5120",
+      "finite_normalized_bit_mismatches": "0/5120",
+      "residual_signed_inf_nan_raw_residual_normalized_bit_mismatches": ["0/5120", "0/5120", "0/5120"],
+      "residual_signed_inf_nan_class_and_sign_matched": true,
+      "norm_weight_signed_inf_nan_raw_residual_normalized_bit_mismatches": ["0/5120", "0/5120", "0/5120"],
+      "norm_weight_signed_inf_nan_class_and_sign_matched": true,
+      "all_guards_intact": true,
+      "low_level_invalid_cases": 42,
+      "all_invalid_calls_failed_before_enqueue": true,
+      "invalid_call_kernel_nodes": 0,
+      "exact_graph_kernel_nodes": 1,
+      "exact_grid_blocks": 64,
+      "exact_threads_per_block": 256,
+      "exact_dynamic_shared_bytes": 0
+    },
+    "repeats": [
+      {
+        "run": 1,
+        "baseline_two_kernel_milliseconds": 0.32952,
+        "candidate_one_kernel_milliseconds": 0.319087,
+        "speedup": 1.0327,
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-micro-r1.log",
+          "bytes": 25467,
+          "sha256": "9642b637007e67771fcaf523e65c481b2283cc29bc394541956bbda280b07f95"
+        }
+      },
+      {
+        "run": 2,
+        "baseline_two_kernel_milliseconds": 0.331475,
+        "candidate_one_kernel_milliseconds": 0.322251,
+        "speedup": 1.02862,
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-micro-r2.log",
+          "bytes": 25468,
+          "sha256": "129c4ab104c87045067c09347e8730d21401e9444eaf90704c4190f8e01a0a46"
+        }
+      },
+      {
+        "run": 3,
+        "baseline_two_kernel_milliseconds": 0.329008,
+        "candidate_one_kernel_milliseconds": 0.318182,
+        "speedup": 1.03403,
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-micro-r3.log",
+          "bytes": 25469,
+          "sha256": "57e7cd5c2eb1dd9bcff3c1ea3dc7c3a5c2e94fd2f214d3169d8f65556d39df25"
+        }
+      },
+      {
+        "run": 4,
+        "baseline_two_kernel_milliseconds": 0.329976,
+        "candidate_one_kernel_milliseconds": 0.31972,
+        "speedup": 1.03208,
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-micro-r4.log",
+          "bytes": 25467,
+          "sha256": "698a8d375178d020796991a2c70e560485a4e425b7af0cf2191ae75c43841750"
+        }
+      },
+      {
+        "run": 5,
+        "baseline_two_kernel_milliseconds": 0.329373,
+        "candidate_one_kernel_milliseconds": 0.31893,
+        "speedup": 1.03274,
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-micro-r5.log",
+          "bytes": 25466,
+          "sha256": "d291a404e6a207111afcfb1b40a57e0ef5eb57aa8c2a0ceccf2e6960e3910d54"
+        }
+      }
+    ],
+    "summary": {
+      "speedup_min_median_mean_max": [1.02862, 1.0327, 1.032034, 1.03403],
+      "all_five_policy_processes_passed": true
+    },
+    "superseded_pre_production_probe_logs": {
+      "note": "earlier prototype-named independent probes are inventoried for completeness but excluded from the final production summary because they predate the complete public, invalid-call, cooperative-capacity, and signed-nonfinite contracts",
+      "runs": [
+        {
+          "run": 1,
+          "speedup": 1.03031,
+          "log": {
+            "local_path": "/tmp/q3x-downnorm-final-r1.log",
+            "bytes": 24457,
+            "sha256": "8037dc589f53da41f9ef045d5526f9df6c2b62d49a3407939eb3ab0758712d96"
+          }
+        },
+        {
+          "run": 2,
+          "speedup": 1.03033,
+          "log": {
+            "local_path": "/tmp/q3x-downnorm-final-r2.log",
+            "bytes": 24454,
+            "sha256": "8010ed38791e9e96f9ae80c007200a5f75a9b9022cb2bc5879881db95bf75140"
+          }
+        },
+        {
+          "run": 3,
+          "speedup": 1.02912,
+          "log": {
+            "local_path": "/tmp/q3x-downnorm-final-r3.log",
+            "bytes": 24457,
+            "sha256": "8ecbec59002bed24b90b22a6358fd2d0c0fc9d7f43f2ad4a1ef89025898e1d5f"
+          }
+        },
+        {
+          "run": 4,
+          "speedup": 1.03277,
+          "log": {
+            "local_path": "/tmp/q3x-downnorm-final-r4.log",
+            "bytes": 24454,
+            "sha256": "b594fcf0aeef17c7d6793a30ed194452ea307f55031047b85fa73e73c9df2be8"
+          }
+        },
+        {
+          "run": 5,
+          "speedup": 1.03195,
+          "log": {
+            "local_path": "/tmp/q3x-downnorm-final-r5.log",
+            "bytes": 24455,
+            "sha256": "7cd19ec0a7eb9faf9a9abfe680d7d761efdf73b37282e62eb307fa2f40d7d076"
+          }
+        }
+      ]
+    }
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "independent detached base-commit build versus candidate with matched command and workload; not a same-binary trial",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-base.nsys-rep",
+        "bytes": 1224976,
+        "sha256": "5cbff073881a6db409c25d0676bbf3f655ee15d8ab8cc42b3ffb6bfb419af3fb"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate.nsys-rep",
+        "bytes": 1121911,
+        "sha256": "2f9f99bb05e6fd1925a0565e2fa9ef294f488ca84af5d1ad8df60370dfa06e5f"
+      },
+      "checked_in": false
+    },
+    "sqlite_exports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-base.sqlite",
+        "bytes": 3420160,
+        "sha256": "94efa7255dded7ca5881e2aba5de0e38d78fa9085d11591278babeda48b423ee"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate.sqlite",
+        "bytes": 3125248,
+        "sha256": "a70c2d6d826b3a900fc1bb37bdb48781beb68f5463c3c38e0600e49f6e20a4fe"
+      }
+    },
+    "stats_exports": {
+      "baseline_kernel_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-base-kernels.csv",
+        "bytes": 8302,
+        "sha256": "d2ee43a98d7747043065b3dc0d9f8d84f8e2d9ac9a73a60238f05f9b51a55f6e"
+      },
+      "baseline_grid_block_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-base-kernels-gb.csv",
+        "bytes": 12631,
+        "sha256": "fc8a9c926b60054b9018603bdebeda8ab1c1cbed6927dd3192a441c963ea55b2"
+      },
+      "candidate_kernel_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-kernels.csv",
+        "bytes": 8148,
+        "sha256": "1b2c1fb8e50f6a4e4b13bad3a879f91d0011e82cf2098066e1df7587d07d3b5c"
+      },
+      "candidate_grid_block_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-kernels-gb.csv",
+        "bytes": 12445,
+        "sha256": "07750deb47cabf767120af960b714409c9c22625db6ce3349ec5d7ac99e464cc"
+      }
+    },
+    "profile_logs": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-base-profile.log",
+        "bytes": 2754,
+        "sha256": "4e5660866bd44e6f10398d49a8a9c17515c52c84d0cf382bd0c9e58afdd3b6d7"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-profile.log",
+        "bytes": 2724,
+        "sha256": "2f0360533c53f6a5e54f98e7b46f936bd5350f4034d6aa1403a3a9501e5bd0a4"
+      }
+    },
+    "target_work": {
+      "baseline_down": {
+        "instances": 1664,
+        "grid_blocks": 64,
+        "milliseconds": 521.471936
+      },
+      "baseline_residual_centered_norm": {
+        "instances": 1664,
+        "grid_blocks": 20,
+        "milliseconds": 38.9328
+      },
+      "candidate_down_residual_norm_fused": {
+        "instances": 1664,
+        "grid_blocks": 64,
+        "milliseconds": 539.154752
+      },
+      "baseline_combined_instances": 3328,
+      "candidate_instances": 1664,
+      "removed_instances": 1664,
+      "launch_reduction_percent": 50.0,
+      "baseline_combined_milliseconds": 560.404736,
+      "candidate_milliseconds": 539.154752,
+      "saved_milliseconds": 21.249984,
+      "reduction_percent": 3.791899432,
+      "speedup": 1.039413515
+    },
+    "all_cuda_kernels": {
+      "baseline_instances": 16470,
+      "candidate_instances": 14806,
+      "removed_instances": 1664,
+      "launch_reduction_percent": 10.103217972,
+      "baseline_total_milliseconds": 3380.58688,
+      "candidate_total_milliseconds": 3360.86992,
+      "saved_milliseconds": 19.71696,
+      "reduction_percent": 0.583240742,
+      "speedup": 1.005866624,
+      "non_target_kernel_time_increase_milliseconds": 1.533024,
+      "target_share_of_net_all_cuda_time_saved_percent": 107.775153979
+    },
+    "profiled_generation": {
+      "baseline_total_milliseconds": 3415.619,
+      "candidate_total_milliseconds": 3392.935,
+      "saved_milliseconds": 22.684,
+      "reduction_percent": 0.664125595,
+      "speedup": 1.006685657,
+      "baseline_prompt_prefill_milliseconds": 577.737,
+      "candidate_prompt_prefill_milliseconds": 577.77,
+      "baseline_decode_after_first_milliseconds": 2837.881,
+      "candidate_decode_after_first_milliseconds": 2815.165,
+      "exact_generation_gate_passed": true
+    }
+  },
+  "single_load_end_to_end_benchmark": {
+    "comparison": "detached-base/candidate/candidate/detached-base standalone processes; each loads one engine and reuses it for one warmup plus five measured generations",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "run_order": ["baseline_round1", "candidate_round1", "candidate_round2", "baseline_round2"],
+    "binaries": {
+      "baseline": {
+        "base_git_commit": "d047007d37264793153b0d81d1c5f30bd4bf30cc",
+        "local_path": "/tmp/q3x-downnorm-prod-base-d047007/build/orin-release/qwen3x-orin",
+        "bytes": 3082856,
+        "sha256": "afc27f43477d3ef72dcf2126134e7a804c9ce1db7415bd61bde4202426b46de0"
+      },
+      "candidate": {
+        "local_path": "build/qwen3x-orin",
+        "bytes": 3150360,
+        "sha256": "3bde858dd246e76a77402b98780b28b2bde15c7d8c4fd2f3e40dbbadae39e7db"
+      },
+      "checked_in": false
+    },
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3378.228,
+          "time_to_first_token_milliseconds": 555.27,
+          "subsequent_token_milliseconds": 112.92
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3376.944,
+          "time_to_first_token_milliseconds": 555.207,
+          "subsequent_token_milliseconds": 112.89
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3358.844,
+          "time_to_first_token_milliseconds": 554.479,
+          "subsequent_token_milliseconds": 112.171
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3360.51,
+          "time_to_first_token_milliseconds": 554.637,
+          "subsequent_token_milliseconds": 112.226
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3377.586,
+        "time_to_first_token_milliseconds": 555.2385,
+        "subsequent_token_milliseconds": 112.905
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3359.677,
+        "time_to_first_token_milliseconds": 554.558,
+        "subsequent_token_milliseconds": 112.1985
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 17.909,
+        "total_generation_reduction_percent": 0.530230762,
+        "total_generation_speedup": 1.005330572,
+        "time_to_first_token_saved_milliseconds": 0.6805,
+        "time_to_first_token_reduction_percent": 0.122559945,
+        "time_to_first_token_speedup": 1.001227103,
+        "subsequent_token_saved_milliseconds": 0.7065,
+        "subsequent_token_reduction_percent": 0.62574731,
+        "subsequent_token_speedup": 1.006296876
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "all_warmup_and_measured_runs_passed": true
+    },
+    "logs": {
+      "baseline_round1": {
+        "local_path": "/tmp/q3x-downnorm-final-e2e-b1.log",
+        "bytes": 5650,
+        "sha256": "9a2de013463e62872e0d6ba4bc9e1b2daa039cff885fa1107d79fcacdc9a11b1"
+      },
+      "candidate_round1": {
+        "local_path": "/tmp/q3x-downnorm-final-e2e-c1.log",
+        "bytes": 5650,
+        "sha256": "942294721a8adb4f8d4fe32d3feef3f46b5a182ee8591a16af575e4725fc6e87"
+      },
+      "candidate_round2": {
+        "local_path": "/tmp/q3x-downnorm-final-e2e-c2.log",
+        "bytes": 5650,
+        "sha256": "9d0cbb509e678de6dd39fa2338cf2f88137d3ecab9973c6b5d6ec446208c864b"
+      },
+      "baseline_round2": {
+        "local_path": "/tmp/q3x-downnorm-final-e2e-b2.log",
+        "bytes": 5650,
+        "sha256": "d2ed78d8e09543212d9216b0ee4d865057bac00c6cf0bf5bcc68af6a71a1504d"
+      },
+      "checked_in": false
+    }
+  },
+  "correctness": {
+    "full_model_contract": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44
+    },
+    "binary_independent_trace_contract": {
+      "command_template": "qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87 --trace",
+      "requested_prefill_chunk_size": 16,
+      "effective_prefill_chunk_size": 1,
+      "trace_mode_forces_effective_c1": true,
+      "selected_fields": "prompt.ids, generated.ids/text/stop_reason/step_count, and every trace.* line",
+      "baseline_trace_count": 44,
+      "candidate_trace_count": 44,
+      "trace_lines_per_log": 5897,
+      "selected_contract_lines_per_file": 5902,
+      "selected_field_diff_u_empty": true,
+      "base_log": {
+        "local_path": "/tmp/q3x-downnorm-final-trace-base.log",
+        "bytes": 578927,
+        "sha256": "c3767c2e1b6f43124ad4dc38a56d4f8853c82a081aec17722f3ffa801b08b173"
+      },
+      "candidate_log": {
+        "local_path": "/tmp/q3x-downnorm-final-trace-candidate.log",
+        "bytes": 578927,
+        "sha256": "281b770425558314198b2df11c0efab51c7ac45c71a4cb0248b4d723cac452b3"
+      },
+      "base_selected_contract": {
+        "local_path": "/tmp/q3x-downnorm-final-trace-base.contract",
+        "bytes": 577131,
+        "sha256": "fd6a4979955696af76223f83fcef8f9eb6beef51892a1bd709002d6a2c50afad"
+      },
+      "candidate_selected_contract": {
+        "local_path": "/tmp/q3x-downnorm-final-trace-candidate.contract",
+        "bytes": 577131,
+        "sha256": "fd6a4979955696af76223f83fcef8f9eb6beef51892a1bd709002d6a2c50afad"
+      },
+      "selected_contract_files_byte_identical": true
+    },
+    "retained_standalone_full_model_exact_gates": [
+      {
+        "prefill_chunk_size": 1,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-exact27b-c1.log",
+          "bytes": 242,
+          "sha256": "75519a457925da353d09fcbe2468d8b834ef2e31758644a289fe798413b02af4"
+        }
+      },
+      {
+        "prefill_chunk_size": 8,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-exact27b-c8.log",
+          "bytes": 242,
+          "sha256": "532909776eb46ed4524c626af3babe1fca964b4b05e14c1d5b3d72092eb4954c"
+        }
+      },
+      {
+        "prefill_chunk_size": 16,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-downnorm-final-exact27b-c16.log",
+          "bytes": 242,
+          "sha256": "eff75df475d8299a49c1fee0bab69014ad7083c9cbf481afd3849c3887286e29"
+        }
+      }
+    ],
+    "candidate_benchmark_and_profile_exact_generation": true,
+    "release_suite": {
+      "discovered_tests": 52,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-downnorm-final-release-ctest.log",
+        "bytes": 7004,
+        "sha256": "af1c0caac53858e29b18bd169c7ad538d772a7f2c0c185ef666c5e5b3d76969d"
+      }
+    },
+    "asan_ubsan_suite": {
+      "discovered_tests": 51,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "excluded_tests": ["package_consumer"],
+      "asan_options": "detect_leaks=0:halt_on_error=1",
+      "ubsan_options": "halt_on_error=1",
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-downnorm-final-sanitize-ctest.log",
+        "bytes": 6904,
+        "sha256": "6d49f90e2b45ecaa4d76cfb10c1222fdc96b9771d756fe96ee50e839ad945ffc"
+      }
+    },
+    "focused_test_logs": {
+      "default_sm87": {
+        "local_path": "/tmp/q3x-downnorm-final-default-sm87.log",
+        "bytes": 24757,
+        "sha256": "94aa2db7f6ccf5050e9101bc49d6f0355633fcf7212e780b61158f2fc3d2d5b2"
+      },
+      "projection_dispatch": {
+        "local_path": "/tmp/q3x-downnorm-final-dispatch.log",
+        "bytes": 41,
+        "sha256": "ba2ca7dac9cc08dd583923d5f958c891908ec56ff7e8663b0ba893897c857b0b"
+      }
+    },
+    "dispatch_graph_contracts": {
+      "low_level_public_exact_kernel_nodes": 1,
+      "low_level_grid_blocks": 64,
+      "low_level_threads_per_block": 256,
+      "low_level_dynamic_shared_bytes": 0,
+      "runtime_aligned_exact_kernel_nodes": 1,
+      "runtime_unaligned_exact_kernel_nodes": 2,
+      "runtime_near_shape_kernel_nodes": 2,
+      "runtime_reference_kernel_nodes": 3,
+      "small_reference_fallback_bitwise_equal_old_chain": true,
+      "low_level_invalid_cases": 42,
+      "invalid_call_kernel_nodes": 0,
+      "large_exact_shape_default_numerical_fixture": true,
+      "public_and_performance_launcher_same_kernel_function": true
+    }
+  },
+  "local_artifact_accounting": {
+    "q3x_downnorm_final_glob_file_count": 35,
+    "all_glob_paths_referenced_with_bytes_and_sha256": true,
+    "additional_binary_paths_referenced_with_bytes_and_sha256": 3,
+    "all_local_artifacts_checked_in": false
+  },
+  "limitations": [
+    "all measurements used unlocked clocks",
+    "the optional microbenchmark uses a deterministic checkpoint-like synthetic NVFP4 distribution rather than checkpoint payload bytes",
+    "the optional microbenchmark is a kernel promotion gate, not a model or serving-throughput result",
+    "the Nsight comparison uses separate baseline and candidate reports rather than a same-binary trial",
+    "the tracked down-plus-norm target group saved 21.249984 ms while non-target kernels increased by 1.533024 ms, so only the separately grouped target delta is attributable to this fusion",
+    "the B-C-C-B comparison has two process medians per implementation and is not randomized",
+    "the B-C-C-B logs do not embed executable hashes; variant identity relies on the recorded run order and separately hashed detached-base and candidate binaries",
+    "the end-to-end result is batch-one generation for one short prompt and excludes engine-load time",
+    "the 64-block cooperative grid exactly consumes the measured 16-SM times four-active-block resident capacity on AGX Orin, leaving no residency margin",
+    "a smaller or resource-constrained SM87 device with resident cooperative capacity below 64 blocks cannot run the exact fused launch; future support requires a capability-aware ordered fallback, and the current public launch propagates the cooperative launch error instead of silently changing algorithms",
+    "the exact fusion is limited to aligned SM87 NVFP4 M1 [5120,17408]; every other valid backend, shape, alignment, token count, and prefill route preserves the ordered fallback",
+    "ASan and UBSan instrument host code only; CUDA compute-sanitizer debugging features are disabled on this device",
+    "the raw logs, binaries, CSV exports, SQLite exports, and Nsight reports are local artifacts and are not checked into the repository",
+    "this diagnostic does not establish continuous-batching, concurrent-request, or serving throughput"
+  ]
+}

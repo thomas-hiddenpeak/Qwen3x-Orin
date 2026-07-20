@@ -304,6 +304,11 @@ struct FullAttentionQKvLaunchPlan {
   ProjectionTileSpans value;
 };
 
+struct DownResidualNormLaunchPlan {
+  bool aligned_nvfp4_fusion = false;
+  ProjectionTileSpans down;
+};
+
 [[nodiscard]] int validate_full_attention_q_kv_launch(
     const ProjectionBackend backend, const LinearWeight& q_weight,
     const LinearWeight& key_weight, const LinearWeight& value_weight,
@@ -459,6 +464,94 @@ struct FullAttentionQKvLaunchPlan {
   return plan->gate.rows == plan->up.rows
              ? static_cast<int>(cudaSuccess)
              : invalid_value();
+}
+
+[[nodiscard]] int validate_mlp_down_residual_norm_launch(
+    const ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    DownResidualNormLaunchPlan* const plan) noexcept {
+  constexpr std::size_t kHiddenElements = 5'120U;
+  constexpr std::size_t kHiddenBytes =
+      kHiddenElements * sizeof(std::uint16_t);
+  if (plan == nullptr) {
+    return invalid_value();
+  }
+  *plan = DownResidualNormLaunchPlan{};
+
+  if (supports_nvfp4_down_residual_norm_fusion(backend, down_weight)) {
+    const auto& down = std::get<NvFp4LinearWeight>(down_weight);
+    plan->aligned_nvfp4_fusion =
+        pointer_is_aligned(down.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(activation, alignof(std::uint64_t)) &&
+        pointer_is_aligned(residual_left, alignof(std::uint16_t)) &&
+        pointer_is_aligned(norm_weight, alignof(std::uint16_t)) &&
+        pointer_is_aligned(raw_down_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(residual_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(normalized_output, alignof(std::uint16_t));
+  }
+
+  const int projection_validation = validate_projection_tile(
+      backend, down_weight, activation, 1U, fp32_scratch, scratch_elements,
+      raw_down_output, &plan->down, plan->aligned_nvfp4_fusion);
+  if (projection_validation != static_cast<int>(cudaSuccess)) {
+    return projection_validation;
+  }
+  if (plan->down.rows != kHiddenElements || !std::isfinite(epsilon) ||
+      epsilon <= 0.0F || residual_left == nullptr || norm_weight == nullptr ||
+      residual_output == nullptr || normalized_output == nullptr ||
+      byte_range_overflows(residual_left, kHiddenBytes) ||
+      byte_range_overflows(norm_weight, kHiddenBytes) ||
+      byte_range_overflows(residual_output, kHiddenBytes) ||
+      byte_range_overflows(normalized_output, kHiddenBytes) ||
+      ranges_overlap(raw_down_output, plan->down.output_bytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(raw_down_output, plan->down.output_bytes, norm_weight,
+                     kHiddenBytes) ||
+      ranges_overlap(raw_down_output, plan->down.output_bytes,
+                     residual_output, kHiddenBytes) ||
+      ranges_overlap(raw_down_output, plan->down.output_bytes,
+                     normalized_output, kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, activation,
+                     plan->down.input_bytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, norm_weight,
+                     kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, normalized_output,
+                     kHiddenBytes) ||
+      ranges_overlap(normalized_output, kHiddenBytes, activation,
+                     plan->down.input_bytes) ||
+      ranges_overlap(normalized_output, kHiddenBytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(normalized_output, kHiddenBytes, norm_weight,
+                     kHiddenBytes) ||
+      overlaps_projection_weights(residual_output, kHiddenBytes,
+                                  plan->down) ||
+      overlaps_projection_weights(normalized_output, kHiddenBytes,
+                                  plan->down)) {
+    return invalid_value();
+  }
+
+  if (requires_projection_scratch(backend, down_weight)) {
+    const std::size_t scratch_bytes = plan->down.rows * sizeof(float);
+    if (ranges_overlap(fp32_scratch, scratch_bytes, residual_left,
+                       kHiddenBytes) ||
+        ranges_overlap(fp32_scratch, scratch_bytes, norm_weight,
+                       kHiddenBytes) ||
+        ranges_overlap(fp32_scratch, scratch_bytes, residual_output,
+                       kHiddenBytes) ||
+        ranges_overlap(fp32_scratch, scratch_bytes, normalized_output,
+                       kHiddenBytes)) {
+      return invalid_value();
+    }
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace
@@ -996,6 +1089,46 @@ int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
   return launch_mlp_gate_up_silu_to_bf16_cuda(
       backend, gate_weight, up_weight, residual_right_and_normalized,
       fp32_scratch, scratch_elements, gate_output, up_output, cuda_stream);
+}
+
+int launch_mlp_down_residual_norm_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  DownResidualNormLaunchPlan plan;
+  const int validation = validate_mlp_down_residual_norm_launch(
+      backend, down_weight, activation, residual_left, norm_weight, epsilon,
+      fp32_scratch, scratch_elements, raw_down_output, residual_output,
+      normalized_output, &plan);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+
+  if (plan.aligned_nvfp4_fusion) {
+    const auto& down = std::get<NvFp4LinearWeight>(down_weight);
+    return kernels::
+        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+            down.packed_weight, down.block_scale, down.weight_scale_2,
+            activation, residual_left, norm_weight, epsilon,
+            down.output_size, down.input_size, raw_down_output,
+            residual_output, normalized_output, cuda_stream);
+  }
+
+  const int projection_status = launch_projection_to_bf16_cuda(
+      backend, down_weight, activation, fp32_scratch, scratch_elements,
+      raw_down_output, cuda_stream);
+  if (projection_status != static_cast<int>(cudaSuccess)) {
+    return projection_status;
+  }
+  return launch_residual_add_centered_rms_norm_5120_cuda(
+      residual_left, raw_down_output, norm_weight, epsilon, residual_output,
+      normalized_output, cuda_stream);
 }
 
 }  // namespace q3x::runtime

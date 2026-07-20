@@ -122,6 +122,12 @@ The diagnostic Phase 3 records are:
   five same-binary production-shaped gates, compiler resources, complete
   dispatch/alias contracts, matched profiles, detached-base B-C-C-B evidence,
   exact model gates, and diagnostic limitations.
+- [`qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json`](qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json),
+  which records the exact aligned NVFP4 M1 dense-MLP down projection plus
+  residual-add and centered-RMSNorm cooperative fusion, five production-shaped
+  gates, finite and signed-nonfinite bitwise contracts, zero-node validation,
+  matched profiles, detached-base B-C-C-B and full-trace equality, exact model
+  gates, the zero-residency-margin AGX Orin constraint, and diagnostic limits.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

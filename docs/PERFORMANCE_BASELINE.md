@@ -52,6 +52,9 @@ recorded in
 The subsequent exact FP8 M1 full-attention Q+K/V fusion diagnostic is recorded
 in
 [`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
+The subsequent exact NVFP4 M1 down/residual/centered-RMSNorm cooperative fusion
+diagnostic is recorded in
+[`qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json).
 
 ## Method
 
@@ -1424,6 +1427,132 @@ independent model profiles, and detached-base B-C-C-B result remain distinct
 batch-one, local-artifact diagnostics rather than randomized, release,
 concurrent-request, or serving-throughput claims.
 
+## NVFP4 down/residual/centered-RMSNorm cooperative fusion
+
+The worktree based on `d047007d37264793153b0d81d1c5f30bd4bf30cc`
+extends the exact aligned M1 NVFP4 `[5120,17408]` dense-MLP down projection
+across its following BF16 residual-add and centered-RMSNorm boundary. The
+projection phase retains the production activation-staged accumulation and
+BF16-RNE raw-down store. Each CTA then publishes its assigned rounded residual
+rows, a cooperative grid synchronization makes all 5,120 residual values
+visible, and every CTA repeats the exact 256-thread RMS reduction. The first
+20 CTAs publish disjoint 256-element normalized slices. This preserves three
+separate public BF16 boundaries--raw down, rounded residual, and normalized
+next-layer input--rather than hiding the trace-visible raw projection.
+
+The kernel launches 64 cooperative CTAs of 256 threads. It uses 64 registers
+per thread, 35,904 static-shared bytes, zero local bytes, and permits four
+active CTAs per SM. The tested Jetson AGX Orin has 16 SMs, so its resident-grid
+capacity is exactly `16 * 4 = 64` CTAs: sufficient for the grid-wide barrier,
+but with no capacity margin. Any resource change that reduced residency, or a
+different SM count/configuration, would require revalidation. This is therefore
+an AGX Orin `sm_87` result, not a general cooperative-kernel portability claim.
+
+Eligibility is explicit SM87, M1, a valid NVFP4 payload at the exact
+`[5120,17408]` shape, 4-byte-aligned packed weights, an 8-byte-aligned BF16
+activation, and naturally aligned BF16 residual/norm inputs and three mutually
+disjoint outputs. The runtime validates the weight and auxiliary payloads,
+device-scalar ranges, activation, residual input, norm weight, all three output
+spans, fallback scratch, overflows, and cross-aliases before its first enqueue;
+safe read-only overlaps remain allowed. Exact aligned dispatch captures one
+kernel node. Unaligned or near-miss SM87 NVFP4 retains the old down projection
+then residual/norm sequence with two nodes, while reference NVFP4 retains its
+projection, BF16 conversion, and residual/norm sequence with three. Other
+types/backends and C2 through C16 prefill retain their prior valid routes.
+
+The decode workspace deliberately reuses the dead post-SiLU up buffer
+`projection[1]` for raw down, writes the public residual to `hidden[0]`, and
+writes the normalized next-layer input to `hidden[1]`. `trace_layer_hidden`
+copies from `projection[1]`, preserving the raw-down trace topology; the final
+layer selects final-norm weights before dispatch, while other layers select the
+next layer's input-norm weights.
+
+The default production gate captures one node at grid 64/block 256 and checks
+the exact resource/capacity contract. Its finite fixture reports zero bitwise
+mismatches for all 5,120 raw, residual, and normalized BF16 outputs with intact
+guards. Two signed-nonfinite fixtures--one injected through the residual input
+and one through the norm weight--also report zero bitwise mismatches for all
+three outputs, correct class/sign behavior, and intact guards. Forty-two bad
+shape, null, alignment, overflow, input/output-alias, and output/output-alias
+cases all return before enqueue and capture zero graph nodes. The higher-level
+dispatch gate additionally covers malformed weight kinds/payloads, both device
+scalars, scratch sizing and aliases, and the one-node/two-node/three-node route
+matrix. A small `[5120,16]` fallback fixture matches the old raw, residual, and
+normalized chain bitwise.
+
+The isolated performance gate uses deterministic synthetic NVFP4 packed
+weights, checkpoint-like E4M3FN block scales, and finite BF16 activation,
+residual, and norm inputs. Each independent process runs ten paired warmups,
+then five baseline/candidate/candidate/baseline rounds with 40 launches per
+timed pass. Each baseline/candidate cell is the arithmetic mean of its ten
+pass means across the five rounds, and speedup is the ratio of those means.
+The frozen acceptance threshold is 1.005x:
+
+| Independent process | Down plus residual/norm | Cooperative fusion | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.329520 ms | 0.319087 ms | 1.03270x |
+| 2 | 0.331475 ms | 0.322251 ms | 1.02862x |
+| 3 | 0.329008 ms | 0.318182 ms | 1.03403x |
+| 4 | 0.329976 ms | 0.319720 ms | 1.03208x |
+| 5 | 0.329373 ms | 0.318930 ms | 1.03274x |
+
+Speedup min/median/mean/max is
+1.02862x/1.03270x/1.032034x/1.03403x. Baseline-time
+min/median/mean/max is 0.329008/0.329520/0.329870/0.331475 ms; candidate-time
+min/median/mean/max is 0.318182/0.319087/0.319634/0.322251 ms. This is a
+synthetic same-binary gate rather than checkpoint-payload or end-to-end timing.
+
+The matched max-26-token Nsight profiles compare an independently rebuilt
+detached `d047007` base with the candidate under the same pinned-model command.
+They are separate unlocked-clock processes:
+
+| Profile group | Detached base | Candidate | Change |
+| --- | ---: | ---: | ---: |
+| NVFP4 down projection | 1,664 / 521.471936 ms | absorbed | -1,664 launches |
+| Residual add + centered RMSNorm | 1,664 / 38.932800 ms | absorbed | -1,664 launches |
+| Down/residual/norm cooperative fusion | absent | 1,664 / 539.154752 ms | one kernel per layer/step |
+| Directly replaced chain | 3,328 / 560.404736 ms | 1,664 / 539.154752 ms | -1,664 / -21.249984 ms (3.791899%) |
+| All CUDA kernels | 16,470 / 3,380.586880 ms | 14,806 / 3,360.869920 ms | -1,664 / -19.716960 ms (0.583241%) |
+| Profiled generation | 3,415.619 ms | 3,392.935 ms | -22.684 ms (0.664126%) |
+
+The directly replaced-chain row is the reliable kernel attribution. Aggregate
+non-target kernels increased by 1.533024 ms in aggregate, offsetting the
+21.249984 ms target saving to the 19.716960 ms all-CUDA reduction. Aggregate
+kernel and generation deltas also contain process-to-process clock and
+unrelated-kernel variation. The base report is 1,224,976 bytes with SHA-256
+`5cbff073881a6db409c25d0676bbf3f655ee15d8ab8cc42b3ffb6bfb419af3fb`;
+the candidate is 1,121,911 bytes with SHA-256
+`2f9f99bb05e6fd1925a0565e2fa9ef294f488ca84af5d1ad8df60370dfa06e5f`.
+
+The detached-base B-C-C-B comparison is a third measurement. Each process
+loads one engine, warms once, and measures five max-26 generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,378.228 ms | 555.270 ms | 112.920 ms |
+| Candidate 1 | 3,358.844 ms | 554.479 ms | 112.171 ms |
+| Candidate 2 | 3,360.510 ms | 554.637 ms | 112.226 ms |
+| Base 2 | 3,376.944 ms | 555.207 ms | 112.890 ms |
+
+| Average of two process medians | Detached base | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,377.5860 ms | 3,359.6770 ms | 17.9090 ms (0.530231%) |
+| Time to first token | 555.2385 ms | 554.5580 ms | 0.6805 ms (0.122560%) |
+| Subsequent token | 112.9050 ms | 112.1985 ms | 0.7065 ms (0.625747%) |
+
+Every warmup and measured generation retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 runner steps. A separate
+detached-base/candidate max-26 `--trace` comparison requested C16 and, as the
+trace contract requires, reported effective C1; its full 5,902-line contract,
+covering every layer-boundary hash in all 44 steps plus the prompt/generated
+contract, matched line by line. Dedicated C1, C8, and C16
+oracle processes passed. Release reported zero failures across 52 discovered
+tests with four skips. ASan/UBSan reported zero failures across 51 discovered
+tests with four skips and `package_consumer` excluded. Clocks were unlocked.
+The synthetic microbenchmark, independent profiles, detached-base B-C-C-B,
+and trace comparison remain distinct batch-one local-artifact diagnostics,
+not randomized, release, concurrent-request, or serving-throughput claims.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1451,6 +1580,10 @@ controller, request-plan, and full-model gates. C1, C8, and C16 all retain the
 same fixed 19/26-token, text, stop, and 44-step result; M16 Tensor Core kernels
 are accepted by per-operation tolerance and deterministic-replay gates rather
 than a blanket bitwise-equivalence claim.
+For the latest down/residual/norm milestone, independent detached `d047007`
+and candidate max-26 trace runs (requested C16, effective C1) also produced an
+empty diff across the full 5,902-line trace contract: every layer-boundary hash
+in all 44 steps is line-for-line identical.
 
 ## Phase 3 decision
 
@@ -1484,15 +1617,19 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 11. fuse post-attention BF16 residual add and centered RMSNorm into that exact
     aligned NVFP4 M1 gate/up/SiLU route, retaining the fully prevalidated
     ordered chain for every fallback;
-12. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
+12. fuse the exact aligned NVFP4 M1 `[5120,17408]` down projection and its
+    following BF16 residual-add/centered-RMSNorm boundary only on the validated
+    64-CTA cooperative AGX Orin route, retaining three public BF16 boundaries
+    and the prevalidated ordered fallback everywhere else;
+13. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
     `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
     test baseline and all other fallbacks;
-13. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
+14. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
     retaining the four-row lane-striped predecessor as a same-binary test
     baseline;
-14. retain exact-token, numerical, replay, and memory gates for every dispatch
+15. retain exact-token, numerical, replay, and memory gates for every dispatch
     change;
-15. lock clocks when privileged access is available before making a formal
+16. lock clocks when privileged access is available before making a formal
     release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

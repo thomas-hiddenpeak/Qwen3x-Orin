@@ -91,6 +91,33 @@ namespace q3x::kernels {
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Exact M=1 NVFP4 down projection for checkpoint shape [5120, 17408], fused
+// with the following residual add and centered RMSNorm. The three outputs
+// preserve the unfused BF16 boundaries in order:
+//
+//   raw_down_output = BF16(down_projection)
+//   residual_output = BF16(residual_left + raw_down_output)
+//   normalized_output = BF16(residual_output * inverse_rms * (1 + weight))
+//
+// Only rows=5120 and columns=17408 are accepted. weight_scale_2 must be
+// finite and nonnegative, and epsilon must be finite and positive. Packed
+// weights require 4-byte alignment, activation requires 8-byte alignment,
+// and every other BF16 pointer requires 2-byte alignment. The three output
+// spans must be mutually disjoint and disjoint from every input, packed-
+// weight, and block-scale span. Invalid arguments return
+// cudaErrorInvalidValue before any work is enqueued.
+[[nodiscard]] int launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activation,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output,
+    std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Fused checkpoint gate/up projection for the exact NVFP4 [17408, 5120] M=1
 // shape. Both projections first round independently to BF16. gate_output is
 // then overwritten with BF16(SiLU(rounded_gate) * rounded_up), while up_output

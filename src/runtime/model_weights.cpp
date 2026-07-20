@@ -719,6 +719,20 @@ bool supports_nvfp4_gate_up_silu_fusion(
          gate->input_size == kColumns && up->input_size == kColumns;
 }
 
+bool supports_nvfp4_down_residual_norm_fusion(
+    const ProjectionBackend backend,
+    const LinearWeight& down_weight) noexcept {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      down_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const down = std::get_if<NvFp4LinearWeight>(&down_weight);
+  return has_valid_nvfp4_payload(down) && down->output_size == kRows &&
+         down->input_size == kColumns;
+}
+
 WeightBindResult bind_qwen36_27b_weights(
     const WeightBindingSource& source) {
   try {

@@ -131,6 +131,14 @@ enum class ProjectionBackend : std::uint8_t {
     ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight) noexcept;
 
+// True only for the production dense-MLP down projection followed by the
+// decoder residual/centered-RMSNorm boundary: the explicitly selected SM87
+// backend and one valid NVFP4 [5120, 17408] matrix. This is shape/type/payload
+// eligibility only; launch-time alignment, ranges, scratch, residual/norm
+// operands, outputs, and aliases remain the dispatcher's responsibility.
+[[nodiscard]] bool supports_nvfp4_down_residual_norm_fusion(
+    ProjectionBackend backend, const LinearWeight& down_weight) noexcept;
+
 struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
@@ -418,6 +426,27 @@ launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
     float* fp32_scratch, std::size_t scratch_elements,
     std::uint16_t* residual_output,
     std::uint16_t* gate_output, std::uint16_t* up_output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Validates and launches a single-token dense-MLP down projection followed by
+// the decoder residual add and centered RMSNorm boundary. The exact aligned
+// SM87 NVFP4 [5120, 17408] route uses one cooperative kernel. Every other
+// valid weight/backend combination preserves the existing ordered down
+// projection then residual/norm launches. raw_down_output, residual_output,
+// and normalized_output are three distinct BF16 boundaries; keeping raw down
+// separate preserves decode trace observability. The complete operation,
+// including all weight payloads/device scalars and fallback scratch, is
+// rejected before its first enqueue. Read-only operands may overlap each
+// other, but no writable range may overlap any other operand.
+[[nodiscard]] int launch_mlp_down_residual_norm_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* activation,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* norm_weight, float epsilon,
+    float* fp32_scratch, std::size_t scratch_elements,
+    std::uint16_t* raw_down_output,
+    std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
     void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

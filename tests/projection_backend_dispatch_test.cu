@@ -12,6 +12,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -2916,6 +2917,509 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
                           "small reference residual-norm MLP fallback");
 }
 
+void test_nvfp4_mlp_down_residual_norm_dispatch(TestContext& test) {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kExactColumns = 17'408U;
+  constexpr std::size_t kOutputBytes =
+      kRows * sizeof(std::uint16_t);
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr float kEpsilon = 1.0e-6F;
+
+  const auto* const fake_packed =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const fake_block_scales =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
+  const auto* const fake_residual_left =
+      reinterpret_cast<const std::uint16_t*>(0x40'0000'0000ULL);
+  const auto* const fake_norm_weight =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const fake_raw =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const fake_residual =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+  auto* const fake_normalized =
+      reinterpret_cast<std::uint16_t*>(0x80'0000'0000ULL);
+  const auto* const fake_weight_scale =
+      reinterpret_cast<const float*>(0x90'0000'0000ULL);
+  const auto* const fake_input_scale =
+      reinterpret_cast<const float*>(0x91'0000'0000ULL);
+  auto* const fake_scratch =
+      reinterpret_cast<float*>(0xa0'0000'0000ULL);
+
+  const runtime::LinearWeight exact = runtime::NvFp4LinearWeight{
+      fake_packed, fake_block_scales, fake_weight_scale, fake_input_scale,
+      kWeightScale, 1.0F, kRows, kExactColumns};
+  test.expect(runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, exact),
+              "exact NVFP4 down payload selects residual/norm fusion");
+  test.expect(!runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kReference, exact),
+              "reference backend does not select down residual/norm fusion");
+  const runtime::LinearWeight near_columns = runtime::NvFp4LinearWeight{
+      fake_packed, fake_block_scales, fake_weight_scale, fake_input_scale,
+      kWeightScale, 1.0F, kRows, kExactColumns - 16U};
+  test.expect(!runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  near_columns),
+              "near-column NVFP4 down shape does not select fusion");
+  const runtime::LinearWeight near_rows = runtime::NvFp4LinearWeight{
+      fake_packed, fake_block_scales, fake_weight_scale, fake_input_scale,
+      kWeightScale, 1.0F, kRows - 1U, kExactColumns};
+  test.expect(!runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, near_rows),
+              "near-row NVFP4 down shape does not select fusion");
+  const runtime::LinearWeight invalid_payload = runtime::NvFp4LinearWeight{
+      fake_packed, nullptr, fake_weight_scale, fake_input_scale,
+      kWeightScale, 1.0F, kRows, kExactColumns};
+  test.expect(!runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  invalid_payload),
+              "incomplete NVFP4 down payload does not select fusion");
+  const runtime::LinearWeight wrong_type = runtime::Bf16LinearWeight{
+      reinterpret_cast<const std::uint16_t*>(fake_packed), kRows,
+      kExactColumns};
+  test.expect(!runtime::supports_nvfp4_down_residual_norm_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  wrong_type),
+              "BF16 down payload does not select NVFP4 fusion");
+
+  const auto launch = [&](const runtime::ProjectionBackend backend,
+                          const runtime::LinearWeight& weight,
+                          const std::uint16_t* activation,
+                          const std::uint16_t* residual_left,
+                          const std::uint16_t* norm_weight,
+                          const float epsilon, float* scratch,
+                          const std::size_t scratch_elements,
+                          std::uint16_t* raw, std::uint16_t* residual,
+                          std::uint16_t* normalized,
+                          cudaStream_t stream) noexcept {
+    return runtime::launch_mlp_down_residual_norm_to_bf16_cuda(
+        backend, weight, activation, residual_left, norm_weight, epsilon,
+        scratch, scratch_elements, raw, residual, normalized,
+        static_cast<void*>(stream));
+  };
+
+  std::size_t exact_total_nodes = 0U;
+  const std::size_t exact_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, fake_residual,
+                      fake_normalized, stream);
+      },
+      "exact down residual/norm fusion graph", &exact_total_nodes);
+  test.expect(exact_total_nodes == 1U && exact_kernel_nodes == 1U,
+              "exact aligned NVFP4 down residual/norm graph has one kernel");
+
+  std::size_t read_overlap_total_nodes = 0U;
+  const std::size_t read_overlap_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left,
+                      fake_residual_left, kEpsilon, nullptr, 0U, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "safe read-only overlap down residual/norm graph",
+      &read_overlap_total_nodes);
+  test.expect(read_overlap_total_nodes == 1U &&
+                  read_overlap_kernel_nodes == 1U,
+              "read-only residual/norm overlap remains fusion-eligible");
+
+  const auto* const unaligned_activation =
+      reinterpret_cast<const std::uint16_t*>(0x30'0000'0002ULL);
+  std::size_t unaligned_total_nodes = 0U;
+  bool unaligned_linear = false;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      unaligned_activation, fake_residual_left,
+                      fake_norm_weight, kEpsilon, nullptr, 0U, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "unaligned down residual/norm fallback graph", &unaligned_total_nodes,
+      &unaligned_linear);
+  test.expect(unaligned_total_nodes == 2U && unaligned_kernel_nodes == 2U &&
+                  unaligned_linear,
+              "unaligned exact down preserves projection then norm order");
+
+  std::size_t near_total_nodes = 0U;
+  bool near_linear = false;
+  const std::size_t near_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly,
+                      near_columns, fake_activation, fake_residual_left,
+                      fake_norm_weight, kEpsilon, nullptr, 0U, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "near-shape down residual/norm fallback graph", &near_total_nodes,
+      &near_linear);
+  test.expect(near_total_nodes == 2U && near_kernel_nodes == 2U &&
+                  near_linear,
+              "near-shape down preserves projection then norm order");
+
+  std::size_t reference_total_nodes = 0U;
+  bool reference_linear = false;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kReference, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, fake_scratch, kRows, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "reference down residual/norm fallback graph", &reference_total_nodes,
+      &reference_linear);
+  test.expect(reference_total_nodes == 3U && reference_kernel_nodes == 3U &&
+                  reference_linear,
+              "reference down preserves projection-convert-norm order");
+
+  const auto expect_invalid = [&](auto&& invalid_launch,
+                                  const std::string& label) {
+    expect_invalid_capture_has_no_nodes(test,
+                                        std::forward<decltype(invalid_launch)>(
+                                            invalid_launch),
+                                        label);
+  };
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly,
+                      invalid_payload, fake_activation, fake_residual_left,
+                      fake_norm_weight, kEpsilon, nullptr, 0U, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "down residual/norm rejects invalid weight payload");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, near_rows,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, fake_residual,
+                      fake_normalized, stream);
+      },
+      "down residual/norm rejects non-hidden output before projection");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, nullptr, fake_norm_weight, kEpsilon,
+                      nullptr, 0U, fake_raw, fake_residual, fake_normalized,
+                      stream);
+      },
+      "down residual/norm rejects null residual input");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, nullptr, kEpsilon,
+                      nullptr, 0U, fake_raw, fake_residual, fake_normalized,
+                      stream);
+      },
+      "down residual/norm rejects null norm weight");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      0.0F, nullptr, 0U, fake_raw, fake_residual,
+                      fake_normalized, stream);
+      },
+      "down residual/norm rejects zero epsilon");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      std::numeric_limits<float>::quiet_NaN(), nullptr, 0U,
+                      fake_raw, fake_residual, fake_normalized, stream);
+      },
+      "down residual/norm rejects NaN epsilon");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, nullptr, fake_residual,
+                      fake_normalized, stream);
+      },
+      "down residual/norm rejects null raw output");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, nullptr,
+                      fake_normalized, stream);
+      },
+      "down residual/norm rejects null residual output");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, fake_residual, nullptr,
+                      stream);
+      },
+      "down residual/norm rejects null normalized output");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U,
+                      const_cast<std::uint16_t*>(fake_residual_left),
+                      fake_residual, fake_normalized, stream);
+      },
+      "raw down output rejects residual-input alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw,
+                      const_cast<std::uint16_t*>(fake_norm_weight),
+                      fake_normalized, stream);
+      },
+      "residual output rejects norm-weight alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw, fake_residual,
+            const_cast<std::uint16_t*>(fake_residual_left), stream);
+      },
+      "normalized output rejects residual-input alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw,
+            const_cast<std::uint16_t*>(fake_activation), fake_normalized,
+            stream);
+      },
+      "residual output rejects activation alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, fake_raw,
+                      fake_normalized, stream);
+      },
+      "residual output rejects raw-down alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kSm87WeightOnly, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, nullptr, 0U, fake_raw, fake_residual,
+                      fake_residual, stream);
+      },
+      "normalized output rejects residual-output alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<std::uint8_t*>(fake_packed)),
+            fake_normalized, stream);
+      },
+      "residual output rejects packed-weight alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw, fake_residual,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<std::uint8_t*>(fake_block_scales)),
+            stream);
+      },
+      "normalized output rejects block-scale alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<float*>(fake_weight_scale)),
+            fake_residual, fake_normalized, stream);
+      },
+      "raw output rejects weight device-scalar alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw, fake_residual,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<float*>(fake_input_scale)),
+            stream);
+      },
+      "normalized output rejects device-scalar alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kReference, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, fake_scratch, kRows - 1U, fake_raw,
+                      fake_residual, fake_normalized, stream);
+      },
+      "reference down residual/norm rejects short scratch");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(
+            runtime::ProjectionBackend::kReference, exact, fake_activation,
+            fake_residual_left, fake_norm_weight, kEpsilon,
+            reinterpret_cast<float*>(
+                const_cast<std::uint16_t*>(fake_norm_weight)),
+            kRows, fake_raw, fake_residual, fake_normalized, stream);
+      },
+      "reference down residual/norm rejects scratch/norm alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        return launch(runtime::ProjectionBackend::kReference, exact,
+                      fake_activation, fake_residual_left, fake_norm_weight,
+                      kEpsilon, reinterpret_cast<float*>(fake_residual),
+                      kRows, fake_raw, fake_residual, fake_normalized,
+                      stream);
+      },
+      "reference down residual/norm rejects scratch/output alias");
+  expect_invalid(
+      [&](cudaStream_t stream) noexcept {
+        const std::uintptr_t near_end =
+            std::numeric_limits<std::uintptr_t>::max() -
+            (kOutputBytes / 2U);
+        return launch(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact,
+            fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+            nullptr, 0U, fake_raw, fake_residual,
+            reinterpret_cast<std::uint16_t*>(near_end), stream);
+      },
+      "down residual/norm rejects wrapping normalized range");
+
+  constexpr std::size_t kSmallColumns = 16U;
+  constexpr std::size_t kPackedBytes = kRows * (kSmallColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kSmallColumns / 16U);
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> block_scales;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> residual_left;
+  DeviceBuffer<std::uint16_t> norm_weight;
+  DeviceBuffer<std::uint16_t> baseline_raw;
+  DeviceBuffer<std::uint16_t> baseline_residual;
+  DeviceBuffer<std::uint16_t> baseline_normalized;
+  DeviceBuffer<std::uint16_t> candidate_raw;
+  DeviceBuffer<std::uint16_t> candidate_residual;
+  DeviceBuffer<std::uint16_t> candidate_normalized;
+  bool ready = packed.allocate(test, kPackedBytes,
+                               "small down packed weights");
+  ready = ready && block_scales.allocate(test, kScaleBytes,
+                                          "small down block scales");
+  ready = ready && companion_scales.allocate(test, 2U,
+                                              "small down companion scales");
+  ready = ready && activation.allocate(test, kSmallColumns,
+                                        "small down activation");
+  ready = ready && residual_left.allocate(test, kRows,
+                                           "small down residual input");
+  ready = ready && norm_weight.allocate(test, kRows,
+                                         "small down norm weight");
+  ready = ready && baseline_raw.allocate(test, kRows,
+                                          "small down baseline raw");
+  ready = ready && baseline_residual.allocate(test, kRows,
+                                               "small down baseline residual");
+  ready = ready && baseline_normalized.allocate(
+                       test, kRows, "small down baseline normalized");
+  ready = ready && candidate_raw.allocate(test, kRows,
+                                           "small down candidate raw");
+  ready = ready && candidate_residual.allocate(
+                       test, kRows, "small down candidate residual");
+  ready = ready && candidate_normalized.allocate(
+                       test, kRows, "small down candidate normalized");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_residual(kRows);
+  std::vector<std::uint16_t> host_norm(kRows);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    host_residual[row] =
+        row % 3U == 0U ? 0x3f80U : (row % 3U == 1U ? 0xbf00U : 0x3e80U);
+    host_norm[row] = row % 2U == 0U ? 0x3f80U : 0x3f00U;
+  }
+  ready = upload(test, packed,
+                 std::vector<std::uint8_t>(kPackedBytes, 0x21U),
+                 "small down packed weights");
+  ready = ready && upload(test, block_scales,
+                           std::vector<std::uint8_t>(kScaleBytes, 0x38U),
+                           "small down block scales");
+  ready = ready && upload(test, companion_scales,
+                           std::vector<float>{kWeightScale, 1.0F},
+                           "small down companion scales");
+  ready = ready && upload(
+                       test, activation,
+                       std::vector<std::uint16_t>{
+                           0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
+                           0x3e80U, 0xbf00U, 0x4040U, 0xc000U,
+                           0x3f40U, 0xbf40U, 0x3fc0U, 0xbfc0U,
+                           0x4080U, 0xc080U, 0x3e00U, 0xbe00U},
+                       "small down activation");
+  ready = ready && upload(test, residual_left, host_residual,
+                           "small down residual input");
+  ready = ready && upload(test, norm_weight, host_norm,
+                           "small down norm weight");
+  if (!ready) {
+    return;
+  }
+  const runtime::LinearWeight small = runtime::NvFp4LinearWeight{
+      packed.get(), block_scales.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kWeightScale, 1.0F, kRows,
+      kSmallColumns};
+
+  int status = runtime::launch_projection_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, small, activation.get(),
+      nullptr, 0U, baseline_raw.get());
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    status = runtime::launch_residual_add_centered_rms_norm_5120_cuda(
+        residual_left.get(), baseline_raw.get(), norm_weight.get(), kEpsilon,
+        baseline_residual.get(), baseline_normalized.get());
+  }
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "small down old projection/norm chain succeeds");
+  status = runtime::launch_mlp_down_residual_norm_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, small, activation.get(),
+      residual_left.get(), norm_weight.get(), kEpsilon, nullptr, 0U,
+      candidate_raw.get(), candidate_residual.get(),
+      candidate_normalized.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "small down composite fallback succeeds");
+  if (static_cast<cudaError_t>(status) != cudaSuccess ||
+      !test.cuda_ok(cudaDeviceSynchronize(),
+                    "synchronize small down composite fallback")) {
+    return;
+  }
+
+  const auto compare = [&](const DeviceBuffer<std::uint16_t>& actual,
+                           const DeviceBuffer<std::uint16_t>& expected,
+                           const std::string& label) {
+    std::vector<std::uint16_t> actual_host(kRows);
+    std::vector<std::uint16_t> expected_host(kRows);
+    bool copied = test.cuda_ok(
+        cudaMemcpy(actual_host.data(), actual.get(), kOutputBytes,
+                   cudaMemcpyDeviceToHost),
+        "download candidate " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_host.data(), expected.get(),
+                                      kOutputBytes, cudaMemcpyDeviceToHost),
+                           "download baseline " + label);
+    if (copied) {
+      test.expect(actual_host == expected_host,
+                  "small down " + label + " is bitwise old chain");
+    }
+  };
+  compare(candidate_raw, baseline_raw, "raw output");
+  compare(candidate_residual, baseline_residual, "residual output");
+  compare(candidate_normalized, baseline_normalized, "normalized output");
+}
+
 void test_fp8_m16_production_dispatch(TestContext& test) {
   constexpr std::size_t kTokens = 16U;
   constexpr std::size_t kRows = 5'120U;
@@ -3581,6 +4085,7 @@ int main() {
   test_fp8_full_attention_q_kv_dispatch(test);
   test_nvfp4_mlp_gate_up_silu_dispatch(test);
   test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(test);
+  test_nvfp4_mlp_down_residual_norm_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

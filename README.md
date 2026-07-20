@@ -204,6 +204,17 @@ boundary, the same exact route also folds BF16 residual addition and centered
 RMSNorm into that launch: CTA 0 writes the public residual, while the normalized
 activation remains CTA-local. C2 through C16, near-miss shapes, unaligned
 operands, and other backends retain the validated ordered fallbacks.
+The following exact aligned SM87 NVFP4 M1 `[5120,17408]` down projection can
+likewise absorb its BF16 residual-add and centered-RMSNorm boundary into one
+64-CTA cooperative launch. It retains three separately rounded public BF16
+boundaries: raw down, residual, and normalized output. A grid synchronization
+separates the raw/residual writes from the norm reduction. On the tested
+16-SM AGX Orin, four active CTAs per SM provide exactly the 64 resident CTAs
+required by the launch, with no cooperative-capacity margin. Decode keeps the
+raw output in the now-dead up workspace for trace capture, the residual in
+`hidden[0]`, and the normalized next-layer input in `hidden[1]`. Near-miss or
+unaligned operands, C2 through C16 prefill, other weight types, and the
+reference backend retain the fully prevalidated down-then-residual/norm chain.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -362,6 +373,19 @@ processes preserve the exact oracle. Clocks remained unlocked, so the three
 separate measurements are diagnostic rather than release or
 serving-throughput evidence; see the
 [FP8 full-attention Q+K/V fusion record](docs/metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
+The next exact aligned NVFP4 M1 down-boundary fusion preserves the independent
+raw-down, BF16 residual, and centered-RMSNorm outputs while replacing the
+down-plus-norm chain with one cooperative kernel. Five independent synthetic
+same-binary processes measure 1.02862x to 1.03403x. Matched max-26 profiles
+replace 3,328 kernels taking 560.404736 ms with 1,664 fused kernels taking
+539.154752 ms, a 21.249984 ms directly attributed reduction. A detached
+`d047007` B-C-C-B diagnostic reduces average total generation from 3,377.5860
+to 3,359.6770 ms (0.530231%) and subsequent-token latency from 112.9050 to
+112.1985 ms (0.625747%). An independent max-26 trace comparison also matches
+the full 5,902-line contract across all 44 steps, and C1, C8, and C16 preserve
+the exact oracle. Clocks remained unlocked, and the zero-margin cooperative
+capacity makes this evidence specific to the tested Jetson AGX Orin; see the
+[NVFP4 down/residual/norm fusion record](docs/metadata/qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

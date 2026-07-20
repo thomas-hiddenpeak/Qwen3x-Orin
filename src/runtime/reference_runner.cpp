@@ -1233,15 +1233,6 @@ ReferenceStepOutcome ReferenceRunner::step(
       return fail_step(launch_failure);
     }
 
-    if (!project(layer_weights.mlp.down_proj, views_.projection[0],
-                 views_.hidden[1], "mlp_down_projection", layer)) {
-      return fail_step(launch_failure);
-    }
-    if (options.capture_trace &&
-        !copy_trace(views_.hidden[1], trace_base, "trace_layer_hidden",
-                    layer)) {
-      return fail_step(launch_failure);
-    }
     const bool is_final_layer =
         layer + 1U == kReferenceDecoderLayerCount;
     const std::uint16_t* const next_norm_weight =
@@ -1249,13 +1240,20 @@ ReferenceStepOutcome ReferenceRunner::step(
             ? weights_->final_norm().data
             : weights_->layer(layer + 1U).input_layernorm.data;
     const char* const residual_norm_operation =
-        is_final_layer ? "layer_residual_final_norm"
-                       : "layer_residual_input_layernorm";
-    if (!check_cuda(launch_residual_add_centered_rms_norm_5120_cuda(
-                        views_.hidden[2], views_.hidden[1], next_norm_weight,
-                        kRmsEpsilon, views_.hidden[0], views_.hidden[1],
-                        stream_),
+        is_final_layer ? "mlp_down_residual_final_norm"
+                       : "mlp_down_residual_input_layernorm";
+    if (!check_cuda(launch_mlp_down_residual_norm_to_bf16_cuda(
+                        projection_backend_, layer_weights.mlp.down_proj,
+                        views_.projection[0], views_.hidden[2],
+                        next_norm_weight, kRmsEpsilon, views_.fp32_scratch,
+                        views_.fp32_scratch_elements, views_.projection[1],
+                        views_.hidden[0], views_.hidden[1], stream_),
                     residual_norm_operation, layer)) {
+      return fail_step(launch_failure);
+    }
+    if (options.capture_trace &&
+        !copy_trace(views_.projection[1], trace_base, "trace_layer_hidden",
+                    layer)) {
       return fail_step(launch_failure);
     }
   }
