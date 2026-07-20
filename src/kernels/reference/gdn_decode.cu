@@ -1628,6 +1628,7 @@ __global__ void gated_delta_net_update_warp_eight_row_lane_striped_kernel(
 // value head, so the following headwise normalization needs only a block
 // barrier. The intermediate is first rounded to and stored as BF16 in output,
 // then read back exactly as the ordered two-kernel reference does.
+template <bool kUseWarpTailReduction>
 __global__ void
 gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
     const std::uint16_t* const conv_qkv,
@@ -1838,11 +1839,38 @@ gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
   // the prototype's static shared-memory footprint equal to production GDN.
   row_scratch[thread] = sum;
   __syncthreads();
-  for (unsigned int stride = 256U / 2U; stride != 0U; stride >>= 1U) {
-    if (thread < stride) {
-      row_scratch[thread] += row_scratch[thread + stride];
+  if constexpr (kUseWarpTailReduction) {
+    // Keep the standalone 256-thread tree's 128/64/32 shared-memory pairings.
+    // Warp zero then performs the identical 16/8/4/2/1 additions with
+    // shuffle-down, and one block barrier publishes lane zero's final sum.
+    for (unsigned int stride = 256U / 2U; stride >= kWarpSize;
+         stride >>= 1U) {
+      if (thread < stride) {
+        row_scratch[thread] += row_scratch[thread + stride];
+      }
+      __syncthreads();
+    }
+    if (thread < kWarpSize) {
+      float warp_partial = row_scratch[thread];
+#pragma unroll
+      for (unsigned int stride = kWarpSize / 2U; stride != 0U;
+           stride >>= 1U) {
+        warp_partial +=
+            __shfl_down_sync(kFullWarpMask, warp_partial, stride);
+      }
+      if (thread == 0U) {
+        row_scratch[0] = warp_partial;
+      }
     }
     __syncthreads();
+  } else {
+    // Test-only all-shared baseline retained for same-binary A/B validation.
+    for (unsigned int stride = 256U / 2U; stride != 0U; stride >>= 1U) {
+      if (thread < stride) {
+        row_scratch[thread] += row_scratch[thread + stride];
+      }
+      __syncthreads();
+    }
   }
   const float inverse_rms =
       rsqrtf(row_scratch[0] /
@@ -2239,7 +2267,7 @@ int launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
   constexpr unsigned int kWarpParallelThreads = 256U;
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<<<
+  gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<true><<<
       static_cast<unsigned int>(kGdnValueHeadCount), kWarpParallelThreads,
       0U, stream>>>(conv_qkv, a, b, A_log, dt_bias, state_input,
                     state_output, l2_epsilon, norm_weight, silu_gate,
@@ -2248,6 +2276,44 @@ int launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
 }
 
 }  // namespace gdn_decode_detail
+
+// Test-only all-shared reduction entry point. It intentionally stays out of
+// the public header and differs from production only in the final RMS tree.
+int launch_gated_delta_net_update_plain_rms_norm_silu_gate_shared_tree_test_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  bool exact_fusion = false;
+  const int validation = validate_gdn_plain_norm_silu_gate_composite(
+      conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, norm_weight, silu_gate, kGdnValueHeadCount,
+      kGdnHeadDimension, norm_epsilon, output, {}, &exact_fusion);
+  if (validation != static_cast<int>(cudaSuccess) || !exact_fusion) {
+    return validation != static_cast<int>(cudaSuccess)
+               ? validation
+               : static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  constexpr unsigned int kWarpParallelThreads = 256U;
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<false>
+      <<<static_cast<unsigned int>(kGdnValueHeadCount), kWarpParallelThreads,
+         0U, stream>>>(conv_qkv, a, b, A_log, dt_bias, state_input,
+                      state_output, l2_epsilon, norm_weight, silu_gate,
+                      norm_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
 
 int launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
     const std::uint16_t* const conv_qkv,
@@ -2308,14 +2374,52 @@ int query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resourc
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel);
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<
+          true>);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel,
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<
+          true>,
+      256, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_shared_tree_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<
+          false>);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<
+          false>,
       256, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
