@@ -80,11 +80,15 @@ template <typename T>
 template <typename Launch>
 [[nodiscard]] std::size_t captured_kernel_node_count(
     TestContext& test, Launch&& launch, const std::string& label,
-    std::size_t* const total_node_count = nullptr) {
+    std::size_t* const total_node_count = nullptr,
+    bool* const linear_kernel_chain = nullptr) {
   constexpr std::size_t kInvalidCount =
       std::numeric_limits<std::size_t>::max();
   if (total_node_count != nullptr) {
     *total_node_count = kInvalidCount;
+  }
+  if (linear_kernel_chain != nullptr) {
+    *linear_kernel_chain = false;
   }
   cudaStream_t stream = nullptr;
   cudaGraph_t graph = nullptr;
@@ -124,6 +128,63 @@ template <typename Launch>
         if (ready && type == cudaGraphNodeTypeKernel) {
           ++kernel_nodes;
         }
+      }
+      if (ready && linear_kernel_chain != nullptr && node_count != 0U &&
+          kernel_nodes == node_count) {
+        std::size_t edge_count = 0U;
+#if CUDART_VERSION >= 12030
+        ready = test.cuda_ok(
+            cudaGraphGetEdges(graph, nullptr, nullptr, nullptr, &edge_count),
+            "count graph edges " + label);
+#else
+        ready = test.cuda_ok(
+            cudaGraphGetEdges(graph, nullptr, nullptr, &edge_count),
+            "count graph edges " + label);
+#endif
+        std::vector<cudaGraphNode_t> from(edge_count);
+        std::vector<cudaGraphNode_t> to(edge_count);
+        if (ready && edge_count != 0U) {
+#if CUDART_VERSION >= 12030
+          ready = test.cuda_ok(
+              cudaGraphGetEdges(graph, from.data(), to.data(), nullptr,
+                                &edge_count),
+              "read graph edges " + label);
+#else
+          ready = test.cuda_ok(
+              cudaGraphGetEdges(graph, from.data(), to.data(), &edge_count),
+              "read graph edges " + label);
+#endif
+        }
+        std::vector<std::size_t> indegree(node_count, 0U);
+        std::vector<std::size_t> outdegree(node_count, 0U);
+        bool known_edges = ready;
+        for (std::size_t edge = 0U; edge < edge_count && known_edges;
+             ++edge) {
+          const auto from_position =
+              std::find(nodes.begin(), nodes.end(), from[edge]);
+          const auto to_position =
+              std::find(nodes.begin(), nodes.end(), to[edge]);
+          known_edges = from_position != nodes.end() &&
+                        to_position != nodes.end();
+          if (known_edges) {
+            ++outdegree[static_cast<std::size_t>(from_position -
+                                                 nodes.begin())];
+            ++indegree[static_cast<std::size_t>(to_position -
+                                                nodes.begin())];
+          }
+        }
+        std::size_t sources = 0U;
+        std::size_t sinks = 0U;
+        bool bounded_degrees = known_edges;
+        for (std::size_t node = 0U; node < node_count; ++node) {
+          sources += indegree[node] == 0U ? 1U : 0U;
+          sinks += outdegree[node] == 0U ? 1U : 0U;
+          bounded_degrees = bounded_degrees && indegree[node] <= 1U &&
+                            outdegree[node] <= 1U;
+        }
+        *linear_kernel_chain =
+            bounded_degrees && edge_count + 1U == node_count &&
+            sources == 1U && sinks == 1U;
       }
     }
   }
@@ -1445,6 +1506,485 @@ void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
                   "invalid Z leaves QKV output untouched");
     }
   }
+}
+
+void test_fp8_full_attention_q_kv_dispatch(TestContext& test) {
+  constexpr std::size_t kQRows = 12'288U;
+  constexpr std::size_t kKvRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr float kQScale = 1.0F / 64.0F;
+  constexpr float kKeyScale = 1.0F / 96.0F;
+  constexpr float kValueScale = 1.0F / 128.0F;
+
+  const auto* const fake_q_weights =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const fake_key_weights =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const fake_value_weights =
+      reinterpret_cast<const std::uint8_t*>(0x30'0000'0000ULL);
+  const auto* const fake_unaligned_value_weights = fake_value_weights + 1U;
+  const auto* const fake_q_weight_scale =
+      reinterpret_cast<const float*>(0x40'0000'0000ULL);
+  const auto* const fake_q_input_scale =
+      reinterpret_cast<const float*>(0x40'0000'0100ULL);
+  const auto* const fake_key_weight_scale =
+      reinterpret_cast<const float*>(0x41'0000'0000ULL);
+  const auto* const fake_key_input_scale =
+      reinterpret_cast<const float*>(0x41'0000'0100ULL);
+  const auto* const fake_value_weight_scale =
+      reinterpret_cast<const float*>(0x42'0000'0000ULL);
+  const auto* const fake_value_input_scale =
+      reinterpret_cast<const float*>(0x42'0000'0100ULL);
+  const auto* const fake_input =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const fake_q_output =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const fake_key_output =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+  auto* const fake_value_output =
+      reinterpret_cast<std::uint16_t*>(0x80'0000'0000ULL);
+  auto* const fake_scratch =
+      reinterpret_cast<float*>(0x90'0000'0000ULL);
+
+  const runtime::LinearWeight q = runtime::Fp8LinearWeight{
+      fake_q_weights, fake_q_weight_scale, fake_q_input_scale, kQScale,
+      1.0F, kQRows, kColumns};
+  const runtime::LinearWeight key = runtime::Fp8LinearWeight{
+      fake_key_weights, fake_key_weight_scale, fake_key_input_scale,
+      kKeyScale, 1.0F, kKvRows, kColumns};
+  const runtime::LinearWeight value = runtime::Fp8LinearWeight{
+      fake_value_weights, fake_value_weight_scale, fake_value_input_scale,
+      kValueScale, 1.0F, kKvRows, kColumns};
+  const runtime::LinearWeight unaligned_value = runtime::Fp8LinearWeight{
+      fake_unaligned_value_weights, fake_value_weight_scale,
+      fake_value_input_scale, kValueScale, 1.0F, kKvRows, kColumns};
+  const runtime::LinearWeight near_q = runtime::Fp8LinearWeight{
+      fake_q_weights, fake_q_weight_scale, fake_q_input_scale, kQScale,
+      1.0F, kQRows - 1U, kColumns};
+  const runtime::LinearWeight near_key = runtime::Fp8LinearWeight{
+      fake_key_weights, fake_key_weight_scale, fake_key_input_scale,
+      kKeyScale, 1.0F, kKvRows - 1U, kColumns};
+  const runtime::LinearWeight near_value_columns =
+      runtime::Fp8LinearWeight{
+          fake_value_weights, fake_value_weight_scale,
+          fake_value_input_scale, kValueScale, 1.0F, kKvRows,
+          kColumns - 1U};
+  const runtime::LinearWeight bf16_q = runtime::Bf16LinearWeight{
+      reinterpret_cast<const std::uint16_t*>(fake_q_weights), kQRows,
+      kColumns};
+  const runtime::LinearWeight malformed_value = runtime::Fp8LinearWeight{
+      fake_value_weights, nullptr, fake_value_input_scale, kValueScale,
+      1.0F, kKvRows, kColumns};
+
+  test.expect(runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, q, key,
+                  value),
+              "production full-attention Q/K/V selects the SM87 fusion");
+  test.expect(runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, q, key,
+                  unaligned_value),
+              "full-attention selector is independent of launch alignment");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kReference, q, key, value),
+              "reference backend never selects full-attention fusion");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, key, q,
+                  value),
+              "full-attention selector requires Q before K/V");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, near_q, key,
+                  value),
+              "full-attention selector rejects a near-miss Q row count");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, q, near_key,
+                  value),
+              "full-attention selector rejects a near-miss K row count");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, q, key,
+                  near_value_columns),
+              "full-attention selector rejects a near-miss V input size");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, bf16_q, key,
+                  value),
+              "full-attention selector rejects a non-FP8 Q type");
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, q, key,
+                  malformed_value),
+              "full-attention selector validates the third payload");
+
+  bool exact_linear = false;
+  std::size_t exact_total_nodes = 0U;
+  const std::size_t exact_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+            fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+            fake_value_output, static_cast<void*>(stream));
+      },
+      "SM87 exact full-attention Q/K/V graph", &exact_total_nodes,
+      &exact_linear);
+  test.expect(exact_total_nodes == 1U && exact_kernel_nodes == 1U &&
+                  exact_linear,
+              "exact aligned full-attention Q/K/V uses one kernel");
+
+  bool unaligned_linear = false;
+  std::size_t unaligned_total_nodes = 0U;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, q, key,
+            unaligned_value, fake_input, nullptr, 0U, fake_q_output,
+            fake_key_output, fake_value_output,
+            static_cast<void*>(stream));
+      },
+      "SM87 unaligned full-attention Q/K/V graph",
+      &unaligned_total_nodes, &unaligned_linear);
+  test.expect(unaligned_total_nodes == 3U &&
+                  unaligned_kernel_nodes == 3U && unaligned_linear,
+              "unaligned V preserves ordered Q then split K/V kernels");
+
+  bool near_key_linear = false;
+  std::size_t near_key_total_nodes = 0U;
+  const std::size_t near_key_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, q, near_key,
+            value, fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+            fake_value_output, static_cast<void*>(stream));
+      },
+      "SM87 near-K full-attention Q/K/V graph", &near_key_total_nodes,
+      &near_key_linear);
+  test.expect(near_key_total_nodes == 3U && near_key_kernel_nodes == 3U &&
+                  near_key_linear,
+              "near-miss K preserves ordered Q then split K/V kernels");
+
+  bool near_q_linear = false;
+  std::size_t near_q_total_nodes = 0U;
+  const std::size_t near_q_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, near_q, key,
+            value, fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+            fake_value_output, static_cast<void*>(stream));
+      },
+      "SM87 near-Q full-attention Q/K/V graph", &near_q_total_nodes,
+      &near_q_linear);
+  test.expect(near_q_total_nodes == 2U && near_q_kernel_nodes == 2U &&
+                  near_q_linear,
+              "near-miss Q preserves ordered Q then fused K/V kernels");
+
+  bool reference_linear = false;
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, q, key, value,
+            fake_input, fake_scratch, kQRows, fake_q_output,
+            fake_key_output, fake_value_output,
+            static_cast<void*>(stream));
+      },
+      "reference full-attention Q/K/V graph", &reference_total_nodes,
+      &reference_linear);
+  test.expect(reference_total_nodes == 6U &&
+                  reference_kernel_nodes == 6U && reference_linear,
+              "reference full-attention preserves ordered three "
+              "GEMV-plus-convert paths");
+
+  const auto expect_invalid =
+      [&](const runtime::ProjectionBackend backend,
+          const runtime::LinearWeight& q_weight,
+          const runtime::LinearWeight& key_weight,
+          const runtime::LinearWeight& value_weight,
+          const std::uint16_t* const input, float* const scratch,
+          const std::size_t scratch_elements,
+          std::uint16_t* const q_output,
+          std::uint16_t* const key_output,
+          std::uint16_t* const value_output,
+          const std::string& label) {
+        expect_invalid_capture_has_no_nodes(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+                  backend, q_weight, key_weight, value_weight, input,
+                  scratch, scratch_elements, q_output, key_output,
+                  value_output, static_cast<void*>(stream));
+            },
+            label);
+      };
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, malformed_value,
+      fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+      fake_value_output,
+      "full-attention validates invalid third weight before Q enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U, fake_q_output, fake_q_output,
+      fake_value_output,
+      "full-attention rejects Q/K output alias before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+      fake_q_output,
+      "full-attention rejects Q/V output alias before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+      fake_key_output,
+      "full-attention rejects K/V output alias before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U,
+      reinterpret_cast<std::uint16_t*>(
+          const_cast<std::uint8_t*>(fake_value_weights)),
+      fake_key_output, fake_value_output,
+      "full-attention rejects Q output over V weights before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U, fake_q_output,
+      reinterpret_cast<std::uint16_t*>(
+          const_cast<std::uint8_t*>(fake_q_weights)),
+      fake_value_output,
+      "full-attention rejects K output over Q weights before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U, fake_q_output, fake_key_output,
+      reinterpret_cast<std::uint16_t*>(
+          const_cast<std::uint8_t*>(fake_key_weights)),
+      "full-attention rejects V output over K weights before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kSm87WeightOnly, q, key, value,
+      fake_input, nullptr, 0U,
+      reinterpret_cast<std::uint16_t*>(
+          const_cast<float*>(fake_value_weight_scale)),
+      fake_key_output, fake_value_output,
+      "full-attention rejects Q output over V scalar before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kReference, q, key, value, fake_input,
+      const_cast<float*>(fake_value_weight_scale), kQRows, fake_q_output,
+      fake_key_output, fake_value_output,
+      "full-attention rejects scratch over V scalar before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kReference, q, key, value, fake_input,
+      reinterpret_cast<float*>(fake_q_output), kQRows, fake_q_output,
+      fake_key_output, fake_value_output,
+      "full-attention rejects scratch over Q output before enqueue");
+  expect_invalid(
+      runtime::ProjectionBackend::kReference, q, key, value, fake_input,
+      fake_scratch, kQRows - 1U, fake_q_output, fake_key_output,
+      fake_value_output,
+      "full-attention rejects insufficient scratch before enqueue");
+
+  constexpr std::size_t kSmallQRows = 4U;
+  constexpr std::size_t kSmallKvRows = 2U;
+  constexpr std::size_t kSmallColumns = 32U;
+  DeviceBuffer<std::uint8_t> small_q_weights;
+  DeviceBuffer<std::uint8_t> small_key_weights;
+  DeviceBuffer<std::uint8_t> small_value_weights;
+  DeviceBuffer<float> small_scales;
+  DeviceBuffer<std::uint16_t> small_input;
+  DeviceBuffer<std::uint16_t> baseline_q;
+  DeviceBuffer<std::uint16_t> baseline_key;
+  DeviceBuffer<std::uint16_t> baseline_value;
+  DeviceBuffer<std::uint16_t> candidate_q;
+  DeviceBuffer<std::uint16_t> candidate_key;
+  DeviceBuffer<std::uint16_t> candidate_value;
+  bool ready = small_q_weights.allocate(
+      test, kSmallQRows * kSmallColumns,
+      "small full-attention Q weights");
+  ready = ready && small_key_weights.allocate(
+                       test, kSmallKvRows * kSmallColumns,
+                       "small full-attention K weights");
+  ready = ready && small_value_weights.allocate(
+                       test, kSmallKvRows * kSmallColumns,
+                       "small full-attention V weights");
+  ready = ready && small_scales.allocate(
+                       test, 6U, "small full-attention scales");
+  ready = ready && small_input.allocate(
+                       test, kSmallColumns, "small full-attention input");
+  ready = ready && baseline_q.allocate(
+                       test, kSmallQRows,
+                       "small full-attention baseline Q output");
+  ready = ready && baseline_key.allocate(
+                       test, kSmallKvRows,
+                       "small full-attention baseline K output");
+  ready = ready && baseline_value.allocate(
+                       test, kSmallKvRows,
+                       "small full-attention baseline V output");
+  ready = ready && candidate_q.allocate(
+                       test, kSmallQRows,
+                       "small full-attention candidate Q output");
+  ready = ready && candidate_key.allocate(
+                       test, kSmallKvRows,
+                       "small full-attention candidate K output");
+  ready = ready && candidate_value.allocate(
+                       test, kSmallKvRows,
+                       "small full-attention candidate V output");
+  if (!ready) {
+    return;
+  }
+
+  constexpr std::array<std::uint8_t, 8U> kQPattern{
+      0x30U, 0x34U, 0x38U, 0xb0U, 0xb4U, 0x28U, 0x3cU, 0xa8U};
+  constexpr std::array<std::uint8_t, 8U> kKeyPattern{
+      0x38U, 0x30U, 0xb4U, 0x28U, 0x34U, 0xb0U, 0x3cU, 0xa8U};
+  constexpr std::array<std::uint8_t, 8U> kValuePattern{
+      0xb8U, 0x34U, 0x30U, 0xa8U, 0x38U, 0xb4U, 0x28U, 0x3cU};
+  std::vector<std::uint8_t> host_small_q(kSmallQRows * kSmallColumns);
+  std::vector<std::uint8_t> host_small_key(kSmallKvRows * kSmallColumns);
+  std::vector<std::uint8_t> host_small_value(kSmallKvRows * kSmallColumns);
+  for (std::size_t index = 0U; index < host_small_q.size(); ++index) {
+    host_small_q[index] =
+        kQPattern[(index + index / kSmallColumns) % kQPattern.size()];
+  }
+  for (std::size_t index = 0U; index < host_small_key.size(); ++index) {
+    host_small_key[index] =
+        kKeyPattern[(3U * index + index / kSmallColumns) %
+                    kKeyPattern.size()];
+    host_small_value[index] =
+        kValuePattern[(5U * index + index / kSmallColumns) %
+                      kValuePattern.size()];
+  }
+  constexpr std::array<std::uint16_t, 8U> kInputPattern{
+      0x3f80U, 0xbf00U, 0x3e80U, 0x3f00U,
+      0xbf80U, 0x3fc0U, 0xbe80U, 0x4000U};
+  std::vector<std::uint16_t> host_small_input(kSmallColumns);
+  for (std::size_t column = 0U; column < kSmallColumns; ++column) {
+    host_small_input[column] =
+        kInputPattern[column % kInputPattern.size()];
+  }
+  ready = upload(test, small_q_weights, host_small_q,
+                 "small full-attention Q weights");
+  ready = ready && upload(test, small_key_weights, host_small_key,
+                          "small full-attention K weights");
+  ready = ready && upload(test, small_value_weights, host_small_value,
+                          "small full-attention V weights");
+  ready = ready && upload(
+                       test, small_scales,
+                       std::vector<float>{1.0F / 16.0F, 1.0F,
+                                          1.0F / 32.0F, 1.0F,
+                                          1.0F / 64.0F, 1.0F},
+                       "small full-attention scales");
+  ready = ready && upload(test, small_input, host_small_input,
+                          "small full-attention input");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight small_q = runtime::Fp8LinearWeight{
+      small_q_weights.get(), small_scales.get(), small_scales.get() + 1U,
+      1.0F / 16.0F, 1.0F, kSmallQRows, kSmallColumns};
+  const runtime::LinearWeight small_key = runtime::Fp8LinearWeight{
+      small_key_weights.get(), small_scales.get() + 2U,
+      small_scales.get() + 3U, 1.0F / 32.0F, 1.0F, kSmallKvRows,
+      kSmallColumns};
+  const runtime::LinearWeight small_value = runtime::Fp8LinearWeight{
+      small_value_weights.get(), small_scales.get() + 4U,
+      small_scales.get() + 5U, 1.0F / 64.0F, 1.0F, kSmallKvRows,
+      kSmallColumns};
+  test.expect(!runtime::supports_fp8_q_kv_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, small_q,
+                  small_key, small_value),
+              "small full-attention fixture exercises fallback");
+
+  int status = runtime::launch_projection_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, small_q,
+      small_input.get(), nullptr, 0U, baseline_q.get());
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, small_key,
+        small_value, small_input.get(), 1U, nullptr, 0U,
+        baseline_key.get(), baseline_value.get());
+  }
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "small old full-attention Q then K/V chain succeeds");
+  status = runtime::launch_full_attention_q_kv_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, small_q, small_key,
+      small_value, small_input.get(), nullptr, 0U, candidate_q.get(),
+      candidate_key.get(), candidate_value.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "small full-attention composite fallback succeeds");
+  if (static_cast<cudaError_t>(status) != cudaSuccess ||
+      !test.cuda_ok(cudaDeviceSynchronize(),
+                    "synchronize small full-attention fallback")) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_baseline_q(kSmallQRows);
+  std::vector<std::uint16_t> host_baseline_key(kSmallKvRows);
+  std::vector<std::uint16_t> host_baseline_value(kSmallKvRows);
+  std::vector<std::uint16_t> host_candidate_q(kSmallQRows);
+  std::vector<std::uint16_t> host_candidate_key(kSmallKvRows);
+  std::vector<std::uint16_t> host_candidate_value(kSmallKvRows);
+  ready = test.cuda_ok(
+      cudaMemcpy(host_baseline_q.data(), baseline_q.get(),
+                 host_baseline_q.size() * sizeof(host_baseline_q.front()),
+                 cudaMemcpyDeviceToHost),
+      "download small baseline Q output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(
+                           host_baseline_key.data(), baseline_key.get(),
+                           host_baseline_key.size() *
+                               sizeof(host_baseline_key.front()),
+                           cudaMemcpyDeviceToHost),
+                       "download small baseline K output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(
+                           host_baseline_value.data(), baseline_value.get(),
+                           host_baseline_value.size() *
+                               sizeof(host_baseline_value.front()),
+                           cudaMemcpyDeviceToHost),
+                       "download small baseline V output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(
+                           host_candidate_q.data(), candidate_q.get(),
+                           host_candidate_q.size() *
+                               sizeof(host_candidate_q.front()),
+                           cudaMemcpyDeviceToHost),
+                       "download small candidate Q output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(
+                           host_candidate_key.data(), candidate_key.get(),
+                           host_candidate_key.size() *
+                               sizeof(host_candidate_key.front()),
+                           cudaMemcpyDeviceToHost),
+                       "download small candidate K output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(
+                           host_candidate_value.data(), candidate_value.get(),
+                           host_candidate_value.size() *
+                               sizeof(host_candidate_value.front()),
+                           cudaMemcpyDeviceToHost),
+                       "download small candidate V output");
+  if (ready) {
+    test.expect(host_candidate_q == host_baseline_q,
+                "small full-attention fallback preserves Q bits");
+    test.expect(host_candidate_key == host_baseline_key,
+                "small full-attention fallback preserves K bits");
+    test.expect(host_candidate_value == host_baseline_value,
+                "small full-attention fallback preserves V bits");
+  }
+
+  bool small_linear = false;
+  std::size_t small_total_nodes = 0U;
+  const std::size_t small_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_full_attention_q_kv_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, small_q, small_key,
+            small_value, small_input.get(), nullptr, 0U, candidate_q.get(),
+            candidate_key.get(), candidate_value.get(),
+            static_cast<void*>(stream));
+      },
+      "small full-attention fallback graph", &small_total_nodes,
+      &small_linear);
+  test.expect(small_total_nodes == 3U && small_kernel_nodes == 3U &&
+                  small_linear,
+              "small full-attention fallback is ordered Q then K then V");
 }
 
 void test_nvfp4_mlp_gate_up_silu_dispatch(TestContext& test) {
@@ -3038,6 +3578,7 @@ int main() {
   test_bf16_projection_pair_dispatch(test);
   test_fp8_projection_pair_dispatch(test);
   test_fp8_qkv_z_projection_pair_dispatch(test);
+  test_fp8_full_attention_q_kv_dispatch(test);
   test_nvfp4_mlp_gate_up_silu_dispatch(test);
   test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(test);
   test_fp8_m16_production_dispatch(test);

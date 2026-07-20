@@ -1117,26 +1117,13 @@ ReferenceStepOutcome ReferenceRunner::step(
       std::uint16_t* full_query = views_.projection[0];
       const std::size_t rope_first_position =
           static_cast<std::size_t>(position);
-      if (!project(attention->q_proj, views_.hidden[1], views_.projection[0],
-                   "full_q_gate_projection", layer)) {
-        return fail_step(launch_failure);
-      }
-      if (supports_fp8_projection_pair(
-              projection_backend_, attention->k_proj,
-              attention->v_proj)) {
-        if (!check_cuda(launch_projection_pair_tile_to_bf16_cuda(
-                            projection_backend_, attention->k_proj,
-                            attention->v_proj, views_.hidden[1], 1U,
-                            views_.fp32_scratch,
-                            views_.fp32_scratch_elements, current_key,
-                            current_value, stream_),
-                        "full_k_v_projection", layer)) {
-          return fail_step(launch_failure);
-        }
-      } else if (!project(attention->k_proj, views_.hidden[1], current_key,
-                          "full_k_projection", layer) ||
-                 !project(attention->v_proj, views_.hidden[1], current_value,
-                          "full_v_projection", layer)) {
+      if (!check_cuda(launch_full_attention_q_kv_to_bf16_cuda(
+                          projection_backend_, attention->q_proj,
+                          attention->k_proj, attention->v_proj,
+                          views_.hidden[1], views_.fp32_scratch,
+                          views_.fp32_scratch_elements, views_.projection[0],
+                          current_key, current_value, stream_),
+                      "full_q_k_v_projection", layer)) {
         return fail_step(launch_failure);
       }
 

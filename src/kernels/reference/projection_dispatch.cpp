@@ -297,6 +297,117 @@ struct MlpGateUpSiluLaunchPlan {
   ProjectionTileSpans up;
 };
 
+struct FullAttentionQKvLaunchPlan {
+  bool aligned_fp8_fusion = false;
+  ProjectionTileSpans q;
+  ProjectionTileSpans key;
+  ProjectionTileSpans value;
+};
+
+[[nodiscard]] int validate_full_attention_q_kv_launch(
+    const ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& key_weight, const LinearWeight& value_weight,
+    const std::uint16_t* const input, float* const fp32_scratch,
+    const std::size_t scratch_elements, std::uint16_t* const q_output,
+    std::uint16_t* const key_output, std::uint16_t* const value_output,
+    FullAttentionQKvLaunchPlan* const plan) noexcept {
+  if (plan == nullptr) {
+    return invalid_value();
+  }
+  *plan = FullAttentionQKvLaunchPlan{};
+  if (supports_fp8_q_kv_projection_fusion(
+          backend, q_weight, key_weight, value_weight)) {
+    const auto& q = std::get<Fp8LinearWeight>(q_weight);
+    const auto& key = std::get<Fp8LinearWeight>(key_weight);
+    const auto& value = std::get<Fp8LinearWeight>(value_weight);
+    plan->aligned_fp8_fusion =
+        pointer_is_aligned(q.weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(key.weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(value.weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(input, alignof(std::uint64_t)) &&
+        pointer_is_aligned(q_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(key_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(value_output, alignof(std::uint16_t));
+  }
+
+  const int q_validation = validate_projection_tile(
+      backend, q_weight, input, 1U, fp32_scratch, scratch_elements, q_output,
+      &plan->q);
+  if (q_validation != static_cast<int>(cudaSuccess)) {
+    return q_validation;
+  }
+  const int key_validation = validate_projection_tile(
+      backend, key_weight, input, 1U, fp32_scratch, scratch_elements,
+      key_output, &plan->key);
+  if (key_validation != static_cast<int>(cudaSuccess)) {
+    return key_validation;
+  }
+  const int value_validation = validate_projection_tile(
+      backend, value_weight, input, 1U, fp32_scratch, scratch_elements,
+      value_output, &plan->value);
+  if (value_validation != static_cast<int>(cudaSuccess)) {
+    return value_validation;
+  }
+  if (plan->q.columns != plan->key.columns ||
+      plan->q.columns != plan->value.columns ||
+      ranges_overlap(q_output, plan->q.output_bytes, key_output,
+                     plan->key.output_bytes) ||
+      ranges_overlap(q_output, plan->q.output_bytes, value_output,
+                     plan->value.output_bytes) ||
+      ranges_overlap(key_output, plan->key.output_bytes, value_output,
+                     plan->value.output_bytes) ||
+      overlaps_projection_weights(q_output, plan->q.output_bytes,
+                                  plan->key) ||
+      overlaps_projection_weights(q_output, plan->q.output_bytes,
+                                  plan->value) ||
+      overlaps_projection_weights(key_output, plan->key.output_bytes,
+                                  plan->q) ||
+      overlaps_projection_weights(key_output, plan->key.output_bytes,
+                                  plan->value) ||
+      overlaps_projection_weights(value_output, plan->value.output_bytes,
+                                  plan->q) ||
+      overlaps_projection_weights(value_output, plan->value.output_bytes,
+                                  plan->key)) {
+    return invalid_value();
+  }
+
+  std::size_t scratch_rows = 0U;
+  if (requires_projection_scratch(backend, q_weight)) {
+    scratch_rows = plan->q.rows;
+  }
+  if (requires_projection_scratch(backend, key_weight) &&
+      plan->key.rows > scratch_rows) {
+    scratch_rows = plan->key.rows;
+  }
+  if (requires_projection_scratch(backend, value_weight) &&
+      plan->value.rows > scratch_rows) {
+    scratch_rows = plan->value.rows;
+  }
+  if (scratch_rows == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (fp32_scratch == nullptr ||
+      multiply_overflows(scratch_rows, sizeof(float))) {
+    return invalid_value();
+  }
+  const std::size_t scratch_bytes = scratch_rows * sizeof(float);
+  if (byte_range_overflows(fp32_scratch, scratch_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, input,
+                     plan->q.input_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, q_output,
+                     plan->q.output_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, key_output,
+                     plan->key.output_bytes) ||
+      ranges_overlap(fp32_scratch, scratch_bytes, value_output,
+                     plan->value.output_bytes) ||
+      overlaps_projection_weights(fp32_scratch, scratch_bytes, plan->q) ||
+      overlaps_projection_weights(fp32_scratch, scratch_bytes, plan->key) ||
+      overlaps_projection_weights(fp32_scratch, scratch_bytes, plan->value)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] int validate_mlp_gate_up_silu_launch(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -689,6 +800,42 @@ int launch_projection_pair_tile_to_bf16_cuda(
   return launch_projection_tile_to_bf16_cuda(
       backend, second_weight, input, token_count, fp32_scratch,
       scratch_elements, second_output, cuda_stream);
+}
+
+int launch_full_attention_q_kv_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& key_weight, const LinearWeight& value_weight,
+    const std::uint16_t* const input, float* const fp32_scratch,
+    const std::size_t scratch_elements, std::uint16_t* const q_output,
+    std::uint16_t* const key_output, std::uint16_t* const value_output,
+    void* const cuda_stream) noexcept {
+  FullAttentionQKvLaunchPlan plan;
+  const int validation = validate_full_attention_q_kv_launch(
+      backend, q_weight, key_weight, value_weight, input, fp32_scratch,
+      scratch_elements, q_output, key_output, value_output, &plan);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+
+  if (plan.aligned_fp8_fusion) {
+    const auto& q = std::get<Fp8LinearWeight>(q_weight);
+    const auto& key = std::get<Fp8LinearWeight>(key_weight);
+    const auto& value = std::get<Fp8LinearWeight>(value_weight);
+    return kernels::launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+        q.weight, q.weight_scale, key.weight, key.weight_scale, value.weight,
+        value.weight_scale, input, q.output_size, key.output_size,
+        q.input_size, q_output, key_output, value_output, cuda_stream);
+  }
+
+  const int q_status = launch_projection_to_bf16_cuda(
+      backend, q_weight, input, fp32_scratch, scratch_elements, q_output,
+      cuda_stream);
+  if (q_status != static_cast<int>(cudaSuccess)) {
+    return q_status;
+  }
+  return launch_projection_pair_tile_to_bf16_cuda(
+      backend, key_weight, value_weight, input, 1U, fp32_scratch,
+      scratch_elements, key_output, value_output, cuda_stream);
 }
 
 int launch_mlp_gate_up_silu_to_bf16_cuda(

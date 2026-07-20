@@ -188,6 +188,11 @@ shape-gated Tensor Core path above or safely falls back to two M8 launches;
 the reference backend and BF16 weights retain ordered M1 launches. Trace
 capture deliberately reports and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
+Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
+the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
+shapes, unaligned operands, C2 through C16 prefix tiles, and other backends
+retain the prevalidated Q projection followed by the existing K/V paired or
+independent fallback.
 Exact aligned SM87 FP8 M1 linear-attention QKV/Z projections use one
 two-phase launch; C2 through C16 prefix tiles, near-miss shapes, unaligned
 operands, and other backends retain two ordered projections.
@@ -344,6 +349,19 @@ subsequent-token latency from 113.9935 to 113.0220 ms (0.852242%). C1, C8,
 and C16 preserve the exact oracle. Clocks remained unlocked, so this is
 diagnostic rather than release or serving-throughput evidence; see the
 [NVFP4 residual/norm/gate/up/SiLU fusion record](docs/metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
+The following exact aligned FP8 M1 full-attention fusion preserves the existing
+Q row-quad and paired K/V reduction orders while executing all three ordered
+projections in one kernel. Five independent processes running the synthetic
+same-binary gate measure 1.02610x to 1.03165x for the old Q-plus-K/V chain.
+Independent matched max-26 profiles replace 832 Q and K/V launches taking
+188.508256 ms with 416 fused launches taking 184.886112 ms. A detached-base
+B-C-C-B diagnostic reduces the
+average total-generation median from 3,381.4900 to 3,376.3400 ms (0.152300%)
+and subsequent-token latency from 113.0405 to 112.8370 ms (0.180024%). All
+processes preserve the exact oracle. Clocks remained unlocked, so the three
+separate measurements are diagnostic rather than release or
+serving-throughput evidence; see the
+[FP8 full-attention Q+K/V fusion record](docs/metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

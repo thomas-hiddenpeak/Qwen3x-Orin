@@ -37,6 +37,10 @@ constexpr std::size_t kFp8VectorColumnsPerBlock =
 constexpr std::size_t kFp8KvPairRows = 1'024U;
 constexpr std::size_t kFp8KvPairColumns = 5'120U;
 constexpr unsigned int kFp8KvPairSelectedMaximumBlocks = 128U;
+constexpr std::size_t kFp8FullAttentionQRows = 12'288U;
+constexpr unsigned int kFp8FullAttentionBlocks = 2'048U;
+constexpr unsigned int kFp8FullAttentionKvFirstBlock = 1'024U;
+constexpr unsigned int kFp8FullAttentionKvBlocks = 512U;
 constexpr std::size_t kFp8QkvRows = 10'240U;
 constexpr std::size_t kFp8ZRows = 6'144U;
 constexpr std::size_t kFp8QkvZColumns = 5'120U;
@@ -1129,6 +1133,180 @@ fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel(
       }
     }
     __syncthreads();
+  }
+}
+
+// One exact K/V row-pair task, kept separate from the production persistent
+// kernel so the full-attention fusion can preserve that baseline verbatim.
+// The arithmetic and reduction sequence intentionally mirrors the body above.
+__device__ __forceinline__ void
+fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t columns,
+    const std::size_t row0, std::uint16_t* const key_output,
+    std::uint16_t* const value_output, const float* const decoded_weights,
+    float (*const warp_sums)[kWarpsPerBlock], const unsigned int lane,
+    const unsigned int warp) {
+  const std::size_t row1 = row0 + 1U;
+  const std::uint8_t* const key_row0_weights =
+      key_weights + row0 * columns;
+  const std::uint8_t* const key_row1_weights =
+      key_weights + row1 * columns;
+  const std::uint8_t* const value_row0_weights =
+      value_weights + row0 * columns;
+  const std::uint8_t* const value_row1_weights =
+      value_weights + row1 * columns;
+  float key_accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float key_accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float value_accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float value_accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+  for (std::size_t first_column =
+           static_cast<std::size_t>(threadIdx.x) *
+           kFp8VectorValuesPerLane;
+       first_column < columns;
+       first_column += kFp8VectorColumnsPerBlock) {
+    const std::uint32_t packed_key_weights0 =
+        *reinterpret_cast<const std::uint32_t*>(key_row0_weights +
+                                                first_column);
+    const std::uint32_t packed_key_weights1 =
+        *reinterpret_cast<const std::uint32_t*>(key_row1_weights +
+                                                first_column);
+    const std::uint32_t packed_value_weights0 =
+        *reinterpret_cast<const std::uint32_t*>(value_row0_weights +
+                                                first_column);
+    const std::uint32_t packed_value_weights1 =
+        *reinterpret_cast<const std::uint32_t*>(value_row1_weights +
+                                                first_column);
+    constexpr std::uint32_t kFp8PackedHighBits = 0x0707'0707U;
+    const std::uint32_t swizzled_key_weights0 =
+        packed_key_weights0 ^
+        ((packed_key_weights0 >> 5U) & kFp8PackedHighBits);
+    const std::uint32_t swizzled_key_weights1 =
+        packed_key_weights1 ^
+        ((packed_key_weights1 >> 5U) & kFp8PackedHighBits);
+    const std::uint32_t swizzled_value_weights0 =
+        packed_value_weights0 ^
+        ((packed_value_weights0 >> 5U) & kFp8PackedHighBits);
+    const std::uint32_t swizzled_value_weights1 =
+        packed_value_weights1 ^
+        ((packed_value_weights1 >> 5U) & kFp8PackedHighBits);
+    const std::uint64_t packed_activation =
+        *reinterpret_cast<const std::uint64_t*>(activation + first_column);
+#pragma unroll
+    for (unsigned int value = 0U; value < kFp8VectorValuesPerLane;
+         ++value) {
+      const unsigned int weight_shift = value * 8U;
+      const std::uint8_t encoded_key_weight0 = static_cast<std::uint8_t>(
+          (swizzled_key_weights0 >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_key_weight1 = static_cast<std::uint8_t>(
+          (swizzled_key_weights1 >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_value_weight0 = static_cast<std::uint8_t>(
+          (swizzled_value_weights0 >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_value_weight1 = static_cast<std::uint8_t>(
+          (swizzled_value_weights1 >> weight_shift) & 0xffU);
+      const std::uint16_t encoded_activation = static_cast<std::uint16_t>(
+          (packed_activation >> (value * 16U)) & 0xffffU);
+      const float decoded_activation = decode_bf16(encoded_activation);
+      key_accumulators0[value] =
+          fmaf(decoded_weights[encoded_key_weight0], decoded_activation,
+               key_accumulators0[value]);
+      key_accumulators1[value] =
+          fmaf(decoded_weights[encoded_key_weight1], decoded_activation,
+               key_accumulators1[value]);
+      value_accumulators0[value] =
+          fmaf(decoded_weights[encoded_value_weight0], decoded_activation,
+               value_accumulators0[value]);
+      value_accumulators1[value] =
+          fmaf(decoded_weights[encoded_value_weight1], decoded_activation,
+               value_accumulators1[value]);
+    }
+  }
+
+  float key_sum0 = (key_accumulators0[0] + key_accumulators0[1]) +
+                   (key_accumulators0[2] + key_accumulators0[3]);
+  float key_sum1 = (key_accumulators1[0] + key_accumulators1[1]) +
+                   (key_accumulators1[2] + key_accumulators1[3]);
+  float value_sum0 =
+      (value_accumulators0[0] + value_accumulators0[1]) +
+      (value_accumulators0[2] + value_accumulators0[3]);
+  float value_sum1 =
+      (value_accumulators1[0] + value_accumulators1[1]) +
+      (value_accumulators1[2] + value_accumulators1[3]);
+  key_sum0 = warp_sum(key_sum0);
+  key_sum1 = warp_sum(key_sum1);
+  value_sum0 = warp_sum(value_sum0);
+  value_sum1 = warp_sum(value_sum1);
+  if (lane == 0U) {
+    warp_sums[0U][warp] = key_sum0;
+    warp_sums[1U][warp] = key_sum1;
+    warp_sums[2U][warp] = value_sum0;
+    warp_sums[3U][warp] = value_sum1;
+  }
+  __syncthreads();
+  if (warp == 0U) {
+    float key_block_sum0 =
+        lane < kWarpsPerBlock ? warp_sums[0U][lane] : 0.0F;
+    float key_block_sum1 =
+        lane < kWarpsPerBlock ? warp_sums[1U][lane] : 0.0F;
+    float value_block_sum0 =
+        lane < kWarpsPerBlock ? warp_sums[2U][lane] : 0.0F;
+    float value_block_sum1 =
+        lane < kWarpsPerBlock ? warp_sums[3U][lane] : 0.0F;
+    key_block_sum0 = warp_sum(key_block_sum0) * key_weight_scale;
+    key_block_sum1 = warp_sum(key_block_sum1) * key_weight_scale;
+    value_block_sum0 = warp_sum(value_block_sum0) * value_weight_scale;
+    value_block_sum1 = warp_sum(value_block_sum1) * value_weight_scale;
+    if (lane == 0U) {
+      key_output[row0] = encode_bf16_rne(key_block_sum0);
+      key_output[row1] = encode_bf16_rne(key_block_sum1);
+      value_output[row0] = encode_bf16_rne(value_block_sum0);
+      value_output[row1] = encode_bf16_rne(value_block_sum1);
+    }
+  }
+  __syncthreads();
+}
+
+// Exact full-attention fusion. The Q phase exactly retains the
+// production 2,048-CTA row-quad order for [12288, 5120]. Blocks 1024..1535
+// then consume one of the 512 K/V row-pair tasks, reusing the codebook and
+// collapsing the existing Q + K/V launch chain into one kernel.
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  constexpr unsigned int kQRowQuads =
+      static_cast<unsigned int>(kFp8FullAttentionQRows / 4U);
+  for (unsigned int row_quad = blockIdx.x; row_quad < kQRowQuads;
+       row_quad += kFp8FullAttentionBlocks) {
+    fp8_w8a16_gemv_bf16_complete_row_quad_body(
+        q_weights, q_weight_scale, activation, kFp8KvPairColumns,
+        4U * row_quad, q_output, decoded_weights, warp_sums, lane, warp);
+  }
+
+  if (blockIdx.x >= kFp8FullAttentionKvFirstBlock &&
+      blockIdx.x <
+          kFp8FullAttentionKvFirstBlock + kFp8FullAttentionKvBlocks) {
+    const std::size_t row0 =
+        2U * static_cast<std::size_t>(blockIdx.x -
+                                     kFp8FullAttentionKvFirstBlock);
+    fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
+        key_weights, key_weight_scale, value_weights, value_weight_scale,
+        activation, kFp8KvPairColumns, row0, key_output, value_output,
+        decoded_weights, warp_sums, lane, warp);
   }
 }
 
@@ -6544,6 +6722,125 @@ int query_sm87_fp8_w8a16_m1_qkv_z_two_phase_fused_resources_test_cuda(
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks, fp8_w8a16_gemv_bf16_qkv_z_two_phase_row_quad_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output,
+    std::uint16_t* const key_output, std::uint16_t* const value_output,
+    void* const cuda_stream) noexcept {
+  if (q_rows != kFp8FullAttentionQRows || kv_rows != kFp8KvPairRows ||
+      columns != kFp8KvPairColumns) {
+    return invalid_value();
+  }
+  const int q_validation = validate_fp8_launch(
+      q_weights, q_weight_scale, activation, kFp8FullAttentionQRows,
+      kFp8KvPairColumns, q_output);
+  if (q_validation != static_cast<int>(cudaSuccess)) {
+    return q_validation;
+  }
+  const int key_validation = validate_fp8_launch(
+      key_weights, key_weight_scale, activation, kFp8KvPairRows,
+      kFp8KvPairColumns, key_output);
+  if (key_validation != static_cast<int>(cudaSuccess)) {
+    return key_validation;
+  }
+  const int value_validation = validate_fp8_launch(
+      value_weights, value_weight_scale, activation, kFp8KvPairRows,
+      kFp8KvPairColumns, value_output);
+  if (value_validation != static_cast<int>(cudaSuccess)) {
+    return value_validation;
+  }
+  const bool vector_shape =
+      (reinterpret_cast<std::uintptr_t>(q_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(key_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(value_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activation) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(q_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(key_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(value_output) %
+       alignof(std::uint16_t)) == 0U;
+  const std::size_t q_output_bytes =
+      kFp8FullAttentionQRows * sizeof(std::uint16_t);
+  const std::size_t kv_output_bytes =
+      kFp8KvPairRows * sizeof(std::uint16_t);
+  const std::size_t q_weight_bytes =
+      kFp8FullAttentionQRows * kFp8KvPairColumns;
+  const std::size_t kv_weight_bytes =
+      kFp8KvPairRows * kFp8KvPairColumns;
+  if (!vector_shape ||
+      ranges_overlap(q_output, q_output_bytes, key_output,
+                     kv_output_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, value_output,
+                     kv_output_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, value_output,
+                     kv_output_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, key_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, value_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, q_weights,
+                     q_weight_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, value_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(value_output, kv_output_bytes, q_weights,
+                     q_weight_bytes) ||
+      ranges_overlap(value_output, kv_output_bytes, key_weights,
+                     kv_weight_bytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel
+      <<<kFp8FullAttentionBlocks, kThreads, 0U, stream>>>(
+          q_weights, q_weight_scale, key_weights, key_weight_scale,
+          value_weights, value_weight_scale, activation, q_output,
+          key_output, value_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_m1_q_kv_two_phase_fused_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

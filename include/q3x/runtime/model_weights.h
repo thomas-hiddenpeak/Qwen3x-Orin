@@ -112,6 +112,16 @@ enum class ProjectionBackend : std::uint8_t {
     ProjectionBackend backend, const LinearWeight& qkv_weight,
     const LinearWeight& z_weight) noexcept;
 
+// True only for the production full-attention Q/K/V fusion ABI: the
+// explicitly selected SM87 backend followed by valid FP8 [12288, 5120],
+// [1024, 5120], and [1024, 5120] matrices in Q, K, V order. This is
+// shape/type/payload eligibility only; launch-time pointer alignment, ranges,
+// scratch, and aliases remain the dispatcher's responsibility.
+[[nodiscard]] bool supports_fp8_q_kv_projection_fusion(
+    ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& key_weight,
+    const LinearWeight& value_weight) noexcept;
+
 // True only for the production dense-MLP gate/up/SiLU fusion ABI: the
 // explicitly selected SM87 backend followed by valid NVFP4 [17408, 5120]
 // gate and up matrices, in that order. This is shape/type/payload eligibility
@@ -361,6 +371,20 @@ struct WeightBindResult {
     std::size_t token_count, float* fp32_scratch,
     std::size_t scratch_elements, std::uint16_t* first_output,
     std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
+
+// Validates and launches the single-token full-attention Q, K, and V
+// projections over one shared activation. The exact aligned SM87 FP8
+// [12288, 5120] Q plus paired [1024, 5120] K/V route uses one kernel. Every
+// other valid combination preserves the existing ordered Q projection then
+// K/V pair dispatch. The complete three-projection operation, including
+// cross-weight/output/scratch aliases, is rejected before its first enqueue.
+[[nodiscard]] int launch_full_attention_q_kv_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& key_weight, const LinearWeight& value_weight,
+    const std::uint16_t* input, float* fp32_scratch,
+    std::size_t scratch_elements, std::uint16_t* q_output,
+    std::uint16_t* key_output, std::uint16_t* value_output,
+    void* cuda_stream = nullptr) noexcept;
 
 // Validates and launches the single-token dense-MLP gate and up projections,
 // then overwrites gate_output with

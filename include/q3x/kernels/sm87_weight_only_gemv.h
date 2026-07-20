@@ -61,6 +61,22 @@ namespace q3x::kernels {
     std::uint16_t* first_output, std::uint16_t* second_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fused full-attention Q/K/V projection for the exact ordered FP8
+// [12288, 5120], [1024, 5120], and [1024, 5120] M=1 shapes. Q retains its
+// production row-quad order; K and V retain the paired row reduction order.
+// All three outputs are bitwise-identical to the existing Q-then-K/V chain.
+// Unsupported shapes, unsafe aliases, or unaligned pointers return
+// cudaErrorInvalidValue before work is enqueued. Weights require 4-byte
+// alignment, activation 8-byte alignment, and outputs 2-byte alignment.
+[[nodiscard]] int launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+    const std::uint8_t* q_weights, float q_weight_scale,
+    const std::uint8_t* key_weights, float key_weight_scale,
+    const std::uint8_t* value_weights, float value_weight_scale,
+    const std::uint16_t* activation, std::size_t q_rows,
+    std::size_t kv_rows, std::size_t columns,
+    std::uint16_t* q_output, std::uint16_t* key_output,
+    std::uint16_t* value_output, void* cuda_stream = nullptr) noexcept;
+
 // ModelOpt NVFP4 W4A16 canonical layout. packed_weights is [rows, columns/2],
 // block_scales is E4M3FN [rows, columns/16], low nibble precedes high nibble,
 // and columns must be a multiple of 16:

@@ -49,6 +49,9 @@ recorded in
 The follow-up post-attention residual/norm/gate/up/SiLU fusion diagnostic is
 recorded in
 [`qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
+The subsequent exact FP8 M1 full-attention Q+K/V fusion diagnostic is recorded
+in
+[`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
 
 ## Method
 
@@ -1328,6 +1331,99 @@ microbenchmark, separate profiles, and two-process-per-policy B-C-C-B result
 remain batch-one, local-artifact diagnostics rather than randomized, release,
 concurrent-request, or serving-throughput claims.
 
+## FP8 full-attention Q+K/V one-kernel fusion
+
+The worktree based on `23ef5ab225ec53721d035027cb4940384f375a3a`
+extends the exact full-attention M1 decode boundary from a standalone FP8 Q
+projection followed by the existing fused K/V pair to one 2,048-CTA,
+256-thread kernel. The ordered checkpoint shapes are Q `[12288,5120]`, K
+`[1024,5120]`, and V `[1024,5120]`. The Q blocks preserve the production
+row-quad accumulation order, and the K/V blocks preserve the paired reduction
+order, so every output retains the old chain's independent BF16-RNE result.
+The production kernel uses 64 registers per thread, 1,152 static-shared bytes,
+zero local bytes, and four active blocks per SM.
+
+Eligibility remains explicit SM87, M1, valid ordered FP8 payloads at the three
+exact shapes, 4-byte-aligned weights, an 8-byte-aligned BF16 activation, and
+2-byte-aligned mutually disjoint outputs. The composite validates Q, K, V,
+all input/output/weight spans, required fallback scratch, and cross-projection
+aliases before its first enqueue. An exact eligible call captures one kernel
+node; invalid shapes and unsafe aliases capture zero. Near-miss or unaligned
+calls, other weight types, and other backends retain the old validated Q
+projection followed by the existing K/V pair, which itself falls back to two
+ordered projections when ineligible. C2 through C16 prompt-prefix tiles retain
+their preceding paths.
+
+The isolated performance gate is a synthetic same-binary microbenchmark, not
+a checkpoint-payload or end-to-end measurement. It uses deterministic
+checkpoint-like E4M3FN code distributions, 10 warmups, 80 logical chains per
+timed pass, and five baseline/candidate/candidate/base rounds in each of five
+independent processes. Each row below is the median of that process's ten
+baseline and ten candidate passes; the frozen acceptance threshold is 1.005x:
+
+| Independent process | Q plus paired K/V | One kernel | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.421340 ms | 0.408413 ms | 1.03165x |
+| 2 | 0.419815 ms | 0.409136 ms | 1.02610x |
+| 3 | 0.420127 ms | 0.407571 ms | 1.03080x |
+| 4 | 0.421085 ms | 0.409546 ms | 1.02818x |
+| 5 | 0.421049 ms | 0.408431 ms | 1.03089x |
+
+Speedup min/median/mean/max is
+1.02610x/1.03080x/1.029524x/1.03165x. Q, K, and V report zero BF16-bit
+mismatches across 12,288/1,024/1,024 outputs. The one-node production capture,
+resource bounds, and invalid-call zero-node gate all pass. Dispatch coverage
+also rejects an invalid third weight, mutually aliased outputs,
+cross-weight/output aliases, output or scratch overlap with device-scalar
+ranges, and unsafe scratch aliases before enqueue.
+
+The separate max-26-token Nsight profiles compare an independently rebuilt
+detached base with the candidate. Unlike the synthetic microbenchmark, these
+profiles use the pinned model, but they are independent unlocked-clock
+processes rather than a same-binary timing trial:
+
+| Profile group | Detached base | Candidate | Change |
+| --- | ---: | ---: | ---: |
+| Full-attention Q | 416 / 157.074528 ms | absorbed | -416 launches |
+| Full-attention K/V pair | 416 / 31.433728 ms | absorbed | -416 launches |
+| Full-attention Q+K/V fusion | absent | 416 / 184.886112 ms | one kernel per layer/step |
+| Replaced Q+K/V chain | 832 / 188.508256 ms | 416 / 184.886112 ms | -416 / -3.622144 ms (1.921478%) |
+| All CUDA kernels | 16,886 / 3,449.954816 ms | 16,470 / 3,414.459904 ms | -416 / -35.494912 ms (1.028852%) |
+| Profiled generation | 3,484.492 ms | 3,446.214 ms | -38.278 ms (1.098525%) |
+
+The directly replaced-chain row is the reliable kernel attribution. Aggregate
+kernel and generation differences also include process-to-process clock and
+unrelated-kernel variation. The base report is 1,252,279 bytes with SHA-256
+`7a94473f41ece92a3d35ef654920fb03f43c18317f4015b1d1c09506368a1052`;
+the candidate is 1,222,499 bytes with SHA-256
+`50f29dc69a70b5b73923ccbc127b56f94172793c6ffe8f60326734b71c463f46`.
+
+The detached-base B-C-C-B comparison is a third, separate measurement. It
+loads one engine per process, warms once, and measures five generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,381.952 ms | 555.451 ms | 113.063 ms |
+| Candidate 1 | 3,376.378 ms | 555.093 ms | 112.848 ms |
+| Candidate 2 | 3,376.302 ms | 555.191 ms | 112.826 ms |
+| Base 2 | 3,381.028 ms | 555.512 ms | 113.018 ms |
+
+| Average of two process medians | Detached base | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,381.4900 ms | 3,376.3400 ms | 5.1500 ms (0.152300%) |
+| Time to first token | 555.4815 ms | 555.1420 ms | 0.3395 ms (0.061118%) |
+| Subsequent token | 113.0405 ms | 112.8370 ms | 0.2035 ms (0.180024%) |
+
+Every warmup and measured generation retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 runner steps. Dedicated C1,
+C8, and C16 oracle runs passed the same gate. Release reported zero failures across
+52 discovered tests with four skips; ASan/UBSan reported zero failures across
+51 discovered tests with four skips, `detect_leaks=0`, and `package_consumer`
+excluded. Clocks were unlocked. The synthetic same-binary microbenchmark,
+independent model profiles, and detached-base B-C-C-B result remain distinct
+batch-one, local-artifact diagnostics rather than randomized, release,
+concurrent-request, or serving-throughput claims.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1375,8 +1471,10 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 7. use fixed-M16 Tensor Core kernels only for the four measured FP8 shapes and
    two measured NVFP4 shapes, retaining two-M8 fallback for every other valid
    shape/alignment and for FP8 `[1024,5120]`;
-8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
-   retaining two ordered projections for every other valid case;
+8. fuse full-attention FP8 Q+K/V into one kernel only for aligned ordered M1
+   `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` operands; otherwise retain
+   the validated Q projection followed by paired K/V when eligible or two
+   independent K/V projections for every other valid case;
 9. pair linear-attention FP8 QKV/Z only for aligned ordered M1
    `[10240,5120]` and `[6144,5120]` operands, retaining two ordered
    projections for C2 through C16 and every other valid case;

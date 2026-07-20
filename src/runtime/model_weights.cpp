@@ -679,6 +679,29 @@ bool supports_fp8_qkv_z_projection_pair(
          qkv->input_size == kColumns && z->input_size == kColumns;
 }
 
+bool supports_fp8_q_kv_projection_fusion(
+    const ProjectionBackend backend, const LinearWeight& q_weight,
+    const LinearWeight& key_weight,
+    const LinearWeight& value_weight) noexcept {
+  constexpr std::size_t kQRows = 12'288U;
+  constexpr std::size_t kKvRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      q_weight.valueless_by_exception() ||
+      key_weight.valueless_by_exception() ||
+      value_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const q = std::get_if<Fp8LinearWeight>(&q_weight);
+  const auto* const key = std::get_if<Fp8LinearWeight>(&key_weight);
+  const auto* const value = std::get_if<Fp8LinearWeight>(&value_weight);
+  return has_valid_fp8_payload(q) && has_valid_fp8_payload(key) &&
+         has_valid_fp8_payload(value) && q->output_size == kQRows &&
+         key->output_size == kKvRows && value->output_size == kKvRows &&
+         q->input_size == kColumns && key->input_size == kColumns &&
+         value->input_size == kColumns;
+}
+
 bool supports_nvfp4_gate_up_silu_fusion(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight) noexcept {

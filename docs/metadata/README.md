@@ -117,6 +117,11 @@ The diagnostic Phase 3 records are:
   centered-RMSNorm, gate/up, and SiLU fusion, its redundant per-CTA norm
   reduction, five frozen gates, dispatch/alias contracts, matched profiles,
   detached-base B-C-C-B evidence, exact replay, and diagnostic limitations.
+- [`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](qwen36-27b-fp8-q-kv-fusion-benchmark.json),
+  which records the exact aligned FP8 M1 full-attention Q plus K/V fusion,
+  five same-binary production-shaped gates, compiler resources, complete
+  dispatch/alias contracts, matched profiles, detached-base B-C-C-B evidence,
+  exact model gates, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
