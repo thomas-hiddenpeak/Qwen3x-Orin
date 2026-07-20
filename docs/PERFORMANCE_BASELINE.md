@@ -38,6 +38,8 @@ The follow-up gate/up activation-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
 The follow-up down activation-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
+The subsequent eight-row lane-striped GDN diagnostic is recorded in
+[`qwen36-27b-gdn-eight-row-benchmark.json`](metadata/qwen36-27b-gdn-eight-row-benchmark.json).
 
 ## Method
 
@@ -977,6 +979,74 @@ oracle. Release passed 52/52 tests; ASan/UBSan with `detect_leaks=0`, excluding
 the initial 1.002 gate to 1.005, and corrected diagnostic wording. Clocks were
 unlocked, so this remains diagnostic rather than a release or serving claim.
 
+## GDN eight-row lane-striped follow-up
+
+The worktree based on `52af2e06f14a0215f7e490cb37854a6cb3486851`
+advances the fixed Qwen3.6 Gated DeltaNet state update from four to eight rows
+per warp batch. Lanes 0 through 7 retain eight independent left-to-right
+scalar FMA chains while all 32 lanes coalesce state loads and updates. This
+halves each warp's outer state-row loop without changing per-row arithmetic,
+BF16 persistence boundaries, token recurrence, validation, or alias behavior.
+The public M1 and bounded C2 through C16 launches now use row8; row4 remains a
+same-binary test predecessor.
+
+Both kernels use 40 registers per thread and zero stack/local memory. Static
+shared memory grows from 18,056 to 34,568 bytes per block. A direct
+`cudaOccupancyMaxActiveBlocksPerMultiprocessor` query reports six active row4
+blocks versus four row8 blocks per SM; the 48-block row8 launch averages three
+blocks per SM across the target Orin's 16 SMs.
+The optional gate compares identical in-place and disjoint-state fixtures over
+three baseline/candidate/candidate/baseline rounds with 10 warmups and 24
+measured launches per pass:
+
+| Token tile | Four-row predecessor | Eight-row production | Speedup |
+| --- | ---: | ---: | ---: |
+| M1 | 0.0476869 ms | 0.0335836 ms | 1.41995x |
+| M2 | 0.0849027 ms | 0.0581104 ms | 1.46106x |
+| M8 | 0.308216 ms | 0.202025 ms | 1.52564x |
+| M16 | 0.605771 ms | 0.394754 ms | 1.53455x |
+
+Every shape clears the 1.03x per-shape gate and matches the predecessor's
+output plus persisted state bit-for-bit in both alias modes. Weighting M1/M2/
+M8/M16 by the current max-26 profile calls `1248:48:0:48` gives
+92.6656 versus 63.6498 ms, or 1.45587x, above the 1.20x aggregate gate.
+Four recorded runs all clear that aggregate gate; the worst observed weighted
+speedup is 1.32234x.
+
+The matched max-26-token profiles retain all kernel launches:
+
+| Kernel group | Instances | Four-row base | Eight-row | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| GDN update | 1,344 | 87.167840 ms | 60.100480 ms | 27.067360 ms (31.052003%) |
+| All CUDA kernels | 23,126 | 3,471.580320 ms | 3,446.859392 ms | 24.720928 ms (0.712094%) |
+
+Non-target kernels increased by 2.346432 ms between the separate reports, so
+only the GDN row isolates this change. The baseline report is 1,633,875 bytes
+with SHA-256
+`534be81e6e3cc048c5c52862305fed97b0ada8caca9a288c68e56e401f0857fd`;
+the row8 report is 1,633,214 bytes with SHA-256
+`a5d908ddfba0fa441df70efe7048cb2b0f4138fbdb3bb46c48ea97db1bbe5c6a`.
+
+An independent detached build of the base commit and the candidate were run in
+B-C-C-B process order. Each process loaded once, warmed up once, and measured
+five 26-token generations:
+
+| Average of two process medians | Four-row base | Eight-row | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,479.3700 ms | 3,457.1855 ms | 22.1845 ms (0.637601%) |
+| Time to first token | 570.1095 ms | 558.2255 ms | 11.8840 ms (2.084512%) |
+| Subsequent token | 116.3880 ms | 115.8255 ms | 0.5625 ms (0.483297%) |
+
+All warmup and measured generations retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 steps. The dedicated 27B C16
+oracle passed. Release reported zero failures across 52 discovered tests, with
+four skipped; ASan/UBSan reported zero failures across 51 discovered tests,
+with four skipped, `detect_leaks=0`, and `package_consumer` excluded. The
+sanitizers instrument host code; CUDA compute-sanitizer debugging features are
+disabled on this device. Independent review found no blocker or medium issue.
+Clocks were unlocked, and this single-prompt, batch-one result is diagnostic
+rather than randomized, release, or serving-throughput evidence.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1029,9 +1099,12 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 9. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
    `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
    test baseline and all other fallbacks;
-10. retain exact-token, numerical, replay, and memory gates for every dispatch
+10. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
+    retaining the four-row lane-striped predecessor as a same-binary test
+    baseline;
+11. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-11. lock clocks when privileged access is available before making a formal
+12. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

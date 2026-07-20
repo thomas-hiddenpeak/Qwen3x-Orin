@@ -114,8 +114,8 @@ enum class GdnStatus : std::uint8_t {
     GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
 
 // Warp-parallel forms of the Gated DeltaNet launches. One 256-thread block
-// owns each value head and maps one warp to each state row, making the 128
-// BF16 state elements of a row contiguous across the warp.
+// owns each value head; every warp advances eight state rows together while
+// lanes keep each row's 128 BF16 elements coalesced during state updates.
 // The FP32 dot products retain the reference kernel's left-to-right FMA order,
 // so outputs and persisted state are bitwise equivalent to the reference
 // entry points. These calls otherwise share their validation and aliasing

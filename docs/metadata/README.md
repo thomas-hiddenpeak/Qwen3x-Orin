@@ -96,6 +96,12 @@ The diagnostic Phase 3 records are:
   fallbacks, same-binary performance and bitwise gates, a saved-base B-C-C-B
   generation benchmark, matched max-26-token profiles,
   exact replay, and diagnostic limitations.
+- [`qwen36-27b-gdn-eight-row-benchmark.json`](qwen36-27b-gdn-eight-row-benchmark.json),
+  which records the production eight-row lane-striped GDN update against its
+  preserved four-row predecessor, M1/M2/M8/M16 bitwise state/output gates,
+  mirrored same-binary measurements with current-profile call weights, matched
+  max-26 profiles, compiler resources, exact replay, and diagnostic
+  limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

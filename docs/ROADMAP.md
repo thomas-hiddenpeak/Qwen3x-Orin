@@ -125,6 +125,10 @@ Deliverables:
 - [done, bounded path] SM87 W4A16/W8A16 weight-reuse kernels, C16 causal
   Conv/GDN state, and layer-major prompt-prefix dispatch for `C=2..16`, with
   C1 fallback/default and M9..M15 split into M8 plus the remainder.
+- [done, production-gated] Eight-row lane-striped GDN state updates for
+  batch-one M1 and bounded C2 through C16 tiles, retaining the four-row
+  lane-striped predecessor as a same-binary test baseline and preserving
+  validation, aliasing, per-row arithmetic, and token-recurrence contracts.
 - [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
   independent fallbacks for other shapes.
 - [done, exact-shape gated] Compile-time NVFP4 M=8 specializations for
@@ -232,6 +236,17 @@ saved-base B-C-C-B diagnostic reduces average total generation by
 20.0655 ms (0.573569%) and subsequent-token latency by 0.7720 ms (0.659252%),
 with the full exact oracle retained. See the
 [NVFP4 down activation-staging record](metadata/qwen36-27b-nvfp4-down-activation-staged-benchmark.json).
+The subsequent GDN row8 milestone retains 40 registers and zero local/stack
+memory while increasing shared memory from 18,056 to 34,568 bytes. Direct
+occupancy queries report six active row4 blocks versus four row8 blocks per SM;
+the 48-block row8 grid still averages three blocks per SM. It clears 1.41995x
+through 1.53455x same-binary M1/M2/M8/M16 gates and measures 1.45587x under the
+current profile call weights. The matched max-26 profile reduces GDN time from
+87.167840 to 60.100480 ms and all CUDA time by 24.720928 ms (0.712094%). Its
+detached-base B-C-C-B diagnostic reduces average total generation by 22.1845
+ms (0.637601%) and TTFT by 11.8840 ms (2.084512%), with the full exact oracle
+retained. See the
+[GDN row8 metadata record](metadata/qwen36-27b-gdn-eight-row-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
