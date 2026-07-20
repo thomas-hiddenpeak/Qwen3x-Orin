@@ -139,6 +139,11 @@ Deliverables:
   for `[17408,5120]` and `[5120,17408]`, with two-M8 fallback elsewhere.
 - [done, exact-shape gated] Fused full-attention FP8 M1 K/V projection for
   paired `[1024,5120]` matrices, with ordered independent fallbacks elsewhere.
+- [done, exact-shape gated] Adjacent-lane XOR-dual NVFP4 M1 down projection
+  for `[5120,17408]`, retaining scalar and near-miss fallbacks.
+- [done, exact-shape gated] CTA activation-staged NVFP4 M1 language head for
+  `[248320,5120]`, preserving the 8-byte activation alignment contract and
+  preceding fallbacks elsewhere.
 - Shape-driven kernel registry and measured dispatch thresholds.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
@@ -199,6 +204,14 @@ mirrored single-load generation diagnostic measures a smaller 7.123 ms
 19/26-token, text, stop, and 44-step gate. This is exact-shape diagnostic
 evidence, not a release claim; see the
 [FP8 K/V metadata record](metadata/qwen36-27b-fp8-kv-pair-benchmark.json).
+The subsequent NVFP4 data-reuse milestone moves down projection from indexed
+dual-iteration to adjacent-lane XOR-dual and stages the 10-KiB lm-head
+activation once per CTA. Its matched max-26 profile saves 31.623456 ms across
+the two target groups and 30.878208 ms (0.871519514%) across all CUDA kernels.
+A B-C-C-B diagnostic against an independently rebuilt base commit reduces
+average total generation by 33.824 ms (0.953137500%) and subsequent-token
+latency by 1.3115 ms (1.101855469%), with the full exact oracle retained. See the
+[NVFP4 data-reuse record](metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

@@ -120,6 +120,16 @@ and adjacent lanes share one 16-value block scale. Non-vector K and unaligned
 weight pointers retain the original scalar kernel. This shape dispatch does not
 change the public projection API or require an offline weight layout.
 
+Three exact aligned M1 NVFP4 shapes refine that packed-x8 route. Down
+`[5120,17408]` and gate/up `[17408,5120]` use separately gated adjacent-lane
+XOR-dual instances that exchange the two packed-x8 phase scale payloads with
+one shuffle. Lm-head `[248320,5120]` keeps the same arithmetic while staging
+the 10-KiB BF16 activation once per CTA for reuse by its grid-stride row quads.
+The cooperative global copy is 8 bytes wide, so this route preserves the
+existing 8-byte activation alignment contract; it adds no repack or 16-byte
+public alignment requirement. Near-miss shapes, unaligned operands, M2 through
+M16, and prefill retain their preceding routes.
+
 Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
 4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
 route. Each lane consumes four E4M3FN weights with one 32-bit load and four
@@ -202,3 +212,10 @@ finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
 bitwise comparison, and output canaries. Its optional mirrored timing gate is
 enabled with `Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1` and requires at least 1.10x
 for both checkpoint-like and same-bank-stress fixtures.
+The exact M1 NVFP4 data-reuse gates are enabled with
+`Q3X_RUN_SM87_NVFP4_M1_DOWN_XOR_DUAL_PERF=1` and
+`Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1`. They compare the
+preserved indexed-dual/direct-activation baselines with their production
+candidates in the same binary, require bitwise finite/NaN and canary equality,
+verify scalar fallback for unaligned operands, and compare public/direct CUDA
+Graph kernel identities.

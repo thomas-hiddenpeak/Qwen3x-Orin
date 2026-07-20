@@ -78,6 +78,12 @@ The diagnostic Phase 3 records are:
   XOR-dual kernel, its same-binary production gate, unchanged fallbacks,
   max-26-token Nsight comparison, mirrored single-load generation benchmark,
   exact replay gates, and diagnostic limitations.
+- [`qwen36-27b-nvfp4-data-reuse-benchmark.json`](qwen36-27b-nvfp4-data-reuse-benchmark.json),
+  which records the follow-up aligned M1 `[5120,17408]` down adjacent-lane
+  XOR-dual route and `[248320,5120]` lm-head CTA activation-staged route,
+  same-binary identity/performance gates, B-C-C-B generation evidence against
+  an independently rebuilt base commit, matched max-26-token profiles, exact
+  replay, and diagnostic limitations.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

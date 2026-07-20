@@ -150,11 +150,13 @@ validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 `--projection-backend sm87`. Aligned canonical NVFP4 projections whose K is a
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
 checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` uses
-the dual-iteration down kernel, while aligned exact `[17408,5120]` gate/up
-projections and aligned exact `[248320,5120]` lm-head use separately gated
-instances of the adjacent-lane XOR-dual kernel. Near-miss shapes, unaligned
-operands, M2 through M16, and prefill retain their previous routes. Canonical
-FP8 projections whose K is a multiple of
+an adjacent-lane XOR-dual down kernel, aligned exact `[17408,5120]` gate/up
+uses its separately gated XOR-dual instance, and aligned exact
+`[248320,5120]` lm-head uses a CTA activation-staged XOR-dual instance. The
+lm-head route stages the 10-KiB activation once per CTA without changing the
+8-byte public alignment contract or checkpoint layout. Near-miss shapes,
+unaligned operands, M2 through M16, and prefill retain their previous routes.
+Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
 the exact NVFP4 `[17408,5120]` and `[5120,17408]` production projections use
@@ -261,6 +263,18 @@ and subsequent-token latency by 0.267 ms (0.223859949%). All runs retained the
 exact oracle. These unlocked-clock measurements are diagnostic, not a release
 claim; see the
 [NVFP4 lm-head XOR-dual record](docs/metadata/qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json).
+The next NVFP4 data-reuse follow-up replaced the down indexed dual-iteration
+route with the adjacent-lane XOR-dual kernel and staged the lm-head activation
+once per CTA. The final same-binary gates measured 1.05609x/1.05610x down and
+1.02228x/1.02937x lm-head speedups on checkpoint-like/same-bank fixtures. In
+matched max-26 profiles, the two target routes fell from 685.548800 to
+653.925344 ms and aggregate CUDA-kernel time fell by 30.878208 ms (0.871519514%).
+The B-C-C-B benchmark against an independently rebuilt base commit reduced
+average total generation from 3,548.701 to 3,514.877 ms (0.953137500%) and
+subsequent-token latency from 119.0265 to 117.7150 ms (1.101855469%), with the
+exact oracle preserved.
+These unlocked-clock measurements remain diagnostic; see the
+[NVFP4 data-reuse record](docs/metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

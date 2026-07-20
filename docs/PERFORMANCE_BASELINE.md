@@ -32,6 +32,8 @@ The aligned M1 NVFP4 gate/up adjacent-lane XOR-dual diagnostic is recorded in
 [`qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-xor-dual-benchmark.json).
 The aligned M1 NVFP4 lm-head adjacent-lane XOR-dual diagnostic is recorded in
 [`qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json).
+The subsequent down/lm-head data-reuse diagnostic is recorded in
+[`qwen36-27b-nvfp4-data-reuse-benchmark.json`](metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
 
 ## Method
 
@@ -780,6 +782,83 @@ review found zero blockers. Clocks were unlocked. These measurements are
 diagnostic evidence for one aligned M1 shape and short prompt, not a release,
 randomized, or serving-throughput claim.
 
+## NVFP4 down/lm-head data-reuse follow-up
+
+The follow-up worktree based on `64da1a19f9a6e959c33b6e0721fac83a77458b38`
+changes two exact aligned M1 routes without repacking the checkpoint. The
+`[5120,17408]` down projection replaces its indexed-broadcast dual-iteration
+kernel with the adjacent-lane XOR-dual specialization already proven for
+gate/up. Even and odd lanes own alternating packed-x8 phases, exchange one
+raw-scale payload, and then consume both phases in their original order. The
+kernel retains 64 registers per thread, 1,088 bytes of shared memory, zero
+local memory, 256 threads, and four active blocks per SM.
+
+The `[248320,5120]` language head retains the same XOR-dual arithmetic but now
+cooperatively copies its 10-KiB BF16 activation into shared memory once per CTA.
+The global copy uses 8-byte loads and preserves the existing 8-byte activation
+alignment contract; 16-byte shared loads feed every grid-stride row quad. With
+the existing 1,088-byte codebooks, the kernel uses 11,328 bytes of static
+shared memory, 64 registers per thread, zero local memory, 256 threads, and
+four active blocks per SM. Gate/up remains on its prior XOR-dual instance.
+Near-miss shapes, unaligned operands, M2 through M16, and prefill keep their
+preceding routes.
+
+Both same-binary gates use 10 warmups and three mirrored
+baseline/candidate/candidate/baseline rounds with 24 measured launches per
+pass:
+
+| Route and distribution | Preserved baseline | Production candidate | Speedup |
+| --- | ---: | ---: | ---: |
+| Down, checkpoint-like | 0.331558 ms | 0.313948 ms | 1.05609x |
+| Down, same-bank stress | 0.333291 ms | 0.315587 ms | 1.05610x |
+| Lm-head, checkpoint-like | 4.48449 ms | 4.38675 ms | 1.02228x |
+| Lm-head, same-bank stress | 4.53985 ms | 4.41034 ms | 1.02937x |
+
+For each route and distribution, the preserved baseline, direct candidate,
+and public production dispatch matched every BF16 output bit-for-bit and kept
+both output canaries intact. Public and direct CUDA Graph captures each
+contained one kernel node, and their `func` identities matched. Packed-weight
+`+1` and activation `+2` cases matched the scalar fallback at all 5,120 down
+and 248,320 lm-head outputs. Isolated `0x7f`/`0xff` block-scale NaNs retained
+their bits, class, and sign; every remaining output stayed finite and exact.
+
+The matched max-26-token profiles retained all 23,126 kernel launches. The
+separately grouped target work changed as follows:
+
+| Kernel group | Instances | Baseline | Candidate | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Down projection | 1,664 | 567.723200 ms | 537.979392 ms | 29.743808 ms (5.239139073%) |
+| Lm-head | 26 | 117.825600 ms | 115.945952 ms | 1.879648 ms (1.595279803%) |
+| Combined target work | 1,690 | 685.548800 ms | 653.925344 ms | 31.623456 ms (4.612867239%) |
+
+Aggregate CUDA-kernel time moved from 3,543.031168 to 3,512.152960 ms,
+saving 30.878208 ms (0.871519514%, 1.008791818x). Non-target kernels increased
+by 0.745248 ms between the separate traces, so the combined target row is the
+isolated attribution. The baseline report is 1,626,252 bytes with SHA-256
+`5e55f08d6b53d65683699281695b2a33130c933a42ab5cc4b817a050f6b05983`;
+the candidate is 1,623,010 bytes with SHA-256
+`6dd711812a35b486a7e3452af25753af238f662954c8dd14eb90083bb30566d3`.
+Both reports are local evidence and are not checked in.
+
+An independent `git archive` rebuild of the base commit provided a standalone
+baseline binary for a B-C-C-B single-load benchmark. Each process performed
+one warmup and five measured generations:
+
+| Average of two process medians | Base commit | Data reuse | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,548.701 ms | 3,514.877 ms | 33.824 ms (0.953137500%) |
+| Time to first token | 572.837 ms | 571.639 ms | 1.198 ms (0.209134536%) |
+| Subsequent token | 119.0265 ms | 117.7150 ms | 1.3115 ms (1.101855469%) |
+
+Every warmup and measured run retained the exact 19 prompt IDs, 26 generated
+IDs, decoded text, `<|im_end|>`, and 44 runner steps; the dedicated 27B C16
+oracle also passed. Release validation passed 52 tests with four skips;
+ASAN/UBSAN with `detect_leaks=0`, excluding `package_consumer`, passed 51 tests
+with four skips. Independent review found no blockers, and its suggested down
+Graph identity gate was added before commit. Clocks were unlocked. This remains
+single-prompt diagnostic evidence, not a randomized, release, or serving-
+throughput claim.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -830,8 +909,9 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
 9. use separately gated adjacent-lane XOR-dual instances only for aligned M1
-   gate/up `[17408,5120]` and lm-head `[248320,5120]`, retaining the down
-   dual-iteration path and all other fallbacks;
+   down `[5120,17408]` and gate/up `[17408,5120]`, and use CTA activation
+   staging only for aligned M1 lm-head `[248320,5120]`, retaining all other
+   fallbacks;
 10. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 11. lock clocks when privileged access is available before making a formal
