@@ -1,0 +1,659 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark",
+  "status": "production-diagnostic",
+  "recorded_at": "2026-07-20",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "7770128a4fd68890817a830d5a79d60e8b08125f",
+    "base_git_subject": "perf: fuse NVFP4 down projection with residual norm",
+    "tree_state_at_measurement": "post-attention warp-tail reduction worktree based on base_git_commit; the production CUDA kernel and preserved same-binary predecessor were present, while the final hard-threshold and expanded full-shape direct-correctness assertions were added after these measurements",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation": {
+    "scope": "the centered-RMSNorm reduction inside the exact aligned SM87 NVFP4 M1 post-attention residual/norm/gate/up/SiLU kernel",
+    "shape": [
+      17408,
+      5120
+    ],
+    "grid_blocks": 64,
+    "threads_per_block": 256,
+    "warps_per_block": 8,
+    "norm_columns_per_thread": 20,
+    "norm_reduction_repeated_by_every_cta": true,
+    "per_thread_accumulation": "unchanged left-to-right fmaf accumulation over the same 20 columns",
+    "preserved_test_only_baseline": {
+      "name": "shared-tree",
+      "shared_memory_strides": [
+        128,
+        64,
+        32,
+        16,
+        8,
+        4,
+        2,
+        1
+      ],
+      "block_barrier_after_each_stride": true
+    },
+    "production_candidate": {
+      "name": "shared-prefix plus warp-tail",
+      "shared_memory_strides": [
+        128,
+        64,
+        32
+      ],
+      "warp_zero_shuffle_down_strides": [
+        16,
+        8,
+        4,
+        2,
+        1
+      ],
+      "warp_mask": "0xffffffff",
+      "publication": "lane zero stores the final float to shared element zero, followed by one block barrier",
+      "net_reduction_block_barriers_removed": 4
+    },
+    "numerical_contract": "the shared 128/64/32 prefix and shuffle-down 16/8/4/2/1 tail retain the same pairwise additions and IEEE operation order as the full shared-memory tree; rsqrtf, gamma, BF16-RNE, projection, and SiLU order are unchanged",
+    "public_abi_changed": false,
+    "production_public_and_test_launchers_instantiate_warp_tail": true,
+    "shared_tree_is_test_only": true,
+    "launch_topology_changed": false,
+    "projection_and_epilogue_changed": false,
+    "fallback_dispatch_changed": false
+  },
+  "resources": {
+    "query": "cudaFuncGetAttributes plus cudaOccupancyMaxActiveBlocksPerMultiprocessor",
+    "shared_tree": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "warp_tail": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "resource_gate_passed_in_all_measured_processes": true
+  },
+  "policy": {
+    "decision": "KEEP",
+    "minimum_actual_checkpoint_direct_speedup": 1.005,
+    "minimum_same_bank_stress_direct_speedup": 1.005,
+    "threshold_definition": "median shared-tree single-kernel time divided by median warp-tail single-kernel time within one process",
+    "threshold_frozen_in_test_after_measurement": true,
+    "all_five_measured_processes_pass_frozen_threshold_when_recomputed": true,
+    "result_is_release_claim": false
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "gate_weight_payload_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_payload_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_block_scale_payload_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_block_scale_payload_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "weight_scale_2_little_endian_bits": "0x391e79e8",
+    "all_payload_hashes_matched_in_all_measured_processes": true
+  },
+  "same_binary_direct_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=SHARD build/q3x_sm87_weight_only_gemv_test",
+    "comparison": "test-only full shared-memory reduction tree versus production shared-prefix/warp-tail reduction inside otherwise identical single kernels and on disjoint output buffers",
+    "measured_binary_sha256_from_self_identity": "834a695df2cc25645fd2a2173ccfceb6bc5739e2265c0d277f01d158dc00dea2",
+    "warmup_launches_per_implementation": 10,
+    "measured_launches_per_timed_pass": 64,
+    "measurement_rounds": 5,
+    "timed_order_per_round": [
+      "shared_tree",
+      "warp_tail",
+      "warp_tail",
+      "shared_tree"
+    ],
+    "statistic_per_process": "median of ten shared-tree timed-pass means divided by the median of ten warp-tail timed-pass means",
+    "independent_process_repeats": 5,
+    "fixtures": {
+      "actual_checkpoint": "pinned layer-0 gate/up packed weights, block scales, and scale2 values with deterministic finite residual/norm inputs",
+      "same_bank_stress": "deterministic synthetic packed weights and E4M3FN scale codes sharing the low-five-bit bank index"
+    },
+    "repeats": [
+      {
+        "run": 1,
+        "actual_checkpoint": {
+          "shared_tree_milliseconds": 0.623346,
+          "warp_tail_milliseconds": 0.613568,
+          "speedup": 1.01594,
+          "frozen_policy_gate_passed": true
+        },
+        "same_bank_stress": {
+          "shared_tree_milliseconds": 0.626713,
+          "warp_tail_milliseconds": 0.617878,
+          "speedup": 1.01430,
+          "frozen_policy_gate_passed": true
+        },
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-direct-r1.log",
+          "bytes": 37783,
+          "sha256": "8a88e5594641605bc9a345f941f71a021be35e503c2e74eb5c02aab830c7d7ef",
+          "checked_in": false
+        }
+      },
+      {
+        "run": 2,
+        "actual_checkpoint": {
+          "shared_tree_milliseconds": 0.624090,
+          "warp_tail_milliseconds": 0.614271,
+          "speedup": 1.01598,
+          "frozen_policy_gate_passed": true
+        },
+        "same_bank_stress": {
+          "shared_tree_milliseconds": 0.641316,
+          "warp_tail_milliseconds": 0.628109,
+          "speedup": 1.02103,
+          "frozen_policy_gate_passed": true,
+          "note": "several complete B-C-C-B timed passes rose together under unlocked-clock thermal drift; the within-process symmetric order and ten-pass median retain a paired ratio, but the absolute medians are not treated as stable latency"
+        },
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-direct-r2.log",
+          "bytes": 37787,
+          "sha256": "c72f3530c437b195659ce3ac8ec761226e0af30f401762c65c7dfa66666934d5",
+          "checked_in": false
+        }
+      },
+      {
+        "run": 3,
+        "actual_checkpoint": {
+          "shared_tree_milliseconds": 0.623477,
+          "warp_tail_milliseconds": 0.614366,
+          "speedup": 1.01483,
+          "frozen_policy_gate_passed": true
+        },
+        "same_bank_stress": {
+          "shared_tree_milliseconds": 0.628674,
+          "warp_tail_milliseconds": 0.619247,
+          "speedup": 1.01522,
+          "frozen_policy_gate_passed": true
+        },
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-direct-r3.log",
+          "bytes": 37791,
+          "sha256": "5d7ceba670dda5ce7705c2095afa513116a6cc25a9562e479b201687f2685a0d",
+          "checked_in": false
+        }
+      },
+      {
+        "run": 4,
+        "actual_checkpoint": {
+          "shared_tree_milliseconds": 0.625712,
+          "warp_tail_milliseconds": 0.616100,
+          "speedup": 1.01560,
+          "frozen_policy_gate_passed": true
+        },
+        "same_bank_stress": {
+          "shared_tree_milliseconds": 0.627949,
+          "warp_tail_milliseconds": 0.619546,
+          "speedup": 1.01356,
+          "frozen_policy_gate_passed": true
+        },
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-direct-r4.log",
+          "bytes": 37784,
+          "sha256": "3fbc37a9bf24618a0d2b5d5f66e9c7234a806b4caf093137ac97a33395e27c98",
+          "checked_in": false
+        }
+      },
+      {
+        "run": 5,
+        "actual_checkpoint": {
+          "shared_tree_milliseconds": 0.623689,
+          "warp_tail_milliseconds": 0.614093,
+          "speedup": 1.01563,
+          "frozen_policy_gate_passed": true
+        },
+        "same_bank_stress": {
+          "shared_tree_milliseconds": 0.627186,
+          "warp_tail_milliseconds": 0.618388,
+          "speedup": 1.01423,
+          "frozen_policy_gate_passed": true
+        },
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-direct-r5.log",
+          "bytes": 37787,
+          "sha256": "34b42ed3845204c7ee3d5682d496ac167f70f494a66cd01f4e966ea72684b746",
+          "checked_in": false
+        }
+      }
+    ],
+    "summary": {
+      "actual_checkpoint_speedup_min_median_mean_max": [
+        1.01483,
+        1.01563,
+        1.015596,
+        1.01598
+      ],
+      "same_bank_stress_speedup_min_median_mean_max": [
+        1.01356,
+        1.01430,
+        1.015668,
+        1.02103
+      ],
+      "actual_checkpoint_median_saved_microseconds_per_kernel": 9.612,
+      "same_bank_stress_median_saved_microseconds_per_kernel": 8.835,
+      "all_five_processes_pass_both_frozen_1p005_gates": true
+    }
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "the immediately preceding 7770128 profile is reused as the shared-tree baseline and compared with an independently captured warp-tail candidate under the same max-26 workload",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate.nsys-rep",
+        "bytes": 1121911,
+        "sha256": "2f9f99bb05e6fd1925a0565e2fa9ef294f488ca84af5d1ad8df60370dfa06e5f",
+        "source_git_commit": "7770128a4fd68890817a830d5a79d60e8b08125f"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate.nsys-rep",
+        "bytes": 1122699,
+        "sha256": "28ef646efb42f3543d192095bccfd9ca1ad1a5310bff38b3fb25d5c75238abcb"
+      },
+      "checked_in": false
+    },
+    "sqlite_exports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate.sqlite",
+        "bytes": 3125248,
+        "sha256": "a70c2d6d826b3a900fc1bb37bdb48781beb68f5463c3c38e0600e49f6e20a4fe"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate.sqlite",
+        "bytes": 3129344,
+        "sha256": "57683796d270dad5c66890076b4b49fd612e287152cfe149c9a8fa9641946aa4"
+      },
+      "checked_in": false
+    },
+    "stats_exports": {
+      "baseline_kernel_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-kernels.csv",
+        "bytes": 8148,
+        "sha256": "1b2c1fb8e50f6a4e4b13bad3a879f91d0011e82cf2098066e1df7587d07d3b5c"
+      },
+      "baseline_grid_block_summary": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-kernels-gb.csv",
+        "bytes": 12445,
+        "sha256": "07750deb47cabf767120af960b714409c9c22625db6ce3349ec5d7ac99e464cc"
+      },
+      "candidate_kernel_summary": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate-kernels_cuda_gpu_kern_sum.csv",
+        "bytes": 7892,
+        "sha256": "cd6d6b6e8723a089ca8fd93c9f1138d778550d322438180a0853b1845382aec0"
+      },
+      "candidate_grid_block_summary": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate-kernels-gb_cuda_gpu_kern_gb_sum.csv",
+        "bytes": 12066,
+        "sha256": "1edb0e4590921b4a2b38215a4b3b1bbc05b173c14b8c402cdc7e99542eef3418"
+      },
+      "candidate_export_log": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate-stats.log",
+        "bytes": 902,
+        "sha256": "985aef4bec4f40fca9acafadecb17fa30a0e6fba5de353df27b35bda1fe36701"
+      },
+      "checked_in": false
+    },
+    "profile_logs": {
+      "baseline": {
+        "local_path": "/tmp/q3x-downnorm-final-candidate-profile.log",
+        "bytes": 2724,
+        "sha256": "2f0360533c53f6a5e54f98e7b46f936bd5350f4034d6aa1403a3a9501e5bd0a4"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-candidate-profile.log",
+        "bytes": 3022,
+        "sha256": "270c2eb51be9da3da1b15b0b8ebcbce742a41592d9ef458fd7f47c571d941d29"
+      },
+      "checked_in": false
+    },
+    "kernel_groups": {
+      "post_attention_residual_norm_gate_up_silu": {
+        "instances": 1664,
+        "baseline_milliseconds": 1054.426816,
+        "candidate_milliseconds": 1044.102176,
+        "saved_milliseconds": 10.324640,
+        "reduction_percent": 0.979170848,
+        "speedup": 1.009888534
+      },
+      "non_target_kernels": {
+        "baseline_milliseconds": 2306.443104,
+        "candidate_milliseconds": 2313.795744,
+        "candidate_increase_milliseconds": 7.352640
+      },
+      "all_cuda_kernels": {
+        "baseline_instances": 14806,
+        "candidate_instances": 14806,
+        "baseline_milliseconds": 3360.869920,
+        "candidate_milliseconds": 3357.897920,
+        "saved_milliseconds": 2.972000,
+        "reduction_percent": 0.088429486,
+        "speedup": 1.000885078
+      }
+    },
+    "profiled_generation": {
+      "baseline_milliseconds": 3392.935,
+      "candidate_milliseconds": 3390.068,
+      "saved_milliseconds": 2.867,
+      "reduction_percent": 0.084499114,
+      "speedup": 1.000845706,
+      "prompt_generated_text_stop_and_44_steps_exact": true
+    },
+    "interpretation": "the target kernel improvement is directly visible, while a 7.352640 ms increase outside the target reduces the all-CUDA net saving to 2.972000 ms; neither the non-target drift nor the unlocked-clock single profile is attributed to the reduction implementation"
+  },
+  "independent_end_to_end_benchmark": {
+    "comparison": "base-commit shared-tree process, candidate warp-tail process, candidate warp-tail process, base-commit shared-tree process",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "base_git_commit": "7770128a4fd68890817a830d5a79d60e8b08125f",
+    "candidate": "post-attention warp-tail reduction worktree based on base_git_commit",
+    "binaries": {
+      "baseline": {
+        "local_path": "/home/rm01/Qwen3x-Orin/build/qwen3x-orin",
+        "bytes": 3150360,
+        "sha256": "3bde858dd246e76a77402b98780b28b2bde15c7d8c4fd2f3e40dbbadae39e7db",
+        "base_git_commit": "7770128a4fd68890817a830d5a79d60e8b08125f"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-next-postattn/build/qwen3x-orin",
+        "bytes": 3218392,
+        "sha256": "633d4e958da702d4bc7abb16be3d3bbcc54a369162bb69c4c74400216c863062",
+        "tree_state": "warp-tail reduction worktree based on base_git_commit"
+      },
+      "checked_in": false
+    },
+    "run_order": [
+      "baseline_round1",
+      "candidate_round1",
+      "candidate_round2",
+      "baseline_round2"
+    ],
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3375.874,
+          "time_to_first_token_milliseconds": 555.941,
+          "subsequent_token_milliseconds": 112.824
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3359.825,
+          "time_to_first_token_milliseconds": 554.631,
+          "subsequent_token_milliseconds": 112.189
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3345.556,
+          "time_to_first_token_milliseconds": 554.045,
+          "subsequent_token_milliseconds": 111.760
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3344.837,
+          "time_to_first_token_milliseconds": 553.941,
+          "subsequent_token_milliseconds": 111.663
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3367.8495,
+        "time_to_first_token_milliseconds": 555.2860,
+        "subsequent_token_milliseconds": 112.5065
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3345.1965,
+        "time_to_first_token_milliseconds": 553.9930,
+        "subsequent_token_milliseconds": 111.7115
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 22.6530,
+        "total_generation_reduction_percent": 0.672625068,
+        "total_generation_speedup": 1.006771800,
+        "time_to_first_token_saved_milliseconds": 1.2930,
+        "time_to_first_token_reduction_percent": 0.232852980,
+        "time_to_first_token_speedup": 1.002333965,
+        "subsequent_token_saved_milliseconds": 0.7950,
+        "subsequent_token_reduction_percent": 0.706625839,
+        "subsequent_token_speedup": 1.007116546
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "contract_lines_sha256": "db918ca4ff54455c4b035d4ae851d38a02b97df9a3088414de1d354366c9585a",
+      "contract_hash_input": "newline-terminated prompt.0.prompt_ids, generated_ids, generated_text, stop_reason, step_count, and steps lines in log order",
+      "all_warmup_and_measured_runs_passed": true
+    },
+    "logs": {
+      "baseline_round1": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-e2e-b1.log",
+        "bytes": 5650,
+        "sha256": "8ee25f1183238d235052bdcaeec7ebaad7ab39076253c26e099e615af0b6ec02",
+        "checked_in": false
+      },
+      "candidate_round1": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-e2e-c1.log",
+        "bytes": 5650,
+        "sha256": "cac05b3e52b471ca6917de4ae204b7d462d894c3443b31790f61e3fc4e20df97",
+        "checked_in": false
+      },
+      "candidate_round2": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-e2e-c2.log",
+        "bytes": 5650,
+        "sha256": "255ba5314e4fc2a1f93549080130abd9d77bd8db02d976081fe581ba4c807a1a",
+        "checked_in": false
+      },
+      "baseline_round2": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-e2e-b2.log",
+        "bytes": 5650,
+        "sha256": "07a056c1de82815208dd9792e79c4158cbdd1d107631229f40b431060726ae84",
+        "checked_in": false
+      }
+    }
+  },
+  "full_trace_comparison": {
+    "command_template": "qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87 --trace",
+    "comparison": "independent base-commit shared-tree binary versus candidate warp-tail binary",
+    "requested_prefill_chunk_size": 16,
+    "effective_trace_chunk_size": 1,
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "stop_reason": "im_end",
+    "runner_steps": 44,
+    "trace_count": 44,
+    "canonical_pattern": "^(prompt\\.(rendered|token_count|ids)|generated\\.|trace\\.)",
+    "canonical_lines_per_log": 5905,
+    "baseline_canonical_sha256": "8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789",
+    "candidate_canonical_sha256": "8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789",
+    "canonical_diff_lines": 0,
+    "bitwise_equal": true,
+    "logs": {
+      "baseline": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-trace-base.log",
+        "bytes": 578927,
+        "sha256": "9abeb0a31c938315f021ce362f47bc4ede83bfbf5227e89f938f403cdd8b1df4",
+        "checked_in": false
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-trace-candidate.log",
+        "bytes": 578928,
+        "sha256": "48b7142bc2299276abfdb21a0d6ef97b924f55bb216feadea85de6ddd7d13858",
+        "checked_in": false
+      }
+    }
+  },
+  "correctness": {
+    "measured_binary": {
+      "production_public_and_test_exact_launchers_capture_one_identical_kernel_node": true,
+      "shared_tree_and_warp_tail_capture_distinct_functions_with_identical_64x256_topology": true,
+      "bounded_direct_shape": [
+        2048,
+        512
+      ],
+      "bounded_shared_tree_versus_warp_tail_residual_final_up_bit_mismatches": 0,
+      "full_shape_finite_actual_old_chain_versus_production_residual_bit_mismatches": "0/5120",
+      "full_shape_finite_actual_old_chain_versus_production_final_bit_mismatches": "0/17408",
+      "full_shape_finite_actual_old_chain_versus_production_up_bit_mismatches": "0/17408",
+      "full_shape_finite_stress_old_chain_versus_production_residual_bit_mismatches": "0/5120",
+      "full_shape_finite_stress_old_chain_versus_production_final_bit_mismatches": "0/17408",
+      "full_shape_finite_stress_old_chain_versus_production_up_bit_mismatches": "0/17408",
+      "bounded_signed_inf_nan_old_chain_versus_production_bitwise": true,
+      "bounded_signed_inf_nan_class_and_sign": "4096/4096",
+      "guards_intact": true,
+      "inputs_preserved": true,
+      "invalid_calls_capture_zero_kernel_nodes": true,
+      "all_five_test_processes_passed": true
+    },
+    "post_measurement_closeout_gates": {
+      "status": "passed",
+      "full_shape_actual_shared_tree_versus_warp_tail_finite": {
+        "residual_bit_mismatches": "0/5120",
+        "final_gate_bit_mismatches": "0/17408",
+        "up_bit_mismatches": "0/17408",
+        "unexpected_nonfinite": 0,
+        "guards_intact": true,
+        "inputs_preserved": true,
+        "passed": true
+      },
+      "full_shape_stress_shared_tree_versus_warp_tail_finite": {
+        "residual_bit_mismatches": "0/5120",
+        "final_gate_bit_mismatches": "0/17408",
+        "up_bit_mismatches": "0/17408",
+        "unexpected_nonfinite": 0,
+        "guards_intact": true,
+        "inputs_preserved": true,
+        "passed": true
+      },
+      "full_shape_signed_inf_nan_shared_tree_versus_warp_tail": {
+        "residual_bit_mismatches": "0/5120",
+        "final_gate_bit_mismatches": "0/17408",
+        "up_bit_mismatches": "0/17408",
+        "classified_nan_outputs": "34816/34816",
+        "class_and_sign_preserved": true,
+        "guards_intact": true,
+        "inputs_preserved": true,
+        "passed": true
+      },
+      "direct_hard_gate": {
+        "minimum_actual_checkpoint_speedup": 1.005,
+        "actual_shared_tree_milliseconds": 0.623498,
+        "actual_warp_tail_milliseconds": 0.614439,
+        "actual_speedup": 1.01474,
+        "actual_passed": true,
+        "minimum_same_bank_stress_speedup": 1.005,
+        "stress_shared_tree_milliseconds": 0.626928,
+        "stress_warp_tail_milliseconds": 0.618547,
+        "stress_speedup": 1.01355,
+        "stress_passed": true
+      },
+      "default_bounded_finite_nonfinite_resource_identity_and_zero_node_contract": {
+        "passed": true,
+        "binary_sha256": "22402e2d028522b1f8d325ab4f3fc811e5b76b50db9c2715cb8d8c8227f828e9",
+        "log": {
+          "local_path": "/tmp/q3x-next-postattn-a-closeout-default.log",
+          "bytes": 25429,
+          "sha256": "b2baecf8bc09167353e19d46bbc77e9de6d0d8e2b98253444e8fa8fa71144385",
+          "checked_in": false
+        }
+      },
+      "optional_full_shape_log": {
+        "local_path": "/tmp/q3x-next-postattn-a-closeout-direct.log",
+        "bytes": 39122,
+        "sha256": "b7914fc41159caf2b16baac8f27bf021b0b409ccbc030640b99d96616c06f5a2",
+        "binary_sha256": "22402e2d028522b1f8d325ab4f3fc811e5b76b50db9c2715cb8d8c8227f828e9",
+        "checked_in": false
+      }
+    }
+  },
+  "validation_suites": {
+    "release": {
+      "command": "ctest --test-dir build --output-on-failure",
+      "discovered_tests": 52,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-next-postattn-release-ctest.log",
+        "bytes": 7004,
+        "sha256": "0751635f5c9f1ee3e004ab3003b4d293788d2b2f759a702292af7d39d8e9400d",
+        "checked_in": false
+      }
+    },
+    "asan_ubsan": {
+      "command": "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir build-sanitize -E package_consumer --output-on-failure",
+      "discovered_tests": 51,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "excluded_tests": [
+        "package_consumer"
+      ],
+      "asan_options": "detect_leaks=0:halt_on_error=1",
+      "ubsan_options": "halt_on_error=1",
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-postattn-reduction-final-sanitize-ctest.log",
+        "bytes": 6904,
+        "sha256": "7ef707940dfca851d8276b7f9d41f1355812d3f62bc90b89100b1c8641dde100",
+        "checked_in": false
+      }
+    }
+  },
+  "excluded_evidence": {
+    "new_matched_nsys_profile": true,
+    "new_independent_base_candidate_end_to_end_benchmark": true,
+    "new_full_model_oracle_run": true,
+    "new_release_or_sanitizer_suite": true,
+    "note": "the matched profile, independent B-C-C-B end-to-end benchmark, full 5905-line trace comparison, Release suite, and ASan/UBSan suite above are reduction-specific; prior fusion evidence is not relabeled as evidence for this reduction-only change"
+  },
+  "limitations": [
+    "all direct measurements used unlocked clocks",
+    "the direct same-binary test isolates a kernel implementation detail and is not an end-to-end or serving-throughput measurement",
+    "r2 stress and isolated passes in later processes show thermal drift; B-C-C-B ordering and per-process medians mitigate but do not eliminate it",
+    "the same reduction remains redundantly repeated by all 64 CTAs",
+    "the end-to-end result is batch-one generation for one short prompt, uses two process medians per implementation, and excludes engine-load time",
+    "the matched profile consists of one report per implementation; non-target kernels increased by 7.352640 ms and reduce the all-CUDA net saving",
+    "the raw logs and measured binaries are local artifacts and are not checked into the repository",
+    "the final hard-gate binary has one post-closeout optional run; the five-process direct distribution was collected from the immediately preceding measurement binary with identical CUDA kernel implementations"
+  ]
+}

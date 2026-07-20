@@ -49,6 +49,8 @@ recorded in
 The follow-up post-attention residual/norm/gate/up/SiLU fusion diagnostic is
 recorded in
 [`qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
+The reduction-only warp-tail follow-up inside that fused kernel is recorded in
+[`qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json`](metadata/qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json).
 The subsequent exact FP8 M1 full-attention Q+K/V fusion diagnostic is recorded
 in
 [`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
@@ -1333,6 +1335,113 @@ zero failures across 51 discovered tests with four skips and
 microbenchmark, separate profiles, and two-process-per-policy B-C-C-B result
 remain batch-one, local-artifact diagnostics rather than randomized, release,
 concurrent-request, or serving-throughput claims.
+
+## NVFP4 post-attention RMSNorm warp-tail reduction
+
+The reduction-only follow-up based on
+`7770128a4fd68890817a830d5a79d60e8b08125f` keeps the public exact aligned
+SM87 M1 `[17408,5120]` residual/norm/gate/up/SiLU launch at 64 CTAs and 256
+threads. Each thread still accumulates its same 20 centered-residual squares
+with the same left-to-right `fmaf` order. The production reduction retains the
+shared-memory tree at strides 128, 64, and 32, then warp zero performs the same
+pairwise additions with shuffle-down strides 16, 8, 4, 2, and 1. Lane zero
+publishes the result to shared memory before one final block barrier. This
+replaces five per-level tail barriers with the shuffle chain plus one publish
+barrier, removing four reduction barriers per CTA without changing any
+addition pairing, `rsqrtf`, gamma, BF16-RNE, projection, or SiLU operation.
+
+The former eight-level shared-memory tree remains a test-only template
+instance in the same binary. Production public and test launchers instantiate
+the warp-tail kernel; graph capture verifies that they resolve to the same
+kernel function and `64x256` topology, while the test-only shared-tree
+predecessor is a distinct function with the same topology. Both variants use
+64 registers per thread, 11,328 static-shared bytes, zero local bytes, and
+permit four active blocks per SM on the tested Orin.
+
+The direct optional gate compares those two single kernels on separate output
+buffers. Each process warms both variants ten times, then runs five symmetric
+B-C-C-B rounds with 64 launches per timed pass. B is the shared-tree
+predecessor and C is the production warp tail. The statistic is the median of
+ten B pass means divided by the median of ten C pass means. Both the pinned
+checkpoint fixture and deterministic same-bank stress fixture have a frozen
+minimum direct speedup of 1.005x:
+
+| Process | Checkpoint shared tree | Checkpoint warp tail | Speedup | Stress shared tree | Stress warp tail | Speedup |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.623346 ms | 0.613568 ms | 1.01594x | 0.626713 ms | 0.617878 ms | 1.01430x |
+| 2 | 0.624090 ms | 0.614271 ms | 1.01598x | 0.641316 ms | 0.628109 ms | 1.02103x |
+| 3 | 0.623477 ms | 0.614366 ms | 1.01483x | 0.628674 ms | 0.619247 ms | 1.01522x |
+| 4 | 0.625712 ms | 0.616100 ms | 1.01560x | 0.627949 ms | 0.619546 ms | 1.01356x |
+| 5 | 0.623689 ms | 0.614093 ms | 1.01563x | 0.627186 ms | 0.618388 ms | 1.01423x |
+
+Checkpoint speedup min/median/mean/max is
+1.01483x/1.01563x/1.015596x/1.01598x. Stress speedup is
+1.01356x/1.01430x/1.015668x/1.02103x. All ten fixture/process cells clear the
+1.005x threshold. The median per-process saving is 9.612 microseconds on the
+checkpoint fixture and 8.835 microseconds on the stress fixture. Several r2
+stress passes rose together under unlocked-clock thermal drift; the B-C-C-B
+order and ten-pass median preserve a paired comparison, but the absolute r2
+latencies are not treated as stable clock-locked measurements.
+
+The measured binary passed the existing default exact-shape launcher identity,
+zero-node invalid-call, bounded direct shared-tree/warp-tail bitwise, signed
+Inf/NaN class/sign, canary, and input-preservation gates. Its optional fixture
+also matched the old two-kernel chain bitwise at the full production shape for
+both finite fixtures. The final closeout binary additionally matches the
+shared-tree predecessor directly at full shape for actual finite, stress
+finite, and signed Inf/NaN inputs: all residual/final/up mismatch counts are
+zero, all 34,816 expected nonfinite projection outputs preserve NaN class and
+sign, and every guard and input remains intact. Its hard-gate rerun measures
+1.01474x actual and 1.01355x stress, clearing both frozen 1.005x thresholds.
+
+A matched max-26 profile reuses the immediately preceding `7770128` capture
+as the shared-tree baseline and independently captures the warp-tail candidate:
+
+| Profile group | Shared tree | Warp tail | Change |
+| --- | ---: | ---: | ---: |
+| Post-attention fused kernel | 1,664 / 1,054.426816 ms | 1,664 / 1,044.102176 ms | -10.324640 ms (0.979171%, 1.009888534x) |
+| Non-target kernels | 13,142 / 2,306.443104 ms | 13,142 / 2,313.795744 ms | +7.352640 ms |
+| All CUDA kernels | 14,806 / 3,360.869920 ms | 14,806 / 3,357.897920 ms | -2.972000 ms (0.088429%, 1.000885078x) |
+| Profiled generation | 3,392.935 ms | 3,390.068 ms | -2.867 ms (0.084499%, 1.000845706x) |
+
+The target saving is directly visible, but unrelated kernels move in the
+opposite direction under unlocked clocks, so the all-CUDA net is reported
+alongside the target result rather than attributed wholly to the reduction.
+The candidate profile preserves the exact 19/26-token, text, stop, and 44-step
+contract.
+
+An independent B-C-C-B comparison uses the `7770128` shared-tree binary and
+the candidate warp-tail binary. Each process loads one engine, warms once, and
+measures five generations with the same 19-token prompt and 26-token cap:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Shared tree 1 | 3,375.874 ms | 555.941 ms | 112.824 ms |
+| Warp tail 1 | 3,345.556 ms | 554.045 ms | 111.760 ms |
+| Warp tail 2 | 3,344.837 ms | 553.941 ms | 111.663 ms |
+| Shared tree 2 | 3,359.825 ms | 554.631 ms | 112.189 ms |
+
+| Average of two process medians | Shared tree | Warp tail | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,367.8495 ms | 3,345.1965 ms | 22.6530 ms (0.672625%, 1.006771800x) |
+| Time to first token | 555.2860 ms | 553.9930 ms | 1.2930 ms (0.232853%, 1.002333965x) |
+| Subsequent token | 112.5065 ms | 111.7115 ms | 0.7950 ms (0.706626%, 1.007116546x) |
+
+All four processes preserve the exact prompt IDs, generated IDs, decoded text,
+`<|im_end|>` stop, and 44 runner steps. The six canonical contract lines hash
+to `db918ca4ff54455c4b035d4ae851d38a02b97df9a3088414de1d354366c9585a`
+in every log. A separate base/candidate `--trace` comparison requests C16 and
+intentionally executes C1 trace order; both logs contain 44 traces and 5,905
+canonical prompt/generated/boundary lines. Both canonical streams hash to
+`8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789`,
+and their diff is empty. Release validation passes all 52 discovered tests
+with four model-dependent skips. ASan/UBSan with
+`detect_leaks=0:halt_on_error=1`, `UBSAN_OPTIONS=halt_on_error=1`, and
+`package_consumer` excluded passes all 51 discovered tests with the same four
+skips. The direct, profile, trace, and end-to-end
+measurements use unlocked clocks and remain single-prompt diagnostics, not
+serving-throughput or release claims; see the
+[warp-tail reduction record](metadata/qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json).
 
 ## FP8 full-attention Q+K/V one-kernel fusion
 

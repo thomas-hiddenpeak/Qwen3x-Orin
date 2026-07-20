@@ -117,6 +117,14 @@ The diagnostic Phase 3 records are:
   centered-RMSNorm, gate/up, and SiLU fusion, its redundant per-CTA norm
   reduction, five frozen gates, dispatch/alias contracts, matched profiles,
   detached-base B-C-C-B evidence, exact replay, and diagnostic limitations.
+- [`qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json`](qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json),
+  which records the reduction-only follow-up inside that post-attention
+  fusion: shared-memory strides 128/64/32 followed by exact warp-zero shuffle
+  strides 16/8/4/2/1, the preserved full-shared-tree same-binary predecessor,
+  compiler resources, five direct actual-checkpoint/same-bank B-C-C-B gates,
+  a matched max-26 profile, an independent B-C-C-B generation comparison,
+  a bitwise-equal 5,905-line trace, full-shape finite/nonfinite closeout gates,
+  and diagnostic limits.
 - [`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](qwen36-27b-fp8-q-kv-fusion-benchmark.json),
   which records the exact aligned FP8 M1 full-attention Q plus K/V fusion,
   five same-binary production-shaped gates, compiler resources, complete

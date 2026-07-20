@@ -202,8 +202,10 @@ epilogue launch. Gate and up are independently rounded to BF16 before the
 epilogue, and the up output is retained. At the production post-attention
 boundary, the same exact route also folds BF16 residual addition and centered
 RMSNorm into that launch: CTA 0 writes the public residual, while the normalized
-activation remains CTA-local. C2 through C16, near-miss shapes, unaligned
-operands, and other backends retain the validated ordered fallbacks.
+activation remains CTA-local. Its repeated 256-thread RMS reduction preserves
+the shared-tree strides 128/64/32 and the exact remaining pairings through
+warp-zero shuffle-down strides 16/8/4/2/1. C2 through C16, near-miss shapes,
+unaligned operands, and other backends retain the validated ordered fallbacks.
 The following exact aligned SM87 NVFP4 M1 `[5120,17408]` down projection can
 likewise absorb its BF16 residual-add and centered-RMSNorm boundary into one
 64-CTA cooperative launch. It retains three separately rounded public BF16
@@ -360,6 +362,28 @@ subsequent-token latency from 113.9935 to 113.0220 ms (0.852242%). C1, C8,
 and C16 preserve the exact oracle. Clocks remained unlocked, so this is
 diagnostic rather than release or serving-throughput evidence; see the
 [NVFP4 residual/norm/gate/up/SiLU fusion record](docs/metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
+The reduction-only follow-up keeps that kernel's exact 64-CTA/256-thread
+topology and per-thread accumulation, but stops the shared-memory tree after
+strides 128/64/32 and uses warp-zero shuffle-down strides 16/8/4/2/1 with the
+same pairings. The preserved shared-tree predecessor and production warp-tail
+kernel remain available in one test binary. Five direct B-C-C-B processes
+measure 1.01483x to 1.01598x on pinned checkpoint bytes and 1.01356x to
+1.02103x on the same-bank guard; every process clears the frozen 1.005x gate
+for both fixtures without changing the 64-register, 11,328-byte shared-memory,
+zero-local, four-active-block resource envelope. A matched max-26 profile
+reduces the 1,664 target kernels from 1,054.426816 to 1,044.102176 ms; non-target
+kernels rise by 7.352640 ms, leaving an all-CUDA reduction from 3,360.869920 to
+3,357.897920 ms. An independent base/candidate B-C-C-B run reduces average
+total generation from 3,367.8495 to 3,345.1965 ms
+(0.672625%) and subsequent-token latency from 112.5065 to 111.7115 ms
+(0.706626%), with identical prompt/generated IDs, text, stop, and 44 steps.
+An independent base/candidate trace comparison also matches all 5,905
+canonical prompt/generated/boundary lines. Release passes 52/52 tests, and
+ASan/UBSan passes 51/51 with `package_consumer` excluded; both suites retain
+the four model-dependent skips. Clocks remained unlocked, so the
+results remain diagnostic rather than serving-throughput or release claims.
+See the
+[NVFP4 residual/norm warp-tail reduction record](docs/metadata/qwen36-27b-nvfp4-residual-norm-warp-tail-reduction-benchmark.json).
 The following exact aligned FP8 M1 full-attention fusion preserves the existing
 Q row-quad and paired K/V reduction orders while executing all three ordered
 projections in one kernel. Five independent processes running the synthetic
