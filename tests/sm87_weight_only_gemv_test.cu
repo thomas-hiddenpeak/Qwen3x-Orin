@@ -276,6 +276,19 @@ query_sm87_nvfp4_w4a16_m1_lm_head_activation_staged_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_activation_staged_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_gate_up_activation_staged_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -285,7 +298,7 @@ query_sm87_nvfp4_w4a16_m1_lm_head_activation_staged_resources_test_cuda(
 [[nodiscard]] bool use_sm87_nvfp4_m1_down_xor_dual_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
-[[nodiscard]] bool use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+[[nodiscard]] bool use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
 [[nodiscard]] bool
@@ -3811,29 +3824,36 @@ void test_launch_validation(TestContext& test) {
           5'120U, 17'392U),
       "NVFP4 M1 down XOR-dual selector rejects near-miss columns");
   test.expect(
-      q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           17'408U, 5'120U),
-      "NVFP4 M1 gate/up XOR-dual selector accepts gate/up");
+      "NVFP4 M1 gate/up activation-staged selector accepts gate/up");
   test.expect(
-      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           5'120U, 17'408U),
-      "NVFP4 M1 gate/up XOR-dual selector rejects down");
+      "NVFP4 M1 gate/up activation-staged selector rejects down");
   test.expect(
-      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           248'320U, 5'120U),
-      "NVFP4 M1 gate/up XOR-dual selector rejects lm_head");
+      "NVFP4 M1 gate/up activation-staged selector rejects lm_head");
   test.expect(
-      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           17'407U, 5'120U),
-      "NVFP4 M1 gate/up XOR-dual selector rejects near-miss rows");
+      "NVFP4 M1 gate/up activation-staged selector rejects near-miss rows");
   test.expect(
-      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           17'408U, 5'104U),
-      "NVFP4 M1 gate/up XOR-dual selector rejects near-miss columns");
+      "NVFP4 M1 gate/up activation-staged selector rejects near-miss "
+      "columns");
   test.expect(
-      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_xor_dual_shape_test(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
           17'408U, 17'408U),
-      "NVFP4 M1 gate/up XOR-dual selector rejects an unknown square");
+      "NVFP4 M1 gate/up activation-staged selector rejects an unknown "
+      "square");
+  test.expect(
+      !q3x::kernels::use_sm87_nvfp4_m1_gate_up_activation_staged_shape_test(
+          2'048U, 512U),
+      "NVFP4 M1 gate/up activation-staged selector rejects the bounded "
+      "test-only fixture");
   test.expect(
       q3x::kernels::use_sm87_nvfp4_m1_lm_head_activation_staged_shape_test(
           248'320U, 5'120U),
@@ -4169,6 +4189,14 @@ void test_launch_validation(TestContext& test) {
 nvfp4_m1_lm_head_activation_staged_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_m1_gate_up_activation_staged_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -13320,6 +13348,7 @@ void run_nvfp4_m1_down_xor_dual_probe(TestContext& test,
 
 enum class NvFp4M1K5120XorDualProbe {
   kGateUp,
+  kGateUpActivationStaged,
   kLmHead,
   kLmHeadActivationStaged,
 };
@@ -13338,20 +13367,30 @@ enum class NvFp4M1K5120XorDualProbe {
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 3;
+  const bool gate_up_staged_probe =
+      probe == NvFp4M1K5120XorDualProbe::kGateUpActivationStaged;
   const bool lm_head_probe =
-      probe != NvFp4M1K5120XorDualProbe::kGateUp;
-  const bool staged_probe =
+      probe == NvFp4M1K5120XorDualProbe::kLmHead ||
       probe == NvFp4M1K5120XorDualProbe::kLmHeadActivationStaged;
+  const bool lm_head_staged_probe =
+      probe == NvFp4M1K5120XorDualProbe::kLmHeadActivationStaged;
+  const bool staged_probe = gate_up_staged_probe || lm_head_staged_probe;
   const bool direct_lm_baseline_probe =
       probe == NvFp4M1K5120XorDualProbe::kLmHead;
   const bool verify_public_dispatch =
       run_performance && !direct_lm_baseline_probe;
   const float minimum_speedup =
-      staged_probe ? 1.01F : lm_head_probe ? 1.02F : 1.01F;
+      gate_up_staged_probe ? 1.005F
+                           : lm_head_staged_probe ? 1.01F
+                                                  : lm_head_probe ? 1.02F
+                                                                  : 1.01F;
   const char* const metric_tag =
-      staged_probe ? "NVFP4_M1_LM_HEAD_ACTIVATION_STAGED"
-                   : lm_head_probe ? "NVFP4_M1_LM_HEAD_XOR_DUAL"
-                                   : "NVFP4_M1_K5120_XOR_DUAL";
+      gate_up_staged_probe
+          ? "NVFP4_M1_GATE_UP_ACTIVATION_STAGED"
+          : lm_head_staged_probe
+                ? "NVFP4_M1_LM_HEAD_ACTIVATION_STAGED"
+                : lm_head_probe ? "NVFP4_M1_LM_HEAD_XOR_DUAL"
+                                : "NVFP4_M1_K5120_XOR_DUAL";
   constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
       NvFp4M1ScaleDistribution::kCheckpointLike,
       NvFp4M1ScaleDistribution::kSameBankStress,
@@ -13484,7 +13523,14 @@ enum class NvFp4M1K5120XorDualProbe {
           const std::size_t candidate_rows,
           const std::size_t candidate_columns,
           std::uint16_t* const candidate_result) noexcept {
-        if (staged_probe) {
+        if (gate_up_staged_probe) {
+          return static_cast<cudaError_t>(q3x::kernels::
+              launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_activation_staged_test_cuda(
+                  candidate_packed, candidate_scales, kWeightScale2,
+                  candidate_activation, candidate_rows, candidate_columns,
+                  candidate_result, static_cast<void*>(stream)));
+        }
+        if (lm_head_staged_probe) {
           return static_cast<cudaError_t>(q3x::kernels::
               launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_activation_staged_test_cuda(
                   candidate_packed, candidate_scales, kWeightScale2,
@@ -13567,6 +13613,16 @@ enum class NvFp4M1K5120XorDualProbe {
         reinterpret_cast<const std::uint16_t*>(0x3'0000'0000ULL);
     auto* const fake_output =
         reinterpret_cast<std::uint16_t*>(0x4'0000'0000ULL);
+    if (!lm_head_probe) {
+      expect_invalid(candidate_status(fake_packed, fake_scales,
+                                      fake_activation, 17'407U, 5'120U,
+                                      fake_output),
+                     "production gate/up near-miss rows");
+      expect_invalid(candidate_status(fake_packed, fake_scales,
+                                      fake_activation, 17'408U, 5'104U,
+                                      fake_output),
+                     "production gate/up near-miss columns");
+    }
     expect_invalid(candidate_status(fake_packed, fake_scales,
                                     fake_activation, 5'120U, 17'408U,
                                     fake_output),
@@ -13609,8 +13665,14 @@ enum class NvFp4M1K5120XorDualProbe {
   }
 
   const auto launch_baseline = [&]() noexcept -> int {
+    if (gate_up_staged_probe) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_k5120_xor_dual_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(), rows,
+              columns, baseline_output, static_cast<void*>(stream));
+    }
     if (run_performance) {
-      if (staged_probe) {
+      if (lm_head_staged_probe) {
         return q3x::kernels::
             launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_xor_dual_test_cuda(
                 packed.get(), scales.get(), kWeightScale2, activation.get(),
@@ -13628,7 +13690,13 @@ enum class NvFp4M1K5120XorDualProbe {
             static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept -> int {
-    if (staged_probe) {
+    if (gate_up_staged_probe) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_activation_staged_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activation.get(), rows,
+              columns, candidate_output, static_cast<void*>(stream));
+    }
+    if (lm_head_staged_probe) {
       return q3x::kernels::
           launch_sm87_nvfp4_w4a16_gemv_bf16_lm_head_activation_staged_test_cuda(
               packed.get(), scales.get(), kWeightScale2, activation.get(),
@@ -13773,7 +13841,10 @@ enum class NvFp4M1K5120XorDualProbe {
     std::cout << metric_tag << "_DIFF: " << distribution_label
               << " rows=" << rows << " columns=" << columns
               << " bf16_mismatches=" << mismatches << '/' << rows
-              << " public_vs_candidate_bf16_mismatches=" << public_mismatches
+              << (staged_probe
+                      ? " public_vs_direct_staged_bf16_mismatches="
+                      : " public_vs_candidate_bf16_mismatches=")
+              << public_mismatches
               << '/' << (verify_public_dispatch ? rows : 0U)
               << " output_guards=" << (guards_intact ? "intact" : "BAD")
               << " nonfinite_outputs=" << nonfinite_outputs << '\n';
@@ -13873,8 +13944,11 @@ enum class NvFp4M1K5120XorDualProbe {
           graph_gate,
           distribution_label +
               (staged_probe
-                   ? " public aligned lm-head capture selects the direct "
-                     "staged kernel"
+                   ? gate_up_staged_probe
+                         ? " public aligned gate/up capture selects the "
+                           "direct staged kernel"
+                         : " public aligned lm-head capture selects the "
+                           "direct staged kernel"
                    : " public aligned gate/up capture has one kernel node"));
       all_production_dispatch_gates =
           all_production_dispatch_gates && graph_gate;
@@ -14049,8 +14123,10 @@ enum class NvFp4M1K5120XorDualProbe {
         speedup >= minimum_speedup;
     test.expect(performance_gate,
                 distribution_label + " clears " +
-                    (staged_probe
-                         ? "direct-vs-staged lm-head 1.01"
+                    (gate_up_staged_probe
+                         ? "direct-vs-staged gate/up 1.005"
+                         : lm_head_staged_probe
+                               ? "direct-vs-staged lm-head 1.01"
                          : lm_head_probe ? "lm-head 1.02"
                                          : "gate/up 1.01") +
                     " speedup gate");
@@ -14072,8 +14148,12 @@ enum class NvFp4M1K5120XorDualProbe {
   if (run_performance) {
     test.expect(all_distribution_gates,
                 label +
-                    (staged_probe
-                         ? " clears both direct-vs-staged distribution gates"
+                    (gate_up_staged_probe
+                         ? " clears both gate/up direct-vs-staged distribution "
+                           "gates"
+                         : lm_head_staged_probe
+                               ? " clears both lm-head direct-vs-staged "
+                                 "distribution gates"
                          : lm_head_probe
                                ? " clears both full lm-head distribution gates"
                                : " clears both full gate/up distribution gates"));
@@ -14233,13 +14313,16 @@ enum class NvFp4M1K5120XorDualProbe {
                                              : " clears complete lightweight gate"));
   std::cout << metric_tag << "_NAN: classified_outputs=4"
             << " nan_bitwise_mismatches=" << nan_bitwise_mismatches << "/4"
-            << " public_vs_candidate_nan_mismatches=" << nan_public_mismatches
+            << (staged_probe ? " public_vs_direct_staged_nan_mismatches="
+                             : " public_vs_candidate_nan_mismatches=")
+            << nan_public_mismatches
             << '/' << (verify_public_dispatch ? 4U : 0U)
             << " class_and_sign="
             << (nan_class_and_sign ? "true" : "false")
             << " finite_mismatches=" << finite_mismatches << '/'
             << (rows - 4U)
-            << " public_vs_candidate_finite_mismatches="
+            << (staged_probe ? " public_vs_direct_staged_finite_mismatches="
+                             : " public_vs_candidate_finite_mismatches=")
             << finite_public_mismatches << '/'
             << (verify_public_dispatch ? rows - 4U : 0U)
             << " unexpected_nonfinite=" << unexpected_nonfinite
@@ -14248,16 +14331,20 @@ enum class NvFp4M1K5120XorDualProbe {
             << " gate=" << (overall_gate ? "PASS" : "FAIL") << '\n';
   if (run_performance) {
     std::cout << "PERF_" << metric_tag << "_SELECTED: baseline="
-              << (staged_probe
-                      ? "preserved_lm_head_xor_dual_direct_activation"
+              << (gate_up_staged_probe
+                      ? "preserved_gate_up_xor_dual_direct_activation"
+                      : lm_head_staged_probe
+                            ? "preserved_lm_head_xor_dual_direct_activation"
                       : lm_head_probe
                             ? "preserved_exact_row_quad_248320x5120"
                             : "preserved_exact_row_quad_17408x5120")
               << " candidate="
-              << (staged_probe
-                      ? "production_lm_head_activation_staged"
+              << (gate_up_staged_probe
+                      ? "production_gate_up_activation_staged"
+                      : lm_head_staged_probe
+                            ? "production_lm_head_activation_staged"
                       : lm_head_probe ? "preserved_lm_head_xor_dual_baseline"
-                                      : "production_gate_up_xor_dual")
+                                      : "preserved_gate_up_xor_dual_baseline")
               << " distributions=checkpoint_like:same_bank_stress"
               << " required_each=" << minimum_speedup
               << " all_correct=" << (overall_gate ? "true" : "false")
@@ -14326,6 +14413,249 @@ void run_nvfp4_m1_k5120_xor_dual_probe(TestContext& test,
       test, stream, 17'408U, 5'120U, true,
       NvFp4M1K5120XorDualProbe::kGateUp,
       "NVFP4 M1 K5120 XOR-dual gate/up exact 17408x5120");
+}
+
+void run_nvfp4_m1_gate_up_activation_staged_probe(TestContext& test,
+                                                   cudaStream_t stream) {
+  NvFp4M1DownDualKernelResources baseline_resources{};
+  NvFp4M1DownDualKernelResources candidate_resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_k5120_xor_dual_resources_test_cuda(
+              &baseline_resources.registers_per_thread,
+              &baseline_resources.static_shared_bytes,
+              &baseline_resources.local_bytes,
+              &baseline_resources.maximum_threads_per_block,
+              &baseline_resources.active_blocks_per_sm)),
+      "query NVFP4 M1 gate/up direct-XOR baseline resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           query_sm87_nvfp4_w4a16_m1_gate_up_activation_staged_resources_test_cuda(
+                               &candidate_resources.registers_per_thread,
+                               &candidate_resources.static_shared_bytes,
+                               &candidate_resources.local_bytes,
+                               &candidate_resources.maximum_threads_per_block,
+                               &candidate_resources.active_blocks_per_sm)),
+                       "query NVFP4 M1 gate/up activation-staged resources");
+  const bool null_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_gate_up_activation_staged_resources_test_cuda(
+              nullptr, &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes,
+              &candidate_resources.maximum_threads_per_block,
+              &candidate_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  test.expect(
+      null_rejected,
+      "NVFP4 M1 gate/up activation-staged resource query rejects null");
+  constexpr std::size_t kExpectedMaximumSharedBytes =
+      5'120U * sizeof(std::uint16_t) + 1'088U;
+  const bool resource_gate =
+      ready && baseline_resources.registers_per_thread <= 64 &&
+      baseline_resources.static_shared_bytes <= 1'088U &&
+      baseline_resources.local_bytes == 0U &&
+      baseline_resources.maximum_threads_per_block >= 256 &&
+      baseline_resources.active_blocks_per_sm >= 4 &&
+      candidate_resources.registers_per_thread <= 64 &&
+      candidate_resources.static_shared_bytes <= kExpectedMaximumSharedBytes &&
+      candidate_resources.local_bytes == 0U &&
+      candidate_resources.maximum_threads_per_block >= 256 &&
+      candidate_resources.active_blocks_per_sm >= 4;
+  test.expect(resource_gate,
+              "NVFP4 M1 gate/up activation-staged clears "
+              "64r/11328B/0local/active4 gate");
+  std::cout << "PERF_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_RESOURCES: "
+            << "baseline_registers_per_thread="
+            << baseline_resources.registers_per_thread
+            << " baseline_static_shared_bytes="
+            << baseline_resources.static_shared_bytes
+            << " baseline_local_bytes=" << baseline_resources.local_bytes
+            << " baseline_maximum_threads_per_block="
+            << baseline_resources.maximum_threads_per_block
+            << " baseline_active_blocks_per_sm="
+            << baseline_resources.active_blocks_per_sm
+            << " candidate_registers_per_thread="
+            << candidate_resources.registers_per_thread
+            << " candidate_static_shared_bytes="
+            << candidate_resources.static_shared_bytes
+            << " candidate_local_bytes=" << candidate_resources.local_bytes
+            << " candidate_maximum_threads_per_block="
+            << candidate_resources.maximum_threads_per_block
+            << " candidate_active_blocks_per_sm="
+            << candidate_resources.active_blocks_per_sm
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready) {
+    return;
+  }
+
+  // Capture-only probes exercise the production-sized selector on every
+  // default test run without allocating or executing the 45-MiB weight
+  // fixture. Kernel arguments are opaque during capture, so aligned,
+  // non-overlapping sentinel addresses are sufficient for these captures.
+  const auto* const fake_packed =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  const auto* const fake_scales =
+      reinterpret_cast<const std::uint8_t*>(0x2'0000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x3'0000'0000ULL);
+  auto* const fake_output =
+      reinterpret_cast<std::uint16_t*>(0x4'0000'0000ULL);
+  const auto capture_single_kernel =
+      [&](const auto& launch, const std::string& capture_label,
+          cudaKernelNodeParams* const captured_params) {
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            capture_label + " begin capture");
+        if (capture_ready) {
+          capture_ready =
+              test.cuda_ok(static_cast<cudaError_t>(launch()),
+                           capture_label + " capture launch") &&
+              capture_ready;
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           capture_label + " end capture") &&
+              capture_ready;
+        }
+        std::size_t node_count = 0U;
+        if (capture_ready) {
+          capture_ready = test.cuda_ok(
+              cudaGraphGetNodes(graph, nullptr, &node_count),
+              capture_label + " query node count");
+        }
+        if (capture_ready && node_count == 1U) {
+          cudaGraphNode_t node = nullptr;
+          std::size_t node_capacity = 1U;
+          capture_ready = test.cuda_ok(
+              cudaGraphGetNodes(graph, &node, &node_capacity),
+              capture_label + " get kernel node");
+          capture_ready =
+              capture_ready && node_capacity == 1U &&
+              test.cuda_ok(cudaGraphKernelNodeGetParams(node, captured_params),
+                           capture_label + " get kernel params");
+        }
+        if (graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphDestroy(graph),
+                           capture_label + " destroy graph") &&
+              capture_ready;
+        }
+        return capture_ready && node_count == 1U;
+      };
+  const auto same_launch_configuration =
+      [](const cudaKernelNodeParams& first,
+         const cudaKernelNodeParams& second) {
+        return first.func == second.func &&
+               first.gridDim.x == second.gridDim.x &&
+               first.gridDim.y == second.gridDim.y &&
+               first.gridDim.z == second.gridDim.z &&
+               first.blockDim.x == second.blockDim.x &&
+               first.blockDim.y == second.blockDim.y &&
+               first.blockDim.z == second.blockDim.z &&
+               first.sharedMemBytes == second.sharedMemBytes;
+      };
+  cudaKernelNodeParams public_exact_params{};
+  cudaKernelNodeParams direct_exact_params{};
+  const bool public_exact_captured = capture_single_kernel(
+      [&]() noexcept {
+        return q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+            fake_packed, fake_scales, 1.0F / 64.0F, fake_activation,
+            17'408U, 5'120U, fake_output, static_cast<void*>(stream));
+      },
+      "NVFP4 M1 gate/up public exact staged", &public_exact_params);
+  const bool direct_exact_captured = capture_single_kernel(
+      [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_activation_staged_test_cuda(
+                fake_packed, fake_scales, 1.0F / 64.0F, fake_activation,
+                17'408U, 5'120U, fake_output, static_cast<void*>(stream));
+      },
+      "NVFP4 M1 gate/up direct exact staged", &direct_exact_params);
+  const bool exact_dispatch_gate =
+      public_exact_captured && direct_exact_captured &&
+      same_launch_configuration(public_exact_params, direct_exact_params);
+  test.expect(exact_dispatch_gate,
+              "NVFP4 M1 gate/up exact public dispatch matches direct staged "
+              "kernel and launch configuration");
+
+  const auto verify_scalar_fallback_capture =
+      [&](const std::uint8_t* const fallback_packed,
+          const std::uint16_t* const fallback_activation,
+          const std::string& fallback_label) {
+        cudaKernelNodeParams public_fallback_params{};
+        cudaKernelNodeParams direct_scalar_params{};
+        const bool public_captured = capture_single_kernel(
+            [&]() noexcept {
+              return q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+                  fallback_packed, fake_scales, 1.0F / 64.0F,
+                  fallback_activation, 17'408U, 5'120U, fake_output,
+                  static_cast<void*>(stream));
+            },
+            fallback_label + " public", &public_fallback_params);
+        const bool scalar_captured = capture_single_kernel(
+            [&]() noexcept {
+              return q3x::kernels::
+                  launch_sm87_nvfp4_w4a16_gemv_bf16_scalar_test_cuda(
+                      fallback_packed, fake_scales, 1.0F / 64.0F,
+                      fallback_activation, 17'408U, 5'120U, fake_output,
+                      static_cast<void*>(stream));
+            },
+            fallback_label + " direct scalar", &direct_scalar_params);
+        return public_captured && scalar_captured &&
+               same_launch_configuration(public_fallback_params,
+                                         direct_scalar_params);
+      };
+  const bool packed_fallback_dispatch_gate = verify_scalar_fallback_capture(
+      reinterpret_cast<const std::uint8_t*>(
+          reinterpret_cast<std::uintptr_t>(fake_packed) + 1U),
+      fake_activation,
+      "NVFP4 M1 gate/up packed+1 fallback");
+  const bool activation_fallback_dispatch_gate =
+      verify_scalar_fallback_capture(
+          fake_packed, reinterpret_cast<const std::uint16_t*>(
+                           reinterpret_cast<std::uintptr_t>(fake_activation) +
+                           2U),
+          "NVFP4 M1 gate/up activation+2 fallback");
+  const bool fallback_dispatch_gate = packed_fallback_dispatch_gate &&
+                                      activation_fallback_dispatch_gate;
+  test.expect(fallback_dispatch_gate,
+              "NVFP4 M1 gate/up unaligned public dispatch selects the direct "
+              "scalar launch configuration");
+  std::cout << "NVFP4_M1_GATE_UP_ACTIVATION_STAGED_DEFAULT_GRAPH: "
+            << "public_exact_nodes=1 direct_staged_nodes=1"
+            << " exact_kernel_and_launch_identity="
+            << (exact_dispatch_gate ? "true" : "false")
+            << " packed_fallback_scalar_identity="
+            << (packed_fallback_dispatch_gate ? "true" : "false")
+            << " activation_fallback_scalar_identity="
+            << (activation_fallback_dispatch_gate ? "true" : "false")
+            << " gate="
+            << (exact_dispatch_gate && fallback_dispatch_gate ? "PASS"
+                                                               : "FAIL")
+            << '\n';
+
+  const bool lightweight_gate = run_nvfp4_m1_k5120_xor_dual_fixture(
+      test, stream, 2'048U, 512U, false,
+      NvFp4M1K5120XorDualProbe::kGateUpActivationStaged,
+      "NVFP4 M1 gate/up direct-vs-staged lightweight 2048x512");
+  if (!nvfp4_m1_gate_up_activation_staged_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 M1 gate/up activation-staged full segment; set "
+           "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_PERF=1 to "
+           "enable\n";
+    return;
+  }
+  if (!resource_gate || !exact_dispatch_gate || !fallback_dispatch_gate ||
+      !lightweight_gate) {
+    test.expect(false,
+                "NVFP4 M1 gate/up activation-staged full run requires "
+                "resource, exact dispatch, fallback, and lightweight gates");
+    return;
+  }
+  (void)run_nvfp4_m1_k5120_xor_dual_fixture(
+      test, stream, 17'408U, 5'120U, true,
+      NvFp4M1K5120XorDualProbe::kGateUpActivationStaged,
+      "NVFP4 M1 gate/up direct-vs-staged exact 17408x5120");
 }
 
 void run_nvfp4_m1_lm_head_xor_dual_probe(TestContext& test,
@@ -16983,6 +17313,7 @@ int main() {
   run_optional_nvfp4_m1_row_quad_performance(test, stream);
   run_nvfp4_m1_down_xor_dual_probe(test, stream);
   run_nvfp4_m1_k5120_xor_dual_probe(test, stream);
+  run_nvfp4_m1_gate_up_activation_staged_probe(test, stream);
   run_nvfp4_m1_lm_head_xor_dual_probe(test, stream);
   run_nvfp4_m1_lm_head_activation_staged_probe(test, stream);
   run_optional_nvfp4_m1_exact_shape_performance(test, stream);

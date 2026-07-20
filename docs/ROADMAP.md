@@ -141,6 +141,9 @@ Deliverables:
   paired `[1024,5120]` matrices, with ordered independent fallbacks elsewhere.
 - [done, exact-shape gated] Adjacent-lane XOR-dual NVFP4 M1 down projection
   for `[5120,17408]`, retaining scalar and near-miss fallbacks.
+- [done, exact-shape gated] CTA activation-staged NVFP4 M1 gate/up projection
+  for `[17408,5120]`, preserving the 8-byte activation alignment contract and
+  preceding fallbacks elsewhere.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 language head for
   `[248320,5120]`, preserving the 8-byte activation alignment contract and
   preceding fallbacks elsewhere.
@@ -212,6 +215,14 @@ A B-C-C-B diagnostic against an independently rebuilt base commit reduces
 average total generation by 33.824 ms (0.953137500%) and subsequent-token
 latency by 1.3115 ms (1.101855469%), with the full exact oracle retained. See the
 [NVFP4 data-reuse record](metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
+The next gate/up activation-reuse milestone stages the same 10-KiB input once
+per CTA. Its same-binary gate clears 1.01436x checkpoint-like and 1.02093x
+same-bank-stress speedups. The matched max-26 profile saves 20.130560 ms across
+3,328 gate/up kernels and 21.459840 ms (0.611016668%) across all CUDA kernels.
+The independent-base B-C-C-B diagnostic reduces average total generation by
+17.426 ms (0.495685%) and subsequent-token latency by 0.668 ms (0.567253%),
+while retaining the full exact oracle. See the
+[NVFP4 gate/up activation-staging record](metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

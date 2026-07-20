@@ -150,12 +150,12 @@ validated direct FP8/NVFP4-to-BF16 layer path explicitly with
 `--projection-backend sm87`. Aligned canonical NVFP4 projections whose K is a
 multiple of 256 automatically use the packed-x8 path; other shapes retain the
 checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` uses
-an adjacent-lane XOR-dual down kernel, aligned exact `[17408,5120]` gate/up
-uses its separately gated XOR-dual instance, and aligned exact
-`[248320,5120]` lm-head uses a CTA activation-staged XOR-dual instance. The
-lm-head route stages the 10-KiB activation once per CTA without changing the
-8-byte public alignment contract or checkpoint layout. Near-miss shapes,
-unaligned operands, M2 through M16, and prefill retain their previous routes.
+an adjacent-lane XOR-dual down kernel, while aligned exact `[17408,5120]`
+gate/up and `[248320,5120]` lm-head use separately gated CTA
+activation-staged XOR-dual instances. Each staged route copies the 10-KiB
+activation once per CTA without changing the 8-byte public alignment contract
+or checkpoint layout. Near-miss shapes, unaligned operands, M2 through M16,
+and prefill retain their previous routes.
 Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
@@ -275,6 +275,17 @@ subsequent-token latency from 119.0265 to 117.7150 ms (1.101855469%), with the
 exact oracle preserved.
 These unlocked-clock measurements remain diagnostic; see the
 [NVFP4 data-reuse record](docs/metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
+The next gate/up follow-up stages the same 10-KiB activation once per CTA for
+aligned M1 `[17408,5120]`. Its final same-binary gate measured 1.01436x on the
+checkpoint-like fixture and 1.02093x on the same-bank stress fixture. A
+matched max-26 profile reduced 3,328 gate/up kernels from 1,074.533504 to
+1,054.402944 ms and aggregate CUDA-kernel time from 3,512.152960 to
+3,490.693120 ms. An independent-base B-C-C-B benchmark reduced average total
+generation from 3,515.5365 to 3,498.1105 ms (0.495685%) and subsequent-token
+latency from 117.7605 to 117.0925 ms (0.567253%), with the exact oracle
+preserved. Clocks remained unlocked, so this is diagnostic evidence rather
+than a release claim; see the
+[NVFP4 gate/up activation-staging record](docs/metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

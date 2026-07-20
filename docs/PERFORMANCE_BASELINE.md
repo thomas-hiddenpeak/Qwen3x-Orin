@@ -34,6 +34,8 @@ The aligned M1 NVFP4 lm-head adjacent-lane XOR-dual diagnostic is recorded in
 [`qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json`](metadata/qwen36-27b-nvfp4-lm-head-xor-dual-benchmark.json).
 The subsequent down/lm-head data-reuse diagnostic is recorded in
 [`qwen36-27b-nvfp4-data-reuse-benchmark.json`](metadata/qwen36-27b-nvfp4-data-reuse-benchmark.json).
+The follow-up gate/up activation-reuse diagnostic is recorded in
+[`qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-activation-staged-benchmark.json).
 
 ## Method
 
@@ -859,6 +861,77 @@ Graph identity gate was added before commit. Clocks were unlocked. This remains
 single-prompt diagnostic evidence, not a randomized, release, or serving-
 throughput claim.
 
+## NVFP4 gate/up activation-reuse follow-up
+
+The follow-up worktree based on `e02905d64c053e3e67d726fc4a89bd4e331a8003`
+moves the exact aligned M1 `[17408,5120]` gate/up projection from direct global
+activation reads to the CTA activation-staged kernel already used by lm-head.
+Each CTA cooperatively copies the 10-KiB BF16 activation with 8-byte global
+loads and reuses it through 16-byte shared loads across every grid-stride row
+quad. The arithmetic and checkpoint layout are unchanged. The production
+kernel uses 64 registers per thread, 11,328 bytes of static shared memory, zero
+local memory, 256 threads, and four active blocks per SM. Down remains on its
+adjacent-lane XOR-dual instance; lm-head retains its staged instance. Near-miss
+shapes, unaligned operands, M2 through M16, and prefill keep their prior routes.
+
+The final same-binary gate used 10 warmups and three mirrored
+baseline/candidate/candidate/baseline rounds with 24 launches per timed pass:
+
+| Distribution | Direct-activation XOR baseline | CTA-staged candidate | Speedup |
+| --- | ---: | ---: | ---: |
+| Checkpoint-like | 0.318883 ms | 0.314369 ms | 1.01436x |
+| Same-bank stress | 0.322921 ms | 0.316299 ms | 1.02093x |
+
+Both exceed the per-distribution 1.005x gate. The preserved baseline, direct
+candidate, and public production route matched all 17,408 BF16 outputs for both
+distributions, retained finite outputs and both canaries, and preserved all
+isolated `0x7f`/`0xff` NaN bits, classes, and signs. Public and direct staged
+CUDA Graph captures each contained one kernel and matched by `func` identity.
+Packed-weight `+1` and activation `+2` public calls matched the scalar fallback
+at every output.
+
+Default CTest now also capture-checks the production-sized route without
+allocating or executing its weight fixture. It compares public and direct
+staged `func`, grid, block, and dynamic-shared launch fields, then verifies that
+both unaligned cases select the same scalar function and launch configuration
+as the direct scalar test entry. This closes exact-selector and fallback
+coverage even when the performance segment is not enabled.
+
+The matched max-26-token Nsight profiles retained all 23,126 kernel launches:
+
+| Kernel group | Instances | Base commit | Staged gate/up | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Gate/up projection | 3,328 | 1,074.533504 ms | 1,054.402944 ms | 20.130560 ms (1.873423204%) |
+| All CUDA kernels | 23,126 | 3,512.152960 ms | 3,490.693120 ms | 21.459840 ms (0.611016668%) |
+
+Non-target kernels decreased by 1.329280 ms between the separate profiles, so
+only the gate/up row isolates this specialization. The baseline report is
+1,623,010 bytes with SHA-256
+`6dd711812a35b486a7e3452af25753af238f662954c8dd14eb90083bb30566d3`;
+the candidate is 1,633,258 bytes with SHA-256
+`85d0bbefe19b0d7193b4b5045d70ba07f6d934c58ce1673bea6cdc91a283916a`.
+Both reports are local evidence and are not checked in.
+
+An independent `git archive` rebuild of the base commit supplied the standalone
+baseline for a B-C-C-B process comparison. Each process loaded one engine,
+performed one warmup, and measured five generations:
+
+| Average of two process medians | Base commit | Staged gate/up | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,515.5365 ms | 3,498.1105 ms | 17.4260 ms (0.495685%) |
+| Time to first token | 571.5735 ms | 570.8440 ms | 0.7295 ms (0.127630%) |
+| Subsequent token | 117.7605 ms | 117.0925 ms | 0.6680 ms (0.567253%) |
+
+Every process retained the exact 19 prompt IDs, 26 generated IDs, decoded
+text, `<|im_end|>`, and 44 runner steps; the dedicated 27B C16 oracle also
+passed. Release validation passed 52 tests with four skips. ASan/UBSan with
+`detect_leaks=0`, excluding `package_consumer`, passed 51 tests with four
+skips; leak detection is disabled for the CUDA driver's known process-exit
+allocations. Independent review found no blocker, and its default exact Graph
+and scalar-function identity recommendations were added before commit. Clocks
+were unlocked. These results remain single-prompt diagnostic evidence, not a
+randomized, release, or serving-throughput claim.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -908,10 +981,9 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
    shape/alignment and for FP8 `[1024,5120]`;
 8. pair full-attention FP8 K/V only for aligned M1 `[1024,5120]` operands,
    retaining two ordered projections for every other valid case;
-9. use separately gated adjacent-lane XOR-dual instances only for aligned M1
-   down `[5120,17408]` and gate/up `[17408,5120]`, and use CTA activation
-   staging only for aligned M1 lm-head `[248320,5120]`, retaining all other
-   fallbacks;
+9. use the separately gated adjacent-lane XOR-dual instance for aligned M1 down
+   `[5120,17408]`, and use CTA activation staging for aligned M1 gate/up
+   `[17408,5120]` and lm-head `[248320,5120]`, retaining all other fallbacks;
 10. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
 11. lock clocks when privileged access is available before making a formal

@@ -121,12 +121,12 @@ weight pointers retain the original scalar kernel. This shape dispatch does not
 change the public projection API or require an offline weight layout.
 
 Three exact aligned M1 NVFP4 shapes refine that packed-x8 route. Down
-`[5120,17408]` and gate/up `[17408,5120]` use separately gated adjacent-lane
-XOR-dual instances that exchange the two packed-x8 phase scale payloads with
-one shuffle. Lm-head `[248320,5120]` keeps the same arithmetic while staging
-the 10-KiB BF16 activation once per CTA for reuse by its grid-stride row quads.
-The cooperative global copy is 8 bytes wide, so this route preserves the
-existing 8-byte activation alignment contract; it adds no repack or 16-byte
+`[5120,17408]` uses an adjacent-lane XOR-dual instance that exchanges the two
+packed-x8 phase scale payloads with one shuffle. Gate/up `[17408,5120]` and
+lm-head `[248320,5120]` keep that arithmetic while staging the 10-KiB BF16
+activation once per CTA for reuse by their grid-stride row quads. The
+cooperative global copy is 8 bytes wide, so both staged routes preserve the
+existing 8-byte activation alignment contract; they add no repack or 16-byte
 public alignment requirement. Near-miss shapes, unaligned operands, M2 through
 M16, and prefill retain their preceding routes.
 
@@ -214,8 +214,13 @@ enabled with `Q3X_RUN_SM87_FP8_M1_KV_PAIR_PERF=1` and requires at least 1.10x
 for both checkpoint-like and same-bank-stress fixtures.
 The exact M1 NVFP4 data-reuse gates are enabled with
 `Q3X_RUN_SM87_NVFP4_M1_DOWN_XOR_DUAL_PERF=1` and
-`Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1`. They compare the
-preserved indexed-dual/direct-activation baselines with their production
+`Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1`. The gate/up staged
+gate is enabled with
+`Q3X_RUN_SM87_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_PERF=1`. They compare the
+preserved indexed-dual or direct-activation baselines with their production
 candidates in the same binary, require bitwise finite/NaN and canary equality,
 verify scalar fallback for unaligned operands, and compare public/direct CUDA
-Graph kernel identities.
+Graph kernel identities. The default gate/up segment additionally captures
+the exact production shape without execution and verifies `func`, grid, block,
+and dynamic-shared launch identity, including scalar function identity for
+packed-weight `+1` and activation `+2` fallbacks.
