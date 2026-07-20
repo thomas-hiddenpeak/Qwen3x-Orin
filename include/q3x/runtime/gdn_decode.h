@@ -136,4 +136,52 @@ enum class GdnStatus : std::uint8_t {
     float l2_epsilon, std::uint16_t* output,
     GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
 
+// Pure-host selector for the exact single-token composite below. It is true
+// only for M=1 and the canonical GDN output interpreted as 48 heads of width
+// 128. Pointer alignment, ranges, aliases, and both epsilons remain launch-
+// time validation responsibilities.
+[[nodiscard]] bool
+supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+    std::size_t token_count, GdnDimensions dimensions,
+    std::size_t norm_head_count,
+    std::size_t norm_head_dimension) noexcept;
+
+namespace gdn_decode_detail {
+
+// Internal exact-shape kernel ABI used by the validated composite dispatcher.
+// All pointers are BF16 device spans with the canonical sizes above. The
+// output first receives the rounded raw GDN result, is synchronized within
+// its owning head CTA, and is then read back and overwritten by plain
+// RMSNorm+SiLU(gate). No cross-CTA synchronization is used.
+[[nodiscard]] int
+launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* A_log,
+    const std::uint16_t* dt_bias, const std::uint16_t* state_input,
+    std::uint16_t* state_output, float l2_epsilon,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    float norm_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+}  // namespace gdn_decode_detail
+
+// Validates and launches one canonical GDN update followed by headwise plain
+// RMSNorm and SiLU gating. The exact aligned 48x128 M=1 route uses one kernel;
+// every other valid norm partition whose product is kGdnVElements preserves
+// the existing ordered GDN then reference norm/gate launches. The raw GDN
+// output is rounded to BF16 and read back before the in-place final overwrite.
+// Exact state_input == state_output is supported. Every writable span must be
+// disjoint from every other operand; all arguments and fallback requirements
+// are rejected before the first enqueue.
+[[nodiscard]] int
+launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+    const std::uint16_t* conv_qkv, const std::uint16_t* a,
+    const std::uint16_t* b, const std::uint16_t* A_log,
+    const std::uint16_t* dt_bias, const std::uint16_t* state_input,
+    std::uint16_t* state_output, float l2_epsilon,
+    const std::uint16_t* norm_weight, const std::uint16_t* silu_gate,
+    std::size_t norm_head_count, std::size_t norm_head_dimension,
+    float norm_epsilon, std::uint16_t* output,
+    GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::runtime

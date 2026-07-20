@@ -1079,22 +1079,43 @@ ReferenceStepOutcome ReferenceRunner::step(
                           views_.projection[0], attention->conv1d.data,
                           views_.conv_state[layer], views_.projection[0], {},
                           stream_),
-                      "linear_causal_conv", layer) ||
-          !check_cuda(launch_gated_delta_net_update_warp_parallel_cuda(
-                          views_.projection[0], views_.linear_a,
-                          views_.linear_b, attention->a_log.data,
-                          attention->dt_bias.data, views_.gdn_state[layer],
-                          views_.gdn_state[layer], kRmsEpsilon,
-                          views_.projection[2], {}, stream_),
-                      "linear_gdn", layer) ||
-          !check_cuda(
-              launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
-                  views_.projection[2], attention->norm.data,
-                  views_.projection[1], kGdnValueHeadCount,
-                  kGdnHeadDimension, kRmsEpsilon, views_.projection[2],
-                  stream_),
-              "linear_output_norm_gate", layer) ||
-          !project(attention->out_proj, views_.projection[2],
+                      "linear_causal_conv", layer)) {
+        return fail_step(launch_failure);
+      }
+      const bool use_gdn_norm_gate_composite =
+          supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+              1U, {}, kGdnValueHeadCount, kGdnHeadDimension);
+      if (use_gdn_norm_gate_composite) {
+        if (!check_cuda(
+                launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                    views_.projection[0], views_.linear_a,
+                    views_.linear_b, attention->a_log.data,
+                    attention->dt_bias.data, views_.gdn_state[layer],
+                    views_.gdn_state[layer], kRmsEpsilon,
+                    attention->norm.data, views_.projection[1],
+                    kGdnValueHeadCount, kGdnHeadDimension, kRmsEpsilon,
+                    views_.projection[2], {}, stream_),
+                "linear_gdn_output_norm_gate", layer)) {
+          return fail_step(launch_failure);
+        }
+      } else if (!check_cuda(
+                     launch_gated_delta_net_update_warp_parallel_cuda(
+                         views_.projection[0], views_.linear_a,
+                         views_.linear_b, attention->a_log.data,
+                         attention->dt_bias.data, views_.gdn_state[layer],
+                         views_.gdn_state[layer], kRmsEpsilon,
+                         views_.projection[2], {}, stream_),
+                     "linear_gdn", layer) ||
+                 !check_cuda(
+                     launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                         views_.projection[2], attention->norm.data,
+                         views_.projection[1], kGdnValueHeadCount,
+                         kGdnHeadDimension, kRmsEpsilon,
+                         views_.projection[2], stream_),
+                     "linear_output_norm_gate", layer)) {
+        return fail_step(launch_failure);
+      }
+      if (!project(attention->out_proj, views_.projection[2],
                    views_.hidden[1], "linear_output_projection", layer)) {
         return fail_step(launch_failure);
       }

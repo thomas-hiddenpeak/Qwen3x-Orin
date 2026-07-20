@@ -106,6 +106,25 @@ void test_dimensions_and_validation(TestContext& test) {
                   GdnStatus::kInvalidAlias)) ==
                   "unsupported exact buffer alias",
               "GDN status text is stable");
+  test.expect(
+      q3x::runtime::
+          supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+              1U, {}, q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension),
+      "GDN norm/gate selector accepts exact M1 48x128");
+  test.expect(
+      !q3x::runtime::
+           supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+               2U, {}, q3x::runtime::kGdnValueHeadCount,
+               q3x::runtime::kGdnHeadDimension) &&
+          !q3x::runtime::
+               supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+                   1U, wrong, q3x::runtime::kGdnValueHeadCount,
+                   q3x::runtime::kGdnHeadDimension) &&
+          !q3x::runtime::
+               supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+                   1U, {}, 24U, 256U),
+      "GDN norm/gate selector rejects M2, wrong GDN, and norm near miss");
 }
 
 void test_conv_cold_and_alias(TestContext& test) {

@@ -1,4 +1,5 @@
 #include "q3x/runtime/gdn_decode.h"
+#include "q3x/runtime/decode_ops.h"
 
 #include <cuda_runtime.h>
 
@@ -58,6 +59,12 @@ launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
     const std::uint16_t* state_input, std::uint16_t* state_output,
     float l2_epsilon, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
 
 }  // namespace q3x::runtime
 
@@ -199,6 +206,95 @@ template <typename Launch>
   (void)test.cuda_ok(cudaEventDestroy(start), label + " destroy start");
   (void)test.cuda_ok(cudaEventDestroy(stop), label + " destroy stop");
   return elapsed;
+}
+
+struct CapturedTopology {
+  std::size_t total_nodes = std::numeric_limits<std::size_t>::max();
+  std::size_t kernel_nodes = std::numeric_limits<std::size_t>::max();
+  std::size_t edges = std::numeric_limits<std::size_t>::max();
+  struct KernelLaunch {
+    void* function = nullptr;
+    dim3 grid{};
+    dim3 block{};
+    unsigned int dynamic_shared_bytes = 0U;
+  };
+  std::vector<KernelLaunch> kernel_launches;
+};
+
+template <typename Launch>
+[[nodiscard]] CapturedTopology capture_topology(
+    TestContext& test, Launch&& launch, const cudaError_t expected_status,
+    const std::string& label) {
+  CapturedTopology topology{};
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+      "create capture stream " + label);
+  ready = ready && test.cuda_ok(
+                       cudaStreamBeginCapture(stream,
+                                              cudaStreamCaptureModeGlobal),
+                       "begin capture " + label);
+  if (ready) {
+    test.expect(static_cast<cudaError_t>(launch(stream)) == expected_status,
+                label + " returns expected capture status");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "end capture " + label);
+  }
+  if (ready && graph != nullptr) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         "count graph nodes " + label);
+    std::vector<cudaGraphNode_t> nodes(node_count);
+    if (ready && node_count != 0U) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &node_count),
+                           "read graph nodes " + label);
+    }
+    if (ready) {
+      topology.total_nodes = node_count;
+      topology.kernel_nodes = 0U;
+      for (const cudaGraphNode_t node : nodes) {
+        cudaGraphNodeType type{};
+        ready = test.cuda_ok(cudaGraphNodeGetType(node, &type),
+                             "read graph node type " + label);
+        if (ready && type == cudaGraphNodeTypeKernel) {
+          ++topology.kernel_nodes;
+          cudaKernelNodeParams parameters{};
+          ready = test.cuda_ok(
+              cudaGraphKernelNodeGetParams(node, &parameters),
+              "read graph kernel parameters " + label);
+          if (ready) {
+            topology.kernel_launches.push_back(
+                {parameters.func, parameters.gridDim, parameters.blockDim,
+                 parameters.sharedMemBytes});
+          }
+        }
+      }
+    }
+    std::size_t edge_count = 0U;
+    if (ready) {
+#if CUDART_VERSION >= 12030
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, nullptr, nullptr, nullptr, &edge_count),
+          "count graph edges " + label);
+#else
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, nullptr, nullptr, &edge_count),
+          "count graph edges " + label);
+#endif
+    }
+    if (ready) {
+      topology.edges = edge_count;
+    }
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), "destroy graph " + label);
+  }
+  if (stream != nullptr) {
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy capture stream " + label);
+  }
+  return topology;
 }
 
 void expect_bf16_buffer_near(TestContext& test,
@@ -361,6 +457,39 @@ void test_launch_validation(TestContext& test) {
                   nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                   1.0e-6F, nullptr)) == cudaErrorInvalidValue,
       "CUDA warp-parallel tile GDN rejects oversized tile");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+              1.0e-6F, nullptr, nullptr, q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension, 1.0e-6F, nullptr)) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects null buffers");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+              std::numeric_limits<float>::quiet_NaN(), nullptr, nullptr,
+              q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension, 1.0e-6F, nullptr)) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects NaN GDN epsilon");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+              1.0e-6F, nullptr, nullptr,
+              q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension,
+              std::numeric_limits<float>::infinity(), nullptr)) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects infinite norm epsilon");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resources_test_cuda(
+              nullptr, nullptr, nullptr, nullptr, nullptr)) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm resource query rejects null outputs");
 }
 
 void test_conv_tile_bitwise(TestContext& test, cudaStream_t stream) {
@@ -712,6 +841,697 @@ void fill_gdn_tile_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
   b[q3x::runtime::kGdnValueHeadCount + 1U] = encode_bf16(-20.0F);
   a[2U * q3x::runtime::kGdnValueHeadCount + 2U] = encode_bf16(25.0F);
   A_log[2] = encode_bf16(4.0F);
+}
+
+void test_gdn_plain_norm_silu_gate_production_identity(
+    TestContext& test, cudaStream_t stream) {
+  const int failures_before = test.failures();
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> norm_weight;
+  ManagedBuffer<std::uint16_t> near_norm_weight;
+  ManagedBuffer<std::uint16_t> silu_gate;
+  ManagedBuffer<std::uint16_t> reference_state;
+  ManagedBuffer<std::uint16_t> candidate_state;
+  ManagedBuffer<std::uint16_t> reference_disjoint_state;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_state;
+  ManagedBuffer<std::uint16_t> reference_output;
+  ManagedBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(q3x::runtime::kGdnQkvChannels),
+      "fused GDN norm allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "fused GDN norm allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "fused GDN norm allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "fused GDN norm allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "fused GDN norm allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       norm_weight.allocate(q3x::runtime::kGdnHeadDimension),
+                       "fused GDN norm allocate norm weight");
+  ready = ready && test.cuda_ok(
+                       near_norm_weight.allocate(256U),
+                       "fused GDN norm allocate near-miss norm weight");
+  ready = ready && test.cuda_ok(
+                       silu_gate.allocate(q3x::runtime::kGdnVElements),
+                       "fused GDN norm allocate SiLU gate");
+  ready = ready && test.cuda_ok(
+                       reference_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "fused GDN norm allocate reference state");
+  ready = ready && test.cuda_ok(
+                       candidate_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "fused GDN norm allocate candidate state");
+  ready = ready && test.cuda_ok(
+                       reference_disjoint_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "fused GDN norm allocate reference disjoint state");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "fused GDN norm allocate candidate disjoint state");
+  ready = ready && test.cuda_ok(
+                       reference_output.allocate(
+                           q3x::runtime::kGdnVElements),
+                       "fused GDN norm allocate reference output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(
+                           q3x::runtime::kGdnVElements),
+                       "fused GDN norm allocate candidate output");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t dimension = 0U;
+       dimension < q3x::runtime::kGdnHeadDimension; ++dimension) {
+    const int centered = static_cast<int>((dimension * 7U) % 19U) - 9;
+    norm_weight[dimension] =
+        encode_bf16(1.0F + static_cast<float>(centered) / 64.0F);
+  }
+  for (std::size_t dimension = 0U; dimension < near_norm_weight.size();
+       ++dimension) {
+    const int centered = static_cast<int>((dimension * 13U) % 23U) - 11;
+    near_norm_weight[dimension] =
+        encode_bf16(0.75F + static_cast<float>(centered) / 64.0F);
+  }
+  for (std::size_t index = 0U; index < q3x::runtime::kGdnVElements;
+       ++index) {
+    const int centered = static_cast<int>((index * 11U) % 41U) - 20;
+    silu_gate[index] =
+        encode_bf16(static_cast<float>(centered) / 8.0F);
+  }
+  silu_gate[0] = encode_bf16(20.0F);
+  silu_gate[1] = encode_bf16(-20.0F);
+
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  std::copy(initial_state.begin(), initial_state.end(),
+            reference_state.data());
+  std::copy(initial_state.begin(), initial_state.end(),
+            candidate_state.data());
+
+  constexpr float kL2Epsilon = 1.0e-6F;
+  constexpr float kNormEpsilon = 1.0e-6F;
+  for (std::size_t step = 0U; step < 3U; ++step) {
+    fill_gdn_inputs(conv_qkv, a, b, A_log, dt_bias, step);
+    std::fill_n(reference_output.data(), reference_output.size(),
+                static_cast<std::uint16_t>(0x5a5aU));
+    std::fill_n(candidate_output.data(), candidate_output.size(),
+                static_cast<std::uint16_t>(0xa5a5U));
+
+    if (!test.cuda_ok(
+            static_cast<cudaError_t>(
+                q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+                    conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                    dt_bias.data(), reference_state.data(),
+                    reference_state.data(), kL2Epsilon,
+                    reference_output.data(), {}, static_cast<void*>(stream))),
+            "fused GDN norm ordered GDN launch step " +
+                std::to_string(step))) {
+      return;
+    }
+    if (!test.cuda_ok(
+            static_cast<cudaError_t>(q3x::runtime::
+                launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                    reference_output.data(), norm_weight.data(),
+                    silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+                    q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                    reference_output.data(), static_cast<void*>(stream))),
+            "fused GDN norm ordered norm/gate launch step " +
+                std::to_string(step))) {
+      return;
+    }
+    ready = launch_after_stale(
+        test, stream,
+        "fused GDN norm candidate step " + std::to_string(step), [&]() {
+          return q3x::runtime::
+              launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                  conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                  dt_bias.data(), candidate_state.data(),
+                  candidate_state.data(), kL2Epsilon, norm_weight.data(),
+                  silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+                  q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                  candidate_output.data(), {}, static_cast<void*>(stream));
+        });
+    if (!ready) {
+      return;
+    }
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_output.data(), reference_output.data(),
+        q3x::runtime::kGdnVElements,
+        "fused GDN norm BF16 write/read output step " +
+            std::to_string(step));
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_state.data(), reference_state.data(),
+        q3x::runtime::kGdnStateElements,
+            "fused GDN norm persistent state step " + std::to_string(step));
+  }
+
+  fill_gdn_inputs(conv_qkv, a, b, A_log, dt_bias, 7U);
+  const std::vector<std::uint16_t> disjoint_input(
+      reference_state.data(), reference_state.data() + reference_state.size());
+  std::fill_n(reference_disjoint_state.data(),
+              reference_disjoint_state.size(),
+              static_cast<std::uint16_t>(0x5a5aU));
+  std::fill_n(candidate_disjoint_state.data(),
+              candidate_disjoint_state.size(),
+              static_cast<std::uint16_t>(0xa5a5U));
+  if (!test.cuda_ok(
+          static_cast<cudaError_t>(
+              q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+                  conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                  dt_bias.data(), reference_state.data(),
+                  reference_disjoint_state.data(), kL2Epsilon,
+                  reference_output.data(), {}, static_cast<void*>(stream))),
+          "fused GDN norm ordered disjoint GDN launch")) {
+    return;
+  }
+  if (!test.cuda_ok(
+          static_cast<cudaError_t>(q3x::runtime::
+              launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                  reference_output.data(), norm_weight.data(),
+                  silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+                  q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                  reference_output.data(), static_cast<void*>(stream))),
+          "fused GDN norm ordered disjoint norm/gate launch")) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "fused GDN norm candidate disjoint", [&]() {
+        return q3x::runtime::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_disjoint_state.data(), kL2Epsilon,
+                norm_weight.data(), silu_gate.data(),
+                q3x::runtime::kGdnValueHeadCount,
+                q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                candidate_output.data(), {}, static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_output.data(), reference_output.data(),
+      q3x::runtime::kGdnVElements,
+      "fused GDN norm disjoint BF16 write/read output");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_disjoint_state.data(), reference_disjoint_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "fused GDN norm disjoint persistent state");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_state.data(), disjoint_input.data(),
+      q3x::runtime::kGdnStateElements,
+      "fused GDN norm preserves disjoint state input");
+
+  fill_gdn_inputs(conv_qkv, a, b, A_log, dt_bias, 9U);
+  std::copy(initial_state.begin(), initial_state.end(),
+            reference_state.data());
+  std::copy(initial_state.begin(), initial_state.end(),
+            candidate_state.data());
+  if (!test.cuda_ok(
+          static_cast<cudaError_t>(
+              q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+                  conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                  dt_bias.data(), reference_state.data(),
+                  reference_state.data(), kL2Epsilon,
+                  reference_output.data(), {}, static_cast<void*>(stream))),
+          "production GDN norm near-miss ordered GDN launch")) {
+    return;
+  }
+  if (!test.cuda_ok(
+          static_cast<cudaError_t>(q3x::runtime::
+              launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                  reference_output.data(), near_norm_weight.data(),
+                  silu_gate.data(), 24U, 256U, kNormEpsilon,
+                  reference_output.data(), static_cast<void*>(stream))),
+          "production GDN norm near-miss ordered norm/gate launch")) {
+    return;
+  }
+  ready = launch_after_stale(
+      test, stream, "production GDN norm near-miss fallback", [&]() {
+        return q3x::runtime::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_state.data(), kL2Epsilon, near_norm_weight.data(),
+                silu_gate.data(), 24U, 256U, kNormEpsilon,
+                candidate_output.data(), {}, static_cast<void*>(stream));
+      });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_output.data(), reference_output.data(),
+      q3x::runtime::kGdnVElements,
+      "production GDN norm near-miss fallback output");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_state.data(), reference_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "production GDN norm near-miss fallback state");
+
+  const std::vector<std::uint16_t> prevalidation_state(
+      candidate_state.data(), candidate_state.data() + candidate_state.size());
+  std::fill_n(candidate_output.data(), candidate_output.size(),
+              static_cast<std::uint16_t>(0x3c3cU));
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              conv_qkv.data(), a.data(), b.data(), A_log.data(),
+              dt_bias.data(), candidate_state.data(), candidate_state.data(),
+              kL2Epsilon, norm_weight.data(), candidate_output.data(),
+              q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+              candidate_output.data(), {}, static_cast<void*>(stream))) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects gate/output overlap");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              conv_qkv.data(), a.data(), b.data(), A_log.data(),
+              dt_bias.data(), candidate_state.data(),
+              candidate_state.data() + 1U, kL2Epsilon, norm_weight.data(),
+              silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+              candidate_output.data(), {}, static_cast<void*>(stream))) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects partial state overlap");
+  auto* const misaligned_output = reinterpret_cast<std::uint16_t*>(
+      reinterpret_cast<std::uint8_t*>(candidate_output.data()) + 1U);
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+              conv_qkv.data(), a.data(), b.data(), A_log.data(),
+              dt_bias.data(), candidate_state.data(), candidate_state.data(),
+              kL2Epsilon, norm_weight.data(), silu_gate.data(),
+              q3x::runtime::kGdnValueHeadCount,
+              q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+              misaligned_output, {}, static_cast<void*>(stream))) ==
+          cudaErrorInvalidValue,
+      "fused GDN norm rejects misaligned output");
+  ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                       "fused GDN norm invalid launches synchronize");
+  if (!ready) {
+    return;
+  }
+  test.expect(std::all_of(candidate_output.data(),
+                          candidate_output.data() + candidate_output.size(),
+                          [](const std::uint16_t value) {
+                            return value == static_cast<std::uint16_t>(
+                                                0x3c3cU);
+                          }),
+              "fused GDN norm validates before first enqueue");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_state.data(), prevalidation_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "fused GDN norm invalid launches preserve state");
+
+  const CapturedTopology exact_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_state.data(), kL2Epsilon, norm_weight.data(),
+                silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+                q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                candidate_output.data(), {},
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "production fused GDN norm exact topology");
+  const CapturedTopology detail_exact_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::gdn_decode_detail::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_state.data(), kL2Epsilon, norm_weight.data(),
+                silu_gate.data(), kNormEpsilon, candidate_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "detail fused GDN norm exact topology");
+  test.expect(exact_topology.total_nodes == 1U &&
+                  exact_topology.kernel_nodes == 1U &&
+                  exact_topology.edges == 0U &&
+                  exact_topology.kernel_launches.size() == 1U,
+              "production fused GDN norm exact path captures one kernel");
+  test.expect(detail_exact_topology.total_nodes == 1U &&
+                  detail_exact_topology.kernel_nodes == 1U &&
+                  detail_exact_topology.edges == 0U &&
+                  detail_exact_topology.kernel_launches.size() == 1U,
+              "detail fused GDN norm exact path captures one kernel");
+  if (exact_topology.kernel_launches.size() == 1U &&
+      detail_exact_topology.kernel_launches.size() == 1U) {
+    const auto& production = exact_topology.kernel_launches.front();
+    const auto& detail = detail_exact_topology.kernel_launches.front();
+    test.expect(production.function == detail.function,
+                "public and detail fused GDN norm capture the same kernel");
+    test.expect(production.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                    production.grid.y == 1U && production.grid.z == 1U &&
+                    production.block.x == 256U &&
+                    production.block.y == 1U &&
+                    production.block.z == 1U &&
+                    production.dynamic_shared_bytes == 0U,
+                "public fused GDN norm locks the 48x256 launch topology");
+    test.expect(production.grid.x == detail.grid.x &&
+                    production.grid.y == detail.grid.y &&
+                    production.grid.z == detail.grid.z &&
+                    production.block.x == detail.block.x &&
+                    production.block.y == detail.block.y &&
+                    production.block.z == detail.block.z &&
+                    production.dynamic_shared_bytes ==
+                        detail.dynamic_shared_bytes,
+                "public and detail fused GDN norm launch parameters match");
+  }
+
+  const CapturedTopology near_miss_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_state.data(), kL2Epsilon, near_norm_weight.data(),
+                silu_gate.data(), 24U, 256U, kNormEpsilon,
+                candidate_output.data(), {},
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "production fused GDN norm near-miss topology");
+  test.expect(near_miss_topology.total_nodes == 2U &&
+                  near_miss_topology.kernel_nodes == 2U &&
+                  near_miss_topology.edges == 1U,
+              "production fused GDN norm near miss captures ordered pair");
+
+  const CapturedTopology reference_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        const int gdn_status =
+            q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), reference_state.data(),
+                reference_state.data(), kL2Epsilon, reference_output.data(),
+                {}, static_cast<void*>(capture_stream));
+        if (gdn_status != static_cast<int>(cudaSuccess)) {
+          return gdn_status;
+        }
+        return q3x::runtime::
+            launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+                reference_output.data(), norm_weight.data(),
+                silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+                q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                reference_output.data(), static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "production GDN norm reference topology");
+  test.expect(reference_topology.total_nodes == 2U &&
+                  reference_topology.kernel_nodes == 2U &&
+                  reference_topology.edges == 1U,
+              "production GDN norm reference captures ordered pair");
+
+  const CapturedTopology invalid_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+                conv_qkv.data(), a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_state.data(),
+                candidate_state.data(), kL2Epsilon, norm_weight.data(),
+                candidate_output.data(), q3x::runtime::kGdnValueHeadCount,
+                q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+                candidate_output.data(), {},
+                static_cast<void*>(capture_stream));
+      },
+      cudaErrorInvalidValue, "production fused GDN norm invalid topology");
+  test.expect(invalid_topology.total_nodes == 0U &&
+                  invalid_topology.kernel_nodes == 0U &&
+                  invalid_topology.edges == 0U &&
+                  invalid_topology.kernel_launches.empty(),
+              "production fused GDN norm invalid path captures no nodes");
+
+  const bool bitwise_and_identity_gate =
+      test.failures() == failures_before;
+
+  int registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = 0;
+  int active_blocks_per_sm = 0;
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm)),
+      "fused GDN norm query resources");
+  if (!ready) {
+    return;
+  }
+  constexpr std::size_t kExpectedSharedBytes =
+      (3U * q3x::runtime::kGdnHeadDimension + 2U +
+       8U * 8U * (q3x::runtime::kGdnHeadDimension + 1U)) *
+      sizeof(float);
+  test.expect(registers_per_thread <= 48,
+              "fused GDN norm uses at most 48 registers/thread");
+  test.expect(static_shared_bytes == kExpectedSharedBytes,
+              "fused GDN norm reuses production static shared storage");
+  test.expect(local_bytes == 0U,
+              "fused GDN norm has no local-memory spill");
+  test.expect(maximum_threads_per_block >= 256,
+              "fused GDN norm supports its 256-thread block");
+  test.expect(active_blocks_per_sm >= 3,
+              "fused GDN norm can resident-launch all 48 head CTAs");
+  const bool resource_gate = registers_per_thread <= 48 &&
+                             static_shared_bytes == kExpectedSharedBytes &&
+                             local_bytes == 0U &&
+                             maximum_threads_per_block >= 256 &&
+                             active_blocks_per_sm >= 3;
+  std::cout << "GDN fused norm/gate resources: registers="
+            << registers_per_thread << " static_shared="
+            << static_shared_bytes << " local=" << local_bytes
+            << " max_threads=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm << '\n';
+
+  const char* const performance_environment =
+      std::getenv("Q3X_RUN_GDN_NORM_GATE_PERF");
+  if (performance_environment == nullptr ||
+      std::string(performance_environment) != "1") {
+    std::cout << "SKIP: fused GDN norm/gate performance segment; set "
+                 "Q3X_RUN_GDN_NORM_GATE_PERF=1 to enable\n";
+    return;
+  }
+
+  fill_gdn_inputs(conv_qkv, a, b, A_log, dt_bias, 11U);
+  // Rotate 24 independent persistent states (36 MiB per variant) so a timed
+  // pass cannot keep the 1.5 MiB canonical state resident in the 4 MiB Orin
+  // L2. Each state advances equally often in every mirrored B-C-C-B pass.
+  constexpr std::size_t kPerformanceStateBankCount = 24U;
+  constexpr std::size_t kPerformanceWarmupCount =
+      2U * kPerformanceStateBankCount;
+  constexpr std::size_t kPerformanceIterationCount =
+      20U * kPerformanceStateBankCount;
+  constexpr std::size_t kPerformanceRounds = 5U;
+  constexpr std::size_t kTimedPassCount = 2U * kPerformanceRounds;
+  ManagedBuffer<std::uint16_t> reference_state_bank;
+  ManagedBuffer<std::uint16_t> candidate_state_bank;
+  ready = test.cuda_ok(
+      reference_state_bank.allocate(kPerformanceStateBankCount *
+                                    q3x::runtime::kGdnStateElements),
+      "fused GDN norm allocate reference performance state bank");
+  ready = ready && test.cuda_ok(
+                       candidate_state_bank.allocate(
+                           kPerformanceStateBankCount *
+                           q3x::runtime::kGdnStateElements),
+                       "fused GDN norm allocate candidate performance state bank");
+  if (!ready) {
+    return;
+  }
+
+  const auto reset_state_bank =
+      [&](ManagedBuffer<std::uint16_t>& state_bank,
+          ManagedBuffer<std::uint16_t>& output_buffer,
+          const std::string& label) -> bool {
+    bool reset_ready = true;
+    constexpr std::size_t kStateBytes =
+        q3x::runtime::kGdnStateElements * sizeof(std::uint16_t);
+    for (std::size_t bank = 0U;
+         reset_ready && bank < kPerformanceStateBankCount; ++bank) {
+      reset_ready = test.cuda_ok(
+          cudaMemcpyAsync(
+              state_bank.data() + bank * q3x::runtime::kGdnStateElements,
+              initial_state.data(), kStateBytes, cudaMemcpyHostToDevice,
+              stream),
+          label + " copy state " + std::to_string(bank));
+    }
+    reset_ready =
+        reset_ready &&
+        test.cuda_ok(cudaMemsetAsync(output_buffer.data(), 0,
+                                     output_buffer.size() *
+                                         sizeof(std::uint16_t),
+                                     stream),
+                     label + " clear output");
+    reset_ready =
+        reset_ready &&
+        test.cuda_ok(cudaStreamSynchronize(stream), label + " synchronize");
+    return reset_ready;
+  };
+
+  std::size_t reference_cursor = 0U;
+  std::size_t candidate_cursor = 0U;
+  const auto launch_ordered = [&]() {
+    const std::size_t bank =
+        reference_cursor++ % kPerformanceStateBankCount;
+    std::uint16_t* const state =
+        reference_state_bank.data() +
+        bank * q3x::runtime::kGdnStateElements;
+    const int gdn_status =
+        q3x::runtime::launch_gated_delta_net_update_warp_parallel_cuda(
+            conv_qkv.data(), a.data(), b.data(), A_log.data(),
+            dt_bias.data(), state, state, kL2Epsilon,
+            reference_output.data(), {}, static_cast<void*>(stream));
+    if (gdn_status != static_cast<int>(cudaSuccess)) {
+      return gdn_status;
+    }
+    return q3x::runtime::
+        launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+            reference_output.data(), norm_weight.data(), silu_gate.data(),
+            q3x::runtime::kGdnValueHeadCount,
+            q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+            reference_output.data(), static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() {
+    const std::size_t bank =
+        candidate_cursor++ % kPerformanceStateBankCount;
+    std::uint16_t* const state =
+        candidate_state_bank.data() +
+        bank * q3x::runtime::kGdnStateElements;
+    return q3x::runtime::
+        launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+            conv_qkv.data(), a.data(), b.data(), A_log.data(),
+            dt_bias.data(), state, state, kL2Epsilon, norm_weight.data(),
+            silu_gate.data(), q3x::runtime::kGdnValueHeadCount,
+            q3x::runtime::kGdnHeadDimension, kNormEpsilon,
+            candidate_output.data(), {}, static_cast<void*>(stream));
+  };
+
+  std::array<float, kTimedPassCount> ordered_passes{};
+  std::array<float, kTimedPassCount> candidate_passes{};
+  bool timing_finite = true;
+  for (std::size_t round = 0U; round < kPerformanceRounds; ++round) {
+    const std::string round_label =
+        "GDN norm/gate round=" + std::to_string(round + 1U);
+    reference_cursor = 0U;
+    ready = reset_state_bank(reference_state_bank, reference_output,
+                             round_label + " B1 reset");
+    const float ordered_first =
+        ready ? measure_average_cuda_milliseconds(
+                    test, stream, kPerformanceWarmupCount,
+                    kPerformanceIterationCount, round_label + " B1",
+                    launch_ordered)
+              : std::numeric_limits<float>::quiet_NaN();
+
+    candidate_cursor = 0U;
+    ready = ready && reset_state_bank(candidate_state_bank, candidate_output,
+                                      round_label + " C1 reset");
+    const float candidate_first =
+        ready ? measure_average_cuda_milliseconds(
+                    test, stream, kPerformanceWarmupCount,
+                    kPerformanceIterationCount, round_label + " C1",
+                    launch_candidate)
+              : std::numeric_limits<float>::quiet_NaN();
+
+    candidate_cursor = 0U;
+    ready = ready && reset_state_bank(candidate_state_bank, candidate_output,
+                                      round_label + " C2 reset");
+    const float candidate_second =
+        ready ? measure_average_cuda_milliseconds(
+                    test, stream, kPerformanceWarmupCount,
+                    kPerformanceIterationCount, round_label + " C2",
+                    launch_candidate)
+              : std::numeric_limits<float>::quiet_NaN();
+
+    reference_cursor = 0U;
+    ready = ready && reset_state_bank(reference_state_bank, reference_output,
+                                      round_label + " B2 reset");
+    const float ordered_second =
+        ready ? measure_average_cuda_milliseconds(
+                    test, stream, kPerformanceWarmupCount,
+                    kPerformanceIterationCount, round_label + " B2",
+                    launch_ordered)
+              : std::numeric_limits<float>::quiet_NaN();
+
+    const std::size_t pass = 2U * round;
+    ordered_passes[pass] = ordered_first;
+    ordered_passes[pass + 1U] = ordered_second;
+    candidate_passes[pass] = candidate_first;
+    candidate_passes[pass + 1U] = candidate_second;
+    timing_finite = timing_finite && ready && std::isfinite(ordered_first) &&
+                    std::isfinite(candidate_first) &&
+                    std::isfinite(candidate_second) &&
+                    std::isfinite(ordered_second);
+    std::cout << "PERF_GDN_NORM_GATE_ROUND: round=" << round + 1U
+              << " order=B-C-C-B state_bank="
+              << kPerformanceStateBankCount
+              << " warmups=" << kPerformanceWarmupCount
+              << " iterations=" << kPerformanceIterationCount
+              << " ordered_pass1_ms=" << ordered_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " ordered_pass2_ms=" << ordered_second << '\n';
+  }
+
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_state_bank.data(), reference_state_bank.data(),
+      candidate_state_bank.size(),
+      "fused GDN norm post-timing state bank");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_output.data(), reference_output.data(),
+      q3x::runtime::kGdnVElements,
+      "fused GDN norm post-timing output");
+  const bool timing_bitwise_gate =
+      timing_finite && test.failures() == failures_before;
+
+  const auto median = [](std::array<float, kTimedPassCount> values) {
+    std::sort(values.begin(), values.end());
+    return (values[kTimedPassCount / 2U - 1U] +
+            values[kTimedPassCount / 2U]) *
+           0.5F;
+  };
+  const float ordered_milliseconds = median(ordered_passes);
+  const float candidate_milliseconds = median(candidate_passes);
+  const float speedup = ordered_milliseconds / candidate_milliseconds;
+  constexpr float kRequiredSpeedup = 1.005F;
+  const bool performance_gate =
+      bitwise_and_identity_gate && timing_bitwise_gate && resource_gate &&
+      std::isfinite(ordered_milliseconds) &&
+      std::isfinite(candidate_milliseconds) && ordered_milliseconds > 0.0F &&
+      candidate_milliseconds > 0.0F && speedup >= kRequiredSpeedup;
+  std::cout << "PERF_GDN_NORM_GATE: ordered_ms=" << ordered_milliseconds
+            << " candidate_ms=" << candidate_milliseconds
+            << " speedup=" << speedup
+            << " required_speedup=" << kRequiredSpeedup
+            << " bitwise="
+            << (bitwise_and_identity_gate && timing_bitwise_gate ? "true"
+                                                                : "false")
+            << " resources=" << (resource_gate ? "true" : "false")
+            << " gate="
+            << (performance_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(performance_gate,
+              "fused GDN norm/gate clears same-binary performance gate");
 }
 
 void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
@@ -1974,6 +2794,7 @@ int main() {
   test_conv_multistep(test, stream);
   test_conv_tile_bitwise(test, stream);
   test_gdn_multistep(test, stream);
+  test_gdn_plain_norm_silu_gate_production_identity(test, stream);
   test_gdn_tile_bitwise(test, stream);
   run_optional_gdn_row_pipeline_performance(
       test, stream, GdnRowPipelineCandidate::kFourRow);

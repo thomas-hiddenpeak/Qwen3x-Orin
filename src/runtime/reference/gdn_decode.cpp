@@ -126,6 +126,18 @@ const char* gdn_status_string(const GdnStatus status) noexcept {
   return "unknown GDN status";
 }
 
+bool supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+    const std::size_t token_count, const GdnDimensions dimensions,
+    const std::size_t norm_head_count,
+    const std::size_t norm_head_dimension) noexcept {
+  return token_count == 1U &&
+         dimensions.qk_head_count == kGdnQkHeadCount &&
+         dimensions.value_head_count == kGdnValueHeadCount &&
+         dimensions.head_dimension == kGdnHeadDimension &&
+         norm_head_count == kGdnValueHeadCount &&
+         norm_head_dimension == kGdnHeadDimension;
+}
+
 GdnStatus causal_conv1d_silu_update_reference_cpu(
     const std::uint16_t* const raw_qkv,
     const std::uint16_t* const conv_weight,

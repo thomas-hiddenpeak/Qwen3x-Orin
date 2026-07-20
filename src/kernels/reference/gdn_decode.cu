@@ -1,4 +1,5 @@
 #include "q3x/runtime/gdn_decode.h"
+#include "q3x/runtime/decode_ops.h"
 
 #include <cuda_runtime.h>
 
@@ -18,6 +19,28 @@ constexpr unsigned int kGdnThreads =
                                       const std::size_t right) noexcept {
   return right != 0U &&
          left > std::numeric_limits<std::size_t>::max() / right;
+}
+
+[[nodiscard]] bool byte_range_overflows(const void* const pointer,
+                                        const std::size_t bytes) noexcept {
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return bytes > std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+[[nodiscard]] bool ranges_overlap(const void* const first,
+                                  const std::size_t first_bytes,
+                                  const void* const second,
+                                  const std::size_t second_bytes) noexcept {
+  if (byte_range_overflows(first, first_bytes) ||
+      byte_range_overflows(second, second_bytes)) {
+    return true;
+  }
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  return first_begin < second_begin + second_bytes &&
+         second_begin < first_begin + first_bytes;
 }
 
 [[nodiscard]] GdnStatus validate_dimensions(
@@ -74,6 +97,108 @@ constexpr unsigned int kGdnThreads =
       state_output == conv_qkv || state_output == a || state_output == b ||
       state_output == A_log || state_output == dt_bias;
   return output_alias || state_input_alias || state_output_alias;
+}
+
+[[nodiscard]] bool invalid_gdn_norm_gate_alias(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const std::size_t norm_head_dimension,
+    std::uint16_t* const output) noexcept {
+  constexpr std::size_t kBf16Bytes = sizeof(std::uint16_t);
+  constexpr std::size_t kQkvBytes = kGdnQkvChannels * kBf16Bytes;
+  constexpr std::size_t kScalarBytes =
+      kGdnValueHeadCount * kBf16Bytes;
+  constexpr std::size_t kStateBytes = kGdnStateElements * kBf16Bytes;
+  constexpr std::size_t kOutputBytes = kGdnVElements * kBf16Bytes;
+  const std::size_t norm_bytes = norm_head_dimension * kBf16Bytes;
+
+  const bool output_overlap =
+      ranges_overlap(output, kOutputBytes, conv_qkv, kQkvBytes) ||
+      ranges_overlap(output, kOutputBytes, a, kScalarBytes) ||
+      ranges_overlap(output, kOutputBytes, b, kScalarBytes) ||
+      ranges_overlap(output, kOutputBytes, A_log, kScalarBytes) ||
+      ranges_overlap(output, kOutputBytes, dt_bias, kScalarBytes) ||
+      ranges_overlap(output, kOutputBytes, state_input, kStateBytes) ||
+      ranges_overlap(output, kOutputBytes, state_output, kStateBytes) ||
+      ranges_overlap(output, kOutputBytes, norm_weight, norm_bytes) ||
+      ranges_overlap(output, kOutputBytes, silu_gate, kOutputBytes);
+  const bool state_overlap =
+      (state_input != state_output &&
+       ranges_overlap(state_input, kStateBytes, state_output,
+                      kStateBytes)) ||
+      ranges_overlap(state_output, kStateBytes, conv_qkv, kQkvBytes) ||
+      ranges_overlap(state_output, kStateBytes, a, kScalarBytes) ||
+      ranges_overlap(state_output, kStateBytes, b, kScalarBytes) ||
+      ranges_overlap(state_output, kStateBytes, A_log, kScalarBytes) ||
+      ranges_overlap(state_output, kStateBytes, dt_bias, kScalarBytes) ||
+      ranges_overlap(state_output, kStateBytes, norm_weight, norm_bytes) ||
+      ranges_overlap(state_output, kStateBytes, silu_gate, kOutputBytes);
+  return output_overlap || state_overlap;
+}
+
+[[nodiscard]] bool aligned_bf16_pointer(
+    const std::uint16_t* const pointer) noexcept {
+  return (reinterpret_cast<std::uintptr_t>(pointer) %
+          alignof(std::uint16_t)) == 0U;
+}
+
+[[nodiscard]] int validate_gdn_plain_norm_silu_gate_composite(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const std::size_t norm_head_count,
+    const std::size_t norm_head_dimension,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    const GdnDimensions dimensions,
+    bool* const exact_fusion) noexcept {
+  if (exact_fusion == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *exact_fusion = false;
+  if (validate_dimensions(dimensions) != GdnStatus::kSuccess ||
+      norm_head_count == 0U || norm_head_dimension == 0U ||
+      multiply_overflows(norm_head_count, norm_head_dimension) ||
+      norm_head_count * norm_head_dimension != kGdnVElements ||
+      !std::isfinite(l2_epsilon) || l2_epsilon <= 0.0F ||
+      !std::isfinite(norm_epsilon) || norm_epsilon <= 0.0F ||
+      conv_qkv == nullptr || a == nullptr || b == nullptr ||
+      A_log == nullptr || dt_bias == nullptr || state_input == nullptr ||
+      state_output == nullptr || norm_weight == nullptr ||
+      silu_gate == nullptr || output == nullptr ||
+      !aligned_bf16_pointer(conv_qkv) || !aligned_bf16_pointer(a) ||
+      !aligned_bf16_pointer(b) || !aligned_bf16_pointer(A_log) ||
+      !aligned_bf16_pointer(dt_bias) ||
+      !aligned_bf16_pointer(state_input) ||
+      !aligned_bf16_pointer(state_output) ||
+      !aligned_bf16_pointer(norm_weight) ||
+      !aligned_bf16_pointer(silu_gate) ||
+      !aligned_bf16_pointer(output) ||
+      invalid_gdn_alias(conv_qkv, a, b, A_log, dt_bias, state_input,
+                        state_output, output) ||
+      invalid_gdn_norm_gate_alias(
+          conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+          norm_weight, silu_gate, norm_head_dimension, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *exact_fusion =
+      supports_gated_delta_net_update_plain_rms_norm_silu_gate_fusion(
+          1U, dimensions, norm_head_count, norm_head_dimension);
+  return static_cast<int>(cudaSuccess);
 }
 
 __device__ __forceinline__ float decode_bf16_device(
@@ -1498,6 +1623,242 @@ __global__ void gated_delta_net_update_warp_eight_row_lane_striped_kernel(
   }
 }
 
+// Exact M=1 composite. The GDN phase is intentionally a literal
+// continuation of the production eight-row kernel. Each CTA owns one complete
+// value head, so the following headwise normalization needs only a block
+// barrier. The intermediate is first rounded to and stored as BF16 in output,
+// then read back exactly as the ordered two-kernel reference does.
+__global__ void
+gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const output) {
+  constexpr unsigned int kWarpSize = 32U;
+  constexpr unsigned int kWarpsPerBlock = 8U;
+  constexpr unsigned int kRowsPerWarpBatch = 8U;
+  constexpr unsigned int kFullWarpMask = 0xffffffffU;
+  constexpr std::size_t kKeysPerLane =
+      kGdnHeadDimension / static_cast<std::size_t>(kWarpSize);
+  constexpr std::size_t kScratchRowStride = kGdnHeadDimension + 1U;
+  static_assert(kKeysPerLane == 4U);
+  static_assert((kGdnHeadDimension %
+                 (kWarpsPerBlock * kRowsPerWarpBatch)) == 0U);
+  static_assert(kScratchRowStride == 129U);
+
+  __shared__ float normalized_q[kGdnHeadDimension];
+  __shared__ float normalized_k[kGdnHeadDimension];
+  __shared__ float partial[kGdnHeadDimension];
+  __shared__ float recurrence_scalars[2];
+  __shared__ float
+      row_scratch[kWarpsPerBlock * kRowsPerWarpBatch * kScratchRowStride];
+
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const unsigned int lane = thread % kWarpSize;
+  const std::size_t value_head = blockIdx.x;
+  const std::size_t qk_head = value_head / 3U;
+  constexpr std::size_t kKOffset = kGdnQElements;
+  constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
+
+  float q_value = 0.0F;
+  float k_value = 0.0F;
+  if (thread < kGdnHeadDimension) {
+    const std::size_t q_index =
+        qk_head * kGdnHeadDimension + thread;
+    const std::size_t k_index =
+        kKOffset + qk_head * kGdnHeadDimension + thread;
+    q_value = decode_bf16_device(conv_qkv[q_index]);
+    k_value = decode_bf16_device(conv_qkv[k_index]);
+    partial[thread] = q_value * q_value;
+  }
+  __syncthreads();
+  for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+       stride >>= 1U) {
+    if (thread < stride) {
+      partial[thread] += partial[thread + stride];
+    }
+    __syncthreads();
+  }
+  if (thread < kGdnHeadDimension) {
+    const float q_scale =
+        rsqrtf(partial[0] + l2_epsilon) *
+        rsqrtf(static_cast<float>(kGdnHeadDimension));
+    normalized_q[thread] = q_value * q_scale;
+  }
+  __syncthreads();
+
+  if (thread < kGdnHeadDimension) {
+    partial[thread] = k_value * k_value;
+  }
+  __syncthreads();
+  for (unsigned int stride = kGdnThreads / 2U; stride != 0U;
+       stride >>= 1U) {
+    if (thread < stride) {
+      partial[thread] += partial[thread + stride];
+    }
+    __syncthreads();
+  }
+  if (thread < kGdnHeadDimension) {
+    normalized_k[thread] =
+        k_value * rsqrtf(partial[0] + l2_epsilon);
+  }
+  if (thread == 0U) {
+    const float gate_input =
+        decode_bf16_device(a[value_head]) +
+        decode_bf16_device(dt_bias[value_head]);
+    const float g = -expf(decode_bf16_device(A_log[value_head])) *
+                    stable_softplus_device(gate_input);
+    recurrence_scalars[0] = expf(g);
+    recurrence_scalars[1] =
+        stable_sigmoid_device(decode_bf16_device(b[value_head]));
+  }
+  __syncthreads();
+
+  const float alpha = recurrence_scalars[0];
+  const float beta = recurrence_scalars[1];
+  float* const warp_scratch =
+      row_scratch +
+      static_cast<std::size_t>(warp * kRowsPerWarpBatch) *
+          kScratchRowStride;
+
+  for (std::size_t first_row =
+           static_cast<std::size_t>(warp) * kRowsPerWarpBatch;
+       first_row < kGdnHeadDimension;
+       first_row += kWarpsPerBlock * kRowsPerWarpBatch) {
+    const std::size_t first_state_row_offset =
+        value_head * kGdnHeadDimension * kGdnHeadDimension +
+        first_row * kGdnHeadDimension;
+#pragma unroll
+    for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
+      const std::size_t key_dimension =
+          lane + item * static_cast<std::size_t>(kWarpSize);
+#pragma unroll
+      for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
+        const std::size_t scratch_offset =
+            static_cast<std::size_t>(row) * kScratchRowStride +
+            key_dimension;
+        const std::size_t state_offset =
+            first_state_row_offset +
+            static_cast<std::size_t>(row) * kGdnHeadDimension +
+            key_dimension;
+        warp_scratch[scratch_offset] =
+            alpha * decode_bf16_device(state_input[state_offset]);
+      }
+    }
+    __syncwarp(kFullWarpMask);
+
+    float lane_prediction = 0.0F;
+    if (lane < kRowsPerWarpBatch) {
+      const float* const lane_scratch =
+          warp_scratch +
+          static_cast<std::size_t>(lane) * kScratchRowStride;
+#pragma unroll
+      for (std::size_t key_dimension = 0U;
+           key_dimension < kGdnHeadDimension; ++key_dimension) {
+        lane_prediction =
+            fmaf(lane_scratch[key_dimension],
+                 normalized_k[key_dimension], lane_prediction);
+      }
+    }
+
+    float lane_delta = 0.0F;
+    if (lane < kRowsPerWarpBatch) {
+      const std::size_t value_offset =
+          kVOffset + value_head * kGdnHeadDimension;
+      const float lane_value = decode_bf16_device(
+          conv_qkv[value_offset + first_row + lane]);
+      lane_delta = (lane_value - lane_prediction) * beta;
+    }
+    float deltas[kRowsPerWarpBatch];
+#pragma unroll
+    for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
+      deltas[row] = __shfl_sync(kFullWarpMask, lane_delta, row);
+    }
+
+#pragma unroll
+    for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
+      const std::size_t key_dimension =
+          lane + item * static_cast<std::size_t>(kWarpSize);
+#pragma unroll
+      for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
+        const std::size_t scratch_offset =
+            static_cast<std::size_t>(row) * kScratchRowStride +
+            key_dimension;
+        const float updated =
+            fmaf(deltas[row], normalized_k[key_dimension],
+                 warp_scratch[scratch_offset]);
+        const std::size_t state_offset =
+            first_state_row_offset +
+            static_cast<std::size_t>(row) * kGdnHeadDimension +
+            key_dimension;
+        state_output[state_offset] = encode_bf16_device(updated);
+        warp_scratch[scratch_offset] = updated;
+      }
+    }
+    __syncwarp(kFullWarpMask);
+
+    if (lane < kRowsPerWarpBatch) {
+      const float* const lane_scratch =
+          warp_scratch +
+          static_cast<std::size_t>(lane) * kScratchRowStride;
+      float lane_result = 0.0F;
+#pragma unroll
+      for (std::size_t key_dimension = 0U;
+           key_dimension < kGdnHeadDimension; ++key_dimension) {
+        lane_result =
+            fmaf(lane_scratch[key_dimension],
+                 normalized_q[key_dimension], lane_result);
+      }
+      const std::size_t output_offset =
+          value_head * kGdnHeadDimension;
+      output[output_offset + first_row + lane] =
+          encode_bf16_device(lane_result);
+    }
+    __syncwarp(kFullWarpMask);
+  }
+  __syncthreads();
+
+  const std::size_t output_offset = value_head * kGdnHeadDimension;
+  float sum = 0.0F;
+  if (thread < kGdnHeadDimension) {
+    const float value =
+        decode_bf16_device(output[output_offset + thread]);
+    sum = fmaf(value, value, sum);
+  }
+  // The state-row scratch is dead after the GDN phase. Reusing it here keeps
+  // the prototype's static shared-memory footprint equal to production GDN.
+  row_scratch[thread] = sum;
+  __syncthreads();
+  for (unsigned int stride = 256U / 2U; stride != 0U; stride >>= 1U) {
+    if (thread < stride) {
+      row_scratch[thread] += row_scratch[thread + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(row_scratch[0] /
+                 static_cast<float>(kGdnHeadDimension) +
+             norm_epsilon);
+  if (thread < kGdnHeadDimension) {
+    float value =
+        decode_bf16_device(output[output_offset + thread]) * inverse_rms *
+        decode_bf16_device(norm_weight[thread]);
+    const float gate_value =
+        decode_bf16_device(silu_gate[output_offset + thread]);
+    value *= gate_value / (1.0F + expf(-gate_value));
+    output[output_offset + thread] = encode_bf16_device(value);
+  }
+}
+
 }  // namespace
 
 int launch_causal_conv1d_silu_update_reference_cuda(
@@ -1846,6 +2207,125 @@ int launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
       0U, stream>>>(conv_qkv, token_count, a, b, A_log, dt_bias, state_input,
                     state_output, l2_epsilon, output);
   return static_cast<int>(cudaGetLastError());
+}
+
+namespace gdn_decode_detail {
+
+int launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  bool exact_fusion = false;
+  const int validation = validate_gdn_plain_norm_silu_gate_composite(
+      conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, norm_weight, silu_gate, kGdnValueHeadCount,
+      kGdnHeadDimension, norm_epsilon, output, {}, &exact_fusion);
+  if (validation != static_cast<int>(cudaSuccess) || !exact_fusion) {
+    return validation != static_cast<int>(cudaSuccess)
+               ? validation
+               : static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  constexpr unsigned int kWarpParallelThreads = 256U;
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<<<
+      static_cast<unsigned int>(kGdnValueHeadCount), kWarpParallelThreads,
+      0U, stream>>>(conv_qkv, a, b, A_log, dt_bias, state_input,
+                    state_output, l2_epsilon, norm_weight, silu_gate,
+                    norm_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace gdn_decode_detail
+
+int launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    const std::uint16_t* const norm_weight,
+    const std::uint16_t* const silu_gate,
+    const std::size_t norm_head_count,
+    const std::size_t norm_head_dimension,
+    const float norm_epsilon,
+    std::uint16_t* const output,
+    const GdnDimensions dimensions,
+    void* const cuda_stream) noexcept {
+  bool exact_fusion = false;
+  const int validation = validate_gdn_plain_norm_silu_gate_composite(
+      conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, norm_weight, silu_gate, norm_head_count,
+      norm_head_dimension, norm_epsilon, output, dimensions, &exact_fusion);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (exact_fusion) {
+    return gdn_decode_detail::
+        launch_gated_delta_net_update_plain_rms_norm_silu_gate_exact_cuda(
+            conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+            l2_epsilon, norm_weight, silu_gate, norm_epsilon, output,
+            cuda_stream);
+  }
+
+  int status = launch_gated_delta_net_update_warp_parallel_cuda(
+      conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+      l2_epsilon, output, dimensions, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  status = launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
+      output, norm_weight, silu_gate, norm_head_count, norm_head_dimension,
+      norm_epsilon, output, cuda_stream);
+  return status;
+}
+
+int query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel,
+      256, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 }  // namespace q3x::runtime
