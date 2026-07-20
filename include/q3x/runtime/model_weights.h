@@ -112,6 +112,15 @@ enum class ProjectionBackend : std::uint8_t {
     ProjectionBackend backend, const LinearWeight& qkv_weight,
     const LinearWeight& z_weight) noexcept;
 
+// True only for the production dense-MLP gate/up/SiLU fusion ABI: the
+// explicitly selected SM87 backend followed by valid NVFP4 [17408, 5120]
+// gate and up matrices, in that order. This is shape/type/payload eligibility
+// only; launch-time alignment, input, output, scratch, range, and alias
+// validation remains the dispatcher's responsibility.
+[[nodiscard]] bool supports_nvfp4_gate_up_silu_fusion(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight) noexcept;
+
 struct DenseMlpWeights {
   LinearWeight gate_proj;
   LinearWeight up_proj;
@@ -352,5 +361,20 @@ struct WeightBindResult {
     std::size_t token_count, float* fp32_scratch,
     std::size_t scratch_elements, std::uint16_t* first_output,
     std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
+
+// Validates and launches the single-token dense-MLP gate and up projections,
+// then overwrites gate_output with
+// BF16(SiLU(BF16(gate)) * BF16(up)). up_output retains the independently
+// rounded up projection. The exact aligned SM87 NVFP4 checkpoint shape uses
+// the dedicated fused kernel. Every other valid combination preserves the
+// existing ordered gate projection, up projection, and reference SiLU
+// launches. All arguments and cross-projection aliases are validated before
+// any work is enqueued.
+[[nodiscard]] int launch_mlp_gate_up_silu_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* input,
+    float* fp32_scratch, std::size_t scratch_elements,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::runtime

@@ -87,6 +87,17 @@ template <typename Weight>
          std::isfinite(weight->input_scale) && weight->input_scale >= 0.0F;
 }
 
+[[nodiscard]] bool has_valid_nvfp4_payload(
+    const NvFp4LinearWeight* const weight) noexcept {
+  return weight != nullptr && weight->packed_weight != nullptr &&
+         weight->block_scale != nullptr &&
+         weight->weight_scale_2_device != nullptr &&
+         weight->input_scale_device != nullptr &&
+         std::isfinite(weight->weight_scale_2) &&
+         weight->weight_scale_2 >= 0.0F &&
+         std::isfinite(weight->input_scale) && weight->input_scale >= 0.0F;
+}
+
 }  // namespace
 
 class ModelWeightBinder {
@@ -666,6 +677,23 @@ bool supports_fp8_qkv_z_projection_pair(
   return has_valid_fp8_payload(qkv) && has_valid_fp8_payload(z) &&
          qkv->output_size == kQkvRows && z->output_size == kZRows &&
          qkv->input_size == kColumns && z->input_size == kColumns;
+}
+
+bool supports_nvfp4_gate_up_silu_fusion(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight) noexcept {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      gate_weight.valueless_by_exception() ||
+      up_weight.valueless_by_exception()) {
+    return false;
+  }
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+  return has_valid_nvfp4_payload(gate) && has_valid_nvfp4_payload(up) &&
+         gate->output_size == kRows && up->output_size == kRows &&
+         gate->input_size == kColumns && up->input_size == kColumns;
 }
 
 WeightBindResult bind_qwen36_27b_weights(

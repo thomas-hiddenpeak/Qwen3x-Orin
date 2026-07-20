@@ -1,0 +1,631 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark",
+  "status": "production-diagnostic",
+  "recorded_at": "2026-07-20",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "1dc309729da6df248e7eee7254db4c9a0350a41c",
+    "tree_state_at_measurement": "production NVFP4 M1 gate/up/SiLU fusion worktree based on base_git_commit",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation": {
+    "scope": "ordered dense-MLP NVFP4 gate projection, up projection, and SiLU multiply sharing one BF16 activation at M=1",
+    "gate_shape": [
+      17408,
+      5120
+    ],
+    "up_shape": [
+      17408,
+      5120
+    ],
+    "dtype": "NVFP4 E2M1 packed weights with FP8 E4M3FN block scales and BF16 activation/output",
+    "grid_blocks": 64,
+    "threads_per_block": 256,
+    "warps_per_block": 8,
+    "rows_per_warp_phase": 4,
+    "rows_per_cta_per_stride": 32,
+    "row_stride": 2048,
+    "phase_order": [
+      "gate projection and BF16-RNE store",
+      "up projection and BF16-RNE store",
+      "CTA-parallel SiLU(rounded gate) times rounded up and BF16-RNE overwrite of gate"
+    ],
+    "phase_loop_unroll": 1,
+    "activation_and_decode_codebooks_staged_once_per_cta": true,
+    "single_projection_fma_reduction_and_bf16_rounding_order_preserved": true,
+    "baseline_launches_per_logical_chain": 3,
+    "candidate_launches_per_logical_chain": 1,
+    "output_contract": {
+      "gate_output": "BF16(SiLU(BF16(gate projection)) * BF16(up projection))",
+      "up_output": "independently rounded BF16 up projection"
+    },
+    "eligibility": "explicit SM87 backend, ordered valid NVFP4 gate/up weights, exact [17408,5120] shapes, and required alignments",
+    "fallbacks": [
+      "non-SM87 backend",
+      "near-miss shapes or different output rows",
+      "non-NVFP4 weights",
+      "packed weights not aligned to four bytes",
+      "activation not aligned to eight bytes",
+      "outputs not aligned to two bytes"
+    ],
+    "prefill_note": "C1 delegates to the decode step and uses the fusion; C2 through C16 retain ordered independent tile projections followed by the existing SiLU kernel"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "gate_weight": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+      "dtype": "U8 packed NVFP4",
+      "shape": [
+        17408,
+        2560
+      ],
+      "absolute_offset_begin": 6757009952,
+      "absolute_offset_end": 6801574432,
+      "bytes": 44564480,
+      "payload_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+    },
+    "up_weight": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight",
+      "dtype": "U8 packed NVFP4",
+      "shape": [
+        17408,
+        2560
+      ],
+      "absolute_offset_begin": 6801574432,
+      "absolute_offset_end": 6846138912,
+      "bytes": 44564480,
+      "payload_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+    },
+    "gate_block_scale": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale",
+      "dtype": "F8_E4M3",
+      "shape": [
+        17408,
+        320
+      ],
+      "absolute_offset_begin": 3606039072,
+      "absolute_offset_end": 3611609632,
+      "bytes": 5570560,
+      "payload_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+    },
+    "up_block_scale": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight_scale",
+      "dtype": "F8_E4M3",
+      "shape": [
+        17408,
+        320
+      ],
+      "absolute_offset_begin": 3611609632,
+      "absolute_offset_end": 3617180192,
+      "bytes": 5570560,
+      "payload_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+    },
+    "gate_weight_scale_2": {
+      "absolute_offset_begin": 126548,
+      "little_endian_bits": "0x391e79e8",
+      "value": 0.00015113468
+    },
+    "up_weight_scale_2": {
+      "absolute_offset_begin": 126556,
+      "little_endian_bits": "0x391e79e8",
+      "value": 0.00015113468
+    },
+    "gate_weight_end_equals_up_weight_begin": true,
+    "gate_scale_end_equals_up_scale_begin": true
+  },
+  "policy": {
+    "projection_backend_default": "reference",
+    "sm87_backend_is_explicit": true,
+    "production_candidate_requires_actual_checkpoint_fixture": true,
+    "minimum_actual_checkpoint_speedup": 1.02,
+    "minimum_same_bank_stress_speedup": 1.0,
+    "exploratory_symmetric_speedup": 1.01,
+    "policy_note": "the actual checkpoint fixture carries the production-value threshold; the adversarial synthetic same-bank fixture is a non-regression guard",
+    "result_is_release_claim": false
+  },
+  "same_binary_optional_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=SHARD build/q3x_sm87_weight_only_gemv_test",
+    "binary": {
+      "local_path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 2890024,
+      "sha256": "5d6c40e76c437ccef6501be59ebac81f87dd47082f837bb79281436648834185"
+    },
+    "comparison": "two public production activation-staged projection launches plus the production in-place gate-overwrite SiLU kernel versus the public fused gate/up/SiLU launcher on identical buffers",
+    "warmup_logical_chains": 10,
+    "measured_logical_chains_per_timed_pass": 64,
+    "measurement_rounds": 5,
+    "timed_order_per_round": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "statistic_per_process": "median of ten baseline pass means divided by the median of ten candidate pass means",
+    "independent_process_repeats": 5,
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate_passed": true
+    },
+    "fixtures": {
+      "actual_checkpoint": {
+        "source": "pinned layer-0 gate/up packed weights, block scales, and scale2 values",
+        "all_payload_hashes_matched": true
+      },
+      "same_bank_stress": {
+        "source": "deterministic synthetic packed weights plus E4M3FN scale codes 0x20, 0x40, and 0x60 sharing the low-five-bit bank index",
+        "gate_weight_sha256": "640dbb23c95298c2b28170df2004378050362fa54d25d60d6ecdd576334b3445",
+        "up_weight_sha256": "e45605d5286f6ce2ef9125592c06c18aca8f9482cad827cf5eaa6f2e2f0e92b8",
+        "gate_scale_sha256": "46c093b6e6e475ee1186f5d5b60a508613759d8167f9f642e34fc8c42ee17f7f",
+        "up_scale_sha256": "45c80c05b0c99c0efe3c79475e04cfb27ed6f7a964bb65ac80c106bac7bdd397"
+      },
+      "activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def"
+    },
+    "correctness": {
+      "pair_only_gate_bits_match_two_independent_projections": true,
+      "pair_only_up_bits_match_two_independent_projections": true,
+      "fused_final_bits_match_two_projections_plus_production_silu": true,
+      "fused_up_bits_match_independent_up_projection": true,
+      "finite_fixture_outputs": true,
+      "bounded_signed_nan_class_and_sign_gate": true,
+      "replay_and_all_output_guards_equal": true,
+      "both_weight_matrices_block_scales_and_activation_preserved": true,
+      "null_shape_alignment_scale_and_alias_fail_before_enqueue": true,
+      "public_and_test_launcher_exact_kernel_identity": true,
+      "pinned_offsets_payload_sha256_header_size_and_scale2_bits_match": true
+    },
+    "repeats": [
+      {
+        "run": 1,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.632424,
+          "candidate_milliseconds": 0.616374,
+          "speedup": 1.02604
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.635749,
+          "candidate_milliseconds": 0.619908,
+          "speedup": 1.02555
+        },
+        "frozen_policy_gate_passed": true,
+        "exploratory_symmetric_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-r1.log",
+          "bytes": 27537,
+          "sha256": "7beae0b2eb229208d84666965f79837edd612c9ac56ac707ed3ede997fbe7fb5"
+        }
+      },
+      {
+        "run": 2,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.632729,
+          "candidate_milliseconds": 0.616068,
+          "speedup": 1.02704
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.636157,
+          "candidate_milliseconds": 0.619232,
+          "speedup": 1.02733
+        },
+        "frozen_policy_gate_passed": true,
+        "exploratory_symmetric_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-r2.log",
+          "bytes": 27536,
+          "sha256": "7e7150149014baaa8be6469ad9c5cf2bde4d3db2713c1b7d7b392098ebe32f71"
+        }
+      },
+      {
+        "run": 3,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.633227,
+          "candidate_milliseconds": 0.615979,
+          "speedup": 1.028
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.636636,
+          "candidate_milliseconds": 0.619515,
+          "speedup": 1.02764
+        },
+        "frozen_policy_gate_passed": true,
+        "exploratory_symmetric_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-r3.log",
+          "bytes": 27533,
+          "sha256": "21da698af65d69a64076fe5b2b1273fb9e2b94701ae27620071e4b923b3e5671"
+        }
+      },
+      {
+        "run": 4,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.633456,
+          "candidate_milliseconds": 0.616489,
+          "speedup": 1.02752
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.636732,
+          "candidate_milliseconds": 0.619764,
+          "speedup": 1.02738
+        },
+        "frozen_policy_gate_passed": true,
+        "exploratory_symmetric_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-r4.log",
+          "bytes": 27538,
+          "sha256": "4065657e28fb4d87111a0ff856ab75a2a18f0e0017bb44c68436c66a2ad4efc4"
+        }
+      },
+      {
+        "run": 5,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.632699,
+          "candidate_milliseconds": 0.616705,
+          "speedup": 1.02593
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.63614,
+          "candidate_milliseconds": 0.62001,
+          "speedup": 1.02602
+        },
+        "frozen_policy_gate_passed": true,
+        "exploratory_symmetric_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-r5.log",
+          "bytes": 27536,
+          "sha256": "6b01e6e965922aab6ae69a4952d191d853e4fe1b04e19718655b02deb8970599"
+        }
+      }
+    ],
+    "summary": {
+      "actual_checkpoint_speedup_min_median_mean_max": [
+        1.02593,
+        1.02704,
+        1.026906,
+        1.028
+      ],
+      "same_bank_stress_speedup_min_median_mean_max": [
+        1.02555,
+        1.02733,
+        1.026784,
+        1.02764
+      ],
+      "all_five_frozen_policy_processes_passed": true,
+      "all_five_exploratory_symmetric_processes_passed": true
+    }
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "independent detached base-commit build versus candidate; matched command and workload but not a same-binary trial",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-base.nsys-rep",
+        "bytes": 1551018,
+        "sha256": "5b4ce9371d756daaee42996fdde2015a8fb2c6b4fc447eb90ddf727fa4f9b5ea"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-candidate.nsys-rep",
+        "bytes": 1346486,
+        "sha256": "d2dbe90a1c093d118d81cf82262ddaeea03f53d021c34b043a4643753897c46b"
+      },
+      "checked_in": false
+    },
+    "stats_exports": {
+      "baseline_kernel_summary": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-base-kernels.csv",
+        "bytes": 8273,
+        "sha256": "c25131a8dc627afbea0e28323d02e6bfcc790657ba66aebb329db0524edd364c"
+      },
+      "baseline_grid_block_summary": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-base-kernels-gb.csv",
+        "bytes": 12943,
+        "sha256": "ac992e681bf3665c0229588c79352ba663695cd764865bba0839815572a1e395"
+      },
+      "candidate_kernel_summary": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-candidate-kernels.csv",
+        "bytes": 8231,
+        "sha256": "b4b5ada15bac8363519833abd6da9a9127b8e03b5cd70579488cef593d301549"
+      },
+      "candidate_grid_block_summary": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-candidate-kernels-gb.csv",
+        "bytes": 12823,
+        "sha256": "3d8d3d7090cb21109b2389fd82a26a8455875fbd1b893ce1bc1fc41059a7dfb9"
+      }
+    },
+    "profile_logs": {
+      "baseline": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-base-profile.log",
+        "bytes": 3081,
+        "sha256": "ba38b8ed43c0b782d1545e76c4e3f8a842444a4794d1d0dee55ef2f1ad269696"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-candidate-profile.log",
+        "bytes": 3052,
+        "sha256": "605213914e86131a43acc74fc5cc436614ec2f00b8d828961b749175e6876547"
+      }
+    },
+    "target_chain": {
+      "baseline_projection_instances": 3328,
+      "baseline_projection_milliseconds": 1055.547168,
+      "baseline_decode_silu_instances": 1664,
+      "baseline_decode_silu_grid_blocks": 68,
+      "baseline_decode_silu_milliseconds": 8.452544,
+      "prefill_silu_instances_excluded_from_target": 128,
+      "baseline_combined_instances": 4992,
+      "baseline_combined_milliseconds": 1063.999712,
+      "candidate_fused_instances": 1664,
+      "candidate_fused_milliseconds": 1037.27744,
+      "removed_kernel_instances": 3328,
+      "launch_reduction_percent": 66.666666667,
+      "saved_milliseconds": 26.722272,
+      "reduction_percent": 2.511492409,
+      "speedup": 1.025761933
+    },
+    "all_cuda_kernels": {
+      "baseline_instances": 21878,
+      "candidate_instances": 18550,
+      "removed_instances": 3328,
+      "baseline_total_milliseconds": 3426.051552,
+      "candidate_total_milliseconds": 3402.646528,
+      "saved_milliseconds": 23.405024,
+      "reduction_percent": 0.683148623,
+      "speedup": 1.006878476,
+      "non_target_time_delta_candidate_minus_baseline_milliseconds": 3.317248
+    },
+    "profiled_generation": {
+      "baseline_time_to_first_token_milliseconds": 577.625,
+      "candidate_time_to_first_token_milliseconds": 578.452,
+      "baseline_decode_after_first_milliseconds": 2889.424,
+      "candidate_decode_after_first_milliseconds": 2860.904,
+      "baseline_total_milliseconds": 3467.049,
+      "candidate_total_milliseconds": 3439.356,
+      "saved_milliseconds": 27.693,
+      "reduction_percent": 0.798748446,
+      "speedup": 1.008051798,
+      "exact_generation_gate_passed": true
+    }
+  },
+  "single_load_end_to_end_benchmark": {
+    "comparison": "detached-base/candidate/candidate/detached-base standalone processes; each process loads one engine and reuses it for one warmup plus five measured generations",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "run_order": [
+      "baseline_round1",
+      "candidate_round1",
+      "candidate_round2",
+      "baseline_round2"
+    ],
+    "binaries": {
+      "baseline": {
+        "base_git_commit": "1dc309729da6df248e7eee7254db4c9a0350a41c",
+        "local_path": "/tmp/q3x-gateup-baseline-1dc30972/build-release/qwen3x-orin",
+        "bytes": 2875336,
+        "sha256": "f6bdb000904f929c4efd73f221372f57e33cb6b44d68ac1d3d20076451676f72"
+      },
+      "candidate": {
+        "local_path": "build/qwen3x-orin",
+        "bytes": 2946600,
+        "sha256": "dad67ae0238c56a398f51a6b1867aa48fd33d148f2687ba56cd755b3e664aaaf"
+      },
+      "checked_in": false
+    },
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3434.372,
+          "time_to_first_token_milliseconds": 557.498,
+          "subsequent_token_milliseconds": 115.081
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3434.048,
+          "time_to_first_token_milliseconds": 557.48,
+          "subsequent_token_milliseconds": 115.057
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3404.371,
+          "time_to_first_token_milliseconds": 556.286,
+          "subsequent_token_milliseconds": 113.925
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3404.997,
+          "time_to_first_token_milliseconds": 556.221,
+          "subsequent_token_milliseconds": 113.958
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3434.21,
+        "time_to_first_token_milliseconds": 557.489,
+        "subsequent_token_milliseconds": 115.069
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3404.684,
+        "time_to_first_token_milliseconds": 556.2535,
+        "subsequent_token_milliseconds": 113.9415
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 29.526,
+        "total_generation_reduction_percent": 0.859761051,
+        "total_generation_speedup": 1.00867217,
+        "time_to_first_token_saved_milliseconds": 1.2355,
+        "time_to_first_token_reduction_percent": 0.221618723,
+        "time_to_first_token_speedup": 1.00222111,
+        "subsequent_token_saved_milliseconds": 1.1275,
+        "subsequent_token_reduction_percent": 0.979846874,
+        "subsequent_token_speedup": 1.009895429
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "all_warmup_and_measured_runs_passed": true,
+      "persistent_device_memory_drop_detected": false
+    },
+    "logs": {
+      "baseline_round1": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-bccb-b1.log",
+        "bytes": 5650,
+        "sha256": "5151b1c3a8f8c532ca9da5be531c5be14e5bbdd4a6c4f992fda1d3897b33929e"
+      },
+      "candidate_round1": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-bccb-c1.log",
+        "bytes": 5650,
+        "sha256": "de019abc04d77f87b5b9fb84a99c81f59303fc2f61a021209e30ad621df39aca"
+      },
+      "candidate_round2": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-bccb-c2.log",
+        "bytes": 5650,
+        "sha256": "a8d1a47bd4e366de4cfb859c99197fa70963be57a94bb8869a0f455d21719ad1"
+      },
+      "baseline_round2": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-bccb-b2.log",
+        "bytes": 5650,
+        "sha256": "7ac0f18b5b32ebcdbe56d9c092a0cdc14839c91160d9e43f03976c220ee16752"
+      },
+      "checked_in": false
+    }
+  },
+  "correctness": {
+    "full_model_exact_gates": [
+      {
+        "prefill_chunk_size": 1,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-exact27b-c1.log",
+          "bytes": 242,
+          "sha256": "c025c1aa89d2b935ff30c2b5819a90ebe11b0474377800bf8003839f0e80f380"
+        }
+      },
+      {
+        "prefill_chunk_size": 8,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-exact27b-c8.log",
+          "bytes": 242,
+          "sha256": "b241cc7c9de9cbe730d6e01de92a32151797d28d7565c880d5a4a5f90bb9400d"
+        }
+      },
+      {
+        "prefill_chunk_size": 16,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-gate-up-silu-final-exact27b-c16.log",
+          "bytes": 242,
+          "sha256": "8cb4ae06a9c7df2f7969f6626efa5a1830c5488619d8b3c7b5019340eb5fd716"
+        }
+      }
+    ],
+    "full_model_contract": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44
+    },
+    "release_suite": {
+      "discovered_tests": 52,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-release-ctest.log",
+        "bytes": 7004,
+        "sha256": "2a002aea9d7317477d537470fa04a5b6b2c5830a986ec73f463849c03ce0c2a5"
+      }
+    },
+    "asan_ubsan_suite": {
+      "discovered_tests": 51,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "excluded_tests": [
+        "package_consumer"
+      ],
+      "asan_options": "detect_leaks=0:halt_on_error=1",
+      "ubsan_options": "halt_on_error=1",
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-gate-up-silu-final-sanitize-ctest.log",
+        "bytes": 6918,
+        "sha256": "131885b867278c9b638d9d880737290dd7d9f1e54fef1856c7f5d31b113c05af"
+      }
+    },
+    "default_kernel_contract_suite": {
+      "bounded_shape": [
+        2048,
+        512
+      ],
+      "finite_signed_nan_bitwise_replay_guard_and_input_preservation_passed": true,
+      "public_exact_kernel_identity_passed": true,
+      "invalid_calls_failed_before_enqueue": true,
+      "log": {
+        "local_path": "/tmp/q3x-gate-up-silu-default-test.log",
+        "bytes": 22048,
+        "sha256": "92e5e7373b14830d3f17c3a94c0e5647053e18770db0f495c289168dbf9faf39"
+      }
+    },
+    "cuda_dispatch_graph_contracts": {
+      "aligned_exact_m1_kernel_nodes": 1,
+      "unaligned_exact_m1_fallback_kernel_nodes": 3,
+      "valid_near_miss_m1_fallback_kernel_nodes": 3,
+      "reference_m1_fallback_kernel_nodes": 5,
+      "small_sm87_and_reference_fallbacks_bitwise_equal_to_previous_ordered_chain": true,
+      "different_output_rows_rejected": true,
+      "null_malformed_alignment_output_overlap_and_cross_projection_aliases_fail_before_enqueue": true,
+      "large_exact_shape_tests_are_capture_only": true
+    }
+  },
+  "limitations": [
+    "all measurements used unlocked clocks",
+    "the optional microbenchmark is a kernel promotion gate, not a model or serving-throughput result",
+    "the Nsight comparison uses separate baseline and candidate reports rather than a same-binary trial",
+    "non-target GPU kernel time drifted by 3.317248 ms between the unlocked-clock Nsight processes",
+    "the B-C-C-B comparison has two process medians per implementation and is not randomized",
+    "the end-to-end result is batch-one generation for one short prompt and excludes engine-load time",
+    "ASan and UBSan instrument host code only; CUDA compute-sanitizer debugging features are disabled on this device",
+    "the raw logs, binaries, and Nsight reports are local evidence and are not checked into the repository",
+    "this diagnostic does not establish continuous-batching, concurrent-request, or serving throughput"
+  ]
+}

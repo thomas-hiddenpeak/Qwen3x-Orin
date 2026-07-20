@@ -631,4 +631,75 @@ int launch_projection_pair_tile_to_bf16_cuda(
       scratch_elements, second_output, cuda_stream);
 }
 
+int launch_mlp_gate_up_silu_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_output,
+    void* const cuda_stream) noexcept {
+  const bool eligible_fusion = supports_nvfp4_gate_up_silu_fusion(
+      backend, gate_weight, up_weight);
+  bool aligned_fusion = false;
+  if (eligible_fusion) {
+    const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
+    const auto& up = std::get<NvFp4LinearWeight>(up_weight);
+    aligned_fusion =
+        pointer_is_aligned(gate.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(up.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(input, alignof(std::uint64_t)) &&
+        pointer_is_aligned(gate_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(up_output, alignof(std::uint16_t));
+  }
+  // Preserve the generic pair fallback's scratch contract. In particular,
+  // the exact SM87 BF16 A/B pair is already direct-to-BF16 and accepts null
+  // scratch even though it is not eligible for this MLP-specific fusion.
+  const bool direct_output =
+      aligned_fusion ||
+      supports_bf16_projection_pair(backend, gate_weight, up_weight);
+
+  ProjectionTileSpans gate_spans;
+  ProjectionTileSpans up_spans;
+  const int gate_validation = validate_projection_tile(
+      backend, gate_weight, input, 1U, fp32_scratch, scratch_elements,
+      gate_output, &gate_spans, direct_output);
+  if (gate_validation != static_cast<int>(cudaSuccess)) {
+    return gate_validation;
+  }
+  const int up_validation = validate_projection_tile(
+      backend, up_weight, input, 1U, fp32_scratch, scratch_elements,
+      up_output, &up_spans, direct_output);
+  if (up_validation != static_cast<int>(cudaSuccess)) {
+    return up_validation;
+  }
+  const int cross_validation = validate_projection_pair_cross_ranges(
+      backend, gate_weight, up_weight, input, fp32_scratch, gate_output,
+      up_output, gate_spans, up_spans, direct_output);
+  if (cross_validation != static_cast<int>(cudaSuccess)) {
+    return cross_validation;
+  }
+  if (gate_spans.rows != up_spans.rows) {
+    return invalid_value();
+  }
+
+  if (aligned_fusion) {
+    const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
+    const auto& up = std::get<NvFp4LinearWeight>(up_weight);
+    return kernels::launch_sm87_nvfp4_w4a16_gemv_gate_up_silu_bf16_cuda(
+        gate.packed_weight, gate.block_scale, gate.weight_scale_2,
+        up.packed_weight, up.block_scale, up.weight_scale_2, input,
+        gate.output_size, gate.input_size, gate_output, up_output,
+        cuda_stream);
+  }
+
+  const int projection_status = launch_projection_pair_tile_to_bf16_cuda(
+      backend, gate_weight, up_weight, input, 1U, fp32_scratch,
+      scratch_elements, gate_output, up_output, cuda_stream);
+  if (projection_status != static_cast<int>(cudaSuccess)) {
+    return projection_status;
+  }
+  return launch_silu_mul_reference_cuda(
+      gate_output, up_output, gate_spans.rows, gate_output, cuda_stream);
+}
+
 }  // namespace q3x::runtime

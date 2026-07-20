@@ -1,6 +1,7 @@
 #include "q3x/runtime/model_weights.h"
 
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#include "q3x/runtime/decode_ops.h"
 
 #include <cuda_runtime.h>
 
@@ -679,6 +680,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
   constexpr std::uint16_t kBf16Half = 0x3f00U;
   constexpr std::uint16_t kFirstExpected = 0x45a0U;
   constexpr std::uint16_t kSecondExpected = 0x4520U;
+  constexpr std::uint16_t kSiluMulExpected = 0x4b48U;
 
   DeviceBuffer<std::uint16_t> first_weights;
   DeviceBuffer<std::uint16_t> second_weights;
@@ -764,6 +766,35 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
   };
   run_fast(1U, "SM87 production BF16 pair M1");
   run_fast(kTokens, "SM87 production BF16 pair M16");
+
+  const int mlp_status = runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+      activation.get(), nullptr, 0U, first_output.get(), second_output.get());
+  test.expect(static_cast<cudaError_t>(mlp_status) == cudaSuccess,
+              "SM87 BF16 MLP pair accepts null unused scratch");
+  if (static_cast<cudaError_t>(mlp_status) == cudaSuccess) {
+    (void)expect_tile_output(
+        test, first_output, 1U, kRows,
+        std::vector<std::uint16_t>{kSiluMulExpected},
+        "SM87 BF16 MLP pair SiLU-multiply gate output");
+    (void)expect_tile_output(
+        test, second_output, 1U, kRows,
+        std::vector<std::uint16_t>{kSecondExpected},
+        "SM87 BF16 MLP pair retained up output");
+  }
+
+  std::size_t mlp_total_nodes = 0U;
+  const std::size_t mlp_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+            activation.get(), nullptr, 0U, first_output.get(),
+            second_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 BF16 MLP pair M1 graph", &mlp_total_nodes);
+  test.expect(mlp_total_nodes == 2U && mlp_kernel_nodes == 2U,
+              "SM87 BF16 MLP pair graph contains fused projections and SiLU");
 
   std::size_t reference_total_nodes = 0U;
   const std::size_t reference_kernel_nodes = captured_kernel_node_count(
@@ -1374,6 +1405,382 @@ void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
                   "invalid Z leaves QKV output untouched");
     }
   }
+}
+
+void test_nvfp4_mlp_gate_up_silu_dispatch(TestContext& test) {
+  constexpr std::size_t kExactRows = 17'408U;
+  constexpr std::size_t kExactColumns = 5'120U;
+  constexpr float kExactGateScale = 1.0F / 64.0F;
+  constexpr float kExactUpScale = 1.0F / 128.0F;
+
+  const auto* const fake_gate_packed =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const fake_gate_scales =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const fake_up_packed =
+      reinterpret_cast<const std::uint8_t*>(0x30'0000'0000ULL);
+  const auto* const fake_up_scales =
+      reinterpret_cast<const std::uint8_t*>(0x40'0000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const fake_gate_output =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const fake_up_output =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+  const auto* const fake_gate_weight_scale =
+      reinterpret_cast<const float*>(0x80'0000'0000ULL);
+  const auto* const fake_gate_input_scale =
+      reinterpret_cast<const float*>(0x81'0000'0000ULL);
+  const auto* const fake_up_weight_scale =
+      reinterpret_cast<const float*>(0x82'0000'0000ULL);
+  const auto* const fake_up_input_scale =
+      reinterpret_cast<const float*>(0x83'0000'0000ULL);
+
+  const runtime::LinearWeight exact_gate = runtime::NvFp4LinearWeight{
+      fake_gate_packed, fake_gate_scales, fake_gate_weight_scale,
+      fake_gate_input_scale, kExactGateScale, 1.0F, kExactRows,
+      kExactColumns};
+  const runtime::LinearWeight exact_up = runtime::NvFp4LinearWeight{
+      fake_up_packed, fake_up_scales, fake_up_weight_scale,
+      fake_up_input_scale, kExactUpScale, 1.0F, kExactRows,
+      kExactColumns};
+  test.expect(runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                  exact_up),
+              "exact ordered NVFP4 gate/up payload selects MLP fusion");
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kReference, exact_gate,
+                  exact_up),
+              "reference backend does not select NVFP4 MLP fusion");
+
+  std::size_t exact_total_nodes = 0U;
+  const std::size_t exact_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+            exact_up, fake_activation, nullptr, 0U, fake_gate_output,
+            fake_up_output, static_cast<void*>(stream));
+      },
+      "exact aligned NVFP4 MLP fusion graph", &exact_total_nodes);
+  test.expect(exact_total_nodes == 1U && exact_kernel_nodes == 1U,
+              "exact aligned NVFP4 MLP graph contains one fused kernel");
+
+  const auto* const unaligned_fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0002ULL);
+  std::size_t unaligned_total_nodes = 0U;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+            exact_up, unaligned_fake_activation, nullptr, 0U,
+            fake_gate_output, fake_up_output, static_cast<void*>(stream));
+      },
+      "unaligned exact NVFP4 MLP fallback graph",
+      &unaligned_total_nodes);
+  test.expect(unaligned_total_nodes == 3U &&
+                  unaligned_kernel_nodes == 3U,
+              "unaligned exact NVFP4 MLP preserves gate-up-SiLU kernels");
+
+  const runtime::LinearWeight near_miss_gate = runtime::NvFp4LinearWeight{
+      fake_gate_packed, fake_gate_scales, fake_gate_weight_scale,
+      fake_gate_input_scale, kExactGateScale, 1.0F, kExactRows - 1U,
+      kExactColumns};
+  const runtime::LinearWeight near_miss_up = runtime::NvFp4LinearWeight{
+      fake_up_packed, fake_up_scales, fake_up_weight_scale,
+      fake_up_input_scale, kExactUpScale, 1.0F, kExactRows - 1U,
+      kExactColumns};
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  near_miss_gate, near_miss_up),
+              "near-miss NVFP4 MLP shape does not select fusion");
+  std::size_t near_miss_total_nodes = 0U;
+  const std::size_t near_miss_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, near_miss_gate,
+            near_miss_up, fake_activation, nullptr, 0U, fake_gate_output,
+            fake_up_output, static_cast<void*>(stream));
+      },
+      "near-miss NVFP4 MLP fallback graph", &near_miss_total_nodes);
+  test.expect(near_miss_total_nodes == 3U &&
+                  near_miss_kernel_nodes == 3U,
+              "valid near-miss NVFP4 MLP preserves three-step fallback");
+
+  constexpr std::size_t kRows = 4U;
+  constexpr std::size_t kColumns = 16U;
+  constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kColumns / 16U);
+  constexpr float kGateScale = 1.0F / 16.0F;
+  constexpr float kUpScale = 1.0F / 32.0F;
+  constexpr std::array<std::uint16_t, kColumns> kActivationValues{
+      0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
+      0x3e80U, 0xbf00U, 0x4040U, 0xc000U,
+      0x3f40U, 0xbf40U, 0x3fc0U, 0xbfc0U,
+      0x4080U, 0xc080U, 0x3e00U, 0xbe00U};
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> gate_output;
+  DeviceBuffer<std::uint16_t> up_output;
+  DeviceBuffer<std::uint16_t> baseline_gate_output;
+  DeviceBuffer<std::uint16_t> baseline_up_output;
+  bool ready = gate_packed.allocate(test, kPackedBytes,
+                                    "small MLP gate packed weights");
+  ready = ready && gate_scales.allocate(
+                       test, kScaleBytes, "small MLP gate block scales");
+  ready = ready && up_packed.allocate(test, kPackedBytes,
+                                      "small MLP up packed weights");
+  ready = ready && up_scales.allocate(
+                       test, kScaleBytes, "small MLP up block scales");
+  ready = ready && activation.allocate(test, kColumns,
+                                        "small MLP activation");
+  ready = ready && companion_scales.allocate(
+                       test, 4U, "small MLP companion scales");
+  ready = ready && scratch.allocate(test, kRows, "small MLP scratch");
+  ready = ready && gate_output.allocate(test, kRows,
+                                        "small MLP gate output");
+  ready = ready && up_output.allocate(test, kRows,
+                                      "small MLP up output");
+  ready = ready && baseline_gate_output.allocate(
+                       test, kRows, "small MLP baseline gate output");
+  ready = ready && baseline_up_output.allocate(
+                       test, kRows, "small MLP baseline up output");
+  if (!ready) {
+    return;
+  }
+
+  ready = upload(test, gate_packed,
+                 std::vector<std::uint8_t>(kPackedBytes, 0x21U),
+                 "small MLP gate packed weights");
+  ready = ready && upload(
+                       test, gate_scales,
+                       std::vector<std::uint8_t>(kScaleBytes, 0x38U),
+                       "small MLP gate block scales");
+  ready = ready && upload(
+                       test, up_packed,
+                       std::vector<std::uint8_t>(kPackedBytes, 0x32U),
+                       "small MLP up packed weights");
+  ready = ready && upload(
+                       test, up_scales,
+                       std::vector<std::uint8_t>(kScaleBytes, 0x38U),
+                       "small MLP up block scales");
+  ready = ready && upload(
+                       test, activation,
+                       std::vector<std::uint16_t>(kActivationValues.begin(),
+                                                  kActivationValues.end()),
+                       "small MLP activation");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kGateScale, 1.0F, kUpScale, 1.0F},
+                       "small MLP companion scales");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight small_gate = runtime::NvFp4LinearWeight{
+      gate_packed.get(), gate_scales.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kGateScale, 1.0F, kRows, kColumns};
+  const runtime::LinearWeight small_up = runtime::NvFp4LinearWeight{
+      up_packed.get(), up_scales.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kUpScale, 1.0F, kRows, kColumns};
+
+  const auto launch_old_three_step = [&]
+      (const runtime::ProjectionBackend backend,
+       float* const scratch_pointer,
+       const std::size_t scratch_elements) {
+    int status = runtime::launch_projection_tile_to_bf16_cuda(
+        backend, small_gate, activation.get(), 1U, scratch_pointer,
+        scratch_elements, baseline_gate_output.get());
+    if (static_cast<cudaError_t>(status) != cudaSuccess) {
+      return status;
+    }
+    status = runtime::launch_projection_tile_to_bf16_cuda(
+        backend, small_up, activation.get(), 1U, scratch_pointer,
+        scratch_elements, baseline_up_output.get());
+    if (static_cast<cudaError_t>(status) != cudaSuccess) {
+      return status;
+    }
+    return runtime::launch_silu_mul_reference_cuda(
+        baseline_gate_output.get(), baseline_up_output.get(), kRows,
+        baseline_gate_output.get());
+  };
+  const auto expect_fallback_matches = [&]
+      (const runtime::ProjectionBackend backend,
+       float* const scratch_pointer,
+       const std::size_t scratch_elements,
+       const std::string& label) {
+    int status = launch_old_three_step(backend, scratch_pointer,
+                                       scratch_elements);
+    test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+                label + " old three-step succeeds");
+    if (static_cast<cudaError_t>(status) != cudaSuccess) {
+      return;
+    }
+    status = runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+        backend, small_gate, small_up, activation.get(), scratch_pointer,
+        scratch_elements, gate_output.get(), up_output.get());
+    test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+                label + " specialized API succeeds");
+    if (static_cast<cudaError_t>(status) != cudaSuccess ||
+        !test.cuda_ok(cudaDeviceSynchronize(), "synchronize " + label)) {
+      return;
+    }
+    std::array<std::uint16_t, kRows> actual_gate{};
+    std::array<std::uint16_t, kRows> actual_up{};
+    std::array<std::uint16_t, kRows> expected_gate{};
+    std::array<std::uint16_t, kRows> expected_up{};
+    bool copied = test.cuda_ok(
+        cudaMemcpy(actual_gate.data(), gate_output.get(),
+                   sizeof(actual_gate), cudaMemcpyDeviceToHost),
+        "download gate output " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(actual_up.data(), up_output.get(),
+                                      sizeof(actual_up),
+                                      cudaMemcpyDeviceToHost),
+                           "download up output " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_gate.data(),
+                                      baseline_gate_output.get(),
+                                      sizeof(expected_gate),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline gate output " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_up.data(),
+                                      baseline_up_output.get(),
+                                      sizeof(expected_up),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline up output " + label);
+    if (copied) {
+      test.expect(actual_gate == expected_gate,
+                  label + " gate/SiLU output is bitwise old-three-step");
+      test.expect(actual_up == expected_up,
+                  label + " retained up output is bitwise old projection");
+    }
+  };
+
+  std::size_t small_total_nodes = 0U;
+  const std::size_t small_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, small_gate,
+            small_up, activation.get(), nullptr, 0U, gate_output.get(),
+            up_output.get(), static_cast<void*>(stream));
+      },
+      "small NVFP4 MLP fallback graph", &small_total_nodes);
+  test.expect(small_total_nodes == 3U && small_kernel_nodes == 3U,
+              "small valid NVFP4 MLP uses gate-up-SiLU fallback");
+  expect_fallback_matches(runtime::ProjectionBackend::kSm87WeightOnly,
+                          nullptr, 0U, "small SM87 NVFP4 MLP fallback");
+
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+            runtime::ProjectionBackend::kReference, small_gate, small_up,
+            activation.get(), scratch.get(), kRows, gate_output.get(),
+            up_output.get(), static_cast<void*>(stream));
+      },
+      "reference NVFP4 MLP fallback graph", &reference_total_nodes);
+  test.expect(reference_total_nodes == 5U &&
+                  reference_kernel_nodes == 5U,
+              "reference NVFP4 MLP preserves two GEMV-convert pairs and SiLU");
+  expect_fallback_matches(runtime::ProjectionBackend::kReference,
+                          scratch.get(), kRows,
+                          "small reference NVFP4 MLP fallback");
+
+  const auto expect_invalid_without_enqueue = [&]
+      (const runtime::LinearWeight& gate_arg,
+       const runtime::LinearWeight& up_arg,
+       const std::uint16_t* const input_arg,
+       std::uint16_t* const gate_output_arg,
+       std::uint16_t* const up_output_arg,
+       const std::string& label) {
+    bool initialized = test.cuda_ok(
+        cudaMemset(gate_output_arg, 0xa5, kRows * sizeof(std::uint16_t)),
+        "initialize gate canary " + label);
+    initialized = initialized && test.cuda_ok(
+                                     cudaMemset(up_output_arg, 0xa5,
+                                                kRows * sizeof(std::uint16_t)),
+                                     "initialize up canary " + label);
+    if (!initialized) {
+      return;
+    }
+    const int status = runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, gate_arg, up_arg,
+        input_arg, nullptr, 0U, gate_output_arg, up_output_arg);
+    test.expect(static_cast<cudaError_t>(status) == cudaErrorInvalidValue,
+                label + " returns cudaErrorInvalidValue");
+    if (!test.cuda_ok(cudaDeviceSynchronize(), "synchronize " + label)) {
+      return;
+    }
+    std::array<std::uint16_t, kRows> gate_canary{};
+    std::array<std::uint16_t, kRows> up_canary{};
+    bool copied = test.cuda_ok(
+        cudaMemcpy(gate_canary.data(), gate_output_arg, sizeof(gate_canary),
+                   cudaMemcpyDeviceToHost),
+        "download gate canary " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(up_canary.data(), up_output_arg,
+                                      sizeof(up_canary),
+                                      cudaMemcpyDeviceToHost),
+                           "download up canary " + label);
+    if (copied) {
+      test.expect(std::all_of(gate_canary.begin(), gate_canary.end(),
+                              [](const std::uint16_t value) {
+                                return value == 0xa5a5U;
+                              }),
+                  label + " leaves gate canary unchanged");
+      test.expect(std::all_of(up_canary.begin(), up_canary.end(),
+                              [](const std::uint16_t value) {
+                                return value == 0xa5a5U;
+                              }),
+                  label + " leaves up canary unchanged");
+    }
+  };
+
+  const runtime::LinearWeight different_rows_up = runtime::NvFp4LinearWeight{
+      up_packed.get(), up_scales.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kUpScale, 1.0F, kRows - 1U, kColumns};
+  expect_invalid_without_enqueue(
+      small_gate, different_rows_up, activation.get(), gate_output.get(),
+      up_output.get(), "different-row MLP projections");
+
+  const runtime::LinearWeight malformed_up = runtime::NvFp4LinearWeight{
+      up_packed.get(), nullptr, companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kUpScale, 1.0F, kRows, kColumns};
+  const runtime::LinearWeight malformed_exact_up =
+      runtime::NvFp4LinearWeight{
+          fake_up_packed, nullptr, fake_up_weight_scale,
+          fake_up_input_scale, kExactUpScale, 1.0F, kExactRows,
+          kExactColumns};
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                  malformed_exact_up),
+              "malformed NVFP4 payload does not select MLP fusion");
+  expect_invalid_without_enqueue(
+      small_gate, malformed_up, activation.get(), gate_output.get(),
+      up_output.get(), "malformed up projection");
+  expect_invalid_without_enqueue(
+      small_gate, small_up, nullptr, gate_output.get(), up_output.get(),
+      "null MLP activation");
+  expect_invalid_without_enqueue(
+      small_gate, small_up, activation.get(), gate_output.get(),
+      gate_output.get(), "overlapping MLP outputs");
+
+  expect_invalid_without_enqueue(
+      small_gate, small_up, activation.get(),
+      reinterpret_cast<std::uint16_t*>(up_packed.get()), up_output.get(),
+      "gate output overlapping up packed weights");
 }
 
 void test_fp8_m16_production_dispatch(TestContext& test) {
@@ -2038,6 +2445,7 @@ int main() {
   test_bf16_projection_pair_dispatch(test);
   test_fp8_projection_pair_dispatch(test);
   test_fp8_qkv_z_projection_pair_dispatch(test);
+  test_nvfp4_mlp_gate_up_silu_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

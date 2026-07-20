@@ -43,6 +43,9 @@ The subsequent eight-row lane-striped GDN diagnostic is recorded in
 The subsequent exact FP8 M1 linear-attention QKV/Z fusion diagnostic is
 recorded in
 [`qwen36-27b-fp8-qkv-z-fusion-benchmark.json`](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
+The subsequent exact NVFP4 M1 dense-MLP gate/up/SiLU fusion diagnostic is
+recorded in
+[`qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
 
 ## Method
 
@@ -1148,6 +1151,92 @@ profiles, and two-process-per-policy B-C-C-B comparison remain batch-one,
 single-prompt diagnostic evidence rather than randomized, release,
 concurrent-request, or serving-throughput claims.
 
+## NVFP4 dense-MLP gate/up/SiLU fusion
+
+The worktree based on `1dc309729da6df248e7eee7254db4c9a0350a41c`
+replaces the exact aligned M1 NVFP4 gate projection, up projection, and SiLU
+multiply with one launch. A 64-CTA, 256-thread kernel stages the BF16
+activation and E2M1/E4M3FN decode codebooks once. Each warp computes four gate
+rows and four up rows in rolled phases, preserving the existing projection
+FMA, reduction, scale, and BF16-RNE order. After both independent BF16 stores,
+the CTA synchronizes and redistributes its rows across all threads for the
+SiLU multiply. The gate buffer is overwritten with the final BF16 result; the
+up buffer retains its independently rounded projection.
+
+The route requires the explicit SM87 backend, ordered valid NVFP4 gate/up
+weights with exact `[17408,5120]` shapes, 4-byte-aligned packed weights, an
+8-byte-aligned activation, and 2-byte-aligned disjoint outputs. Near-miss
+shapes, unaligned operands, other dtypes/backends, and C2 through C16 retain
+the previous ordered projections followed by the reference SiLU kernel.
+
+The frozen same-binary gate reads layer-0 gate/up packed weights, block scales,
+and scale2 values directly from the pinned shard. The four payload SHA-256
+values are pinned in the machine-readable record. Actual checkpoint bytes
+must reach 1.02x; a deterministic synthetic same-bank fixture must not regress
+below 1.00x. Each process uses 10 warmups, 64 logical chains per timed pass,
+and five baseline/candidate/candidate/baseline rounds:
+
+| Independent process | Actual checkpoint | Same-bank stress | Frozen gate | Exploratory symmetric 1.01x |
+| ---: | ---: | ---: | --- | --- |
+| 1 | 1.02604x | 1.02555x | pass | pass |
+| 2 | 1.02704x | 1.02733x | pass | pass |
+| 3 | 1.02800x | 1.02764x | pass | pass |
+| 4 | 1.02752x | 1.02738x | pass | pass |
+| 5 | 1.02593x | 1.02602x | pass | pass |
+
+The actual-checkpoint minimum/median/maximum is
+1.02593x/1.02704x/1.02800x; the stress minimum/median/maximum is
+1.02555x/1.02733x/1.02764x. The fused kernel uses 64 registers per thread,
+11,328 static-shared bytes, zero local bytes, 256 threads, and four active
+blocks per SM. Correctness covers raw pair projections, the fused final and up
+outputs, signed NaN class/sign, deterministic replay, guards, preservation of
+both matrices/scales/activation, public/test kernel identity, and
+fail-before-enqueue validation for shape, alignment, scale, and aliases.
+
+Matched max-26-token Nsight profiles compare an independently rebuilt detached
+base with the candidate:
+
+| Profile group | Three-launch base | Fused gate/up/SiLU | Reduction |
+| --- | ---: | ---: | ---: |
+| Target-chain kernel instances | 4,992 | 1,664 | 3,328 (66.666667%) |
+| Target-chain kernel time | 1,063.999712 ms | 1,037.277440 ms | 26.722272 ms (2.511492%) |
+| All CUDA kernel instances | 21,878 | 18,550 | 3,328 (15.211628%) |
+| All CUDA kernel time | 3,426.051552 ms | 3,402.646528 ms | 23.405024 ms (0.683149%) |
+| Profiled generation | 3,467.049 ms | 3,439.356 ms | 27.693 ms (0.798748%) |
+
+The detached-base report is 1,551,018 bytes with SHA-256
+`5b4ce9371d756daaee42996fdde2015a8fb2c6b4fc447eb90ddf727fa4f9b5ea`;
+the candidate is 1,346,486 bytes with SHA-256
+`d2dbe90a1c093d118d81cf82262ddaeea03f53d021c34b043a4643753897c46b`.
+Non-target GPU kernel time increased by 3.317248 ms between the separate,
+unlocked-clock processes, so the isolated target-chain row is the reliable
+kernel attribution.
+
+The independent B-C-C-B process comparison loaded once per process, warmed up
+once, and measured five generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,434.372 ms | 557.498 ms | 115.081 ms |
+| Candidate 1 | 3,404.371 ms | 556.286 ms | 113.925 ms |
+| Candidate 2 | 3,404.997 ms | 556.221 ms | 113.958 ms |
+| Base 2 | 3,434.048 ms | 557.480 ms | 115.057 ms |
+
+| Average of two process medians | Three-launch base | Fused gate/up/SiLU | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,434.2100 ms | 3,404.6840 ms | 29.5260 ms (0.859761%) |
+| Time to first token | 557.4890 ms | 556.2535 ms | 1.2355 ms (0.221619%) |
+| Subsequent token | 115.0690 ms | 113.9415 ms | 1.1275 ms (0.979847%) |
+
+Every warmup and measured generation retained the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44 runner steps. Dedicated C1,
+C8, and C16 27B oracle runs passed. Release reported zero failures across 52
+discovered tests with four skipped; ASan/UBSan reported zero failures across
+51 discovered tests with four skipped, `detect_leaks=0`, and
+`package_consumer` excluded. Clocks were unlocked, and these results remain
+batch-one, single-prompt diagnostic evidence rather than randomized, release,
+concurrent-request, or serving-throughput claims.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1200,15 +1289,18 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 9. pair linear-attention FP8 QKV/Z only for aligned ordered M1
    `[10240,5120]` and `[6144,5120]` operands, retaining two ordered
    projections for C2 through C16 and every other valid case;
-10. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
+10. fuse dense-MLP NVFP4 gate/up/SiLU only for aligned ordered M1
+    `[17408,5120]` operands, retaining two ordered projections plus SiLU for
+    C2 through C16 and every other valid case;
+11. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
    `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
    test baseline and all other fallbacks;
-11. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
+12. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
     retaining the four-row lane-striped predecessor as a same-binary test
     baseline;
-12. retain exact-token, numerical, replay, and memory gates for every dispatch
+13. retain exact-token, numerical, replay, and memory gates for every dispatch
    change;
-13. lock clocks when privileged access is available before making a formal
+14. lock clocks when privileged access is available before making a formal
    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work

@@ -12,9 +12,10 @@ namespace q3x::kernels {
 //
 // The launch is asynchronous on cuda_stream and performs no allocation,
 // copying, or synchronization. cuda_stream is a cudaStream_t represented as
-// void*, with nullptr selecting the legacy default stream. Empty shapes are
-// successful no-ops. Invalid dimensions, scales, pointers, or output/input
-// overlap return cudaErrorInvalidValue represented as int.
+// void*, with nullptr selecting the legacy default stream. Except for
+// exact-only entry points documented below, empty shapes are successful
+// no-ops. Invalid dimensions, scales, pointers, or output/input overlap return
+// cudaErrorInvalidValue represented as int.
 //
 // These functions require an sm_87 CUDA image. Production callers reach them
 // only through an explicitly selected ProjectionBackend::kSm87WeightOnly;
@@ -73,6 +74,25 @@ namespace q3x::kernels {
     const std::uint8_t* block_scales, float weight_scale_2,
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Fused checkpoint gate/up projection for the exact NVFP4 [17408, 5120] M=1
+// shape. Both projections first round independently to BF16. gate_output is
+// then overwritten with BF16(SiLU(rounded_gate) * rounded_up), while up_output
+// retains the independently rounded up projection.
+//
+// The two scales must be finite and nonnegative. Packed weights require
+// 4-byte alignment, activation 8-byte alignment, and outputs 2-byte
+// alignment. Both output spans must be disjoint from each other, activation,
+// and both matrices' packed weights and block scales. Any other shape or
+// invalid argument returns cudaErrorInvalidValue before work is enqueued.
+[[nodiscard]] int launch_sm87_nvfp4_w4a16_gemv_gate_up_silu_bf16_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    void* cuda_stream = nullptr) noexcept;
 
 // Small-M sequence-tile projections over the same canonical weight layouts.
 // activations is contiguous token-major BF16 [token_count, columns] and output

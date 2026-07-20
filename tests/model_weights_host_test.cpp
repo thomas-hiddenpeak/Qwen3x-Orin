@@ -533,6 +533,102 @@ void test_fp8_qkv_z_projection_pair_eligibility(TestContext& test) {
               "QKV/Z eligibility accepts finite zero scales");
 }
 
+void test_nvfp4_gate_up_silu_fusion_eligibility(TestContext& test) {
+  std::uint8_t gate_packed = 0U;
+  std::uint8_t gate_scales = 0U;
+  std::uint8_t up_packed = 0U;
+  std::uint8_t up_scales = 0U;
+  float gate_scale_2_device = 1.0F;
+  float gate_input_scale_device = 1.0F;
+  float up_scale_2_device = 0.5F;
+  float up_input_scale_device = 0.25F;
+  const runtime::LinearWeight gate = runtime::NvFp4LinearWeight{
+      &gate_packed, &gate_scales, &gate_scale_2_device,
+      &gate_input_scale_device, 1.0F, 0.75F, 17'408U, 5'120U};
+  const runtime::LinearWeight up = runtime::NvFp4LinearWeight{
+      &up_packed, &up_scales, &up_scale_2_device, &up_input_scale_device,
+      0.5F, 0.25F, 17'408U, 5'120U};
+
+  test.expect(runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, gate, up),
+              "SM87 accepts the exact NVFP4 gate/up SiLU fusion payload");
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kReference, gate, up),
+              "reference backend preserves ordered gate/up/SiLU launches");
+
+  const runtime::LinearWeight wrong_gate_rows = runtime::NvFp4LinearWeight{
+      &gate_packed, &gate_scales, &gate_scale_2_device,
+      &gate_input_scale_device, 1.0F, 0.75F, 17'407U, 5'120U};
+  const runtime::LinearWeight wrong_up_columns = runtime::NvFp4LinearWeight{
+      &up_packed, &up_scales, &up_scale_2_device, &up_input_scale_device,
+      0.5F, 0.25F, 17'408U, 5'104U};
+  const runtime::LinearWeight null_gate_packed = runtime::NvFp4LinearWeight{
+      nullptr, &gate_scales, &gate_scale_2_device, &gate_input_scale_device,
+      1.0F, 0.75F, 17'408U, 5'120U};
+  const runtime::LinearWeight null_up_scales = runtime::NvFp4LinearWeight{
+      &up_packed, nullptr, &up_scale_2_device, &up_input_scale_device, 0.5F,
+      0.25F, 17'408U, 5'120U};
+  const runtime::LinearWeight missing_gate_scale_2 =
+      runtime::NvFp4LinearWeight{
+          &gate_packed, &gate_scales, nullptr, &gate_input_scale_device,
+          1.0F, 0.75F, 17'408U, 5'120U};
+  const runtime::LinearWeight missing_up_input_scale =
+      runtime::NvFp4LinearWeight{
+          &up_packed, &up_scales, &up_scale_2_device, nullptr, 0.5F, 0.25F,
+          17'408U, 5'120U};
+  test.expect(
+      !runtime::supports_nvfp4_gate_up_silu_fusion(
+          runtime::ProjectionBackend::kSm87WeightOnly, wrong_gate_rows, up) &&
+          !runtime::supports_nvfp4_gate_up_silu_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate,
+              wrong_up_columns) &&
+          !runtime::supports_nvfp4_gate_up_silu_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              null_gate_packed, up) &&
+          !runtime::supports_nvfp4_gate_up_silu_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate,
+              null_up_scales) &&
+          !runtime::supports_nvfp4_gate_up_silu_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              missing_gate_scale_2, up) &&
+          !runtime::supports_nvfp4_gate_up_silu_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate,
+              missing_up_input_scale),
+      "gate/up SiLU eligibility rejects near-miss and missing payloads");
+
+  const runtime::LinearWeight negative_gate_scale =
+      runtime::NvFp4LinearWeight{
+          &gate_packed, &gate_scales, &gate_scale_2_device,
+          &gate_input_scale_device, -0.01F, 0.75F, 17'408U, 5'120U};
+  const runtime::LinearWeight nan_up_input_scale =
+      runtime::NvFp4LinearWeight{
+          &up_packed, &up_scales, &up_scale_2_device, &up_input_scale_device,
+          0.5F, std::numeric_limits<float>::quiet_NaN(), 17'408U, 5'120U};
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly,
+                  negative_gate_scale, up) &&
+                  !runtime::supports_nvfp4_gate_up_silu_fusion(
+                      runtime::ProjectionBackend::kSm87WeightOnly, gate,
+                      nan_up_input_scale),
+              "gate/up SiLU eligibility rejects invalid host scales");
+
+  std::uint16_t bf16_storage = 0U;
+  const runtime::LinearWeight bf16_gate = runtime::Bf16LinearWeight{
+      &bf16_storage, 17'408U, 5'120U};
+  test.expect(!runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, bf16_gate,
+                  up),
+              "gate/up SiLU eligibility rejects a non-NVFP4 projection");
+
+  const runtime::LinearWeight zero_scales = runtime::NvFp4LinearWeight{
+      &up_packed, &up_scales, &up_scale_2_device, &up_input_scale_device,
+      0.0F, 0.0F, 17'408U, 5'120U};
+  test.expect(runtime::supports_nvfp4_gate_up_silu_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, gate,
+                  zero_scales),
+              "gate/up SiLU eligibility accepts finite zero scales");
+}
+
 void test_source_and_tensor_failures(TestContext& test) {
   runtime::WeightBindingSource invalid;
   test.expect(runtime::bind_qwen36_27b_weights(invalid).diagnostic.code ==
@@ -704,6 +800,7 @@ int main() {
   test_successful_bind(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);
+  test_nvfp4_gate_up_silu_fusion_eligibility(test);
   test_source_and_tensor_failures(test);
   test_scalar_failures(test);
   if (test.failures() != 0) {

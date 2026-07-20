@@ -1242,15 +1242,13 @@ ReferenceStepOutcome ReferenceRunner::step(
       return fail_step(launch_failure);
     }
 
-    if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
-                 views_.projection[0], "mlp_gate_projection", layer) ||
-        !project(layer_weights.mlp.up_proj, views_.hidden[1],
-                 views_.projection[1], "mlp_up_projection", layer) ||
-        !check_cuda(launch_silu_mul_reference_cuda(
-                        views_.projection[0], views_.projection[1],
-                        kReferenceIntermediateSize, views_.projection[0],
-                        stream_),
-                    "mlp_silu_mul", layer) ||
+    if (!check_cuda(launch_mlp_gate_up_silu_to_bf16_cuda(
+                        projection_backend_, layer_weights.mlp.gate_proj,
+                        layer_weights.mlp.up_proj, views_.hidden[1],
+                        views_.fp32_scratch,
+                        views_.fp32_scratch_elements, views_.projection[0],
+                        views_.projection[1], stream_),
+                    "mlp_gate_up_silu", layer) ||
         !project(layer_weights.mlp.down_proj, views_.projection[0],
                  views_.hidden[1], "mlp_down_projection", layer)) {
       return fail_step(launch_failure);

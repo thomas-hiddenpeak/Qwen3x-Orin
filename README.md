@@ -191,6 +191,12 @@ per-token boundary hashes retain their ordering contract.
 Exact aligned SM87 FP8 M1 linear-attention QKV/Z projections use one
 two-phase launch; C2 through C16 prefix tiles, near-miss shapes, unaligned
 operands, and other backends retain two ordered projections.
+Exact aligned SM87 NVFP4 M1 dense-MLP gate/up projections and their SiLU
+multiply likewise use one rolled two-phase projection plus CTA-parallel
+epilogue launch. Gate and up are independently rounded to BF16 before the
+epilogue, and the up output is retained. C2 through C16, near-miss shapes,
+unaligned operands, and other backends retain gate projection, up projection,
+and SiLU as three ordered launches.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -312,6 +318,19 @@ diagnostic against a detached base reduces average total generation from
 Clocks remained unlocked and the result is diagnostic, not a release or
 serving-throughput claim; see the
 [FP8 QKV/Z fusion record](docs/metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
+The subsequent exact aligned NVFP4 M1 dense-MLP fusion stages the activation
+and both decode codebooks once, runs gate and up as rolled projection phases,
+then computes SiLU times up across the CTA. Five frozen same-binary processes
+measure 1.02593x to 1.02800x on actual checkpoint bytes and 1.02555x to
+1.02764x on the same-bank stress guard. A matched max-26 profile replaces
+4,992 gate/up/SiLU kernels with 1,664 fused kernels and reduces target time
+from 1,063.999712 to 1,037.277440 ms. A detached-base B-C-C-B diagnostic
+reduces average total generation from 3,434.2100 to 3,404.6840 ms (0.859761%)
+and subsequent-token latency from 115.0690 to 113.9415 ms (0.979847%). C1,
+C8, and C16 retain the exact 19/26-token oracle. Clocks remained unlocked, so
+the result is diagnostic rather than a release or serving-throughput claim;
+see the
+[NVFP4 gate/up/SiLU fusion record](docs/metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

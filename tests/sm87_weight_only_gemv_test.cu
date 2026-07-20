@@ -321,6 +321,38 @@ query_sm87_nvfp4_w4a16_m1_gate_up_activation_staged_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* gate_output,
+    std::uint16_t* up_output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_gate_up_pair_activation_staged_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_silu_activation_staged_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* gate_output,
+    std::uint16_t* up_output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_gate_up_silu_activation_staged_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_nvfp4_m1_scale_codebook_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -4237,6 +4269,14 @@ nvfp4_m1_lm_head_activation_staged_performance_enabled() noexcept {
 nvfp4_m1_gate_up_activation_staged_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_ACTIVATION_STAGED_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -16099,6 +16139,1884 @@ void run_nvfp4_m1_down_activation_staged_probe(TestContext& test,
       "NVFP4 M1 down direct-vs-staged exact 5120x17408");
 }
 
+using NvFp4GateUpPairLauncher = int (*)(
+    const std::uint8_t*, const std::uint8_t*, float,
+    const std::uint8_t*, const std::uint8_t*, float,
+    const std::uint16_t*, std::size_t, std::size_t, std::uint16_t*,
+    std::uint16_t*, void*) noexcept;
+
+using NvFp4GateUpPairResourceQuery = int (*)(
+    int*, std::size_t*, std::size_t*, int*, int*) noexcept;
+
+void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
+                                              cudaStream_t stream) {
+  constexpr std::size_t kRows = 2'048U;
+  constexpr std::size_t kColumns = 512U;
+  constexpr std::size_t kPackedCount = kRows * kColumns / 2U;
+  constexpr std::size_t kScaleCount = kRows * kColumns / 16U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr float kGateWeightScale2 = 1.0F / 64.0F;
+  constexpr float kUpWeightScale2 = 1.0F / 80.0F;
+  constexpr std::uint16_t kBaselineGateGuard = 0xa1a1U;
+  constexpr std::uint16_t kBaselineUpGuard = 0xb2b2U;
+  constexpr std::uint16_t kBaselineFinalGuard = 0xc3c3U;
+  constexpr std::uint16_t kPairGateGuard = 0xd4d4U;
+  constexpr std::uint16_t kPairUpGuard = 0xe5e5U;
+  constexpr std::uint16_t kPairFinalGuard = 0xf6f6U;
+  constexpr std::uint16_t kFusedGateGuard = 0x6969U;
+  constexpr std::uint16_t kFusedUpGuard = 0x7878U;
+  const std::string label =
+      "NVFP4 M1 gate/up pair(+SiLU) bounded 2048x512";
+
+  const NvFp4GateUpPairLauncher pair_launcher =
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_test_cuda;
+  const NvFp4GateUpPairLauncher fused_launcher =
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_silu_activation_staged_test_cuda;
+  const NvFp4GateUpPairResourceQuery pair_resource_query =
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_gate_up_pair_activation_staged_resources_test_cuda;
+  const NvFp4GateUpPairResourceQuery fused_resource_query =
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_gate_up_silu_activation_staged_resources_test_cuda;
+
+  const auto check_resources =
+      [&](const NvFp4GateUpPairResourceQuery query,
+          const char* const candidate) {
+        NvFp4M1DownDualKernelResources resources{};
+        const bool queried = test.cuda_ok(
+            static_cast<cudaError_t>(query(
+                &resources.registers_per_thread,
+                &resources.static_shared_bytes, &resources.local_bytes,
+                &resources.maximum_threads_per_block,
+                &resources.active_blocks_per_sm)),
+            label + " query " + candidate + " resources");
+        const bool resource_gate =
+            queried && resources.registers_per_thread <= 64 &&
+            resources.static_shared_bytes <= 11'328U &&
+            resources.local_bytes == 0U &&
+            resources.maximum_threads_per_block >= 256 &&
+            resources.active_blocks_per_sm >= 4;
+        const bool null_rejected =
+            static_cast<cudaError_t>(query(
+                nullptr, &resources.static_shared_bytes,
+                &resources.local_bytes, &resources.maximum_threads_per_block,
+                &resources.active_blocks_per_sm)) == cudaErrorInvalidValue;
+        test.expect(resource_gate,
+                    label + " " + candidate +
+                        " clears 64r/0local/active4 resource gate");
+        test.expect(null_rejected,
+                    label + " " + candidate +
+                        " resource query rejects null");
+        std::cout << "NVFP4_M1_GATE_UP_PAIR_DEFAULT_RESOURCES: candidate="
+                  << candidate
+                  << " registers_per_thread="
+                  << resources.registers_per_thread
+                  << " static_shared_bytes="
+                  << resources.static_shared_bytes
+                  << " local_bytes=" << resources.local_bytes
+                  << " maximum_threads_per_block="
+                  << resources.maximum_threads_per_block
+                  << " active_blocks_per_sm="
+                  << resources.active_blocks_per_sm
+                  << " maximum_registers_per_thread=64"
+                  << " maximum_static_shared_bytes=11328"
+                  << " require_zero_local_bytes=true"
+                  << " minimum_active_blocks_per_sm=4"
+                  << " null_query_rejected="
+                  << (null_rejected ? "true" : "false")
+                  << " gate="
+                  << (resource_gate && null_rejected ? "PASS" : "FAIL")
+                  << '\n';
+        return resource_gate && null_rejected;
+      };
+  const bool pair_resource_gate =
+      check_resources(pair_resource_query, "pair_only");
+  const bool fused_resource_gate =
+      check_resources(fused_resource_query, "pair_plus_silu");
+
+  std::vector<std::uint8_t> host_gate_packed(kPackedCount);
+  std::vector<std::uint8_t> host_up_packed(kPackedCount);
+  std::vector<std::uint8_t> host_gate_scales(kScaleCount);
+  std::vector<std::uint8_t> host_up_scales(kScaleCount);
+  std::vector<std::uint16_t> host_activation(kColumns);
+  for (std::size_t index = 0U; index < kPackedCount; ++index) {
+    const std::uint8_t gate_low = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 3U) * 3U + 1U) & 0x0fU);
+    const std::uint8_t gate_high = static_cast<std::uint8_t>(
+        (index * 7U + (index >> 2U) * 5U + 9U) & 0x0fU);
+    const std::uint8_t up_low = static_cast<std::uint8_t>(
+        (index * 11U + (index >> 4U) * 7U + 3U) & 0x0fU);
+    const std::uint8_t up_high = static_cast<std::uint8_t>(
+        (index * 13U + (index >> 1U) * 3U + 5U) & 0x0fU);
+    host_gate_packed[index] =
+        static_cast<std::uint8_t>(gate_low | (gate_high << 4U));
+    host_up_packed[index] =
+        static_cast<std::uint8_t>(up_low | (up_high << 4U));
+  }
+  fill_nvfp4_m1_scale_distribution(
+      host_gate_scales, kScaleColumns,
+      NvFp4M1ScaleDistribution::kCheckpointLike);
+  fill_nvfp4_m1_scale_distribution(
+      host_up_scales, kScaleColumns,
+      NvFp4M1ScaleDistribution::kSameBankStress);
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered =
+        static_cast<int>((column * 19U + (column >> 2U) * 7U + 11U) %
+                         127U) -
+        63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_gate_storage;
+  DeviceBuffer<std::uint16_t> baseline_up_storage;
+  DeviceBuffer<std::uint16_t> baseline_final_storage;
+  DeviceBuffer<std::uint16_t> pair_gate_storage;
+  DeviceBuffer<std::uint16_t> pair_up_storage;
+  DeviceBuffer<std::uint16_t> pair_final_storage;
+  DeviceBuffer<std::uint16_t> fused_gate_storage;
+  DeviceBuffer<std::uint16_t> fused_up_storage;
+  bool ready = test.cuda_ok(gate_packed.allocate(kPackedCount),
+                            label + " allocate gate packed weights");
+  ready = ready && test.cuda_ok(up_packed.allocate(kPackedCount),
+                                label + " allocate up packed weights");
+  ready = ready && test.cuda_ok(gate_scales.allocate(kScaleCount),
+                                label + " allocate gate scales");
+  ready = ready && test.cuda_ok(up_scales.allocate(kScaleCount),
+                                label + " allocate up scales");
+  ready = ready && test.cuda_ok(activation.allocate(kColumns),
+                                label + " allocate activation");
+  const auto allocate_guarded =
+      [&](DeviceBuffer<std::uint16_t>& buffer, const std::string& name) {
+        return test.cuda_ok(buffer.allocate(kRows + 2U * kGuardElements),
+                            label + " allocate guarded " + name);
+      };
+  ready = ready && allocate_guarded(baseline_gate_storage, "baseline gate");
+  ready = ready && allocate_guarded(baseline_up_storage, "baseline up");
+  ready = ready && allocate_guarded(baseline_final_storage, "baseline final");
+  ready = ready && allocate_guarded(pair_gate_storage, "pair gate");
+  ready = ready && allocate_guarded(pair_up_storage, "pair up");
+  ready = ready && allocate_guarded(pair_final_storage, "pair final");
+  ready = ready && allocate_guarded(fused_gate_storage, "fused gate");
+  ready = ready && allocate_guarded(fused_up_storage, "fused up");
+  if (!ready) {
+    return;
+  }
+
+  std::uint16_t* const baseline_gate =
+      baseline_gate_storage.get() + kGuardElements;
+  std::uint16_t* const baseline_up =
+      baseline_up_storage.get() + kGuardElements;
+  std::uint16_t* const baseline_final =
+      baseline_final_storage.get() + kGuardElements;
+  std::uint16_t* const pair_gate =
+      pair_gate_storage.get() + kGuardElements;
+  std::uint16_t* const pair_up = pair_up_storage.get() + kGuardElements;
+  std::uint16_t* const pair_final =
+      pair_final_storage.get() + kGuardElements;
+  std::uint16_t* const fused_gate =
+      fused_gate_storage.get() + kGuardElements;
+  std::uint16_t* const fused_up =
+      fused_up_storage.get() + kGuardElements;
+
+  const auto upload_inputs = [&](const std::string& case_label) {
+    bool upload_ready = test.cuda_ok(
+        cudaMemcpyAsync(gate_packed.get(), host_gate_packed.data(),
+                        host_gate_packed.size(), cudaMemcpyHostToDevice,
+                        stream),
+        case_label + " upload gate packed weights");
+    upload_ready = upload_ready && test.cuda_ok(
+        cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                        host_up_packed.size(), cudaMemcpyHostToDevice, stream),
+        case_label + " upload up packed weights");
+    upload_ready = upload_ready && test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        case_label + " upload gate scales");
+    upload_ready = upload_ready && test.cuda_ok(
+        cudaMemcpyAsync(up_scales.get(), host_up_scales.data(),
+                        host_up_scales.size(), cudaMemcpyHostToDevice, stream),
+        case_label + " upload up scales");
+    upload_ready = upload_ready && test.cuda_ok(
+        cudaMemcpyAsync(activation.get(), host_activation.data(),
+                        host_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        case_label + " upload activation");
+    return upload_ready;
+  };
+
+  const auto launch_single =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scales, const float scale_2,
+          std::uint16_t* const output) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_activation_staged_test_cuda(
+                packed, scales, scale_2, activation.get(), kRows, kColumns,
+                output, static_cast<void*>(stream));
+      };
+  const auto launch_pair = [&](const NvFp4GateUpPairLauncher launcher,
+                               std::uint16_t* const gate_output,
+                               std::uint16_t* const up_output) noexcept {
+    return launcher(
+        gate_packed.get(), gate_scales.get(), kGateWeightScale2,
+        up_packed.get(), up_scales.get(), kUpWeightScale2, activation.get(),
+        kRows, kColumns, gate_output, up_output,
+        static_cast<void*>(stream));
+  };
+  const auto poison = [&](DeviceBuffer<std::uint16_t>& storage,
+                          const std::uint8_t byte,
+                          const std::string& operation) {
+    return test.cuda_ok(
+        cudaMemsetAsync(storage.get(), byte,
+                        (kRows + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        operation);
+  };
+
+  struct Outputs {
+    std::vector<std::uint16_t> baseline_gate;
+    std::vector<std::uint16_t> baseline_up;
+    std::vector<std::uint16_t> baseline_final;
+    std::vector<std::uint16_t> pair_gate;
+    std::vector<std::uint16_t> pair_up;
+    std::vector<std::uint16_t> pair_final;
+    std::vector<std::uint16_t> pair_gate_replay;
+    std::vector<std::uint16_t> pair_up_replay;
+    std::vector<std::uint16_t> pair_final_replay;
+    std::vector<std::uint16_t> fused_gate;
+    std::vector<std::uint16_t> fused_up;
+    std::vector<std::uint16_t> fused_gate_replay;
+    std::vector<std::uint16_t> fused_up_replay;
+  } outputs;
+  const auto size_output_vectors = [&]() {
+    const std::size_t count = kRows + 2U * kGuardElements;
+    outputs.baseline_gate.resize(count);
+    outputs.baseline_up.resize(count);
+    outputs.baseline_final.resize(count);
+    outputs.pair_gate.resize(count);
+    outputs.pair_up.resize(count);
+    outputs.pair_final.resize(count);
+    outputs.pair_gate_replay.resize(count);
+    outputs.pair_up_replay.resize(count);
+    outputs.pair_final_replay.resize(count);
+    outputs.fused_gate.resize(count);
+    outputs.fused_up.resize(count);
+    outputs.fused_gate_replay.resize(count);
+    outputs.fused_up_replay.resize(count);
+  };
+  size_output_vectors();
+
+  const auto copy_guarded =
+      [&](std::vector<std::uint16_t>& destination,
+          const DeviceBuffer<std::uint16_t>& source,
+          const std::string& operation) {
+        return test.cuda_ok(
+            cudaMemcpyAsync(destination.data(), source.get(),
+                            destination.size() * sizeof(std::uint16_t),
+                            cudaMemcpyDeviceToHost, stream),
+            operation);
+      };
+  const auto guard_intact = [&](const std::vector<std::uint16_t>& values,
+                                const std::uint16_t guard) {
+    for (std::size_t index = 0U; index < kGuardElements; ++index) {
+      if (values[index] != guard ||
+          values[kGuardElements + kRows + index] != guard) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const auto mismatches = [&](const std::vector<std::uint16_t>& expected,
+                              const std::vector<std::uint16_t>& actual) {
+    std::size_t count = 0U;
+    for (std::size_t row = 0U; row < kRows; ++row) {
+      count += expected[kGuardElements + row] !=
+                       actual[kGuardElements + row]
+                   ? 1U
+                   : 0U;
+    }
+    return count;
+  };
+
+  const auto run_case = [&](const std::string& case_label,
+                            const bool require_finite,
+                            const bool require_signed_nan) {
+    bool case_ready = upload_inputs(case_label);
+    case_ready = case_ready && poison(baseline_gate_storage, 0xa1U,
+                                      case_label + " poison baseline gate");
+    case_ready = case_ready && poison(baseline_up_storage, 0xb2U,
+                                      case_label + " poison baseline up");
+    case_ready = case_ready && poison(baseline_final_storage, 0xc3U,
+                                      case_label + " poison baseline final");
+    case_ready = case_ready && poison(pair_gate_storage, 0xd4U,
+                                      case_label + " poison pair gate");
+    case_ready = case_ready && poison(pair_up_storage, 0xe5U,
+                                      case_label + " poison pair up");
+    case_ready = case_ready && poison(pair_final_storage, 0xf6U,
+                                      case_label + " poison pair final");
+    case_ready = case_ready && poison(fused_gate_storage, 0x69U,
+                                      case_label + " poison fused gate");
+    case_ready = case_ready && poison(fused_up_storage, 0x78U,
+                                      case_label + " poison fused up");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_single(
+            gate_packed.get(), gate_scales.get(), kGateWeightScale2,
+            baseline_gate)),
+        case_label + " launch staged gate baseline");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_single(
+            up_packed.get(), up_scales.get(), kUpWeightScale2, baseline_up)),
+        case_label + " launch staged up baseline");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::launch_silu_mul_reference_cuda(
+            baseline_gate, baseline_up, kRows, baseline_final,
+            static_cast<void*>(stream))),
+        case_label + " launch production SiLU baseline");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_pair(pair_launcher, pair_gate,
+                                             pair_up)),
+        case_label + " launch pair-only candidate");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::launch_silu_mul_reference_cuda(
+            pair_gate, pair_up, kRows, pair_final,
+            static_cast<void*>(stream))),
+        case_label + " launch pair-only production SiLU");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_pair(fused_launcher, fused_gate,
+                                             fused_up)),
+        case_label + " launch pair+SiLU candidate");
+    case_ready = case_ready && copy_guarded(
+        outputs.baseline_gate, baseline_gate_storage,
+        case_label + " copy baseline gate");
+    case_ready = case_ready && copy_guarded(
+        outputs.baseline_up, baseline_up_storage,
+        case_label + " copy baseline up");
+    case_ready = case_ready && copy_guarded(
+        outputs.baseline_final, baseline_final_storage,
+        case_label + " copy baseline final");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_gate, pair_gate_storage,
+        case_label + " copy pair gate");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_up, pair_up_storage, case_label + " copy pair up");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_final, pair_final_storage,
+        case_label + " copy pair final");
+    case_ready = case_ready && copy_guarded(
+        outputs.fused_gate, fused_gate_storage,
+        case_label + " copy fused gate");
+    case_ready = case_ready && copy_guarded(
+        outputs.fused_up, fused_up_storage, case_label + " copy fused up");
+    case_ready = case_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), case_label + " first synchronize");
+    if (!case_ready) {
+      return false;
+    }
+
+    case_ready = poison(pair_gate_storage, 0xd4U,
+                        case_label + " poison replay pair gate");
+    case_ready = case_ready && poison(pair_up_storage, 0xe5U,
+                                      case_label + " poison replay pair up");
+    case_ready = case_ready && poison(pair_final_storage, 0xf6U,
+                                      case_label + " poison replay pair final");
+    case_ready = case_ready && poison(fused_gate_storage, 0x69U,
+                                      case_label + " poison replay fused gate");
+    case_ready = case_ready && poison(fused_up_storage, 0x78U,
+                                      case_label + " poison replay fused up");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_pair(pair_launcher, pair_gate,
+                                             pair_up)),
+        case_label + " replay pair-only candidate");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::launch_silu_mul_reference_cuda(
+            pair_gate, pair_up, kRows, pair_final,
+            static_cast<void*>(stream))),
+        case_label + " replay pair-only production SiLU");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_pair(fused_launcher, fused_gate,
+                                             fused_up)),
+        case_label + " replay pair+SiLU candidate");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_gate_replay, pair_gate_storage,
+        case_label + " copy replay pair gate");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_up_replay, pair_up_storage,
+        case_label + " copy replay pair up");
+    case_ready = case_ready && copy_guarded(
+        outputs.pair_final_replay, pair_final_storage,
+        case_label + " copy replay pair final");
+    case_ready = case_ready && copy_guarded(
+        outputs.fused_gate_replay, fused_gate_storage,
+        case_label + " copy replay fused gate");
+    case_ready = case_ready && copy_guarded(
+        outputs.fused_up_replay, fused_up_storage,
+        case_label + " copy replay fused up");
+
+    std::vector<std::uint8_t> observed_gate_packed(kPackedCount);
+    std::vector<std::uint8_t> observed_up_packed(kPackedCount);
+    std::vector<std::uint8_t> observed_gate_scales(kScaleCount);
+    std::vector<std::uint8_t> observed_up_scales(kScaleCount);
+    std::vector<std::uint16_t> observed_activation(kColumns);
+    case_ready = case_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_gate_packed.data(), gate_packed.get(),
+                        observed_gate_packed.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        case_label + " copy preserved gate packed weights");
+    case_ready = case_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_up_packed.data(), up_packed.get(),
+                        observed_up_packed.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        case_label + " copy preserved up packed weights");
+    case_ready = case_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_gate_scales.data(), gate_scales.get(),
+                        observed_gate_scales.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        case_label + " copy preserved gate scales");
+    case_ready = case_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_up_scales.data(), up_scales.get(),
+                        observed_up_scales.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        case_label + " copy preserved up scales");
+    case_ready = case_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_activation.data(), activation.get(),
+                        observed_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        case_label + " copy preserved activation");
+    case_ready = case_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), case_label + " replay synchronize");
+    if (!case_ready) {
+      return false;
+    }
+
+    const std::size_t pair_gate_mismatches =
+        mismatches(outputs.baseline_gate, outputs.pair_gate);
+    const std::size_t pair_up_mismatches =
+        mismatches(outputs.baseline_up, outputs.pair_up);
+    const std::size_t pair_final_mismatches =
+        mismatches(outputs.baseline_final, outputs.pair_final);
+    const std::size_t fused_final_mismatches =
+        mismatches(outputs.baseline_final, outputs.fused_gate);
+    const std::size_t fused_up_mismatches =
+        mismatches(outputs.baseline_up, outputs.fused_up);
+    const std::size_t replay_mismatches =
+        mismatches(outputs.pair_gate, outputs.pair_gate_replay) +
+        mismatches(outputs.pair_up, outputs.pair_up_replay) +
+        mismatches(outputs.pair_final, outputs.pair_final_replay) +
+        mismatches(outputs.fused_gate, outputs.fused_gate_replay) +
+        mismatches(outputs.fused_up, outputs.fused_up_replay);
+    const bool guards_intact =
+        guard_intact(outputs.baseline_gate, kBaselineGateGuard) &&
+        guard_intact(outputs.baseline_up, kBaselineUpGuard) &&
+        guard_intact(outputs.baseline_final, kBaselineFinalGuard) &&
+        guard_intact(outputs.pair_gate, kPairGateGuard) &&
+        guard_intact(outputs.pair_up, kPairUpGuard) &&
+        guard_intact(outputs.pair_final, kPairFinalGuard) &&
+        guard_intact(outputs.pair_gate_replay, kPairGateGuard) &&
+        guard_intact(outputs.pair_up_replay, kPairUpGuard) &&
+        guard_intact(outputs.pair_final_replay, kPairFinalGuard) &&
+        guard_intact(outputs.fused_gate, kFusedGateGuard) &&
+        guard_intact(outputs.fused_up, kFusedUpGuard) &&
+        guard_intact(outputs.fused_gate_replay, kFusedGateGuard) &&
+        guard_intact(outputs.fused_up_replay, kFusedUpGuard);
+    const bool inputs_preserved =
+        observed_gate_packed == host_gate_packed &&
+        observed_up_packed == host_up_packed &&
+        observed_gate_scales == host_gate_scales &&
+        observed_up_scales == host_up_scales &&
+        observed_activation == host_activation;
+    std::size_t unexpected_nonfinite = 0U;
+    if (require_finite) {
+      for (std::size_t row = 0U; row < kRows; ++row) {
+        unexpected_nonfinite +=
+            !is_bf16_finite(outputs.baseline_final[kGuardElements + row])
+                ? 1U
+                : 0U;
+        unexpected_nonfinite +=
+            !is_bf16_finite(outputs.baseline_up[kGuardElements + row]) ? 1U
+                                                                        : 0U;
+        unexpected_nonfinite +=
+            !is_bf16_finite(outputs.fused_gate[kGuardElements + row]) ? 1U
+                                                                       : 0U;
+        unexpected_nonfinite +=
+            !is_bf16_finite(outputs.fused_up[kGuardElements + row]) ? 1U
+                                                                     : 0U;
+      }
+    }
+    bool nan_class_sign = true;
+    if (require_signed_nan) {
+      for (std::size_t row = 0U; row < 2U; ++row) {
+        const std::uint16_t expected =
+            outputs.baseline_final[kGuardElements + row];
+        const std::uint16_t actual =
+            outputs.fused_gate[kGuardElements + row];
+        nan_class_sign =
+            nan_class_sign && is_bf16_nan(expected) && is_bf16_nan(actual) &&
+            ((expected ^ actual) & 0x8000U) == 0U;
+      }
+      for (std::size_t row = 2U; row < 4U; ++row) {
+        const std::uint16_t expected =
+            outputs.baseline_up[kGuardElements + row];
+        const std::uint16_t actual =
+            outputs.fused_up[kGuardElements + row];
+        nan_class_sign =
+            nan_class_sign && is_bf16_nan(expected) && is_bf16_nan(actual) &&
+            ((expected ^ actual) & 0x8000U) == 0U;
+      }
+    }
+    const bool bitwise =
+        pair_gate_mismatches == 0U && pair_up_mismatches == 0U &&
+        pair_final_mismatches == 0U && fused_final_mismatches == 0U &&
+        fused_up_mismatches == 0U && replay_mismatches == 0U;
+    const bool case_gate =
+        bitwise && guards_intact && inputs_preserved &&
+        unexpected_nonfinite == 0U && nan_class_sign;
+    test.expect(bitwise,
+                case_label + " preserves raw/final BF16 bits and replay");
+    test.expect(guards_intact,
+                case_label + " preserves every output guard");
+    test.expect(inputs_preserved,
+                case_label + " preserves both matrices and activation");
+    if (require_finite) {
+      test.expect(unexpected_nonfinite == 0U,
+                  case_label + " keeps every finite fixture output finite");
+    }
+    if (require_signed_nan) {
+      test.expect(nan_class_sign,
+                  case_label + " preserves signed NaN class/sign");
+    }
+    std::cout << "NVFP4_M1_GATE_UP_PAIR_DEFAULT_DIFF: fixture="
+              << case_label
+              << " pair_gate_mismatches=" << pair_gate_mismatches << '/'
+              << kRows << " pair_up_mismatches=" << pair_up_mismatches << '/'
+              << kRows
+              << " pair_plus_production_silu_mismatches="
+              << pair_final_mismatches << '/' << kRows
+              << " fused_final_mismatches=" << fused_final_mismatches << '/'
+              << kRows << " fused_up_mismatches=" << fused_up_mismatches
+              << '/' << kRows << " replay_mismatches=" << replay_mismatches
+              << '/' << (5U * kRows)
+              << " guards=" << (guards_intact ? "intact" : "BAD")
+              << " inputs_preserved="
+              << (inputs_preserved ? "true" : "false")
+              << " unexpected_nonfinite=" << unexpected_nonfinite
+              << " signed_nan_class_sign="
+              << (nan_class_sign ? "true" : "false")
+              << " gate=" << (case_gate ? "PASS" : "FAIL") << '\n';
+    return case_gate;
+  };
+
+  const bool finite_gate =
+      run_case(label + " finite", true, false);
+
+  const auto expect_invalid_before_enqueue =
+      [&](const auto& invalid_launch, const std::string& operation) {
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " " + operation + " begin capture");
+        cudaError_t launch_status = cudaErrorUnknown;
+        if (capture_ready) {
+          launch_status = static_cast<cudaError_t>(invalid_launch());
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " " + operation + " end capture") &&
+              capture_ready;
+        }
+        std::size_t node_count = std::numeric_limits<std::size_t>::max();
+        if (capture_ready) {
+          capture_ready = test.cuda_ok(
+              cudaGraphGetNodes(graph, nullptr, &node_count),
+              label + " " + operation + " query captured nodes");
+        }
+        const bool rejected_before_enqueue =
+            capture_ready && launch_status == cudaErrorInvalidValue &&
+            node_count == 0U;
+        test.expect(rejected_before_enqueue,
+                    label + " " + operation + " fails before enqueue");
+        if (graph != nullptr) {
+          (void)test.cuda_ok(cudaGraphDestroy(graph),
+                             label + " " + operation + " destroy graph");
+        }
+        return rejected_before_enqueue;
+      };
+  bool invalid_contract_gate = true;
+  const auto check_launcher_contract =
+      [&](const NvFp4GateUpPairLauncher launcher,
+          const std::string& candidate) {
+        const auto status =
+            [&](const std::uint8_t* const gate_packed_pointer,
+                const std::uint8_t* const gate_scale_pointer,
+                const std::uint8_t* const up_packed_pointer,
+                const std::uint8_t* const up_scale_pointer,
+                const std::uint16_t* const activation_pointer,
+                const std::size_t rows, const std::size_t columns,
+                std::uint16_t* const gate_output_pointer,
+                std::uint16_t* const up_output_pointer) noexcept {
+              return launcher(
+                  gate_packed_pointer, gate_scale_pointer,
+                  kGateWeightScale2, up_packed_pointer, up_scale_pointer,
+                  kUpWeightScale2, activation_pointer, rows, columns,
+                  gate_output_pointer, up_output_pointer,
+                  static_cast<void*>(stream));
+            };
+        const auto expect_invalid = [&](const auto& launch,
+                                        const std::string& reason) {
+          const bool rejected = expect_invalid_before_enqueue(
+              launch, candidate + " " + reason);
+          invalid_contract_gate = invalid_contract_gate && rejected;
+        };
+        expect_invalid(
+            [&]() noexcept {
+              return status(nullptr, gate_scales.get(), up_packed.get(),
+                            up_scales.get(), activation.get(), kRows,
+                            kColumns, pair_gate, pair_up);
+            },
+            "null gate weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), nullptr, up_packed.get(),
+                            up_scales.get(), activation.get(), kRows,
+                            kColumns, pair_gate, pair_up);
+            },
+            "null gate scales");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(), nullptr,
+                            up_scales.get(), activation.get(), kRows,
+                            kColumns, pair_gate, pair_up);
+            },
+            "null up weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), nullptr, activation.get(), kRows,
+                            kColumns, pair_gate, pair_up);
+            },
+            "null up scales");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), nullptr, kRows,
+                            kColumns, pair_gate, pair_up);
+            },
+            "null activation");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns, nullptr, pair_up);
+            },
+            "null gate output");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns, pair_gate, nullptr);
+            },
+            "null up output");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows - 4U, kColumns, pair_gate, pair_up);
+            },
+            "near-miss rows");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns + 16U, pair_gate, pair_up);
+            },
+            "near-miss columns");
+        expect_invalid(
+            [&]() noexcept {
+              return launcher(
+                  gate_packed.get(), gate_scales.get(), -1.0F,
+                  up_packed.get(), up_scales.get(), kUpWeightScale2,
+                  activation.get(), kRows, kColumns, pair_gate, pair_up,
+                  static_cast<void*>(stream));
+            },
+            "negative gate scale2");
+        expect_invalid(
+            [&]() noexcept {
+              return launcher(
+                  gate_packed.get(), gate_scales.get(),
+                  std::numeric_limits<float>::quiet_NaN(), up_packed.get(),
+                  up_scales.get(), kUpWeightScale2, activation.get(), kRows,
+                  kColumns, pair_gate, pair_up, static_cast<void*>(stream));
+            },
+            "NaN gate scale2");
+        expect_invalid(
+            [&]() noexcept {
+              return launcher(
+                  gate_packed.get(), gate_scales.get(), kGateWeightScale2,
+                  up_packed.get(), up_scales.get(), -1.0F, activation.get(),
+                  kRows, kColumns, pair_gate, pair_up,
+                  static_cast<void*>(stream));
+            },
+            "negative up scale2");
+        expect_invalid(
+            [&]() noexcept {
+              return launcher(
+                  gate_packed.get(), gate_scales.get(), kGateWeightScale2,
+                  up_packed.get(), up_scales.get(),
+                  std::numeric_limits<float>::infinity(), activation.get(),
+                  kRows, kColumns, pair_gate, pair_up,
+                  static_cast<void*>(stream));
+            },
+            "infinite up scale2");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get() + 1U, gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns, pair_gate, pair_up);
+            },
+            "unaligned gate weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get() + 1U, up_scales.get(),
+                            activation.get(), kRows, kColumns, pair_gate,
+                            pair_up);
+            },
+            "unaligned up weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(),
+                            activation.get() + 1U, kRows, kColumns, pair_gate,
+                            pair_up);
+            },
+            "unaligned activation");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  reinterpret_cast<std::uint16_t*>(
+                      reinterpret_cast<std::uint8_t*>(pair_gate) + 1U),
+                  pair_up);
+            },
+            "unaligned gate output");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  pair_gate,
+                  reinterpret_cast<std::uint16_t*>(
+                      reinterpret_cast<std::uint8_t*>(pair_up) + 1U));
+            },
+            "unaligned up output");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns, pair_gate, pair_gate);
+            },
+            "overlapping outputs");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  reinterpret_cast<std::uint16_t*>(gate_packed.get()),
+                  pair_up);
+            },
+            "gate output aliases own weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  reinterpret_cast<std::uint16_t*>(gate_scales.get()),
+                  pair_up);
+            },
+            "gate output aliases own scales");
+        expect_invalid(
+            [&]() noexcept {
+              return status(gate_packed.get(), gate_scales.get(),
+                            up_packed.get(), up_scales.get(), activation.get(),
+                            kRows, kColumns,
+                            const_cast<std::uint16_t*>(activation.get()),
+                            pair_up);
+            },
+            "gate output aliases activation");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  pair_gate,
+                  reinterpret_cast<std::uint16_t*>(up_packed.get()));
+            },
+            "up output aliases own weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  pair_gate,
+                  reinterpret_cast<std::uint16_t*>(up_scales.get()));
+            },
+            "up output aliases own scales");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  reinterpret_cast<std::uint16_t*>(up_packed.get()), pair_up);
+            },
+            "gate output aliases up weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  reinterpret_cast<std::uint16_t*>(up_scales.get()), pair_up);
+            },
+            "gate output aliases up scales");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  pair_gate,
+                  reinterpret_cast<std::uint16_t*>(gate_packed.get()));
+            },
+            "up output aliases gate weights");
+        expect_invalid(
+            [&]() noexcept {
+              return status(
+                  gate_packed.get(), gate_scales.get(), up_packed.get(),
+                  up_scales.get(), activation.get(), kRows, kColumns,
+                  pair_gate,
+                  reinterpret_cast<std::uint16_t*>(gate_scales.get()));
+            },
+            "up output aliases gate scales");
+      };
+  check_launcher_contract(pair_launcher, "pair_only");
+  check_launcher_contract(fused_launcher, "pair_plus_silu");
+  std::cout << "NVFP4_M1_GATE_UP_PAIR_DEFAULT_INVALID_CONTRACT: gate="
+            << (invalid_contract_gate ? "PASS" : "FAIL") << '\n';
+
+  constexpr std::size_t kExactRows = 17'408U;
+  constexpr std::size_t kExactColumns = 5'120U;
+  const auto* const fake_gate_packed =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  const auto* const fake_gate_scales =
+      reinterpret_cast<const std::uint8_t*>(0x2'0000'0000ULL);
+  const auto* const fake_up_packed =
+      reinterpret_cast<const std::uint8_t*>(0x3'0000'0000ULL);
+  const auto* const fake_up_scales =
+      reinterpret_cast<const std::uint8_t*>(0x4'0000'0000ULL);
+  const auto* const fake_exact_activation =
+      reinterpret_cast<const std::uint16_t*>(0x5'0000'0000ULL);
+  auto* const fake_gate_output =
+      reinterpret_cast<std::uint16_t*>(0x6'0000'0000ULL);
+  auto* const fake_up_output =
+      reinterpret_cast<std::uint16_t*>(0x7'0000'0000ULL);
+  const auto public_status =
+      [&](const std::uint8_t* const gate_packed_pointer,
+          const std::uint8_t* const gate_scale_pointer,
+          const float gate_scale_2,
+          const std::uint8_t* const up_packed_pointer,
+          const std::uint8_t* const up_scale_pointer,
+          const float up_scale_2,
+          const std::uint16_t* const activation_pointer,
+          const std::size_t rows, const std::size_t columns,
+          std::uint16_t* const gate_output_pointer,
+          std::uint16_t* const up_output_pointer) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_gemv_gate_up_silu_bf16_cuda(
+                gate_packed_pointer, gate_scale_pointer, gate_scale_2,
+                up_packed_pointer, up_scale_pointer, up_scale_2,
+                activation_pointer, rows, columns, gate_output_pointer,
+                up_output_pointer, static_cast<void*>(stream));
+      };
+  const auto capture_single_kernel =
+      [&](const auto& launch, const std::string& operation,
+          cudaKernelNodeParams* const parameters) {
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " " + operation + " begin capture");
+        if (capture_ready) {
+          capture_ready =
+              test.cuda_ok(static_cast<cudaError_t>(launch()),
+                           label + " " + operation + " launch") &&
+              capture_ready;
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " " + operation + " end capture") &&
+              capture_ready;
+        }
+        std::size_t node_count = 0U;
+        if (capture_ready) {
+          capture_ready = test.cuda_ok(
+              cudaGraphGetNodes(graph, nullptr, &node_count),
+              label + " " + operation + " query nodes");
+        }
+        if (capture_ready && node_count == 1U) {
+          cudaGraphNode_t node = nullptr;
+          std::size_t node_capacity = 1U;
+          capture_ready = test.cuda_ok(
+              cudaGraphGetNodes(graph, &node, &node_capacity),
+              label + " " + operation + " get node");
+          capture_ready =
+              capture_ready && node_capacity == 1U &&
+              test.cuda_ok(cudaGraphKernelNodeGetParams(node, parameters),
+                           label + " " + operation + " get params");
+        }
+        if (graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphDestroy(graph),
+                           label + " " + operation + " destroy graph") &&
+              capture_ready;
+        }
+        return capture_ready && node_count == 1U;
+      };
+  cudaKernelNodeParams public_parameters{};
+  cudaKernelNodeParams test_parameters{};
+  const bool public_captured = capture_single_kernel(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            fake_gate_output, fake_up_output);
+      },
+      "public exact fused", &public_parameters);
+  const bool test_captured = capture_single_kernel(
+      [&]() noexcept {
+        return fused_launcher(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            fake_gate_output, fake_up_output, static_cast<void*>(stream));
+      },
+      "test exact fused", &test_parameters);
+  const bool public_identity_gate =
+      public_captured && test_captured &&
+      public_parameters.func == test_parameters.func &&
+      public_parameters.gridDim.x == 64U &&
+      public_parameters.gridDim.y == 1U &&
+      public_parameters.gridDim.z == 1U &&
+      public_parameters.blockDim.x == 256U &&
+      public_parameters.blockDim.y == 1U &&
+      public_parameters.blockDim.z == 1U &&
+      public_parameters.sharedMemBytes == 0U &&
+      public_parameters.gridDim.x == test_parameters.gridDim.x &&
+      public_parameters.blockDim.x == test_parameters.blockDim.x &&
+      public_parameters.sharedMemBytes == test_parameters.sharedMemBytes;
+  test.expect(public_identity_gate,
+              label + " public and test exact fused launchers are identical");
+
+  bool public_invalid_gate = true;
+  const auto expect_public_invalid =
+      [&](const auto& launch, const std::string& reason) {
+        const bool rejected = expect_invalid_before_enqueue(
+            launch, "public exact fused " + reason);
+        public_invalid_gate = public_invalid_gate && rejected;
+      };
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            nullptr, fake_gate_scales, kGateWeightScale2, fake_up_packed,
+            fake_up_scales, kUpWeightScale2, fake_exact_activation,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "null gate weights");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, nullptr, kUpWeightScale2, fake_exact_activation,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "null up scales");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2, nullptr,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "null activation");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns, nullptr,
+            fake_up_output);
+      },
+      "null gate output");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            fake_gate_output, nullptr);
+      },
+      "null up output");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, 0U, 0U, fake_gate_output,
+            fake_up_output);
+      },
+      "empty shape");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows - 4U, kExactColumns,
+            fake_gate_output, fake_up_output);
+      },
+      "near-miss rows");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns + 16U,
+            fake_gate_output, fake_up_output);
+      },
+      "near-miss columns");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            reinterpret_cast<const std::uint8_t*>(
+                reinterpret_cast<std::uintptr_t>(fake_gate_packed) + 1U),
+            fake_gate_scales, kGateWeightScale2, fake_up_packed,
+            fake_up_scales, kUpWeightScale2, fake_exact_activation,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "unaligned gate weights");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            reinterpret_cast<const std::uint16_t*>(
+                reinterpret_cast<std::uintptr_t>(fake_exact_activation) +
+                2U),
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "unaligned activation");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, -1.0F, fake_up_packed,
+            fake_up_scales, kUpWeightScale2, fake_exact_activation,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "negative gate scale2");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales,
+            std::numeric_limits<float>::quiet_NaN(), fake_exact_activation,
+            kExactRows, kExactColumns, fake_gate_output, fake_up_output);
+      },
+      "NaN up scale2");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            fake_gate_output, fake_gate_output);
+      },
+      "overlapping outputs");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<std::uint8_t*>(fake_up_packed)),
+            fake_up_output);
+      },
+      "gate output aliases up weights");
+  expect_public_invalid(
+      [&]() noexcept {
+        return public_status(
+            fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+            fake_up_packed, fake_up_scales, kUpWeightScale2,
+            fake_exact_activation, kExactRows, kExactColumns,
+            fake_gate_output,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<std::uint8_t*>(fake_gate_scales)));
+      },
+      "up output aliases gate scales");
+  const bool public_contract_gate =
+      public_identity_gate && public_invalid_gate;
+  std::cout << "NVFP4_M1_GATE_UP_SILU_PUBLIC_CONTRACT: public_nodes=1"
+            << " test_nodes=1 same_func_grid_block_shared="
+            << (public_identity_gate ? "true" : "false")
+            << " invalid_zero_node_gate="
+            << (public_invalid_gate ? "PASS" : "FAIL")
+            << " gate=" << (public_contract_gate ? "PASS" : "FAIL")
+            << '\n';
+
+  std::fill(host_gate_packed.begin(), host_gate_packed.end(), 0x11U);
+  std::fill(host_up_packed.begin(), host_up_packed.end(), 0x11U);
+  std::fill(host_gate_scales.begin(), host_gate_scales.end(), 0x38U);
+  std::fill(host_up_scales.begin(), host_up_scales.end(), 0x38U);
+  std::fill(host_activation.begin(), host_activation.end(),
+            encode_bf16(0.0F));
+  host_activation[0U] = encode_bf16(1.0F);
+  host_gate_scales[0U * kScaleColumns] = 0x7fU;
+  host_gate_scales[1U * kScaleColumns] = 0xffU;
+  host_up_scales[2U * kScaleColumns] = 0x7fU;
+  host_up_scales[3U * kScaleColumns] = 0xffU;
+  const bool nan_gate =
+      run_case(label + " isolated signed NaN", false, true);
+  const bool default_gate = pair_resource_gate && fused_resource_gate &&
+                            finite_gate && invalid_contract_gate &&
+                            public_contract_gate && nan_gate;
+  test.expect(default_gate,
+              label + " clears resource/contract/correctness default gate");
+  std::cout << "NVFP4_M1_GATE_UP_PAIR_DEFAULT_SELECTED: pair_resource_gate="
+            << (pair_resource_gate ? "PASS" : "FAIL")
+            << " fused_resource_gate="
+            << (fused_resource_gate ? "PASS" : "FAIL")
+            << " finite_gate=" << (finite_gate ? "PASS" : "FAIL")
+            << " invalid_contract_gate="
+            << (invalid_contract_gate ? "PASS" : "FAIL")
+            << " public_contract_gate="
+            << (public_contract_gate ? "PASS" : "FAIL")
+            << " nan_gate=" << (nan_gate ? "PASS" : "FAIL")
+            << " gate=" << (default_gate ? "PASS" : "FAIL") << '\n';
+}
+
+struct NvFp4GateUpSiluFusionTiming {
+  float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+  float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+};
+
+void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
+           "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
+           "with Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kPackedCount = kRows * kColumns / 2U;
+  constexpr std::size_t kScaleCount = kRows * kColumns / 16U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr std::uint64_t kExpectedCheckpointBytes = 9'965'652'512ULL;
+  constexpr std::uint64_t kExpectedHeaderBytes = 126'504ULL;
+  constexpr std::uint64_t kExpectedDataBase = 126'512ULL;
+  constexpr std::uint64_t kGateWeightOffset = 6'757'009'952ULL;
+  constexpr std::uint64_t kUpWeightOffset = 6'801'574'432ULL;
+  constexpr std::uint64_t kGateScaleOffset = 3'606'039'072ULL;
+  constexpr std::uint64_t kUpScaleOffset = 3'611'609'632ULL;
+  constexpr std::uint64_t kGateScale2Offset = 126'548ULL;
+  constexpr std::uint64_t kUpScale2Offset = 126'556ULL;
+  constexpr std::uint32_t kExpectedScale2Bits = 0x391e79e8U;
+  constexpr std::string_view kGateWeightSha256 =
+      "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8";
+  constexpr std::string_view kUpWeightSha256 =
+      "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f";
+  constexpr std::string_view kGateScaleSha256 =
+      "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e";
+  constexpr std::string_view kUpScaleSha256 =
+      "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947";
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 64;
+  constexpr int kMeasurementRounds = 5;
+  constexpr double kRequiredActualSpeedup = 1.02;
+  constexpr double kRequiredStressSpeedup = 1.00;
+  constexpr double kExploratorySymmetricSpeedup = 1.01;
+  static_assert(kGateWeightOffset + kPackedCount == kUpWeightOffset);
+  static_assert(kGateScaleOffset + kScaleCount == kUpScaleOffset);
+  const std::string label =
+      "NVFP4 M1 production gate/up+SiLU fusion 17408x5120";
+
+  const q3x::core::Sha256FileResult binary_identity =
+      q3x::core::sha256_file("/proc/self/exe");
+  const bool binary_identity_gate = binary_identity.ok();
+  test.expect(binary_identity_gate, label + " hashes the running test binary");
+  std::cout << "NVFP4_M1_GATE_UP_SILU_BINARY_IDENTITY: sha256="
+            << (binary_identity_gate ? binary_identity.digest->hex()
+                                     : "unavailable")
+            << " gate=" << (binary_identity_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!binary_identity_gate) {
+    return;
+  }
+
+  const char* const checkpoint_value =
+      std::getenv("Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE");
+  const bool source_set =
+      checkpoint_value != nullptr && checkpoint_value[0] != '\0';
+  test.expect(source_set, label + " requires the actual checkpoint file");
+  if (!source_set) {
+    std::cout << "NVFP4_M1_GATE_UP_SILU_CHECKPOINT_SOURCE: source=missing "
+                 "required_env=Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE "
+                 "gate=FAIL\n";
+    return;
+  }
+  const std::string checkpoint_path = checkpoint_value;
+  std::ifstream checkpoint(checkpoint_path, std::ios::binary);
+  const bool opened = checkpoint.is_open();
+  test.expect(opened, label + " opens the actual checkpoint");
+  if (!opened) {
+    return;
+  }
+  checkpoint.seekg(0, std::ios::end);
+  const std::streamoff checkpoint_size = checkpoint.tellg();
+  const bool checkpoint_size_gate =
+      checkpoint_size >= 0 &&
+      static_cast<std::uint64_t>(checkpoint_size) ==
+          kExpectedCheckpointBytes;
+  test.expect(checkpoint_size_gate, label + " pins the checkpoint size");
+  if (!checkpoint_size_gate) {
+    return;
+  }
+  const auto read_slice =
+      [&](const std::uint64_t offset, std::uint8_t* const destination,
+          const std::size_t bytes, const std::string& tensor) {
+        const std::uint64_t file_bytes =
+            static_cast<std::uint64_t>(checkpoint_size);
+        const bool range_valid =
+            offset <= file_bytes && bytes <= file_bytes - offset &&
+            offset <= static_cast<std::uint64_t>(
+                          std::numeric_limits<std::streamoff>::max()) &&
+            bytes <= static_cast<std::size_t>(
+                         std::numeric_limits<std::streamsize>::max());
+        test.expect(range_valid, label + " contains " + tensor);
+        if (!range_valid) {
+          return false;
+        }
+        checkpoint.clear();
+        checkpoint.seekg(static_cast<std::streamoff>(offset),
+                         std::ios::beg);
+        checkpoint.read(reinterpret_cast<char*>(destination),
+                        static_cast<std::streamsize>(bytes));
+        const bool complete =
+            checkpoint.gcount() == static_cast<std::streamsize>(bytes);
+        test.expect(complete, label + " reads complete " + tensor);
+        return complete;
+      };
+
+  std::array<std::uint8_t, 8U> header_length_bytes{};
+  bool fixture_ready = read_slice(0U, header_length_bytes.data(),
+                                  header_length_bytes.size(),
+                                  "safetensors header length");
+  std::uint64_t header_bytes = 0U;
+  for (std::size_t index = 0U; index < header_length_bytes.size(); ++index) {
+    header_bytes |= static_cast<std::uint64_t>(header_length_bytes[index])
+                    << (8U * index);
+  }
+  const bool header_gate =
+      fixture_ready && header_bytes == kExpectedHeaderBytes &&
+      header_bytes + 8U == kExpectedDataBase;
+  test.expect(header_gate,
+              label + " pins the safetensors header/data base");
+
+  std::vector<std::uint8_t> host_gate_packed(kPackedCount);
+  std::vector<std::uint8_t> host_up_packed(kPackedCount);
+  std::vector<std::uint8_t> host_gate_scales(kScaleCount);
+  std::vector<std::uint8_t> host_up_scales(kScaleCount);
+  std::array<std::uint8_t, 4U> gate_scale2_bytes{};
+  std::array<std::uint8_t, 4U> up_scale2_bytes{};
+  fixture_ready = fixture_ready && read_slice(
+      kGateWeightOffset, host_gate_packed.data(), host_gate_packed.size(),
+      "layer-0 gate_proj.weight");
+  fixture_ready = fixture_ready && read_slice(
+      kUpWeightOffset, host_up_packed.data(), host_up_packed.size(),
+      "layer-0 up_proj.weight");
+  fixture_ready = fixture_ready && read_slice(
+      kGateScaleOffset, host_gate_scales.data(), host_gate_scales.size(),
+      "layer-0 gate_proj.weight_scale");
+  fixture_ready = fixture_ready && read_slice(
+      kUpScaleOffset, host_up_scales.data(), host_up_scales.size(),
+      "layer-0 up_proj.weight_scale");
+  fixture_ready = fixture_ready && read_slice(
+      kGateScale2Offset, gate_scale2_bytes.data(), gate_scale2_bytes.size(),
+      "layer-0 gate_proj.weight_scale_2");
+  fixture_ready = fixture_ready && read_slice(
+      kUpScale2Offset, up_scale2_bytes.data(), up_scale2_bytes.size(),
+      "layer-0 up_proj.weight_scale_2");
+  if (!fixture_ready) {
+    return;
+  }
+  const auto little_endian_u32 = [](const std::array<std::uint8_t, 4U>& v) {
+    return static_cast<std::uint32_t>(v[0U]) |
+           (static_cast<std::uint32_t>(v[1U]) << 8U) |
+           (static_cast<std::uint32_t>(v[2U]) << 16U) |
+           (static_cast<std::uint32_t>(v[3U]) << 24U);
+  };
+  const std::uint32_t gate_scale2_bits =
+      little_endian_u32(gate_scale2_bytes);
+  const std::uint32_t up_scale2_bits = little_endian_u32(up_scale2_bytes);
+  float gate_scale2 = 0.0F;
+  float up_scale2 = 0.0F;
+  std::memcpy(&gate_scale2, &gate_scale2_bits, sizeof(gate_scale2));
+  std::memcpy(&up_scale2, &up_scale2_bits, sizeof(up_scale2));
+  const auto hash_bytes = [](const std::vector<std::uint8_t>& values) {
+    return q3x::core::sha256(std::string_view(
+                                reinterpret_cast<const char*>(values.data()),
+                                values.size()))
+        .hex();
+  };
+  const std::string gate_weight_hash = hash_bytes(host_gate_packed);
+  const std::string up_weight_hash = hash_bytes(host_up_packed);
+  const std::string gate_scale_hash = hash_bytes(host_gate_scales);
+  const std::string up_scale_hash = hash_bytes(host_up_scales);
+  const bool pinned_payload_gate =
+      gate_weight_hash == kGateWeightSha256 &&
+      up_weight_hash == kUpWeightSha256 &&
+      gate_scale_hash == kGateScaleSha256 &&
+      up_scale_hash == kUpScaleSha256 &&
+      gate_scale2_bits == kExpectedScale2Bits &&
+      up_scale2_bits == kExpectedScale2Bits && std::isfinite(gate_scale2) &&
+      std::isfinite(up_scale2);
+  test.expect(pinned_payload_gate,
+              label + " matches all pinned payload hashes and scale2 bits");
+  std::cout << "NVFP4_M1_GATE_UP_SILU_CHECKPOINT_SOURCE: source=actual"
+            << " path=" << checkpoint_path
+            << " data_base=" << kExpectedDataBase
+            << " gate_weight_offset=" << kGateWeightOffset
+            << " up_weight_offset=" << kUpWeightOffset
+            << " gate_scale_offset=" << kGateScaleOffset
+            << " up_scale_offset=" << kUpScaleOffset
+            << " gate_scale2_offset=" << kGateScale2Offset
+            << " up_scale2_offset=" << kUpScale2Offset
+            << " gate_weight_sha256=" << gate_weight_hash
+            << " up_weight_sha256=" << up_weight_hash
+            << " gate_scale_sha256=" << gate_scale_hash
+            << " up_scale_sha256=" << up_scale_hash
+            << " scale2_bits=" << gate_scale2_bits
+            << " gate=" << (pinned_payload_gate ? "PASS" : "FAIL") << '\n';
+  if (!pinned_payload_gate) {
+    return;
+  }
+
+  NvFp4M1DownDualKernelResources pair_resources{};
+  NvFp4M1DownDualKernelResources fused_resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_gate_up_pair_activation_staged_resources_test_cuda(
+              &pair_resources.registers_per_thread,
+              &pair_resources.static_shared_bytes, &pair_resources.local_bytes,
+              &pair_resources.maximum_threads_per_block,
+              &pair_resources.active_blocks_per_sm)),
+      label + " query pair resources");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_gate_up_silu_activation_staged_resources_test_cuda(
+              &fused_resources.registers_per_thread,
+              &fused_resources.static_shared_bytes,
+              &fused_resources.local_bytes,
+              &fused_resources.maximum_threads_per_block,
+              &fused_resources.active_blocks_per_sm)),
+      label + " query fused resources");
+  const auto resource_ok = [](const NvFp4M1DownDualKernelResources& r) {
+    return r.registers_per_thread <= 64 &&
+           r.static_shared_bytes <= 11'328U && r.local_bytes == 0U &&
+           r.maximum_threads_per_block >= 256 && r.active_blocks_per_sm >= 4;
+  };
+  const bool resource_gate =
+      ready && resource_ok(pair_resources) && resource_ok(fused_resources);
+  test.expect(resource_gate, label + " clears pair/fused resource gates");
+  std::cout << "PERF_NVFP4_M1_GATE_UP_SILU_RESOURCES: pair_registers="
+            << pair_resources.registers_per_thread
+            << " pair_shared=" << pair_resources.static_shared_bytes
+            << " pair_local=" << pair_resources.local_bytes
+            << " pair_active=" << pair_resources.active_blocks_per_sm
+            << " fused_registers=" << fused_resources.registers_per_thread
+            << " fused_shared=" << fused_resources.static_shared_bytes
+            << " fused_local=" << fused_resources.local_bytes
+            << " fused_active=" << fused_resources.active_blocks_per_sm
+            << " limits=64r,11328shared,0local,active4"
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_activation(kColumns);
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered =
+        static_cast<int>((column * 29U + (column >> 2U) * 11U + 17U) %
+                         251U) -
+        125;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  const std::string activation_hash =
+      q3x::core::sha256(std::string_view(
+                            reinterpret_cast<const char*>(
+                                host_activation.data()),
+                            host_activation.size() * sizeof(std::uint16_t)))
+          .hex();
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_gate_storage;
+  DeviceBuffer<std::uint16_t> baseline_up_storage;
+  DeviceBuffer<std::uint16_t> baseline_final_storage;
+  DeviceBuffer<std::uint16_t> pair_gate_storage;
+  DeviceBuffer<std::uint16_t> pair_up_storage;
+  DeviceBuffer<std::uint16_t> candidate_gate_storage;
+  DeviceBuffer<std::uint16_t> candidate_up_storage;
+  const std::size_t guarded_count = kRows + 2U * kGuardElements;
+  ready = test.cuda_ok(gate_packed.allocate(kPackedCount),
+                       label + " allocate gate weights");
+  ready = ready && test.cuda_ok(up_packed.allocate(kPackedCount),
+                                label + " allocate up weights");
+  ready = ready && test.cuda_ok(gate_scales.allocate(kScaleCount),
+                                label + " allocate gate scales");
+  ready = ready && test.cuda_ok(up_scales.allocate(kScaleCount),
+                                label + " allocate up scales");
+  ready = ready && test.cuda_ok(activation.allocate(kColumns),
+                                label + " allocate activation");
+  const auto allocate_output = [&](DeviceBuffer<std::uint16_t>& output,
+                                   const std::string& name) {
+    return test.cuda_ok(output.allocate(guarded_count),
+                        label + " allocate " + name);
+  };
+  ready = ready && allocate_output(baseline_gate_storage, "baseline gate");
+  ready = ready && allocate_output(baseline_up_storage, "baseline up");
+  ready = ready && allocate_output(baseline_final_storage, "baseline final");
+  ready = ready && allocate_output(pair_gate_storage, "pair gate");
+  ready = ready && allocate_output(pair_up_storage, "pair up");
+  ready = ready && allocate_output(candidate_gate_storage, "candidate gate");
+  ready = ready && allocate_output(candidate_up_storage, "candidate up");
+  if (!ready) {
+    return;
+  }
+  std::uint16_t* const baseline_gate =
+      baseline_gate_storage.get() + kGuardElements;
+  std::uint16_t* const baseline_up =
+      baseline_up_storage.get() + kGuardElements;
+  std::uint16_t* const baseline_final =
+      baseline_final_storage.get() + kGuardElements;
+  std::uint16_t* const pair_gate = pair_gate_storage.get() + kGuardElements;
+  std::uint16_t* const pair_up = pair_up_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_gate =
+      candidate_gate_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_up =
+      candidate_up_storage.get() + kGuardElements;
+
+  const auto launch_baseline_projections = [&]() noexcept {
+    int status = q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+        gate_packed.get(), gate_scales.get(), gate_scale2, activation.get(),
+        kRows, kColumns, baseline_gate, static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    status = q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
+        up_packed.get(), up_scales.get(), up_scale2, activation.get(), kRows,
+        kColumns, baseline_up, static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_baseline_correctness = [&]() noexcept {
+    const int status = launch_baseline_projections();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::runtime::launch_silu_mul_reference_cuda(
+        baseline_gate, baseline_up, kRows, baseline_final,
+        static_cast<void*>(stream));
+  };
+  // Mirror the replaced runner chain exactly for timing: its SiLU launch
+  // overwrote the gate buffer in place.
+  const auto launch_baseline = [&]() noexcept {
+    const int status = launch_baseline_projections();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::runtime::launch_silu_mul_reference_cuda(
+        baseline_gate, baseline_up, kRows, baseline_gate,
+        static_cast<void*>(stream));
+  };
+  const auto launch_pair = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_test_cuda(
+            gate_packed.get(), gate_scales.get(), gate_scale2,
+            up_packed.get(), up_scales.get(), up_scale2, activation.get(),
+            kRows, kColumns, pair_gate, pair_up, static_cast<void*>(stream));
+  };
+  // Time and validate the public ABI, not merely its test-only twin.
+  const auto launch_candidate = [&]() noexcept {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_gemv_gate_up_silu_bf16_cuda(
+        gate_packed.get(), gate_scales.get(), gate_scale2, up_packed.get(),
+        up_scales.get(), up_scale2, activation.get(), kRows, kColumns,
+        candidate_gate, candidate_up, static_cast<void*>(stream));
+  };
+  const auto upload_fixture = [&](const std::string& fixture_label) {
+    bool upload = test.cuda_ok(
+        cudaMemcpyAsync(gate_packed.get(), host_gate_packed.data(),
+                        host_gate_packed.size(), cudaMemcpyHostToDevice,
+                        stream),
+        fixture_label + " upload gate weights");
+    upload = upload && test.cuda_ok(
+        cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                        host_up_packed.size(), cudaMemcpyHostToDevice, stream),
+        fixture_label + " upload up weights");
+    upload = upload && test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        fixture_label + " upload gate scales");
+    upload = upload && test.cuda_ok(
+        cudaMemcpyAsync(up_scales.get(), host_up_scales.data(),
+                        host_up_scales.size(), cudaMemcpyHostToDevice, stream),
+        fixture_label + " upload up scales");
+    upload = upload && test.cuda_ok(
+        cudaMemcpyAsync(activation.get(), host_activation.data(),
+                        host_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        fixture_label + " upload activation");
+    return upload && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  fixture_label + " upload synchronize");
+  };
+
+  const auto check_correctness = [&](const std::string& fixture_label) {
+    constexpr std::array<std::uint8_t, 7U> kGuardBytes{{
+        0xa1U, 0xb2U, 0xc3U, 0xd4U, 0xe5U, 0x69U, 0x78U,
+    }};
+    std::array<DeviceBuffer<std::uint16_t>*, 7U> storages{{
+        &baseline_gate_storage, &baseline_up_storage, &baseline_final_storage,
+        &pair_gate_storage, &pair_up_storage, &candidate_gate_storage,
+        &candidate_up_storage,
+    }};
+    bool correct_ready = true;
+    for (std::size_t index = 0U; index < storages.size(); ++index) {
+      correct_ready = correct_ready && test.cuda_ok(
+          cudaMemsetAsync(storages[index]->get(), kGuardBytes[index],
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison guarded output");
+    }
+    correct_ready = correct_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_baseline_correctness()),
+        fixture_label + " launch two-single+SiLU baseline");
+    correct_ready = correct_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_pair()),
+        fixture_label + " launch pair-only diagnostic");
+    correct_ready = correct_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_candidate()),
+        fixture_label + " launch public fused candidate");
+    std::array<std::vector<std::uint16_t>, 7U> observed;
+    for (std::size_t index = 0U; index < observed.size(); ++index) {
+      observed[index].resize(guarded_count);
+      correct_ready = correct_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed[index].data(), storages[index]->get(),
+                          guarded_count * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy guarded output");
+    }
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_gate_storage.get(), kGuardBytes[5U],
+                        guarded_count * sizeof(std::uint16_t), stream),
+        fixture_label + " poison candidate replay gate");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_up_storage.get(), kGuardBytes[6U],
+                        guarded_count * sizeof(std::uint16_t), stream),
+        fixture_label + " poison candidate replay up");
+    correct_ready = correct_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_candidate()),
+        fixture_label + " replay public fused candidate");
+    std::vector<std::uint16_t> replay_gate(guarded_count);
+    std::vector<std::uint16_t> replay_up(guarded_count);
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(replay_gate.data(), candidate_gate_storage.get(),
+                        guarded_count * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy replay gate");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(replay_up.data(), candidate_up_storage.get(),
+                        guarded_count * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy replay up");
+    std::vector<std::uint8_t> observed_gate_packed(kPackedCount);
+    std::vector<std::uint8_t> observed_up_packed(kPackedCount);
+    std::vector<std::uint8_t> observed_gate_scales(kScaleCount);
+    std::vector<std::uint8_t> observed_up_scales(kScaleCount);
+    std::vector<std::uint16_t> observed_activation(kColumns);
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_gate_packed.data(), gate_packed.get(),
+                        observed_gate_packed.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        fixture_label + " copy preserved gate weights");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_up_packed.data(), up_packed.get(),
+                        observed_up_packed.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        fixture_label + " copy preserved up weights");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_gate_scales.data(), gate_scales.get(),
+                        observed_gate_scales.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        fixture_label + " copy preserved gate scales");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_up_scales.data(), up_scales.get(),
+                        observed_up_scales.size(), cudaMemcpyDeviceToHost,
+                        stream),
+        fixture_label + " copy preserved up scales");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaMemcpyAsync(observed_activation.data(), activation.get(),
+                        observed_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy preserved activation");
+    correct_ready = correct_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " synchronize");
+    if (!correct_ready) {
+      return false;
+    }
+    std::size_t pair_gate_mismatches = 0U;
+    std::size_t pair_up_mismatches = 0U;
+    std::size_t fused_gate_mismatches = 0U;
+    std::size_t fused_up_mismatches = 0U;
+    std::size_t replay_mismatches = 0U;
+    std::size_t nonfinite = 0U;
+    for (std::size_t row = 0U; row < kRows; ++row) {
+      const std::size_t index = kGuardElements + row;
+      pair_gate_mismatches += observed[0U][index] != observed[3U][index];
+      pair_up_mismatches += observed[1U][index] != observed[4U][index];
+      fused_gate_mismatches += observed[2U][index] != observed[5U][index];
+      fused_up_mismatches += observed[1U][index] != observed[6U][index];
+      replay_mismatches += observed[5U][index] != replay_gate[index];
+      replay_mismatches += observed[6U][index] != replay_up[index];
+      nonfinite += !is_bf16_finite(observed[0U][index]);
+      nonfinite += !is_bf16_finite(observed[1U][index]);
+      nonfinite += !is_bf16_finite(observed[2U][index]);
+      nonfinite += !is_bf16_finite(observed[5U][index]);
+      nonfinite += !is_bf16_finite(observed[6U][index]);
+    }
+    bool guards = true;
+    for (std::size_t output = 0U; output < observed.size(); ++output) {
+      const std::uint16_t guard = static_cast<std::uint16_t>(
+          kGuardBytes[output] * 0x0101U);
+      for (std::size_t index = 0U; index < kGuardElements; ++index) {
+        guards = guards && observed[output][index] == guard &&
+                 observed[output][kGuardElements + kRows + index] == guard;
+      }
+    }
+    for (std::size_t index = 0U; index < kGuardElements; ++index) {
+      guards = guards && replay_gate[index] == 0x6969U &&
+               replay_up[index] == 0x7878U &&
+               replay_gate[kGuardElements + kRows + index] == 0x6969U &&
+               replay_up[kGuardElements + kRows + index] == 0x7878U;
+    }
+    const bool bitwise = pair_gate_mismatches == 0U &&
+                         pair_up_mismatches == 0U &&
+                         fused_gate_mismatches == 0U &&
+                         fused_up_mismatches == 0U &&
+                         replay_mismatches == 0U;
+    const bool inputs_preserved =
+        observed_gate_packed == host_gate_packed &&
+        observed_up_packed == host_up_packed &&
+        observed_gate_scales == host_gate_scales &&
+        observed_up_scales == host_up_scales &&
+        observed_activation == host_activation;
+    const bool correctness_gate =
+        bitwise && guards && nonfinite == 0U && inputs_preserved;
+    test.expect(correctness_gate,
+                fixture_label + " is bitwise, finite, guarded, replayable");
+    std::cout << "NVFP4_M1_GATE_UP_SILU_EXACT_DIFF: fixture="
+              << fixture_label
+              << " pair_gate_mismatches=" << pair_gate_mismatches << '/'
+              << kRows << " pair_up_mismatches=" << pair_up_mismatches << '/'
+              << kRows
+              << " fused_final_mismatches=" << fused_gate_mismatches << '/'
+              << kRows << " fused_up_mismatches=" << fused_up_mismatches
+              << '/' << kRows << " replay_mismatches=" << replay_mismatches
+              << '/' << (2U * kRows)
+              << " nonfinite=" << nonfinite
+              << " guards=" << (guards ? "intact" : "BAD")
+              << " inputs_preserved="
+              << (inputs_preserved ? "true" : "false")
+              << " public_abi=true"
+              << " gate=" << (correctness_gate ? "PASS" : "FAIL") << '\n';
+    return correctness_gate;
+  };
+
+  const auto benchmark = [&](const std::string& fixture_label) {
+    NvFp4GateUpSiluFusionTiming timing{};
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kWarmupIterations && timing_ready; ++iteration) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_baseline()),
+          fixture_label + " baseline warmup");
+      timing_ready = timing_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_candidate()),
+          fixture_label + " candidate warmup");
+    }
+    timing_ready = timing_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " warmup synchronize");
+    if (!timing_ready) {
+      return timing;
+    }
+    constexpr std::size_t kPasses =
+        2U * static_cast<std::size_t>(kMeasurementRounds);
+    std::array<float, kPasses> baseline_passes{};
+    std::array<float, kPasses> candidate_passes{};
+    bool finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          fixture_label + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B1");
+      const float c1 = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C1");
+      const float c2 = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C2");
+      const float b2 = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B2");
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      baseline_passes[pass] = b1;
+      baseline_passes[pass + 1U] = b2;
+      candidate_passes[pass] = c1;
+      candidate_passes[pass + 1U] = c2;
+      finite = finite && std::isfinite(b1) && std::isfinite(c1) &&
+               std::isfinite(c2) && std::isfinite(b2);
+      std::cout << "PERF_NVFP4_M1_GATE_UP_SILU_ROUND: fixture="
+                << fixture_label << " round=" << round + 1
+                << " order=B-C-C-B iterations=64"
+                << " baseline1_ms=" << b1 << " candidate1_ms=" << c1
+                << " candidate2_ms=" << c2 << " baseline2_ms=" << b2
+                << '\n';
+    }
+    if (!finite) {
+      return timing;
+    }
+    timing.baseline_milliseconds =
+        median_fp8_kv_pair_timing(baseline_passes);
+    timing.candidate_milliseconds =
+        median_fp8_kv_pair_timing(candidate_passes);
+    return timing;
+  };
+
+  std::array<NvFp4GateUpSiluFusionTiming, 2U> timings{};
+  std::array<bool, 2U> correctness{};
+  for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
+    const bool actual = fixture == 0U;
+    if (!actual) {
+      for (std::size_t index = 0U; index < kPackedCount; ++index) {
+        const std::uint8_t gate_low = static_cast<std::uint8_t>(
+            (index * 5U + (index >> 3U) * 3U + 1U) & 0x0fU);
+        const std::uint8_t gate_high = static_cast<std::uint8_t>(
+            (index * 7U + (index >> 2U) * 5U + 9U) & 0x0fU);
+        const std::uint8_t up_low = static_cast<std::uint8_t>(
+            (index * 11U + (index >> 4U) * 7U + 3U) & 0x0fU);
+        const std::uint8_t up_high = static_cast<std::uint8_t>(
+            (index * 13U + (index >> 1U) * 3U + 5U) & 0x0fU);
+        host_gate_packed[index] =
+            static_cast<std::uint8_t>(gate_low | (gate_high << 4U));
+        host_up_packed[index] =
+            static_cast<std::uint8_t>(up_low | (up_high << 4U));
+      }
+      fill_nvfp4_m1_exact_shape_scale_distribution(
+          host_gate_scales, kScaleColumns,
+          NvFp4M1ScaleDistribution::kSameBankStress);
+      fill_nvfp4_m1_exact_shape_scale_distribution(
+          host_up_scales, kScaleColumns,
+          NvFp4M1ScaleDistribution::kSameBankStress);
+      std::rotate(host_up_scales.begin(), host_up_scales.begin() + 1U,
+                  host_up_scales.end());
+    }
+    const std::string fixture_name =
+        actual ? "actual_checkpoint" : "same_bank_stress";
+    const std::string fixture_label = label + " " + fixture_name;
+    std::cout << "NVFP4_M1_GATE_UP_SILU_FIXTURE: fixture=" << fixture_name
+              << " gate_weight_sha256=" << hash_bytes(host_gate_packed)
+              << " up_weight_sha256=" << hash_bytes(host_up_packed)
+              << " gate_scale_sha256=" << hash_bytes(host_gate_scales)
+              << " up_scale_sha256=" << hash_bytes(host_up_scales)
+              << " activation_sha256=" << activation_hash << '\n';
+    if (!upload_fixture(fixture_label)) {
+      return;
+    }
+    correctness[fixture] = check_correctness(fixture_label);
+    timings[fixture] = benchmark(fixture_label);
+  }
+
+  std::array<double, 2U> speedups{};
+  bool timing_gate = true;
+  bool exploratory_gate = true;
+  for (std::size_t fixture = 0U; fixture < speedups.size(); ++fixture) {
+    speedups[fixture] =
+        static_cast<double>(timings[fixture].baseline_milliseconds) /
+        static_cast<double>(timings[fixture].candidate_milliseconds);
+    const double required =
+        fixture == 0U ? kRequiredActualSpeedup : kRequiredStressSpeedup;
+    const bool cell_gate = correctness[fixture] &&
+                           std::isfinite(speedups[fixture]) &&
+                           timings[fixture].baseline_milliseconds > 0.0F &&
+                           timings[fixture].candidate_milliseconds > 0.0F &&
+                           speedups[fixture] >= required;
+    timing_gate = timing_gate && cell_gate;
+    exploratory_gate = exploratory_gate && correctness[fixture] &&
+                       std::isfinite(speedups[fixture]) &&
+                       speedups[fixture] >= kExploratorySymmetricSpeedup;
+    std::cout << "PERF_NVFP4_M1_GATE_UP_SILU: fixture="
+              << (fixture == 0U ? "actual_checkpoint" : "same_bank_stress")
+              << " baseline_two_single_plus_silu_median_ms="
+              << timings[fixture].baseline_milliseconds
+              << " public_fused_median_ms="
+              << timings[fixture].candidate_milliseconds
+              << " speedup=" << speedups[fixture]
+              << " required_speedup=" << required
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const bool selected_gate =
+      header_gate && pinned_payload_gate && resource_gate && timing_gate;
+  std::cout << "PERF_NVFP4_M1_GATE_UP_SILU_SELECTED: candidate="
+               "public_gate_up_silu_activation_staged"
+            << " shape=17408x5120 checkpoint_source=actual"
+            << " actual_speedup=" << speedups[0U]
+            << " stress_speedup=" << speedups[1U]
+            << " required_actual_speedup=" << kRequiredActualSpeedup
+            << " required_stress_speedup=" << kRequiredStressSpeedup
+            << " exploratory_symmetric_1p01_gate="
+            << (exploratory_gate ? "PASS" : "FAIL")
+            << " resource_gate=" << (resource_gate ? "PASS" : "FAIL")
+            << " bitwise_gate="
+            << (correctness[0U] && correctness[1U] ? "PASS" : "FAIL")
+            << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(selected_gate,
+              label + " clears actual-value/stress/resource/bitwise gates");
+}
+
 void run_nvfp4_m1_gate_up_activation_staged_probe(TestContext& test,
                                                    cudaStream_t stream) {
   NvFp4M1DownDualKernelResources baseline_resources{};
@@ -19000,6 +20918,8 @@ int main() {
   run_nvfp4_m1_down_xor_dual_probe(test, stream);
   run_nvfp4_m1_down_activation_staged_probe(test, stream);
   run_nvfp4_m1_k5120_xor_dual_probe(test, stream);
+  run_nvfp4_m1_gate_up_pair_default_probe(test, stream);
+  run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
   run_nvfp4_m1_gate_up_activation_staged_probe(test, stream);
   run_nvfp4_m1_lm_head_xor_dual_probe(test, stream);
   run_nvfp4_m1_lm_head_activation_staged_probe(test, stream);
