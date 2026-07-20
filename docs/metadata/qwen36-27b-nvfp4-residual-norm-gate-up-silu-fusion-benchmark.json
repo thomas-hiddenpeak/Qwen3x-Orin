@@ -1,0 +1,613 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark",
+  "status": "production-diagnostic",
+  "recorded_at": "2026-07-20",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "06d0a53f1cafd6ee232c13c48e44391310704b20",
+    "tree_state_at_measurement": "production post-attention residual/norm plus NVFP4 M1 gate/up/SiLU fusion worktree based on base_git_commit",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation": {
+    "scope": "post-attention BF16 residual add and centered RMSNorm followed by exact aligned dense-MLP NVFP4 gate/up projections and SiLU at M=1",
+    "hidden_width": 5120,
+    "gate_shape": [
+      17408,
+      5120
+    ],
+    "up_shape": [
+      17408,
+      5120
+    ],
+    "dtype": "BF16 residual/norm inputs and outputs; NVFP4 E2M1 packed weights with FP8 E4M3FN block scales",
+    "grid_blocks": 64,
+    "threads_per_block": 256,
+    "warps_per_block": 8,
+    "norm_columns_per_thread": 20,
+    "norm_reduction_repeated_by_every_cta": true,
+    "norm_order_contract": "each CTA reproduces the old 256-thread, 20-elements-per-thread fmaf accumulation, reduction tree, rsqrtf, gamma, and BF16-RNE order",
+    "residual_written_by_cta_zero_only": true,
+    "normalized_activation_global_materialization": false,
+    "normalized_activation_shared_bytes": 10240,
+    "static_shared_bytes": 11328,
+    "shared_reuse": "the 256-float reduction area is overwritten by the projection decode codebook after RMSNorm",
+    "projection_order": [
+      "gate rolled phase and BF16-RNE value",
+      "up rolled phase and BF16-RNE value",
+      "CTA-parallel SiLU(rounded gate) times rounded up and BF16-RNE gate overwrite"
+    ],
+    "baseline_launches_per_logical_chain": 2,
+    "candidate_launches_per_logical_chain": 1,
+    "output_contract": {
+      "residual_output": "BF16(residual_left + residual_right), written by CTA 0",
+      "normalized_activation": "centered RMSNorm BF16 value retained only in CTA-local shared memory",
+      "gate_output": "BF16(SiLU(BF16(gate projection)) * BF16(up projection))",
+      "up_output": "independently rounded BF16 up projection"
+    },
+    "eligibility": "explicit SM87 backend, ordered valid NVFP4 gate/up weights with exact [17408,5120] shapes, positive finite epsilon, required alignments, and valid disjoint writable ranges",
+    "fallback_kernel_nodes": {
+      "aligned_exact_sm87_nvfp4_m1": 1,
+      "unaligned_exact_sm87_nvfp4_m1": 4,
+      "near_miss_sm87_nvfp4_m1": 4,
+      "reference_nvfp4_m1": 6,
+      "aligned_sm87_bf16_pair_m1": 3,
+      "aligned_sm87_fp8_pair_m1": 3,
+      "unaligned_sm87_fp8_pair_m1": 4
+    },
+    "validation_contract": "the entire composite call validates before its first kernel, including range overflow, output/input/weight/device-scalar aliases, and fallback scratch overlap with residual_left and norm_weight",
+    "prefill_note": "C1 decode uses the exact fusion; C2 through C16 never select this exact M1 route and retain their ordered paths"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "gate_weight": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+      "dtype": "U8 packed NVFP4",
+      "shape": [
+        17408,
+        2560
+      ],
+      "absolute_offset_begin": 6757009952,
+      "absolute_offset_end": 6801574432,
+      "bytes": 44564480,
+      "payload_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+    },
+    "up_weight": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight",
+      "dtype": "U8 packed NVFP4",
+      "shape": [
+        17408,
+        2560
+      ],
+      "absolute_offset_begin": 6801574432,
+      "absolute_offset_end": 6846138912,
+      "bytes": 44564480,
+      "payload_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+    },
+    "gate_block_scale": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale",
+      "dtype": "F8_E4M3",
+      "shape": [
+        17408,
+        320
+      ],
+      "absolute_offset_begin": 3606039072,
+      "absolute_offset_end": 3611609632,
+      "bytes": 5570560,
+      "payload_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+    },
+    "up_block_scale": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight_scale",
+      "dtype": "F8_E4M3",
+      "shape": [
+        17408,
+        320
+      ],
+      "absolute_offset_begin": 3611609632,
+      "absolute_offset_end": 3617180192,
+      "bytes": 5570560,
+      "payload_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+    },
+    "gate_weight_scale_2": {
+      "absolute_offset_begin": 126548,
+      "little_endian_bits": "0x391e79e8",
+      "value": 0.00015113468
+    },
+    "up_weight_scale_2": {
+      "absolute_offset_begin": 126556,
+      "little_endian_bits": "0x391e79e8",
+      "value": 0.00015113468
+    },
+    "all_payload_hashes_matched": true
+  },
+  "policy": {
+    "projection_backend_default": "reference",
+    "sm87_backend_is_explicit": true,
+    "production_candidate_requires_actual_checkpoint_fixture": true,
+    "minimum_actual_checkpoint_speedup": 1.005,
+    "minimum_same_bank_stress_speedup": 1.0,
+    "policy_note": "checkpoint bytes carry the promotion threshold; the deterministic same-bank fixture is a non-regression guard",
+    "result_is_release_claim": false
+  },
+  "same_binary_optional_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=SHARD build/q3x_sm87_weight_only_gemv_test",
+    "binary": {
+      "local_path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 3031344,
+      "sha256": "7a0a9eac22410337908a9f5e2563a1b7ba7f6d9bd95c77019f4b0f8b5ed5054d"
+    },
+    "comparison": "public residual-add plus centered-RMSNorm kernel followed by the public fused gate/up/SiLU kernel versus the public single residual/norm/gate/up/SiLU kernel on identical buffers",
+    "warmup_logical_chains": 10,
+    "measured_logical_chains_per_timed_pass": 64,
+    "measurement_rounds": 5,
+    "timed_order_per_round": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "statistic_per_process": "median of ten baseline pass means divided by the median of ten candidate pass means",
+    "independent_process_repeats": 5,
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate_passed": true
+    },
+    "fixtures": {
+      "actual_checkpoint": "pinned layer-0 gate/up packed weights, block scales, and scale2 values with deterministic residual/norm inputs",
+      "same_bank_stress": "deterministic synthetic packed weights and E4M3FN scale codes sharing the low-five-bit bank index",
+      "all_checkpoint_payload_hashes_matched": true
+    },
+    "correctness": {
+      "exact_actual_residual_bit_mismatches": "0/5120",
+      "exact_actual_final_gate_bit_mismatches": "0/17408",
+      "exact_actual_up_bit_mismatches": "0/17408",
+      "exact_stress_residual_bit_mismatches": "0/5120",
+      "exact_stress_final_gate_bit_mismatches": "0/17408",
+      "exact_stress_up_bit_mismatches": "0/17408",
+      "bounded_finite_shape": [
+        2048,
+        512
+      ],
+      "bounded_finite_residual_final_up_bit_mismatches": 0,
+      "bounded_nonfinite_residual_bit_mismatches": "0/512",
+      "bounded_nonfinite_final_gate_bit_mismatches": "0/2048",
+      "bounded_nonfinite_up_bit_mismatches": "0/2048",
+      "bounded_nonfinite_nan_class_and_sign": "4096/4096",
+      "guards_intact_and_inputs_preserved": true,
+      "public_and_test_launcher_exact_kernel_identity": true,
+      "invalid_calls_fail_before_enqueue": true
+    },
+    "repeats": [
+      {
+        "run": 1,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.639913,
+          "candidate_milliseconds": 0.623738,
+          "speedup": 1.02593
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.6432,
+          "candidate_milliseconds": 0.627219,
+          "speedup": 1.02548
+        },
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-micro-r1.log",
+          "bytes": 32403,
+          "sha256": "030446ca1f83093ed3f060902426580b9cace17bafd576853c851911e37be384"
+        }
+      },
+      {
+        "run": 2,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.639629,
+          "candidate_milliseconds": 0.623983,
+          "speedup": 1.02507
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.643312,
+          "candidate_milliseconds": 0.627412,
+          "speedup": 1.02534
+        },
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-micro-r2.log",
+          "bytes": 32405,
+          "sha256": "32dab977d0f33e72eef64878854f4accd31b2086f2eb0b682d25b0774b416de2"
+        }
+      },
+      {
+        "run": 3,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.639832,
+          "candidate_milliseconds": 0.623807,
+          "speedup": 1.02569
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.643139,
+          "candidate_milliseconds": 0.627101,
+          "speedup": 1.02558
+        },
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-micro-r3.log",
+          "bytes": 32408,
+          "sha256": "99f59e04038430c7ad456e8f5553dbe78a27f2199bd7914a8c7d288f3756f6eb"
+        }
+      },
+      {
+        "run": 4,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.640239,
+          "candidate_milliseconds": 0.624272,
+          "speedup": 1.02558
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.643568,
+          "candidate_milliseconds": 0.627606,
+          "speedup": 1.02543
+        },
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-micro-r4.log",
+          "bytes": 32405,
+          "sha256": "e7ee5a2062cad5fe707eb80cea7fbb2cf5bf251722cf2f1ed595a34ed1f2ea1d"
+        }
+      },
+      {
+        "run": 5,
+        "actual_checkpoint": {
+          "baseline_milliseconds": 0.639722,
+          "candidate_milliseconds": 0.623726,
+          "speedup": 1.02565
+        },
+        "same_bank_stress": {
+          "baseline_milliseconds": 0.643214,
+          "candidate_milliseconds": 0.627181,
+          "speedup": 1.02556
+        },
+        "policy_gate_passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-micro-r5.log",
+          "bytes": 32412,
+          "sha256": "50cb045fc5c87c7ef63f3001aec828026386ebde2ab55c4cb48802017cba48f9"
+        }
+      }
+    ],
+    "summary": {
+      "actual_checkpoint_speedup_min_median_mean_max": [
+        1.02507,
+        1.02565,
+        1.025584,
+        1.02593
+      ],
+      "same_bank_stress_speedup_min_median_mean_max": [
+        1.02534,
+        1.02548,
+        1.025478,
+        1.02558
+      ],
+      "all_five_policy_processes_passed": true
+    }
+  },
+  "nsight_systems_max26_profile_comparison": {
+    "comparison": "independent detached base-commit build versus candidate with matched command and workload; not a same-binary trial",
+    "command_template": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "runner_steps": 44,
+    "reports": {
+      "baseline": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-base.nsys-rep",
+        "bytes": 1348090,
+        "sha256": "727baa40d726211f58337a11b33d5beb59f63934fc25738f55aa40c61523fe28"
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-candidate.nsys-rep",
+        "bytes": 1252092,
+        "sha256": "9cbb447e76a74db09b89c78f6b33ecd768ab31e9668ec6fd691cc491c6b429ab"
+      },
+      "checked_in": false
+    },
+    "stats_exports": {
+      "baseline_kernel_summary": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-base-kernels.csv",
+        "bytes": 8219,
+        "sha256": "196c8cde40fe526c5b991ef09ee7e5233c8e4f4f146432349e2ed7695b48fc1f"
+      },
+      "baseline_grid_block_summary": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-base-kernels-gb.csv",
+        "bytes": 12811,
+        "sha256": "b19406610d10eb15899c91c650601b6ce1b847af687b7820ef33b6811a437637"
+      },
+      "candidate_kernel_summary": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-candidate-kernels.csv",
+        "bytes": 8313,
+        "sha256": "69fb8964e28033c3aed435b5b3c865fb4cb5fd0ccdef9c609e448ab722641558"
+      },
+      "candidate_grid_block_summary": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-candidate-kernels-gb.csv",
+        "bytes": 12904,
+        "sha256": "a349c4e4754d3500ba6aa085061c890841aabeeb31f34fc823cc7837f8acb8df"
+      }
+    },
+    "kernel_groups": {
+      "baseline_gate_up_silu": {
+        "instances": 1664,
+        "milliseconds": 1036.74048
+      },
+      "baseline_standalone_residual_norm": {
+        "instances": 3328,
+        "milliseconds": 74.653472
+      },
+      "candidate_residual_norm_gate_up_silu": {
+        "instances": 1664,
+        "milliseconds": 1053.055264
+      },
+      "candidate_remaining_standalone_residual_norm": {
+        "instances": 1664,
+        "milliseconds": 39.30544,
+        "note": "these calls are the other decoder norm boundary"
+      },
+      "tracked_group_totals": {
+        "baseline_instances": 4992,
+        "candidate_instances": 3328,
+        "removed_instances": 1664,
+        "baseline_milliseconds": 1111.393952,
+        "candidate_milliseconds": 1092.360704,
+        "saved_milliseconds": 19.033248,
+        "reduction_percent": 1.712556377,
+        "speedup": 1.017423959
+      }
+    },
+    "all_cuda_kernels": {
+      "baseline_instances": 18550,
+      "candidate_instances": 16886,
+      "removed_instances": 1664,
+      "launch_reduction_percent": 8.970350404,
+      "baseline_total_milliseconds": 3400.911136,
+      "candidate_total_milliseconds": 3383.698144,
+      "saved_milliseconds": 17.212992,
+      "reduction_percent": 0.506128838,
+      "speedup": 1.005087035
+    },
+    "profiled_generation": {
+      "baseline_total_milliseconds": 3437.927,
+      "candidate_total_milliseconds": 3418.05,
+      "saved_milliseconds": 19.877,
+      "reduction_percent": 0.578168181,
+      "speedup": 1.005815304,
+      "exact_generation_gate_passed": true
+    }
+  },
+  "single_load_end_to_end_benchmark": {
+    "comparison": "detached-base/candidate/candidate/detached-base standalone processes; each loads one engine and reuses it for one warmup plus five measured generations",
+    "command_template": "qwen3x-orin benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "run_order": [
+      "baseline_round1",
+      "candidate_round1",
+      "candidate_round2",
+      "baseline_round2"
+    ],
+    "binaries": {
+      "baseline": {
+        "base_git_commit": "06d0a53f1cafd6ee232c13c48e44391310704b20",
+        "local_path": "/tmp/q3x-resnorm-gateup-base-06d0a53/build-release/qwen3x-orin",
+        "bytes": 2946600,
+        "sha256": "8fc3f9df79c1e98656722a77bddc72ec40088e9ad1cf2d888159c7dd7f2aab90"
+      },
+      "candidate": {
+        "local_path": "build/qwen3x-orin",
+        "bytes": 3015728,
+        "sha256": "936fc577f9ac61f547951d441aab3b494ee99a45e0719b49508912b925b3889e"
+      },
+      "checked_in": false
+    },
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "generation_timing_excludes_engine_load": true,
+    "round_medians": {
+      "baseline": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3405.924,
+          "time_to_first_token_milliseconds": 556.4,
+          "subsequent_token_milliseconds": 113.996
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3405.89,
+          "time_to_first_token_milliseconds": 556.151,
+          "subsequent_token_milliseconds": 113.991
+        }
+      ],
+      "candidate": [
+        {
+          "round": 1,
+          "total_generation_milliseconds": 3381.458,
+          "time_to_first_token_milliseconds": 555.453,
+          "subsequent_token_milliseconds": 113.036
+        },
+        {
+          "round": 2,
+          "total_generation_milliseconds": 3380.342,
+          "time_to_first_token_milliseconds": 555.367,
+          "subsequent_token_milliseconds": 113.008
+        }
+      ]
+    },
+    "average_of_round_medians": {
+      "baseline": {
+        "total_generation_milliseconds": 3405.907,
+        "time_to_first_token_milliseconds": 556.2755,
+        "subsequent_token_milliseconds": 113.9935
+      },
+      "candidate": {
+        "total_generation_milliseconds": 3380.9,
+        "time_to_first_token_milliseconds": 555.41,
+        "subsequent_token_milliseconds": 113.022
+      },
+      "candidate_versus_baseline": {
+        "total_generation_saved_milliseconds": 25.007,
+        "total_generation_reduction_percent": 0.734224,
+        "total_generation_speedup": 1.007396551,
+        "time_to_first_token_saved_milliseconds": 0.8655,
+        "time_to_first_token_reduction_percent": 0.155588,
+        "time_to_first_token_speedup": 1.001558308,
+        "subsequent_token_saved_milliseconds": 0.9715,
+        "subsequent_token_reduction_percent": 0.852242,
+        "subsequent_token_speedup": 1.008595672
+      }
+    },
+    "exactness_gate_per_run": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44,
+      "all_warmup_and_measured_runs_passed": true
+    },
+    "logs": {
+      "baseline_round1": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-e2e-b1.log",
+        "bytes": 5650,
+        "sha256": "c3529c5aee9a4800c004196564579988ee5311bac65aaa7a919c73fd3a747bdf"
+      },
+      "candidate_round1": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-e2e-c1.log",
+        "bytes": 5650,
+        "sha256": "565cd30111b01003f2e4900190f8dd7f19d06c1536b75b23605c2c286ccdefa3"
+      },
+      "candidate_round2": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-e2e-c2.log",
+        "bytes": 5650,
+        "sha256": "3066cb182f1a3f78de3f975cd53b56887e642407d5d432dd446cb65973f3bc36"
+      },
+      "baseline_round2": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-e2e-b2.log",
+        "bytes": 5650,
+        "sha256": "794cd40ce59c169f7c34e8f8e9704d91a697b610c5082820b7acd63489f2fa17"
+      },
+      "checked_in": false
+    }
+  },
+  "correctness": {
+    "full_model_contract": {
+      "prompt_token_ids_exact": 19,
+      "generated_token_ids_exact": 26,
+      "decoded_text_exact": true,
+      "stop_reason": "im_end",
+      "runner_steps_exact": 44
+    },
+    "full_model_exact_gates": [
+      {
+        "prefill_chunk_size": 1,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-exact27b-c1.log",
+          "bytes": 240,
+          "sha256": "31138b11764b210101782d7754ed804a69ae427b5eb917e705350299df558838"
+        }
+      },
+      {
+        "prefill_chunk_size": 8,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-exact27b-c8.log",
+          "bytes": 242,
+          "sha256": "44d2bc7c472c9efdd83c04ecde71e780002a6cd1bf5ffbe4096b1b05fce93ea3"
+        }
+      },
+      {
+        "prefill_chunk_size": 16,
+        "passed": true,
+        "log": {
+          "local_path": "/tmp/q3x-resnorm-gateup-final-exact27b-c16.log",
+          "bytes": 242,
+          "sha256": "97b2754fca0936ef1d3f34a8ae04cea0a5059abf129fc0e924c6252543fc3e43"
+        }
+      }
+    ],
+    "release_suite": {
+      "discovered_tests": 52,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-release-ctest.log",
+        "bytes": 7004,
+        "sha256": "7ae98fd74d7f5189e9d92125827b6e1cf889d919f2043dc217a9198f7c5aadff"
+      }
+    },
+    "asan_ubsan_suite": {
+      "discovered_tests": 51,
+      "failed_tests": 0,
+      "skipped_tests": 4,
+      "excluded_tests": [
+        "package_consumer"
+      ],
+      "asan_options": "detect_leaks=0:halt_on_error=1",
+      "ubsan_options": "halt_on_error=1",
+      "passed": true,
+      "log": {
+        "local_path": "/tmp/q3x-resnorm-gateup-final-sanitize-ctest.log",
+        "bytes": 6904,
+        "sha256": "9e435ac070b1631c9b06065d50f9457c382cd75e9fce4652966e4eb26732ac26"
+      }
+    },
+    "dispatch_graph_contracts": {
+      "low_level_public_exact_kernel_nodes": 1,
+      "low_level_test_exact_kernel_nodes": 1,
+      "low_level_public_test_identity": true,
+      "runtime_aligned_exact_sm87_nvfp4_kernel_nodes": 1,
+      "runtime_unaligned_and_near_miss_sm87_nvfp4_kernel_nodes": 4,
+      "runtime_reference_nvfp4_kernel_nodes": 6,
+      "runtime_aligned_bf16_pair_kernel_nodes": 3,
+      "runtime_aligned_fp8_pair_kernel_nodes": 3,
+      "runtime_unaligned_fp8_pair_kernel_nodes": 4,
+      "small_sm87_and_reference_fallbacks_bitwise_equal_old_chain": true,
+      "invalid_call_kernel_nodes": 0,
+      "large_exact_shape_tests_are_capture_only": true
+    }
+  },
+  "limitations": [
+    "all measurements used unlocked clocks",
+    "the optional microbenchmark is a kernel promotion gate, not a model or serving-throughput result",
+    "the Nsight comparison uses separate baseline and candidate reports rather than a same-binary trial",
+    "the tracked profile groups include the other decoder norm boundary in both policies; the structural removal of 1664 post-attention norm launches is exact",
+    "the B-C-C-B comparison has two process medians per implementation and is not randomized",
+    "the end-to-end result is batch-one generation for one short prompt and excludes engine-load time",
+    "ASan and UBSan instrument host code only; CUDA compute-sanitizer debugging features are disabled on this device",
+    "the raw logs, binaries, CSV exports, and Nsight reports are local artifacts and are not checked into the repository",
+    "this diagnostic does not establish continuous-batching, concurrent-request, or serving throughput"
+  ]
+}

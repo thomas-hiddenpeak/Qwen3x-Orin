@@ -194,9 +194,11 @@ operands, and other backends retain two ordered projections.
 Exact aligned SM87 NVFP4 M1 dense-MLP gate/up projections and their SiLU
 multiply likewise use one rolled two-phase projection plus CTA-parallel
 epilogue launch. Gate and up are independently rounded to BF16 before the
-epilogue, and the up output is retained. C2 through C16, near-miss shapes,
-unaligned operands, and other backends retain gate projection, up projection,
-and SiLU as three ordered launches.
+epilogue, and the up output is retained. At the production post-attention
+boundary, the same exact route also folds BF16 residual addition and centered
+RMSNorm into that launch: CTA 0 writes the public residual, while the normalized
+activation remains CTA-local. C2 through C16, near-miss shapes, unaligned
+operands, and other backends retain the validated ordered fallbacks.
 
 Add `--trace` to emit embedding, every layer hidden/residual, final-norm, and
 whole-step SHA-256 digests. Successful machine-readable `key=value` results go
@@ -331,6 +333,17 @@ C8, and C16 retain the exact 19/26-token oracle. Clocks remained unlocked, so
 the result is diagnostic rather than a release or serving-throughput claim;
 see the
 [NVFP4 gate/up/SiLU fusion record](docs/metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
+The next exact aligned NVFP4 M1 boundary fusion absorbs post-attention BF16
+residual addition and centered RMSNorm into that existing gate/up/SiLU kernel.
+Five final same-binary processes measure 1.02507x to 1.02593x on checkpoint
+bytes and 1.02534x to 1.02558x on the same-bank guard. The matched max-26
+profile removes another 1,664 launches and reduces all CUDA-kernel time from
+3,400.911136 to 3,383.698144 ms. A detached-base B-C-C-B diagnostic reduces
+average total generation from 3,405.9070 to 3,380.9000 ms (0.734224%) and
+subsequent-token latency from 113.9935 to 113.0220 ms (0.852242%). C1, C8,
+and C16 preserve the exact oracle. Clocks remained unlocked, so this is
+diagnostic rather than release or serving-throughput evidence; see the
+[NVFP4 residual/norm/gate/up/SiLU fusion record](docs/metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
 At the earlier packed-x4 C1 milestone, the complete 26-token fixed-oracle CTest
 had fallen from 234.35 to 40.60 seconds while retaining exact IDs, text, stop
 semantics, and runner steps. See the

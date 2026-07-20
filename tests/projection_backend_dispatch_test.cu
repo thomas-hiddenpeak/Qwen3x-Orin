@@ -137,6 +137,46 @@ template <typename Launch>
   return ready ? kernel_nodes : kInvalidCount;
 }
 
+template <typename Launch>
+void expect_invalid_capture_has_no_nodes(TestContext& test, Launch&& launch,
+                                         const std::string& label) {
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+      "create invalid capture stream " + label);
+  ready = ready && test.cuda_ok(
+                       cudaStreamBeginCapture(stream,
+                                              cudaStreamCaptureModeGlobal),
+                       "begin invalid capture " + label);
+  if (ready) {
+    test.expect(static_cast<cudaError_t>(launch(stream)) ==
+                    cudaErrorInvalidValue,
+                label + " returns cudaErrorInvalidValue");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "end invalid capture " + label);
+  }
+
+  if (ready && graph != nullptr) {
+    std::size_t node_count = std::numeric_limits<std::size_t>::max();
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         "count invalid capture nodes " + label);
+    if (ready) {
+      test.expect(node_count == 0U, label + " enqueues zero graph nodes");
+    }
+  } else if (ready) {
+    test.expect(false, label + " produces an empty CUDA graph");
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph),
+                       "destroy invalid capture graph " + label);
+  }
+  if (stream != nullptr) {
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy invalid capture stream " + label);
+  }
+}
+
 [[nodiscard]] bool expect_output(TestContext& test,
                                  const DeviceBuffer<std::uint16_t>& output,
                                  const std::uint16_t expected,
@@ -1783,6 +1823,559 @@ void test_nvfp4_mlp_gate_up_silu_dispatch(TestContext& test) {
       "gate output overlapping up packed weights");
 }
 
+void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
+    TestContext& test) {
+  constexpr std::size_t kExactRows = 17'408U;
+  constexpr std::size_t kBf16PairRows = 48U;
+  constexpr std::size_t kFp8PairRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr float kEpsilon = 1.0e-6F;
+  constexpr float kExactGateScale = 1.0F / 64.0F;
+  constexpr float kExactUpScale = 1.0F / 128.0F;
+
+  const auto* const fake_gate_packed =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const fake_unaligned_gate_packed =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0002ULL);
+  const auto* const fake_gate_scales =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const fake_up_packed =
+      reinterpret_cast<const std::uint8_t*>(0x30'0000'0000ULL);
+  const auto* const fake_up_scales =
+      reinterpret_cast<const std::uint8_t*>(0x40'0000'0000ULL);
+  const auto* const fake_gate_weight_scale =
+      reinterpret_cast<const float*>(0x50'0000'0000ULL);
+  const auto* const fake_gate_input_scale =
+      reinterpret_cast<const float*>(0x51'0000'0000ULL);
+  const auto* const fake_up_weight_scale =
+      reinterpret_cast<const float*>(0x52'0000'0000ULL);
+  const auto* const fake_up_input_scale =
+      reinterpret_cast<const float*>(0x53'0000'0000ULL);
+  const auto* const fake_residual_left =
+      reinterpret_cast<const std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const fake_residual_right =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+  const auto* const fake_norm_weight =
+      reinterpret_cast<const std::uint16_t*>(0x80'0000'0000ULL);
+  auto* const fake_residual_output =
+      reinterpret_cast<std::uint16_t*>(0x90'0000'0000ULL);
+  auto* const fake_gate_output =
+      reinterpret_cast<std::uint16_t*>(0xa0'0000'0000ULL);
+  auto* const fake_up_output =
+      reinterpret_cast<std::uint16_t*>(0xb0'0000'0000ULL);
+  const auto* const fake_bf16_gate_weight =
+      reinterpret_cast<const std::uint16_t*>(0xc0'0000'0000ULL);
+  const auto* const fake_bf16_up_weight =
+      reinterpret_cast<const std::uint16_t*>(0xd0'0000'0000ULL);
+  const auto* const fake_fp8_gate_weight =
+      reinterpret_cast<const std::uint8_t*>(0xe0'0000'0000ULL);
+  const auto* const fake_unaligned_fp8_gate_weight =
+      reinterpret_cast<const std::uint8_t*>(0xe0'0000'0002ULL);
+  const auto* const fake_fp8_up_weight =
+      reinterpret_cast<const std::uint8_t*>(0xf0'0000'0000ULL);
+  const auto* const fake_fp8_gate_weight_scale =
+      reinterpret_cast<const float*>(0x54'0000'0000ULL);
+  const auto* const fake_fp8_gate_input_scale =
+      reinterpret_cast<const float*>(0x55'0000'0000ULL);
+  const auto* const fake_fp8_up_weight_scale =
+      reinterpret_cast<const float*>(0x56'0000'0000ULL);
+  const auto* const fake_fp8_up_input_scale =
+      reinterpret_cast<const float*>(0x57'0000'0000ULL);
+
+  const runtime::LinearWeight exact_gate = runtime::NvFp4LinearWeight{
+      fake_gate_packed, fake_gate_scales, fake_gate_weight_scale,
+      fake_gate_input_scale, kExactGateScale, 1.0F, kExactRows, kColumns};
+  const runtime::LinearWeight exact_up = runtime::NvFp4LinearWeight{
+      fake_up_packed, fake_up_scales, fake_up_weight_scale,
+      fake_up_input_scale, kExactUpScale, 1.0F, kExactRows, kColumns};
+  std::size_t exact_total_nodes = 0U;
+  const std::size_t exact_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "exact residual-norm NVFP4 MLP fusion graph", &exact_total_nodes);
+  test.expect(exact_total_nodes == 1U && exact_kernel_nodes == 1U,
+              "exact residual-norm NVFP4 MLP graph has one fused kernel");
+
+  const runtime::LinearWeight unaligned_exact_gate =
+      runtime::NvFp4LinearWeight{
+          fake_unaligned_gate_packed, fake_gate_scales,
+          fake_gate_weight_scale, fake_gate_input_scale, kExactGateScale,
+          1.0F, kExactRows, kColumns};
+  std::size_t unaligned_total_nodes = 0U;
+  const std::size_t unaligned_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                unaligned_exact_gate, exact_up, fake_residual_left,
+                fake_residual_right, fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "unaligned residual-norm NVFP4 MLP fallback graph",
+      &unaligned_total_nodes);
+  test.expect(unaligned_total_nodes == 4U && unaligned_kernel_nodes == 4U,
+              "unaligned residual-norm NVFP4 MLP uses norm plus old MLP");
+
+  const runtime::LinearWeight near_miss_gate = runtime::NvFp4LinearWeight{
+      fake_gate_packed, fake_gate_scales, fake_gate_weight_scale,
+      fake_gate_input_scale, kExactGateScale, 1.0F, kExactRows - 1U,
+      kColumns};
+  const runtime::LinearWeight near_miss_up = runtime::NvFp4LinearWeight{
+      fake_up_packed, fake_up_scales, fake_up_weight_scale,
+      fake_up_input_scale, kExactUpScale, 1.0F, kExactRows - 1U, kColumns};
+  std::size_t near_miss_total_nodes = 0U;
+  const std::size_t near_miss_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                near_miss_gate, near_miss_up, fake_residual_left,
+                fake_residual_right, fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "near-miss residual-norm NVFP4 MLP fallback graph",
+      &near_miss_total_nodes);
+  test.expect(near_miss_total_nodes == 4U && near_miss_kernel_nodes == 4U,
+              "near-miss residual-norm NVFP4 MLP uses four-step fallback");
+
+  const runtime::LinearWeight bf16_gate = runtime::Bf16LinearWeight{
+      fake_bf16_gate_weight, kBf16PairRows, kColumns};
+  const runtime::LinearWeight bf16_up = runtime::Bf16LinearWeight{
+      fake_bf16_up_weight, kBf16PairRows, kColumns};
+  std::size_t bf16_total_nodes = 0U;
+  const std::size_t bf16_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, bf16_gate,
+                bf16_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "SM87 BF16 pair residual-norm MLP graph", &bf16_total_nodes);
+  test.expect(bf16_total_nodes == 3U && bf16_kernel_nodes == 3U,
+              "SM87 BF16 residual-norm MLP graph has norm, pair, and SiLU");
+
+  const runtime::LinearWeight fp8_gate = runtime::Fp8LinearWeight{
+      fake_fp8_gate_weight, fake_fp8_gate_weight_scale,
+      fake_fp8_gate_input_scale, 1.0F / 64.0F, 1.0F, kFp8PairRows,
+      kColumns};
+  const runtime::LinearWeight fp8_up = runtime::Fp8LinearWeight{
+      fake_fp8_up_weight, fake_fp8_up_weight_scale,
+      fake_fp8_up_input_scale, 1.0F / 128.0F, 1.0F, kFp8PairRows,
+      kColumns};
+  std::size_t fp8_total_nodes = 0U;
+  const std::size_t fp8_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, fp8_gate,
+                fp8_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "SM87 aligned FP8 pair residual-norm MLP graph", &fp8_total_nodes);
+  test.expect(fp8_total_nodes == 3U && fp8_kernel_nodes == 3U,
+              "aligned FP8 residual-norm MLP graph has norm, pair, and SiLU");
+
+  const runtime::LinearWeight unaligned_fp8_gate =
+      runtime::Fp8LinearWeight{
+          fake_unaligned_fp8_gate_weight, fake_fp8_gate_weight_scale,
+          fake_fp8_gate_input_scale, 1.0F / 64.0F, 1.0F,
+          kFp8PairRows, kColumns};
+  std::size_t unaligned_fp8_total_nodes = 0U;
+  const std::size_t unaligned_fp8_kernel_nodes =
+      captured_kernel_node_count(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::
+                launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    unaligned_fp8_gate, fp8_up, fake_residual_left,
+                    fake_residual_right, fake_norm_weight, kEpsilon, nullptr,
+                    0U, fake_residual_output, fake_gate_output,
+                    fake_up_output, static_cast<void*>(stream));
+          },
+          "SM87 unaligned FP8 pair residual-norm MLP graph",
+          &unaligned_fp8_total_nodes);
+  test.expect(unaligned_fp8_total_nodes == 4U &&
+                  unaligned_fp8_kernel_nodes == 4U,
+              "unaligned FP8 residual-norm MLP graph preserves split pair");
+
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, 0.0F, nullptr, 0U, fake_residual_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "residual-norm NVFP4 MLP invalid zero epsilon");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight,
+                std::numeric_limits<float>::quiet_NaN(), nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "residual-norm NVFP4 MLP NaN epsilon");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U, fake_gate_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "residual output aliases gate output");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                reinterpret_cast<std::uint16_t*>(
+                    const_cast<float*>(fake_gate_weight_scale)),
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "residual output aliases persistent gate scalar weight");
+
+  constexpr std::size_t kRows = 4U;
+  constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kColumns / 16U);
+  constexpr float kGateScale = 1.0F / 16.0F;
+  constexpr float kUpScale = 1.0F / 32.0F;
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<float> scratch;
+  DeviceBuffer<std::uint16_t> residual_left;
+  DeviceBuffer<std::uint16_t> baseline_right;
+  DeviceBuffer<std::uint16_t> candidate_right;
+  DeviceBuffer<std::uint16_t> norm_weight;
+  DeviceBuffer<std::uint16_t> baseline_residual;
+  DeviceBuffer<std::uint16_t> candidate_residual;
+  DeviceBuffer<std::uint16_t> baseline_gate;
+  DeviceBuffer<std::uint16_t> baseline_up;
+  DeviceBuffer<std::uint16_t> candidate_gate;
+  DeviceBuffer<std::uint16_t> candidate_up;
+  bool ready = gate_packed.allocate(
+      test, kPackedBytes, "residual-norm small gate packed weights");
+  ready = ready && gate_scales.allocate(
+                       test, kScaleBytes,
+                       "residual-norm small gate block scales");
+  ready = ready && up_packed.allocate(
+                       test, kPackedBytes,
+                       "residual-norm small up packed weights");
+  ready = ready && up_scales.allocate(
+                       test, kScaleBytes,
+                       "residual-norm small up block scales");
+  ready = ready && companion_scales.allocate(
+                       test, 4U, "residual-norm companion scales");
+  ready = ready && scratch.allocate(test, kRows,
+                                    "residual-norm reference scratch");
+  ready = ready && residual_left.allocate(
+                       test, kColumns, "residual-norm left input");
+  ready = ready && baseline_right.allocate(
+                       test, kColumns, "residual-norm baseline right input");
+  ready = ready && candidate_right.allocate(
+                       test, kColumns,
+                       "residual-norm candidate right input");
+  ready = ready && norm_weight.allocate(
+                       test, kColumns, "residual-norm weight");
+  ready = ready && baseline_residual.allocate(
+                       test, kColumns, "residual-norm baseline residual");
+  ready = ready && candidate_residual.allocate(
+                       test, kColumns, "residual-norm candidate residual");
+  ready = ready && baseline_gate.allocate(
+                       test, kRows, "residual-norm baseline final");
+  ready = ready && baseline_up.allocate(
+                       test, kRows, "residual-norm baseline up");
+  ready = ready && candidate_gate.allocate(
+                       test, kRows, "residual-norm candidate final");
+  ready = ready && candidate_up.allocate(
+                       test, kRows, "residual-norm candidate up");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_left(kColumns);
+  std::vector<std::uint16_t> host_right(kColumns);
+  std::vector<std::uint16_t> host_norm_weight(kColumns);
+  constexpr std::array<std::uint16_t, 8U> kLeftPattern{
+      0x3f80U, 0xbf00U, 0x3e80U, 0x3f00U,
+      0xbf80U, 0x3fc0U, 0xbe80U, 0x4000U};
+  constexpr std::array<std::uint16_t, 8U> kRightPattern{
+      0x3e00U, 0xbe80U, 0x3f00U, 0xbf40U,
+      0x3e80U, 0x3f80U, 0xbf00U, 0x3f40U};
+  constexpr std::array<std::uint16_t, 8U> kNormPattern{
+      0x3f80U, 0x3f00U, 0x3fc0U, 0x3e80U,
+      0x4000U, 0x3f40U, 0x3fa0U, 0x3f20U};
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    host_left[column] = kLeftPattern[column % kLeftPattern.size()];
+    host_right[column] = kRightPattern[column % kRightPattern.size()];
+    host_norm_weight[column] =
+        kNormPattern[column % kNormPattern.size()];
+  }
+  ready = upload(test, gate_packed,
+                 std::vector<std::uint8_t>(kPackedBytes, 0x21U),
+                 "residual-norm small gate packed weights");
+  ready = ready && upload(
+                       test, gate_scales,
+                       std::vector<std::uint8_t>(kScaleBytes, 0x38U),
+                       "residual-norm small gate block scales");
+  ready = ready && upload(
+                       test, up_packed,
+                       std::vector<std::uint8_t>(kPackedBytes, 0x32U),
+                       "residual-norm small up packed weights");
+  ready = ready && upload(
+                       test, up_scales,
+                       std::vector<std::uint8_t>(kScaleBytes, 0x38U),
+                       "residual-norm small up block scales");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kGateScale, 1.0F, kUpScale, 1.0F},
+                       "residual-norm companion scales");
+  ready = ready && upload(test, residual_left, host_left,
+                          "residual-norm left input");
+  ready = ready && upload(test, baseline_right, host_right,
+                          "residual-norm baseline right input");
+  ready = ready && upload(test, candidate_right, host_right,
+                          "residual-norm candidate right input");
+  ready = ready && upload(test, norm_weight, host_norm_weight,
+                          "residual-norm weight");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight small_gate = runtime::NvFp4LinearWeight{
+      gate_packed.get(), gate_scales.get(), companion_scales.get(),
+      companion_scales.get() + 1U, kGateScale, 1.0F, kRows, kColumns};
+  const runtime::LinearWeight small_up = runtime::NvFp4LinearWeight{
+      up_packed.get(), up_scales.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kUpScale, 1.0F, kRows, kColumns};
+
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, small_gate,
+                small_up, residual_left.get(), candidate_right.get(),
+                norm_weight.get(), 0.0F, nullptr, 0U,
+                candidate_residual.get(), candidate_gate.get(),
+                candidate_up.get(), static_cast<void*>(stream));
+      },
+      "fallback residual-norm MLP rejects zero epsilon before norm");
+
+  const runtime::LinearWeight near_column_gate =
+      runtime::NvFp4LinearWeight{
+          gate_packed.get(), gate_scales.get(), companion_scales.get(),
+          companion_scales.get() + 1U, kGateScale, 1.0F, kRows,
+          kColumns - 16U};
+  const runtime::LinearWeight near_column_up = runtime::NvFp4LinearWeight{
+      up_packed.get(), up_scales.get(), companion_scales.get() + 2U,
+      companion_scales.get() + 3U, kUpScale, 1.0F, kRows,
+      kColumns - 16U};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                near_column_gate, near_column_up, residual_left.get(),
+                candidate_right.get(), norm_weight.get(), kEpsilon, nullptr,
+                0U, candidate_residual.get(), candidate_gate.get(),
+                candidate_up.get(), static_cast<void*>(stream));
+      },
+      "fallback residual-norm MLP rejects K near miss before norm");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kReference, small_gate, small_up,
+                residual_left.get(), candidate_right.get(), norm_weight.get(),
+                kEpsilon, scratch.get(), kRows - 1U,
+                candidate_residual.get(), candidate_gate.get(),
+                candidate_up.get(), static_cast<void*>(stream));
+      },
+      "reference residual-norm MLP rejects insufficient scratch before norm");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kReference, small_gate, small_up,
+                residual_left.get(), candidate_right.get(), norm_weight.get(),
+                kEpsilon, reinterpret_cast<float*>(norm_weight.get()), kRows,
+                candidate_residual.get(), candidate_gate.get(),
+                candidate_up.get(), static_cast<void*>(stream));
+      },
+      "reference residual-norm MLP rejects scratch aliasing norm weight");
+
+  std::size_t reference_total_nodes = 0U;
+  const std::size_t reference_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                runtime::ProjectionBackend::kReference, small_gate, small_up,
+                residual_left.get(), candidate_right.get(), norm_weight.get(),
+                kEpsilon, scratch.get(), kRows, candidate_residual.get(),
+                candidate_gate.get(), candidate_up.get(),
+                static_cast<void*>(stream));
+      },
+      "reference residual-norm NVFP4 MLP fallback graph",
+      &reference_total_nodes);
+  test.expect(reference_total_nodes == 6U && reference_kernel_nodes == 6U,
+              "reference residual-norm MLP preserves one plus five kernels");
+
+  const auto expect_fallback_matches = [&]
+      (const runtime::ProjectionBackend backend,
+       float* const scratch_pointer, const std::size_t scratch_elements,
+       const std::string& label) {
+    bool reset = upload(test, baseline_right, host_right,
+                        label + " reset baseline right");
+    reset = reset && upload(test, candidate_right, host_right,
+                            label + " reset candidate right");
+    if (!reset) {
+      return;
+    }
+    int status = runtime::launch_residual_add_centered_rms_norm_5120_cuda(
+        residual_left.get(), baseline_right.get(), norm_weight.get(),
+        kEpsilon, baseline_residual.get(), baseline_right.get());
+    if (static_cast<cudaError_t>(status) == cudaSuccess) {
+      status = runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
+          backend, small_gate, small_up, baseline_right.get(),
+          scratch_pointer, scratch_elements, baseline_gate.get(),
+          baseline_up.get());
+    }
+    test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+                label + " old two-call chain succeeds");
+    if (static_cast<cudaError_t>(status) != cudaSuccess) {
+      return;
+    }
+    status = runtime::
+        launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+            backend, small_gate, small_up, residual_left.get(),
+            candidate_right.get(), norm_weight.get(), kEpsilon,
+            scratch_pointer, scratch_elements, candidate_residual.get(),
+            candidate_gate.get(), candidate_up.get());
+    test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+                label + " combined API succeeds");
+    if (static_cast<cudaError_t>(status) != cudaSuccess ||
+        !test.cuda_ok(cudaDeviceSynchronize(), "synchronize " + label)) {
+      return;
+    }
+
+    std::vector<std::uint16_t> actual_residual(kColumns);
+    std::vector<std::uint16_t> expected_residual(kColumns);
+    std::vector<std::uint16_t> actual_normalized(kColumns);
+    std::vector<std::uint16_t> expected_normalized(kColumns);
+    std::array<std::uint16_t, kRows> actual_final{};
+    std::array<std::uint16_t, kRows> expected_final{};
+    std::array<std::uint16_t, kRows> actual_up{};
+    std::array<std::uint16_t, kRows> expected_up{};
+    bool copied = test.cuda_ok(
+        cudaMemcpy(actual_residual.data(), candidate_residual.get(),
+                   actual_residual.size() * sizeof(actual_residual.front()),
+                   cudaMemcpyDeviceToHost),
+        "download candidate residual " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_residual.data(),
+                                      baseline_residual.get(),
+                                      expected_residual.size() *
+                                          sizeof(expected_residual.front()),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline residual " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(actual_normalized.data(),
+                                      candidate_right.get(),
+                                      actual_normalized.size() *
+                                          sizeof(actual_normalized.front()),
+                                      cudaMemcpyDeviceToHost),
+                           "download candidate normalized input " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_normalized.data(),
+                                      baseline_right.get(),
+                                      expected_normalized.size() *
+                                          sizeof(expected_normalized.front()),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline normalized input " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(actual_final.data(),
+                                      candidate_gate.get(),
+                                      sizeof(actual_final),
+                                      cudaMemcpyDeviceToHost),
+                           "download candidate final " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_final.data(),
+                                      baseline_gate.get(),
+                                      sizeof(expected_final),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline final " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(actual_up.data(), candidate_up.get(),
+                                      sizeof(actual_up),
+                                      cudaMemcpyDeviceToHost),
+                           "download candidate up " + label);
+    copied = copied && test.cuda_ok(
+                           cudaMemcpy(expected_up.data(), baseline_up.get(),
+                                      sizeof(expected_up),
+                                      cudaMemcpyDeviceToHost),
+                           "download baseline up " + label);
+    if (copied) {
+      test.expect(actual_residual == expected_residual,
+                  label + " residual is bitwise old chain");
+      test.expect(actual_normalized == expected_normalized,
+                  label + " normalized right side effect is bitwise old chain");
+      test.expect(actual_final == expected_final,
+                  label + " final gate/SiLU is bitwise old chain");
+      test.expect(actual_up == expected_up,
+                  label + " retained up is bitwise old chain");
+    }
+  };
+  expect_fallback_matches(runtime::ProjectionBackend::kSm87WeightOnly,
+                          nullptr, 0U,
+                          "small SM87 residual-norm MLP fallback");
+  expect_fallback_matches(runtime::ProjectionBackend::kReference,
+                          scratch.get(), kRows,
+                          "small reference residual-norm MLP fallback");
+}
+
 void test_fp8_m16_production_dispatch(TestContext& test) {
   constexpr std::size_t kTokens = 16U;
   constexpr std::size_t kRows = 5'120U;
@@ -2446,6 +3039,7 @@ int main() {
   test_fp8_projection_pair_dispatch(test);
   test_fp8_qkv_z_projection_pair_dispatch(test);
   test_nvfp4_mlp_gate_up_silu_dispatch(test);
+  test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

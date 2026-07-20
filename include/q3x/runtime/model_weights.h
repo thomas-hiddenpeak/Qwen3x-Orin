@@ -377,4 +377,23 @@ struct WeightBindResult {
     std::uint16_t* gate_output, std::uint16_t* up_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fuses the post-attention residual add and centered RMSNorm with the exact
+// aligned SM87 NVFP4 M=1 gate/up/SiLU path. residual_right_and_normalized is
+// read as the residual's right operand; the fused path consumes its normalized
+// value only in CTA-local shared memory, while every fallback writes the
+// normalized BF16 vector back to that buffer before launching the existing
+// MLP chain. residual_output always receives the rounded residual. All
+// unsupported valid combinations preserve the previous two-call ordering.
+[[nodiscard]] int
+launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight,
+    const std::uint16_t* residual_left,
+    std::uint16_t* residual_right_and_normalized,
+    const std::uint16_t* norm_weight, float epsilon,
+    float* fp32_scratch, std::size_t scratch_elements,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::runtime

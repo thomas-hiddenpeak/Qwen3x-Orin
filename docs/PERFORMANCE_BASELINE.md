@@ -46,6 +46,9 @@ recorded in
 The subsequent exact NVFP4 M1 dense-MLP gate/up/SiLU fusion diagnostic is
 recorded in
 [`qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
+The follow-up post-attention residual/norm/gate/up/SiLU fusion diagnostic is
+recorded in
+[`qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-residual-norm-gate-up-silu-fusion-benchmark.json).
 
 ## Method
 
@@ -1237,6 +1240,94 @@ discovered tests with four skipped; ASan/UBSan reported zero failures across
 batch-one, single-prompt diagnostic evidence rather than randomized, release,
 concurrent-request, or serving-throughput claims.
 
+## NVFP4 post-attention residual/norm/gate/up/SiLU fusion
+
+The worktree based on `06d0a53f1cafd6ee232c13c48e44391310704b20`
+extends the exact aligned M1 NVFP4 `[17408,5120]` gate/up/SiLU kernel across
+the preceding post-attention BF16 residual-add and centered-RMSNorm boundary.
+The result is one 64-CTA, 256-thread launch. Every CTA reproduces the previous
+256-thread reduction exactly: each thread processes its same 20 columns with
+the same `fmaf` accumulation and reduction tree, then applies `rsqrtf`, gamma,
+and BF16-RNE in the same order. CTA 0 alone writes the public residual; all
+CTAs place the normalized 5,120-element activation only in 10,240 bytes of
+shared memory before the rolled gate/up phases and CTA-parallel SiLU epilogue.
+The reused shared allocation keeps the kernel at 11,328 static-shared bytes,
+64 registers per thread, zero local bytes, and four active blocks per SM.
+
+Eligibility remains explicit SM87, exact ordered NVFP4 gate/up
+`[17408,5120]` weights, positive finite epsilon, and the required operand
+alignments and disjoint writable ranges. The whole composite call validates
+before its first enqueue, including device scalar-weight aliases and, when a
+fallback needs it, FP32 scratch overlap with the residual-left and norm-weight
+ranges. Aligned exact M1 uses one node. Unaligned or near-miss SM87 NVFP4 uses
+four; reference NVFP4 uses six; aligned SM87 BF16 and FP8 pairs use three;
+unaligned FP8 uses four. C2 through C16 never select this exact M1 fusion.
+
+The final same-binary gate uses the pinned layer-0 gate/up checkpoint payloads
+and the deterministic same-bank fixture. Each process performs 10 warmups,
+64 logical chains per timed pass, and five baseline/candidate/candidate/base
+rounds. The frozen thresholds are 1.005x for checkpoint bytes and 1.00x for
+the stress guard:
+
+| Independent process | Checkpoint baseline | Single kernel | Speedup | Stress speedup |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.639913 ms | 0.623738 ms | 1.02593x | 1.02548x |
+| 2 | 0.639629 ms | 0.623983 ms | 1.02507x | 1.02534x |
+| 3 | 0.639832 ms | 0.623807 ms | 1.02569x | 1.02558x |
+| 4 | 0.640239 ms | 0.624272 ms | 1.02558x | 1.02543x |
+| 5 | 0.639722 ms | 0.623726 ms | 1.02565x | 1.02556x |
+
+Checkpoint speedup min/median/mean/max is
+1.02507x/1.02565x/1.025584x/1.02593x. Stress speedup is
+1.02534x/1.02548x/1.025478x/1.02558x. Finite and nonfinite bounded fixtures
+match the old two-call chain bitwise: residual, final gate, and up mismatches
+are zero; all 4,096 nonfinite outputs preserve NaN class/sign; guards and
+inputs remain intact. The public/test exact launches capture one identical
+kernel node, while invalid calls capture zero.
+
+Matched max-26-token Nsight reports compare an independently rebuilt detached
+base with the candidate:
+
+| Profile group | Detached base | Candidate | Change |
+| --- | ---: | ---: | ---: |
+| Gate/up/SiLU or new full fusion | 1,664 / 1,036.740480 ms | 1,664 / 1,053.055264 ms | absorbs residual/norm work |
+| Standalone residual-add + norm | 3,328 / 74.653472 ms | 1,664 / 39.305440 ms | -1,664 launches / -35.348032 ms |
+| Two tracked groups | 4,992 / 1,111.393952 ms | 3,328 / 1,092.360704 ms | -1,664 / -19.033248 ms (1.712556%) |
+| All CUDA kernels | 18,550 / 3,400.911136 ms | 16,886 / 3,383.698144 ms | -1,664 / -17.212992 ms (0.506129%) |
+| Profiled generation | 3,437.927 ms | 3,418.050 ms | -19.877 ms (0.578168%) |
+
+The base report is 1,348,090 bytes with SHA-256
+`727baa40d726211f58337a11b33d5beb59f63934fc25738f55aa40c61523fe28`;
+the candidate is 1,252,092 bytes with SHA-256
+`9cbb447e76a74db09b89c78f6b33ecd768ab31e9668ec6fd691cc491c6b429ab`.
+The remaining 1,664 standalone norm calls are the other decoder norm boundary,
+not a failure to dispatch the post-attention fusion.
+
+The independent B-C-C-B comparison loads one engine per process, warms once,
+and measures five generations:
+
+| Process order | Total generation median | TTFT median | Subsequent-token median |
+| --- | ---: | ---: | ---: |
+| Base 1 | 3,405.924 ms | 556.400 ms | 113.996 ms |
+| Candidate 1 | 3,381.458 ms | 555.453 ms | 113.036 ms |
+| Candidate 2 | 3,380.342 ms | 555.367 ms | 113.008 ms |
+| Base 2 | 3,405.890 ms | 556.151 ms | 113.991 ms |
+
+| Average of two process medians | Detached base | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| Total generation | 3,405.9070 ms | 3,380.9000 ms | 25.0070 ms (0.734224%) |
+| Time to first token | 556.2755 ms | 555.4100 ms | 0.8655 ms (0.155588%) |
+| Subsequent token | 113.9935 ms | 113.0220 ms | 0.9715 ms (0.852242%) |
+
+Every measured generation and dedicated C1/C8/C16 run retained the exact
+19/26-token, decoded-text, `<|im_end|>`, and 44-step oracle. Release reported
+zero failures across 52 discovered tests with four skips; ASan/UBSan reported
+zero failures across 51 discovered tests with four skips and
+`package_consumer` excluded. Clocks were unlocked. The
+microbenchmark, separate profiles, and two-process-per-policy B-C-C-B result
+remain batch-one, local-artifact diagnostics rather than randomized, release,
+concurrent-request, or serving-throughput claims.
+
 ## Correctness gate
 
 The historical `reference_engine_e2e` gate at `5fe0ae0` loaded the pinned 27B
@@ -1292,16 +1383,19 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 10. fuse dense-MLP NVFP4 gate/up/SiLU only for aligned ordered M1
     `[17408,5120]` operands, retaining two ordered projections plus SiLU for
     C2 through C16 and every other valid case;
-11. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
-   `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
-   test baseline and all other fallbacks;
-12. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
+11. fuse post-attention BF16 residual add and centered RMSNorm into that exact
+    aligned NVFP4 M1 gate/up/SiLU route, retaining the fully prevalidated
+    ordered chain for every fallback;
+12. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
+    `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
+    test baseline and all other fallbacks;
+13. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
     retaining the four-row lane-striped predecessor as a same-binary test
     baseline;
-13. retain exact-token, numerical, replay, and memory gates for every dispatch
-   change;
-14. lock clocks when privileged access is available before making a formal
-   release performance claim.
+14. retain exact-token, numerical, replay, and memory gates for every dispatch
+    change;
+15. lock clocks when privileged access is available before making a formal
+    release performance claim.
 
 The small-M and bounded `C<=16` gates are complete. The next prefill work
 is broader prompt/shape coverage and a measured dispatch boundary between the

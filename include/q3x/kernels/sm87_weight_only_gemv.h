@@ -94,6 +94,32 @@ namespace q3x::kernels {
     std::uint16_t* gate_output, std::uint16_t* up_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fuses the post-attention residual add and centered RMSNorm into the exact
+// NVFP4 gate/up/SiLU projection above. residual_output receives
+// BF16(residual_left + residual_right). The normalized BF16 activation is
+// consumed directly from CTA-local shared memory and is not materialized as
+// a global output. gate_output and up_output retain the same contracts as the
+// gate/up/SiLU entry point.
+//
+// Only [17408, 5120] is accepted. epsilon must be finite and positive. Packed
+// weights require 4-byte alignment; all BF16 pointers require 2-byte
+// alignment. The three output spans must be mutually disjoint and disjoint
+// from every input, packed-weight, and block-scale span. Invalid arguments
+// return cudaErrorInvalidValue before work is enqueued.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Small-M sequence-tile projections over the same canonical weight layouts.
 // activations is contiguous token-major BF16 [token_count, columns] and output
 // is contiguous token-major BF16 [token_count, rows]. token_count must be in

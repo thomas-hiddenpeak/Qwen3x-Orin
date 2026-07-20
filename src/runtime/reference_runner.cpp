@@ -1226,12 +1226,16 @@ ReferenceStepOutcome ReferenceRunner::step(
           layer));
     }
 
-    if (!check_cuda(launch_residual_add_centered_rms_norm_5120_cuda(
-                        views_.hidden[0], views_.hidden[1],
-                        layer_weights.post_attention_layernorm.data,
-                        kRmsEpsilon, views_.hidden[2], views_.hidden[1],
-                        stream_),
-                    "attention_residual_post_attention_layernorm", layer)) {
+    if (!check_cuda(
+            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                projection_backend_, layer_weights.mlp.gate_proj,
+                layer_weights.mlp.up_proj, views_.hidden[0],
+                views_.hidden[1],
+                layer_weights.post_attention_layernorm.data, kRmsEpsilon,
+                views_.fp32_scratch, views_.fp32_scratch_elements,
+                views_.hidden[2], views_.projection[0], views_.projection[1],
+                stream_),
+            "attention_residual_norm_mlp_gate_up_silu", layer)) {
       return fail_step(launch_failure);
     }
     const std::size_t trace_base =
@@ -1242,14 +1246,7 @@ ReferenceStepOutcome ReferenceRunner::step(
       return fail_step(launch_failure);
     }
 
-    if (!check_cuda(launch_mlp_gate_up_silu_to_bf16_cuda(
-                        projection_backend_, layer_weights.mlp.gate_proj,
-                        layer_weights.mlp.up_proj, views_.hidden[1],
-                        views_.fp32_scratch,
-                        views_.fp32_scratch_elements, views_.projection[0],
-                        views_.projection[1], stream_),
-                    "mlp_gate_up_silu", layer) ||
-        !project(layer_weights.mlp.down_proj, views_.projection[0],
+    if (!project(layer_weights.mlp.down_proj, views_.projection[0],
                  views_.hidden[1], "mlp_down_projection", layer)) {
       return fail_step(launch_failure);
     }

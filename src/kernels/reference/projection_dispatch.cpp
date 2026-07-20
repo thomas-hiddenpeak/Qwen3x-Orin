@@ -290,6 +290,66 @@ struct ProjectionTileSpans {
   return static_cast<int>(cudaSuccess);
 }
 
+struct MlpGateUpSiluLaunchPlan {
+  bool aligned_nvfp4_fusion = false;
+  bool direct_output = false;
+  ProjectionTileSpans gate;
+  ProjectionTileSpans up;
+};
+
+[[nodiscard]] int validate_mlp_gate_up_silu_launch(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_output,
+    MlpGateUpSiluLaunchPlan* const plan) noexcept {
+  if (plan == nullptr) {
+    return invalid_value();
+  }
+  *plan = MlpGateUpSiluLaunchPlan{};
+  const bool eligible_fusion = supports_nvfp4_gate_up_silu_fusion(
+      backend, gate_weight, up_weight);
+  if (eligible_fusion) {
+    const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
+    const auto& up = std::get<NvFp4LinearWeight>(up_weight);
+    plan->aligned_nvfp4_fusion =
+        pointer_is_aligned(gate.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(up.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(input, alignof(std::uint64_t)) &&
+        pointer_is_aligned(gate_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(up_output, alignof(std::uint16_t));
+  }
+  // Preserve the generic pair fallback's scratch contract. In particular,
+  // the exact SM87 BF16 A/B pair is already direct-to-BF16 and accepts null
+  // scratch even though it is not eligible for this MLP-specific fusion.
+  plan->direct_output =
+      plan->aligned_nvfp4_fusion ||
+      supports_bf16_projection_pair(backend, gate_weight, up_weight);
+
+  const int gate_validation = validate_projection_tile(
+      backend, gate_weight, input, 1U, fp32_scratch, scratch_elements,
+      gate_output, &plan->gate, plan->direct_output);
+  if (gate_validation != static_cast<int>(cudaSuccess)) {
+    return gate_validation;
+  }
+  const int up_validation = validate_projection_tile(
+      backend, up_weight, input, 1U, fp32_scratch, scratch_elements,
+      up_output, &plan->up, plan->direct_output);
+  if (up_validation != static_cast<int>(cudaSuccess)) {
+    return up_validation;
+  }
+  const int cross_validation = validate_projection_pair_cross_ranges(
+      backend, gate_weight, up_weight, input, fp32_scratch, gate_output,
+      up_output, plan->gate, plan->up, plan->direct_output);
+  if (cross_validation != static_cast<int>(cudaSuccess)) {
+    return cross_validation;
+  }
+  return plan->gate.rows == plan->up.rows
+             ? static_cast<int>(cudaSuccess)
+             : invalid_value();
+}
+
 }  // namespace
 
 bool is_valid_projection_backend(const ProjectionBackend backend) noexcept {
@@ -638,51 +698,15 @@ int launch_mlp_gate_up_silu_to_bf16_cuda(
     std::uint16_t* const gate_output,
     std::uint16_t* const up_output,
     void* const cuda_stream) noexcept {
-  const bool eligible_fusion = supports_nvfp4_gate_up_silu_fusion(
-      backend, gate_weight, up_weight);
-  bool aligned_fusion = false;
-  if (eligible_fusion) {
-    const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
-    const auto& up = std::get<NvFp4LinearWeight>(up_weight);
-    aligned_fusion =
-        pointer_is_aligned(gate.packed_weight, alignof(std::uint32_t)) &&
-        pointer_is_aligned(up.packed_weight, alignof(std::uint32_t)) &&
-        pointer_is_aligned(input, alignof(std::uint64_t)) &&
-        pointer_is_aligned(gate_output, alignof(std::uint16_t)) &&
-        pointer_is_aligned(up_output, alignof(std::uint16_t));
-  }
-  // Preserve the generic pair fallback's scratch contract. In particular,
-  // the exact SM87 BF16 A/B pair is already direct-to-BF16 and accepts null
-  // scratch even though it is not eligible for this MLP-specific fusion.
-  const bool direct_output =
-      aligned_fusion ||
-      supports_bf16_projection_pair(backend, gate_weight, up_weight);
-
-  ProjectionTileSpans gate_spans;
-  ProjectionTileSpans up_spans;
-  const int gate_validation = validate_projection_tile(
-      backend, gate_weight, input, 1U, fp32_scratch, scratch_elements,
-      gate_output, &gate_spans, direct_output);
-  if (gate_validation != static_cast<int>(cudaSuccess)) {
-    return gate_validation;
-  }
-  const int up_validation = validate_projection_tile(
-      backend, up_weight, input, 1U, fp32_scratch, scratch_elements,
-      up_output, &up_spans, direct_output);
-  if (up_validation != static_cast<int>(cudaSuccess)) {
-    return up_validation;
-  }
-  const int cross_validation = validate_projection_pair_cross_ranges(
-      backend, gate_weight, up_weight, input, fp32_scratch, gate_output,
-      up_output, gate_spans, up_spans, direct_output);
-  if (cross_validation != static_cast<int>(cudaSuccess)) {
-    return cross_validation;
-  }
-  if (gate_spans.rows != up_spans.rows) {
-    return invalid_value();
+  MlpGateUpSiluLaunchPlan plan;
+  const int validation = validate_mlp_gate_up_silu_launch(
+      backend, gate_weight, up_weight, input, fp32_scratch, scratch_elements,
+      gate_output, up_output, &plan);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
   }
 
-  if (aligned_fusion) {
+  if (plan.aligned_nvfp4_fusion) {
     const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
     const auto& up = std::get<NvFp4LinearWeight>(up_weight);
     return kernels::launch_sm87_nvfp4_w4a16_gemv_gate_up_silu_bf16_cuda(
@@ -699,7 +723,132 @@ int launch_mlp_gate_up_silu_to_bf16_cuda(
     return projection_status;
   }
   return launch_silu_mul_reference_cuda(
-      gate_output, up_output, gate_spans.rows, gate_output, cuda_stream);
+      gate_output, up_output, plan.gate.rows, gate_output, cuda_stream);
+}
+
+int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight,
+    const std::uint16_t* const residual_left,
+    std::uint16_t* const residual_right_and_normalized,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHiddenElements = 5'120U;
+  constexpr std::size_t kHiddenBytes =
+      kHiddenElements * sizeof(std::uint16_t);
+
+  // Validate the complete operation before selecting either route. This also
+  // protects the persistent device scalar weights, which the low-level fused
+  // ABI does not receive because their already-loaded host values are passed
+  // to the kernel by value.
+  MlpGateUpSiluLaunchPlan plan;
+  const int mlp_validation = validate_mlp_gate_up_silu_launch(
+      backend, gate_weight, up_weight, residual_right_and_normalized,
+      fp32_scratch, scratch_elements, gate_output, up_output, &plan);
+  if (mlp_validation != static_cast<int>(cudaSuccess)) {
+    return mlp_validation;
+  }
+  if (plan.gate.columns != kHiddenElements ||
+      !std::isfinite(epsilon) || epsilon <= 0.0F ||
+      residual_left == nullptr || residual_right_and_normalized == nullptr ||
+      norm_weight == nullptr || residual_output == nullptr ||
+      byte_range_overflows(residual_left, kHiddenBytes) ||
+      byte_range_overflows(residual_right_and_normalized, kHiddenBytes) ||
+      byte_range_overflows(norm_weight, kHiddenBytes) ||
+      byte_range_overflows(residual_output, kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes,
+                     residual_right_and_normalized, kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, norm_weight,
+                     kHiddenBytes) ||
+      ranges_overlap(residual_right_and_normalized, kHiddenBytes,
+                     residual_left, kHiddenBytes) ||
+      ranges_overlap(residual_right_and_normalized, kHiddenBytes,
+                     norm_weight, kHiddenBytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, gate_output,
+                     plan.gate.output_bytes) ||
+      ranges_overlap(residual_output, kHiddenBytes, up_output,
+                     plan.up.output_bytes) ||
+      ranges_overlap(gate_output, plan.gate.output_bytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(gate_output, plan.gate.output_bytes, norm_weight,
+                     kHiddenBytes) ||
+      ranges_overlap(up_output, plan.up.output_bytes, residual_left,
+                     kHiddenBytes) ||
+      ranges_overlap(up_output, plan.up.output_bytes, norm_weight,
+                     kHiddenBytes) ||
+      overlaps_projection_weights(residual_output, kHiddenBytes,
+                                  plan.gate) ||
+      overlaps_projection_weights(residual_output, kHiddenBytes, plan.up) ||
+      overlaps_projection_weights(residual_right_and_normalized,
+                                  kHiddenBytes, plan.gate) ||
+      overlaps_projection_weights(residual_right_and_normalized,
+                                  kHiddenBytes, plan.up)) {
+    return invalid_value();
+  }
+
+  if (!plan.direct_output) {
+    std::size_t scratch_rows = 0U;
+    if (requires_projection_scratch(backend, gate_weight)) {
+      scratch_rows = plan.gate.rows;
+    }
+    if (requires_projection_scratch(backend, up_weight) &&
+        plan.up.rows > scratch_rows) {
+      scratch_rows = plan.up.rows;
+    }
+    if (scratch_rows != 0U) {
+      const std::size_t scratch_bytes = scratch_rows * sizeof(float);
+      if (ranges_overlap(fp32_scratch, scratch_bytes, residual_left,
+                         kHiddenBytes) ||
+          ranges_overlap(fp32_scratch, scratch_bytes, norm_weight,
+                         kHiddenBytes) ||
+          ranges_overlap(fp32_scratch, scratch_bytes, residual_output,
+                         kHiddenBytes)) {
+        return invalid_value();
+      }
+    }
+  }
+
+  const bool eligible_fusion = supports_nvfp4_gate_up_silu_fusion(
+      backend, gate_weight, up_weight);
+  if (eligible_fusion) {
+    const auto& gate = std::get<NvFp4LinearWeight>(gate_weight);
+    const auto& up = std::get<NvFp4LinearWeight>(up_weight);
+    const bool aligned_fusion =
+        pointer_is_aligned(gate.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(up.packed_weight, alignof(std::uint32_t)) &&
+        pointer_is_aligned(residual_left, alignof(std::uint16_t)) &&
+        pointer_is_aligned(residual_right_and_normalized,
+                           alignof(std::uint16_t)) &&
+        pointer_is_aligned(norm_weight, alignof(std::uint16_t)) &&
+        pointer_is_aligned(residual_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(gate_output, alignof(std::uint16_t)) &&
+        pointer_is_aligned(up_output, alignof(std::uint16_t));
+    if (aligned_fusion) {
+      return kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
+              gate.packed_weight, gate.block_scale, gate.weight_scale_2,
+              up.packed_weight, up.block_scale, up.weight_scale_2,
+              residual_left, residual_right_and_normalized, norm_weight,
+              epsilon, gate.output_size, gate.input_size, residual_output,
+              gate_output, up_output, cuda_stream);
+    }
+  }
+
+  const int norm_status = launch_residual_add_centered_rms_norm_5120_cuda(
+      residual_left, residual_right_and_normalized, norm_weight, epsilon,
+      residual_output, residual_right_and_normalized, cuda_stream);
+  if (norm_status != static_cast<int>(cudaSuccess)) {
+    return norm_status;
+  }
+  return launch_mlp_gate_up_silu_to_bf16_cuda(
+      backend, gate_weight, up_weight, residual_right_and_normalized,
+      fp32_scratch, scratch_elements, gate_output, up_output, cuda_stream);
 }
 
 }  // namespace q3x::runtime
