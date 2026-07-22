@@ -1,0 +1,12 @@
+metric,value,unit,comparison_value,comparison_label,interpretation,source
+Current TTFT,553.801,ms,,,Latest max-26 B-C-C-B candidate average of process medians,latest-e2e
+Current subsequent-token latency,111.434,ms,,,Equivalent to 8.974 token/s for batch-one steady decode,latest-e2e
+Current decode throughput,8.973922,token/s,,,Derived as 1000 divided by 111.434 ms,latest-e2e
+Current max-26 total generation,3339.7695,ms,,,Nineteen prompt tokens and twenty-six generated tokens,latest-e2e
+Latest micro-optimization end-to-end delta,0.646,ms,3339.1235,baseline total,A positive delta is a regression and the source classifies it as noise,latest-e2e
+Latest profiled CUDA kernel time,3338.262016,ms,3367.721,profiled generation wall time,The 29.459 ms difference is only an upper envelope for removable non-kernel overhead,latest-profile
+Wall-minus-kernel envelope,0.874745,percent,,,Not all of this gap is CUDA launch overhead,latest-profile
+Top six M1 kernel groups,83.939275,percent of CUDA kernel time,,,Shows that current decode remains concentrated in already-specialized projection composites,latest-profile
+Prefill projection work,395.724576,ms,577.252,profile TTFT,C16 plus M8 fallback plus C2 projection kernels account for 68.55 percent of this one profile TTFT,latest-profile
+C2 tail projection work,130.112416,ms,577.252,profile TTFT,The tail alone accounts for 22.54 percent of this one profile TTFT,latest-profile
+C16 versus C8 TTFT reduction,25.468,percent,1021.088,C8 median TTFT,Same-binary mirrored eight-sample comparison on two short prompts,c16-evidence

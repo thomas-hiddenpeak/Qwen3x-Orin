@@ -1,0 +1,341 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Qwen3x-Orin 工作优先级评估",
+    "description": "在原 Phase 3 计划与 Prefill/Decode 新架构计划之间选择下一条主线。",
+    "generatedAt": "2026-07-23T00:00:00+08:00",
+    "cards": [
+      {
+        "id": "current-decode",
+        "description": "最新 max-26 B-C-C-B 候选均值；batch one、未锁频。",
+        "dataset": "headline",
+        "sourceId": "latest-e2e",
+        "metrics": [
+          {"label": "Decode tok/s", "field": "decode_tps", "format": "number"},
+          {"label": "ms/token", "field": "subsequent_ms", "format": "number"}
+        ]
+      },
+      {
+        "id": "current-ttft",
+        "description": "19-token prompt、C16 requested/effective 的当前诊断值。",
+        "dataset": "headline",
+        "sourceId": "latest-e2e",
+        "metrics": [
+          {"label": "TTFT (ms)", "field": "ttft_ms", "format": "number"}
+        ]
+      },
+      {
+        "id": "latest-micro-delta",
+        "description": "最新 warp-tail 相对基线的端到端变化；正值代表更慢，来源判定为噪声。",
+        "dataset": "headline",
+        "sourceId": "latest-e2e",
+        "metrics": [
+          {"label": "E2E delta (ms)", "field": "micro_delta_ms", "format": "number", "signed": true}
+        ]
+      },
+      {
+        "id": "c16-gain",
+        "description": "C16 对 C8 的同二进制镜像实验 TTFT 降幅。",
+        "dataset": "headline",
+        "sourceId": "c16-evidence",
+        "metrics": [
+          {"label": "C16 TTFT reduction (%)", "field": "c16_ttft_reduction_pct", "format": "number"}
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "decode-hotspots",
+        "title": "Latest max-26 M1 kernel time concentration",
+        "subtitle": "Share of 3,338.262 ms CUDA kernel time in one exact Nsight generation; values are percentages.",
+        "showDescription": true,
+        "intent": "comparison",
+        "question": "How concentrated is current CUDA time in the six largest M1 kernel families?",
+        "rationale": "A ranked horizontal bar makes the concentration and relative magnitudes easier to compare than a six-row lookup table.",
+        "comparisonContext": {
+          "denominator": "all CUDA kernel time in the profiled max-26 generation",
+          "grain": "kernel family",
+          "unit": "%"
+        },
+        "type": "horizontalBar",
+        "dataset": "hotspots",
+        "sourceId": "latest-profile",
+        "encodings": {
+          "x": {"field": "kernel_group", "type": "nominal", "label": "M1 kernel group"},
+          "y": {"field": "share_pct", "type": "quantitative", "format": "number", "label": "CUDA kernel time share", "unit": "%"},
+          "tooltip": [
+            {"field": "share_pct", "type": "quantitative", "format": "number", "label": "Share", "unit": "%"},
+            {"field": "total_ms", "type": "quantitative", "format": "number", "label": "GPU time", "unit": "ms"},
+            {"field": "instances", "type": "quantitative", "format": "number", "label": "Instances"}
+          ]
+        },
+        "xAxisTitle": "M1 kernel group",
+        "yAxisTitle": "CUDA kernel time share (%)",
+        "valueFormat": "number",
+        "unit": "%",
+        "layout": "full",
+        "labels": {"values": "all"},
+        "maxRows": 6,
+        "palette": {"kind": "sequential", "name": "blue"},
+        "settings": {"orientation": "horizontal", "sort": "descending", "showValues": true, "categoryLabelPolicy": "wrap", "limit": 6},
+        "surface": {"surface": "card", "interactiveLegend": false, "showControls": false, "viewMode": "both"}
+      }
+    ],
+    "tables": [
+      {
+        "id": "evidence-table",
+        "title": "决策证据",
+        "subtitle": "当前诊断、同二进制 Prefill 实验与最新 profile；不同证据类型不作伪趋势拼接。",
+        "showDescription": true,
+        "dataset": "evidence",
+        "defaultSort": {"field": "order", "direction": "asc"},
+        "density": "spacious",
+        "sourceId": "analysis-evidence-table",
+        "layout": "full",
+        "columns": [
+          {"field": "order", "label": "#", "type": "number"},
+          {"field": "signal", "label": "信号", "type": "text"},
+          {"field": "observed", "label": "观测值", "type": "text"},
+          {"field": "decision_use", "label": "对优先级的含义", "type": "text"},
+          {"field": "quality", "label": "证据边界", "type": "text"}
+        ]
+      },
+      {
+        "id": "strategy-table",
+        "title": "三种策略比较",
+        "subtitle": "以可测收益、返工风险、正确性风险和可回退性为比较基准。",
+        "showDescription": true,
+        "dataset": "strategies",
+        "defaultSort": {"field": "rank", "direction": "asc"},
+        "density": "spacious",
+        "sourceId": "analysis-strategy-table",
+        "layout": "full",
+        "columns": [
+          {"field": "rank", "label": "#", "type": "number"},
+          {"field": "option", "label": "策略", "type": "text"},
+          {"field": "near_term", "label": "近期收益", "type": "text"},
+          {"field": "unlock", "label": "长期解锁", "type": "text"},
+          {"field": "risk", "label": "风险/返工", "type": "text"},
+          {"field": "verdict", "label": "结论", "type": "text"}
+        ]
+      },
+      {
+        "id": "priority-table",
+        "title": "建议执行顺序",
+        "subtitle": "先建立可验证的 phase seam，再把资源投入原计划中收益最高的 Prefill/dispatch 工作。",
+        "showDescription": true,
+        "dataset": "priorities",
+        "defaultSort": {"field": "rank", "direction": "asc"},
+        "density": "spacious",
+        "sourceId": "analysis-priority-table",
+        "layout": "full",
+        "columns": [
+          {"field": "rank", "label": "#", "type": "number"},
+          {"field": "priority", "label": "优先级", "type": "text"},
+          {"field": "work", "label": "工作", "type": "text"},
+          {"field": "acceptance", "label": "验收/启动门槛", "type": "text"},
+          {"field": "why", "label": "理由", "type": "text"}
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "latest-e2e",
+        "label": "Latest warp-tail benchmark record",
+        "path": "docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json",
+        "query": {
+          "description": "Reads detached-base B-C-C-B medians and the matched max-26 profile.",
+          "engine": "sqlite-snapshot",
+          "sql": "SELECT 8.973922 AS decode_tps, 111.434 AS subsequent_ms, 553.801 AS ttft_ms, 0.646 AS micro_delta_ms;",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json"],
+          "filters": ["candidate commit c4625b6", "19 prompt tokens", "26 generated tokens", "SM87", "C16"],
+          "metric_definitions": ["decode_tps = 1000 / subsequent_token_milliseconds", "wall_kernel_gap_percent = (profile_generation_ms - all_cuda_kernel_ms) / profile_generation_ms"]
+        }
+      },
+      {
+        "id": "latest-profile",
+        "label": "Latest Nsight profile identity and bounded extract",
+        "path": "docs/analysis/priority-assessment-2026-07-23/hotspots.csv",
+        "query": {
+          "description": "Bounded extract derived from the latest Nsight kernel-summary CSV whose SHA-256 is recorded in the committed benchmark JSON.",
+          "engine": "sqlite-snapshot",
+          "sql": "WITH hotspots(rank, kernel_group, share_pct, total_ms, instances, phase) AS (VALUES (1, 'NVFP4 gate/up + residual/norm + SiLU', 31.102, 1038.270176, 1664, 'M1 Decode'), (2, 'FP8 linear-attention QKV/Z', 18.434, 615.375296, 1248, 'M1 Decode'), (3, 'NVFP4 down + residual/norm', 16.180, 540.127520, 1664, 'M1 Decode'), (4, 'FP8 output projection', 9.305, 310.632224, 1664, 'M1 Decode'), (5, 'FP8 full-attention Q+K/V', 5.529, 184.580256, 416, 'M1 Decode'), (6, 'NVFP4 language head', 3.389, 113.127456, 26, 'M1 Logits')) SELECT * FROM hotspots ORDER BY rank;",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/analysis/priority-assessment-2026-07-23/hotspots.csv", "docs/metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json"],
+          "filters": ["one max-26 exact generation", "kernel summary hash 882f1c452c91..."],
+          "metric_definitions": ["top-six share = sum of the six largest kernel-family total times / all CUDA kernel time", "prefill projection share = (C16 + M8 fallback + C2 quantized projection time) / profile TTFT"]
+        }
+      },
+      {
+        "id": "c16-evidence",
+        "label": "C16 Tensor Core prefill benchmark",
+        "path": "docs/metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json",
+        "query": {
+          "description": "Reads the mirrored same-binary C8/C16 comparison.",
+          "engine": "sqlite-snapshot",
+          "sql": "SELECT 25.468 AS c16_ttft_reduction_pct;",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json"],
+          "filters": ["two prompts", "two output tokens", "eight samples per policy", "same binary 33948e3"],
+          "metric_definitions": ["TTFT reduction = (C8 median TTFT - C16 median TTFT) / C8 median TTFT"]
+        }
+      },
+      {
+        "id": "roadmap",
+        "label": "Project roadmap",
+        "path": "docs/ROADMAP.md"
+      },
+      {
+        "id": "phase3-decision",
+        "label": "Phase 3 performance decision",
+        "path": "docs/PERFORMANCE_BASELINE.md"
+      },
+      {
+        "id": "analysis-evidence-table",
+        "label": "Decision evidence snapshot",
+        "path": "docs/analysis/priority-assessment-2026-07-23/evidence.csv",
+        "query": {
+          "description": "Materializes the six decision signals reconciled by the executed notebook.",
+          "engine": "sqlite-snapshot",
+          "sql": "WITH evidence(\"order\", signal, observed, decision_use, quality) AS (VALUES (1, '最新 Decode 微优化', '目标核 -0.734%；E2E +0.646 ms', '局部有效但整机不可归因，暂停零散微调', '未锁频 B-C-C-B；端到端判为噪声'), (2, 'C16 对 C8', 'TTFT -25.468%', 'Prefill 仍有大于微调链的结构性收益', '同二进制、镜像顺序、每策略 8 样本；短 prompt'), (3, '最新 M1 热点集中度', '前六组占 CUDA 时间 83.939%', 'Decode 仍受已高度专门化的大投影支配', '单次 max-26 Nsight profile'), (4, 'Prefill projection', '395.725 ms，占 profile TTFT 68.553%', '先测 M17–M32/tail dispatch，再决定 C32/C64', '单次 19-token prompt；不是收益预测'), (5, 'wall 与 kernel 差值', '29.459 ms，占 wall 0.875%', 'CUDA Graph 不是当前 batch-one 第一杠杆', '只是可消除 overhead 的宽松上界'), (6, '路线图明确缺项', 'registry、dispatch threshold、dense-prefill 对比', '薄分离后应立即恢复这些原计划工作', '技术依赖顺序，不是日历承诺')) SELECT * FROM evidence ORDER BY \"order\";",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb", "docs/analysis/priority-assessment-2026-07-23/evidence.csv"],
+          "filters": ["repository HEAD 06b1a52", "evidence reviewed 2026-07-23"]
+        }
+      },
+      {
+        "id": "analysis-strategy-table",
+        "label": "Strategy comparison snapshot",
+        "path": "docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb",
+        "query": {
+          "description": "Materializes the three strategy alternatives used for the priority recommendation.",
+          "engine": "sqlite-snapshot",
+          "sql": "WITH strategies(rank, option, near_term, unlock, risk, verdict) AS (VALUES (1, 'C：薄分离后恢复 Prefill 主线', '结构本身约零收益；下一项可直接测量', '高：独立 plan、workspace、dispatch 落点', '低—中；保持现有执行次序，可单提交回退', '推荐'), (2, 'A：继续近期 Decode 微优化', '低；最新 E2E 已在噪声内', '低；继续固化统一 runner/workspace', '实现风险低，但机会成本和后续返工高', '只保留 profile 证明 >0.5% 整步收益的项目'), (3, 'B：立即完整分离并上双/三缓冲', '不确定；性能变化难归因', '高', '高；同时改变 ownership、stream、state、arena', '暂缓')) SELECT * FROM strategies ORDER BY rank;",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb"],
+          "filters": ["repository HEAD 06b1a52", "three-option decision frame"]
+        }
+      },
+      {
+        "id": "analysis-priority-table",
+        "label": "Execution priority snapshot",
+        "path": "docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb",
+        "query": {
+          "description": "Materializes the dependency-ordered execution sequence and acceptance gates.",
+          "engine": "sqlite-snapshot",
+          "sql": "WITH priorities(rank, priority, work, acceptance, why) AS (VALUES (0, 'P0', '固化 06b1a52 phase-aware 基线并补 broader prompt/length gate', 'C1/C8/C16 oracle、trace、arena、launch/timing 分相记录', '给结构变更建立无歧义护栏'), (1, 'P1', '内部 PrefillPlan/DecodePlan + 显式 finish_prefill/decode_step', '单 stream、kernel 顺序、state commit、public ABI 和性能均不变', '新计划中最小且最能减少返工的切片'), (2, 'P1', 'shape registry + benchmark matrix', '覆盖 prompt length、M shape、backend 与 fallback；阈值实测', '原 Phase 3 明确缺项，也是后续 dispatch 基础'), (3, 'P2', 'M17–M32/C32-family Prefill 与 dense backend crossover', '长短 prompt 均无回退；final row/logits 路径明确', '当前最大且最集中、可验证的性能机会'), (4, 'P3', 'Prefill 两级 ping-pong', 'Nsight Compute 先证明 load stall；occupancy 不恶化', '双缓冲是手段，不是先验目标'), (5, 'P4', 'Decode Graph/device loop 或大结构优化', '新 profile 显示 launch/host 或新热点有可观预算', '当前 wall/kernel gap 仅约 0.875%'), (6, 'P5', '三缓冲、多流、continuous batching、.q3x', '分别满足双缓冲仍有空泡、跨请求需求、物理布局稳定', '当前依赖尚未满足')) SELECT * FROM priorities ORDER BY rank;",
+          "language": "sql",
+          "executed_at": "2026-07-23T00:00:00+08:00",
+          "tables_used": ["docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb"],
+          "filters": ["repository HEAD 06b1a52", "dependency order rather than calendar commitment"]
+        }
+      },
+      {"id": "analysis-notebook", "label": "Priority analysis notebook", "path": "docs/analysis/priority-assessment-2026-07-23/priority_analysis.ipynb"}
+    ],
+    "blocks": [
+      {"id": "title", "type": "markdown", "layout": "full", "body": "# Qwen3x-Orin 工作优先级评估"},
+      {
+        "id": "technical-summary",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 结论：先插入薄分离，再回到大 Prefill 主线\n\n**推荐采用桥接策略。** 先用一个零行为变化的小里程碑固化当前基线并建立 `PrefillPlan/DecodePlan` 内部分界；随后立即继续原 Phase 3 的大 Prefill、kernel registry 和 measured dispatch boundary。\n\n不建议继续把主力投入零散 Decode 微优化：最新改动虽改善目标 kernel，但端到端没有可归因收益。不建议现在一次性实现完整 executor/workspace/多流/双三缓冲重构：它会同时改变所有权、状态提交和性能归因。"
+      },
+      {"id": "headline-strip", "type": "metric-strip", "layout": "full", "cardIds": ["current-decode", "current-ttft", "latest-micro-delta", "c16-gain"]},
+      {
+        "id": "evidence-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## Decode 微调进入边际区，而 Prefill 仍有结构性空间\n\n最新 max-26 profile 的六个最大 M1 kernel group 合计约 83.9% CUDA 时间，但这些路径已进行 shape specialization、融合或 activation staging。相反，C16 对 C8 的同二进制实验仍给出 25.5% TTFT 降幅，且路线图明确把下一项定为更广 Prefill coverage 与大 kernel dispatch 边界。"
+      },
+      {"id": "decode-hotspots-block", "type": "chart", "layout": "full", "chartId": "decode-hotspots"},
+      {"id": "evidence-table-block", "type": "table", "layout": "full", "tableId": "evidence-table"},
+      {
+        "id": "strategy-heading",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 完整重构和继续微调都不是当前最优解\n\n桥接方案保留现有单 stream、arena、kernel 次序与 commit 时点，只新增 phase seam。这样既能用现有 oracle 验证为等价变更，也避免先把 C16、final-prompt M1 和统一 workspace 继续固化到未来的大 Prefill 路径中。"
+      },
+      {"id": "strategy-table-block", "type": "table", "layout": "full", "tableId": "strategy-table"},
+      {
+        "id": "scope-definitions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 判断口径与适用范围\n\n**决策单位**是未来 2–4 个工程里程碑，而不是长期最终架构。**当前性能**指 Qwen3.6-27B、Jetson AGX Orin、batch one、SM87 backend、C16、19-token prompt/26-token output 的诊断数据。**收益**优先采用同二进制或隔离归因；跨提交数字只用于描述现状，不作因果比较。\n\n这里的“薄分离”不改变 public API、CUDA stream、workspace 大小、persistent state ABI、kernel 顺序或数值边界。物理双缓冲、多 stream、Graph 和 continuous batching 均不属于第一切片。"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 方法：用依赖、收益和可验证性共同排序\n\n比较三个方案：继续近期 Decode 微优化、立即完整重构、插入薄分层后恢复原计划。评价维度为：可测端到端收益、是否降低后续返工、正确性与状态风险、性能归因清晰度、单提交可回退性。\n\n路线图事实优先于推测：Phase 3 尚缺 shape-driven registry、实测 dispatch threshold 和 dense-prefill backend 比较；`.q3x` 明确等待物理布局稳定。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 限制：排序可靠，具体性能幅度仍需新实验\n\n当前数据未锁频；最新端到端 A/B 只有每侧两个 process medians，Nsight 是单次 max-26 profile；C16/C8 实验只覆盖短 prompt。因而“暂停 Decode 微调、先建立 phase seam”的排序置信度较高，但 C32/C64、双缓冲和 Graph 的收益不能预先承诺。\n\n特别是 29.459 ms 的 wall-minus-kernel 差值仅占约 0.875%，而且并非全部是可被 CUDA Graph 消除的 launch overhead。三缓冲在没有三阶段稳定空泡证据前不应立项。"
+      },
+      {
+        "id": "next-steps",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 建议执行顺序：一个保护性收口，然后切换主线\n\n第一刀应是独立、可回退、预期零性能变化的结构提交。验收通过后，新的 PrefillPlan 立即承接原计划未完成的 registry、C17–C32/C32-family 和 backend crossover；C64 只有在 64/128/512-token 矩阵证明价值后再做。"
+      },
+      {"id": "priority-table-block", "type": "table", "layout": "full", "tableId": "priority-table"},
+      {
+        "id": "further-questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 下一轮必须回答的问题\n\n1. M17–M32 可变 tile 能否避免当前 C16+C2 的第二次权重遍历，而不因 padding 抵消收益？\n2. 在 64/128/512-token prompt 上，Marlin-style、cuBLASLt-assisted 与当前 canonical-layout kernel 的 crossover 在哪里？\n3. Nsight Compute 是否显示 C16/C32 K-loop 有稳定、可隐藏的 load stall？只有答案为是，才进入两级 ping-pong。\n4. DecodePlan 稳定后，host/launch gap 在并发请求下是否扩大到足以支持 CUDA Graph 或 device loop？"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-23T00:00:00+08:00",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {"decode_tps": 8.973922, "subsequent_ms": 111.434, "ttft_ms": 553.801, "micro_delta_ms": 0.646, "c16_ttft_reduction_pct": 25.468}
+      ],
+      "hotspots": [
+        {"rank": 1, "kernel_group": "NVFP4 gate/up + residual/norm + SiLU", "share_pct": 31.102, "total_ms": 1038.270176, "instances": 1664, "phase": "M1 Decode"},
+        {"rank": 2, "kernel_group": "FP8 linear-attention QKV/Z", "share_pct": 18.434, "total_ms": 615.375296, "instances": 1248, "phase": "M1 Decode"},
+        {"rank": 3, "kernel_group": "NVFP4 down + residual/norm", "share_pct": 16.180, "total_ms": 540.127520, "instances": 1664, "phase": "M1 Decode"},
+        {"rank": 4, "kernel_group": "FP8 output projection", "share_pct": 9.305, "total_ms": 310.632224, "instances": 1664, "phase": "M1 Decode"},
+        {"rank": 5, "kernel_group": "FP8 full-attention Q+K/V", "share_pct": 5.529, "total_ms": 184.580256, "instances": 416, "phase": "M1 Decode"},
+        {"rank": 6, "kernel_group": "NVFP4 language head", "share_pct": 3.389, "total_ms": 113.127456, "instances": 26, "phase": "M1 Logits"}
+      ],
+      "evidence": [
+        {"order": 1, "signal": "最新 Decode 微优化", "observed": "目标核 -0.734%；E2E +0.646 ms", "decision_use": "局部有效但整机不可归因，暂停零散微调", "quality": "未锁频 B-C-C-B；端到端判为噪声"},
+        {"order": 2, "signal": "C16 对 C8", "observed": "TTFT -25.468%", "decision_use": "Prefill 仍有大于微调链的结构性收益", "quality": "同二进制、镜像顺序、每策略 8 样本；短 prompt"},
+        {"order": 3, "signal": "最新 M1 热点集中度", "observed": "前六组占 CUDA 时间 83.939%", "decision_use": "Decode 仍受已高度专门化的大投影支配", "quality": "单次 max-26 Nsight profile"},
+        {"order": 4, "signal": "Prefill projection", "observed": "395.725 ms，占 profile TTFT 68.553%", "decision_use": "先测 M17–M32/tail dispatch，再决定 C32/C64", "quality": "单次 19-token prompt；不是收益预测"},
+        {"order": 5, "signal": "wall 与 kernel 差值", "observed": "29.459 ms，占 wall 0.875%", "decision_use": "CUDA Graph 不是当前 batch-one 第一杠杆", "quality": "只是可消除 overhead 的宽松上界"},
+        {"order": 6, "signal": "路线图明确缺项", "observed": "registry、dispatch threshold、dense-prefill 对比", "decision_use": "薄分离后应立即恢复这些原计划工作", "quality": "技术依赖顺序，不是日历承诺"}
+      ],
+      "strategies": [
+        {"rank": 1, "option": "C：薄分离后恢复 Prefill 主线", "near_term": "结构本身约零收益；下一项可直接测量", "unlock": "高：独立 plan、workspace、dispatch 落点", "risk": "低—中；保持现有执行次序，可单提交回退", "verdict": "推荐"},
+        {"rank": 2, "option": "A：继续近期 Decode 微优化", "near_term": "低；最新 E2E 已在噪声内", "unlock": "低；继续固化统一 runner/workspace", "risk": "实现风险低，但机会成本和后续返工高", "verdict": "只保留 profile 证明 >0.5% 整步收益的项目"},
+        {"rank": 3, "option": "B：立即完整分离并上双/三缓冲", "near_term": "不确定；性能变化难归因", "unlock": "高", "risk": "高；同时改变 ownership、stream、state、arena", "verdict": "暂缓"}
+      ],
+      "priorities": [
+        {"rank": 0, "priority": "P0", "work": "固化 06b1a52 phase-aware 基线并补 broader prompt/length gate", "acceptance": "C1/C8/C16 oracle、trace、arena、launch/timing 分相记录", "why": "给结构变更建立无歧义护栏"},
+        {"rank": 1, "priority": "P1", "work": "内部 PrefillPlan/DecodePlan + 显式 finish_prefill/decode_step", "acceptance": "单 stream、kernel 顺序、state commit、public ABI 和性能均不变", "why": "新计划中最小且最能减少返工的切片"},
+        {"rank": 2, "priority": "P1", "work": "shape registry + benchmark matrix", "acceptance": "覆盖 prompt length、M shape、backend 与 fallback；阈值实测", "why": "原 Phase 3 明确缺项，也是后续 dispatch 基础"},
+        {"rank": 3, "priority": "P2", "work": "M17–M32/C32-family Prefill 与 dense backend crossover", "acceptance": "长短 prompt 均无回退；final row/logits 路径明确", "why": "当前最大且最集中、可验证的性能机会"},
+        {"rank": 4, "priority": "P3", "work": "Prefill 两级 ping-pong", "acceptance": "Nsight Compute 先证明 load stall；occupancy 不恶化", "why": "双缓冲是手段，不是先验目标"},
+        {"rank": 5, "priority": "P4", "work": "Decode Graph/device loop 或大结构优化", "acceptance": "新 profile 显示 launch/host 或新热点有可观预算", "why": "当前 wall/kernel gap 仅约 0.875%"},
+        {"rank": 6, "priority": "P5", "work": "三缓冲、多流、continuous batching、.q3x", "acceptance": "分别满足双缓冲仍有空泡、跨请求需求、物理布局稳定", "why": "当前依赖尚未满足"}
+      ]
+    }
+  },
+  "sources": []
+}

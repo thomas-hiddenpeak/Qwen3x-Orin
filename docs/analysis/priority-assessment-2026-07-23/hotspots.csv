@@ -1,0 +1,7 @@
+rank,kernel_group,share_pct,total_ms,instances,phase
+1,NVFP4 gate/up + residual/norm + SiLU,31.102,1038.270176,1664,M1 Decode
+2,FP8 linear-attention QKV/Z,18.434,615.375296,1248,M1 Decode
+3,NVFP4 down + residual/norm,16.180,540.127520,1664,M1 Decode
+4,FP8 output projection,9.305,310.632224,1664,M1 Decode
+5,FP8 full-attention Q+K/V,5.529,184.580256,416,M1 Decode
+6,NVFP4 language head,3.389,113.127456,26,M1 Logits
