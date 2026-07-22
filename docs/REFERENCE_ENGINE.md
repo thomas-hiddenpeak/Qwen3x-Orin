@@ -3,7 +3,7 @@
 `q3x::engine` is the correctness-first, text-only generation surface for the
 exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one, decodes one
 token at a time, and may execute prompt prefixes in bounded tiles of up to
-16 tokens. The implementation remains a bring-up and oracle-alignment path,
+32 tokens. The implementation remains a bring-up and oracle-alignment path,
 not a large-prefill or serving engine.
 
 ## Ownership and creation
@@ -42,7 +42,7 @@ Prefill preserves token semantics while optionally batching projections:
 
 - with `prefill_chunk_size=1` (the default), every prompt-prefix token executes
   all 64 layers with `compute_logits=false`, preserving the original order;
-- with `prefill_chunk_size=2..16`, the prefix is split into bounded layer-major
+- with `prefill_chunk_size=2..32`, the prefix is split into bounded layer-major
   tiles. Quantized projections consume all tile rows together, while causal
   Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths remain ordered
   per token;
@@ -127,7 +127,7 @@ statistics, and explicit tolerances rather than requiring equal hashes.
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
   [--max-tokens N] [--trace] \
-  [--prefill-chunk-size 1..16] \
+  [--prefill-chunk-size 1..32] \
   [--projection-backend reference|sm87]
 ```
 
@@ -200,6 +200,15 @@ reproduces the same 19 prompt IDs, 26 output IDs, decoded text, stop reason,
 and 44 steps exactly. Its implementation and diagnostic performance record is
 [`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 
+The bounded C32 composite baseline extends only the outer layer-major tile.
+Its validated leaf operations remain C16 or smaller: quantized projections
+use M16-first decomposition, causal Conv/GDN and full-attention Q/K+RoPE
+preprocessing execute ordered subtiles of at most 16 rows, and the final
+prompt/logits step remains scalar. Thus P19 uses one M18 outer tile internally
+resolved as M16+M2 projections, while P33 uses one M32 outer tile resolved as
+M16+M16. The same runner stream performs one final synchronization and one
+sequence-length commit for the complete outer tile.
+
 The original C1 single-run timings are evidence, not performance targets:
 
 | Measurement | Observed value |
@@ -236,11 +245,11 @@ decoded text, and stop decision match exactly.
 
 `reference_engine_control_test` exercises the pure host controller without
 CUDA or model files. It gates independent Prefill/Decode callback contexts,
-scalar, `8+8+2`, and `16+2` prefix scheduling, the final-prompt transition,
+scalar, `8+8+2`, `16+2`, and one-tile C32 prefix scheduling, the final-prompt transition,
 trace-to-C1 fallback, sequential inputs, prefix-logit suppression, first-token
 timing, stop/max behavior, capacity checks, nested runner errors, missing result
-fields, and the terminal-stop text rule. Its boundary matrix covers 11 prompt
-lengths and C1/C2/C8/C16, for 44 host-controller combinations, and incomplete
+fields, and the terminal-stop text rule. Its boundary matrix covers 14 prompt
+lengths and C1/C2/C8/C16/C32, for 70 host-controller combinations, and incomplete
 plans fail before a callback executes. CUDA runner tests cover factory and
 primitive behavior separately. An installed-package consumer also configures
 against and links `q3x::engine`. These synthetic routing cases are not broader
@@ -255,4 +264,4 @@ projection policy defaults to `reference`; configure
 `-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
 external pinned model directory it exits with the standard skip code 77. The
 test executable also accepts an optional prefill chunk argument, so target
-validation can run the same oracle at C1, C8, and C16.
+validation can run the same oracle at C1, C8, C16, and C32.

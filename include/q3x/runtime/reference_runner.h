@@ -125,11 +125,12 @@ struct ReferencePrefillTileOptions {
   bool measure_timing = false;
 };
 
-// A prefix tile never produces logits or trace data. The fixed-capacity result
-// keeps the runner boundary allocation-free while retaining one position/input
-// record per committed token for the high-level generation transcript. When
-// timing is requested, timing contains the aggregate tile latency. Individual
-// step timings are absent for M>1; M=1 preserves the delegated step timing.
+// A prefix tile never produces logits or trace data. The 32-entry fixed-
+// capacity result keeps the runner boundary allocation-free while retaining
+// one position/input record per committed token for the high-level generation
+// transcript. When timing is requested, timing contains the aggregate tile
+// latency. Individual step timings are absent for M>1; M=1 preserves the
+// delegated step timing.
 struct ReferencePrefillTileResult {
   std::array<ReferenceStepResult, kMaximumRequestPrefillChunkSize> steps{};
   std::size_t step_count = 0U;
@@ -265,10 +266,12 @@ class ReferenceRunner {
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
 
-  // Executes 1..16 non-logit prompt-prefix tokens in layer-major order. The
-  // request plan must reserve at least token_count workspace rows. Persistent
-  // conv/GDN/KV state is still updated in token order, and the logical request
-  // length is committed once only after the complete tile synchronizes.
+  // Executes 1..32 non-logit prompt-prefix tokens in layer-major order. The
+  // request plan must reserve at least token_count workspace rows. Operations
+  // with a 16-token kernel contract are enqueued as ordered subtiles on the
+  // same stream, persistent conv/GDN/KV state is updated in token order, and
+  // the logical request length is committed once only after the complete tile
+  // synchronizes.
   [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;

@@ -103,9 +103,9 @@ three measured rounds, and a shared request capacity of 512 positions.
 sequence capacity large enough for the longest formatted prompt plus its
 decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
-weights. `--prefill-chunk-size` accepts 1 through 16 and defaults to 1. The
+weights. `--prefill-chunk-size` accepts 1 through 32 and defaults to 1. The
 engine's request arena reserves activation workspace for the selected maximum
-before weights are loaded. C2 through C16 tile only the prompt prefix; the final
+before weights are loaded. C2 through C32 tile only the prompt prefix; the final
 prompt token and all decode steps remain M=1. Projection dispatch defaults to
 `reference`; `sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16
 layer path and checks the active device capability before loading model

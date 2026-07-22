@@ -32,6 +32,7 @@ constexpr std::size_t kFullQGateElements = 2U * kFullQueryElements;
 constexpr std::size_t kFullKvElements =
     kFullKvHeads * kFullHeadDimension;
 constexpr std::size_t kRopePairs = 32U;
+constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
@@ -40,6 +41,10 @@ static_assert(kLinearValueElements <= kReferenceIntermediateSize);
 static_assert(kFullQGateElements <= kReferenceIntermediateSize);
 static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
+static_assert(kPrefillKernelTileMaximumTokens ==
+              kQkRopeTileMaximumTokens);
+static_assert(kMaximumRequestPrefillChunkSize <=
+              kMaximumProjectionTileTokenCount);
 
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
@@ -1587,21 +1592,41 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      if (!check_cuda(
-              launch_causal_conv1d_silu_update_tile_reference_cuda(
-                  views_.projection[0], token_count, attention->conv1d.data,
-                  views_.conv_state[layer], views_.projection[0], {},
-                  stream_),
-              "prefill_linear_causal_conv", layer) ||
-          !check_cuda(
-              launch_gated_delta_net_update_tile_warp_parallel_cuda(
-                  views_.projection[0], token_count, views_.linear_a,
-                  views_.linear_b, attention->a_log.data,
-                  attention->dt_bias.data, views_.gdn_state[layer],
-                  views_.gdn_state[layer], kRmsEpsilon, views_.projection[2],
-                  {}, stream_),
-              "prefill_linear_gdn", layer)) {
-        return fail_prefill_tile(launch_failure);
+      for (std::size_t token_offset = 0U; token_offset < token_count;
+           token_offset += kPrefillKernelTileMaximumTokens) {
+        const std::size_t remaining = token_count - token_offset;
+        const std::size_t subtile_tokens =
+            remaining < kPrefillKernelTileMaximumTokens
+                ? remaining
+                : kPrefillKernelTileMaximumTokens;
+        if (!check_cuda(
+                launch_causal_conv1d_silu_update_tile_reference_cuda(
+                    views_.projection[0] +
+                        token_offset * kLinearQkvElements,
+                    subtile_tokens, attention->conv1d.data,
+                    views_.conv_state[layer],
+                    views_.projection[0] +
+                        token_offset * kLinearQkvElements,
+                    {}, stream_),
+                "prefill_linear_causal_conv", layer) ||
+            !check_cuda(
+                launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                    views_.projection[0] +
+                        token_offset * kLinearQkvElements,
+                    subtile_tokens,
+                    views_.linear_a +
+                        token_offset * kLinearScalarElements,
+                    views_.linear_b +
+                        token_offset * kLinearScalarElements,
+                    attention->a_log.data, attention->dt_bias.data,
+                    views_.gdn_state[layer], views_.gdn_state[layer],
+                    kRmsEpsilon,
+                    views_.projection[2] +
+                        token_offset * kLinearValueElements,
+                    {}, stream_),
+                "prefill_linear_gdn", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
       }
       if (!check_cuda(
               launch_headwise_plain_rms_norm_silu_gate_reference_cuda(
@@ -1631,7 +1656,6 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       std::uint16_t* const tile_value =
           views_.value_cache[layer] +
           static_cast<std::size_t>(first_position) * kFullKvElements;
-      std::uint16_t* tile_query = views_.projection[0];
       const std::size_t rope_first_position =
           static_cast<std::size_t>(first_position);
       if (!project(attention->q_proj, views_.hidden[1],
@@ -1646,54 +1670,90 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
 
-      if (reference_runner_detail::use_qk_rope_tile(rope_first_position,
-                                                     token_count)) {
-        tile_query = views_.projection[3];
-        if (!check_cuda(launch_full_attention_preprocess_24_4_256_64_cuda(
-                            views_.projection[0], tile_key,
-                            attention->q_norm.data, attention->k_norm.data,
-                            kRmsEpsilon, tile_query, packed_gates,
-                            views_.rope_cos, views_.rope_sin,
-                            rope_first_position, token_count, stream_),
-                        "prefill_full_preprocess", layer)) {
-          return fail_prefill_tile(launch_failure);
+      bool use_fused_preprocess = true;
+      for (std::size_t token_offset = 0U; token_offset < token_count;
+           token_offset += kPrefillKernelTileMaximumTokens) {
+        const std::size_t remaining = token_count - token_offset;
+        const std::size_t subtile_tokens =
+            remaining < kPrefillKernelTileMaximumTokens
+                ? remaining
+                : kPrefillKernelTileMaximumTokens;
+        if (!reference_runner_detail::use_qk_rope_tile(
+                rope_first_position + token_offset, subtile_tokens)) {
+          use_fused_preprocess = false;
+          break;
         }
-      } else {
+      }
+      std::uint16_t* const tile_query =
+          use_fused_preprocess ? views_.projection[3]
+                               : views_.projection[0];
+      for (std::size_t token_offset = 0U; token_offset < token_count;
+           token_offset += kPrefillKernelTileMaximumTokens) {
+        const std::size_t remaining = token_count - token_offset;
+        const std::size_t subtile_tokens =
+            remaining < kPrefillKernelTileMaximumTokens
+                ? remaining
+                : kPrefillKernelTileMaximumTokens;
+        std::uint16_t* const raw_query_gate =
+            views_.projection[0] + token_offset * kFullQGateElements;
+        std::uint16_t* const subtile_query =
+            tile_query + token_offset * kFullQueryElements;
+        std::uint16_t* const split_query =
+            views_.projection[3] + token_offset * kFullQueryElements;
+        std::uint16_t* const subtile_gates =
+            packed_gates + token_offset * kFullQueryElements;
+        std::uint16_t* const subtile_key =
+            tile_key + token_offset * kFullKvElements;
+        const std::size_t subtile_first_position =
+            rope_first_position + token_offset;
+        if (use_fused_preprocess) {
+          if (!check_cuda(
+                  launch_full_attention_preprocess_24_4_256_64_cuda(
+                      raw_query_gate, subtile_key, attention->q_norm.data,
+                      attention->k_norm.data, kRmsEpsilon, subtile_query,
+                      subtile_gates, views_.rope_cos, views_.rope_sin,
+                      subtile_first_position, subtile_tokens, stream_),
+                  "prefill_full_preprocess", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
+          continue;
+        }
         if (!check_cuda(launch_split_interleaved_q_gate_reference_cuda(
-                            views_.projection[0],
-                            token_count * kFullQueryHeads,
-                            kFullHeadDimension, views_.projection[3],
-                            packed_gates, stream_),
+                            raw_query_gate,
+                            subtile_tokens * kFullQueryHeads,
+                            kFullHeadDimension, split_query, subtile_gates,
+                            stream_),
                         "prefill_full_split_q_gate_fallback", layer) ||
             !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                            views_.projection[3], attention->q_norm.data,
-                            token_count * kFullQueryHeads,
-                            kFullHeadDimension, kRmsEpsilon, tile_query,
+                            split_query, attention->q_norm.data,
+                            subtile_tokens * kFullQueryHeads,
+                            kFullHeadDimension, kRmsEpsilon, subtile_query,
                             stream_),
                         "prefill_full_q_norm_fallback", layer) ||
             !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                            tile_key, attention->k_norm.data,
-                            token_count * kFullKvHeads, kFullHeadDimension,
-                            kRmsEpsilon, tile_key, stream_),
+                            subtile_key, attention->k_norm.data,
+                            subtile_tokens * kFullKvHeads,
+                            kFullHeadDimension, kRmsEpsilon, subtile_key,
+                            stream_),
                         "prefill_full_k_norm_fallback", layer)) {
           return fail_prefill_tile(launch_failure);
         }
-        for (std::size_t token = 0U; token < token_count; ++token) {
-          const std::size_t position = rope_first_position + token;
+        for (std::size_t token = 0U; token < subtile_tokens; ++token) {
+          const std::size_t position = subtile_first_position + token;
           const float* const cosines =
               views_.rope_cos + position * kRopePairs;
           const float* const sines =
               views_.rope_sin + position * kRopePairs;
           if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                              tile_query + token * kFullQueryElements,
+                              subtile_query + token * kFullQueryElements,
                               cosines, sines, kFullQueryHeads,
-                              tile_query + token * kFullQueryElements,
+                              subtile_query + token * kFullQueryElements,
                               stream_),
                           "prefill_full_q_rope_fallback", layer) ||
               !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
-                              tile_key + token * kFullKvElements,
+                              subtile_key + token * kFullKvElements,
                               cosines, sines, kFullKvHeads,
-                              tile_key + token * kFullKvElements,
+                              subtile_key + token * kFullKvElements,
                               stream_),
                           "prefill_full_k_rope_fallback", layer)) {
             return fail_prefill_tile(launch_failure);

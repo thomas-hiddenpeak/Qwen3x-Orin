@@ -3,7 +3,6 @@
 #include "q3x/kernels/reference_gemv.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/runtime/decode_ops.h"
-#include "q3x/runtime/request_state.h"
 
 #include <cuda_runtime.h>
 
@@ -84,7 +83,7 @@ struct ProjectionTileSpans {
     const bool direct_output = false) noexcept {
   if (!is_valid_projection_backend(backend) ||
       weight.valueless_by_exception() || token_count == 0U ||
-      token_count > kMaximumRequestPrefillChunkSize || input == nullptr ||
+      token_count > kMaximumProjectionTileTokenCount || input == nullptr ||
       output == nullptr || spans == nullptr) {
     return invalid_value();
   }
@@ -736,13 +735,26 @@ int launch_projection_tile_to_bf16_cuda(
   if (backend == ProjectionBackend::kSm87WeightOnly) {
     if (const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
         selected != nullptr) {
-      if (token_count == 16U) {
-        return kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
-            selected->weight, selected->weight_scale, input, spans.rows,
-            spans.columns, output, cuda_stream);
+      std::size_t token_offset = 0U;
+      if (token_count >= 16U) {
+        const int status =
+            kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+                selected->weight, selected->weight_scale, input,
+                spans.rows, spans.columns, output, cuda_stream);
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        token_offset = 16U;
       }
-      for (std::size_t token_offset = 0U; token_offset < token_count;) {
+      while (token_offset < token_count) {
         const std::size_t remaining = token_count - token_offset;
+        if (remaining == 16U) {
+          return kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+              selected->weight, selected->weight_scale,
+              input + token_offset * spans.columns, spans.rows,
+              spans.columns, output + token_offset * spans.rows,
+              cuda_stream);
+        }
         const std::size_t launch_tokens =
             remaining < kMaximumSm87SmallMTokens
                 ? remaining
@@ -762,14 +774,28 @@ int launch_projection_tile_to_bf16_cuda(
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
-      if (token_count == 16U) {
-        return kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
-            selected->packed_weight, selected->block_scale,
-            selected->weight_scale_2, input, spans.rows, spans.columns,
-            output, cuda_stream);
+      std::size_t token_offset = 0U;
+      if (token_count >= 16U) {
+        const int status =
+            kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+                selected->packed_weight, selected->block_scale,
+                selected->weight_scale_2, input, spans.rows, spans.columns,
+                output, cuda_stream);
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        token_offset = 16U;
       }
-      for (std::size_t token_offset = 0U; token_offset < token_count;) {
+      while (token_offset < token_count) {
         const std::size_t remaining = token_count - token_offset;
+        if (remaining == 16U) {
+          return kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+              selected->packed_weight, selected->block_scale,
+              selected->weight_scale_2,
+              input + token_offset * spans.columns, spans.rows,
+              spans.columns, output + token_offset * spans.rows,
+              cuda_stream);
+        }
         const std::size_t launch_tokens =
             remaining < kMaximumSm87SmallMTokens
                 ? remaining
@@ -858,6 +884,24 @@ int launch_projection_pair_tile_to_bf16_cuda(
       direct_output);
   if (cross_validation != static_cast<int>(cudaSuccess)) {
     return cross_validation;
+  }
+
+  if (token_count > 16U) {
+    for (std::size_t token_offset = 0U; token_offset < token_count;
+         token_offset += 16U) {
+      const std::size_t remaining = token_count - token_offset;
+      const std::size_t launch_tokens = remaining < 16U ? remaining : 16U;
+      const int status = launch_projection_pair_tile_to_bf16_cuda(
+          backend, first_weight, second_weight,
+          input + token_offset * first_spans.columns, launch_tokens,
+          fp32_scratch, scratch_elements,
+          first_output + token_offset * first_spans.rows,
+          second_output + token_offset * second_spans.rows, cuda_stream);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
   }
 
   if (fused_bf16_pair) {

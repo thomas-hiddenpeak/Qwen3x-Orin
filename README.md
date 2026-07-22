@@ -15,7 +15,7 @@ fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
-supports bounded `C=1..16` prompt-prefix tiles. In the historical two-prompt,
+supports bounded `C=1..32` prompt-prefix tiles. In the historical two-prompt,
 two-output-token diagnostic, the first `C=8` path reduced median TTFT from
 6,107.420 ms to 2,005.784 ms. The kernel-optimization chain through `5fe0ae0`
 reaches 1,020.755 ms TTFT, 1,205.989 ms total generation, and 185.108 ms for
@@ -45,7 +45,7 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 
 | Model family | Topology | ModelOpt weights | Initial status |
 | --- | --- | --- | --- |
-| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=16` prompt-prefix projections; C1, C8, and C16 runs pass the fixed oracle gate on Orin |
+| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=32` prompt-prefix projections; C1, C8, C16, and C32 runs pass the fixed oracle gate on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
 The initial scope is text-only, batch-one correctness and decode performance.
@@ -147,7 +147,7 @@ Run correctness-first batch-one greedy generation with:
 build/orin-release/qwen3x-orin generate MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 32 --projection-backend sm87 \
-  --prefill-chunk-size 16
+  --prefill-chunk-size 32
 ```
 
 The correctness reference remains the default. On an SM87 device, select the
@@ -159,7 +159,7 @@ checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` down,
 activation-staged XOR-dual instances. Down stages its 34-KiB activation, while
 gate/up and lm-head each stage 10 KiB. All three use 8-byte cooperative global
 copies, so the public alignment contract and checkpoint layout are unchanged.
-Near-miss shapes, packed-weight or activation misalignment, M2 through M16,
+Near-miss shapes, packed-weight or activation misalignment, M2 through M32,
 and prefill retain their previous routes.
 Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
@@ -181,25 +181,27 @@ build/orin-release/qwen3x-orin benchmark MODEL_DIR \
   --prompt "Explain unified memory in one sentence." \
   --max-tokens 2 --warmup 1 --iterations 3 \
   --max-sequence-length 64 --projection-backend sm87 \
-  --prefill-chunk-size 16
+  --prefill-chunk-size 32
 ```
 
-`--prefill-chunk-size` accepts 1 through 16 and defaults to 1. Values above 1
+`--prefill-chunk-size` accepts 1 through 32 and defaults to 1. Values above 1
 batch the prompt prefix into layer-major projection tiles while preserving
 causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
 single-token operations. With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
-shape-gated Tensor Core path above or safely falls back to two M8 launches;
+shape-gated Tensor Core path above or safely falls back to two M8 launches.
+M17 through M32 use M16-first composition, so M18 is M16+M2 and M32 is
+M16+M16; Conv/GDN and Q/K+RoPE retain ordered subtiles of at most 16 rows;
 the reference backend and BF16 weights retain ordered M1 launches. Trace
 capture deliberately reports and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
-shapes, unaligned operands, C2 through C16 prefix tiles, and other backends
+shapes, unaligned operands, C2 through C32 prefix tiles, and other backends
 retain the prevalidated Q projection followed by the existing K/V paired or
 independent fallback.
 Exact aligned SM87 FP8 M1 linear-attention QKV/Z projections use one
-two-phase launch; C2 through C16 prefix tiles, near-miss shapes, unaligned
+two-phase launch; C2 through C32 prefix tiles, near-miss shapes, unaligned
 operands, and other backends retain two ordered projections.
 Exact aligned SM87 NVFP4 M1 dense-MLP gate/up projections and their SiLU
 multiply likewise use one rolled two-phase projection plus CTA-parallel
@@ -209,7 +211,7 @@ boundary, the same exact route also folds BF16 residual addition and centered
 RMSNorm into that launch: CTA 0 writes the public residual, while the normalized
 activation remains CTA-local. Its repeated 256-thread RMS reduction preserves
 the shared-tree strides 128/64/32 and the exact remaining pairings through
-warp-zero shuffle-down strides 16/8/4/2/1. C2 through C16, near-miss shapes,
+warp-zero shuffle-down strides 16/8/4/2/1. C2 through C32, near-miss shapes,
 unaligned operands, and other backends retain the validated ordered fallbacks.
 The following exact aligned SM87 NVFP4 M1 `[5120,17408]` down projection can
 likewise absorb its BF16 residual-add and centered-RMSNorm boundary into one
@@ -220,7 +222,7 @@ separates the raw/residual writes from the norm reduction. On the tested
 required by the launch, with no cooperative-capacity margin. Decode keeps the
 raw output in the now-dead up workspace for trace capture, the residual in
 `hidden[0]`, and the normalized next-layer input in `hidden[1]`. Near-miss or
-unaligned operands, C2 through C16 prefill, other weight types, and the
+unaligned operands, C2 through C32 prefill, other weight types, and the
 reference backend retain the fully prevalidated down-then-residual/norm chain.
 The canonical M1 linear-attention GDN update and its following 48-head by
 128-wide plain-RMSNorm/SiLU-gate boundary can also use one 48-CTA launch. Each
@@ -512,7 +514,7 @@ and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
 Native inference is currently a bounded, batch-one surface with a correctness
-reference, opt-in shape-gated projection optimization, and opt-in `C<=16`
+reference, opt-in shape-gated projection optimization, and opt-in `C<=32`
 prompt-prefix tiling. Recurrent state and causal attention still advance token
 by token inside each tile. It does not yet provide large-prefill kernels,
 continuous batching, a server, or a release-grade performance claim. Prefill

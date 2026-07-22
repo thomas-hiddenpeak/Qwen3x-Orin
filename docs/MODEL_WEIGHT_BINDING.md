@@ -93,14 +93,15 @@ and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
 path allocates or synchronizes.
 
 `launch_projection_tile_to_bf16_cuda` extends that boundary to caller-owned
-row-major BF16 input/output tiles with `M=1..16`. M1 delegates to the scalar
+row-major BF16 input/output tiles with `M=1..32`. M1 delegates to the scalar
 projection API. For explicit SM87 FP8/NVFP4 weights, M2..M8 use small-M
 kernels that reuse each loaded weight across all M activation rows; M9..M15
 are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
 format-specific fixed-tile launcher: exact aligned production shapes use
 Ampere BF16 Tensor Core MMA and every other valid case falls back to two
-ordered M8 launches. BF16 weights and the reference backend enqueue M checked
-M1 projections. The launcher validates the complete tile spans, scratch
+ordered M8 launches. M17..M32 use an M16-first composite followed by an M8 and
+M1..M7 tail as required; M18 is M16+M2 and M32 is M16+M16. BF16 weights and
+the reference backend enqueue M checked M1 projections. The launcher validates the complete tile spans, scratch
 capacity, overflow, and input/output overlap before enqueueing any work.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
@@ -127,7 +128,7 @@ CTA for reuse by grid-stride row quads. Down stages 34 KiB; gate/up and lm-head
 stage 10 KiB. The cooperative global copy is 8 bytes wide, so all three routes
 preserve the existing 8-byte activation alignment contract; they add no repack
 or 16-byte public alignment requirement. Near-miss shapes, packed-weight or
-activation misalignment, M2 through M16, and prefill retain their preceding
+activation misalignment, M2 through M32, and prefill retain their preceding
 routes.
 
 Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
@@ -143,7 +144,7 @@ checkpoint-layout change.
 matrices under the explicit SM87 backend. For M1 and aligned operands,
 `launch_projection_pair_tile_to_bf16_cuda` uses one K/V cross-matrix row-quad
 kernel that shares activation decode and codebook setup while preserving each
-single projection's BF16 bits. Eligible unaligned calls, M2..M16 tiles, other
+single projection's BF16 bits. Eligible unaligned calls, M2..M32 tiles, other
 shapes/types, and other backends retain the existing first-then-second path.
 The runner applies the pair only to full-attention K/V on prompt-final and
 decode steps; chunked prefix projection remains unchanged.
@@ -154,10 +155,10 @@ backend. At aligned M1, one 1,536-CTA two-phase launch first preserves the QKV
 row-quad grid/stride and then lets its first 768 CTAs preserve the Z
 grid/stride. Both phases reuse one decoded E4M3FN codebook and retain the two
 production single-projection BF16 results bit-for-bit. Reversed or near-miss
-shapes, M2..M16, other backends, 4-byte weight misalignment, 8-byte activation
+shapes, M2..M32, other backends, 4-byte weight misalignment, 8-byte activation
 misalignment, or 2-byte output misalignment retain two ordered projections.
 The scalar runner step, including `prefill_prefix_tile(..., 1)`, uses the pair
-dispatcher; layer-major C2..C16 prefix tiles remain independent QKV and Z
+dispatcher; layer-major C2..C32 prefix tiles remain independent QKV and Z
 projections.
 
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
@@ -201,8 +202,9 @@ checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
 the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
-production routes at M1 through M16, BF16/reference fallback, M9..M15
-segmentation, M16 Tensor Core selection/two-M8 fallback, scratch behavior,
+production routes at M1 through M32, BF16/reference fallback, M9..M15
+segmentation, M16 Tensor Core selection/two-M8 fallback, M17..M32 M16-first
+composition, scratch behavior,
 whole-tile overlap/span validation, and fail-closed backend and variant
 handling. It also covers exact-shape FP8 M1 K/V and QKV/Z pair selection,
 near-miss and unaligned ordered fallbacks, different output sizes,

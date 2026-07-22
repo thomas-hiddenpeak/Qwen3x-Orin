@@ -415,9 +415,9 @@ void test_maximum_prefill_chunk_boundary(TestContext& test) {
   const auto result = detail::run_benchmark_control(
       {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
   test.expect(result && generator.calls == 1U &&
-                  result.value->prefill_chunk_size == 16U &&
+                  result.value->prefill_chunk_size == 32U &&
                   result.value->samples.size() == 1U,
-              "chunk sixteen is accepted and preserved by benchmark control");
+              "chunk thirty-two is accepted and preserved by benchmark control");
 }
 
 void test_step_comparison(TestContext& test) {

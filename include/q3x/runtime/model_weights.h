@@ -72,6 +72,12 @@ enum class ProjectionBackend : std::uint8_t {
   kSm87WeightOnly,
 };
 
+// The projection dispatcher accepts two production prefill tiles at once.
+// Request scheduling may impose a smaller limit independently; keeping this
+// contract local to projection dispatch prevents the low-level composite
+// route from silently inheriting the request scheduler's current chunk size.
+inline constexpr std::size_t kMaximumProjectionTileTokenCount = 32U;
+
 [[nodiscard]] bool is_valid_projection_backend(
     ProjectionBackend backend) noexcept;
 [[nodiscard]] std::string_view to_string(ProjectionBackend backend) noexcept;
@@ -346,13 +352,15 @@ struct WeightBindResult {
 // Sequence-tile form of launch_projection_to_bf16_cuda. input is contiguous
 // token-major BF16 [token_count, linear_input_size(weight)] and output is
 // contiguous token-major BF16 [token_count, linear_output_size(weight)].
-// token_count must be in [1, 16]. M=1 delegates to the single-token entry
-// point above. SM87 FP8 and NVFP4 use their fixed-M16 launchers for an exact
-// 16-token tile; M=2..15 use fused launches of at most eight tokens each. The
-// reference backend and BF16 weights enqueue the existing FP32-scratch
-// reference path in token order while reusing the same output-sized buffer;
-// only M=1 may select the exact-shape BF16 direct-output route described
-// above. The complete tile is validated before any work is enqueued.
+// token_count must be in [1, 32]. M=1 delegates to the single-token entry
+// point above. For M=16..32, SM87 FP8 and NVFP4 launch a fixed M16 prefix,
+// followed by a second M16 for M=32 or fused launches of at most eight tokens
+// for the remaining tail. M=2..15 uses the same at-most-eight-token fused
+// launches. The reference backend and BF16 weights enqueue the existing
+// FP32-scratch reference path in token order while reusing the same
+// output-sized buffer; only M=1 may select the exact-shape BF16 direct-output
+// route described above. The complete tile is validated before any work is
+// enqueued.
 [[nodiscard]] int launch_projection_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::size_t token_count,
@@ -367,12 +375,13 @@ struct WeightBindResult {
 // the fused SM87 direct-to-BF16 path, where it is unused and may be null.
 //
 // supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B kernel
-// for M=1..16. supports_fp8_projection_pair(...) selects the fused SM87 FP8
-// K/V kernel only for M=1. supports_fp8_qkv_z_projection_pair(...) selects
-// the fused SM87 FP8 QKV/Z kernel only for M=1 and the exact ordered
-// [10240, 5120] then [6144, 5120] shapes. Every other valid combination,
-// including unaligned exact-shape inputs, preserves the existing
-// first-then-second tile dispatch and its numerical behavior.
+// in subtiles of at most 16 tokens. C17..C32 is validated as one complete
+// operation before any subtile is enqueued. supports_fp8_projection_pair(...)
+// selects the fused SM87 FP8 K/V kernel only for M=1.
+// supports_fp8_qkv_z_projection_pair(...) selects the fused SM87 FP8 QKV/Z
+// kernel only for M=1 and the exact ordered [10240, 5120] then [6144, 5120]
+// shapes. Every other valid combination, including unaligned exact-shape
+// inputs, preserves the existing tile dispatch and its numerical behavior.
 [[nodiscard]] int launch_projection_pair_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* input,

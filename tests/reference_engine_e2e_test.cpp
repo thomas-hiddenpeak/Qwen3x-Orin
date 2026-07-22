@@ -49,6 +49,8 @@ std::uint64_t expected_request_arena_bytes(
       return 83'696'128U;
     case 16U:
       return 85'057'536U;
+    case 32U:
+      return 87'780'352U;
     default:
       return 0U;
   }
@@ -237,7 +239,7 @@ int main(const int argc, char** const argv) {
   }
   std::uint32_t prefill_chunk_size = 1U;
   if (!prefill_chunk_from(argc, argv, prefill_chunk_size)) {
-    std::cerr << "invalid prefill chunk: expected an integer in [1,16]\n";
+    std::cerr << "invalid prefill chunk: expected an integer in [1,32]\n";
     return 2;
   }
 
@@ -308,7 +310,7 @@ int main(const int argc, char** const argv) {
                   load.request_prefill_chunk_size == prefill_chunk_size &&
                   (expected_arena == 0U ||
                    load.request_arena_bytes == expected_arena),
-              "one-shot request capacity, chunk policy, and known C1/C8/C16 "
+              "one-shot request capacity, chunk policy, and known C1/C8/C16/C32 "
               "arena sizes remain exact");
   test.expect(exact_tokens(generation.prompt_token_ids, kExpectedPromptIds,
                            "prompt_token_ids"),

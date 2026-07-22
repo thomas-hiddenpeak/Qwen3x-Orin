@@ -166,7 +166,10 @@ Deliverables:
 - [done, initial matrix] Direct M1/M2/M8/M16 route measurements plus P19
   C1/C2/C8/C16, tokenizer-pinned P33/P65/P129/P513, and matched Nsight
   launch/time attribution.
-- Bounded C32/M17-M32 prefill composition and measured Tensor Core candidates.
+- [done, composite baseline] Bounded C32 outer prefill with complete-span
+  validation, M16-first projection composition, ordered C16 Conv/GDN and
+  Q/K+RoPE subtiles, one stream, and one outer state commit.
+- Measured single-pass M17-M32 Tensor Core candidates and production crossover.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

@@ -451,7 +451,29 @@ void test_explicit_phase_plans(TestContext& test) {
   fake = {};
   fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
   result = detail::run_generation_control(
-      canonical_prompt, options(2U, 20U, true, 16U),
+      canonical_prompt, options(2U, 20U, false, 32U),
+      prefill_plan, decode_plan);
+  test.expect(result &&
+                  fake.phase_calls ==
+                      std::vector<PhaseCall>(
+                          {PhaseCall::kPrefixTile,
+                           PhaseCall::kFinishPrefill,
+                           PhaseCall::kDecodeStep}) &&
+                  fake.tile_inputs.size() == 1U &&
+                  fake.tile_inputs[0] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin(),
+                                                 canonical_prompt.begin() + 18) &&
+                  fake.inputs == std::vector<std::uint32_t>({118U, 42U}) &&
+                  result.value->timing.prompt_prefill_milliseconds == 11.0 &&
+                  result.value->timing.subsequent_token_milliseconds ==
+                      std::vector<double>({2.0}),
+              "C32 plan routes the 18-token prefix as one tile while keeping "
+              "finish and decode in separate phases");
+
+  fake = {};
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  result = detail::run_generation_control(
+      canonical_prompt, options(2U, 20U, true, 32U),
       prefill_plan, decode_plan);
   const bool trace_route =
       fake.phase_calls.size() == 20U &&
@@ -489,9 +511,11 @@ void test_explicit_phase_plans(TestContext& test) {
 }
 
 void test_explicit_phase_plan_shape_matrix(TestContext& test) {
-  constexpr std::array<std::size_t, 11U> kPromptSizes = {
-      1U, 2U, 7U, 8U, 9U, 15U, 16U, 17U, 31U, 32U, 33U};
-  constexpr std::array<std::uint32_t, 4U> kChunkSizes = {1U, 2U, 8U, 16U};
+  constexpr std::array<std::size_t, 14U> kPromptSizes = {
+      1U,  2U,  7U,  8U,  9U,  15U, 16U,
+      17U, 31U, 32U, 33U, 63U, 64U, 65U};
+  constexpr std::array<std::uint32_t, 5U> kChunkSizes = {
+      1U, 2U, 8U, 16U, 32U};
 
   for (const std::size_t prompt_size : kPromptSizes) {
     std::vector<std::uint32_t> prompt;
@@ -669,6 +693,23 @@ void test_chunked_prefix_tiles(TestContext& test) {
                                                  c16_prompt.begin() + 20) &&
                   fake.inputs == std::vector<std::uint32_t>({220U}),
               "chunk sixteen routes a 20-token prefix as 16+4 before the scalar final prompt token");
+
+  std::vector<std::uint32_t> c32_prompt;
+  for (std::uint32_t token = 300U; token < 333U; ++token) {
+    c32_prompt.push_back(token);
+  }
+  fake = {};
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  const auto c32_result = detail::run_generation_control(
+      c32_prompt, options(1U, 33U, false, 32U), &fake, fake_step,
+      fake_prefill_tile);
+  test.expect(c32_result && fake.tile_inputs.size() == 1U &&
+                  fake.tile_inputs[0] ==
+                      std::vector<std::uint32_t>(c32_prompt.begin(),
+                                                 c32_prompt.begin() + 32) &&
+                  fake.inputs == std::vector<std::uint32_t>({332U}),
+              "chunk thirty-two routes a P33 prompt as one 32-token prefix "
+              "tile before the scalar final prompt token");
 }
 
 void test_chunk_fallbacks_and_callback_requirement(TestContext& test) {
@@ -801,7 +842,7 @@ void test_validation_and_runner_failures(TestContext& test) {
   test.expect(!result && result.error == detail::GenerationControlError::kInvalidArgument,
               "zero prefill chunk size is rejected");
   result = detail::run_generation_control(
-      {1U}, options(1U, 1U, false, 17U), &fake, fake_step);
+      {1U}, options(1U, 1U, false, 33U), &fake, fake_step);
   test.expect(!result && result.error == detail::GenerationControlError::kInvalidArgument,
               "prefill chunk size above fixed capacity is rejected");
   detail::GenerationControlOptions invalid_mode = options(1U, 1U);

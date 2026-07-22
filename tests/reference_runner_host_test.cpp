@@ -525,17 +525,24 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::build_request_memory_plan(chunk_options);
   const runtime::ReferencePrefillTileResult tile_result;
   test.expect(chunk_built &&
-                  chunk_built.value->prefill_chunk_size == 16U &&
-                  tile_result.steps.size() == 16U &&
+                  runtime::kMaximumRequestPrefillChunkSize == 32U &&
+                  chunk_built.value->prefill_chunk_size == 32U &&
+                  tile_result.steps.size() == 32U &&
                   detail::validate_reference_workspace_plan(
                       *chunk_built.value) ==
                       runtime::ReferenceRunnerError::kNone,
-              "chunk-sixteen plan and tile result satisfy the runner workspace ABI");
+              "chunk-thirty-two plan and tile result satisfy the runner workspace ABI");
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidRequestState,
               "chunk metadata cannot exceed the allocated workspace spans");
+  plan = *chunk_built.value;
+  plan.prefill_chunk_size =
+      runtime::kMaximumRequestPrefillChunkSize + 1U;
+  test.expect(detail::validate_reference_workspace_plan(plan) ==
+                  runtime::ReferenceRunnerError::kInvalidRequestState,
+              "chunk-thirty-three runner metadata is rejected");
   plan = *built.value;
   plan.prefill_chunk_size = 0U;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
