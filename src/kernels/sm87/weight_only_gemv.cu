@@ -2491,7 +2491,7 @@ nvfp4_w4a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
   }
 }
 
-// Test-only fixed-M32 candidate A for the two checkpoint-bound NVFP4 MLP
+// Selected fixed-M32 production kernel for the two checkpoint-bound NVFP4 MLP
 // projections. Two A[16,K64] panels remain resident in shared memory while
 // the decoded B[K64,N128] fragment is loaded once and reused by both independent
 // 16-token accumulator chains. B and the complete C[32,N128] tile share one
@@ -10036,8 +10036,8 @@ int launch_sm87_nvfp4_w4a16_small_m16_wmma_k128_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
-// Test-only direct entry for the K64/LD72 fixed-M32 dual-resident-A-panel
-// candidate. Production dispatch and the public ABI remain unchanged.
+// Test-only direct entry for the selected production K64/LD72 fixed-M32
+// dual-resident-A-panel kernel.
 int launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -10616,6 +10616,59 @@ int launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
       activations + kHalfTokens * columns, kHalfTokens, rows, columns,
       output + kHalfTokens * rows, cuda_stream);
   return status;
+}
+
+int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHalfTokens = 16U;
+  const int validation = validate_nvfp4_m32_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_nvfp4_projection_query(32U, packed_weights, block_scales,
+                                  activations, rows, columns));
+  if (plan.route == registry::ProjectionRoute::kNvFp4M32Wmma) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    (void)cudaGetLastError();
+    switch (plan.shape) {
+      case registry::ProjectionShape::kNvFp4_17408x5120:
+        launch_nvfp4_small_m32_wmma_k64_dual_a_unchecked<17'408U, 5'120U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      case registry::ProjectionShape::kNvFp4_5120x17408:
+        launch_nvfp4_small_m32_wmma_k64_dual_a_unchecked<5'120U, 17'408U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      default:
+        return invalid_value();
+    }
+    return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route != registry::ProjectionRoute::kSplitM32IntoM16) {
+    return invalid_value();
+  }
+
+  int status = launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+      packed_weights, block_scales, weight_scale_2,
+      activations + kHalfTokens * columns, rows, columns,
+      output + kHalfTokens * rows, cuda_stream);
 }
 
 int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(

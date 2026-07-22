@@ -159,8 +159,9 @@ checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` down,
 activation-staged XOR-dual instances. Down stages its 34-KiB activation, while
 gate/up and lm-head each stage 10 KiB. All three use 8-byte cooperative global
 copies, so the public alignment contract and checkpoint layout are unchanged.
-Near-miss shapes, packed-weight or activation misalignment, M2 through M32,
-and prefill retain their previous routes.
+Near-miss shapes, packed-weight or activation misalignment, and M2 through
+M31 retain their previous routes; M32 follows the fixed-tile dispatch
+described below.
 Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
@@ -191,10 +192,14 @@ single-token operations. With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
 shape-gated Tensor Core path above or safely falls back to two M8 launches.
 M17 through M31 use M16-first composition, so M18 is M16+M2. At M32, the four
-exact aligned FP8 production shapes use one fixed-M32 Tensor Core kernel;
-other FP8 cases and all NVFP4 cases use two ordered M16 launches. Conv/GDN and
-Q/K+RoPE retain ordered subtiles of at most 16 rows; the reference backend and
-BF16 weights retain ordered M1 launches. Trace
+exact aligned FP8 production shapes and the exact aligned NVFP4
+`[17408,5120]` gate/up and `[5120,17408]` down shapes use one fixed-M32 Tensor
+Core kernel. The NVFP4 route is the K64/LD72 kernel: it keeps two 16-token
+activation panels resident and reuses each decoded weight tile across their
+independent WMMA accumulator chains. Other valid FP8 and NVFP4 M32 cases use
+two ordered M16 launches. Conv/GDN and Q/K+RoPE retain ordered subtiles of at
+most 16 rows; the reference backend and BF16 weights retain ordered M1
+launches. Trace
 capture deliberately reports and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for

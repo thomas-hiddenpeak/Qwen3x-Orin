@@ -3993,6 +3993,44 @@ void test_launch_validation(TestContext& test) {
             packed, scales, scale_2, activations, rows, columns,
             destination));
   };
+  const auto launch_nvfp4_public_m32 =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scales, const float scale_2,
+          const std::uint16_t* const activations, const std::size_t rows,
+          const std::size_t columns,
+          std::uint16_t* const destination) noexcept -> cudaError_t {
+    return static_cast<cudaError_t>(
+        q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+            packed, scales, scale_2, activations, rows, columns,
+            destination));
+  };
+  test.expect(
+      launch_nvfp4_public_m32(nullptr, nullptr, 1.0F, nullptr, 0U,
+                              kNvFp4M32Columns, nullptr) == cudaSuccess,
+      "NVFP4 public M32 zero rows is a no-op before route selection");
+  test.expect(
+      launch_nvfp4_public_m32(nullptr, nullptr, 1.0F, nullptr,
+                              kNvFp4M32Rows, 0U, nullptr) == cudaSuccess,
+      "NVFP4 public M32 zero columns is a no-op before route selection");
+  test.expect(
+      launch_nvfp4_public_m32(
+          nullptr, nvfp4_m32_scales, 1.0F, nvfp4_m32_activations,
+          kNvFp4M32Rows, kNvFp4M32Columns, nvfp4_m32_output) ==
+          cudaErrorInvalidValue,
+      "NVFP4 public M32 rejects null packed weights before enqueue");
+  test.expect(
+      launch_nvfp4_public_m32(
+          nvfp4_m32_packed, nvfp4_m32_scales,
+          std::numeric_limits<float>::infinity(), nvfp4_m32_activations,
+          kNvFp4M32Rows, kNvFp4M32Columns, nvfp4_m32_output) ==
+          cudaErrorInvalidValue,
+      "NVFP4 public M32 validates scale before route selection");
+  test.expect(
+      launch_nvfp4_public_m32(
+          nvfp4_m32_packed, nvfp4_m32_scales, 1.0F,
+          nvfp4_m32_activations, kMaximum, 16U, nvfp4_m32_output) ==
+          cudaErrorInvalidValue,
+      "NVFP4 public M32 rejects rows*K overflow before route selection");
   test.expect(
       launch_nvfp4_m32(nullptr, nvfp4_m32_scales, 1.0F,
                        nvfp4_m32_activations, kNvFp4M32Rows,
@@ -4161,6 +4199,16 @@ void test_launch_validation(TestContext& test) {
               16U * kNvFp4M32Columns * sizeof(std::uint16_t))) ==
           cudaErrorInvalidValue,
       "NVFP4 test-only M32 rejects output[0:16]/activation[16:32] overlap");
+  test.expect(
+      launch_nvfp4_public_m32(
+          nvfp4_m32_packed, nvfp4_m32_scales, 1.0F,
+          nvfp4_m32_activations, kNvFp4M32Rows, kNvFp4M32Columns,
+          reinterpret_cast<std::uint16_t*>(
+              kNvFp4M32ActivationAddress +
+              16U * kNvFp4M32Columns * sizeof(std::uint16_t))) ==
+          cudaErrorInvalidValue,
+      "NVFP4 public M32 rejects cross-half output/activation overlap before "
+      "enqueue");
 
   const auto launch_nvfp4_m32_k128 =
       [&](const std::uint8_t* const packed,
@@ -13724,6 +13772,11 @@ void run_nvfp4_m32_wmma_smoke_case(
       q3x::kernels::
           launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda,
       0x3cU, 0xc3U, distribution_label + " K128/LD136 single-A");
+  run_nvfp4_m32_candidate_smoke(
+      test, stream, packed, scales, activations, baseline, rows, columns,
+      kWeightScale2,
+      q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda,
+      0x69U, 0x96U, distribution_label + " public production M32");
 }
 
 void run_nvfp4_m32_wmma_exact_shape_smoke(TestContext& test,
@@ -13886,6 +13939,146 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
               << " gate=" << (contract ? "PASS" : "FAIL") << '\n';
     test.expect(contract,
                 label + " rejects both launches without capturing a node");
+  }
+
+  const std::string public_label =
+      "NVFP4 public M32 invalid alias capture";
+  cudaGraph_t public_graph = nullptr;
+  bool public_ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      public_label + " begin");
+  int public_status = static_cast<int>(cudaErrorUnknown);
+  if (public_ready) {
+    public_status =
+        q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+            packed, scales, 1.0F, activations, kRows, kColumns,
+            overlapping_output, static_cast<void*>(stream));
+    public_ready =
+        test.cuda_ok(cudaStreamEndCapture(stream, &public_graph),
+                     public_label + " end") &&
+        public_ready;
+  }
+  std::size_t public_node_count = 0U;
+  if (public_ready) {
+    public_ready =
+        test.cuda_ok(
+            cudaGraphGetNodes(public_graph, nullptr, &public_node_count),
+            public_label + " query nodes") &&
+        public_ready;
+  }
+  if (public_graph != nullptr) {
+    public_ready =
+        test.cuda_ok(cudaGraphDestroy(public_graph), public_label +
+                                                       " destroy") &&
+        public_ready;
+  }
+  const bool public_contract =
+      public_ready &&
+      public_status == static_cast<int>(cudaErrorInvalidValue) &&
+      public_node_count == 0U;
+  std::cout << "NVFP4_M32_PUBLIC_INVALID_GRAPH: alias_status="
+            << public_status << " total_nodes=" << public_node_count
+            << " gate=" << (public_contract ? "PASS" : "FAIL") << '\n';
+  test.expect(public_contract,
+              public_label + " rejects before capturing a node");
+}
+
+void run_nvfp4_m32_public_fallback_graph_contract(TestContext& test,
+                                                   cudaStream_t stream) {
+  constexpr std::uintptr_t kPackedAddress = 0x10'0000'0000ULL;
+  constexpr std::uintptr_t kScaleAddress = 0x20'0000'0000ULL;
+  constexpr std::uintptr_t kActivationAddress = 0x30'0000'0000ULL;
+  constexpr std::uintptr_t kOutputAddress = 0x40'0000'0000ULL;
+  struct Case {
+    const char* label;
+    std::uintptr_t packed_address;
+    std::uintptr_t scale_address;
+    std::uintptr_t activation_address;
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t expected_kernel_nodes;
+  };
+  constexpr std::array<Case, 6U> kCases{{
+      {"generic 13x48", kPackedAddress, kScaleAddress, kActivationAddress,
+       13U, 48U, 32U},
+      {"near-miss rows 17407x5120", kPackedAddress, kScaleAddress,
+       kActivationAddress, 17'407U, 5'120U, 4U},
+      {"4-byte-only packed-weight alignment 17408x5120",
+       kPackedAddress + 4U, kScaleAddress, kActivationAddress, 17'408U,
+       5'120U, 4U},
+      {"misaligned packed weights 17408x5120", kPackedAddress + 1U,
+       kScaleAddress, kActivationAddress, 17'408U, 5'120U, 32U},
+      {"misaligned block scales 17408x5120", kPackedAddress,
+       kScaleAddress + 1U, kActivationAddress, 17'408U, 5'120U, 4U},
+      {"BF16-only activation alignment 17408x5120", kPackedAddress,
+       kScaleAddress, kActivationAddress + sizeof(std::uint16_t), 17'408U,
+       5'120U, 32U},
+  }};
+
+  for (const Case& test_case : kCases) {
+    const std::string label =
+        std::string("NVFP4 public M32 fallback graph ") + test_case.label;
+    const auto* const packed =
+        reinterpret_cast<const std::uint8_t*>(test_case.packed_address);
+    const auto* const scales =
+        reinterpret_cast<const std::uint8_t*>(test_case.scale_address);
+    const auto* const activations =
+        reinterpret_cast<const std::uint16_t*>(
+            test_case.activation_address);
+    auto* const output =
+        reinterpret_cast<std::uint16_t*>(kOutputAddress);
+    cudaGraph_t graph = nullptr;
+    bool ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        label + " begin");
+    int launch_status = static_cast<int>(cudaErrorUnknown);
+    if (ready) {
+      launch_status =
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+              packed, scales, 1.0F, activations, test_case.rows,
+              test_case.columns, output, static_cast<void*>(stream));
+      ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " end") &&
+              ready;
+    }
+    std::size_t node_count = 0U;
+    std::size_t kernel_node_count = 0U;
+    if (ready) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           label + " query nodes") &&
+              ready;
+    }
+    if (ready && node_count != 0U) {
+      std::vector<cudaGraphNode_t> nodes(node_count);
+      std::size_t capacity = nodes.size();
+      ready = test.cuda_ok(
+                  cudaGraphGetNodes(graph, nodes.data(), &capacity),
+                  label + " get nodes") &&
+              ready;
+      for (std::size_t index = 0U; index < capacity && ready; ++index) {
+        cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+        ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                             label + " inspect node") &&
+                ready;
+        kernel_node_count += type == cudaGraphNodeTypeKernel ? 1U : 0U;
+      }
+    }
+    if (graph != nullptr) {
+      ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") &&
+              ready;
+    }
+    const bool contract =
+        ready && launch_status == static_cast<int>(cudaSuccess) &&
+        node_count == test_case.expected_kernel_nodes &&
+        kernel_node_count == test_case.expected_kernel_nodes;
+    std::cout << "NVFP4_M32_PUBLIC_FALLBACK_GRAPH: " << test_case.label
+              << " launch_status=" << launch_status
+              << " total_nodes=" << node_count
+              << " kernel_nodes=" << kernel_node_count
+              << " expected=" << test_case.expected_kernel_nodes
+              << " gate=" << (contract ? "PASS" : "FAIL") << '\n';
+    test.expect(contract,
+                label + " preserves the expected ordered fallback");
   }
 }
 
@@ -26097,6 +26290,7 @@ int main() {
   }
   run_fp8_m32_wmma_invalid_capture_contract(test, stream);
   run_nvfp4_m32_wmma_invalid_capture_contract(test, stream);
+  run_nvfp4_m32_public_fallback_graph_contract(test, stream);
   run_nvfp4_m32_wmma_resource_gates(test);
 
   for (std::size_t token_count = 2U; token_count <= 8U; ++token_count) {

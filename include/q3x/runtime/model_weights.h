@@ -355,10 +355,10 @@ struct WeightBindResult {
 // token_count must be in [1, 32]. M=1 delegates to the single-token entry
 // point above. For M=16..31, SM87 FP8 and NVFP4 launch a fixed M16 prefix
 // followed by fused launches of at most eight tokens for the remaining tail.
-// At M=32, the four exact aligned FP8 production shapes use one fixed-M32
-// kernel; every other FP8 case and all NVFP4 cases use two ordered M16
-// launches. M=2..15 uses the same at-most-eight-token fused launches. The
-// reference backend and BF16 weights enqueue the existing
+// At M=32, the exact aligned FP8 production shapes and the two exact aligned
+// NVFP4 MLP shapes use one fixed-M32 kernel; every other weight-only case uses
+// two ordered M16 launches. M=2..15 uses the same at-most-eight-token fused
+// launches. The reference backend and BF16 weights enqueue the existing
 // FP32-scratch reference path in token order while reusing the same
 // output-sized buffer; only M=1 may select the exact-shape BF16 direct-output
 // route described above. The complete tile is validated before any work is

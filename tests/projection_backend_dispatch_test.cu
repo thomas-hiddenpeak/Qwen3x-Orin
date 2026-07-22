@@ -900,10 +900,56 @@ void test_tile_routes(TestContext& test) {
   test.expect(
       capture_production_m32(production_nvfp4,
                              "SM87 NVFP4 production M32 dispatch graph",
-                             &production_nvfp4_linear_chain) == 2U,
-      "SM87 NVFP4 production M32 uses exactly two M16 kernels");
+                             &production_nvfp4_linear_chain) == 1U,
+      "SM87 NVFP4 production M32 uses one direct WMMA kernel");
   test.expect(production_nvfp4_linear_chain,
-              "SM87 NVFP4 production M32 preserves M16 launch order");
+              "SM87 NVFP4 production M32 preserves a single-node chain");
+
+  const runtime::LinearWeight production_nvfp4_weight4 =
+      runtime::NvFp4LinearWeight{
+          reinterpret_cast<const std::uint8_t*>(
+              reinterpret_cast<std::uintptr_t>(production_nvfp4_weight) + 4U),
+          production_nvfp4_scale, production_companion_scales,
+          production_companion_scales + 1U, 1.0F, 1.0F, 17'408U, 5'120U};
+  bool production_nvfp4_weight4_linear_chain = false;
+  test.expect(
+      capture_production_m32(
+          production_nvfp4_weight4,
+          "SM87 NVFP4 4-byte-aligned M32 fallback graph",
+          &production_nvfp4_weight4_linear_chain) == 4U,
+      "SM87 NVFP4 4-byte-aligned M32 fallback expands to four M8 kernels");
+  test.expect(production_nvfp4_weight4_linear_chain,
+              "SM87 NVFP4 4-byte-aligned M32 fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_scale1 =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale + 1U,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 17'408U, 5'120U};
+  bool production_nvfp4_scale1_linear_chain = false;
+  test.expect(
+      capture_production_m32(
+          production_nvfp4_scale1,
+          "SM87 NVFP4 byte-aligned scale M32 fallback graph",
+          &production_nvfp4_scale1_linear_chain) == 4U,
+      "SM87 NVFP4 byte-aligned scales use two public M16 fallbacks");
+  test.expect(production_nvfp4_scale1_linear_chain,
+              "SM87 NVFP4 byte-aligned scale fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_near_miss =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 17'407U, 5'120U};
+  bool production_nvfp4_near_miss_linear_chain = false;
+  test.expect(
+      capture_production_m32(
+          production_nvfp4_near_miss,
+          "SM87 NVFP4 near-miss M32 fallback graph",
+          &production_nvfp4_near_miss_linear_chain) == 4U,
+      "SM87 NVFP4 near-miss M32 uses two public M16 fallbacks");
+  test.expect(production_nvfp4_near_miss_linear_chain,
+              "SM87 NVFP4 near-miss M32 fallback remains ordered");
 
   expect_invalid_capture_has_no_nodes(
       test,

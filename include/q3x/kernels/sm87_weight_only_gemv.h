@@ -226,4 +226,19 @@ launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fixed-M32 NVFP4 sequence-tile projection. activations is contiguous
+// token-major BF16 [32, columns] and output is contiguous token-major BF16
+// [32, rows]. The complete input/output spans are validated before any work
+// is enqueued. The two checkpoint MLP shapes use one BF16 tensor-core kernel
+// when packed weights are 16-byte aligned, block scales are 2-byte aligned,
+// and activations are 8-byte aligned; every other valid non-empty shape falls
+// back to two ordered public M16 launches. Empty rows or columns retain the
+// successful no-op contract above.
+[[nodiscard]] int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activations, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::kernels

@@ -67,6 +67,7 @@ enum class ProjectionRoute : std::uint8_t {
   kNvFp4M16Wmma,
   kSplitM16IntoM8,
   kFp8M32Wmma,
+  kNvFp4M32Wmma,
   kSplitM32IntoM16,
 };
 
@@ -302,6 +303,10 @@ select_nvfp4_projection_plan(
       query.weight_aligned_4 && query.activation_aligned_8;
 
   if (query.token_count == 32U) {
+    if (is_nvfp4_mlp_shape(shape) && query.weight_aligned_16 &&
+        query.activation_aligned_8 && query.block_scales_aligned_2) {
+      return make_projection_plan(shape, ProjectionRoute::kNvFp4M32Wmma);
+    }
     return make_projection_plan(shape, ProjectionRoute::kSplitM32IntoM16,
                                 0U, 2U);
   }

@@ -779,6 +779,12 @@ int launch_projection_tile_to_bf16_cuda(
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
+      if (token_count == 32U) {
+        return kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, spans.rows, spans.columns, output,
+            cuda_stream);
+      }
       std::size_t token_offset = 0U;
       if (token_count >= 16U) {
         const int status =

@@ -77,10 +77,12 @@ SM87 FP8/NVFP4 projection 在 M2..M8 使用 small-M weight-reuse kernel；M9..M1
 按 M8 加剩余 M1..M7 分片。M16 对四个 FP8 production shapes 和两个 NVFP4 MLP
 shapes 使用 canonical-layout decode-to-BF16 Tensor Core kernel，不满足 exact-shape 或
 alignment gate 时退回两个有序 M8 launch。M17..M31 先发出 M16，再以 M8 和 M1..M7
-处理 tail，因此 M18 为 M16+M2。M32 对四个 exact aligned FP8 production shapes 使用
-单个 fixed-M32 Tensor Core kernel；其他 FP8 case 和全部 NVFP4 case 使用两个有序 M16
-launch。reference backend 和 BF16 weight 保留逐行 M1 fallback，因此接口语义不依赖
-optimized backend。outer C17..C32 tile 中的
+处理 tail，因此 M18 为 M16+M2。M32 对四个 exact aligned FP8 production shapes，以及
+exact aligned NVFP4 `[17408,5120]` gate/up 和 `[5120,17408]` down，使用单个
+fixed-M32 Tensor Core kernel。NVFP4 走 K64/LD72 WMMA：两个 16-token activation panel
+同时驻留，并由两条独立 accumulator chain 复用同一份 decoded weight tile。其他合法
+FP8/NVFP4 M32 case 使用两个有序 M16 launch。reference backend 和 BF16 weight 保留
+逐行 M1 fallback，因此接口语义不依赖 optimized backend。outer C17..C32 tile 中的
 causal conv/GDN 继续按至多 16 token 的有序子块更新同一份 BF16 history/state；完整
 outer tile 仍只同步并提交一次。full-attention Q/K+RoPE preprocessing 同样按至多 16
 token 子块执行，避免因为 outer M>16 落回逐 token RoPE launch。

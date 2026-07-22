@@ -101,11 +101,11 @@ format-specific fixed-tile launcher: exact aligned production shapes use
 Ampere BF16 Tensor Core MMA and every other valid case falls back to two
 ordered M8 launches. M17..M31 use an M16-first composite followed by an M8 and
 M1..M7 tail as required; M18 is M16+M2. At M32, the four exact aligned FP8
-production shapes use one fixed-M32 Tensor Core kernel; other FP8 cases and all
-NVFP4 cases use two ordered M16 launches. BF16 weights and the reference
-backend enqueue M checked M1 projections. The launcher validates the complete
-tile spans, scratch capacity, overflow, and input/output overlap before
-enqueueing any work.
+production shapes and the two exact aligned NVFP4 MLP shapes use one
+fixed-M32 Tensor Core kernel. Other valid FP8 and NVFP4 M32 cases use two
+ordered M16 launches. BF16 weights and the reference backend enqueue M checked
+M1 projections. The launcher validates the complete tile spans, scratch
+capacity, overflow, and input/output overlap before enqueueing any work.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
@@ -117,6 +117,12 @@ packed weights are 16-byte aligned, block scales are 2-byte aligned, and
 activations are 8-byte aligned. It combines canonical E2M1 values with their
 E4M3FN block scales before the same BF16 MMA. Neither route repacks or mutates
 the resident checkpoint.
+
+The fixed-M32 NVFP4 route accepts those same two shapes and alignment gates.
+Its single K64/LD72 WMMA kernel keeps two 16-token activation panels resident
+in shared memory and reuses each decoded 64-by-128 weight tile across two
+independent accumulator chains. Every other valid NVFP4 M32 projection falls
+back to two ordered public M16 launches.
 
 Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
 256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
@@ -131,8 +137,8 @@ CTA for reuse by grid-stride row quads. Down stages 34 KiB; gate/up and lm-head
 stage 10 KiB. The cooperative global copy is 8 bytes wide, so all three routes
 preserve the existing 8-byte activation alignment contract; they add no repack
 or 16-byte public alignment requirement. Near-miss shapes, packed-weight or
-activation misalignment, M2 through M32, and prefill retain their preceding
-routes.
+activation misalignment, and M2 through M31 retain their preceding routes;
+M32 uses the fixed-tile dispatch described above.
 
 Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
 4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
@@ -206,8 +212,8 @@ the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
 production routes at M1 through M32, BF16/reference fallback, M9..M15
-segmentation, M16 Tensor Core selection/two-M8 fallback, M17..M32 M16-first
-composition, scratch behavior,
+segmentation, M16 Tensor Core selection/two-M8 fallback, M17..M31 M16-first
+composition, exact M32 Tensor Core selection/two-M16 fallback, scratch behavior,
 whole-tile overlap/span validation, and fail-closed backend and variant
 handling. It also covers exact-shape FP8 M1 K/V and QKV/Z pair selection,
 near-miss and unaligned ordered fallbacks, different output sizes,
@@ -225,6 +231,10 @@ the smaller FP8 shape may regress by at most 2%. It is enabled with
 `Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1` and
 `Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1`; their final production-call-weighted
 speedups over two M8 launches are 2.41756x and 1.56406x, respectively.
+The fixed-M32 NVFP4 dual-candidate gate is enabled with
+`Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1`; it compares the K64/LD72 and K128/LD136
+kernels with two public M16 launches on both checkpoint-like and
+same-bank-stress fixtures. Production selects K64/LD72.
 The FP8 M1 K/V pair correctness segment runs by default and covers all 254
 finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
 bitwise comparison, and output canaries. Its optional mirrored timing gate is

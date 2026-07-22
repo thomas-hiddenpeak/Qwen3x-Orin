@@ -60,7 +60,7 @@ static_assert(matches(
     select_projection_plan(query(WeightEncoding::kNvFp4, 32U, 17'408U,
                                  5'120U)),
     ProjectionShape::kNvFp4_17408x5120,
-    ProjectionRoute::kSplitM32IntoM16, 0U, 2U));
+    ProjectionRoute::kNvFp4M32Wmma));
 static_assert(matches(
     select_projection_plan(
         query(WeightEncoding::kNvFp4, 1U, 248'320U, 5'120U)),
@@ -146,7 +146,7 @@ constexpr std::array<ExactShapeRoutes, 8U> kExactShapes{{
        {2U, ProjectionRoute::kNvFp4M2RowQuad, 64U, 1U},
        {8U, ProjectionRoute::kNvFp4M8Fixed, 0U, 1U},
        {16U, ProjectionRoute::kNvFp4M16Wmma, 0U, 1U},
-       {32U, ProjectionRoute::kSplitM32IntoM16, 0U, 2U}}}},
+       {32U, ProjectionRoute::kNvFp4M32Wmma, 0U, 1U}}}},
     {WeightEncoding::kNvFp4,
      5'120U,
      17'408U,
@@ -155,7 +155,7 @@ constexpr std::array<ExactShapeRoutes, 8U> kExactShapes{{
        {2U, ProjectionRoute::kNvFp4M2RowQuad, 64U, 1U},
        {8U, ProjectionRoute::kNvFp4M8Fixed, 0U, 1U},
        {16U, ProjectionRoute::kNvFp4M16Wmma, 0U, 1U},
-       {32U, ProjectionRoute::kSplitM32IntoM16, 0U, 2U}}}},
+       {32U, ProjectionRoute::kNvFp4M32Wmma, 0U, 1U}}}},
     {WeightEncoding::kNvFp4,
      248'320U,
      5'120U,
@@ -264,9 +264,10 @@ void test_alignment_matrix() {
           weight_aligned_16, activation_aligned_8,
           block_scales_aligned_2);
       const bool direct_m32_shape =
-          exact.routes[4U].route == ProjectionRoute::kFp8M32Wmma;
+          exact.routes[4U].route == ProjectionRoute::kFp8M32Wmma ||
+          exact.routes[4U].route == ProjectionRoute::kNvFp4M32Wmma;
       if (tensor_eligible && direct_m32_shape) {
-        expect(m32_query, exact.shape, ProjectionRoute::kFp8M32Wmma);
+        expect(m32_query, exact.shape, exact.routes[4U].route);
       } else {
         expect(m32_query, exact.shape, ProjectionRoute::kSplitM32IntoM16, 0U,
                2U);
