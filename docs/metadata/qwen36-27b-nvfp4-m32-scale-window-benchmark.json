@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-scale-window-benchmark",
+  "status": "production-nvfp4-m32-scale-window-benchmark",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "969012993e125ef4c4ff5654b7279a092f01b316",
+    "candidate_subject": "kernels: coalesce NVFP4 M32 scale windows",
+    "baseline_commit": "24ec64a2f0ce870b1e0353cc98e23ac5fa4cfc7f",
+    "baseline_subject": "docs: record production NVFP4 M32 benchmark",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3496864,
+      "sha256": "386609a05bff46a8695807837e1f2a31ad6c4aef373947a0063bce22a3683120",
+      "checked_in": false
+    },
+    "baseline_binary": {
+      "local_path": "/tmp/q3x-nvfp4-scale-window-base-24ec64a/build/orin-release/qwen3x-orin",
+      "bytes": 3429088,
+      "sha256": "f9f80a1d23889295c5f36af9e0f2e8b49abc64c876ef0fae432d7da0d51d6114",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "ncu_version": "2026.2.0.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root; mirrored timings are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda",
+    "direct_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+    "selected_kernel": "K64/LD72 dual-resident-A fixed-M32 WMMA with K256 scale windows",
+    "scale_window_columns": 256,
+    "scale_window_k64_stages": 4,
+    "scale_bytes_per_output_row_per_window": 16,
+    "scale_storage": "eight otherwise-unused BF16 words in shared-B padding [64,72)",
+    "scale_load": "coalesced 16-byte row segments loaded once per K256 window and reused by four ordered K64 stages",
+    "wmma_accumulation_order_changed": false,
+    "shared_memory_bytes_added": 0,
+    "resource_usage": {
+      "registers_per_thread": 46,
+      "static_shared_bytes": 31232,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5
+    },
+    "public_abi_change": "none",
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false
+  },
+  "validation": {
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "excluded": "package_consumer"
+    },
+    "direct_shape_gate": {
+      "shapes": 2,
+      "total_bf16_outputs_checked": 720896,
+      "candidate_vs_previous_production_mismatches": 0,
+      "candidate_vs_two_public_m16_mismatches": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary_exact": true,
+      "outputs_finite": true,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1,
+      "two_byte_aligned_scale_pointer_covered": true
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only"
+    },
+    "independent_review": "no blocker"
+  },
+  "same_cubin_microbenchmark": {
+    "protocol_per_candidate_and_round": "baseline-candidate-candidate-baseline",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "checkpoint_like",
+        "previous_production_ms": 1.19710,
+        "scale_window_ms": 1.02512,
+        "speedup": 1.16777
+      },
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "same_bank_stress",
+        "previous_production_ms": 1.16842,
+        "scale_window_ms": 0.995491,
+        "speedup": 1.17372
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "checkpoint_like",
+        "previous_production_ms": 1.34318,
+        "scale_window_ms": 1.18348,
+        "speedup": 1.13494
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "same_bank_stress",
+        "previous_production_ms": 1.30996,
+        "scale_window_ms": 1.14579,
+        "speedup": 1.14328
+      }
+    ],
+    "profile_call_weights_gate_up_down": [128, 64],
+    "weighted_previous_production_ms": 472.588,
+    "weighted_scale_window_ms": 407.711,
+    "weighted_speedup": 1.15913,
+    "required_weighted_speedup": 1.05,
+    "gate": "pass"
+  },
+  "ncu_attribution": {
+    "baseline_kernel": "K64/LD72 dual-A",
+    "candidate_kernel": "K64/LD72 dual-A K256 scale-window",
+    "gate_up": {
+      "shape_n_by_k": [17408, 5120],
+      "baseline_duration_ms": 1.25,
+      "candidate_duration_ms": 1.03,
+      "baseline_memory_throughput_percent": 63.60,
+      "candidate_memory_throughput_percent": 71.00,
+      "baseline_compute_throughput_percent": 30.94,
+      "candidate_compute_throughput_percent": 38.94,
+      "baseline_achieved_occupancy_percent": 70.17,
+      "candidate_achieved_occupancy_percent": 70.94,
+      "global_sectors": {
+        "baseline_total": 4212736,
+        "candidate_total": 3168256,
+        "ideal": 2994176,
+        "baseline_excessive": 1218560,
+        "candidate_excessive": 174080,
+        "excessive_reduction_percent": 85.714286
+      },
+      "shared_wavefronts": {
+        "baseline_total": 13261372,
+        "candidate_total": 12592512,
+        "baseline_excessive": 4513852,
+        "candidate_excessive": 3670912
+      }
+    },
+    "down": {
+      "shape_n_by_k": [5120, 17408],
+      "baseline_duration_ms": 1.39,
+      "candidate_duration_ms": 1.15,
+      "baseline_memory_throughput_percent": 56.80,
+      "candidate_memory_throughput_percent": 60.14,
+      "baseline_compute_throughput_percent": 27.86,
+      "candidate_compute_throughput_percent": 34.98,
+      "baseline_achieved_occupancy_percent": 38.67,
+      "candidate_achieved_occupancy_percent": 39.71,
+      "global_sectors": {
+        "baseline_total": 4188160,
+        "candidate_total": 3143680,
+        "ideal": 2969600,
+        "baseline_excessive": 1218560,
+        "candidate_excessive": 174080,
+        "excessive_reduction_percent": 85.714286
+      },
+      "shared_wavefronts": {
+        "baseline_total": 13158724,
+        "candidate_total": 11778560,
+        "baseline_excessive": 4441924,
+        "candidate_excessive": 2887680
+      }
+    },
+    "interpretation": "The K256 window removes 1,044,480 excessive global sectors from each exact shape without reducing occupancy. Remaining source-counter pressure is dominated by shared lookup/WMMA access rather than block-scale global loads."
+  },
+  "p33_c32_bccb": {
+    "prompt_manifest_id": "P33",
+    "rendered_prompt_tokens": 33,
+    "prefix_tokens": 32,
+    "max_tokens": 1,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "baseline_1": 530.609,
+      "candidate_1": 499.098,
+      "candidate_2": 498.981,
+      "baseline_2": 530.664
+    },
+    "average_of_pair_medians_ms": {
+      "baseline": 530.6365,
+      "candidate": 499.0395
+    },
+    "candidate_minus_baseline_ms": -31.5970,
+    "candidate_minus_baseline_percent": -5.954547,
+    "speedup": 1.063316,
+    "first_generated_text": "Hello",
+    "prompt_and_first_generated_token_exact": true
+  },
+  "p33_c32_nsys": {
+    "kernel_launches_each": 2166,
+    "baseline_summed_kernel_time_ms": 544.612832,
+    "candidate_summed_kernel_time_ms": 514.025984,
+    "baseline_kernel_span_ms": 550.367584,
+    "candidate_kernel_span_ms": 520.783392,
+    "gate_up_ms": {
+      "baseline": 159.324416,
+      "candidate": 137.425664,
+      "delta": -21.898752,
+      "speedup": 1.159350
+    },
+    "down_ms": {
+      "baseline": 89.809536,
+      "candidate": 80.262240,
+      "delta": -9.547296,
+      "speedup": 1.118951
+    },
+    "target_total_ms": {
+      "baseline": 249.133952,
+      "candidate": 217.687904,
+      "delta": -31.446048,
+      "delta_percent": -12.622145,
+      "speedup": 1.144455
+    },
+    "summed_kernel_time_delta_ms": -30.586848,
+    "summed_kernel_time_delta_percent": -5.616255,
+    "kernel_span_delta_ms": -29.584192,
+    "kernel_span_delta_percent": -5.375351,
+    "attribution": "The target kernels account for 31.446048 ms of a 30.586848 ms summed-kernel reduction and agree with the 31.5970 ms mirrored TTFT reduction."
+  },
+  "rejected_followups": [
+    {
+      "candidate": "full XOR-fold product-codebook swizzle",
+      "checkpoint_like_speedups_gate_up_down": [0.985629, 0.984716],
+      "same_bank_stress_speedups_gate_up_down": [1.07249, 1.07549],
+      "checkpoint_weighted_speedup": 0.985295,
+      "decision": "reject; synthetic bank-stress gain does not transfer to checkpoint-like scales"
+    },
+    {
+      "candidate": "single-shift-5 product-codebook swizzle",
+      "checkpoint_like_speedups_gate_up_down": [0.986932, 0.985712],
+      "same_bank_stress_speedups_gate_up_down": [1.07489, 1.07317],
+      "checkpoint_weighted_speedup": 0.986485,
+      "decision": "reject"
+    },
+    {
+      "candidate": "down-only N64 panel-split",
+      "resources": {
+        "registers_per_thread": 40,
+        "static_shared_bytes": 22016,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 6
+      },
+      "checkpoint_like_speedup": 1.02379,
+      "same_bank_stress_speedup": 0.947734,
+      "equal_weight_speedup": 0.984926,
+      "decision": "reject; doubled activation staging and lost B-fragment/dual-accumulator reuse outweigh grid 40-to-80 parallelism"
+    },
+    {
+      "candidate": "down-only N96 dual-A",
+      "resources": {
+        "registers_per_thread": 62,
+        "static_shared_bytes": 26624,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 5
+      },
+      "checkpoint_like_speedup": 0.912250,
+      "same_bank_stress_speedup": 0.899351,
+      "equal_weight_speedup": 0.905861,
+      "full_output_mismatches": 0,
+      "final_32_row_tail_mismatches_per_distribution": 0,
+      "decision": "reject; grid 40-to-54 does not repay extra CTA initialization, activation staging, barriers, and padded work"
+    }
+  ],
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "p33_user_text": "hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+    "microbenchmark_order": "B-C-C-B for every candidate and round",
+    "ncu_note": "Baseline reports profile the pre-window production executable; candidate reports profile the direct test entry for the production-selected scale-window specialization.",
+    "rejected_code_retained": false
+  },
+  "artifacts": [
+    {"role": "same-cubin scale-window performance log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-perf.log", "bytes": 47760, "sha256": "e7707f697e39aaf2c1acc427741fc16eefa533c60877a60ef0c5e67e1bf724ba", "checked_in": false},
+    {"role": "baseline gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-gateup.ncu-rep", "bytes": 1827883, "sha256": "81e5e24f16e76271281f74748931cd067a9b358383060e6eb79f6e70388cb55b", "checked_in": false},
+    {"role": "candidate gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-scale-window-gateup.ncu-rep", "bytes": 1918940, "sha256": "d1902d2e090a43fb7821ef6f1d57eded0906ca964fed913bfa6623ec90ddcb8e", "checked_in": false},
+    {"role": "baseline down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-down.ncu-rep", "bytes": 1791362, "sha256": "59f6ba32a50296fe81b96a4e6a87a20581ab91f4e041433b54f5ad34a3022d02", "checked_in": false},
+    {"role": "candidate down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-scale-window-down.ncu-rep", "bytes": 1883569, "sha256": "bcde14fc9187bf09eef8d270f5ee808599f203cf7ca7dded48dbdff7c2ed2fe8", "checked_in": false},
+    {"role": "release suite log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-ctest-release.log", "bytes": 7398, "sha256": "b92d7e9f3f91de1f5c7e48db4050fef1c2d880645c814a9c9f612d1d0bec5b0e", "checked_in": false},
+    {"role": "ASan UBSan selected suite log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-ctest-asan.log", "bytes": 7273, "sha256": "1585e09253b170a309b89b3fe07e98e70db570207afbbd1254c34bc2914717e3", "checked_in": false},
+    {"role": "C1 C8 C16 C32 model-oracle log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-e2e.log", "bytes": 968, "sha256": "edfd5372cc363f26b679d8a427dae2fbbacdb7a1d0647a8b2cb3e5f795c4bef3", "checked_in": false},
+    {"role": "default promoted smoke log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-default-promoted.log", "bytes": 32653, "sha256": "f2098bed6f7f65c6db5ae1204d26f7341b01c7341a16333ac71021a5ce499e88", "checked_in": false},
+    {"role": "P33 baseline B1 log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-p033-c32-b1.log", "bytes": 4315, "sha256": "305079516809b57f4b7173c75cd8b0ee3b0ce108bfde14423bd7fa943de48f75", "checked_in": false},
+    {"role": "P33 candidate C1 log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-p033-c32-c1.log", "bytes": 4303, "sha256": "39bd8a106193b4253ee855a352e2342a57c0113babf7c9f3c070db6532afc091", "checked_in": false},
+    {"role": "P33 candidate C2 log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-p033-c32-c2.log", "bytes": 4313, "sha256": "2460eaa8e233d85147131ed0eeeb5ff9cc284ebcd3a25eb6fbec74f9bf7d2742", "checked_in": false},
+    {"role": "P33 baseline B2 log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-p033-c32-b2.log", "bytes": 4303, "sha256": "6a40c7fabdddb59d93156b01de51d9b424540bfec8a91293c115f8112a9477b9", "checked_in": false},
+    {"role": "baseline P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-profile-base-p033-c32.nsys-rep", "bytes": 353007, "sha256": "8673912a22f70d50ebe1ce40c84ade70213f9e4c9ed477c8f0f8b727bba77d6c", "checked_in": false},
+    {"role": "candidate P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-profile-candidate-p033-c32.nsys-rep", "bytes": 353013, "sha256": "db34869efc9285c6e43c44d6e070dd5417d4c38c30e7f36bf1f6cdd32ef39f85", "checked_in": false},
+    {"role": "full XOR-fold rejected performance log", "local_path": "/tmp/q3x-nvfp4-m32-product-swizzle-perf.log", "bytes": 50156, "sha256": "8b8f1441b2d4475f63115d28854a4b31c0b8d462a642c0c4bef1fc3fb72bf84c", "checked_in": false},
+    {"role": "shift-5 XOR-fold rejected performance log", "local_path": "/tmp/q3x-nvfp4-m32-product-swizzle-shift5-perf.log", "bytes": 50152, "sha256": "9b31b0a7e6e7df3c03450b750400e814cd1704db9d6461e8f4c938c62497e49f", "checked_in": false},
+    {"role": "N64 rejected performance log", "local_path": "/tmp/q3x-nvfp4-m32-n64-perf.log", "bytes": 51881, "sha256": "ff6a51bb5c3caf7cb6119b62f02e807f3cfcc75232ed43c195289cb4bbcf79a8", "checked_in": false},
+    {"role": "N96 rejected performance log", "local_path": "/tmp/q3x-nvfp4-m32-n96-perf.log", "bytes": 53218, "sha256": "35ea1f709f40a5a398df4b79017dc1b347fd84700968f6497b6748c9d68b73e3", "checked_in": false}
+  ],
+  "limitations": [
+    "GPU and memory clocks were not locked, so timings remain diagnostic.",
+    "The end-to-end result covers the tokenizer-pinned P33 case with one 32-token prefix tile.",
+    "Only the two aligned NVFP4 MLP shapes use the direct M32 kernel.",
+    "Prefill and decode remain logically separated but execute serially on one CUDA stream; this milestone adds no double or triple buffering.",
+    "Shared-access source-counter excess remains material; two simple XOR layouts improved only the synthetic same-bank fixture and were rejected.",
+    "Increasing down-projection CTA count with N64 or N96 tiles was slower and those candidates were removed."
+  ],
+  "next_priority": "Keep the N128 K256 scale-window production route. Do not retry smaller N tiles or simple XOR swizzles. Evaluate a checkpoint-aware reduction in decoded-product shared lookup traffic or a stage pipeline only when it preserves B reuse and dual-accumulator ILP; retain one-stream scheduling until an end-to-end trace exposes independent work."
+}

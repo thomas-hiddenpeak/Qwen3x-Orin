@@ -298,6 +298,19 @@ C16/C32 exact-model gates remain intact. Execution still has one kernel stream
 and no double/triple buffering; replay-scoped NCU evidence now decides whether
 the next work is kernel-local or scheduling overlap. See the
 [NVFP4 M32 production record](metadata/qwen36-27b-nvfp4-m32-production-benchmark.json).
+The follow-up K256 scale-window milestone (`9690129`) keeps that N128 kernel
+and reuses one coalesced 16-byte scale segment per output row across four K64
+stages. Its same-cubin weighted gate is 1.15913x; replay-scoped NCU reduces
+excess global sectors from 1,218,560 to 174,080 per exact shape (85.714%); and
+matched P33/C32 target time falls from 249.133952 to 217.687904 ms. Mirrored
+TTFT moves from 530.6365 to 499.0395 ms (-5.9545%). Two XOR product-table
+swizzles and down-only N64/N96 tiles failed checkpoint-distribution gates and
+were removed, so smaller-N tiling and simple XOR layouts are no longer the
+priority. The next bounded gate is a checkpoint-aware reduction in decoded-
+product shared traffic or a stage pipeline that preserves B reuse and dual-
+accumulator ILP. One-stream serial scheduling remains in place until a trace
+shows independent work worth overlapping. See the
+[NVFP4 M32 scale-window record](metadata/qwen36-27b-nvfp4-m32-scale-window-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

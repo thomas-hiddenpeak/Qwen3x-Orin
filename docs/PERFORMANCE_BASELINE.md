@@ -2222,3 +2222,66 @@ remaining P33/C32 hotspots; buffering or multi-stream work begins only if it
 exposes independent work and a concrete scheduling gap. Full commands,
 binary identities, hashes, excluded literal-label probes, and limitations are
 in the [NVFP4 M32 production record](metadata/qwen36-27b-nvfp4-m32-production-benchmark.json).
+
+## NVFP4 M32 K256 scale-window
+
+Commit `9690129` keeps the production N128, K64/LD72, dual-resident-A kernel
+but coalesces its block-scale traffic. Each output row now loads one contiguous
+16-byte scale segment per K256 window into eight otherwise-unused BF16 words in
+the shared-B padding `[64,72)`, then reuses that segment across four ordered K64
+WMMA stages. The two exact `[17408,5120]` and `[5120,17408]` routes are
+unchanged, accumulation order is unchanged, and no shared memory is added. The
+candidate uses 46 registers/thread, 31,232 bytes static shared memory, zero
+local/stack memory, 256 threads/block, and five active blocks/SM.
+
+The direct gate is bit-exact to both the previous M32 production kernel and two
+public M16 launches across 720,896 BF16 outputs. Replay, token-15/16 boundary,
+finite-output, guard, two-byte-aligned-scale, and single-node CUDA Graph checks
+all pass. Release reports 49 passes and five environment skips from 54 tests;
+the selected ASan/UBSan run reports 48 passes and five skips from 53. Separate
+C1/C8/C16/C32 model processes preserve the pinned 19 prompt IDs, 26 generated
+IDs, exact text/`im_end`, and all 44 logical steps.
+
+The same-cubin four-round B-C-C-B gate records:
+
+| Shape | Scale distribution | Previous M32 | K256 window | Speedup |
+| --- | --- | ---: | ---: | ---: |
+| `[17408,5120]` gate/up | checkpoint-like | 1.19710 ms | 1.02512 ms | 1.16777x |
+| `[17408,5120]` gate/up | same-bank stress | 1.16842 ms | 0.995491 ms | 1.17372x |
+| `[5120,17408]` down | checkpoint-like | 1.34318 ms | 1.18348 ms | 1.13494x |
+| `[5120,17408]` down | same-bank stress | 1.30996 ms | 1.14579 ms | 1.14328x |
+
+Applying the 128:64 P33 gate/up-to-down call mix across both distributions
+reduces the aggregate from 472.588 to 407.711 ms, or 1.15913x. Replay-scoped
+NCU supplies the mechanism rather than relying on timing alone:
+
+| Shape | Duration | Excess global sectors | Excess shared wavefronts | Memory / compute throughput |
+| --- | ---: | ---: | ---: | ---: |
+| Gate/up baseline | 1.25 ms | 1,218,560 | 4,513,852 | 63.60% / 30.94% |
+| Gate/up K256 window | 1.03 ms | 174,080 | 3,670,912 | 71.00% / 38.94% |
+| Down baseline | 1.39 ms | 1,218,560 | 4,441,924 | 56.80% / 27.86% |
+| Down K256 window | 1.15 ms | 174,080 | 2,887,680 | 60.14% / 34.98% |
+
+Thus each exact shape removes 1,044,480 excessive global sectors (85.714%)
+without reducing achieved occupancy. The remaining source-counter pressure is
+primarily shared lookup/WMMA access, not repeated global block-scale loads.
+
+The detached-base P33/C32 B-C-C-B diagnostic moves mirrored-pair TTFT from
+530.6365 to 499.0395 ms, a -31.5970 ms change (-5.9545%, 1.06332x), while all
+runs generate `Hello`. Matched Nsight Systems profiles retain 2,166 launches;
+target gate/up plus down time falls from 249.133952 to 217.687904 ms
+(-31.446048 ms, 1.14446x), accounting for essentially the complete 30.586848
+ms summed-kernel and 31.5970 ms TTFT reductions.
+
+Three follow-up directions were rejected and removed. Full and shift-5 XOR
+product-table swizzles improved only the synthetic same-bank distribution and
+regressed checkpoint-like weighted performance to 0.98530x and 0.98649x.
+Down-only N64 and N96 tiling reached only 0.98493x and 0.90586x aggregate,
+because extra staging, barriers, padded work, and lost B/accumulator reuse cost
+more than their larger grids recovered. The production route therefore remains
+N128 with K256 scale windows. Prefill and Decode are still logically separate
+plans on one serial CUDA stream; this milestone adds no double/triple buffering
+or multi-stream overlap. The next kernel-local gate should reduce decoded-
+product shared traffic or pipeline stages while preserving B reuse and dual-
+accumulator ILP. Full artifacts and limitations are in the
+[NVFP4 M32 scale-window record](metadata/qwen36-27b-nvfp4-m32-scale-window-benchmark.json).
