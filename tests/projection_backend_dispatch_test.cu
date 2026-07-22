@@ -866,10 +866,36 @@ void test_tile_routes(TestContext& test) {
   bool production_fp8_linear_chain = false;
   test.expect(capture_production_m32(
                   production_fp8, "SM87 FP8 production M32 dispatch graph",
-                  &production_fp8_linear_chain) == 2U,
-              "SM87 FP8 production M32 uses exactly two M16 kernels");
+                  &production_fp8_linear_chain) == 1U,
+              "SM87 FP8 production M32 uses one direct WMMA kernel");
   test.expect(production_fp8_linear_chain,
-              "SM87 FP8 production M32 preserves M16 launch order");
+              "SM87 FP8 production M32 preserves a single-node chain");
+  const runtime::LinearWeight production_fp8_weight4 =
+      runtime::Fp8LinearWeight{
+          reinterpret_cast<const std::uint8_t*>(
+              reinterpret_cast<std::uintptr_t>(production_fp8_weight) + 4U),
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 5'120U, 6'144U};
+  bool production_fp8_weight4_linear_chain = false;
+  test.expect(
+      capture_production_m32(production_fp8_weight4,
+                             "SM87 FP8 4-byte-aligned M32 fallback graph",
+                             &production_fp8_weight4_linear_chain) == 4U,
+      "SM87 FP8 4-byte-aligned M32 uses two public M16 fallbacks");
+  test.expect(production_fp8_weight4_linear_chain,
+              "SM87 FP8 4-byte-aligned M32 fallback remains ordered");
+  const runtime::LinearWeight production_fp8_near_miss =
+      runtime::Fp8LinearWeight{
+          production_fp8_weight, production_companion_scales,
+          production_companion_scales + 1U, 1.0F, 1.0F, 5'121U, 6'144U};
+  bool production_fp8_near_miss_linear_chain = false;
+  test.expect(
+      capture_production_m32(production_fp8_near_miss,
+                             "SM87 FP8 near-miss M32 fallback graph",
+                             &production_fp8_near_miss_linear_chain) == 4U,
+      "SM87 FP8 near-miss M32 uses two public M16 fallbacks");
+  test.expect(production_fp8_near_miss_linear_chain,
+              "SM87 FP8 near-miss M32 fallback remains ordered");
   bool production_nvfp4_linear_chain = false;
   test.expect(
       capture_production_m32(production_nvfp4,

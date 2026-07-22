@@ -190,9 +190,11 @@ causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
 single-token operations. With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
 shape-gated Tensor Core path above or safely falls back to two M8 launches.
-M17 through M32 use M16-first composition, so M18 is M16+M2 and M32 is
-M16+M16; Conv/GDN and Q/K+RoPE retain ordered subtiles of at most 16 rows;
-the reference backend and BF16 weights retain ordered M1 launches. Trace
+M17 through M31 use M16-first composition, so M18 is M16+M2. At M32, the four
+exact aligned FP8 production shapes use one fixed-M32 Tensor Core kernel;
+other FP8 cases and all NVFP4 cases use two ordered M16 launches. Conv/GDN and
+Q/K+RoPE retain ordered subtiles of at most 16 rows; the reference backend and
+BF16 weights retain ordered M1 launches. Trace
 capture deliberately reports and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for

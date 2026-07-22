@@ -2092,7 +2092,7 @@ fp8_w8a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
   }
 }
 
-// Test-only fixed-M32 candidate. It keeps the production M16 shared-memory
+// Fixed-M32 production kernel. It keeps the production M16 shared-memory
 // footprint by retaining one 16-token A/C panel: each K-stage decodes B once,
 // consumes A[0:16], then overwrites only A and consumes A[16:32]. The two
 // accumulator dependency chains preserve the exact K/MMA order of two
@@ -9643,6 +9643,62 @@ int launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
       weights, weight_scale, activations + kHalfTokens * columns, kHalfTokens,
       rows, columns, output + kHalfTokens * rows, cuda_stream);
   return status;
+}
+
+int launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHalfTokens = 16U;
+  const int validation = validate_fp8_m32_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_fp8_projection_query(32U, weights, activations, rows, columns));
+  if (plan.route == registry::ProjectionRoute::kFp8M32Wmma) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    (void)cudaGetLastError();
+    switch (plan.shape) {
+      case registry::ProjectionShape::kFp8_10240x5120:
+        launch_fp8_small_m32_wmma_fixed_shape_unchecked<10'240U, 5'120U,
+                                                        72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_5120x6144:
+        launch_fp8_small_m32_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_6144x5120:
+        launch_fp8_small_m32_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_12288x5120:
+        launch_fp8_small_m32_wmma_fixed_shape_unchecked<12'288U, 5'120U,
+                                                        72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      default:
+        return invalid_value();
+    }
+    return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route != registry::ProjectionRoute::kSplitM32IntoM16) {
+    return invalid_value();
+  }
+
+  int status = launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+      weights, weight_scale, activations, rows, columns, output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+      weights, weight_scale, activations + kHalfTokens * columns, rows,
+      columns, output + kHalfTokens * rows, cuda_stream);
 }
 
 int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(

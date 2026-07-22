@@ -735,6 +735,11 @@ int launch_projection_tile_to_bf16_cuda(
   if (backend == ProjectionBackend::kSm87WeightOnly) {
     if (const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
         selected != nullptr) {
+      if (token_count == 32U) {
+        return kernels::launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda(
+            selected->weight, selected->weight_scale, input, spans.rows,
+            spans.columns, output, cuda_stream);
+      }
       std::size_t token_offset = 0U;
       if (token_count >= 16U) {
         const int status =

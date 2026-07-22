@@ -99,10 +99,13 @@ kernels that reuse each loaded weight across all M activation rows; M9..M15
 are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
 format-specific fixed-tile launcher: exact aligned production shapes use
 Ampere BF16 Tensor Core MMA and every other valid case falls back to two
-ordered M8 launches. M17..M32 use an M16-first composite followed by an M8 and
-M1..M7 tail as required; M18 is M16+M2 and M32 is M16+M16. BF16 weights and
-the reference backend enqueue M checked M1 projections. The launcher validates the complete tile spans, scratch
-capacity, overflow, and input/output overlap before enqueueing any work.
+ordered M8 launches. M17..M31 use an M16-first composite followed by an M8 and
+M1..M7 tail as required; M18 is M16+M2. At M32, the four exact aligned FP8
+production shapes use one fixed-M32 Tensor Core kernel; other FP8 cases and all
+NVFP4 cases use two ordered M16 launches. BF16 weights and the reference
+backend enqueue M checked M1 projections. The launcher validates the complete
+tile spans, scratch capacity, overflow, and input/output overlap before
+enqueueing any work.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
