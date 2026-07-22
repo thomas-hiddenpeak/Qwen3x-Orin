@@ -1,5 +1,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 
+#include "projection_route_registry.h"
+
 #include <cooperative_groups.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -12,25 +14,39 @@
 namespace q3x::kernels {
 namespace {
 
+namespace registry = sm87_detail;
+
 constexpr unsigned int kWarpSize = 32U;
 constexpr unsigned int kWarpsPerBlock = 8U;
 constexpr unsigned int kThreads = kWarpSize * kWarpsPerBlock;
 constexpr std::size_t kMaximumBlocks = 65'535U;
 constexpr std::size_t kMaximumSmallMTokens = 8U;
-constexpr std::size_t kFp8M1PersistentMinimumRows = 1'024U;
-constexpr unsigned int kFp8M1PersistentMaximumBlocks = 2'048U;
-constexpr std::size_t kFp8M2PersistentMinimumRows = 1'024U;
-constexpr unsigned int kFp8M2PersistentMaximumBlocks = 2'048U;
-constexpr std::size_t kFp8RowPairMinimumRows = 1'024U;
-constexpr std::size_t kNvFp4RowPairMinimumRows = kWarpsPerBlock * 2U;
-constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows = kWarpsPerBlock;
-constexpr std::size_t kNvFp4M1ScaleCodebookMinimumColumns = 5'120U;
-constexpr unsigned int kNvFp4M1PersistentMaximumBlocks = 96U;
+constexpr std::size_t kFp8M1PersistentMinimumRows =
+    registry::kFp8PersistentMinimumRows;
+constexpr unsigned int kFp8M1PersistentMaximumBlocks =
+    registry::kFp8PersistentMaximumBlocks;
+constexpr std::size_t kFp8M2PersistentMinimumRows =
+    registry::kFp8PersistentMinimumRows;
+constexpr unsigned int kFp8M2PersistentMaximumBlocks =
+    registry::kFp8PersistentMaximumBlocks;
+constexpr std::size_t kFp8RowPairMinimumRows =
+    registry::kFp8PersistentMinimumRows;
+constexpr std::size_t kNvFp4RowPairMinimumRows =
+    registry::kNvFp4M8ScaleCodebookMinimumRows;
+constexpr std::size_t kNvFp4M1ScaleCodebookMinimumRows =
+    registry::kNvFp4M1ScaleCodebookMinimumRows;
+constexpr std::size_t kNvFp4M1ScaleCodebookMinimumColumns =
+    registry::kNvFp4M1ScaleCodebookMinimumColumns;
+constexpr unsigned int kNvFp4M1PersistentMaximumBlocks =
+    registry::kNvFp4M1ScaleCodebookMaximumBlocks;
 constexpr unsigned int kNvFp4M1RowPairMaximumBlocks = 80U;
 constexpr unsigned int kNvFp4M1RowQuadMaximumBlocks = 64U;
-constexpr std::size_t kNvFp4M2ScaleCodebookMinimumRows = kWarpsPerBlock;
-constexpr std::size_t kNvFp4M2ScaleCodebookMinimumColumns = 5'120U;
-constexpr unsigned int kNvFp4M2RowQuadMaximumBlocks = 64U;
+constexpr std::size_t kNvFp4M2ScaleCodebookMinimumRows =
+    registry::kNvFp4M1ScaleCodebookMinimumRows;
+constexpr std::size_t kNvFp4M2ScaleCodebookMinimumColumns =
+    registry::kNvFp4M1ScaleCodebookMinimumColumns;
+constexpr unsigned int kNvFp4M2RowQuadMaximumBlocks =
+    registry::kNvFp4M2RowQuadMaximumBlocks;
 constexpr std::size_t kFp8EncodedValueCount = 256U;
 constexpr std::size_t kFp8VectorValuesPerLane = 4U;
 constexpr std::size_t kFp8VectorColumnsPerBlock =
@@ -53,7 +69,7 @@ constexpr unsigned int kFp8QkvZMaximumTestBlocks =
     kFp8QkvRowQuads + kFp8ZRowQuads;
 constexpr unsigned int kFp8QkvZProductionBlocks = 1'536U;
 constexpr unsigned int kFp8QkvZMaximumZBlocks = 768U;
-constexpr std::size_t kNvFp4GroupSize = 16U;
+constexpr std::size_t kNvFp4GroupSize = registry::kNvFp4GroupSize;
 constexpr std::size_t kNvFp4ValuesPerByte = 2U;
 constexpr std::size_t kNvFp4EncodedValueCount = 16U;
 constexpr std::size_t kNvFp4PackedValuesPerScale =
@@ -63,6 +79,9 @@ constexpr std::size_t kNvFp4VectorValuesPerLane =
     kNvFp4VectorPackedBytesPerLane * kNvFp4ValuesPerByte;
 constexpr std::size_t kNvFp4VectorColumnsPerWarp =
     kWarpSize * kNvFp4VectorValuesPerLane;
+
+static_assert(kFp8VectorColumnsPerBlock == registry::kFp8VectorColumns);
+static_assert(kNvFp4VectorColumnsPerWarp == registry::kNvFp4VectorColumns);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -93,6 +112,43 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   return first_begin < second_end && second_begin < first_end;
 }
 
+template <std::size_t Alignment>
+[[nodiscard]] bool pointer_is_aligned(const void* const pointer) noexcept {
+  return (reinterpret_cast<std::uintptr_t>(pointer) % Alignment) == 0U;
+}
+
+[[nodiscard]] registry::ProjectionQuery make_fp8_projection_query(
+    const std::size_t token_count, const std::uint8_t* const weights,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns) noexcept {
+  return registry::ProjectionQuery{
+      registry::WeightEncoding::kFp8,
+      token_count,
+      rows,
+      columns,
+      pointer_is_aligned<alignof(std::uint32_t)>(weights),
+      pointer_is_aligned<alignof(uint4)>(weights),
+      pointer_is_aligned<alignof(std::uint64_t)>(activations),
+      true};
+}
+
+[[nodiscard]] registry::ProjectionQuery make_nvfp4_projection_query(
+    const std::size_t token_count,
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns) noexcept {
+  return registry::ProjectionQuery{
+      registry::WeightEncoding::kNvFp4,
+      token_count,
+      rows,
+      columns,
+      pointer_is_aligned<alignof(std::uint32_t)>(packed_weights),
+      pointer_is_aligned<alignof(uint4)>(packed_weights),
+      pointer_is_aligned<alignof(std::uint64_t)>(activations),
+      pointer_is_aligned<alignof(std::uint16_t)>(block_scales)};
+}
+
 [[nodiscard]] unsigned int block_count_for_rows(
     const std::size_t rows) noexcept {
   const std::size_t wanted =
@@ -117,28 +173,16 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   // The row-pair path cleared checkpoint-like and shared-bank-stress gates on
   // these five checkpoint-bound projections. Unknown shapes retain the
   // cap-2048 single-row implementation.
-  return (rows == 10'240U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 6'144U) ||
-         (rows == 6'144U && columns == 5'120U) ||
-         (rows == 12'288U && columns == 5'120U) ||
-         (rows == 1'024U && columns == 5'120U);
+  return registry::is_fp8_checkpoint_shape(
+      registry::classify_projection_shape(registry::WeightEncoding::kFp8,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr unsigned int fp8_m1_row_quad_maximum_blocks(
     const std::size_t rows, const std::size_t columns) noexcept {
-  if (rows == 10'240U && columns == 5'120U) {
-    return 1'536U;
-  }
-  if (rows == 5'120U && columns == 6'144U) {
-    return 1'280U;
-  }
-  if (rows == 6'144U && columns == 5'120U) {
-    return 768U;
-  }
-  if (rows == 12'288U && columns == 5'120U) {
-    return 2'048U;
-  }
-  return 0U;
+  return registry::fp8_m1_row_quad_maximum_blocks(
+      registry::classify_projection_shape(registry::WeightEncoding::kFp8,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr bool use_fp8_m2_persistent_rows(
@@ -155,14 +199,14 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 
 [[nodiscard]] constexpr bool use_nvfp4_m8_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
-  return (rows == 17'408U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 17'408U);
+  return registry::is_nvfp4_mlp_shape(
+      registry::classify_projection_shape(registry::WeightEncoding::kNvFp4,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m16_wmma_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
-  return (rows == 17'408U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 17'408U);
+  return use_nvfp4_m8_fixed_shape(rows, columns);
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m1_scale_codebook(
@@ -176,16 +220,18 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   // These are the complete M=1 NVFP4 shape families observed in the pinned
   // checkpoint profile. Each cleared checkpoint-like and same-bank-stress
   // row-quad gates at the 64-block residency-matched cap.
-  return (rows == 17'408U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 17'408U) ||
-         (rows == 248'320U && columns == 5'120U);
+  return registry::is_nvfp4_checkpoint_shape(
+      registry::classify_projection_shape(registry::WeightEncoding::kNvFp4,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m1_down_activation_staged_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   // Stage the exact down projection's 34-KiB activation once per CTA. All
   // near-misses and remaining shapes keep their independently gated paths.
-  return rows == 5'120U && columns == 17'408U;
+  return registry::classify_projection_shape(
+             registry::WeightEncoding::kNvFp4, rows, columns) ==
+         registry::ProjectionShape::kNvFp4_5120x17408;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m1_gate_up_activation_staged_shape(
@@ -193,14 +239,18 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   // Stage the exact gate/up projection's 10-KiB activation once per CTA.
   // Keep lm-head, down-projection, near-misses, and all other shapes on their
   // independently gated production paths.
-  return rows == 17'408U && columns == 5'120U;
+  return registry::classify_projection_shape(
+             registry::WeightEncoding::kNvFp4, rows, columns) ==
+         registry::ProjectionShape::kNvFp4_17408x5120;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m1_lm_head_activation_staged_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   // Stage the exact vocabulary projection's 10-KiB activation once per CTA.
   // Keep it separate from gate/up and all near-miss shapes.
-  return rows == 248'320U && columns == 5'120U;
+  return registry::classify_projection_shape(
+             registry::WeightEncoding::kNvFp4, rows, columns) ==
+         registry::ProjectionShape::kNvFp4_248320x5120;
 }
 
 [[nodiscard]] constexpr bool use_nvfp4_m2_scale_codebook(
@@ -211,8 +261,7 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 
 [[nodiscard]] constexpr bool use_nvfp4_m2_row_quad_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
-  return (rows == 17'408U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 17'408U);
+  return use_nvfp4_m8_fixed_shape(rows, columns);
 }
 
 [[nodiscard]] constexpr bool use_fp8_small_m_row_pair(
@@ -224,11 +273,9 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 
 [[nodiscard]] constexpr bool use_fp8_m8_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
-  return (rows == 10'240U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 6'144U) ||
-         (rows == 6'144U && columns == 5'120U) ||
-         (rows == 12'288U && columns == 5'120U) ||
-         (rows == 1'024U && columns == 5'120U);
+  return registry::is_fp8_checkpoint_shape(
+      registry::classify_projection_shape(registry::WeightEncoding::kFp8,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr bool use_fp8_m2_row_pair_shape(
@@ -236,38 +283,23 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
   // The M=2 candidate cleared both checkpoint-like and shared-bank-stress
   // gates on these five checkpoint-bound projections. Unknown shapes retain
   // the lower-risk cap-2048 single-row implementation.
-  return (rows == 10'240U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 6'144U) ||
-         (rows == 6'144U && columns == 5'120U) ||
-         (rows == 12'288U && columns == 5'120U) ||
-         (rows == 1'024U && columns == 5'120U);
+  return use_fp8_m8_fixed_shape(rows, columns);
 }
 
 [[nodiscard]] constexpr unsigned int fp8_m2_row_quad_maximum_blocks(
     const std::size_t rows, const std::size_t columns) noexcept {
-  if (rows == 10'240U && columns == 5'120U) {
-    return 1'536U;
-  }
-  if (rows == 5'120U && columns == 6'144U) {
-    return 768U;
-  }
-  if (rows == 6'144U && columns == 5'120U) {
-    return 1'024U;
-  }
-  if (rows == 12'288U && columns == 5'120U) {
-    return 2'048U;
-  }
-  return 0U;
+  return registry::fp8_m2_row_quad_maximum_blocks(
+      registry::classify_projection_shape(registry::WeightEncoding::kFp8,
+                                          rows, columns));
 }
 
 [[nodiscard]] constexpr bool use_fp8_m16_wmma_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   // The 1024-row projection is intentionally absent: its measured WMMA path
   // regresses versus two production M8 launches and must retain that fallback.
-  return (rows == 10'240U && columns == 5'120U) ||
-         (rows == 5'120U && columns == 6'144U) ||
-         (rows == 6'144U && columns == 5'120U) ||
-         (rows == 12'288U && columns == 5'120U);
+  return registry::is_fp8_m16_wmma_shape(
+      registry::classify_projection_shape(registry::WeightEncoding::kFp8,
+                                          rows, columns));
 }
 
 __device__ __forceinline__ float decode_bf16(const std::uint16_t bits) {
@@ -6540,33 +6572,33 @@ int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  const bool vector_shape =
-      (columns % kFp8VectorColumnsPerBlock) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activation) %
-       alignof(std::uint64_t)) == 0U;
-  if (vector_shape) {
-    if (const unsigned int row_quad_blocks =
-            fp8_m1_row_quad_maximum_blocks(rows, columns);
-        row_quad_blocks != 0U) {
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_fp8_projection_query(1U, weights, activation, rows, columns));
+  switch (plan.route) {
+    case registry::ProjectionRoute::kFp8M1RowQuad:
       launch_fp8_m1_output_row_group_grid_cap_unchecked<4U>(
           weights, weight_scale, activation, rows, columns, output,
-          row_quad_blocks, stream);
-    } else if (use_fp8_m1_row_pair_shape(rows, columns)) {
+          plan.maximum_blocks, stream);
+      break;
+    case registry::ProjectionRoute::kFp8M1RowPair:
       launch_fp8_m1_row_pair_unchecked(
           weights, weight_scale, activation, rows, columns, output, stream);
-    } else if (use_fp8_m1_persistent_rows(rows)) {
+      break;
+    case registry::ProjectionRoute::kFp8M1VectorGridCap:
       launch_fp8_vector_grid_cap_unchecked(
           weights, weight_scale, activation, rows, columns, output,
-          kFp8M1PersistentMaximumBlocks, stream);
-    } else {
+          plan.maximum_blocks, stream);
+      break;
+    case registry::ProjectionRoute::kFp8M1Vector:
       launch_fp8_vector_unchecked(weights, weight_scale, activation, rows,
                                   columns, output, stream);
-    }
-  } else {
-    launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
-                                columns, output, stream);
+      break;
+    case registry::ProjectionRoute::kFp8M1Scalar:
+      launch_fp8_scalar_unchecked(weights, weight_scale, activation, rows,
+                                  columns, output, stream);
+      break;
+    default:
+      return invalid_value();
   }
   return static_cast<int>(cudaGetLastError());
 }
@@ -7531,43 +7563,42 @@ int launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  const bool vector_shape =
-      (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(packed_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activation) %
-       alignof(std::uint64_t)) == 0U;
-  if (vector_shape &&
-      use_nvfp4_m1_down_activation_staged_shape(rows, columns)) {
-    launch_nvfp4_down_activation_staged_unchecked(
-        packed_weights, block_scales, weight_scale_2, activation, output,
-        stream);
-  } else if (vector_shape &&
-             use_nvfp4_m1_gate_up_activation_staged_shape(rows, columns)) {
-    launch_nvfp4_gate_up_activation_staged_unchecked(
-        packed_weights, block_scales, weight_scale_2, activation, output,
-        stream);
-  } else if (vector_shape &&
-             use_nvfp4_m1_lm_head_activation_staged_shape(rows, columns)) {
-    launch_nvfp4_lm_head_activation_staged_unchecked(
-        packed_weights, block_scales, weight_scale_2, activation, output,
-        stream);
-  } else if (vector_shape && use_nvfp4_m1_row_quad_shape(rows, columns)) {
-    launch_nvfp4_scale_codebook_row_quad_exact_shape_unchecked(
-        packed_weights, block_scales, weight_scale_2, activation, rows,
-        columns, output, stream);
-  } else if (vector_shape && use_nvfp4_m1_scale_codebook(rows, columns)) {
-    launch_nvfp4_scale_codebook_grid_cap_unchecked(
-        packed_weights, block_scales, weight_scale_2, activation, rows,
-        columns, output, kNvFp4M1PersistentMaximumBlocks, stream);
-  } else if (vector_shape) {
-    launch_nvfp4_vector_unchecked(packed_weights, block_scales,
-                                  weight_scale_2, activation, rows, columns,
-                                  output, stream);
-  } else {
-    launch_nvfp4_scalar_unchecked(packed_weights, block_scales,
-                                  weight_scale_2, activation, rows, columns,
-                                  output, stream);
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_nvfp4_projection_query(1U, packed_weights, block_scales,
+                                  activation, rows, columns));
+  switch (plan.route) {
+    case registry::ProjectionRoute::kNvFp4M1DownActivationStaged:
+      launch_nvfp4_down_activation_staged_unchecked(
+          packed_weights, block_scales, weight_scale_2, activation, output,
+          stream);
+      break;
+    case registry::ProjectionRoute::kNvFp4M1GateUpActivationStaged:
+      launch_nvfp4_gate_up_activation_staged_unchecked(
+          packed_weights, block_scales, weight_scale_2, activation, output,
+          stream);
+      break;
+    case registry::ProjectionRoute::kNvFp4M1LmHeadActivationStaged:
+      launch_nvfp4_lm_head_activation_staged_unchecked(
+          packed_weights, block_scales, weight_scale_2, activation, output,
+          stream);
+      break;
+    case registry::ProjectionRoute::kNvFp4M1ScaleCodebook:
+      launch_nvfp4_scale_codebook_grid_cap_unchecked(
+          packed_weights, block_scales, weight_scale_2, activation, rows,
+          columns, output, plan.maximum_blocks, stream);
+      break;
+    case registry::ProjectionRoute::kNvFp4M1Vector:
+      launch_nvfp4_vector_unchecked(packed_weights, block_scales,
+                                    weight_scale_2, activation, rows, columns,
+                                    output, stream);
+      break;
+    case registry::ProjectionRoute::kNvFp4M1Scalar:
+      launch_nvfp4_scalar_unchecked(packed_weights, block_scales,
+                                    weight_scale_2, activation, rows, columns,
+                                    output, stream);
+      break;
+    default:
+      return invalid_value();
   }
   return static_cast<int>(cudaGetLastError());
 }
@@ -9292,28 +9323,37 @@ int launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
     return validation;
   }
 
-  const bool wmma_shape =
-      use_fp8_m16_wmma_fixed_shape(rows, columns) &&
-      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U;
-  if (wmma_shape) {
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_fp8_projection_query(16U, weights, activations, rows, columns));
+  if (plan.route == registry::ProjectionRoute::kFp8M16Wmma) {
     const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
     (void)cudaGetLastError();
-    if (rows == 10'240U) {
-      launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U, 72U>(
-          weights, weight_scale, activations, output, stream);
-    } else if (rows == 5'120U) {
-      launch_fp8_small_m16_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
-          weights, weight_scale, activations, output, stream);
-    } else if (rows == 6'144U) {
-      launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
-          weights, weight_scale, activations, output, stream);
-    } else {
-      launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U, 72U>(
-          weights, weight_scale, activations, output, stream);
+    switch (plan.shape) {
+      case registry::ProjectionShape::kFp8_10240x5120:
+        launch_fp8_small_m16_wmma_fixed_shape_unchecked<10'240U, 5'120U,
+                                                        72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_5120x6144:
+        launch_fp8_small_m16_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_6144x5120:
+        launch_fp8_small_m16_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      case registry::ProjectionShape::kFp8_12288x5120:
+        launch_fp8_small_m16_wmma_fixed_shape_unchecked<12'288U, 5'120U,
+                                                        72U>(
+            weights, weight_scale, activations, output, stream);
+        break;
+      default:
+        return invalid_value();
     }
     return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route != registry::ProjectionRoute::kSplitM16IntoM8) {
+    return invalid_value();
   }
 
   int status = launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
@@ -9345,84 +9385,97 @@ int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
         cuda_stream);
   }
 
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const bool vector_shape =
-      (columns % kFp8VectorColumnsPerBlock) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U;
-  if (vector_shape) {
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_fp8_projection_query(token_count, weights, activations, rows,
+                                columns));
+  if (plan.route != registry::ProjectionRoute::kSerialM1) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
     (void)cudaGetLastError();
-    switch (token_count) {
-      case 2U:
-        if (const unsigned int row_quad_blocks =
-                fp8_m2_row_quad_maximum_blocks(rows, columns);
-            row_quad_blocks != 0U) {
-          launch_fp8_small_m2_row_quad_grid_cap_unchecked(
-              weights, weight_scale, activations, rows, columns, output,
-              row_quad_blocks, stream);
-        } else if (use_fp8_m2_row_pair_shape(rows, columns)) {
-          launch_fp8_small_m2_row_pair_unchecked(
-              weights, weight_scale, activations, rows, columns, output,
-              stream);
-        } else if (use_fp8_m2_persistent_rows(rows)) {
-          launch_fp8_small_m_vector_grid_cap_unchecked<2U>(
-              weights, weight_scale, activations, rows, columns, output,
-              kFp8M2PersistentMaximumBlocks, stream);
-        } else {
-          launch_fp8_small_m_vector_unchecked<2U>(
-              weights, weight_scale, activations, rows, columns, output,
-              stream);
+    switch (plan.route) {
+      case registry::ProjectionRoute::kFp8M2RowQuad:
+        launch_fp8_small_m2_row_quad_grid_cap_unchecked(
+            weights, weight_scale, activations, rows, columns, output,
+            plan.maximum_blocks, stream);
+        break;
+      case registry::ProjectionRoute::kFp8M2RowPair:
+        launch_fp8_small_m2_row_pair_unchecked(
+            weights, weight_scale, activations, rows, columns, output, stream);
+        break;
+      case registry::ProjectionRoute::kFp8M2VectorGridCap:
+        launch_fp8_small_m_vector_grid_cap_unchecked<2U>(
+            weights, weight_scale, activations, rows, columns, output,
+            plan.maximum_blocks, stream);
+        break;
+      case registry::ProjectionRoute::kFp8SmallMVector:
+        switch (token_count) {
+          case 2U:
+            launch_fp8_small_m_vector_unchecked<2U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 3U:
+            launch_fp8_small_m_vector_unchecked<3U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 4U:
+            launch_fp8_small_m_vector_unchecked<4U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 5U:
+            launch_fp8_small_m_vector_unchecked<5U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 6U:
+            launch_fp8_small_m_vector_unchecked<6U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 7U:
+            launch_fp8_small_m_vector_unchecked<7U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          case 8U:
+            launch_fp8_small_m_vector_unchecked<8U>(
+                weights, weight_scale, activations, rows, columns, output,
+                stream);
+            break;
+          default:
+            return invalid_value();
         }
         break;
-      case 3U:
-        launch_fp8_small_m_vector_unchecked<3U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
-        break;
-      case 4U:
-        launch_fp8_small_m_vector_unchecked<4U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
-        break;
-      case 5U:
-        launch_fp8_small_m_vector_unchecked<5U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
-        break;
-      case 6U:
-        launch_fp8_small_m_vector_unchecked<6U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
-        break;
-      case 7U:
-        launch_fp8_small_m_vector_unchecked<7U>(
-            weights, weight_scale, activations, rows, columns, output, stream);
-        break;
-      case 8U:
-        if (use_fp8_m8_fixed_shape(rows, columns)) {
-          if (rows == 10'240U) {
+      case registry::ProjectionRoute::kFp8M8Fixed:
+        switch (plan.shape) {
+          case registry::ProjectionShape::kFp8_10240x5120:
             launch_fp8_small_m8_fixed_shape_unchecked<10'240U, 5'120U>(
                 weights, weight_scale, activations, output, stream);
-          } else if (rows == 5'120U) {
+            break;
+          case registry::ProjectionShape::kFp8_5120x6144:
             launch_fp8_small_m8_fixed_shape_unchecked<5'120U, 6'144U>(
                 weights, weight_scale, activations, output, stream);
-          } else if (rows == 6'144U) {
+            break;
+          case registry::ProjectionShape::kFp8_6144x5120:
             launch_fp8_small_m8_fixed_shape_unchecked<6'144U, 5'120U>(
                 weights, weight_scale, activations, output, stream);
-          } else if (rows == 12'288U) {
+            break;
+          case registry::ProjectionShape::kFp8_12288x5120:
             launch_fp8_small_m8_fixed_shape_unchecked<12'288U, 5'120U>(
                 weights, weight_scale, activations, output, stream);
-          } else {
+            break;
+          case registry::ProjectionShape::kFp8_1024x5120:
             launch_fp8_small_m8_fixed_shape_unchecked<1'024U, 5'120U>(
                 weights, weight_scale, activations, output, stream);
-          }
-        } else if (use_fp8_small_m_row_pair(token_count, rows)) {
-          launch_fp8_small_m8_row_pair_unchecked(
-              weights, weight_scale, activations, rows, columns, output,
-              stream);
-        } else {
-          launch_fp8_small_m_vector_unchecked<8U>(
-              weights, weight_scale, activations, rows, columns, output,
-              stream);
+            break;
+          default:
+            return invalid_value();
         }
+        break;
+      case registry::ProjectionRoute::kFp8M8RowPair:
+        launch_fp8_small_m8_row_pair_unchecked(
+            weights, weight_scale, activations, rows, columns, output, stream);
         break;
       default:
         return invalid_value();
@@ -9430,7 +9483,7 @@ int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
     return static_cast<int>(cudaGetLastError());
   }
 
-  for (std::size_t token = 0U; token < token_count; ++token) {
+  for (std::size_t token = 0U; token < plan.launch_count; ++token) {
     const int status = launch_sm87_fp8_w8a16_gemv_bf16_cuda(
         weights, weight_scale, activations + token * columns, rows, columns,
         output + token * rows, cuda_stream);
@@ -9456,27 +9509,30 @@ int launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
     return validation;
   }
 
-  const bool wmma_shape =
-      use_nvfp4_m16_wmma_fixed_shape(rows, columns) &&
-      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
-          0U &&
-      (reinterpret_cast<std::uintptr_t>(block_scales) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U;
-  if (wmma_shape) {
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_nvfp4_projection_query(16U, packed_weights, block_scales,
+                                  activations, rows, columns));
+  if (plan.route == registry::ProjectionRoute::kNvFp4M16Wmma) {
     const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
     (void)cudaGetLastError();
-    if (rows == 17'408U) {
-      launch_nvfp4_small_m16_wmma_k128_unchecked<17'408U, 5'120U>(
-          packed_weights, block_scales, weight_scale_2, activations, output,
-          stream);
-    } else {
-      launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
-          packed_weights, block_scales, weight_scale_2, activations, output,
-          stream);
+    switch (plan.shape) {
+      case registry::ProjectionShape::kNvFp4_17408x5120:
+        launch_nvfp4_small_m16_wmma_k128_unchecked<17'408U, 5'120U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      case registry::ProjectionShape::kNvFp4_5120x17408:
+        launch_nvfp4_small_m16_wmma_k128_unchecked<5'120U, 17'408U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      default:
+        return invalid_value();
     }
     return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route != registry::ProjectionRoute::kSplitM16IntoM8) {
+    return invalid_value();
   }
 
   int status = launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
@@ -9511,76 +9567,85 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
         columns, output, cuda_stream);
   }
 
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  const bool vector_shape =
-      (columns % kNvFp4VectorColumnsPerWarp) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(packed_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U;
-  if (vector_shape) {
+  const registry::ProjectionPlan nvfp4_plan =
+      registry::select_projection_plan(make_nvfp4_projection_query(
+          token_count, packed_weights, block_scales, activations, rows,
+          columns));
+  if (nvfp4_plan.route != registry::ProjectionRoute::kSerialM1) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
     (void)cudaGetLastError();
-    switch (token_count) {
-      case 2U:
-        if (use_nvfp4_m2_row_quad_shape(rows, columns)) {
-          launch_nvfp4_small_m2_scale_codebook_row_quad_grid_cap_unchecked(
-              packed_weights, block_scales, weight_scale_2, activations, rows,
-              columns, output, kNvFp4M2RowQuadMaximumBlocks, stream);
-        } else if (use_nvfp4_m2_scale_codebook(rows, columns)) {
-          launch_nvfp4_small_m2_scale_codebook_unchecked(
-              packed_weights, block_scales, weight_scale_2, activations, rows,
-              columns, output, stream);
-        } else {
-          launch_nvfp4_small_m_vector_unchecked<2U>(
-              packed_weights, block_scales, weight_scale_2, activations, rows,
-              columns, output, stream);
+    switch (nvfp4_plan.route) {
+      case registry::ProjectionRoute::kNvFp4M2RowQuad:
+        launch_nvfp4_small_m2_scale_codebook_row_quad_grid_cap_unchecked(
+            packed_weights, block_scales, weight_scale_2, activations, rows,
+            columns, output, nvfp4_plan.maximum_blocks, stream);
+        break;
+      case registry::ProjectionRoute::kNvFp4M2ScaleCodebook:
+        launch_nvfp4_small_m2_scale_codebook_unchecked(
+            packed_weights, block_scales, weight_scale_2, activations, rows,
+            columns, output, stream);
+        break;
+      case registry::ProjectionRoute::kNvFp4SmallMVector:
+        switch (token_count) {
+          case 2U:
+            launch_nvfp4_small_m_vector_unchecked<2U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 3U:
+            launch_nvfp4_small_m_vector_unchecked<3U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 4U:
+            launch_nvfp4_small_m_vector_unchecked<4U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 5U:
+            launch_nvfp4_small_m_vector_unchecked<5U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 6U:
+            launch_nvfp4_small_m_vector_unchecked<6U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 7U:
+            launch_nvfp4_small_m_vector_unchecked<7U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          case 8U:
+            launch_nvfp4_small_m_vector_unchecked<8U>(
+                packed_weights, block_scales, weight_scale_2, activations,
+                rows, columns, output, stream);
+            break;
+          default:
+            return invalid_value();
         }
         break;
-      case 3U:
-        launch_nvfp4_small_m_vector_unchecked<3U>(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
-        break;
-      case 4U:
-        launch_nvfp4_small_m_vector_unchecked<4U>(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
-        break;
-      case 5U:
-        launch_nvfp4_small_m_vector_unchecked<5U>(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
-        break;
-      case 6U:
-        launch_nvfp4_small_m_vector_unchecked<6U>(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
-        break;
-      case 7U:
-        launch_nvfp4_small_m_vector_unchecked<7U>(
-            packed_weights, block_scales, weight_scale_2, activations, rows,
-            columns, output, stream);
-        break;
-      case 8U:
-        if (use_nvfp4_m8_fixed_shape(rows, columns)) {
-          if (rows == 17'408U) {
+      case registry::ProjectionRoute::kNvFp4M8Fixed:
+        switch (nvfp4_plan.shape) {
+          case registry::ProjectionShape::kNvFp4_17408x5120:
             launch_nvfp4_small_m8_fixed_shape_unchecked<17'408U, 5'120U>(
                 packed_weights, block_scales, weight_scale_2, activations,
                 output, stream);
-          } else {
+            break;
+          case registry::ProjectionShape::kNvFp4_5120x17408:
             launch_nvfp4_small_m8_fixed_shape_unchecked<5'120U, 17'408U>(
                 packed_weights, block_scales, weight_scale_2, activations,
                 output, stream);
-          }
-        } else if (use_nvfp4_small_m_row_pair(token_count, rows)) {
-          launch_nvfp4_small_m8_scale_codebook_unchecked(
-              packed_weights, block_scales, weight_scale_2, activations, rows,
-              columns, output, stream);
-        } else {
-          launch_nvfp4_small_m_vector_unchecked<8U>(
-              packed_weights, block_scales, weight_scale_2, activations, rows,
-              columns, output, stream);
+            break;
+          default:
+            return invalid_value();
         }
+        break;
+      case registry::ProjectionRoute::kNvFp4M8ScaleCodebook:
+        launch_nvfp4_small_m8_scale_codebook_unchecked(
+            packed_weights, block_scales, weight_scale_2, activations, rows,
+            columns, output, stream);
         break;
       default:
         return invalid_value();
@@ -9588,7 +9653,7 @@ int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
     return static_cast<int>(cudaGetLastError());
   }
 
-  for (std::size_t token = 0U; token < token_count; ++token) {
+  for (std::size_t token = 0U; token < nvfp4_plan.launch_count; ++token) {
     const int status = launch_sm87_nvfp4_w4a16_gemv_bf16_cuda(
         packed_weights, block_scales, weight_scale_2,
         activations + token * columns, rows, columns, output + token * rows,

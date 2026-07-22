@@ -199,6 +199,17 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  add_executable(q3x_sm87_projection_route_registry_test
+    tests/sm87_projection_route_registry_test.cpp
+  )
+  target_include_directories(q3x_sm87_projection_route_registry_test
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  q3x_enable_warnings(q3x_sm87_projection_route_registry_test)
+  add_test(NAME sm87_projection_route_registry
+    COMMAND q3x_sm87_projection_route_registry_test
+  )
+
   add_executable(q3x_projection_backend_dispatch_test
     tests/projection_backend_dispatch_test.cu
   )
