@@ -2062,3 +2062,48 @@ crossover still needs an actual candidate, while double/triple buffering and
 multi-stream overlap remain deferred until NCU exposes a concrete stall and
 overlap opportunity. The complete values, hashes, local artifacts, and limits
 are in the [shape/chunk/prompt matrix record](metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
+
+## Historical C32 composite prefill baseline
+
+Commit `e6fac6b` adds a C32 composite outer prefill tile and advances the
+project/package ABI to 0.2.0. Release validation reports 49 passes and 5 skips
+from 54 tests; the selected ASan/UBSan run reports 48 passes and 5 skips from
+53. Real-model C1/C8/C16/C32 oracle runs all match the pinned 19 prompt IDs, 26
+generated IDs, exact text and `im_end`, and all 44 logical steps.
+
+The P19 same-binary B-C-C-B diagnostic uses one warmup and five measured
+maximum-one-token iterations. Its C16 medians are 553.753 and 553.988 ms; its
+C32 medians are 549.143 and 548.750 ms. Averaging each mirrored pair gives
+553.8705 versus 548.9465 ms, a C32 delta of -4.924 ms (-0.8890%). The run was
+made before the source commit, but the measured executable's 3,288,680 bytes
+and SHA-256 match the subsequently identified `e6fac6b` build product exactly.
+
+| Prompt | Prefix tokens | C16 TTFT | C32 TTFT | Delta |
+| --- | ---: | ---: | ---: | ---: |
+| P33 | 32 | 721.286 ms | 713.792 ms | -1.0390% |
+| P65 | 64 | 1,348.561 ms | 1,331.483 ms | -1.2664% |
+| P129 | 128 | 2,661.077 ms | 2,628.096 ms | -1.2394% |
+| P513 | 512 | 11,930.745 ms | 11,762.383 ms | -1.4112% |
+
+Matched P19 Nsight profiles reduce launches from 2,633 to 2,264, summed kernel
+time from 566.903840 to 563.373792 ms, and kernel span from 577.084768 to
+572.684320 ms. Projection is unchanged in structure: 1,089 launches consume
+517.721824 ms at C16 and 517.828832 ms at C32. The only launch-count reductions
+are headwise RMSNorm (-177), residual add (-128), and SiLU multiply (-64).
+
+The P33/C32 profile supplies the target baseline for a future true M32
+projection: 2,534 launches, 728.236864 ms summed kernel time, 736.294432 ms
+kernel span, and 1,121 projection launches consuming 651.548672 ms. The current
+`M16+M16` path includes 384 NVFP4 M16 launches taking 393.150656 ms and 352 FP8
+M16 launches taking 124.776832 ms; that repeated M16 work is the concrete next
+projection target, not evidence that a single-pass M32 kernel already exists.
+
+This is deliberately a composite baseline, not a single-pass M32 result. P19
+changes the outer schedule from `M16+M2` to one 18-row outer tile, while its
+projection still executes `M16+M2`; a full 32-row tile projects as `M16+M16`.
+Conv/GDN and QK/RoPE also remain bounded subtiles on one serial CUDA stream.
+There is no double/triple buffering, multi-stream overlap, or dense-GEMM
+crossover yet. Clocks were not locked, so the timing gains are diagnostic.
+The next kernel priority is a true M17-M32 projection path; overlap work should
+follow measured NCU stall evidence. Full commands, artifact hashes, ABI notes,
+and limits are in the [C32 composite prefill record](metadata/qwen36-27b-c32-composite-prefill-benchmark.json).

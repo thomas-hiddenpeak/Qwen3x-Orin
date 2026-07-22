@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-c32-composite-prefill-benchmark",
+  "status": "production-composite-prefill-diagnostic-baseline",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "git_commit": "e6fac6b5e4aec0b78696a31f1736b2b49551c9c3",
+    "git_subject": "runtime: add C32 composite prefill",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3288680,
+      "sha256": "5459c1c65e06249f90e98c502c9c5bf366c228cbaf82333775633731226aae3b",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment; timing deltas are diagnostic, not locked-clock release claims"
+  },
+  "implementation": {
+    "requested_chunk_max": 32,
+    "outer_prefill_tile_max": 32,
+    "projection_composition": "M16-first plus a tail of at most M16",
+    "p19_c32_projection_schedule": "M16+M2",
+    "p33_c32_projection_schedule": "M16+M16",
+    "conv_gdn_and_qk_rope_subtiles_max": 16,
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "subtiles_serial": true,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false,
+    "single_pass_m32_projection": false,
+    "public_abi_change": "ReferencePrefillTileResult capacity increased from 16 to 32; project/package ABI epoch is 0.2.0"
+  },
+  "validation": {
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only",
+      "startup_overlap": true
+    }
+  },
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "p19_order": "C16-B1, C32-C1, C32-C2, C16-B2",
+    "long_matrix_order": "one C32 four-prompt load followed by one C16 four-prompt load",
+    "nsight_workloads": "P19/C16, P19/C32, and P33/C32; one generated token each",
+    "commands": [
+      "ctest --test-dir build/orin-release --output-on-failure",
+      "ctest --test-dir build/orin-asan --output-on-failure -E '^package_consumer$'",
+      "for chunk in 1 8 16 32; do build/orin-release/q3x_reference_engine_e2e_test \"${Q3X_MODEL_DIR}\" sm87 \"${chunk}\"; done",
+      "build/orin-release/qwen3x-orin benchmark \"${Q3X_MODEL_DIR}\" --prompt '用一句话解释 CUDA 是什么。' --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 544 --prefill-chunk-size {16|32} --projection-backend sm87",
+      "build/orin-release/qwen3x-orin benchmark \"${Q3X_MODEL_DIR}\" --prompt P33 --prompt P65 --prompt P129 --prompt P513 --max-tokens 1 --warmup 1 --iterations 2 --max-sequence-length 544 --prefill-chunk-size {16|32} --projection-backend sm87",
+      "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o OUTPUT build/orin-release/qwen3x-orin generate \"${Q3X_MODEL_DIR}\" --prompt PROMPT --max-tokens 1 --prefill-chunk-size {16|32} --projection-backend sm87"
+    ],
+    "command_placeholders": "Q3X_MODEL_DIR is the pinned local model; P33/P65/P129/P513 are the exact user_text fields in benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json; braces enumerate separate runs."
+  },
+  "p19_bccb": {
+    "protocol": "B-C-C-B",
+    "order": ["C16-B1", "C32-C1", "C32-C2", "C16-B2"],
+    "warmup_iterations": 1,
+    "measured_iterations": 5,
+    "max_tokens": 1,
+    "max_sequence_length": 544,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "c16_b1": 553.753,
+      "c32_c1": 549.143,
+      "c32_c2": 548.750,
+      "c16_b2": 553.988
+    },
+    "average_of_pair_medians_ms": {
+      "c16": 553.8705,
+      "c32": 548.9465
+    },
+    "c32_minus_c16_ms": -4.924,
+    "c32_minus_c16_percent": -0.889016,
+    "request_arena_bytes": {
+      "c16": 117953536,
+      "c32": 120676352,
+      "delta": 2722816
+    },
+    "provenance_note": "The B-C-C-B run preceded the source commit, but its measured executable was re-identified after commit by the same 3288680-byte size and SHA-256 as the e6fac6b build product."
+  },
+  "long_prompt_matrix": {
+    "same_binary": true,
+    "warmup_iterations": 1,
+    "measured_iterations": 2,
+    "max_tokens": 1,
+    "max_sequence_length": 544,
+    "metric": "TTFT_ms",
+    "rows": [
+      {"prompt": "P33", "prefix_tokens": 32, "c16_ms": 721.286, "c32_ms": 713.792, "delta_ms": -7.494, "delta_percent": -1.038978},
+      {"prompt": "P65", "prefix_tokens": 64, "c16_ms": 1348.561, "c32_ms": 1331.483, "delta_ms": -17.078, "delta_percent": -1.266387},
+      {"prompt": "P129", "prefix_tokens": 128, "c16_ms": 2661.077, "c32_ms": 2628.096, "delta_ms": -32.981, "delta_percent": -1.239385},
+      {"prompt": "P513", "prefix_tokens": 512, "c16_ms": 11930.745, "c32_ms": 11762.383, "delta_ms": -168.362, "delta_percent": -1.411161}
+    ]
+  },
+  "nsight_p19": {
+    "max_tokens": 1,
+    "c16": {
+      "kernel_launches": 2633,
+      "summed_kernel_time_ms": 566.903840,
+      "kernel_span_ms": 577.084768,
+      "projection_launches": 1089,
+      "projection_time_ms": 517.721824
+    },
+    "c32": {
+      "kernel_launches": 2264,
+      "summed_kernel_time_ms": 563.373792,
+      "kernel_span_ms": 572.684320,
+      "projection_launches": 1089,
+      "projection_time_ms": 517.828832
+    },
+    "c32_minus_c16": {
+      "kernel_launches": -369,
+      "kernel_launches_percent": -14.0144,
+      "summed_kernel_time_ms": -3.530048,
+      "summed_kernel_time_percent": -0.6227,
+      "kernel_span_ms": -4.400448,
+      "kernel_span_percent": -0.7625,
+      "projection_launches": 0,
+      "projection_time_ms": 0.107008
+    },
+    "only_changed_kernel_launch_counts": [
+      {"kernel": "headwise_rms_norm_kernel", "c16": 354, "c32": 177, "delta": -177},
+      {"kernel": "residual_add_kernel", "c16": 256, "c32": 128, "delta": -128},
+      {"kernel": "silu_mul_kernel", "c16": 128, "c32": 64, "delta": -64}
+    ],
+    "projection_definition": "short kernel names beginning fp8_ or nvfp4_; the BF16 A/B pair is excluded",
+    "interpretation": "P19 changes the outer schedule from C16 16+2 to one C32 outer tile of 18, but projection remains M16+M2. The measured gain therefore comes from whole-tile RMS, residual, and SiLU launch consolidation, not a new M32 projection kernel."
+  },
+  "nsight_p33_c32_m32_target_baseline": {
+    "purpose": "Baseline for a future single-pass M32 projection candidate; the measured implementation is still composite M16+M16.",
+    "prefix_tokens": 32,
+    "max_tokens": 1,
+    "kernel_launches": 2534,
+    "summed_kernel_time_ms": 728.236864,
+    "kernel_span_ms": 736.294432,
+    "projection_launches": 1121,
+    "projection_time_ms": 651.548672,
+    "m16_projection_components": [
+      {"format": "NVFP4", "launches": 384, "time_ms": 393.150656},
+      {"format": "FP8", "launches": 352, "time_ms": 124.776832}
+    ],
+    "interpretation": "The dominant repeated M16 work identifies the projection path as the next optimization target; these numbers do not claim an implemented M32 kernel."
+  },
+  "artifacts": [
+    {"role": "C1 real-model oracle log", "local_path": "/tmp/q3x-c32-composite-e2e-c1.log", "bytes": 242, "sha256": "4d76cc2b136f21db120766f7fd24ad8d93e2375bf43a54336831ce06ffad3c8f", "checked_in": false},
+    {"role": "C8 real-model oracle log", "local_path": "/tmp/q3x-c32-composite-e2e-c8.log", "bytes": 242, "sha256": "8ea09c2dd0fd819cf3b8e4edb2cd18cf6722edac6aec76e17171c3db3a047500", "checked_in": false},
+    {"role": "C16 real-model oracle log", "local_path": "/tmp/q3x-c32-composite-e2e-c16.log", "bytes": 240, "sha256": "7778094cd85a0af4bf076c4eb373dd3ead7300d5fd356cc12757c1180f841fb1", "checked_in": false},
+    {"role": "C32 real-model oracle log", "local_path": "/tmp/q3x-c32-composite-e2e-c32.log", "bytes": 242, "sha256": "3df9f23bcebc173c82cb7700f0b38eaae7276084eab4629de6ca57d509863487", "checked_in": false},
+    {"role": "P19 C16 B1 benchmark log", "local_path": "/tmp/q3x-c32-composite-p19-b1.log", "bytes": 3973, "sha256": "554e513d1f093a8983dd658cd0aae7d7a2cd93ceeb2fa300f60c33ec3e379c42", "checked_in": false},
+    {"role": "P19 C32 C1 benchmark log", "local_path": "/tmp/q3x-c32-composite-p19-c1.log", "bytes": 3973, "sha256": "93157c69c78df5716765f7c89559972b75f5fceb5accda01077e21347e9df901", "checked_in": false},
+    {"role": "P19 C32 C2 benchmark log", "local_path": "/tmp/q3x-c32-composite-p19-c2.log", "bytes": 3973, "sha256": "ee878035a31d602a3ee1494ad0b89263d15446a2bdf62e399a8096da68b41b0e", "checked_in": false},
+    {"role": "P19 C16 B2 benchmark log", "local_path": "/tmp/q3x-c32-composite-p19-b2.log", "bytes": 3973, "sha256": "6498f9faba23c91547c2273741d81fb097f8def65670119d10008e69af9a86ec", "checked_in": false},
+    {"role": "long-prompt C16 matrix log", "local_path": "/tmp/q3x-c32-e6fac6b-long-c16.log", "bytes": 23612, "sha256": "2d3599d0a68ca9c9f2c57e5e32235ec9714d4e3b75fcf36ddd8ec5bf8b5d2f9f", "checked_in": false},
+    {"role": "long-prompt C32 matrix log", "local_path": "/tmp/q3x-c32-e6fac6b-long-c32.log", "bytes": 23598, "sha256": "f806d64f98086d2e9fcb2cce22b95256afcd9dd835a0533e387f856332a107b9", "checked_in": false},
+    {"role": "P19 C16 Nsight report", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c16.nsys-rep", "bytes": 376738, "sha256": "98b7d2cb55adbd53a5341e9a2bdf8b0d20203f993ca86658474f5af6bfc8d977", "checked_in": false},
+    {"role": "P19 C16 Nsight stdout log", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c16.log", "bytes": 2499, "sha256": "8c5bcab4fc1ff8d91842deaf96ea37f4e912ca940807fe2f69829d8f47163b37", "checked_in": false},
+    {"role": "P19 C16 Nsight SQLite export", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c16.sqlite", "bytes": 1110016, "sha256": "6db5c5c316051ab5045a50b2ce284d127077f6e4ba70f1df3ae0c696f593d231", "checked_in": false},
+    {"role": "P19 C16 ordered launch contract", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c16.launch.contract", "bytes": 229243, "sha256": "1df33e05d9a8e84d8625d77a211718699f1d56c3fd86f7ec683cff0ce35ffeaa", "checked_in": false},
+    {"role": "P19 C32 Nsight report", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c32.nsys-rep", "bytes": 362568, "sha256": "a96c66a9fc462cb64750346b157023b72325450b871c04fe4c68a5603d3ba408", "checked_in": false},
+    {"role": "P19 C32 Nsight stdout log", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c32.log", "bytes": 2498, "sha256": "e82912a42320f5389a63cf7ff15e157e7152562a9e58b133d7a29dc428873372", "checked_in": false},
+    {"role": "P19 C32 Nsight SQLite export", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c32.sqlite", "bytes": 1077248, "sha256": "c86a565d07fadf6e3e23abe01b4a6091f79e4242e2d5a801d7ef764d68164803", "checked_in": false},
+    {"role": "P19 C32 ordered launch contract", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p019-c32.launch.contract", "bytes": 203891, "sha256": "d0bb25f3a02df0b3ea45f7fd677a62f8594303c082d0faffcd04f3bbcf0b2ead", "checked_in": false},
+    {"role": "P33 C32 Nsight report", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p033-c32.nsys-rep", "bytes": 379367, "sha256": "2e7b558a6920456e535dd40a72e7997901d4e8396ef344d9d11fd590ba7e5aa9", "checked_in": false},
+    {"role": "P33 C32 Nsight stdout log", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p033-c32.log", "bytes": 2673, "sha256": "1e6c1f0936515bf1ca2a10038dc625a54f32285bb733272a4e5a0b938237057d", "checked_in": false},
+    {"role": "P33 C32 Nsight SQLite export", "local_path": "/tmp/q3x-c32-e6fac6b-profile-p033-c32.sqlite", "bytes": 1130496, "sha256": "f3fdc913fa74789c506fa37ca5a4213fcdc100d5178cf74885b05af278d67749", "checked_in": false}
+  ],
+  "limitations": [
+    "GPU and memory clocks were not locked, so all timing comparisons are diagnostic.",
+    "C32 is a composite outer runtime tile: projection remains M16 plus tail and is not a single-pass M32 kernel.",
+    "Execution remains one-stream and serial, with neither double/triple buffering nor prefill/decode overlap.",
+    "The result does not establish a dense GEMM crossover or a production concurrency policy."
+  ],
+  "next_priority": "Implement and measure a true M17-M32 projection path before adding buffering or multi-stream scheduling; use NCU evidence to select any later overlap work."
+}

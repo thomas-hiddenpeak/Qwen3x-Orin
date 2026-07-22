@@ -165,6 +165,10 @@ The diagnostic Phase 3 records are:
   P33/P65/P129/P513 prompts, and matched Nsight launch/time attribution. It
   records the unrelated historical M4 aggregate-threshold failure separately
   instead of treating that measurement gap as a production correctness error.
+- [`qwen36-27b-c32-composite-prefill-benchmark.json`](qwen36-27b-c32-composite-prefill-benchmark.json),
+  which records the ABI-0.2.0 C32 composite outer tile, exact real-model gates,
+  P19 B-C-C-B and long-prompt C16/C32 timings, matched Nsight attribution, and
+  the explicit single-stream M16-plus-tail projection and unlocked-clock limits.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
