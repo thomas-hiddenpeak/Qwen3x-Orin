@@ -1956,3 +1956,47 @@ The small-M and bounded `C<=16` gates are complete. The next prefill work
 is broader prompt/shape coverage and a measured dispatch boundary between the
 current bounded tiles and future larger-prefill kernels. `.q3x` repacking
 waits for a stable physical layout.
+
+## Prefill/Decode control-plan split
+
+Commit `21bafb4` adds an internal host-control seam without changing the device
+schedule. `PrefillPlan` owns scalar/tiled prefix routing and the final
+prompt/logits step; `DecodePlan` owns only later generated-token feedback.
+Production binds both plans to the same `EngineStepContext`, `ReferenceRunner`,
+request state, workspace, and CUDA stream. The compatibility control entry
+point remains available. No runner, request-state, kernel, workspace, stream,
+or buffering policy changed, and no performance gain is attributed to this
+milestone.
+
+The pure-host gate now covers explicit phase contexts and 44 combinations of
+11 prompt lengths with C1/C2/C8/C16. The canonical 19-token route remains 18
+scalar prefix steps at C1, `8+8+2` at C8, and `16+2` at C16, followed by exactly
+one `finish_prefill` step and, when required, `decode_step`. Trace capture still
+forces the prefix to C1 without erasing the logical phase boundary.
+
+Independent SM87 C1/C8/C16 27B processes retain the exact 19 prompt IDs, 26
+generated IDs, decoded text, `<|im_end|>`, and 44-step sequence. Their one-shot
+sequence capacity remains 44 and their request arenas remain 82,505,216,
+83,696,128, and 85,057,536 bytes respectively. A requested-C16/effective-C1
+trace retains all 5,905 canonical lines with SHA-256
+`8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789`.
+Nsight comparison also retains the exact ordered 13,558-entry launch contract
+(API, grid, block, and kernel base name), with identical SHA-256
+`7a0968fdf449115148537ca5ec9594029f68747fae6bb92998cdafad21da6d41`.
+
+The detached-base B-C-C-B diagnostic averages are:
+
+| Metric | Baseline | Candidate | Candidate change |
+|---|---:|---:|---:|
+| Total generation | 3,341.5435 ms | 3,341.0340 ms | -0.01525% |
+| TTFT | 553.9785 ms | 554.1095 ms | +0.02365% |
+| Subsequent token | 111.5050 ms | 111.4875 ms | -0.01569% |
+
+All movements are below 0.024% and are treated as unlocked-clock noise. Release
+passes all 52 discovered tests with four fixture/model skips; ASan/UBSan passes
+all 51 selected tests with the same four skips. The three SM87 model E2E cases
+were run separately rather than counted as skips. This milestone does not claim
+broader real-prompt coverage, independent executors, CUDA Graphs, double/triple
+buffering, multi-stream overlap, or improved utilization. Full commands, local
+artifact identities, and limitations are in the
+[Prefill/Decode plan-split record](metadata/qwen36-27b-prefill-decode-plan-split-benchmark.json).

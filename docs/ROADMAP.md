@@ -125,6 +125,10 @@ Deliverables:
 - [done, bounded path] SM87 W4A16/W8A16 weight-reuse kernels, C16 causal
   Conv/GDN state, and layer-major prompt-prefix dispatch for `C=2..16`, with
   C1 fallback/default and M9..M15 split into M8 plus the remainder.
+- [done, control-plane seam] Explicit internal Prefill/Decode plans distinguish
+  prefix work, the final prompt/logits step, and subsequent decode feedback
+  while retaining the public engine contract and existing runner/device
+  schedule.
 - [done, production-gated] Eight-row lane-striped GDN state updates for
   batch-one M1 and bounded C2 through C16 tiles, retaining the four-row
   lane-striped predecessor as a same-binary test baseline and preserving

@@ -507,7 +507,10 @@ Native inference is currently a bounded, batch-one surface with a correctness
 reference, opt-in shape-gated projection optimization, and opt-in `C<=16`
 prompt-prefix tiling. Recurrent state and causal attention still advance token
 by token inside each tile. It does not yet provide large-prefill kernels,
-continuous batching, a server, or a release-grade performance claim. The independent
+continuous batching, a server, or a release-grade performance claim. Prefill
+and Decode now have distinct internal host-control plans, but production still
+executes both through the same runner and serialized CUDA schedule; overlapping
+buffers and multi-stream execution remain future measured work. The independent
 target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as

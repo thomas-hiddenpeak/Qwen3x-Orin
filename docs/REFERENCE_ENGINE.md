@@ -52,6 +52,14 @@ Prefill preserves token semantics while optionally batching projections:
 - decoding stops after token ID `248046` (`<|im_end|>`) or
   `max_new_tokens`, whichever comes first.
 
+The host controller now expresses that boundary through separate internal
+`PrefillPlan` and `DecodePlan` seams. Prompt-prefix work stays in the prefill
+plan, the final prompt/logits step is `finish_prefill`, and only later feedback
+steps use `decode_step`. Production currently binds both plans to the same
+`ReferenceRunner`, request state, workspace, and serialized CUDA schedule.
+This is a logical control-plane split, not separate device executors,
+multi-stream overlap, or double/triple buffering.
+
 The required request capacity is therefore
 `prompt_token_count + max_new_tokens - 1`: the first generated token is a
 prediction of the final prompt step and is never fed back unless another token
@@ -227,14 +235,18 @@ decoded text, and stop decision match exactly.
 ## Verification scope
 
 `reference_engine_control_test` exercises the pure host controller without
-CUDA or model files. It gates scalar and `8+8+2` prefix scheduling, trace-to-C1
-fallback, sequential inputs, prefix-logit suppression,
-first-token timing, stop/max behavior, capacity checks, nested runner errors,
-missing result fields, and the terminal-stop text rule. CUDA runner tests cover
-factory and primitive behavior separately. An installed-package consumer also
-configures against and links `q3x::engine`. The fixed-prompt 27B token/text gate
-is now passed; repeatability across more prompts and tolerance-based
-native-versus-vLLM boundary characterization remain release gates.
+CUDA or model files. It gates independent Prefill/Decode callback contexts,
+scalar, `8+8+2`, and `16+2` prefix scheduling, the final-prompt transition,
+trace-to-C1 fallback, sequential inputs, prefix-logit suppression, first-token
+timing, stop/max behavior, capacity checks, nested runner errors, missing result
+fields, and the terminal-stop text rule. Its boundary matrix covers 11 prompt
+lengths and C1/C2/C8/C16, for 44 host-controller combinations, and incomplete
+plans fail before a callback executes. CUDA runner tests cover factory and
+primitive behavior separately. An installed-package consumer also configures
+against and links `q3x::engine`. These synthetic routing cases are not broader
+model-prompt evidence: the fixed-prompt 27B token/text gate is passed, while
+repeatability across more real prompts and tolerance-based native-versus-vLLM
+boundary characterization remain release gates.
 
 The same exact 19/26-ID, text, stop, and 44-step gate is available as the
 conditional `reference_engine_e2e` CTest. Configure with

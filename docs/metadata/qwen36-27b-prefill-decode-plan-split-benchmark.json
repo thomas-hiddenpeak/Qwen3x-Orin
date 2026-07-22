@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-decode-plan-split-benchmark",
+  "status": "production-structural-equivalence",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_git_commit": "0e785f915ed5792f19ad5c1b01624cf990ec875c",
+    "candidate_git_commit": "21bafb4ca37419eb70b7296e3536fab8b94fe8e3",
+    "candidate_git_subject": "runtime: split prefill and decode control plans",
+    "baseline_binary": {
+      "local_path": "/tmp/q3x-phase-split-baseline-qwen3x-orin",
+      "bytes": 3288048,
+      "sha256": "95e41a979440752b2c140ff3986bd855ff612726d778afe3fd7aabb20af03874",
+      "checked_in": false
+    },
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3288296,
+      "sha256": "599336e080b27ee8e90feef549559ac163a7f0a72820a7982f297c88ba424074",
+      "checked_in": false
+    },
+    "final_build_log": {
+      "local_path": "/tmp/q3x-phase-split-final-build.log",
+      "bytes": 1287,
+      "sha256": "ce24ade1dc3663d05fb641fe89f6f13436370332a8edc1f4f94e6f8e8c5c282d",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation": {
+    "scope": "host generation control-plane split only",
+    "prefill_plan_callbacks": [
+      "prefix_step",
+      "prefix_tile",
+      "finish_prefill"
+    ],
+    "decode_plan_callbacks": [
+      "decode_step"
+    ],
+    "final_prompt_contract": "the final prompt token is routed to finish_prefill with compute_logits=true and produces the first generated token",
+    "decode_contract": "only later feedback steps consume generated tokens through decode_step",
+    "production_binding": "both plans bind to the same EngineStepContext, ReferenceRunner, request state, workspace, and existing step/tile adapters",
+    "compatibility_entry_point_preserved": true,
+    "public_reference_engine_contract_changed": false,
+    "reference_runner_changed": false,
+    "request_state_changed": false,
+    "kernel_sources_changed": false,
+    "cuda_stream_count_changed": false,
+    "workspace_layout_changed": false,
+    "buffering_policy_changed": false,
+    "expected_direct_performance_gain": "none"
+  },
+  "host_control_tests": {
+    "status": "passed",
+    "explicit_phase_routes": [
+      "scalar prefix -> prefix_step",
+      "chunked prefix -> prefix_tile",
+      "final prompt -> finish_prefill",
+      "subsequent generated-token feedback -> decode_step"
+    ],
+    "canonical_prompt_chunk_routes": {
+      "C1": "18 scalar prefix steps + finish_prefill + decode_step",
+      "C8": "8+8+2 prefix tiles + finish_prefill + decode_step",
+      "C16": "16+2 prefix tiles + finish_prefill + decode_step",
+      "trace_requested_C16": "18 scalar prefix steps + finish_prefill + decode_step"
+    },
+    "shape_matrix": {
+      "prompt_token_counts": [1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33],
+      "prefill_chunk_sizes": [1, 2, 8, 16],
+      "case_count": 44
+    },
+    "additional_contracts": [
+      "phase-specific contexts are routed correctly",
+      "incomplete plans fail before executing callbacks",
+      "TTFT retains final-prompt time",
+      "subsequent-token time contains decode steps only",
+      "legacy same-context callback overload remains covered"
+    ]
+  },
+  "full_model_exact_gates": {
+    "status": "passed",
+    "command_template": "build/orin-release/q3x_reference_engine_e2e_test MODEL_DIR sm87 CHUNK",
+    "prefill_chunk_sizes": [1, 8, 16],
+    "prompt_token_count": 19,
+    "generated_token_count": 26,
+    "decoded_text_exact": true,
+    "stop_reason": "im_end",
+    "step_count": 44,
+    "request_max_sequence_length": 44,
+    "request_arena_bytes": {
+      "C1": 82505216,
+      "C8": 83696128,
+      "C16": 85057536
+    }
+  },
+  "trace_equivalence": {
+    "status": "passed",
+    "command": "build/orin-release/qwen3x-orin generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87 --trace",
+    "requested_prefill_chunk_size": 16,
+    "effective_prefill_chunk_size": 1,
+    "trace_count": 44,
+    "canonical_selection_regex": "^(prompt\\.(rendered|token_count|ids)|generated\\.|trace\\.)",
+    "canonical_lines": 5905,
+    "baseline_canonical_sha256": "8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789",
+    "candidate_canonical": {
+      "local_path": "/tmp/q3x-phase-split-candidate-trace.canonical",
+      "bytes": 577309,
+      "sha256": "8e33629f357c95fc26eb380c180e9645dddd47f5933adc6759aa01d69ca6d789",
+      "checked_in": false
+    },
+    "candidate_full_log": {
+      "local_path": "/tmp/q3x-phase-split-candidate-trace.log",
+      "bytes": 578711,
+      "sha256": "803b1d9cbac0bc3bb4ecc1064403f950dbb927d8997df031d97526f0769bbe73",
+      "checked_in": false
+    }
+  },
+  "ordered_launch_contract": {
+    "status": "passed",
+    "profile_command": "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT BINARY generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 16 --projection-backend sm87",
+    "contract_columns": [
+      "CUDA API function",
+      "grid XYZ",
+      "block XYZ",
+      "kernel base name"
+    ],
+    "baseline_launch_count": 13558,
+    "candidate_launch_count": 13558,
+    "ordered_contract_equal": true,
+    "baseline_contract": {
+      "local_path": "/tmp/q3x-phase-split-baseline-launch.contract",
+      "bytes": 1306768,
+      "sha256": "7a0968fdf449115148537ca5ec9594029f68747fae6bb92998cdafad21da6d41",
+      "checked_in": false
+    },
+    "candidate_contract": {
+      "local_path": "/tmp/q3x-phase-split-candidate-launch.contract",
+      "bytes": 1306768,
+      "sha256": "7a0968fdf449115148537ca5ec9594029f68747fae6bb92998cdafad21da6d41",
+      "checked_in": false
+    },
+    "candidate_report": {
+      "local_path": "/tmp/q3x-phase-split-candidate.nsys-rep",
+      "bytes": 1049225,
+      "sha256": "089874d5003be337888212b1ec819cbd479e1442667d8e2f8d3c1f3e1ab278a9",
+      "checked_in": false
+    },
+    "candidate_profile_log": {
+      "local_path": "/tmp/q3x-phase-split-candidate-profile.log",
+      "bytes": 2917,
+      "sha256": "6c324188def6bd9788370b0180c49ca51760e6b3b2a41170196e0bc2243cb9fd",
+      "checked_in": false
+    }
+  },
+  "detached_base_end_to_end_benchmark": {
+    "status": "passed_no_regression_no_attributed_gain",
+    "command_template": "BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 16",
+    "required_order": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "regression_gate_percent": 1.0,
+    "common_contract": {
+      "status": "ok",
+      "persistent_drop_detected": 0,
+      "prompt_token_count": 19,
+      "generated_token_count": 26,
+      "text_exact": true,
+      "stop_reason": "im_end",
+      "step_count": 44
+    },
+    "results": [
+      {
+        "run": "baseline_1",
+        "total_milliseconds_median": 3342.493,
+        "ttft_milliseconds_median": 554.086,
+        "subsequent_token_milliseconds_median": 111.534,
+        "log": {
+          "local_path": "/tmp/q3x-phase-split-e2e-b1.log",
+          "bytes": 5281,
+          "sha256": "47d636c86e67b4c73a84667de3be7220e54158e7d3ec3e035ad5ba9a35463bba",
+          "checked_in": false
+        }
+      },
+      {
+        "run": "candidate_1",
+        "total_milliseconds_median": 3338.512,
+        "ttft_milliseconds_median": 554.092,
+        "subsequent_token_milliseconds_median": 111.387,
+        "log": {
+          "local_path": "/tmp/q3x-phase-split-e2e-c1.log",
+          "bytes": 5286,
+          "sha256": "aadb10514d4ac3a60c7fef3b969624115d71715bcd4662bf0446fd6d67e75e7e",
+          "checked_in": false
+        }
+      },
+      {
+        "run": "candidate_2",
+        "total_milliseconds_median": 3343.556,
+        "ttft_milliseconds_median": 554.127,
+        "subsequent_token_milliseconds_median": 111.588,
+        "log": {
+          "local_path": "/tmp/q3x-phase-split-e2e-c2.log",
+          "bytes": 5281,
+          "sha256": "983d17083a063aa9c24a9736956f5042a469f2d39f4501229677e4618f213363",
+          "checked_in": false
+        }
+      },
+      {
+        "run": "baseline_2",
+        "total_milliseconds_median": 3340.594,
+        "ttft_milliseconds_median": 553.871,
+        "subsequent_token_milliseconds_median": 111.476,
+        "log": {
+          "local_path": "/tmp/q3x-phase-split-e2e-b2.log",
+          "bytes": 5281,
+          "sha256": "7352ca52fe9954f0b9851bac0ea2b4ba777181b2651ec8521727eaa1a684d8f8",
+          "checked_in": false
+        }
+      }
+    ],
+    "averaged_process_medians": {
+      "total": {
+        "baseline_milliseconds": 3341.5435,
+        "candidate_milliseconds": 3341.034,
+        "saved_milliseconds": 0.5095,
+        "reduction_percent": 0.015247445,
+        "speedup": 1.000152498
+      },
+      "time_to_first_token": {
+        "baseline_milliseconds": 553.9785,
+        "candidate_milliseconds": 554.1095,
+        "saved_milliseconds": -0.131,
+        "reduction_percent": -0.023647127,
+        "speedup": 0.999763585
+      },
+      "subsequent_token": {
+        "baseline_milliseconds": 111.505,
+        "candidate_milliseconds": 111.4875,
+        "saved_milliseconds": 0.0175,
+        "reduction_percent": 0.015694363,
+        "speedup": 1.000156968
+      }
+    },
+    "interpretation": "all three averaged changes are below 0.024 percent and are treated as unlocked-clock noise; this structural milestone claims neither a gain nor a regression"
+  },
+  "test_suites": {
+    "release": {
+      "discovered": 52,
+      "passed": 48,
+      "skipped": 4,
+      "failed": 0
+    },
+    "asan_ubsan_excluding_package_consumer": {
+      "discovered": 51,
+      "passed": 47,
+      "skipped": 4,
+      "failed": 0,
+      "environment": "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1; UBSAN_OPTIONS=halt_on_error=1"
+    },
+    "model_skip_note": "the configured suites retain three model E2E skips and one tokenizer-fixture skip; C1/C8/C16 SM87 model E2E was executed separately and passed"
+  },
+  "limitations": [
+    "this is a logical host-control boundary, not separate device executors",
+    "production remains one runner, one CUDA stream, one request state, one workspace contract, and serialized phase execution",
+    "no double buffering, triple buffering, multi-stream overlap, CUDA Graph, or continuous batching is introduced",
+    "the 44-case shape matrix is synthetic host-controller coverage, not broader real-model prompt coverage",
+    "the full-model exact gate still uses one fixed Chinese prompt; broader prompt repeatability and tolerance characterization remain open",
+    "clocks were not locked, so the B-C-C-B data is a diagnostic regression gate and not a release performance claim"
+  ]
+}

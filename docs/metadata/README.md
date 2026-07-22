@@ -152,6 +152,12 @@ The diagnostic Phase 3 records are:
   and the absence of an attributable detached-process end-to-end gain. Early
   prototypes and the test-only launcher are explicitly excluded from the
   production claim.
+- [`qwen36-27b-prefill-decode-plan-split-benchmark.json`](qwen36-27b-prefill-decode-plan-split-benchmark.json),
+  which records the host-control Prefill/Decode plan seam, explicit prefix,
+  final-prompt, and feedback routing, the 44-case controller matrix, exact
+  C1/C8/C16 model and arena gates, 5,905-line trace equality, identical ordered
+  13,558-launch contracts, detached-base B-C-C-B regression evidence, and the
+  explicit absence of new streams, buffers, kernels, or an attributed speedup.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
