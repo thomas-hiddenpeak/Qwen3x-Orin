@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_engine.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -27,12 +29,20 @@ class TestContext {
   int failures_ = 0;
 };
 
+enum class PhaseCall : std::uint8_t {
+  kPrefixStep,
+  kPrefixTile,
+  kFinishPrefill,
+  kDecodeStep,
+};
+
 struct FakeRunner {
   std::vector<std::uint32_t> predictions;
   std::vector<std::uint32_t> inputs;
   std::vector<runtime::ReferenceStepOptions> options;
   std::vector<std::vector<std::uint32_t>> tile_inputs;
   std::vector<runtime::ReferencePrefillTileOptions> tile_options;
+  std::vector<PhaseCall> phase_calls;
   std::size_t next_prediction = 0U;
   std::size_t next_position = 0U;
   std::size_t fail_at = static_cast<std::size_t>(-1);
@@ -51,6 +61,10 @@ struct FakeRunner {
   bool tile_wrong_token = false;
   bool tile_add_logits = false;
   double tile_elapsed_milliseconds = 10.0;
+};
+
+struct PhaseContext {
+  FakeRunner* runner = nullptr;
 };
 
 runtime::ReferenceStepOutcome fake_step(
@@ -114,6 +128,33 @@ runtime::ReferenceStepOutcome fake_step(
   return outcome;
 }
 
+runtime::ReferenceStepOutcome fake_prefix_step(
+    void* const context,
+    const std::uint32_t input_token,
+    const runtime::ReferenceStepOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kPrefixStep);
+  return fake_step(&fake, input_token, options);
+}
+
+runtime::ReferenceStepOutcome fake_finish_prefill(
+    void* const context,
+    const std::uint32_t input_token,
+    const runtime::ReferenceStepOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kFinishPrefill);
+  return fake_step(&fake, input_token, options);
+}
+
+runtime::ReferenceStepOutcome fake_decode_step(
+    void* const context,
+    const std::uint32_t input_token,
+    const runtime::ReferenceStepOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kDecodeStep);
+  return fake_step(&fake, input_token, options);
+}
+
 runtime::ReferencePrefillTileOutcome fake_prefill_tile(
     void* const context, const std::uint32_t* const input_tokens,
     const std::size_t token_count,
@@ -153,6 +194,16 @@ runtime::ReferencePrefillTileOutcome fake_prefill_tile(
   fake.next_position += token_count;
   outcome.value.emplace(std::move(tile));
   return outcome;
+}
+
+runtime::ReferencePrefillTileOutcome fake_prefix_tile(
+    void* const context,
+    const std::uint32_t* const input_tokens,
+    const std::size_t token_count,
+    const runtime::ReferencePrefillTileOptions& options) {
+  FakeRunner& fake = *static_cast<PhaseContext*>(context)->runner;
+  fake.phase_calls.push_back(PhaseCall::kPrefixTile);
+  return fake_prefill_tile(&fake, input_tokens, token_count, options);
 }
 
 detail::GenerationControlOptions options(const std::uint32_t max_new_tokens,
@@ -308,6 +359,220 @@ void test_prefill_decode_and_stop(TestContext& test) {
                       std::vector<double>({4.0}) &&
                   result.value->timing.total_generation_milliseconds == 10.0,
               "TTFT includes all prefill and later token timing is separate");
+}
+
+void test_explicit_phase_plans(TestContext& test) {
+  FakeRunner fake;
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  PhaseContext prefill_context{&fake};
+  PhaseContext decode_context{&fake};
+
+  detail::PrefillPlan prefill_plan;
+  prefill_plan.context = &prefill_context;
+  prefill_plan.prefix_step = fake_prefix_step;
+  prefill_plan.finish_prefill = fake_finish_prefill;
+  prefill_plan.prefix_tile = fake_prefix_tile;
+
+  detail::DecodePlan decode_plan;
+  decode_plan.context = &decode_context;
+  decode_plan.decode_step = fake_decode_step;
+
+  auto result = detail::run_generation_control(
+      {10U, 11U, 12U}, options(2U, 4U), prefill_plan, decode_plan);
+  test.expect(result &&
+                  fake.phase_calls ==
+                      std::vector<PhaseCall>(
+                          {PhaseCall::kPrefixStep,
+                           PhaseCall::kPrefixStep,
+                           PhaseCall::kFinishPrefill,
+                           PhaseCall::kDecodeStep}) &&
+                  fake.inputs ==
+                      std::vector<std::uint32_t>({10U, 11U, 12U, 42U}),
+              "explicit plans route prefix, final prompt, and decode steps in order");
+
+  std::vector<std::uint32_t> canonical_prompt;
+  for (std::uint32_t token = 100U; token < 119U; ++token) {
+    canonical_prompt.push_back(token);
+  }
+
+  fake = {};
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  result = detail::run_generation_control(
+      canonical_prompt, options(2U, 20U, false, 8U),
+      prefill_plan, decode_plan);
+  test.expect(result &&
+                  fake.phase_calls ==
+                      std::vector<PhaseCall>(
+                          {PhaseCall::kPrefixTile,
+                           PhaseCall::kPrefixTile,
+                           PhaseCall::kPrefixTile,
+                           PhaseCall::kFinishPrefill,
+                           PhaseCall::kDecodeStep}) &&
+                  fake.tile_inputs.size() == 3U &&
+                  fake.tile_inputs[0] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin(),
+                                                 canonical_prompt.begin() + 8) &&
+                  fake.tile_inputs[1] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin() + 8,
+                                                 canonical_prompt.begin() + 16) &&
+                  fake.tile_inputs[2] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin() + 16,
+                                                 canonical_prompt.begin() + 18) &&
+                  fake.inputs == std::vector<std::uint32_t>({118U, 42U}),
+              "C8 plan routes the canonical 18-token prefix as 8+8+2 "
+              "before finish and decode");
+
+  fake = {};
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  result = detail::run_generation_control(
+      canonical_prompt, options(2U, 20U, false, 16U),
+      prefill_plan, decode_plan);
+  test.expect(result &&
+                  fake.phase_calls ==
+                      std::vector<PhaseCall>(
+                          {PhaseCall::kPrefixTile,
+                           PhaseCall::kPrefixTile,
+                           PhaseCall::kFinishPrefill,
+                           PhaseCall::kDecodeStep}) &&
+                  fake.tile_inputs.size() == 2U &&
+                  fake.tile_inputs[0] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin(),
+                                                 canonical_prompt.begin() + 16) &&
+                  fake.tile_inputs[1] ==
+                      std::vector<std::uint32_t>(canonical_prompt.begin() + 16,
+                                                 canonical_prompt.begin() + 18) &&
+                  fake.inputs == std::vector<std::uint32_t>({118U, 42U}) &&
+                  result.value->timing.prompt_prefill_milliseconds == 21.0 &&
+                  result.value->timing.subsequent_token_milliseconds ==
+                      std::vector<double>({2.0}),
+              "C16 plan routes 16+2, final prompt TTFT, and subsequent "
+              "decode timing to separate phases");
+
+  fake = {};
+  fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+  result = detail::run_generation_control(
+      canonical_prompt, options(2U, 20U, true, 16U),
+      prefill_plan, decode_plan);
+  const bool trace_route =
+      fake.phase_calls.size() == 20U &&
+      std::all_of(fake.phase_calls.begin(),
+                  fake.phase_calls.begin() + 18,
+                  [](const PhaseCall call) {
+                    return call == PhaseCall::kPrefixStep;
+                  }) &&
+      fake.phase_calls[18] == PhaseCall::kFinishPrefill &&
+      fake.phase_calls[19] == PhaseCall::kDecodeStep;
+  test.expect(result && trace_route && fake.tile_inputs.empty(),
+              "trace capture keeps explicit phase routing while forcing "
+              "the prefix to C1");
+
+  detail::PrefillPlan invalid_prefill = prefill_plan;
+  invalid_prefill.finish_prefill = nullptr;
+  fake = {};
+  result = detail::run_generation_control(
+      {1U}, options(1U, 1U), invalid_prefill, decode_plan);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument &&
+                  fake.inputs.empty(),
+              "an incomplete prefill plan fails before phase execution");
+
+  detail::DecodePlan invalid_decode = decode_plan;
+  invalid_decode.decode_step = nullptr;
+  result = detail::run_generation_control(
+      {1U}, options(1U, 1U), prefill_plan, invalid_decode);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kInvalidArgument &&
+                  fake.inputs.empty(),
+              "an incomplete decode plan fails before phase execution");
+}
+
+void test_explicit_phase_plan_shape_matrix(TestContext& test) {
+  constexpr std::array<std::size_t, 11U> kPromptSizes = {
+      1U, 2U, 7U, 8U, 9U, 15U, 16U, 17U, 31U, 32U, 33U};
+  constexpr std::array<std::uint32_t, 4U> kChunkSizes = {1U, 2U, 8U, 16U};
+
+  for (const std::size_t prompt_size : kPromptSizes) {
+    std::vector<std::uint32_t> prompt;
+    prompt.reserve(prompt_size);
+    for (std::size_t index = 0U; index < prompt_size; ++index) {
+      prompt.push_back(static_cast<std::uint32_t>(100U + index));
+    }
+
+    for (const std::uint32_t chunk_size : kChunkSizes) {
+      FakeRunner fake;
+      fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+      PhaseContext prefill_context{&fake};
+      PhaseContext decode_context{&fake};
+
+      detail::PrefillPlan prefill_plan;
+      prefill_plan.context = &prefill_context;
+      prefill_plan.prefix_step = fake_prefix_step;
+      prefill_plan.finish_prefill = fake_finish_prefill;
+      prefill_plan.prefix_tile = fake_prefix_tile;
+
+      detail::DecodePlan decode_plan;
+      decode_plan.context = &decode_context;
+      decode_plan.decode_step = fake_decode_step;
+
+      const auto result = detail::run_generation_control(
+          prompt,
+          options(2U, static_cast<std::uint32_t>(prompt_size + 1U),
+                  false, chunk_size),
+          prefill_plan, decode_plan);
+
+      const std::size_t prefix_size = prompt_size - 1U;
+      const bool tiled = chunk_size > 1U && prefix_size != 0U;
+      const std::size_t expected_prefix_calls =
+          tiled ? (prefix_size + chunk_size - 1U) / chunk_size
+                : prefix_size;
+      bool route_matches =
+          result && fake.phase_calls.size() == expected_prefix_calls + 2U;
+      for (std::size_t index = 0U;
+           route_matches && index < expected_prefix_calls; ++index) {
+        route_matches =
+            fake.phase_calls[index] ==
+            (tiled ? PhaseCall::kPrefixTile : PhaseCall::kPrefixStep);
+      }
+      route_matches =
+          route_matches &&
+          fake.phase_calls[expected_prefix_calls] ==
+              PhaseCall::kFinishPrefill &&
+          fake.phase_calls[expected_prefix_calls + 1U] ==
+              PhaseCall::kDecodeStep;
+
+      bool input_matches = false;
+      if (tiled) {
+        std::vector<std::uint32_t> reconstructed_prefix;
+        for (const auto& tile : fake.tile_inputs) {
+          reconstructed_prefix.insert(reconstructed_prefix.end(),
+                                      tile.begin(), tile.end());
+        }
+        input_matches =
+            reconstructed_prefix ==
+                std::vector<std::uint32_t>(prompt.begin(),
+                                           prompt.end() - 1) &&
+            fake.inputs ==
+                std::vector<std::uint32_t>({prompt.back(), 42U});
+      } else {
+        std::vector<std::uint32_t> expected_inputs = prompt;
+        expected_inputs.push_back(42U);
+        input_matches = fake.tile_inputs.empty() &&
+                        fake.inputs == expected_inputs;
+      }
+
+      const bool case_passed =
+          route_matches && input_matches && result.value->steps.size() ==
+                                               prompt_size + 1U;
+      if (!case_passed) {
+        std::cerr << "  phase matrix mismatch: prompt_size=" << prompt_size
+                  << " chunk_size=" << chunk_size << '\n';
+      }
+      test.expect(case_passed,
+                  "phase plans preserve routing across prompt and chunk boundaries");
+    }
+  }
 }
 
 void test_max_tokens_and_first_stop(TestContext& test) {
@@ -651,6 +916,8 @@ void test_engine_backend_validation(TestContext& test) {
 int main() {
   TestContext test;
   test_prefill_decode_and_stop(test);
+  test_explicit_phase_plans(test);
+  test_explicit_phase_plan_shape_matrix(test);
   test_prediction_only_control(test);
   test_result_arm_validation(test);
   test_max_tokens_and_first_stop(test);

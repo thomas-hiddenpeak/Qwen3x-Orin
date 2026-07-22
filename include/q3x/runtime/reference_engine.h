@@ -252,6 +252,24 @@ using PrefillTileFunction = ReferencePrefillTileOutcome (*)(
     void* context, const std::uint32_t* input_token_ids,
     std::size_t token_count, const ReferencePrefillTileOptions& options);
 
+// Host-side execution seams for the two generation phases. The first
+// implementation may route every callback to the same runner and stream; the
+// separate plans make the final-prompt boundary explicit without changing the
+// runner, request-state, workspace, or public engine contracts. Both plans
+// must provide every scalar callback even when a particular request would not
+// exercise it; prefix_tile is required only for a chunked non-empty prefix.
+struct PrefillPlan {
+  void* context = nullptr;
+  StepFunction prefix_step = nullptr;
+  StepFunction finish_prefill = nullptr;
+  PrefillTileFunction prefix_tile = nullptr;
+};
+
+struct DecodePlan {
+  void* context = nullptr;
+  StepFunction decode_step = nullptr;
+};
+
 struct GenerationControlOptions {
   std::uint32_t max_new_tokens = 0U;
   std::uint32_t stop_token_id = kQwen36ImEndTokenId;
@@ -281,6 +299,14 @@ struct GenerationControlResult {
 
 // Pure host generation state machine. The callback is the only runner boundary
 // and makes token ordering/prefill policy testable without CUDA or model files.
+[[nodiscard]] GenerationControlResult run_generation_control(
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const GenerationControlOptions& options,
+    const PrefillPlan& prefill_plan,
+    const DecodePlan& decode_plan);
+
+// Compatibility entry point for callers that intentionally use one callback
+// context for both phases. New engine code should pass explicit plans above.
 [[nodiscard]] GenerationControlResult run_generation_control(
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,

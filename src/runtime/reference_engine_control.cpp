@@ -38,11 +38,13 @@ bool checked_required_steps(const std::size_t prompt_tokens,
 GenerationControlResult run_generation_control(
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,
-    void* const step_context,
-    const StepFunction step_function,
-    const PrefillTileFunction prefill_tile_function) {
+    const PrefillPlan& prefill_plan,
+    const DecodePlan& decode_plan) {
   if (prompt_token_ids.empty() || options.max_new_tokens == 0U ||
-      options.max_sequence_length == 0U || step_function == nullptr ||
+      options.max_sequence_length == 0U ||
+      prefill_plan.prefix_step == nullptr ||
+      prefill_plan.finish_prefill == nullptr ||
+      decode_plan.decode_step == nullptr ||
       options.prefill_chunk_size == 0U ||
       options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
       options.stop_token_id >= kReferenceVocabularySize ||
@@ -70,7 +72,9 @@ GenerationControlResult run_generation_control(
     control.generated_token_ids.reserve(options.max_new_tokens);
     control.steps.reserve(static_cast<std::size_t>(required_steps));
 
-    auto execute = [&](const std::uint32_t input_token,
+    auto execute = [&](void* const phase_context,
+                       const StepFunction phase_step,
+                       const std::uint32_t input_token,
                        const bool compute_logits,
                        double& elapsed,
                        std::uint32_t& predicted_token,
@@ -82,7 +86,7 @@ GenerationControlResult run_generation_control(
       step_options.measure_timing = true;
       step_options.logits_mode = options.logits_mode;
       ReferenceStepOutcome outcome =
-          step_function(step_context, input_token, step_options);
+          phase_step(phase_context, input_token, step_options);
       if (!outcome) {
         failed_status = outcome.status;
         return GenerationControlError::kRunnerFailure;
@@ -140,7 +144,7 @@ GenerationControlResult run_generation_control(
     const std::size_t effective_prefill_chunk_size =
         options.capture_trace ? 1U : options.prefill_chunk_size;
     if (effective_prefill_chunk_size > 1U && prefix_token_count != 0U &&
-        prefill_tile_function == nullptr) {
+        prefill_plan.prefix_tile == nullptr) {
       return failure(GenerationControlError::kInvalidArgument);
     }
 
@@ -152,8 +156,9 @@ GenerationControlResult run_generation_control(
                      prefix_token_count - prefix_index);
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
-        ReferencePrefillTileOutcome outcome = prefill_tile_function(
-            step_context, prompt_token_ids.data() + prefix_index,
+        ReferencePrefillTileOutcome outcome = prefill_plan.prefix_tile(
+            prefill_plan.context,
+            prompt_token_ids.data() + prefix_index,
             tile_token_count, tile_options);
         if (!outcome) {
           return failure(GenerationControlError::kRunnerFailure,
@@ -205,6 +210,7 @@ GenerationControlResult run_generation_control(
       while (prefix_index < prefix_token_count) {
         double elapsed = 0.0;
         const GenerationControlError error = execute(
+            prefill_plan.context, prefill_plan.prefix_step,
             prompt_token_ids[prefix_index], false, elapsed,
             predicted_token, runner_failure_status);
         if (error != GenerationControlError::kNone) {
@@ -218,8 +224,9 @@ GenerationControlResult run_generation_control(
     {
       double elapsed = 0.0;
       const GenerationControlError error = execute(
-          prompt_token_ids.back(), true, elapsed, predicted_token,
-          runner_failure_status);
+          prefill_plan.context, prefill_plan.finish_prefill,
+          prompt_token_ids.back(), true, elapsed,
+          predicted_token, runner_failure_status);
       if (error != GenerationControlError::kNone) {
         return failure(error, runner_failure_status);
       }
@@ -238,11 +245,10 @@ GenerationControlResult run_generation_control(
         const std::uint32_t input_token =
             control.generated_token_ids.back();
         double elapsed = 0.0;
-        const GenerationControlError error = execute(input_token,
-                                                     true,
-                                                     elapsed,
-                                                     predicted_token,
-                                                     runner_failure_status);
+        const GenerationControlError error = execute(
+            decode_plan.context, decode_plan.decode_step,
+            input_token, true, elapsed, predicted_token,
+            runner_failure_status);
         if (error != GenerationControlError::kNone) {
           return failure(error, runner_failure_status);
         }
@@ -265,6 +271,25 @@ GenerationControlResult run_generation_control(
   } catch (const std::length_error&) {
     return failure(GenerationControlError::kAllocationFailure);
   }
+}
+
+GenerationControlResult run_generation_control(
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const GenerationControlOptions& options,
+    void* const step_context,
+    const StepFunction step_function,
+    const PrefillTileFunction prefill_tile_function) {
+  PrefillPlan prefill_plan;
+  prefill_plan.context = step_context;
+  prefill_plan.prefix_step = step_function;
+  prefill_plan.finish_prefill = step_function;
+  prefill_plan.prefix_tile = prefill_tile_function;
+
+  DecodePlan decode_plan;
+  decode_plan.context = step_context;
+  decode_plan.decode_step = step_function;
+  return run_generation_control(prompt_token_ids, options,
+                                prefill_plan, decode_plan);
 }
 
 std::size_t generated_text_token_count(

@@ -36,6 +36,24 @@ constexpr std::array<std::uint32_t, 26U> kExpectedGeneratedIds = {
     108751U, 97792U,  97995U,  1710U,   runtime::kQwen36ImEndTokenId,
 };
 
+constexpr std::uint32_t kExpectedRequestSequenceLength =
+    static_cast<std::uint32_t>(kExpectedPromptIds.size() +
+                               kExpectedGeneratedIds.size() - 1U);
+
+std::uint64_t expected_request_arena_bytes(
+    const std::uint32_t prefill_chunk_size) noexcept {
+  switch (prefill_chunk_size) {
+    case 1U:
+      return 82'505'216U;
+    case 8U:
+      return 83'696'128U;
+    case 16U:
+      return 85'057'536U;
+    default:
+      return 0U;
+  }
+}
+
 class TestContext {
  public:
   void expect(const bool condition, const std::string_view message) {
@@ -283,6 +301,15 @@ int main(const int argc, char** const argv) {
                         load.resident_load_milliseconds,
                 "serial load wall time covers tokenizer plus resident phases");
   }
+  const std::uint64_t expected_arena =
+      expected_request_arena_bytes(prefill_chunk_size);
+  test.expect(load.request_max_sequence_length ==
+                      kExpectedRequestSequenceLength &&
+                  load.request_prefill_chunk_size == prefill_chunk_size &&
+                  (expected_arena == 0U ||
+                   load.request_arena_bytes == expected_arena),
+              "one-shot request capacity, chunk policy, and known C1/C8/C16 "
+              "arena sizes remain exact");
   test.expect(exact_tokens(generation.prompt_token_ids, kExpectedPromptIds,
                            "prompt_token_ids"),
               "all 19 prompt token ids match the pinned oracle");

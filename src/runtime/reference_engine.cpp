@@ -619,10 +619,20 @@ ReferenceGenerateResult ReferenceEngine::generate(
     control_options.prefill_chunk_size = options.prefill_chunk_size;
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
+
+    reference_engine_detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &step_context;
+    prefill_plan.prefix_step = step_with_trace;
+    prefill_plan.finish_prefill = step_with_trace;
+    prefill_plan.prefix_tile = prefill_prefix_tile;
+
+    reference_engine_detail::DecodePlan decode_plan;
+    decode_plan.context = &step_context;
+    decode_plan.decode_step = step_with_trace;
+
     reference_engine_detail::GenerationControlResult control =
         reference_engine_detail::run_generation_control(
-            chat.token_ids, control_options, &step_context, step_with_trace,
-            prefill_prefix_tile);
+            chat.token_ids, control_options, prefill_plan, decode_plan);
     if (!control) {
       result.diagnostic = control_diagnostic(control);
       return result;
