@@ -2107,3 +2107,59 @@ crossover yet. Clocks were not locked, so the timing gains are diagnostic.
 The next kernel priority is a true M17-M32 projection path; overlap work should
 follow measured NCU stall evidence. Full commands, artifact hashes, ABI notes,
 and limits are in the [C32 composite prefill record](metadata/qwen36-27b-c32-composite-prefill-benchmark.json).
+
+## Production FP8 M32 projection
+
+Commit `5c4845b` promotes the fixed-M32 FP8 WMMA candidate into public and
+runtime dispatch. The four aligned production shapes `[10240,5120]`,
+`[5120,6144]`, `[6144,5120]`, and `[12288,5120]` now validate the complete
+32-row tile and execute one kernel. Other valid FP8 M32 shapes or alignments
+fall back to two ordered public M16 calls; NVFP4 remains two M16 calls. M17
+through M31, causal subtiles, the logical Prefill/Decode plan split, and the
+single-stream execution policy are unchanged.
+
+All four direct shapes are bit-exact to two public M16 launches across
+1,081,344 BF16 outputs, deterministic on replay, preserve both output guards,
+and capture exactly one CUDA kernel node each. The four instances use 46
+registers/thread, 21,248 bytes static shared memory, and zero stack/local
+memory. Generic, 4-byte-but-not-16-byte-aligned, and exact-shape near-miss M32
+cases retain four-node ordered fallback graphs; NVFP4 retains two nodes;
+cross-half alias and M33 failures capture zero nodes. Release passes 49 of 54
+tests with five environment skips, and the selected ASan/UBSan suite passes 48
+of 53 with the same five skips. Independent C1/C8/C16/C32 model processes all
+retain the pinned 19 input IDs, 26 generated IDs, exact text/stop semantics,
+and all 44 logical steps.
+
+The same-cubin preproduction gate measures the four kernels at 1.51313x,
+1.42923x, 1.50555x, and 1.50818x versus two production M16 calls. Weighting by
+the P33 logical call mix gives 1.48217x. The detached-binary P33/C32 B-C-C-B
+diagnostic then records:
+
+| Arm | TTFT median |
+| --- | ---: |
+| Baseline 1 | 713.465 ms |
+| Candidate 1 | 674.498 ms |
+| Candidate 2 | 674.819 ms |
+| Baseline 2 | 713.339 ms |
+
+The mirrored-pair averages are 713.4020 and 674.6585 ms: a candidate delta of
+-38.7435 ms (-5.4308%, 1.05743x). A matched P33/C32 Nsight comparison attributes
+that movement directly:
+
+| Metric | Composite baseline | FP8 M32 | Delta |
+| --- | ---: | ---: | ---: |
+| Kernel launches | 2,534 | 2,358 | -176 |
+| Summed kernel time | 728.236864 ms | 688.875296 ms | -39.361568 ms |
+| Kernel span | 736.294432 ms | 698.223712 ms | -38.070720 ms |
+| Projection launches | 1,121 | 945 | -176 |
+| Projection time | 651.548672 ms | 613.072480 ms | -38.476192 ms |
+| FP8 M16/M32 tile launches | 352 M16 | 176 M32 | -176 |
+| FP8 M16/M32 tile time | 124.776832 ms | 86.635360 ms | 1.44025x |
+
+NVFP4 is now the clear next target: its unchanged 384 M16 launches consume
+392.846528 ms in the candidate profile. The recommended next gate compares a
+K64/LD72 dual-A M32 kernel with a K128/LD136 single-A M32 kernel against two
+public production M16 calls. Buffering and multi-stream work remain behind NCU
+stall evidence. Clocks were not locked, so the timing values are diagnostic.
+Full commands, identities, hashes, and limitations are in the
+[FP8 M32 production record](metadata/qwen36-27b-fp8-m32-production-benchmark.json).

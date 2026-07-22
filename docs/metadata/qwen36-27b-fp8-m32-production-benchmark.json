@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-production-benchmark",
+  "status": "production-direct-m32-diagnostic-benchmark",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "5c4845b1747b61f2bee0be6e9b6b2ecef86a5f24",
+    "candidate_subject": "kernels: add production FP8 M32 projection",
+    "baseline_production_commit": "e6fac6b5e4aec0b78696a31f1736b2b49551c9c3",
+    "baseline_freeze_head": "c8d4a9e1502a3aeaaa174c6b390b555f4abe1977",
+    "baseline_note": "Between the production baseline and freeze head, one commit records documentation and one adds a test-only M32 prototype. The frozen qwen3x-orin executable is byte-identical to the e6fac6b production C32 baseline.",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3358968,
+      "sha256": "643d0b81eb0fcb21210ad2eb84f470bdbecdb409892ea84416c3b31c395b5e47",
+      "checked_in": false
+    },
+    "baseline_binary": {
+      "local_path": "/tmp/q3x-before-fp8-m32-qwen3x-orin",
+      "bytes": 3288680,
+      "sha256": "5459c1c65e06249f90e98c502c9c5bf366c228cbaf82333775633731226aae3b",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment; mirrored timings are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda",
+    "token_count": 32,
+    "direct_shapes_n_by_k": [
+      [10240, 5120],
+      [5120, 6144],
+      [6144, 5120],
+      [12288, 5120]
+    ],
+    "direct_alignment": {
+      "weights_bytes": 16,
+      "activations_bytes": 8
+    },
+    "kernel_structure": "two independent FP32 accumulator chains reuse one 16-token shared A/C panel; each decoded B stage is consumed by tokens 0:16 and then tokens 16:32",
+    "full_span_validation_before_enqueue": true,
+    "exact_route_cuda_kernels": 1,
+    "fallback": "two ordered public M16 launches after complete M32 validation",
+    "generic_runtime_m32_kernel_nodes": 4,
+    "nvfp4_runtime_m32_kernel_nodes": 2,
+    "m17_m31_unchanged": true,
+    "resource_usage_each_direct_instance": {
+      "registers_per_thread": 46,
+      "static_shared_bytes": 21248,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "launch_bounds_min_blocks_per_sm": 5
+    },
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false,
+    "public_abi_change": "none; the symbol is an additive API within ABI epoch 0.2.0"
+  },
+  "validation": {
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "excluded": "package_consumer"
+    },
+    "direct_shape_gate": {
+      "shapes": 4,
+      "total_bf16_outputs_checked": 1081344,
+      "candidate_vs_two_public_m16_mismatches": 0,
+      "public_vs_direct_candidate_mismatches": 0,
+      "replay_mismatches": 0,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1
+    },
+    "fallback_and_invalid_gate": {
+      "generic_m32_kernel_nodes": 4,
+      "weight_4_not_16_aligned_kernel_nodes": 4,
+      "exact_shape_near_miss_kernel_nodes": 4,
+      "nvfp4_m32_kernel_nodes": 2,
+      "cross_half_alias_status": "cudaErrorInvalidValue",
+      "cross_half_alias_capture_nodes": 0,
+      "m33_status": "cudaErrorInvalidValue",
+      "m33_capture_nodes": 0,
+      "empty_public_dimensions": "cudaSuccess no-op"
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only",
+      "startup_overlap": true
+    }
+  },
+  "preproduction_same_cubin_microbenchmark": {
+    "purpose": "Gate the identical unchecked M32 kernel before production routing",
+    "warmup_iterations": 10,
+    "measured_iterations": 24,
+    "measurement_rounds": 3,
+    "protocol_per_round": "B-C-C-B",
+    "rows": [
+      {"shape_n_by_k": [10240, 5120], "two_public_m16_ms": 0.980660, "single_m32_ms": 0.648099, "speedup": 1.51313},
+      {"shape_n_by_k": [5120, 6144], "two_public_m16_ms": 0.737869, "single_m32_ms": 0.516270, "speedup": 1.42923},
+      {"shape_n_by_k": [6144, 5120], "two_public_m16_ms": 0.623060, "single_m32_ms": 0.413842, "speedup": 1.50555},
+      {"shape_n_by_k": [12288, 5120], "two_public_m16_ms": 1.164630, "single_m32_ms": 0.772211, "speedup": 1.50818}
+    ],
+    "p33_logical_call_weights": [48, 64, 48, 16],
+    "weighted_two_public_m16_ms": 142.836,
+    "weighted_single_m32_ms": 96.3698,
+    "weighted_speedup": 1.48217,
+    "required_weighted_speedup": 1.10,
+    "gate": "pass"
+  },
+  "p33_c32_bccb": {
+    "protocol": "baseline-candidate-candidate-baseline",
+    "prefix_tokens": 32,
+    "warmup_iterations": 1,
+    "measured_iterations": 5,
+    "max_tokens": 1,
+    "max_sequence_length": 544,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "baseline_1": 713.465,
+      "candidate_1": 674.498,
+      "candidate_2": 674.819,
+      "baseline_2": 713.339
+    },
+    "average_of_pair_medians_ms": {
+      "baseline": 713.4020,
+      "candidate": 674.6585
+    },
+    "candidate_minus_baseline_ms": -38.7435,
+    "candidate_minus_baseline_percent": -5.430809,
+    "speedup": 1.057427,
+    "prompt_and_first_generated_token_exact": true,
+    "interpretation": "The end-to-end delta agrees with the independently attributed profile delta and is much larger than the observed mirrored-run jitter. Clocks remain unlocked, so the value is diagnostic."
+  },
+  "p33_c32_nsys": {
+    "baseline_source": "qwen36-27b-c32-composite-prefill-benchmark.json",
+    "max_tokens": 1,
+    "baseline": {
+      "kernel_launches": 2534,
+      "summed_kernel_time_ms": 728.236864,
+      "kernel_span_ms": 736.294432,
+      "projection_launches": 1121,
+      "projection_time_ms": 651.548672,
+      "fp8_tile_kind": "M16",
+      "fp8_tile_launches": 352,
+      "fp8_tile_time_ms": 124.776832,
+      "nvfp4_m16_launches": 384,
+      "nvfp4_m16_time_ms": 393.150656
+    },
+    "candidate": {
+      "kernel_launches": 2358,
+      "summed_kernel_time_ms": 688.875296,
+      "kernel_span_ms": 698.223712,
+      "projection_launches": 945,
+      "projection_time_ms": 613.072480,
+      "fp8_tile_kind": "M32",
+      "fp8_tile_launches": 176,
+      "fp8_tile_time_ms": 86.635360,
+      "nvfp4_m16_launches": 384,
+      "nvfp4_m16_time_ms": 392.846528
+    },
+    "candidate_minus_baseline": {
+      "kernel_launches": -176,
+      "kernel_launches_percent": -6.945541,
+      "summed_kernel_time_ms": -39.361568,
+      "summed_kernel_time_percent": -5.405050,
+      "kernel_span_ms": -38.070720,
+      "kernel_span_percent": -5.170584,
+      "projection_launches": -176,
+      "projection_time_ms": -38.476192,
+      "projection_time_percent": -5.905344
+    },
+    "fp8_tile_time_speedup": 1.440253,
+    "launch_accounting": "Every pair of production FP8 M16 launches becomes one M32 launch: 352 to 176. NVFP4 remains M16+M16.",
+    "projection_definition": "short kernel names beginning fp8_ or nvfp4_"
+  },
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "commands": [
+      "ctest --test-dir build/orin-release --output-on-failure",
+      "ctest --test-dir build/orin-asan --output-on-failure -E '^package_consumer$'",
+      "for chunk in 1 8 16 32; do build/orin-release/q3x_reference_engine_e2e_test \"${Q3X_MODEL_DIR}\" sm87 \"${chunk}\"; done",
+      "{BASELINE_OR_CANDIDATE} benchmark \"${Q3X_MODEL_DIR}\" --prompt P33 --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 544 --prefill-chunk-size 32 --projection-backend sm87",
+      "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o OUTPUT build/orin-release/qwen3x-orin generate \"${Q3X_MODEL_DIR}\" --prompt P33 --max-tokens 1 --prefill-chunk-size 32 --projection-backend sm87"
+    ],
+    "command_placeholders": "Q3X_MODEL_DIR is the pinned local model; P33 is the exact user_text in benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json."
+  },
+  "artifacts": [
+    {"role": "baseline B1 benchmark log", "local_path": "/tmp/q3x-fp8-m32-p33-b1.log", "bytes": 4303, "sha256": "04e8efc8431229d3c36b76b5cd8c4e3bd2387c7838825cdf97516a57945831b2", "checked_in": false},
+    {"role": "candidate C1 benchmark log", "local_path": "/tmp/q3x-fp8-m32-p33-c1.log", "bytes": 4303, "sha256": "de7a8bcf9293a2088682e7d3d8e1ec3f000ea83a23bd327a2458d3603f0c0359", "checked_in": false},
+    {"role": "candidate C2 benchmark log", "local_path": "/tmp/q3x-fp8-m32-p33-c2.log", "bytes": 4308, "sha256": "15ae74229bb14ecd8d9d00eb5ad2bbc11ecf116d59b71981baec90eb4a677e13", "checked_in": false},
+    {"role": "baseline B2 benchmark log", "local_path": "/tmp/q3x-fp8-m32-p33-b2.log", "bytes": 4303, "sha256": "ee0763c275b6bfd5b00d353a89b8b96536712738e273fc91613be2265cf7a0d5", "checked_in": false},
+    {"role": "C1 real-model oracle log", "local_path": "/tmp/q3x-fp8-m32-e2e-c1.log", "bytes": 242, "sha256": "e59317221530b990c03f750137c56ccbbea15c1515d46be8a220bc60c7baee8b", "checked_in": false},
+    {"role": "C8 real-model oracle log", "local_path": "/tmp/q3x-fp8-m32-e2e-c8.log", "bytes": 242, "sha256": "22e5afa12ad2cf4f7d7cb6fb01c41bd0765c740c467f0e08408153d642e56d96", "checked_in": false},
+    {"role": "C16 real-model oracle log", "local_path": "/tmp/q3x-fp8-m32-e2e-c16.log", "bytes": 242, "sha256": "2f31fae3403b0be858d3416df31b88b474f7f3bfb169e81b82ae008e4ef30a18", "checked_in": false},
+    {"role": "C32 real-model oracle log", "local_path": "/tmp/q3x-fp8-m32-e2e-c32.log", "bytes": 242, "sha256": "926a5bf43f82b2424a14da8202010c27797c74361515e6c78263df8846ed892b", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight report", "local_path": "/tmp/q3x-fp8-m32-profile-p033-c32.nsys-rep", "bytes": 367689, "sha256": "eba3f98111e12d7e322ce6ec30733a9c6087b46fd2e7928620ad508830536081", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight SQLite", "local_path": "/tmp/q3x-fp8-m32-profile-p033-c32.sqlite", "bytes": 1089536, "sha256": "8976bc356ea63552568f579db389905644ff2e18b2c6df4c14f1ba7f76643187", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight stdout", "local_path": "/tmp/q3x-fp8-m32-profile-p033-c32.log", "bytes": 2716, "sha256": "f7edf7d90fc1b23d19d075b38b9858b98503b7c48b562d973bf32a5384de8130", "checked_in": false},
+    {"role": "candidate kernel summary CSV", "local_path": "/tmp/q3x-fp8-m32-profile-p033-c32-kernel-summary_cuda_gpu_kern_sum.csv", "bytes": 7506, "sha256": "31926d653113018f5b12e171f602ecb8a0fce864745dc091b58bcdb773e20ede", "checked_in": false},
+    {"role": "production kernel correctness log", "local_path": "/tmp/q3x-fp8-m32-production-kernel-test.log", "bytes": 26690, "sha256": "5ef1b96caa8540048be1b91c947b22751bba2d0c8df3a6503b9e229c1c0ec7fd", "checked_in": false},
+    {"role": "production resource dump", "local_path": "/tmp/q3x-fp8-m32-production-resource.log", "bytes": 27741, "sha256": "4363eb71eff225c2bb418f5e2ece132b5fc21074a02062a89f04495bbd2c0aad", "checked_in": false},
+    {"role": "same-cubin prototype performance log", "local_path": "/tmp/q3x-fp8-m32-prototype-perf-final.log", "bytes": 30482, "sha256": "20d752d610e59ae1f784ce32428d8049bd636c9b6fe56c6e951fc4e5fabbac12", "checked_in": false}
+  ],
+  "limitations": [
+    "GPU and memory clocks were not locked, so timing comparisons remain diagnostic.",
+    "The end-to-end benchmark uses the tokenizer-pinned P33 case with exactly one 32-token prefix tile; other prompt lengths need separate measurements.",
+    "Only FP8 M32 is direct. NVFP4, which remains the largest P33 projection component, still executes M16+M16.",
+    "Execution remains one-stream and serial, with no double/triple buffering or prefill/decode overlap.",
+    "M17 through M31 retain M16-plus-tail composition; this milestone does not establish a general dense-GEMM crossover."
+  ],
+  "next_priority": "Prototype NVFP4 M32 with same-cubin K64/LD72 dual-A and K128/LD136 single-A variants against two public production M16 launches; promote only after bitwise, resource, graph, and weighted performance gates."
+}
