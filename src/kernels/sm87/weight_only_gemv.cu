@@ -2092,6 +2092,196 @@ fp8_w8a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel(
   }
 }
 
+// Test-only fixed-M32 candidate. It keeps the production M16 shared-memory
+// footprint by retaining one 16-token A/C panel: each K-stage decodes B once,
+// consumes A[0:16], then overwrites only A and consumes A[16:32]. The two
+// accumulator dependency chains preserve the exact K/MMA order of two
+// production M16 launches.
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 72U>
+__global__ __launch_bounds__(kThreads, 5) void
+fp8_w8a16_small_m32_gemm_bf16_wmma_fixed_shape_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kPanelTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kBf16ValuesPerActivationWord = 4U;
+  constexpr unsigned int kActivationWordsPerToken =
+      kColumnsPerStage / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kSharedActivationWordsPerToken =
+      kSharedLeadingDimension / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kWeightVectorsPerRow =
+      kColumnsPerStage / sizeof(uint4);
+  constexpr unsigned int kBf16ValuesPerWeightWord = 2U;
+  constexpr unsigned int kSharedWeightWordsPerRow =
+      kSharedLeadingDimension / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kSharedWeightWordCount =
+      kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
+  constexpr unsigned int kSharedOutputCount =
+      kPanelTokenCount * kOutputColumnsPerBlock;
+  static_assert(kRows % kOutputColumnsPerBlock == 0U);
+  static_assert(kColumns % kColumnsPerStage == 0U);
+  static_assert(kWeightVectorsPerRow == 4U);
+  static_assert(kSharedLeadingDimension >= kColumnsPerStage);
+  static_assert(kSharedLeadingDimension % 8U == 0U);
+
+  union __align__(32) BOrCStorage {
+    std::uint32_t weights[kSharedWeightWordCount];
+    float output[kSharedOutputCount];
+  };
+  __shared__ std::uint16_t decoded_weights[kFp8EncodedValueCount];
+  __shared__ __align__(32) std::uint64_t
+      shared_activations[kPanelTokenCount *
+                         kSharedActivationWordsPerToken];
+  __shared__ BOrCStorage b_or_c;
+
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  decoded_weights[thread] = encode_bf16_rne(
+      decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  __syncthreads();
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
+  wmma::fill_fragment(accumulator0, 0.0F);
+  wmma::fill_fragment(accumulator1, 0.0F);
+  const unsigned int first_output_column =
+      blockIdx.x * kOutputColumnsPerBlock;
+
+#pragma unroll 1
+  for (unsigned int first_k = 0U; first_k < kColumns;
+       first_k += kColumnsPerStage) {
+    const unsigned int token = thread / kActivationWordsPerToken;
+    const unsigned int activation_word =
+        thread % kActivationWordsPerToken;
+    const std::size_t activation_column =
+        first_k + activation_word * kBf16ValuesPerActivationWord;
+    shared_activations[token * kSharedActivationWordsPerToken +
+                       activation_word] =
+        *reinterpret_cast<const std::uint64_t*>(
+            activations + static_cast<std::size_t>(token) * kColumns +
+            activation_column);
+
+#pragma unroll
+    for (unsigned int pass = 0U; pass < 2U; ++pass) {
+      const unsigned int vector_index = thread + pass * kThreads;
+      const unsigned int local_output_column =
+          vector_index / kWeightVectorsPerRow;
+      const unsigned int vector_in_row =
+          vector_index % kWeightVectorsPerRow;
+      const uint4 packed = *reinterpret_cast<const uint4*>(
+          weights +
+          static_cast<std::size_t>(first_output_column +
+                                   local_output_column) *
+              kColumns +
+          first_k + vector_in_row * sizeof(uint4));
+      std::uint32_t* const decoded =
+          b_or_c.weights +
+          local_output_column * kSharedWeightWordsPerRow +
+          vector_in_row * (sizeof(uint4) / sizeof(std::uint16_t));
+      decode_fp8x4_to_bf16x4(packed.x, decoded_weights, decoded);
+      decode_fp8x4_to_bf16x4(packed.y, decoded_weights, decoded + 2U);
+      decode_fp8x4_to_bf16x4(packed.z, decoded_weights, decoded + 4U);
+      decode_fp8x4_to_bf16x4(packed.w, decoded_weights, decoded + 6U);
+    }
+    __syncthreads();
+
+    const auto* const shared_a =
+        reinterpret_cast<const __nv_bfloat16*>(shared_activations);
+    const auto* const shared_b =
+        reinterpret_cast<const __nv_bfloat16*>(b_or_c.weights);
+#pragma unroll 1
+    for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+         inner_k += 16U) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          activation_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>
+          weight_fragment;
+      wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                             kSharedLeadingDimension);
+      wmma::load_matrix_sync(
+          weight_fragment,
+          shared_b +
+              warp * kOutputColumnsPerWarp * kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator0, activation_fragment, weight_fragment,
+                     accumulator0);
+    }
+    // All A0 fragment loads must retire before the panel is overwritten.
+    __syncthreads();
+
+    shared_activations[token * kSharedActivationWordsPerToken +
+                       activation_word] =
+        *reinterpret_cast<const std::uint64_t*>(
+            activations +
+            static_cast<std::size_t>(token + kPanelTokenCount) * kColumns +
+            activation_column);
+    __syncthreads();
+
+#pragma unroll 1
+    for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+         inner_k += 16U) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          activation_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>
+          weight_fragment;
+      wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                             kSharedLeadingDimension);
+      wmma::load_matrix_sync(
+          weight_fragment,
+          shared_b +
+              warp * kOutputColumnsPerWarp * kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator1, activation_fragment, weight_fragment,
+                     accumulator1);
+    }
+    // Protect both shared panels before the next B decode/A0 load and the
+    // final B-to-C union transition.
+    __syncthreads();
+  }
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator0,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock;
+    const unsigned int local_output_column =
+        index % kOutputColumnsPerBlock;
+    output[static_cast<std::size_t>(token) * kRows + first_output_column +
+           local_output_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale);
+  }
+  // The first output panel must be fully consumed before C is reused.
+  __syncthreads();
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator1,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock;
+    const unsigned int local_output_column =
+        index % kOutputColumnsPerBlock;
+    output[static_cast<std::size_t>(token + kPanelTokenCount) * kRows +
+           first_output_column + local_output_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale);
+  }
+}
+
 __device__ __forceinline__ void decode_nvfp4x8_to_bf16x8(
     const std::uint32_t packed,
     const std::uint16_t* const decoded_products,
@@ -6181,6 +6371,41 @@ void launch_nvfp4_lm_head_activation_staged_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+[[nodiscard]] int validate_fp8_m32_launch(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  constexpr std::size_t kTokenCount = 32U;
+  if (!std::isfinite(weight_scale) || weight_scale < 0.0F ||
+      multiply_overflows(rows, columns)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(kTokenCount, columns) ||
+      multiply_overflows(kTokenCount, rows)) {
+    return invalid_value();
+  }
+  const std::size_t activation_elements = kTokenCount * columns;
+  const std::size_t output_elements = kTokenCount * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      weights == nullptr || activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t weight_bytes = rows * columns;
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes = output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, weights, weight_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] int validate_nvfp4_small_m_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -6385,6 +6610,21 @@ void launch_fp8_small_m16_wmma_fixed_shape_unchecked(
   constexpr unsigned int kBlocks =
       static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
   fp8_w8a16_small_m16_gemm_bf16_wmma_fixed_shape_kernel<
+      kRows, kColumns, kSharedLeadingDimension>
+      <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
+                                         output);
+}
+
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 72U>
+void launch_fp8_small_m32_wmma_fixed_shape_unchecked(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  fp8_w8a16_small_m32_gemm_bf16_wmma_fixed_shape_kernel<
       kRows, kColumns, kSharedLeadingDimension>
       <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
                                          output);
@@ -7319,6 +7559,43 @@ int launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
         weights, weight_scale, activations, output, stream);
   } else {
     launch_fp8_small_m16_wmma_fixed_shape_unchecked<1'024U, 5'120U>(
+        weights, weight_scale, activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only fixed-M32 candidate. It is intentionally restricted to the four
+// exact production FP8 WMMA shapes and is not reachable from public dispatch.
+int launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_m32_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!use_fp8_m16_wmma_fixed_shape(rows, columns) ||
+      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) != 0U) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (rows == 10'240U) {
+    launch_fp8_small_m32_wmma_fixed_shape_unchecked<10'240U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 5'120U) {
+    launch_fp8_small_m32_wmma_fixed_shape_unchecked<5'120U, 6'144U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (rows == 6'144U) {
+    launch_fp8_small_m32_wmma_fixed_shape_unchecked<6'144U, 5'120U, 72U>(
+        weights, weight_scale, activations, output, stream);
+  } else {
+    launch_fp8_small_m32_wmma_fixed_shape_unchecked<12'288U, 5'120U, 72U>(
         weights, weight_scale, activations, output, stream);
   }
   return static_cast<int>(cudaGetLastError());

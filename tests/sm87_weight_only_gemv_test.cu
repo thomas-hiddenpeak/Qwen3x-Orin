@@ -182,6 +182,12 @@ launch_sm87_fp8_w8a16_small_m16_wmma_fixed_shape_test_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t rows, std::size_t columns,
@@ -3587,6 +3593,123 @@ void test_launch_validation(TestContext& test) {
           cudaErrorInvalidValue,
       "FP8 M16 rejects output[8:16]/activation[0:8] overlap");
 
+  constexpr std::uintptr_t kM32WeightAddress = 0x1'0000'0000ULL;
+  constexpr std::uintptr_t kM32ActivationAddress = 0x2'0000'0000ULL;
+  constexpr std::uintptr_t kM32OutputAddress = 0x3'0000'0000ULL;
+  constexpr std::size_t kM32Rows = 10'240U;
+  constexpr std::size_t kM32Columns = 5'120U;
+  constexpr std::size_t kM32HalfActivationBytes =
+      16U * kM32Columns * sizeof(std::uint16_t);
+  constexpr std::size_t kM32HalfOutputBytes =
+      16U * kM32Rows * sizeof(std::uint16_t);
+  auto* const m32_weights =
+      reinterpret_cast<const std::uint8_t*>(kM32WeightAddress);
+  auto* const m32_activations =
+      reinterpret_cast<const std::uint16_t*>(kM32ActivationAddress);
+  auto* const m32_output =
+      reinterpret_cast<std::uint16_t*>(kM32OutputAddress);
+  const auto launch_m32 =
+      [&](const std::uint8_t* const weights, const float scale,
+          const std::uint16_t* const activations, const std::size_t rows,
+          const std::size_t columns,
+          std::uint16_t* const destination) noexcept -> cudaError_t {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights, scale, activations, rows, columns, destination));
+  };
+  test.expect(launch_m32(nullptr, 1.0F, m32_activations, kM32Rows,
+                         kM32Columns, m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects null weights");
+  test.expect(launch_m32(m32_weights, 1.0F, nullptr, kM32Rows,
+                         kM32Columns, m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects null activations");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, kM32Rows,
+                         kM32Columns, nullptr) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects null output");
+  test.expect(launch_m32(m32_weights,
+                         std::numeric_limits<float>::quiet_NaN(),
+                         m32_activations, kM32Rows, kM32Columns,
+                         m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects NaN scale");
+  test.expect(launch_m32(m32_weights, -1.0F, m32_activations, kM32Rows,
+                         kM32Columns, m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects negative scale");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, kM32Rows - 1U,
+                         kM32Columns, m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects a near-miss row count");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, kM32Rows,
+                         kM32Columns - 1U, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects a near-miss K");
+  test.expect(launch_m32(m32_weights + 1U, 1.0F, m32_activations,
+                         kM32Rows, kM32Columns, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects misaligned weights");
+  test.expect(
+      launch_m32(m32_weights, 1.0F,
+                 reinterpret_cast<const std::uint16_t*>(
+                     kM32ActivationAddress + sizeof(std::uint16_t)),
+                 kM32Rows, kM32Columns, m32_output) == cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects misaligned activations");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, kMaximum, 2U,
+                         m32_output) == cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects rows*K overflow");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, 1U,
+                         kMaximum / 32U + 1U, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects 32*K overflow");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations,
+                         kMaximum / 32U + 1U, 1U, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects 32*N overflow");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations, 1U,
+                         kMaximum / 32U, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects activation byte-size overflow");
+  test.expect(launch_m32(m32_weights, 1.0F, m32_activations,
+                         kMaximum / 32U, 1U, m32_output) ==
+                  cudaErrorInvalidValue,
+              "FP8 test-only M32 rejects output byte-size overflow");
+  test.expect(
+      launch_m32(reinterpret_cast<const std::uint8_t*>(
+                     std::numeric_limits<std::uintptr_t>::max() - 15U),
+                 1.0F, m32_activations, kM32Rows, kM32Columns,
+                 m32_output) == cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects a wrapping weight range");
+  test.expect(
+      launch_m32(m32_weights, 1.0F, wrapped_activation, kM32Rows,
+                 kM32Columns, m32_output) == cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects a wrapping activation range");
+  test.expect(
+      launch_m32(m32_weights, 1.0F, m32_activations, kM32Rows,
+                 kM32Columns,
+                 reinterpret_cast<std::uint16_t*>(
+                     std::numeric_limits<std::uintptr_t>::max() - 15U)) ==
+          cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects a wrapping output range");
+  test.expect(
+      launch_m32(m32_weights, 1.0F, m32_activations, kM32Rows,
+                 kM32Columns,
+                 reinterpret_cast<std::uint16_t*>(kM32WeightAddress +
+                                                  4'096U)) ==
+          cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects full output overlap with weights");
+  test.expect(
+      launch_m32(
+          m32_weights, 1.0F, m32_activations, kM32Rows, kM32Columns,
+          reinterpret_cast<std::uint16_t*>(kM32ActivationAddress +
+                                           kM32HalfActivationBytes)) ==
+          cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects output[0:16]/activation[16:32] overlap");
+  test.expect(
+      launch_m32(
+          m32_weights, 1.0F, m32_activations, kM32Rows, kM32Columns,
+          reinterpret_cast<std::uint16_t*>(
+              kM32ActivationAddress -
+              (kM32HalfOutputBytes + kM32HalfActivationBytes))) ==
+          cudaErrorInvalidValue,
+      "FP8 test-only M32 rejects output[16:32]/activation[0:16] overlap");
+
   constexpr std::size_t kLargestAlignedSixteenth =
       (kMaximum / 16U) & ~std::size_t{15U};
   constexpr std::size_t kFirstAlignedPastSixteenth =
@@ -4477,6 +4600,13 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool fp8_m16_wmma_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M16_WMMA_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool fp8_m32_wmma_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_FP8_M32_WMMA_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -11107,6 +11237,302 @@ void run_optional_nvfp4_m16_wmma_performance(TestContext& test,
               "NVFP4 M16 WMMA clears the weighted production gate");
 }
 
+void run_fp8_m32_wmma_exact_shape_smoke_case(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 32U;
+  constexpr std::size_t kPanelTokens = 16U;
+  constexpr std::size_t kGuardElements = 64U;
+  constexpr std::uint16_t kCandidateGuard = 0xa5a5U;
+  constexpr std::uint16_t kReplayGuard = 0x5a5aU;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 3U) % 127U) - 63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  const std::size_t output_elements = kTokens * rows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuardElements;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(output_elements),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_guarded.allocate(guarded_elements),
+                                label + " allocate guarded candidate output");
+  ready = ready && test.cuda_ok(replay_guarded.allocate(guarded_elements),
+                                label + " allocate guarded replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(candidate_guarded.get(), 0xa5,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison candidate guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(replay_guarded.get(), 0x5a,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison replay guards");
+  if (!ready) {
+    return;
+  }
+
+  std::uint16_t* const candidate_output =
+      candidate_guarded.get() + kGuardElements;
+  std::uint16_t* const replay_output =
+      replay_guarded.get() + kGuardElements;
+  const auto launch_baseline = [&]() noexcept -> int {
+    int status = q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+        weights.get(), kWeightScale, activations.get(), rows, columns,
+        baseline_output.get(), static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+        weights.get(), kWeightScale,
+        activations.get() + kPanelTokens * columns, rows, columns,
+        baseline_output.get() + kPanelTokens * rows,
+        static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&](std::uint16_t* const destination) noexcept
+      -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            destination, static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch two-public-M16 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           launch_candidate(candidate_output)),
+                       label + " launch single-M32 candidate");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           launch_candidate(replay_output)),
+                       label + " launch deterministic replay");
+
+  std::vector<std::uint16_t> baseline(output_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_guarded.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(replay.data(), replay_guarded.get(),
+                                       replay.size() * sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize outputs");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t baseline_mismatches = 0U;
+  std::size_t replay_mismatches = 0U;
+  for (std::size_t index = 0U; index < output_elements; ++index) {
+    const std::uint16_t candidate_value =
+        candidate[kGuardElements + index];
+    baseline_mismatches += candidate_value != baseline[index] ? 1U : 0U;
+    replay_mismatches +=
+        candidate_value != replay[kGuardElements + index] ? 1U : 0U;
+  }
+  bool guards_intact = true;
+  for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+    guards_intact =
+        guards_intact && candidate[guard] == kCandidateGuard &&
+        candidate[kGuardElements + output_elements + guard] ==
+            kCandidateGuard &&
+        replay[guard] == kReplayGuard &&
+        replay[kGuardElements + output_elements + guard] == kReplayGuard;
+  }
+  std::cout << "FP8_M32_WMMA_SMOKE_DIFF: " << label
+            << " candidate_vs_two_public_m16_bf16=" << baseline_mismatches
+            << '/' << output_elements
+            << " replay_mismatches=" << replay_mismatches << '/'
+            << output_elements
+            << " output_guards=" << (guards_intact ? "intact" : "BAD")
+            << '\n';
+  test.expect(baseline_mismatches == 0U,
+              label + " is bit-exact to two public M16 launches");
+  test.expect(replay_mismatches == 0U,
+              label + " deterministic replay is bit-exact");
+  test.expect(guards_intact, label + " preserves head and tail guards");
+
+  cudaGraph_t graph = nullptr;
+  bool graph_ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin graph capture");
+  int graph_launch_status = static_cast<int>(cudaErrorUnknown);
+  if (graph_ready) {
+    graph_launch_status = launch_candidate(candidate_output);
+    graph_ready =
+        test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                     label + " end graph capture") &&
+        graph_ready;
+  }
+  std::size_t node_count = 0U;
+  std::size_t kernel_node_count = 0U;
+  if (graph_ready) {
+    graph_ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                               label + " query graph nodes") &&
+                  graph_ready;
+  }
+  if (graph_ready && node_count != 0U) {
+    std::vector<cudaGraphNode_t> nodes(node_count);
+    std::size_t capacity = nodes.size();
+    graph_ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(),
+                                                 &capacity),
+                               label + " get graph nodes") &&
+                  graph_ready;
+    for (std::size_t index = 0U; index < capacity && graph_ready; ++index) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      graph_ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                                 label + " get graph node type") &&
+                    graph_ready;
+      kernel_node_count += type == cudaGraphNodeTypeKernel ? 1U : 0U;
+    }
+  }
+  if (graph != nullptr) {
+    graph_ready = test.cuda_ok(cudaGraphDestroy(graph),
+                               label + " destroy graph") &&
+                  graph_ready;
+  }
+  const bool single_kernel_graph =
+      graph_ready && graph_launch_status == static_cast<int>(cudaSuccess) &&
+      node_count == 1U && kernel_node_count == 1U;
+  std::cout << "FP8_M32_WMMA_GRAPH: " << label
+            << " total_nodes=" << node_count
+            << " kernel_nodes=" << kernel_node_count
+            << " gate=" << (single_kernel_graph ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(single_kernel_graph,
+              label + " captures exactly one CUDA kernel node");
+}
+
+void run_fp8_m32_wmma_exact_shape_smoke(TestContext& test,
+                                         cudaStream_t stream) {
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    const char* label;
+  };
+  // Cases execute sequentially, so the default test's peak allocation remains
+  // one production matrix plus its activations and guarded outputs.
+  constexpr std::array<Shape, 4U> kShapes{{
+      {10'240U, 5'120U, "FP8 fixed-M32 WMMA 10240x5120 smoke"},
+      {5'120U, 6'144U, "FP8 fixed-M32 WMMA 5120x6144 smoke"},
+      {6'144U, 5'120U, "FP8 fixed-M32 WMMA 6144x5120 smoke"},
+      {12'288U, 5'120U, "FP8 fixed-M32 WMMA 12288x5120 smoke"},
+  }};
+  for (const Shape& shape : kShapes) {
+    run_fp8_m32_wmma_exact_shape_smoke_case(
+        test, stream, shape.rows, shape.columns, shape.label);
+  }
+}
+
+void run_fp8_m32_wmma_invalid_capture_contract(TestContext& test,
+                                                cudaStream_t stream) {
+  constexpr std::size_t kRows = 10'240U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::uintptr_t kWeightAddress = 0x1'0000'0000ULL;
+  constexpr std::uintptr_t kActivationAddress = 0x2'0000'0000ULL;
+  auto* const weights =
+      reinterpret_cast<const std::uint8_t*>(kWeightAddress);
+  auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(kActivationAddress);
+  auto* const overlapping_output =
+      reinterpret_cast<std::uint16_t*>(kActivationAddress +
+                                       16U * kColumns *
+                                           sizeof(std::uint16_t));
+  auto* const separate_output =
+      reinterpret_cast<std::uint16_t*>(0x3'0000'0000ULL);
+  const std::string label = "FP8 test-only M32 invalid capture";
+
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin");
+  int alias_status = static_cast<int>(cudaErrorUnknown);
+  int near_miss_status = static_cast<int>(cudaErrorUnknown);
+  if (ready) {
+    alias_status = q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights, 1.0F, activations, kRows, kColumns,
+            overlapping_output, static_cast<void*>(stream));
+    near_miss_status = q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights, 1.0F, activations, kRows - 1U, kColumns,
+            separate_output, static_cast<void*>(stream));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph), label + " end") &&
+            ready;
+  }
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " query nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+            ready;
+  }
+  const bool contract =
+      ready && alias_status == static_cast<int>(cudaErrorInvalidValue) &&
+      near_miss_status == static_cast<int>(cudaErrorInvalidValue) &&
+      node_count == 0U;
+  std::cout << "FP8_M32_WMMA_INVALID_GRAPH: alias_status=" << alias_status
+            << " near_miss_status=" << near_miss_status
+            << " total_nodes=" << node_count
+            << " gate=" << (contract ? "PASS" : "FAIL") << '\n';
+  test.expect(contract,
+              label + " rejects both launches without capturing a node");
+}
+
 struct Fp8M16WmmaMeasurement {
   double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
   double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
@@ -11865,6 +12291,330 @@ void run_optional_fp8_m16_wmma_performance(TestContext& test,
             << '\n';
   test.expect(aggregate_gate,
               "FP8 M16 WMMA selected shapes clear weighted speedup gate");
+}
+
+struct Fp8M32WmmaMeasurement {
+  double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  bool bitwise_equal = false;
+  bool deterministic = false;
+  bool guards_intact = false;
+};
+
+[[nodiscard]] Fp8M32WmmaMeasurement benchmark_fp8_m32_wmma_shape(
+    TestContext& test, cudaStream_t stream, const std::size_t rows,
+    const std::size_t columns, const std::string& label) {
+  constexpr std::size_t kTokens = 32U;
+  constexpr std::size_t kPanelTokens = 16U;
+  constexpr std::size_t kGuardElements = 64U;
+  constexpr std::uint16_t kCandidateGuard = 0xa5a5U;
+  constexpr std::uint16_t kReplayGuard = 0x5a5aU;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 3;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::array<std::uint8_t, 12U> kFiniteCodes{{
+      0x00U, 0x80U, 0x01U, 0x07U, 0x30U, 0x38U,
+      0x3cU, 0x40U, 0xb8U, 0x70U, 0x78U, 0xfeU,
+  }};
+
+  std::vector<std::uint8_t> host_weights(rows * columns);
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        kFiniteCodes[(index * 7U + index / columns * 5U + 1U) %
+                     kFiniteCodes.size()];
+  }
+  std::vector<std::uint16_t> host_activations(kTokens * columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 13U + token * 17U + 3U) % 127U) - 63;
+      host_activations[token * columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  const std::size_t output_elements = kTokens * rows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuardElements;
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_output.allocate(output_elements),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_guarded.allocate(guarded_elements),
+                                label + " allocate guarded candidate output");
+  ready = ready && test.cuda_ok(replay_guarded.allocate(guarded_elements),
+                                label + " allocate guarded replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(candidate_guarded.get(), 0xa5,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison candidate guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(replay_guarded.get(), 0x5a,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison replay guards");
+  if (!ready) {
+    return {};
+  }
+
+  std::uint16_t* const candidate_output =
+      candidate_guarded.get() + kGuardElements;
+  std::uint16_t* const replay_output =
+      replay_guarded.get() + kGuardElements;
+  const auto launch_baseline = [&]() noexcept -> int {
+    int status = q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+        weights.get(), kWeightScale, activations.get(), rows, columns,
+        baseline_output.get(), static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return q3x::kernels::launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
+        weights.get(), kWeightScale,
+        activations.get() + kPanelTokens * columns, rows, columns,
+        baseline_output.get() + kPanelTokens * rows,
+        static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            candidate_output, static_cast<void*>(stream));
+  };
+  const auto launch_replay = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_small_m32_wmma_fixed_shape_test_cuda(
+            weights.get(), kWeightScale, activations.get(), rows, columns,
+            replay_output, static_cast<void*>(stream));
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch two-public-M16 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " launch M32 candidate");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " launch M32 replay");
+  std::vector<std::uint16_t> baseline(output_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           baseline.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_guarded.get(),
+                           candidate.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(replay.data(), replay_guarded.get(),
+                                       replay.size() * sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  std::size_t bf16_mismatches = 0U;
+  std::size_t replay_mismatches = 0U;
+  std::size_t token_boundary_mismatches = 0U;
+  for (std::size_t index = 0U; index < output_elements; ++index) {
+    const std::uint16_t candidate_value =
+        candidate[kGuardElements + index];
+    const bool differs = candidate_value != baseline[index];
+    bf16_mismatches += differs ? 1U : 0U;
+    replay_mismatches +=
+        candidate_value != replay[kGuardElements + index] ? 1U : 0U;
+    const std::size_t token = index / rows;
+    token_boundary_mismatches +=
+        differs && (token == 15U || token == 16U) ? 1U : 0U;
+  }
+  bool guards_intact = true;
+  for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+    guards_intact =
+        guards_intact && candidate[guard] == kCandidateGuard &&
+        candidate[kGuardElements + output_elements + guard] ==
+            kCandidateGuard &&
+        replay[guard] == kReplayGuard &&
+        replay[kGuardElements + output_elements + guard] == kReplayGuard;
+  }
+  const bool bitwise_equal = bf16_mismatches == 0U;
+  const bool deterministic = replay_mismatches == 0U;
+  std::cout << "FP8_M32_WMMA_DIFF: " << label
+            << " candidate_vs_two_public_m16_bf16=" << bf16_mismatches
+            << '/' << output_elements
+            << " replay_mismatches=" << replay_mismatches << '/'
+            << output_elements
+            << " token15_16_mismatches=" << token_boundary_mismatches
+            << " output_guards=" << (guards_intact ? "intact" : "BAD")
+            << '\n';
+  test.expect(bitwise_equal,
+              label + " is bit-exact to two public M16 launches");
+  test.expect(deterministic, label + " replay is bit-exact");
+  test.expect(guards_intact, label + " preserves head and tail guards");
+
+  for (int iteration = 0; iteration < kWarmupIterations && ready;
+       ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return {};
+  }
+
+  double baseline_total = 0.0;
+  double candidate_total = 0.0;
+  bool finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string suffix = " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 1" + suffix);
+    const float candidate_first = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 1" + suffix);
+    const float candidate_second = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        label + " candidate pass 2" + suffix);
+    const float baseline_second = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        label + " baseline pass 2" + suffix);
+    const bool round_finite =
+        std::isfinite(baseline_first) && std::isfinite(candidate_first) &&
+        std::isfinite(candidate_second) && std::isfinite(baseline_second);
+    finite = finite && round_finite;
+    if (round_finite) {
+      baseline_total += baseline_first + baseline_second;
+      candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_FP8_M32_WMMA_ROUND: " << label
+              << " round=" << round + 1
+              << " baseline_pass1_ms=" << baseline_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " baseline_pass2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double baseline_average = baseline_total / kTimedPasses;
+  const double candidate_average = candidate_total / kTimedPasses;
+  std::cout << "PERF_FP8_M32_WMMA: " << label
+            << " baseline_two_public_m16_ms=" << baseline_average
+            << " candidate_single_m32_ms=" << candidate_average
+            << " speedup=" << baseline_average / candidate_average << '\n';
+  return {finite ? baseline_average
+                 : std::numeric_limits<double>::quiet_NaN(),
+          finite ? candidate_average
+                 : std::numeric_limits<double>::quiet_NaN(),
+          bitwise_equal, deterministic, guards_intact};
+}
+
+void run_optional_fp8_m32_wmma_performance(TestContext& test,
+                                            cudaStream_t stream) {
+  if (!fp8_m32_wmma_performance_enabled()) {
+    std::cout << "SKIP: FP8 M32 WMMA performance segment; set "
+                 "Q3X_RUN_SM87_FP8_M32_WMMA_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr double kMinimumPerShapeSpeedup = 1.05;
+  constexpr double kMinimumWeightedSpeedup = 1.10;
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    std::size_t m32_calls_per_prompt;
+    const char* label;
+  };
+  constexpr std::array<Shape, 4U> kShapes{{
+      {10'240U, 5'120U, 48U, "FP8 M32 WMMA 10240x5120"},
+      {5'120U, 6'144U, 64U, "FP8 M32 WMMA 5120x6144"},
+      {6'144U, 5'120U, 48U, "FP8 M32 WMMA 6144x5120"},
+      {12'288U, 5'120U, 16U, "FP8 M32 WMMA 12288x5120"},
+  }};
+  std::array<Fp8M32WmmaMeasurement, kShapes.size()> measurements{};
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    measurements[index] = benchmark_fp8_m32_wmma_shape(
+        test, stream, kShapes[index].rows, kShapes[index].columns,
+        kShapes[index].label);
+  }
+
+  double weighted_baseline = 0.0;
+  double weighted_candidate = 0.0;
+  bool all_shapes_pass = true;
+  for (std::size_t index = 0U; index < kShapes.size(); ++index) {
+    const Fp8M32WmmaMeasurement& measurement = measurements[index];
+    const double speedup = measurement.baseline_milliseconds /
+                           measurement.candidate_milliseconds;
+    const bool finite =
+        std::isfinite(measurement.baseline_milliseconds) &&
+        std::isfinite(measurement.candidate_milliseconds) &&
+        std::isfinite(speedup);
+    const bool shape_gate =
+        finite && measurement.bitwise_equal && measurement.deterministic &&
+        measurement.guards_intact && speedup >= kMinimumPerShapeSpeedup;
+    all_shapes_pass = all_shapes_pass && shape_gate;
+    weighted_baseline +=
+        static_cast<double>(kShapes[index].m32_calls_per_prompt) *
+        measurement.baseline_milliseconds;
+    weighted_candidate +=
+        static_cast<double>(kShapes[index].m32_calls_per_prompt) *
+        measurement.candidate_milliseconds;
+    std::cout << "PERF_FP8_M32_WMMA_VALIDATION: " << kShapes[index].label
+              << " baseline_two_public_m16_ms="
+              << measurement.baseline_milliseconds
+              << " candidate_single_m32_ms="
+              << measurement.candidate_milliseconds
+              << " speedup=" << speedup
+              << " minimum_speedup=" << kMinimumPerShapeSpeedup
+              << " gate=" << (shape_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(shape_gate,
+                std::string(kShapes[index].label) +
+                    " clears bit-exact/guard/per-shape performance gates");
+  }
+  const double weighted_speedup = weighted_baseline / weighted_candidate;
+  const bool aggregate_gate =
+      all_shapes_pass && std::isfinite(weighted_speedup) &&
+      weighted_speedup >= kMinimumWeightedSpeedup;
+  std::cout << "PERF_FP8_M32_WMMA_AGGREGATE: "
+            << "weighted_baseline_two_public_m16_ms=" << weighted_baseline
+            << " weighted_candidate_single_m32_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " required_speedup=" << kMinimumWeightedSpeedup
+            << " m32_projection_calls=48:64:48:16"
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "FP8 M32 WMMA clears the weighted production-shape gate");
 }
 
 struct Fp8RowPairMeasurement {
@@ -23952,6 +24702,7 @@ int main() {
                     "create non-blocking stream")) {
     return 1;
   }
+  run_fp8_m32_wmma_invalid_capture_contract(test, stream);
 
   for (std::size_t token_count = 2U; token_count <= 8U; ++token_count) {
     run_small_m_production_k_comparison(test, stream, token_count);
@@ -24068,6 +24819,8 @@ int main() {
   run_nvfp4_m1_lm_head_activation_staged_probe(test, stream);
   run_optional_nvfp4_m1_exact_shape_performance(test, stream);
   run_optional_fp8_m8_fixed_shape_performance(test, stream);
+  run_fp8_m32_wmma_exact_shape_smoke(test, stream);
+  run_optional_fp8_m32_wmma_performance(test, stream);
   run_optional_fp8_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_k128_performance(test, stream);
