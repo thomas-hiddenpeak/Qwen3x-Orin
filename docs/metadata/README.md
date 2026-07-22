@@ -174,6 +174,11 @@ The diagnostic Phase 3 records are:
   single-node gates, complete fallback validation, exact C1/C8/C16/C32 model
   replay, P33/C32 B-C-C-B TTFT evidence, and matched Nsight launch/time
   attribution against the frozen composite baseline.
+- [`qwen36-27b-nvfp4-m32-production-benchmark.json`](qwen36-27b-nvfp4-m32-production-benchmark.json),
+  which records the production fixed-M32 NVFP4 route, the K64/LD72 versus
+  K128/LD136 same-cubin selection gate, two-shape bitwise/resource/graph and
+  fallback contracts, exact C1/C8/C16/C32 model replay, the tokenizer-pinned
+  P33/C32 B-C-C-B result, and matched baseline/candidate Nsight attribution.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

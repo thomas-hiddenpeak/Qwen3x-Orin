@@ -169,7 +169,12 @@ Deliverables:
 - [done, composite baseline] Bounded C32 outer prefill with complete-span
   validation, M16-first projection composition, ordered C16 Conv/GDN and
   Q/K+RoPE subtiles, one stream, and one outer state commit.
-- Measured single-pass M17-M32 Tensor Core candidates and production crossover.
+- [done, exact-shape gated] Fixed-M32 FP8 Tensor Core projections for four
+  production shapes, with two-M16 fallback elsewhere.
+- [done, exact-shape gated] Fixed-M32 NVFP4 Tensor Core projections for
+  `[17408,5120]` and `[5120,17408]`, with two-M16 fallback elsewhere.
+- Measure the general M17-M31 Tensor Core crossover after the two exact M32
+  production routes; retain M16-plus-tail composition until then.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -226,8 +231,8 @@ The frozen registry/matrix follow-up at `471b7a0` preserves the complete
 maximum-one-token P19 diagnostic, TTFT is 2,031.901, 1,366.633, 831.525, and
 554.386 ms for C1/C2/C8/C16. Matched Nsight profiles reduce launches from
 8,249 to 2,633, but projection still occupies 91.348% of C16 kernel time; the
-M2 tail alone contributes 128.477 ms across FP8 and NVFP4. This selects bounded
-C32/M17-M32 work first, M2-tail tuning second, and keeps buffering/multi-stream
+M2 tail alone contributes 128.477 ms across FP8 and NVFP4. This selected bounded
+C32/M17-M32 work first, M2-tail tuning second, and kept buffering/multi-stream
 work behind an NCU stall-evidence gate. See the
 [shape/chunk/prompt matrix record](metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
 The subsequent FP8 K/V pair clears same-binary 1.74310x checkpoint-like and
@@ -284,6 +289,15 @@ ms (0.534646%) and subsequent-token latency by 0.7280 ms (0.628746%),
 while C1/C8/C16 retain the exact 19/26-token, text, stop, and 44-step oracle.
 This remains unlocked-clock diagnostic evidence; see the
 [FP8 QKV/Z fusion metadata record](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
+The later C32 sequence first adds the composite outer tile, then promotes four
+exact FP8 M32 and two exact NVFP4 M32 projections. Against the frozen FP8-M32
+binary, production NVFP4 M32 reduces P33/C32 mirrored TTFT from 674.6680 to
+530.8445 ms (-21.3177%), replaces 384 M16 launches with 192 M32 launches, and
+reduces the target work from 393.042464 to 249.394720 ms (1.57599x). C1/C8/
+C16/C32 exact-model gates remain intact. Execution still has one kernel stream
+and no double/triple buffering; replay-scoped NCU evidence now decides whether
+the next work is kernel-local or scheduling overlap. See the
+[NVFP4 M32 production record](metadata/qwen36-27b-nvfp4-m32-production-benchmark.json).
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

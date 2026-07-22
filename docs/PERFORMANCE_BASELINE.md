@@ -2156,10 +2156,69 @@ that movement directly:
 | FP8 M16/M32 tile launches | 352 M16 | 176 M32 | -176 |
 | FP8 M16/M32 tile time | 124.776832 ms | 86.635360 ms | 1.44025x |
 
-NVFP4 is now the clear next target: its unchanged 384 M16 launches consume
-392.846528 ms in the candidate profile. The recommended next gate compares a
-K64/LD72 dual-A M32 kernel with a K128/LD136 single-A M32 kernel against two
-public production M16 calls. Buffering and multi-stream work remain behind NCU
-stall evidence. Clocks were not locked, so the timing values are diagnostic.
+At that milestone NVFP4 was the clear next target: its unchanged 384 M16
+launches consumed 392.846528 ms in the candidate profile. That result selected
+the K64/LD72 versus K128/LD136 M32 gate completed in the following milestone.
+Buffering and multi-stream work remained behind NCU stall evidence. Clocks
+were not locked, so the timing values are diagnostic.
 Full commands, identities, hashes, and limitations are in the
 [FP8 M32 production record](metadata/qwen36-27b-fp8-m32-production-benchmark.json).
+
+## Production NVFP4 M32 projection
+
+Commit `2b98063` promotes the winning fixed-M32 NVFP4 WMMA candidate into the
+public and runtime dispatch paths. Aligned `[17408,5120]` gate/up and
+`[5120,17408]` down projections now validate the complete 32-row span and run
+one K64/LD72 dual-resident-A kernel. Other valid NVFP4 M32 shapes or alignments
+fall back to two ordered public M16 calls. M17 through M31, the logical
+Prefill/Decode plan split, and the one-stream serial execution policy remain
+unchanged; this milestone does not add double or triple buffering.
+
+The production path is bit-exact to two public M16 launches across 720,896
+BF16 outputs, deterministic on replay, exact at the token-15/16 boundary,
+finite, guard-safe, and one CUDA graph node for each direct shape. Each direct
+instance uses 47 registers/thread, 31,232 bytes static shared memory, zero
+local/stack memory, and admits five active blocks per SM. Full-span aliases
+fail before enqueue. Generic and minimally misaligned fallbacks retain their
+expected ordered 4- or 32-node graphs. Release passes 49 of 54 tests with five
+environment skips; the selected ASan/UBSan suite passes 48 of 53 with the same
+five skips. Independent C1/C8/C16/C32 model processes preserve the pinned 19
+prompt IDs, 26 generated IDs, exact text/`im_end`, and all 44 logical steps.
+
+The same-cubin four-round B-C-C-B gate compares K64/LD72 dual-A and K128/LD136
+single-A candidates across both exact shapes and checkpoint-like plus
+same-bank-stress scales. Their production-call-weighted speedups over two M16
+launches are 1.55193x and 1.42609x respectively, selecting K64/LD72. A detached
+binary P33/C32 B-C-C-B diagnostic using the exact manifest user text records:
+
+| Arm | TTFT median |
+| --- | ---: |
+| Baseline 1 | 674.828 ms |
+| Candidate 1 | 530.884 ms |
+| Candidate 2 | 530.805 ms |
+| Baseline 2 | 674.508 ms |
+
+The mirrored-pair averages are 674.6680 and 530.8445 ms: a candidate delta of
+-143.8235 ms (-21.3177%, 1.27093x). Every run renders 33 prompt tokens, uses one
+32-token prefix tile, and generates token 9419 (`Hello`). Matched P33/C32
+Nsight profiles attribute the change directly:
+
+| Metric | FP8-M32 baseline | NVFP4 M32 | Delta |
+| --- | ---: | ---: | ---: |
+| Kernel launches | 2,358 | 2,166 | -192 |
+| Summed kernel time | 687.272192 ms | 545.447136 ms | -141.825056 ms |
+| Kernel span | 694.953280 ms | 551.600992 ms | -143.352288 ms |
+| Projection launches | 945 | 753 | -192 |
+| Projection time | 611.334176 ms | 469.641312 ms | -141.692864 ms |
+| NVFP4 M16/M32 tile launches | 384 M16 | 192 M32 | -192 |
+| NVFP4 M16/M32 tile time | 393.042464 ms | 249.394720 ms | 1.57599x |
+
+The target kernels alone save 143.647744 ms, while the complete kernel span
+saves 143.352288 ms and mirrored TTFT saves 143.823500 ms. That agreement is
+strong attribution evidence despite unlocked clocks. Both profiles still show
+one kernel stream: Prefill and Decode are logically separated, but execution
+is not yet overlapped. The next gate is replay-scoped NCU evidence for the
+remaining P33/C32 hotspots; buffering or multi-stream work begins only if it
+exposes independent work and a concrete scheduling gap. Full commands,
+binary identities, hashes, excluded literal-label probes, and limitations are
+in the [NVFP4 M32 production record](metadata/qwen36-27b-nvfp4-m32-production-benchmark.json).

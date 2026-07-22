@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-production-benchmark",
+  "status": "production-direct-m32-diagnostic-benchmark",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "2b980635946650ccfa687649f007cf70278d4e2d",
+    "candidate_subject": "kernels: add production NVFP4 M32 projection",
+    "prototype_commit": "f0e9b08ffbe7a423e3e99b906377418d4fa61f0c",
+    "baseline_production_commit": "5c4845b1747b61f2bee0be6e9b6b2ecef86a5f24",
+    "baseline_freeze_head": "f0e9b08ffbe7a423e3e99b906377418d4fa61f0c",
+    "baseline_note": "Between the production baseline and freeze head, a8dcb6 records the FP8 M32 benchmark and f0e9b08 adds only test-only NVFP4 M32 candidates. The frozen qwen3x-orin executable is byte-identical to the 5c4845b FP8-M32 production binary.",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3429088,
+      "sha256": "b653232742205e10e46a389223df0b37a102d4e2cdddb84bb3f0c4e0d451c490",
+      "checked_in": false
+    },
+    "baseline_binary": {
+      "local_path": "/tmp/q3x-before-nvfp4-m32-qwen3x-orin",
+      "bytes": 3358968,
+      "sha256": "643d0b81eb0fcb21210ad2eb84f470bdbecdb409892ea84416c3b31c395b5e47",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment; mirrored timings are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda",
+    "token_count": 32,
+    "direct_shapes_n_by_k": [
+      [17408, 5120],
+      [5120, 17408]
+    ],
+    "direct_alignment": {
+      "packed_weights_bytes": 16,
+      "block_scales_bytes": 2,
+      "activations_bytes": 8
+    },
+    "selected_kernel": "K64/LD72 dual-resident-A fixed-M32 WMMA",
+    "kernel_structure": "K64 stages with an LD72 shared-memory stride keep both 16-token A panels resident while two independent FP32 accumulator chains consume each decoded B stage.",
+    "full_span_validation_before_route_or_enqueue": true,
+    "exact_route_cuda_kernels": 1,
+    "fallback": "two ordered public NVFP4 M16 launches after complete M32 validation",
+    "m17_m31_unchanged": true,
+    "resource_usage_each_direct_instance": {
+      "registers_per_thread": 47,
+      "static_shared_bytes": 31232,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5,
+      "launch_bounds_min_blocks_per_sm": 5
+    },
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false,
+    "public_abi_change": "none; the symbol is an additive API within ABI epoch 0.2.0"
+  },
+  "validation": {
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "excluded": "package_consumer"
+    },
+    "direct_shape_gate": {
+      "shapes": 2,
+      "total_bf16_outputs_checked": 720896,
+      "public_candidate_vs_two_public_m16_mismatches": 0,
+      "public_candidate_vs_direct_k64_mismatches": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary_exact": true,
+      "outputs_finite": true,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1
+    },
+    "fallback_and_invalid_gate": {
+      "generic_13x48_kernel_nodes": 32,
+      "near_miss_17407x5120_kernel_nodes": 4,
+      "weight_plus_4_bytes_kernel_nodes": 4,
+      "weight_plus_1_byte_kernel_nodes": 32,
+      "scale_plus_1_byte_kernel_nodes": 4,
+      "activation_plus_2_bytes_kernel_nodes": 32,
+      "representative_fallback_graphs_are_linear_chains": true,
+      "full_span_alias_status": "cudaErrorInvalidValue",
+      "full_span_alias_capture_nodes": 0
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only",
+      "startup_overlap": true
+    },
+    "independent_review": "no blocker"
+  },
+  "preproduction_same_cubin_dual_candidate_microbenchmark": {
+    "purpose": "Select between two bit-exact test-only M32 kernels before production routing",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "protocol_per_candidate_and_round": "B-C-C-B",
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "checkpoint_like",
+        "two_public_m16_ms": 1.87021,
+        "k64_dual_a_ms": 1.19932,
+        "k64_speedup": 1.55939,
+        "k128_single_a_ms": 1.30839,
+        "k128_speedup": 1.42959
+      },
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "same_bank_stress",
+        "two_public_m16_ms": 1.80755,
+        "k64_dual_a_ms": 1.17012,
+        "k64_speedup": 1.54476,
+        "k128_single_a_ms": 1.27475,
+        "k128_speedup": 1.41795
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "checkpoint_like",
+        "two_public_m16_ms": 2.09899,
+        "k64_dual_a_ms": 1.34551,
+        "k64_speedup": 1.56000,
+        "k128_single_a_ms": 1.46275,
+        "k128_speedup": 1.43521
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "same_bank_stress",
+        "two_public_m16_ms": 2.02594,
+        "k64_dual_a_ms": 1.31314,
+        "k64_speedup": 1.54283,
+        "k128_single_a_ms": 1.42223,
+        "k128_speedup": 1.42487
+      }
+    ],
+    "profile_call_weights_gate_up_down": [128, 64],
+    "weighted_k64_two_public_m16_ms": 734.749,
+    "weighted_k64_dual_a_ms": 473.441,
+    "weighted_k64_speedup": 1.55193,
+    "weighted_k128_two_public_m16_ms": 734.837,
+    "weighted_k128_single_a_ms": 515.281,
+    "weighted_k128_speedup": 1.42609,
+    "required_weighted_speedup": 1.15,
+    "selected": "k64_dual_a",
+    "gate": "pass"
+  },
+  "p33_c32_bccb": {
+    "protocol": "baseline-candidate-candidate-baseline",
+    "prompt_manifest_id": "P33",
+    "rendered_prompt_tokens": 33,
+    "prefix_tokens": 32,
+    "warmup_iterations": 1,
+    "measured_iterations": 5,
+    "max_tokens": 1,
+    "max_sequence_length": 544,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "baseline_1": 674.828,
+      "candidate_1": 530.884,
+      "candidate_2": 530.805,
+      "baseline_2": 674.508
+    },
+    "average_of_pair_medians_ms": {
+      "baseline": 674.6680,
+      "candidate": 530.8445
+    },
+    "candidate_minus_baseline_ms": -143.8235,
+    "candidate_minus_baseline_percent": -21.317670,
+    "speedup": 1.270933,
+    "first_generated_token_id": 9419,
+    "first_generated_text": "Hello",
+    "prompt_and_first_generated_token_exact": true,
+    "interpretation": "The mirrored end-to-end delta agrees with the independently attributed kernel-span delta. Clocks remain unlocked, so the value is diagnostic."
+  },
+  "p33_c32_nsys": {
+    "prompt_manifest_id": "P33",
+    "rendered_prompt_tokens": 33,
+    "max_tokens": 1,
+    "baseline_prompt_prefill_ms": 696.122,
+    "candidate_prompt_prefill_ms": 552.695,
+    "baseline": {
+      "kernel_launches": 2358,
+      "summed_kernel_time_ms": 687.272192,
+      "kernel_span_ms": 694.953280,
+      "projection_launches": 945,
+      "projection_time_ms": 611.334176,
+      "nvfp4_tile_kind": "M16",
+      "nvfp4_tile_launches": 384,
+      "nvfp4_tile_time_ms": 393.042464,
+      "gate_up_tile_launches": 256,
+      "gate_up_tile_time_ms": 251.007168,
+      "down_tile_launches": 128,
+      "down_tile_time_ms": 142.035296
+    },
+    "candidate": {
+      "kernel_launches": 2166,
+      "summed_kernel_time_ms": 545.447136,
+      "kernel_span_ms": 551.600992,
+      "projection_launches": 753,
+      "projection_time_ms": 469.641312,
+      "nvfp4_tile_kind": "M32",
+      "nvfp4_tile_launches": 192,
+      "nvfp4_tile_time_ms": 249.394720,
+      "gate_up_tile_launches": 128,
+      "gate_up_tile_time_ms": 159.528800,
+      "down_tile_launches": 64,
+      "down_tile_time_ms": 89.865920
+    },
+    "candidate_minus_baseline": {
+      "kernel_launches": -192,
+      "kernel_launches_percent": -8.142494,
+      "summed_kernel_time_ms": -141.825056,
+      "summed_kernel_time_percent": -20.635937,
+      "kernel_span_ms": -143.352288,
+      "kernel_span_percent": -20.627615,
+      "projection_launches": -192,
+      "projection_launches_percent": -20.317460,
+      "projection_time_ms": -141.692864,
+      "projection_time_percent": -23.177645,
+      "nvfp4_tile_launches": -192,
+      "nvfp4_tile_launches_percent": -50.000000,
+      "nvfp4_tile_time_ms": -143.647744,
+      "nvfp4_tile_time_percent": -36.547640
+    },
+    "summed_kernel_time_speedup": 1.260016,
+    "kernel_span_speedup": 1.259884,
+    "projection_time_speedup": 1.301704,
+    "nvfp4_tile_time_speedup": 1.575986,
+    "gate_up_tile_time_speedup": 1.573429,
+    "down_tile_time_speedup": 1.580525,
+    "launch_accounting": "Every pair of production NVFP4 M16 launches becomes one M32 launch: 384 to 192.",
+    "projection_definition": "short kernel names beginning fp8_ or nvfp4_",
+    "attribution": "The target NVFP4 kernels save 143.647744 ms while the complete kernel span saves 143.352288 ms and mirrored TTFT saves 143.823500 ms."
+  },
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "p33_user_text": "hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+    "commands": [
+      "ctest --test-dir build/orin-release --output-on-failure",
+      "ctest --test-dir build/orin-asan --output-on-failure -E '^package_consumer$'",
+      "for chunk in 1 8 16 32; do build/orin-release/q3x_reference_engine_e2e_test \"${Q3X_MODEL_DIR}\" sm87 \"${chunk}\"; done",
+      "{BASELINE_OR_CANDIDATE} benchmark \"${Q3X_MODEL_DIR}\" --prompt \"${P33_USER_TEXT}\" --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 544 --prefill-chunk-size 32 --projection-backend sm87",
+      "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o OUTPUT {BASELINE_OR_CANDIDATE} generate \"${Q3X_MODEL_DIR}\" --prompt \"${P33_USER_TEXT}\" --max-tokens 1 --prefill-chunk-size 32 --projection-backend sm87"
+    ],
+    "command_placeholders": "Q3X_MODEL_DIR is the pinned local model. P33_USER_TEXT is the exact manifest user_text above; the label P33 itself is not a prompt."
+  },
+  "artifacts": [
+    {"role": "baseline B1 benchmark log", "local_path": "/tmp/q3x-nvfp4-m32-p033-c32-b1.log", "bytes": 4303, "sha256": "dc7b8c5b20238f514c2f56bcd28d43393c86e56a21d4cee13550cebe0633092c", "checked_in": false},
+    {"role": "candidate C1 benchmark log", "local_path": "/tmp/q3x-nvfp4-m32-p033-c32-c1.log", "bytes": 4303, "sha256": "43232297ad1c50fae21a3f4bdf1bc2ee144fae1814b11b06de911a4d9cf946fa", "checked_in": false},
+    {"role": "candidate C2 benchmark log", "local_path": "/tmp/q3x-nvfp4-m32-p033-c32-c2.log", "bytes": 4308, "sha256": "a8f9dafa77dafa766198c88b9cad2ae9ef4cfc08be63e95e2a4dc70357eea20c", "checked_in": false},
+    {"role": "baseline B2 benchmark log", "local_path": "/tmp/q3x-nvfp4-m32-p033-c32-b2.log", "bytes": 4303, "sha256": "5950f0d610d9b7baebef6583d6098a29cad70e65a55ca9c14e8e602e6206d0eb", "checked_in": false},
+    {"role": "C1 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m32-production-e2e-c1.log", "bytes": 242, "sha256": "3caad2b7709d532c2c7f4fa810ef1a5196df7156f0bb2673db25c337be49738e", "checked_in": false},
+    {"role": "C8 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m32-production-e2e-c8.log", "bytes": 240, "sha256": "b6816122567a2be192e0afa28c2aa8924207035192ab5d95138c5f0c3e78b2e3", "checked_in": false},
+    {"role": "C16 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m32-production-e2e-c16.log", "bytes": 240, "sha256": "71ee6806bf7f2c944d6971216e3ba97b59569716ef7babbcc4985c747e6beb4b", "checked_in": false},
+    {"role": "C32 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m32-production-e2e-c32.log", "bytes": 240, "sha256": "b5e09b7fceb07588d9331b567c52ab2d67da43f787eb92983ab73f4ab0b47727", "checked_in": false},
+    {"role": "baseline P33 C32 Nsight report", "local_path": "/tmp/q3x-nvfp4-m32-profile-base-p033-c32.nsys-rep", "bytes": 368994, "sha256": "500f4b6ee6f14e6c6101f3358c5da83731aaa48181ced1f2a0c544afbcaddaa0", "checked_in": false},
+    {"role": "baseline P33 C32 Nsight stdout", "local_path": "/tmp/q3x-nvfp4-m32-profile-base-p033-c32.log", "bytes": 2697, "sha256": "dd42d9f472399a163a1a9cce01e07c1946ec8a401b954f60179ff4e8fb52ac54", "checked_in": false},
+    {"role": "baseline P33 C32 Nsight SQLite", "local_path": "/tmp/q3x-nvfp4-m32-profile-base-p033-c32.sqlite", "bytes": 1089536, "sha256": "41d92347046439a5cf215d1a0304a4b01f3eca6f573a464339301db1cc09f725", "checked_in": false},
+    {"role": "baseline kernel summary CSV", "local_path": "/tmp/q3x-nvfp4-m32-profile-base-p033-c32-kernel-summary_cuda_gpu_kern_sum.csv", "bytes": 7507, "sha256": "ad8daf7d584b0a45643bfcbc0d8c60890fae12330b4ef3ea5efe8611aa9e36e5", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight report", "local_path": "/tmp/q3x-nvfp4-m32-profile-candidate-p033-c32.nsys-rep", "bytes": 353526, "sha256": "8fd9466495d092ae6fa82b4bd79b5cd1fdaab483037b0a0b9e4d39756567107e", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight stdout", "local_path": "/tmp/q3x-nvfp4-m32-profile-candidate-p033-c32.log", "bytes": 2824, "sha256": "296b740358ac9f7dfc53138eeedc51edfd551665a2015ece499acecaf9029704", "checked_in": false},
+    {"role": "candidate P33 C32 Nsight SQLite", "local_path": "/tmp/q3x-nvfp4-m32-profile-candidate-p033-c32.sqlite", "bytes": 1060864, "sha256": "a09193d7132e61acca29c9b5e0965268f097653d48bdd2b6ebb6cef0dc4b7b20", "checked_in": false},
+    {"role": "candidate kernel summary CSV", "local_path": "/tmp/q3x-nvfp4-m32-profile-candidate-p033-c32-kernel-summary_cuda_gpu_kern_sum.csv", "bytes": 7518, "sha256": "17c4a6d2fad8c00c019e95d8b8e74590b49c5aaafb52ffcc81bec418689b4e88", "checked_in": false},
+    {"role": "production focused correctness log", "local_path": "/tmp/q3x-nvfp4-m32-production-focused-release-final.log", "bytes": 31189, "sha256": "abadd812f6f29c931d7ff12231f83a180485a1ddea0788a47d438b20187e846b", "checked_in": false},
+    {"role": "same-cubin dual-candidate performance log", "local_path": "/tmp/q3x-nvfp4-m32-dual-candidate-perf-paired-final.log", "bytes": 38790, "sha256": "9c045c2022f5e3adf85ae4d03d45b2fda0d2a39c0211592531073e3579833d9a", "checked_in": false}
+  ],
+  "excluded_diagnostics": [
+    "Earlier files named q3x-nvfp4-m32-p33-* and q3x-nvfp4-m32-profile-p033-c32 without the base/candidate qualifier passed the literal label P33 as user text. They render only 15 prompt tokens and are excluded from every result in this record."
+  ],
+  "limitations": [
+    "GPU and memory clocks were not locked, so timing comparisons remain diagnostic.",
+    "The end-to-end benchmark uses the tokenizer-pinned P33 case with exactly one 32-token prefix tile; other prompt lengths need separate measurements.",
+    "Only the two aligned NVFP4 MLP shapes use direct M32. Other NVFP4 M32 cases retain ordered composition.",
+    "Execution remains one-stream and serial, with no double/triple buffering or prefill/decode overlap.",
+    "M17 through M31 retain M16-plus-tail composition; this milestone does not establish a general dense-GEMM crossover."
+  ],
+  "next_priority": "Collect replay-scoped NCU evidence for the production NVFP4 M32 and remaining P33/C32 hotspots. Continue kernel work if tensor, memory, or barrier stalls dominate; prototype double buffering or phase overlap only if the trace exposes independent work and a measurable scheduling gap."
+}
