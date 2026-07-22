@@ -158,6 +158,13 @@ The diagnostic Phase 3 records are:
   C1/C8/C16 model and arena gates, 5,905-line trace equality, identical ordered
   13,558-launch contracts, detached-base B-C-C-B regression evidence, and the
   explicit absence of new streams, buffers, kernels, or an attributed speedup.
+- [`qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json`](qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json),
+  which freezes the resolved SM87 projection route registry, its exact
+  launch-contract and B-C-C-B equivalence gates, all 29 intended M1/M2/M8/M16
+  direct-kernel cells, the P19 C1/C2/C8/C16 TTFT matrix, tokenizer-pinned
+  P33/P65/P129/P513 prompts, and matched Nsight launch/time attribution. It
+  records the unrelated historical M4 aggregate-threshold failure separately
+  instead of treating that measurement gap as a production correctness error.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

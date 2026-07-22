@@ -1,0 +1,722 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark",
+  "status": "production-measurement-baseline-with-known-m4-gate-gap",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "git_commit": "471b7a0ad42bc0ee424c71488bb09d892068f5dd",
+    "git_subject": "runtime: centralize SM87 projection routes",
+    "binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3288656,
+      "sha256": "aad99827d73a6d3f8badbbcbe5db7460ab79945bbb0c15ea2fb5ea0de0e9ef47",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "scope": {
+    "purpose": "Freeze the production SM87 shape-to-route map, measure its direct-kernel cells, and establish prompt-length/chunk-size and Nsight baselines before extending prefill beyond C16.",
+    "production_chunk_sizes": [
+      1,
+      2,
+      8,
+      16
+    ],
+    "projection_formats": [
+      "FP8 W8A16",
+      "NVFP4 W4A16"
+    ],
+    "serving_claim": false
+  },
+  "registry_equivalence": {
+    "implementation": {
+      "header": "src/kernels/sm87/projection_route_registry.h",
+      "namespace": "q3x::kernels::sm87_detail",
+      "public_abi_changed": false,
+      "dispatch_entries_integrated": 6,
+      "routes_record": [
+        "encoding",
+        "exact shape",
+        "resolved leaf route",
+        "maximum block cap",
+        "recursive fallback launch count"
+      ],
+      "preserved_semantics": [
+        "validation and legal empty-return ordering",
+        "unaligned M2 through M8 recursion through the public M1 dispatcher",
+        "M16 fallback through two public M8 dispatcher calls",
+        "CUDA last-error clearing and checking",
+        "existing fusion dispatch and public ABI"
+      ]
+    },
+    "host_registry_test": {
+      "exact_shapes": 8,
+      "alignment_combinations_per_shape": 16,
+      "covers_m": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        16
+      ],
+      "covers_shape_near_misses": true,
+      "covers_fp8_k_boundaries": [
+        1023,
+        1024,
+        1025
+      ],
+      "covers_nvfp4_k_boundaries": [
+        240,
+        256,
+        272
+      ],
+      "result": "pass"
+    },
+    "test_suites": {
+      "release": {
+        "discovered": 53,
+        "passed": 49,
+        "skipped": 4,
+        "failed": 0
+      },
+      "asan_ubsan_excluding_package_consumer": {
+        "discovered": 52,
+        "passed": 48,
+        "skipped": 4,
+        "failed": 0
+      }
+    },
+    "full_model_exact_gates": {
+      "requested_chunk_sizes": [
+        1,
+        8,
+        16
+      ],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "runner_steps": 44,
+      "exact_text": true,
+      "exact_stop_token": "<|im_end|>",
+      "result": "pass"
+    },
+    "ordered_launch_contract": {
+      "workload": "fixed 19-token prompt, maximum 26 generated tokens, requested C16",
+      "baseline_lines": 13558,
+      "candidate_lines": 13558,
+      "baseline_bytes": 1306768,
+      "candidate_bytes": 1306768,
+      "shared_sha256": "7a0968fdf449115148537ca5ec9594029f68747fae6bb92998cdafad21da6d41",
+      "exact_match": true
+    },
+    "detached_baseline_bccb": {
+      "order": [
+        "baseline-1",
+        "candidate-1",
+        "candidate-2",
+        "baseline-2"
+      ],
+      "maximum_generated_tokens": 26,
+      "requested_chunk_size": 16,
+      "baseline_average_ms": {
+        "total": 3345.862,
+        "ttft": 554.304,
+        "subsequent_token": 111.6745
+      },
+      "candidate_average_ms": {
+        "total": 3345.064,
+        "ttft": 554.2485,
+        "subsequent_token": 111.633
+      },
+      "candidate_delta_percent": {
+        "total": -0.02385,
+        "ttft": -0.01001,
+        "subsequent_token": -0.03716
+      },
+      "interpretation": "noise-level equivalence; no regression and no speedup claim"
+    }
+  },
+  "direct_kernel_atlas": {
+    "command": "Q3X_RUN_SM87_WEIGHT_ONLY_GEMV_PERF=1 Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1 Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1 Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_ACTIVATION_STAGED_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "intended_cells": 29,
+    "intended_cells_passed": 29,
+    "cells": {
+      "m1": [
+        {
+          "format": "fp8",
+          "rows": 10240,
+          "columns": 5120,
+          "latency_ms": 0.274918
+        },
+        {
+          "format": "fp8",
+          "rows": 5120,
+          "columns": 6144,
+          "latency_ms": 0.166201
+        },
+        {
+          "format": "fp8",
+          "rows": 6144,
+          "columns": 5120,
+          "latency_ms": 0.169569
+        },
+        {
+          "format": "fp8",
+          "rows": 12288,
+          "columns": 5120,
+          "latency_ms": 0.327502
+        },
+        {
+          "format": "fp8",
+          "rows": 1024,
+          "columns": 5120,
+          "latency_ms": 0.0364936
+        },
+        {
+          "format": "nvfp4",
+          "shape": "gate-up",
+          "rows": 17408,
+          "columns": 5120,
+          "latency_ms": 0.314778
+        },
+        {
+          "format": "nvfp4",
+          "shape": "down",
+          "rows": 5120,
+          "columns": 17408,
+          "latency_ms": 0.310572
+        },
+        {
+          "format": "nvfp4",
+          "shape": "lm-head",
+          "rows": 248320,
+          "columns": 5120,
+          "latency_ms_checkpoint": 4.38547,
+          "latency_ms_stress": 4.41141,
+          "speedup_checkpoint": 1.02293,
+          "speedup_stress": 1.03014,
+          "required_speedup": 1.01
+        }
+      ],
+      "m2": [
+        {
+          "format": "fp8",
+          "rows": 10240,
+          "columns": 5120,
+          "latency_ms": 0.298474,
+          "speedup_vs_two_m1": 1.85686
+        },
+        {
+          "format": "fp8",
+          "rows": 5120,
+          "columns": 6144,
+          "latency_ms": 0.180829,
+          "speedup_vs_two_m1": 1.87006
+        },
+        {
+          "format": "fp8",
+          "rows": 6144,
+          "columns": 5120,
+          "latency_ms": 0.183446,
+          "speedup_vs_two_m1": 1.86574
+        },
+        {
+          "format": "fp8",
+          "rows": 12288,
+          "columns": 5120,
+          "latency_ms": 0.356383,
+          "speedup_vs_two_m1": 1.83639
+        },
+        {
+          "format": "fp8",
+          "rows": 1024,
+          "columns": 5120,
+          "latency_ms": 0.0370808,
+          "speedup_vs_two_m1": 1.80378
+        },
+        {
+          "format": "nvfp4",
+          "shape": "gate-up",
+          "rows": 17408,
+          "columns": 5120,
+          "latency_ms": 0.445266,
+          "speedup_vs_two_m1": 1.41682
+        },
+        {
+          "format": "nvfp4",
+          "shape": "down",
+          "rows": 5120,
+          "columns": 17408,
+          "latency_ms": 0.408458,
+          "speedup_vs_two_m1": 1.54023
+        }
+      ],
+      "m8": [
+        {
+          "format": "fp8",
+          "rows": 10240,
+          "columns": 5120,
+          "latency_ms": 0.68104,
+          "speedup_vs_eight_m1": 3.2222
+        },
+        {
+          "format": "fp8",
+          "rows": 5120,
+          "columns": 6144,
+          "latency_ms": 0.384018,
+          "speedup_vs_eight_m1": 3.4751
+        },
+        {
+          "format": "fp8",
+          "rows": 6144,
+          "columns": 5120,
+          "latency_ms": 0.412763,
+          "speedup_vs_eight_m1": 3.29804
+        },
+        {
+          "format": "fp8",
+          "rows": 12288,
+          "columns": 5120,
+          "latency_ms": 0.814148,
+          "speedup_vs_eight_m1": 3.1971
+        },
+        {
+          "format": "fp8",
+          "rows": 1024,
+          "columns": 5120,
+          "latency_ms": 0.0780248,
+          "speedup_vs_eight_m1": 4.46368
+        },
+        {
+          "format": "nvfp4",
+          "shape": "gate-up",
+          "rows": 17408,
+          "columns": 5120,
+          "latency_ms": 0.900452,
+          "speedup_vs_eight_m1": 2.79902
+        },
+        {
+          "format": "nvfp4",
+          "shape": "down",
+          "rows": 5120,
+          "columns": 17408,
+          "latency_ms": 0.876286,
+          "speedup_vs_eight_m1": 2.82833
+        }
+      ],
+      "m16": [
+        {
+          "format": "fp8",
+          "rows": 10240,
+          "columns": 5120,
+          "selected_route": "wmma",
+          "latency_ms": 0.492022,
+          "speedup_vs_two_m8": 2.76793
+        },
+        {
+          "format": "fp8",
+          "rows": 5120,
+          "columns": 6144,
+          "selected_route": "wmma",
+          "latency_ms": 0.371324,
+          "speedup_vs_two_m8": 2.07721
+        },
+        {
+          "format": "fp8",
+          "rows": 6144,
+          "columns": 5120,
+          "selected_route": "wmma",
+          "latency_ms": 0.314725,
+          "speedup_vs_two_m8": 2.62274
+        },
+        {
+          "format": "fp8",
+          "rows": 12288,
+          "columns": 5120,
+          "selected_route": "wmma",
+          "latency_ms": 0.58454,
+          "speedup_vs_two_m8": 2.78548
+        },
+        {
+          "format": "fp8",
+          "rows": 1024,
+          "columns": 5120,
+          "selected_route": "two-m8",
+          "latency_ms": 0.147214,
+          "raw_wmma_latency_ms": 0.26332,
+          "raw_wmma_speedup_vs_two_m8": 0.559068,
+          "selector_result": "correct fallback"
+        },
+        {
+          "format": "nvfp4",
+          "shape": "gate-up",
+          "rows": 17408,
+          "columns": 5120,
+          "selected_route": "wmma",
+          "latency_ms": 1.02791,
+          "speedup_vs_two_m8": 1.77655
+        },
+        {
+          "format": "nvfp4",
+          "shape": "down",
+          "rows": 5120,
+          "columns": 17408,
+          "selected_route": "wmma",
+          "latency_ms": 1.15791,
+          "speedup_vs_two_m8": 1.53957
+        }
+      ]
+    },
+    "weighted_gates": {
+      "m2_speedup": 1.58984,
+      "m2_required": 1.5,
+      "m8_speedup": 2.99347,
+      "m8_required": 2.75,
+      "fp8_m16_speedup": 2.4182,
+      "nvfp4_m16_speedup": 1.69116,
+      "result": "pass"
+    },
+    "known_extra_m4_gate_gap": {
+      "scope": "an additional historical M4 aggregate check outside the intended 29-cell M1/M2/M8/M16 atlas",
+      "individual_cells_passed": 7,
+      "observed_aggregate_speedup": 1.50844,
+      "historical_required_speedup": 2.5,
+      "process_exit_code": 1,
+      "interpretation": "stale or mismatched aggregate measurement threshold; do not relax it from one run and do not treat it as a production correctness failure",
+      "follow_up": "rerun mirrored measurements and reconcile the M4 aggregate definition before changing the gate"
+    }
+  },
+  "p19_chunk_matrix": {
+    "prompt_token_count": 19,
+    "prefix_token_count": 18,
+    "maximum_generated_tokens": 1,
+    "warmup_runs": 1,
+    "measured_iterations": 3,
+    "common_exact_result": {
+      "prompt_ids_exact": true,
+      "first_generated_token_id": 77517,
+      "runner_steps": 19,
+      "persistent_memory_drop_bytes": 0
+    },
+    "cells": [
+      {
+        "chunk_size": 1,
+        "prefix_schedule": "18 x M1",
+        "ttft_ms": 2031.901
+      },
+      {
+        "chunk_size": 2,
+        "prefix_schedule": "9 x M2",
+        "ttft_ms": 1366.633
+      },
+      {
+        "chunk_size": 8,
+        "prefix_schedule": "M8 + M8 + M2",
+        "ttft_ms": 831.525
+      },
+      {
+        "chunk_size": 16,
+        "prefix_schedule": "M16 + M2",
+        "ttft_ms": 554.386
+      }
+    ],
+    "derived": {
+      "c16_ttft_reduction_vs_c1_percent": 72.716,
+      "c16_speedup_vs_c1": 3.664,
+      "c16_ttft_reduction_vs_c8_percent": 33.33,
+      "c16_speedup_vs_c8": 1.5
+    }
+  },
+  "long_prompt_c16_matrix": {
+    "prompt_construction": "synthetic repeated hello text with exact tokenizer-pinned lengths",
+    "maximum_generated_tokens": 1,
+    "warmup_runs": 1,
+    "measured_iterations": 2,
+    "common_exact_result": {
+      "first_generated_token_id": 9419,
+      "persistent_memory_drop_bytes": 0
+    },
+    "cells": [
+      {
+        "label": "P33",
+        "prompt_tokens": 33,
+        "prefix_tokens": 32,
+        "schedule": "2 x M16",
+        "ttft_ms": 721.468,
+        "runner_steps": 33
+      },
+      {
+        "label": "P65",
+        "prompt_tokens": 65,
+        "prefix_tokens": 64,
+        "schedule": "4 x M16",
+        "ttft_ms": 1347.115,
+        "runner_steps": 65
+      },
+      {
+        "label": "P129",
+        "prompt_tokens": 129,
+        "prefix_tokens": 128,
+        "schedule": "8 x M16",
+        "ttft_ms": 2660.541,
+        "runner_steps": 129
+      },
+      {
+        "label": "P513",
+        "prompt_tokens": 513,
+        "prefix_tokens": 512,
+        "schedule": "32 x M16",
+        "ttft_ms": 11927.27,
+        "runner_steps": 513
+      }
+    ],
+    "prompt_fixture": {
+      "path": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+      "bytes": 23197,
+      "sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966",
+      "checked_in": true,
+      "full_token_id_arrays_match_log": true
+    }
+  },
+  "reference_anchor": {
+    "workload": "P19, requested C16, maximum one generated token",
+    "backend": "reference",
+    "ttft_ms": 20300.262,
+    "sm87_c16_ttft_ms": 554.386,
+    "sm87_speedup": 36.61,
+    "prompt_ids_exact": true,
+    "first_generated_token_id": 77517,
+    "runner_steps": 19,
+    "interpretation": "diagnostic backend anchor, not a dense-prefill crossover result"
+  },
+  "nsight_prefill_matrix": {
+    "workload": "P19, maximum one generated token",
+    "cells": [
+      {
+        "chunk_size": 1,
+        "kernel_launches": 8249,
+        "summed_kernel_ms": 2039.6592,
+        "kernel_span_ms": 2060.750336,
+        "projection_launches": 4865,
+        "projection_ms": 1979.801504,
+        "projection_percent": 97.065
+      },
+      {
+        "chunk_size": 2,
+        "kernel_launches": 9104,
+        "summed_kernel_ms": 1377.7888,
+        "kernel_span_ms": 1397.616736,
+        "projection_launches": 3857,
+        "projection_ms": 1293.152256,
+        "projection_percent": 93.857
+      },
+      {
+        "chunk_size": 8,
+        "kernel_launches": 3530,
+        "summed_kernel_ms": 845.907776,
+        "kernel_span_ms": 857.506464,
+        "projection_launches": 1457,
+        "projection_ms": 792.137632,
+        "projection_percent": 93.643
+      },
+      {
+        "chunk_size": 16,
+        "kernel_launches": 2633,
+        "summed_kernel_ms": 568.984352,
+        "kernel_span_ms": 579.011936,
+        "projection_launches": 1089,
+        "projection_ms": 519.757216,
+        "projection_percent": 91.348
+      }
+    ],
+    "c16_top_projection_kernels": [
+      {
+        "group": "NVFP4 M16 WMMA",
+        "launches": 192,
+        "summed_ms": 197.301
+      },
+      {
+        "group": "NVFP4 M2 row-quad tail",
+        "launches": 192,
+        "summed_ms": 83.854
+      },
+      {
+        "group": "FP8 M16 WMMA",
+        "launches": 176,
+        "summed_ms": 63.556
+      },
+      {
+        "group": "final-step M1 fused gate-up",
+        "launches": 64,
+        "summed_ms": 49.628
+      },
+      {
+        "group": "FP8 M2 row-quad tail",
+        "launches": 176,
+        "summed_ms": 44.623
+      },
+      {
+        "group": "final-step M1 down fusion",
+        "launches": 64,
+        "summed_ms": 25.394
+      },
+      {
+        "group": "final-step M1 QKV/Z",
+        "launches": 48,
+        "summed_ms": 24.234
+      }
+    ],
+    "one_decode_step_delta": {
+      "profile": "P19 C16 with maximum two generated tokens minus the maximum-one profile",
+      "prefix_ordered_contract_matches": true,
+      "matching_prefix_lines": 2633,
+      "additional_kernel_launches": 437,
+      "additional_summed_kernel_ms": 109.942112,
+      "additional_projection_launches": 257,
+      "additional_projection_ms": 106.637824,
+      "wall_decode_after_first_ms": 111.6
+    },
+    "interpretation": [
+      "larger production chunks materially reduce launch count and TTFT",
+      "projection kernels remain the dominant prefill cost at C16",
+      "the M2 remainder in the P19 16+2 schedule is a measurable hotspot",
+      "one decode step remains logically and empirically separable from the prefill prefix"
+    ]
+  },
+  "decision": {
+    "registry": "accepted as a behavior-preserving production control-plane baseline",
+    "production_default": "retain C16 as the largest validated production prefill chunk",
+    "next_implementation": "extend the bounded path to C32/M17-M32, beginning with a measured M32 or composition route after dependency audit",
+    "secondary_kernel_priority": "optimize the M2 tail after or alongside C32 because it consumes 128.477 ms of P19 C16 projection time across NVFP4 and FP8",
+    "dense_backend_crossover": "still unresolved; requires an actual cuBLASLt/Marlin-style candidate and matched measurements",
+    "buffering": "defer double/triple buffering and multi-stream overlap until NCU or equivalent stall evidence demonstrates an overlap opportunity",
+    "m4_gate": "do not change the historical aggregate threshold until a mirrored rerun and metric-definition audit"
+  },
+  "artifacts": [
+    {
+      "role": "direct kernel atlas full log",
+      "local_path": "/tmp/q3x-p1b-kernel-atlas-471b7a0.log",
+      "bytes": 44414,
+      "sha256": "8f19405be269bff6d1e82d9814ca11dd5b5bc539ebf7c3368bbbe87f6ca12b70",
+      "checked_in": false
+    },
+    {
+      "role": "direct kernel atlas PERF extract",
+      "local_path": "/tmp/q3x-p1b-kernel-atlas-471b7a0.perf",
+      "bytes": 16425,
+      "sha256": "7c1aea50e97a5773199a5429945b33fc71ebc9820cb61118460e56027cf98a75",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C1 benchmark log",
+      "local_path": "/tmp/q3x-p1b-prefill-471b7a0-p019-c1.log",
+      "bytes": 3674,
+      "sha256": "e541520512cc48cb251465c7a1726a4c8992056eaf7b830ca7edc382759ef1a5",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C2 benchmark log",
+      "local_path": "/tmp/q3x-p1b-prefill-471b7a0-p019-c2.log",
+      "bytes": 3680,
+      "sha256": "ba2ced245ebb2de14c3350b64d6fc18508d2e30081968f9507e27dc9a5d0104a",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C8 benchmark log",
+      "local_path": "/tmp/q3x-p1b-prefill-471b7a0-p019-c8.log",
+      "bytes": 3652,
+      "sha256": "d3e7566934c1739fd9249787689d338966f5dfb8c008ea95cf55372f7e947213",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C16 benchmark log",
+      "local_path": "/tmp/q3x-p1b-prefill-471b7a0-p019-c16.log",
+      "bytes": 3659,
+      "sha256": "8e6628d879bb3ec9415d50097db3de9fcbba797603e017cecc82f17df301a39d",
+      "checked_in": false
+    },
+    {
+      "role": "long-prompt C16 matrix log",
+      "local_path": "/tmp/q3x-p1b-prefill-471b7a0-long-c16.log",
+      "bytes": 23598,
+      "sha256": "f48a94638d3867798663301265e7df203303a586ca713841a18db135f604bc82",
+      "checked_in": false
+    },
+    {
+      "role": "reference backend anchor log",
+      "local_path": "/tmp/q3x-p1b-reference-anchor-471b7a0-p019-c16.log",
+      "bytes": 3364,
+      "sha256": "fc18746218a6b447b1f2c44c728ce1f9ec07e773a4adcc93387e2643867535e8",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C1 Nsight report",
+      "local_path": "/tmp/q3x-p1b-profile-prefill-p019-c01.nsys-rep",
+      "bytes": 708690,
+      "sha256": "4f50a435912a31d20510de973b4abe78195de107e9baa5e6937457d30514738a",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C2 Nsight report",
+      "local_path": "/tmp/q3x-p1b-profile-prefill-p019-c02.nsys-rep",
+      "bytes": 770223,
+      "sha256": "72f9625f8dbd091ddc9d367acfca62d7e8d188da6a81311ee12a51fd302e3ef5",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C8 Nsight report",
+      "local_path": "/tmp/q3x-p1b-profile-prefill-p019-c08.nsys-rep",
+      "bytes": 428029,
+      "sha256": "56cd944b273138fa1ab285a628a03344bf676b957d2563ffd7a5e8987658566b",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C16 Nsight report",
+      "local_path": "/tmp/q3x-p1b-profile-prefill-p019-c16.nsys-rep",
+      "bytes": 374778,
+      "sha256": "c975b5c4c4c97cce45b7e8343ffe677ff1aad63773101f5f1662fa169ea6c17c",
+      "checked_in": false
+    },
+    {
+      "role": "P19 C16 plus one decode step Nsight report",
+      "local_path": "/tmp/q3x-p1b-profile-prefill-decode1-p019-c16.nsys-rep",
+      "bytes": 403089,
+      "sha256": "879d4b4a40c22e72593c25aba75982daa36624867b0ba98232067238f8cd54a0",
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "clocks were not locked, so all timing data is diagnostic rather than a release or serving-throughput claim",
+    "the end-to-end matrix is batch-one and does not measure continuous batching or concurrent requests",
+    "the synthetic long prompts are tokenizer-pinned repeated text and are not a semantic prompt corpus",
+    "maximum-one-token measurements isolate TTFT but do not characterize long decode throughput",
+    "Nsight summed kernel durations and wall time have different accounting semantics",
+    "the reference anchor establishes the current backend gap but not the crossover against a production dense GEMM backend",
+    "the optional direct-kernel process exits nonzero because of the separately recorded historical M4 aggregate gate; all intended 29 M1/M2/M8/M16 cells passed",
+    "raw logs and Nsight reports are local evidence and are not checked into the repository"
+  ]
+}

@@ -26,6 +26,11 @@ C16 reduced median TTFT from 1,021.088 to 761.037 ms and total
 two-token generation from 1,206.170 to 946.217 ms; the subsequent-token median
 remained effectively flat at 185.084 versus 185.186 ms. Each policy contributes
 eight measured samples from the mirrored C8/C16/C16/C8 process order.
+The latest tokenizer-pinned maximum-one-token matrix on the current SM87 path
+measures the same 19-token prompt at 2,031.901, 1,366.633, 831.525, and
+554.386 ms TTFT for C1/C2/C8/C16; matched Nsight profiles reduce launch count
+from 8,249 to 2,633 while projection still accounts for 91.348% of C16 kernel
+time. These remain unlocked-clock batch-one diagnostics.
 The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
@@ -470,6 +475,9 @@ the
 The C16 implementation, same-binary comparison, Tensor Core gates, and profile
 are recorded in the
 [C16 Tensor Core prefill record](docs/metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
+The resolved route registry, 29-cell direct-kernel atlas, pinned long-prompt
+fixtures, chunk matrix, and Nsight attribution are recorded in the
+[SM87 shape/chunk/prompt matrix](docs/metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 

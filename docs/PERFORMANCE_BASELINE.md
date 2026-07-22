@@ -2000,3 +2000,65 @@ broader real-prompt coverage, independent executors, CUDA Graphs, double/triple
 buffering, multi-stream overlap, or improved utilization. Full commands, local
 artifact identities, and limitations are in the
 [Prefill/Decode plan-split record](metadata/qwen36-27b-prefill-decode-plan-split-benchmark.json).
+
+## Frozen SM87 shape/chunk/prompt matrix
+
+Commit `471b7a0` replaces six duplicated single-projection decision chains with
+one private constexpr registry. The registry resolves format, exact shape,
+alignment, leaf route, block cap, and recursive fallback count without changing
+the public ABI, validation order, launchers, fusion eligibility, or fallback
+semantics. Release passes 49 of 53 discovered tests with four fixture/model
+skips; ASan/UBSan passes 48 of 52 selected tests with the same four skips.
+Independent real-model C1/C8/C16 runs retain the exact 19 prompt IDs, 26 output
+IDs, decoded text, stop token, and 44 steps. Baseline and candidate max-26 C16
+profiles also match the complete ordered 13,558-launch contract byte-for-byte.
+
+The intended direct-kernel atlas contains 29 production-route cells:
+
+| Tile | FP8 cells | NVFP4 cells | Call-weighted result |
+| --- | ---: | ---: | ---: |
+| M1 | 5 | 3 | all latency/identity gates pass |
+| M2 | 5 | 2 | 1.58984x versus two M1, required 1.50x |
+| M8 | 5 | 2 | 2.99347x versus eight M1, required 2.75x |
+| M16 | 5 | 2 | FP8 2.41820x and NVFP4 1.69116x versus two M8 |
+
+All 29 pass. FP8 `[1024,5120]` is an important negative selector case: its raw
+M16 WMMA candidate reaches only 0.559068x versus two M8, so production correctly
+retains the 0.147214 ms two-M8 route. The optional test process nevertheless
+exits 1 because an additional historical M4 aggregate check reports 1.50844x
+against a 2.50x threshold, even though its seven individual cells pass. That
+separate gate is frozen as a measurement-definition issue pending mirrored
+reruns; it is neither silently relaxed nor reported as a production failure.
+
+With one warmup and three measured maximum-one-token iterations, the exact
+19-token prompt gives:
+
+| Requested chunk | 18-token prefix schedule | TTFT |
+| ---: | --- | ---: |
+| C1 | 18 x M1 | 2,031.901 ms |
+| C2 | 9 x M2 | 1,366.633 ms |
+| C8 | M8 + M8 + M2 | 831.525 ms |
+| C16 | M16 + M2 | 554.386 ms |
+
+C16 is 3.664x faster than C1 and 1.500x faster than C8 in this diagnostic.
+Tokenizer-pinned repeated-text P33/P65/P129/P513 cases produce exact 32/64/
+128/512-token C16 prefixes and record 721.468, 1,347.115, 2,660.541, and
+11,927.270 ms TTFT respectively. Their raw text, rendered chat, token IDs,
+hashes, schedules, and first generated token are checked in as
+`benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json`.
+
+Matched P19 Nsight profiles reduce launches from 8,249 at C1 to 2,633 at C16
+and summed kernel time from 2,039.659200 to 568.984352 ms. Projection remains
+dominant: 519.757216 ms, or 91.348%, at C16. The C16 `16+2` tail attributes
+83.854 ms to NVFP4 M2 and 44.623 ms to FP8 M2. A maximum-two-token C16 profile
+shares the exact first 2,633 ordered launches with the maximum-one profile;
+their delta is one logical decode step with 437 launches, 109.942112 ms summed
+kernel time, and 111.600 ms wall latency.
+
+These measurements keep C16 as the largest validated production tile while
+selecting C32/M17-M32 composition or tensor work as the next implementation.
+M2 tail optimization is the secondary kernel target. A dense cuBLASLt/Marlin
+crossover still needs an actual candidate, while double/triple buffering and
+multi-stream overlap remain deferred until NCU exposes a concrete stall and
+overlap opportunity. The complete values, hashes, local artifacts, and limits
+are in the [shape/chunk/prompt matrix record](metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).

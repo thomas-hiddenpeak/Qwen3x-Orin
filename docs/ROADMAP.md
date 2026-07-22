@@ -160,7 +160,13 @@ Deliverables:
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 language head for
   `[248320,5120]`, preserving the 8-byte activation alignment contract and
   preceding fallbacks elsewhere.
-- Shape-driven kernel registry and measured dispatch thresholds.
+- [done, production-equivalent] Private shape-driven SM87 projection registry,
+  with exhaustive route/alignment/near-miss coverage, an identical ordered
+  13,558-launch contract, and noise-level detached B-C-C-B regression evidence.
+- [done, initial matrix] Direct M1/M2/M8/M16 route measurements plus P19
+  C1/C2/C8/C16, tokenizer-pinned P33/P65/P129/P513, and matched Nsight
+  launch/time attribution.
+- Bounded C32/M17-M32 prefill composition and measured Tensor Core candidates.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -212,6 +218,15 @@ text, stop, and 44-step gate still passes. A final C16 Nsight diagnostic records
 trace's 1,192.639 ms across 10,107 instances; this is cross-commit hotspot
 context rather than a release or serving-throughput claim. See the
 [C16 metadata record](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
+The frozen registry/matrix follow-up at `471b7a0` preserves the complete
+13,558-launch production contract and exact C1/C8/C16 model gates. In a newer
+maximum-one-token P19 diagnostic, TTFT is 2,031.901, 1,366.633, 831.525, and
+554.386 ms for C1/C2/C8/C16. Matched Nsight profiles reduce launches from
+8,249 to 2,633, but projection still occupies 91.348% of C16 kernel time; the
+M2 tail alone contributes 128.477 ms across FP8 and NVFP4. This selects bounded
+C32/M17-M32 work first, M2-tail tuning second, and keeps buffering/multi-stream
+work behind an NCU stall-evidence gate. See the
+[shape/chunk/prompt matrix record](metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
 The subsequent FP8 K/V pair clears same-binary 1.74310x checkpoint-like and
 2.45187x stress micro-gates. In matched max-26-token profiles it reduces that
 projection work from 39.328192 to 31.316608 ms and removes 416 launches; a
