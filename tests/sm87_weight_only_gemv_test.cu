@@ -519,6 +519,19 @@ query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda(
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t valid_token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_factorized_product_lookup_exhaustive_test_cuda(
     std::uint32_t* factorized, std::uint32_t* reference,
     void* cuda_stream = nullptr) noexcept;
@@ -5284,6 +5297,14 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m18_masked_m32_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M18_MASKED_M32_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_m17_m31_runtime_masked_m32_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -13947,6 +13968,178 @@ void run_nvfp4_m32_candidate_smoke(
               label + " captures exactly one direct CUDA kernel node");
 }
 
+void run_nvfp4_m17_m31_runtime_masked_m32_default_matrix(
+    TestContext& test, cudaStream_t stream,
+    const DeviceBuffer<std::uint8_t>& packed,
+    const std::uint8_t* const scales,
+    const DeviceBuffer<std::uint16_t>& m32_activations,
+    const std::vector<std::uint16_t>& m32_baseline, const std::size_t rows,
+    const std::size_t columns, const float weight_scale_2,
+    const std::string& label) {
+  constexpr std::size_t kPaddedTokens = 32U;
+  constexpr std::uint8_t kTailSentinelByte = 0x6dU;
+  constexpr std::uint16_t kTailSentinel = 0x6d6dU;
+  const std::size_t padded_output_elements = kPaddedTokens * rows;
+  DeviceBuffer<std::uint16_t> replay_output;
+  bool ready = test.cuda_ok(
+      replay_output.allocate(padded_output_elements),
+      label + " allocate runtime-mask padded replay output");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t valid_tokens = 17U; valid_tokens <= 31U;
+       ++valid_tokens) {
+    const std::string cell_label =
+        label + " runtime-valid M" + std::to_string(valid_tokens);
+    const std::size_t activation_elements = valid_tokens * columns;
+    const std::size_t output_elements = valid_tokens * rows;
+    DeviceBuffer<std::uint16_t> exact_activations;
+    DeviceBuffer<std::uint16_t> exact_output;
+    ready = test.cuda_ok(exact_activations.allocate(activation_elements),
+                         cell_label + " allocate exact-C_M activations");
+    ready = ready && test.cuda_ok(
+                         exact_output.allocate(output_elements),
+                         cell_label + " allocate exact-C_M output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             exact_activations.get(), m32_activations.get(),
+                             activation_elements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToDevice, stream),
+                         cell_label + " initialize exact-C_M activations");
+    ready = ready && test.cuda_ok(
+                         cudaMemsetAsync(
+                             replay_output.get(), kTailSentinelByte,
+                             padded_output_elements * sizeof(std::uint16_t),
+                             stream),
+                         cell_label + " poison padded replay tail");
+    if (!ready) {
+      return;
+    }
+
+    const auto launch = [&](std::uint16_t* const output) noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
+              packed.get(), scales, weight_scale_2, exact_activations.get(),
+              valid_tokens, rows, columns, output,
+              static_cast<void*>(stream));
+    };
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch(exact_output.get())),
+                         cell_label + " launch exact-C_M candidate");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch(replay_output.get())),
+                         cell_label + " launch padded replay");
+
+    std::vector<std::uint16_t> exact(output_elements);
+    std::vector<std::uint16_t> replay(padded_output_elements);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             exact.data(), exact_output.get(),
+                             output_elements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy exact-C_M output");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             replay.data(), replay_output.get(),
+                             padded_output_elements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy padded replay and tail");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " synchronize outputs");
+    if (!ready) {
+      return;
+    }
+
+    std::size_t baseline_mismatches = 0U;
+    std::size_t replay_mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t index = 0U; index < output_elements; ++index) {
+      baseline_mismatches +=
+          exact[index] != m32_baseline[index] ? 1U : 0U;
+      replay_mismatches += exact[index] != replay[index] ? 1U : 0U;
+      output_finite =
+          output_finite && std::isfinite(decode_bf16(exact[index]));
+    }
+    const bool replay_tail_intact = std::all_of(
+        replay.begin() + static_cast<std::ptrdiff_t>(output_elements),
+        replay.end(), [](const std::uint16_t value) noexcept {
+          return value == kTailSentinel;
+        });
+    const bool gate = baseline_mismatches == 0U && replay_mismatches == 0U &&
+                      output_finite && replay_tail_intact;
+    std::cout << "NVFP4_M17_M31_RUNTIME_MASKED_M32_DEFAULT: " << cell_label
+              << " candidate_vs_two_m16_mismatches=" << baseline_mismatches
+              << '/' << output_elements
+              << " replay_mismatches=" << replay_mismatches << '/'
+              << output_elements
+              << " candidate_capacity=exact_m" << valid_tokens
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << " replay_tail="
+              << (replay_tail_intact ? "intact" : "BAD")
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    test.expect(gate, cell_label +
+                          " is bit-exact, deterministic, finite, and preserves "
+                          "the complete masked output tail");
+
+    if (valid_tokens == 17U || valid_tokens == 31U) {
+      cudaGraph_t graph = nullptr;
+      bool graph_ready = test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          cell_label + " begin single-kernel graph capture");
+      int graph_launch_status = static_cast<int>(cudaErrorUnknown);
+      if (graph_ready) {
+        graph_launch_status = launch(exact_output.get());
+        graph_ready =
+            test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         cell_label + " end single-kernel graph capture") &&
+            graph_ready;
+      }
+      std::size_t node_count = 0U;
+      std::size_t kernel_node_count = 0U;
+      if (graph_ready) {
+        graph_ready =
+            test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         cell_label + " query graph nodes") &&
+            graph_ready;
+      }
+      if (graph_ready && node_count != 0U) {
+        std::vector<cudaGraphNode_t> nodes(node_count);
+        std::size_t capacity = nodes.size();
+        graph_ready =
+            test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &capacity),
+                         cell_label + " get graph nodes") &&
+            graph_ready;
+        for (std::size_t index = 0U; index < capacity && graph_ready;
+             ++index) {
+          cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+          graph_ready =
+              test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                           cell_label + " inspect graph node") &&
+              graph_ready;
+          kernel_node_count +=
+              type == cudaGraphNodeTypeKernel ? 1U : 0U;
+        }
+      }
+      if (graph != nullptr) {
+        graph_ready =
+            test.cuda_ok(cudaGraphDestroy(graph),
+                         cell_label + " destroy captured graph") &&
+            graph_ready;
+      }
+      const bool single_kernel =
+          graph_ready &&
+          graph_launch_status == static_cast<int>(cudaSuccess) &&
+          node_count == 1U && kernel_node_count == 1U;
+      std::cout << "NVFP4_M17_M31_RUNTIME_MASKED_M32_GRAPH: " << cell_label
+                << " total_nodes=" << node_count
+                << " kernel_nodes=" << kernel_node_count
+                << " gate=" << (single_kernel ? "PASS" : "FAIL") << '\n';
+      test.expect(single_kernel,
+                  cell_label + " captures exactly one direct kernel node");
+    }
+  }
+}
+
 void run_nvfp4_m32_wmma_smoke_case(
     TestContext& test, cudaStream_t stream, const std::size_t rows,
     const std::size_t columns,
@@ -14122,6 +14315,10 @@ void run_nvfp4_m32_wmma_smoke_case(
               distribution_label +
                   " production M18 is bit-exact and preserves rows 18..31");
 
+  run_nvfp4_m17_m31_runtime_masked_m32_default_matrix(
+      test, stream, packed, scales, activations, baseline, rows, columns,
+      kWeightScale2, distribution_label);
+
   run_nvfp4_m32_candidate_smoke(
       test, stream, packed, scales, activations, baseline, rows, columns,
       kWeightScale2,
@@ -14193,7 +14390,7 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
     std::size_t expected_static_shared_bytes;
     int minimum_active_blocks;
   };
-  constexpr std::array<Candidate, 6U> kCandidates{{
+  constexpr std::array<Candidate, 7U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda,
@@ -14214,6 +14411,10 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda,
        46, 24'576U, 5},
+      {"M17-M31 runtime-valid masked-M32 factorized vector store",
+       q3x::kernels::
+           query_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_resources_test_cuda,
+       51, 24'576U, 5},
       {"K128/LD136 single-A",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_resources_test_cuda,
@@ -14389,6 +14590,166 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
             << " gate=" << (public_contract ? "PASS" : "FAIL") << '\n';
   test.expect(public_contract,
               public_label + " rejects before capturing a node");
+}
+
+void run_nvfp4_m17_m31_runtime_masked_m32_invalid_capture_contract(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kValidTokens = 31U;
+  constexpr std::size_t kMaximum =
+      std::numeric_limits<std::size_t>::max();
+  constexpr std::size_t kFirstAlignedPastM31 =
+      ((kMaximum / kValidTokens) / 16U + 1U) * 16U;
+  constexpr std::size_t kLargestAlignedM31 =
+      (kMaximum / kValidTokens) & ~std::size_t{15U};
+  constexpr std::size_t kFirstM31OutputElementOverflowRows =
+      kMaximum / kValidTokens + 1U;
+  constexpr std::size_t kFirstM31OutputByteOverflowRows =
+      kMaximum / (kValidTokens * sizeof(std::uint16_t)) + 1U;
+  auto* const packed =
+      reinterpret_cast<const std::uint8_t*>(0x5'0000'0000ULL);
+  auto* const scales =
+      reinterpret_cast<const std::uint8_t*>(0x6'0000'0000ULL);
+  auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(0x7'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x8'0000'0000ULL);
+  const auto launch = [&](const std::uint8_t* const candidate_packed,
+                          const std::uint8_t* const candidate_scales,
+                          const float scale_2,
+                          const std::uint16_t* const candidate_activations,
+                          const std::size_t valid_tokens,
+                          const std::size_t rows, const std::size_t columns,
+                          std::uint16_t* const candidate_output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
+            candidate_packed, candidate_scales, scale_2,
+            candidate_activations, valid_tokens, rows, columns,
+            candidate_output, static_cast<void*>(stream));
+  };
+
+  const std::string label =
+      "NVFP4 test-only M17-M31 runtime-mask invalid capture";
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin");
+  bool all_invalid = ready;
+  const auto expect_invalid = [&](const int status) {
+    all_invalid = all_invalid &&
+                  static_cast<cudaError_t>(status) == cudaErrorInvalidValue;
+  };
+  if (ready) {
+    expect_invalid(launch(packed, scales, 1.0F, activations, 16U, kRows,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, 32U, kRows,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens, 0U,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, 0U, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows - 1U, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows + 1U, kColumns, output));
+    expect_invalid(launch(nullptr, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, nullptr, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, nullptr, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, nullptr));
+    expect_invalid(launch(packed, scales,
+                          std::numeric_limits<float>::quiet_NaN(),
+                          activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, -1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns - 1U, output));
+    expect_invalid(launch(
+        reinterpret_cast<const std::uint8_t*>(
+            reinterpret_cast<std::uintptr_t>(packed) + 1U),
+        scales, 1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed,
+        reinterpret_cast<const std::uint8_t*>(
+            reinterpret_cast<std::uintptr_t>(scales) + 1U),
+        1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F,
+        reinterpret_cast<const std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(activations) + 2U),
+        kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(output) + 1U)));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        const_cast<std::uint16_t*>(activations)));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(packed) + 16U)));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(scales))));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(activations) +
+            (kValidTokens - 1U) * kColumns * sizeof(std::uint16_t))));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kMaximum, 16U, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens, 1U,
+                          kFirstAlignedPastM31, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kFirstM31OutputElementOverflowRows, 16U, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens, 1U,
+                          kLargestAlignedM31, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kFirstM31OutputByteOverflowRows, 16U, output));
+    expect_invalid(launch(
+        reinterpret_cast<const std::uint8_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 15U),
+        scales, 1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed,
+        reinterpret_cast<const std::uint8_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 1U),
+        1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F,
+        reinterpret_cast<const std::uint16_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 7U),
+        kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 1U)));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph), label + " end") &&
+            ready;
+  }
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " query nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") && ready;
+  }
+  const bool gate = ready && all_invalid && node_count == 0U;
+  std::cout << "NVFP4_M17_M31_RUNTIME_MASKED_M32_INVALID_CAPTURE: "
+            << "all_invalid=" << (all_invalid ? "true" : "false")
+            << " graph_nodes=" << node_count
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, label +
+                        " rejects boundaries, pointers, aliases, alignment, "
+                        "and overflow before enqueue");
 }
 
 void run_nvfp4_m32_public_fallback_graph_contract(TestContext& test,
@@ -16249,6 +16610,463 @@ void run_optional_nvfp4_m18_masked_m32_performance(TestContext& test,
   test.expect(aggregate_gate,
               "NVFP4 M18 masked-M32 clears every cell and the weighted "
               "production gate");
+}
+
+constexpr std::array<std::size_t, 14U>
+    kNvFp4RuntimeMaskedM32PerformanceTokens{{
+        31U, 25U, 24U, 17U, 19U, 20U, 21U,
+        22U, 23U, 26U, 27U, 28U, 29U, 30U,
+    }};
+
+struct NvFp4RuntimeMaskedM32PerfCell {
+  double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  bool correctness = false;
+  bool no_round_reversal = true;
+};
+
+using NvFp4RuntimeMaskedM32PerfShapeMeasurement =
+    std::array<std::array<NvFp4RuntimeMaskedM32PerfCell,
+                          kNvFp4M16K128ScaleDistributions.size()>,
+               kNvFp4RuntimeMaskedM32PerformanceTokens.size()>;
+
+struct NvFp4RuntimeMaskedM32PerfShape {
+  std::size_t rows;
+  std::size_t columns;
+  std::size_t profile_calls;
+  const char* label;
+};
+
+[[nodiscard]] NvFp4RuntimeMaskedM32PerfShapeMeasurement
+benchmark_nvfp4_m17_m31_runtime_masked_m32_shape(
+    TestContext& test, cudaStream_t stream,
+    const NvFp4RuntimeMaskedM32PerfShape& shape) {
+  constexpr std::size_t kPaddedTokens = 32U;
+  constexpr std::size_t kPrefixTokens = 16U;
+  constexpr std::size_t kMaximumSmallMTokens = 8U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 4;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr std::uint8_t kCandidateTailSentinelByte = 0x4eU;
+  constexpr std::uint16_t kCandidateTailSentinel = 0x4e4eU;
+  const std::size_t packed_columns = shape.columns / 2U;
+  const std::size_t scale_columns = shape.columns / 16U;
+
+  std::vector<std::uint8_t> host_packed(shape.rows * packed_columns);
+  for (std::size_t row = 0U; row < shape.rows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
+  }
+  std::vector<std::uint8_t> host_scales(shape.rows * scale_columns);
+  std::vector<std::uint16_t> host_activations(kPaddedTokens * shape.columns);
+  for (std::size_t token = 0U; token < kPaddedTokens; ++token) {
+    for (std::size_t column = 0U; column < shape.columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * shape.columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> public_m32_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  const std::size_t padded_output_elements = kPaddedTokens * shape.rows;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            std::string(shape.label) + " allocate weights");
+  ready = ready && test.cuda_ok(
+                       scales.allocate(host_scales.size()),
+                       std::string(shape.label) + " allocate scales");
+  ready = ready && test.cuda_ok(
+                       activations.allocate(host_activations.size()),
+                       std::string(shape.label) + " allocate activations");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(padded_output_elements),
+                       std::string(shape.label) + " allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       public_m32_output.allocate(padded_output_elements),
+                       std::string(shape.label) + " allocate public M32 output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(padded_output_elements),
+                       std::string(shape.label) + " allocate candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       std::string(shape.label) + " initialize weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       std::string(shape.label) + " initialize activations");
+  if (!ready) {
+    return {};
+  }
+
+  NvFp4RuntimeMaskedM32PerfShapeMeasurement measurements{};
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns, distribution);
+    const std::string distribution_label =
+        std::string(shape.label) + " " +
+        nvfp4_m1_scale_distribution_name(distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize scales");
+    if (!ready) {
+      return measurements;
+    }
+
+    for (std::size_t token_index = 0U;
+         token_index < kNvFp4RuntimeMaskedM32PerformanceTokens.size();
+         ++token_index) {
+      const std::size_t valid_tokens =
+          kNvFp4RuntimeMaskedM32PerformanceTokens[token_index];
+      const std::string cell_label =
+          distribution_label + " M" + std::to_string(valid_tokens);
+      const auto launch_baseline = [&]() noexcept -> int {
+        int status =
+            q3x::kernels::launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+                packed.get(), scales.get(), kWeightScale2, activations.get(),
+                shape.rows, shape.columns, baseline_output.get(),
+                static_cast<void*>(stream));
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        std::size_t token_offset = kPrefixTokens;
+        while (token_offset < valid_tokens) {
+          const std::size_t remaining = valid_tokens - token_offset;
+          const std::size_t launch_tokens =
+              std::min(remaining, kMaximumSmallMTokens);
+          status =
+              q3x::kernels::launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+                  packed.get(), scales.get(), kWeightScale2,
+                  activations.get() + token_offset * shape.columns,
+                  launch_tokens, shape.rows, shape.columns,
+                  baseline_output.get() + token_offset * shape.rows,
+                  static_cast<void*>(stream));
+          if (status != static_cast<int>(cudaSuccess)) {
+            return status;
+          }
+          token_offset += launch_tokens;
+        }
+        return static_cast<int>(cudaSuccess);
+      };
+      const auto launch_candidate = [&]() noexcept -> int {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
+                packed.get(), scales.get(), kWeightScale2, activations.get(),
+                valid_tokens, shape.rows, shape.columns,
+                candidate_output.get(), static_cast<void*>(stream));
+      };
+      const auto launch_public_m32 = [&]() noexcept -> int {
+        return q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            shape.rows, shape.columns, public_m32_output.get(),
+            static_cast<void*>(stream));
+      };
+
+      const std::size_t valid_output_elements = valid_tokens * shape.rows;
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           cell_label + " correctness production fallback");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_public_m32()),
+                           cell_label + " correctness public M32");
+      ready = ready && test.cuda_ok(
+                           cudaMemsetAsync(
+                               candidate_output.get(),
+                               kCandidateTailSentinelByte,
+                               padded_output_elements *
+                                   sizeof(std::uint16_t),
+                               stream),
+                           cell_label + " poison candidate output tail");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           cell_label + " correctness runtime mask");
+      std::vector<std::uint16_t> baseline(valid_output_elements);
+      std::vector<std::uint16_t> public_m32(valid_output_elements);
+      std::vector<std::uint16_t> candidate(padded_output_elements);
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               baseline.data(), baseline_output.get(),
+                               valid_output_elements * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy production fallback");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               public_m32.data(), public_m32_output.get(),
+                               valid_output_elements * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy public M32 prefix");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               candidate.data(), candidate_output.get(),
+                               padded_output_elements * sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy runtime mask and tail");
+      ready = ready && test.cuda_ok(
+                           cudaStreamSynchronize(stream),
+                           cell_label + " correctness synchronize");
+      if (!ready) {
+        return measurements;
+      }
+      const std::size_t prefix_output_elements = kPrefixTokens * shape.rows;
+      std::size_t public_m32_mismatches = 0U;
+      std::size_t prefix_mismatches = 0U;
+      std::size_t tail_bf16_mismatches = 0U;
+      float maximum_tail_absolute_error = 0.0F;
+      float maximum_tail_relative_error = 0.0F;
+      bool tail_within_tolerance = true;
+      bool output_finite = true;
+      for (std::size_t index = 0U; index < valid_output_elements; ++index) {
+        public_m32_mismatches +=
+            public_m32[index] != candidate[index] ? 1U : 0U;
+        output_finite =
+            output_finite && std::isfinite(decode_bf16(baseline[index])) &&
+            std::isfinite(decode_bf16(public_m32[index])) &&
+            std::isfinite(decode_bf16(candidate[index]));
+        if (index < prefix_output_elements) {
+          prefix_mismatches +=
+              baseline[index] != candidate[index] ? 1U : 0U;
+          continue;
+        }
+        tail_bf16_mismatches +=
+            baseline[index] != candidate[index] ? 1U : 0U;
+        const float baseline_value = decode_bf16(baseline[index]);
+        const float candidate_value = decode_bf16(candidate[index]);
+        const float absolute_error =
+            std::fabs(candidate_value - baseline_value);
+        const float relative_error =
+            absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+        maximum_tail_absolute_error =
+            std::max(maximum_tail_absolute_error, absolute_error);
+        maximum_tail_relative_error =
+            std::max(maximum_tail_relative_error, relative_error);
+        const float tolerance =
+            2.0e-4F * std::sqrt(static_cast<float>(shape.columns)) +
+            1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+        tail_within_tolerance =
+            tail_within_tolerance && std::isfinite(candidate_value) &&
+            std::isfinite(baseline_value) && absolute_error <= tolerance;
+      }
+      const bool candidate_tail_intact = std::all_of(
+          candidate.begin() +
+              static_cast<std::ptrdiff_t>(valid_output_elements),
+          candidate.end(), [](const std::uint16_t value) noexcept {
+            return value == kCandidateTailSentinel;
+          });
+      const bool correctness = public_m32_mismatches == 0U &&
+                               prefix_mismatches == 0U &&
+                               tail_within_tolerance && output_finite &&
+                               candidate_tail_intact;
+      std::cout << "NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF_DIFF: "
+                << cell_label << " candidate_vs_public_m32_mismatches="
+                << public_m32_mismatches << '/' << valid_output_elements
+                << " first16_vs_production_fallback_mismatches="
+                << prefix_mismatches << '/' << prefix_output_elements
+                << " tail_bf16_mismatches=" << tail_bf16_mismatches << '/'
+                << valid_output_elements - prefix_output_elements
+                << " tail_max_abs=" << maximum_tail_absolute_error
+                << " tail_max_rel=" << maximum_tail_relative_error
+                << " output_finite=" << (output_finite ? "true" : "false")
+                << " candidate_tail="
+                << (candidate_tail_intact ? "intact" : "BAD")
+                << " gate=" << (correctness ? "PASS" : "FAIL") << '\n';
+      test.expect(correctness,
+                  cell_label +
+                      " runtime mask matches public M32 bits, the production "
+                      "prefix, the production-tail tolerance, and its exact "
+                      "write extent before timing");
+
+      for (int iteration = 0; iteration < kWarmupIterations && ready;
+           ++iteration) {
+        ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                             cell_label + " production fallback warmup");
+        ready = ready && test.cuda_ok(
+                             static_cast<cudaError_t>(launch_candidate()),
+                             cell_label + " runtime-mask warmup");
+      }
+      ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                    cell_label + " warmup synchronize");
+      if (!ready) {
+        return measurements;
+      }
+
+      double baseline_total = 0.0;
+      double candidate_total = 0.0;
+      bool timings_finite = true;
+      bool no_round_reversal = true;
+      for (int round = 0; round < kMeasurementRounds; ++round) {
+        const std::string round_label =
+            cell_label + " round=" + std::to_string(round + 1);
+        const float baseline_first = measure_small_m_tile(
+            test, stream, launch_baseline, kMeasuredIterations,
+            round_label + " baseline pass 1");
+        const float candidate_first = measure_small_m_tile(
+            test, stream, launch_candidate, kMeasuredIterations,
+            round_label + " candidate pass 1");
+        const float candidate_second = measure_small_m_tile(
+            test, stream, launch_candidate, kMeasuredIterations,
+            round_label + " candidate pass 2");
+        const float baseline_second = measure_small_m_tile(
+            test, stream, launch_baseline, kMeasuredIterations,
+            round_label + " baseline pass 2");
+        const bool round_finite =
+            std::isfinite(baseline_first) &&
+            std::isfinite(candidate_first) &&
+            std::isfinite(candidate_second) &&
+            std::isfinite(baseline_second);
+        const bool round_not_reversed =
+            round_finite &&
+            candidate_first + candidate_second <=
+                baseline_first + baseline_second;
+        timings_finite = timings_finite && round_finite;
+        no_round_reversal = no_round_reversal && round_not_reversed;
+        if (round_finite) {
+          baseline_total += baseline_first + baseline_second;
+          candidate_total += candidate_first + candidate_second;
+        }
+        std::cout << "PERF_NVFP4_M17_M31_RUNTIME_MASKED_M32_ROUND: "
+                  << round_label
+                  << " baseline_pass1_ms=" << baseline_first
+                  << " candidate_pass1_ms=" << candidate_first
+                  << " candidate_pass2_ms=" << candidate_second
+                  << " baseline_pass2_ms=" << baseline_second
+                  << " no_reversal="
+                  << (round_not_reversed ? "true" : "false") << '\n';
+      }
+      NvFp4RuntimeMaskedM32PerfCell& cell =
+          measurements[token_index][distribution_index];
+      constexpr double kTimedPasses =
+          2.0 * static_cast<double>(kMeasurementRounds);
+      if (timings_finite) {
+        cell.baseline_milliseconds = baseline_total / kTimedPasses;
+        cell.candidate_milliseconds = candidate_total / kTimedPasses;
+      }
+      cell.correctness = correctness;
+      cell.no_round_reversal = no_round_reversal;
+    }
+  }
+  return measurements;
+}
+
+void run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m17_m31_runtime_masked_m32_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 M17-M31 runtime masked-M32 performance segment; set "
+           "Q3X_RUN_SM87_NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr double kMinimumCellSpeedup = 1.05;
+  constexpr double kMinimumPerMWeightedSpeedup = 1.15;
+  constexpr std::array<NvFp4RuntimeMaskedM32PerfShape, 2U> kShapes{{
+      {17'408U, 5'120U, 2U, "NVFP4 runtime-mask gate/up 17408x5120"},
+      {5'120U, 17'408U, 1U, "NVFP4 runtime-mask down 5120x17408"},
+  }};
+  std::array<NvFp4RuntimeMaskedM32PerfShapeMeasurement, kShapes.size()>
+      measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] =
+        benchmark_nvfp4_m17_m31_runtime_masked_m32_shape(
+            test, stream, kShapes[shape_index]);
+  }
+
+  for (std::size_t token_index = 0U;
+       token_index < kNvFp4RuntimeMaskedM32PerformanceTokens.size();
+       ++token_index) {
+    const std::size_t valid_tokens =
+        kNvFp4RuntimeMaskedM32PerformanceTokens[token_index];
+    bool all_m_cells_pass = true;
+    double weighted_baseline = 0.0;
+    double weighted_candidate = 0.0;
+    for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+         ++shape_index) {
+      for (std::size_t distribution_index = 0U;
+           distribution_index < kNvFp4M16K128ScaleDistributions.size();
+           ++distribution_index) {
+        const NvFp4RuntimeMaskedM32PerfCell& cell =
+            measurements[shape_index][token_index][distribution_index];
+        const double speedup =
+            cell.baseline_milliseconds / cell.candidate_milliseconds;
+        const bool finite =
+            std::isfinite(cell.baseline_milliseconds) &&
+            std::isfinite(cell.candidate_milliseconds) &&
+            std::isfinite(speedup) && cell.baseline_milliseconds > 0.0 &&
+            cell.candidate_milliseconds > 0.0;
+        const bool cell_gate = cell.correctness && finite &&
+                               cell.no_round_reversal &&
+                               speedup >= kMinimumCellSpeedup;
+        all_m_cells_pass = all_m_cells_pass && cell_gate;
+        const double profile_calls =
+            static_cast<double>(kShapes[shape_index].profile_calls);
+        weighted_baseline += profile_calls * cell.baseline_milliseconds;
+        weighted_candidate += profile_calls * cell.candidate_milliseconds;
+        std::cout << "PERF_NVFP4_M17_M31_RUNTIME_MASKED_M32_CELL: M="
+                  << valid_tokens << " shape=" << kShapes[shape_index].label
+                  << " distribution="
+                  << nvfp4_m1_scale_distribution_name(
+                         kNvFp4M16K128ScaleDistributions[distribution_index])
+                  << " production_fallback_ms="
+                  << cell.baseline_milliseconds
+                  << " runtime_masked_m32_ms="
+                  << cell.candidate_milliseconds
+                  << " speedup=" << speedup
+                  << " required_speedup=" << kMinimumCellSpeedup
+                  << " correctness="
+                  << (cell.correctness ? "true" : "false")
+                  << " no_round_reversal="
+                  << (cell.no_round_reversal ? "true" : "false")
+                  << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+        test.expect(cell_gate,
+                    std::string(kShapes[shape_index].label) + " M" +
+                        std::to_string(valid_tokens) + " " +
+                        nvfp4_m1_scale_distribution_name(
+                            kNvFp4M16K128ScaleDistributions[
+                                distribution_index]) +
+                        " clears its runtime-mask cell gate without a round "
+                        "reversal");
+      }
+    }
+    const double weighted_speedup = weighted_baseline / weighted_candidate;
+    const bool per_m_gate =
+        all_m_cells_pass && std::isfinite(weighted_speedup) &&
+        weighted_baseline > 0.0 && weighted_candidate > 0.0 &&
+        weighted_speedup >= kMinimumPerMWeightedSpeedup;
+    std::cout << "PERF_NVFP4_M17_M31_RUNTIME_MASKED_M32_PER_M: M="
+              << valid_tokens
+              << " weighted_production_fallback_ms=" << weighted_baseline
+              << " weighted_runtime_masked_m32_ms=" << weighted_candidate
+              << " weighted_speedup=" << weighted_speedup
+              << " required_speedup=" << kMinimumPerMWeightedSpeedup
+              << " shape_weight=2:1 distributions=checkpoint_like:same_bank_stress"
+              << " all_cells=" << (all_m_cells_pass ? "PASS" : "FAIL")
+              << " gate=" << (per_m_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(per_m_gate,
+                "NVFP4 runtime masked-M32 M" +
+                    std::to_string(valid_tokens) +
+                    " clears its independent 2:1 weighted gate");
+  }
 }
 
 void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
@@ -27920,6 +28738,8 @@ int main() {
   }
   run_fp8_m32_wmma_invalid_capture_contract(test, stream);
   run_nvfp4_m32_wmma_invalid_capture_contract(test, stream);
+  run_nvfp4_m17_m31_runtime_masked_m32_invalid_capture_contract(test,
+                                                                 stream);
   run_nvfp4_m32_public_fallback_graph_contract(test, stream);
   run_nvfp4_factorized_product_lookup_exhaustive(test, stream);
   run_nvfp4_m32_wmma_resource_gates(test);
@@ -28047,6 +28867,7 @@ int main() {
   run_optional_nvfp4_m16_k128_performance(test, stream);
   run_optional_nvfp4_m32_wmma_performance(test, stream);
   run_optional_nvfp4_m18_masked_m32_performance(test, stream);
+  run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(test, stream);
   run_optional_nvfp4_m32_dual_stream_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
