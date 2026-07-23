@@ -208,6 +208,12 @@ The diagnostic Phase 3 records are:
   capacity and bitwise gates, four-cell synthetic kernel result, P19/C32
   B-C-C-B TTFT promotion, matched Nsight launch/time attribution, full model
   replay, host sanitizer coverage, and the platform-blocked device memcheck.
+- [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
+  which records the rejected test-only Decode M1 BF16 pair/scale factorization:
+  exhaustive and full-path bitwise gates, compiler resources, unchanged
+  production SASS, two consistently regressing full-shape synthetic cells, the
+  static-instruction interpretation, removal of all candidate code, and the
+  explicit absence of a production-dispatch change.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-factorized-rejection",
+  "status": "rejected-test-only-decode-m1-factorized-candidate",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "1607e761b8acf39002bb9977d1973402a99c0f75",
+    "base_subject": "docs: record exact NVFP4 M18 prefill",
+    "runtime_commit": "09aa7f7b842c64703b74ed8ea1c7df4754ec5773",
+    "runtime_subject": "kernels: accelerate exact NVFP4 M18 prefill",
+    "candidate_commit": null,
+    "candidate_retained": false,
+    "production_dispatch_changed": false,
+    "project_version": "0.2.0",
+    "candidate_test_binary": {
+      "path_during_measurement": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4594056,
+      "sha256": "43655106bd03787af8cb35f175c2645fd438f4aa42edc02ea245b7bfa5fea666",
+      "checked_in": false,
+      "retained": false,
+      "path_was_overwritten_by_reverted_build": true
+    },
+    "reverted_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4322344,
+      "sha256": "6d59e6f4aa49fc63c19b7462648554cad3324acc9b4546660637d041850d779a",
+      "checked_in": false,
+      "source_tree": "exact base HEAD 1607e761b8acf39002bb9977d1973402a99c0f75",
+      "identity_note": "This clean rebuild has a different binary hash from the earlier historical M18 test binary while using the exact committed source tree."
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "The symmetric B-C-C-B measurements are diagnostic rather than locked-clock release claims."
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "weight_encoding": "NVFP4",
+    "activation_and_output_dtype": "BF16",
+    "technique": "factorized BF16 pair and scale-codebook lookup",
+    "scope": "test-only clones of the M1 raw down, gate/up plus SiLU, and residual-add/centered-RMSNorm/gate/up/SiLU kernels",
+    "selected_hotspot": "residual-add plus centered-RMSNorm plus gate/up plus SiLU",
+    "selected_shape_n_by_k": [17408, 5120],
+    "baseline_entry": "public production residual_norm_gate_up_silu dispatcher",
+    "candidate_entry": "exact test-only factorized clone",
+    "production_dispatch_ever_selected_candidate": false
+  },
+  "correctness": {
+    "exhaustive_bf16x2_product_lookup": {
+      "combinations": 65536,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "reference_nan_halves": 1024,
+      "factorized_nan_halves": 1024,
+      "gate": "pass"
+    },
+    "bounded_full_path_fixture": {
+      "rows": 2048,
+      "columns": 512,
+      "outputs": [
+        {
+          "name": "gate_silu",
+          "values_checked": 2048,
+          "mismatches": 0,
+          "matching_nan_values": 4
+        },
+        {
+          "name": "up",
+          "values_checked": 2048,
+          "mismatches": 0,
+          "matching_nan_values": 2
+        },
+        {
+          "name": "raw_down",
+          "values_checked": 2048,
+          "mismatches": 0,
+          "matching_nan_values": 2
+        },
+        {
+          "name": "residual",
+          "values_checked": 512,
+          "mismatches": 0,
+          "matching_nan_values": 0
+        },
+        {
+          "name": "residual_norm_gate_silu",
+          "values_checked": 2048,
+          "mismatches": 0,
+          "matching_nan_values": 4
+        },
+        {
+          "name": "residual_norm_up",
+          "values_checked": 2048,
+          "mismatches": 0,
+          "matching_nan_values": 2
+        }
+      ],
+      "invalid_operation_enqueued_nodes": 0,
+      "gate": "pass"
+    },
+    "exact_selected_hotspot": [
+      {
+        "distribution": "synthetic_checkpoint_like",
+        "mismatches": 0,
+        "finite": true,
+        "guards_intact": true,
+        "replay_exact": true,
+        "gate": "pass"
+      },
+      {
+        "distribution": "synthetic_same_bank_stress",
+        "mismatches": 0,
+        "finite": true,
+        "guards_intact": true,
+        "replay_exact": true,
+        "gate": "pass"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "kernel": "raw_down",
+      "registers_per_thread": 60,
+      "static_shared_bytes": 36352,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate": "pass"
+    },
+    {
+      "kernel": "gate_up_silu",
+      "registers_per_thread": 61,
+      "static_shared_bytes": 11776,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate": "pass"
+    },
+    {
+      "kernel": "residual_norm_gate_up_silu",
+      "registers_per_thread": 61,
+      "static_shared_bytes": 12288,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate": "pass"
+    }
+  ],
+  "production_sass_identity": {
+    "interpretation": "Adding the test-only candidate did not alter any of the four audited production kernel sections.",
+    "sections": [
+      {
+        "kernel": "gate_up_silu",
+        "normalized_sha256_before": "d238199a35ef0fa661ae4fb009d137839ca4afe71d1cc701c6fbd58909df33a1",
+        "normalized_sha256_after": "d238199a35ef0fa661ae4fb009d137839ca4afe71d1cc701c6fbd58909df33a1",
+        "normalized_lines": 1973
+      },
+      {
+        "kernel": "raw_down",
+        "normalized_sha256_before": "0226307d918b4116e451795f22e9cebf7764e12dffc26599b83e9533faf67b73",
+        "normalized_sha256_after": "0226307d918b4116e451795f22e9cebf7764e12dffc26599b83e9533faf67b73",
+        "normalized_lines": 1589
+      },
+      {
+        "kernel": "down_residual_norm",
+        "normalized_sha256_before": "bd4d6adb78dd0b6f982672f1362f5d8fe2fdbf0c747561ff1e2c6344f2e8d038",
+        "normalized_sha256_after": "bd4d6adb78dd0b6f982672f1362f5d8fe2fdbf0c747561ff1e2c6344f2e8d038",
+        "normalized_lines": 2565
+      },
+      {
+        "kernel": "residual_norm_gate_up_silu_selected_hotspot",
+        "normalized_sha256_before": "cd9c0020697da20505eb7d26247fdbf3ef15294f755f28776ad1f1b2d65f707d",
+        "normalized_sha256_after": "cd9c0020697da20505eb7d26247fdbf3ef15294f755f28776ad1f1b2d65f707d",
+        "normalized_lines": 2693
+      }
+    ]
+  },
+  "performance_protocol": {
+    "selected_hotspot_only": true,
+    "shape_n_by_k": [17408, 5120],
+    "data_distributions": [
+      "synthetic_checkpoint_like",
+      "synthetic_same_bank_stress"
+    ],
+    "actual_checkpoint_payload_used": false,
+    "warmup_launches_per_route": 10,
+    "round_order": "B-C-C-B",
+    "rounds": 4,
+    "launches_per_pass": 64,
+    "summary_statistic": "median of eight per-launch pass averages",
+    "minimum_selected_speedup": 1.03,
+    "minimum_each_cell_speedup": 1.0
+  },
+  "performance": [
+    {
+      "distribution": "synthetic_checkpoint_like",
+      "rounds_ms_per_launch": [
+        {
+          "baseline_first": 0.674396,
+          "candidate_first": 0.744946,
+          "candidate_second": 0.744533,
+          "baseline_second": 0.674384
+        },
+        {
+          "baseline_first": 0.674551,
+          "candidate_first": 0.744243,
+          "candidate_second": 0.744033,
+          "baseline_second": 0.674182
+        },
+        {
+          "baseline_first": 0.674316,
+          "candidate_first": 0.744176,
+          "candidate_second": 0.744506,
+          "baseline_second": 0.674466
+        },
+        {
+          "baseline_first": 0.674495,
+          "candidate_first": 0.744326,
+          "candidate_second": 0.744272,
+          "baseline_second": 0.674731
+        }
+      ],
+      "baseline_median_ms": 0.674431,
+      "candidate_median_ms": 0.744299,
+      "speedup": 0.906129,
+      "candidate_latency_increase_percent": 10.359548,
+      "all_candidate_passes_slower": true,
+      "reversed_round": false,
+      "gate": "fail"
+    },
+    {
+      "distribution": "synthetic_same_bank_stress",
+      "rounds_ms_per_launch": [
+        {
+          "baseline_first": 0.616073,
+          "candidate_first": 0.670201,
+          "candidate_second": 0.669818,
+          "baseline_second": 0.616854
+        },
+        {
+          "baseline_first": 0.618537,
+          "candidate_first": 0.670371,
+          "candidate_second": 0.670475,
+          "baseline_second": 0.617115
+        },
+        {
+          "baseline_first": 0.617198,
+          "candidate_first": 0.670393,
+          "candidate_second": 0.670152,
+          "baseline_second": 0.616622
+        },
+        {
+          "baseline_first": 0.616014,
+          "candidate_first": 0.669745,
+          "candidate_second": 0.669913,
+          "baseline_second": 0.616333
+        }
+      ],
+      "baseline_median_ms": 0.616738,
+      "candidate_median_ms": 0.670177,
+      "speedup": 0.920262,
+      "candidate_latency_increase_percent": 8.664781,
+      "all_candidate_passes_slower": true,
+      "reversed_round": false,
+      "gate": "fail"
+    }
+  ],
+  "static_instruction_audit": {
+    "scope": "selected public production hotspot versus its test-only factorized clone",
+    "baseline_to_candidate_opcode_counts": {
+      "FFMA": [101, 101],
+      "FADD": [76, 76],
+      "FMUL": [81, 17],
+      "LDS": [87, 55],
+      "HFMA2": [0, 32],
+      "PRMT": [3, 77],
+      "IMAD": [217, 276]
+    },
+    "interpretation": "The compact lookup removes many scalar FMUL and LDS instructions, but the generated code adds BF16-pair arithmetic, packing and unpacking, permutations, and integer address work. That extra work is a plausible explanation for the measured regression.",
+    "causality_limit": "This is a static-SASS inference, not an NCU counter-based causal attribution."
+  },
+  "decision": {
+    "result": "reject",
+    "selected_gate": "fail",
+    "reason": "Both synthetic full-shape cells regress, by about 10.36% and 8.66%, and therefore fail both the 1.03 selected-hotspot threshold and the 1.00 per-cell threshold.",
+    "candidate_code_removed": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "end_to_end_benchmark_required_after_failure": false,
+    "raw_down_scope": "Raw down passed correctness and resource checks but was not timed; this rejection must not be generalized to raw-down performance.",
+    "next_priority": "Measure a general M17/M19-M31 masked-M32 Prefill dispatch, beginning with M17/M19 boundary and dynamic-valid-count gates before long-prompt evaluation. Keep broader multi-stream scheduling deferred."
+  },
+  "removal_validation": {
+    "candidate_source_diff_after_removal": "empty",
+    "rebuild_source": "exact base HEAD 1607e761b8acf39002bb9977d1973402a99c0f75",
+    "reverted_default_test": "pass",
+    "reverted_default_log_matches_prior_m18_default_log_sha256": true,
+    "production_runtime_restored": true
+  },
+  "limitations": [
+    "The performance fixtures are synthetic checkpoint-like and same-bank distributions; no actual checkpoint tensor payload was used.",
+    "Only the hottest public residual/norm/gate/up/SiLU path was timed. The raw-down factorized clone has correctness and resource evidence only.",
+    "The timing is a same-binary test-only kernel gate, not a model, TTFT, Decode throughput, serving, power, or energy benchmark.",
+    "GPU and memory clocks were not locked.",
+    "The SASS opcode comparison supports only an implementation-level hypothesis and is not NCU causal evidence.",
+    "The failed candidate never entered production dispatch, and all candidate source was removed after recording the evidence."
+  ],
+  "artifacts": [
+    {
+      "role": "default correctness and resource log",
+      "local_path": "/tmp/q3x-m1-factorized-default-final.log",
+      "bytes": 38406,
+      "sha256": "e43bf713c3bad0e2eb546c17e464ac233ab70188776fc07cfdda0c81ea3b063a",
+      "checked_in": false,
+      "result": "pass"
+    },
+    {
+      "role": "selected-hotspot performance gate log",
+      "local_path": "/tmp/q3x-m1-factorized-perf.log",
+      "bytes": 40555,
+      "sha256": "45a8fd18f839e1f516866dd8246f5f7bd4d68054ee90ad786b2d5b9a73bce0ac",
+      "checked_in": false,
+      "result": "expected candidate rejection assertion"
+    },
+    {
+      "role": "post-removal default test log",
+      "local_path": "/tmp/q3x-m1-factorized-reverted-default.log",
+      "bytes": 36900,
+      "sha256": "847df6ea98b2a9afbfa736878b36a326bab35ec0c0cd8d2aa5cd34495628f74f",
+      "checked_in": false,
+      "result": "pass"
+    }
+  ]
+}

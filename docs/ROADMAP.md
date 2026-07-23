@@ -389,12 +389,21 @@ reduces the target from 384 launches / 280.353888 ms to 192 launches /
 M18 gate/up remains serial on the main stream, so this milestone is not
 double/triple buffering and does not extend the C32-only dual-stream policy.
 
-The immediate priority now moves to Decode M1 NVFP4 factorized scale-codebook
-work: first require a matched test-only correctness/resource/performance gate,
-then promote only a candidate that clears that gate into production dispatch.
-General M17/M19-M31 coverage and further multi-stream scheduling remain behind
-that measured decode target. See the
-[M18 masked-M32 record](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
+The immediate Decode M1 NVFP4 factorized scale-codebook candidate has now been
+measured and rejected. Its exhaustive and full-path bitwise/resource gates
+pass, but the selected production hotspot regresses from 0.674431 to 0.744299
+ms on synthetic checkpoint-like data and from 0.616738 to 0.670177 ms on the
+same-bank fixture. Every B-C-C-B pass moves in the same losing direction. The
+candidate never entered production dispatch, and all test-only source was
+removed. This rejects that specific fused-kernel factorization; raw down was
+not timed and no actual checkpoint tensor payload was used. See the
+[M1 factorized rejection record](metadata/qwen36-27b-nvfp4-m1-factorized-rejection.json).
+
+The next priority returns to general M17/M19-M31 masked-M32 Prefill coverage.
+First establish measured dispatch, exact-capacity, and dynamic-valid-count
+gates at the M17/M19 boundaries; then widen across M20-M31 and evaluate
+tokenizer-pinned long prompts only after the kernel gate passes. Further
+multi-stream scheduling remains behind this phase-local measured work.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

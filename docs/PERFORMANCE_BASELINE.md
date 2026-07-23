@@ -2644,3 +2644,61 @@ scale-codebook candidate; production integration follows only if that gate
 passes. Full binary identities, commands, hashes, profiler attribution, and
 limits are in the
 [M18 masked-M32 record](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
+
+## Rejected Decode M1 NVFP4 factorized lookup
+
+The next bounded Decode probe tested a BF16 pair/scale factorization in
+test-only clones of the raw down, gate/up-plus-SiLU, and post-attention
+residual/norm/gate/up/SiLU M1 kernels. The working-tree base was `1607e76`,
+whose production runtime is `09aa7f7`. The candidate never entered production
+dispatch, and all candidate source was removed after the gate failed. A clean
+rebuild from the exact base HEAD then passed the default test; its 36,900-byte
+log has the same SHA-256 as the prior M18 default log.
+
+The semantic and resource gates passed. An exhaustive BF16x2 product lookup
+covered all 65,536 E2M1-pair/E4M3-scale combinations with zero word or half
+mismatches and the same 1,024 NaN halves. The bounded gate/up, down, and fused
+paths were bit-exact, including matching NaNs. Both exact full-shape fused
+fixtures had zero mismatches, finite outputs, intact guards, and exact replay.
+The factorized kernels retain zero local memory, 256 threads per block, and
+four active CTAs/SM:
+
+| Test-only kernel | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Raw down | 60 | 36,352 B | 0 B | 4 |
+| Gate/up + SiLU | 61 | 11,776 B | 0 B | 4 |
+| Residual/norm/gate/up + SiLU | 61 | 12,288 B | 0 B | 4 |
+
+The selected performance gate compared the public production
+residual/norm/gate/up/SiLU path with its exact test-only clone at
+`[17408,5120]`. It used synthetic checkpoint-like and same-bank-stress data,
+ten warmups, four B-C-C-B rounds, 64 launches per pass, and the median of the
+eight per-launch pass averages:
+
+| Synthetic distribution | Production | Factorized clone | Speedup | Latency change | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Checkpoint-like | 0.674431 ms | 0.744299 ms | 0.906129x | +10.36% | reject |
+| Same-bank stress | 0.616738 ms | 0.670177 ms | 0.920262x | +8.66% | reject |
+
+Every measured candidate pass was slower; neither cell reversed direction.
+The required gates were 1.03x for the selected hotspot and 1.00x for each
+cell, so the candidate failed decisively before an end-to-end run was
+warranted. These fixtures did not use actual checkpoint tensor data. Raw down
+was checked only for correctness and resources, not timing, so this result
+must not be generalized into a raw-down performance claim.
+
+Static SASS inspection gives a plausible implementation-level explanation,
+not an NCU counter-based causal result. For the hottest fused path, FFMA and
+FADD remain 101 and 76, while FMUL falls from 81 to 17 and LDS from 87 to 55.
+However, the clone adds 32 HFMA2 instructions, grows PRMT from 3 to 77, and
+IMAD from 217 to 276. The compact lookup's arithmetic savings appear to be
+consumed by BF16 packing/unpacking, permutations, and integer addressing.
+Separately, the four audited production SASS sections remain byte-normalized
+identical; the hottest production section remains 2,693 normalized lines.
+
+The next priority returns to Prefill: measure a general M17/M19-M31
+masked-M32 dispatch, starting with M17/M19 boundary and dynamic-valid-count
+gates before long-prompt evaluation. Broader multi-stream scheduling remains
+deferred. Full rounds, hashes, compiler evidence, scope boundaries, and local
+artifact identities are in the
+[M1 factorized rejection record](metadata/qwen36-27b-nvfp4-m1-factorized-rejection.json).
