@@ -99,13 +99,15 @@ kernels that reuse each loaded weight across all M activation rows; M9..M15
 are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
 format-specific fixed-tile launcher: exact aligned production shapes use
 Ampere BF16 Tensor Core MMA and every other valid case falls back to two
-ordered M8 launches. M17..M31 use an M16-first composite followed by an M8 and
-M1..M7 tail as required; M18 is M16+M2. At M32, the four exact aligned FP8
-production shapes and the two exact aligned NVFP4 MLP shapes use one
-fixed-M32 Tensor Core kernel. Other valid FP8 and NVFP4 M32 cases use two
-ordered M16 launches. BF16 weights and the reference backend enqueue M checked
-M1 projections. The launcher validates the complete tile spans, scratch
-capacity, overflow, and input/output overlap before enqueueing any work.
+ordered M8 launches. M17 and M19..M31 use an M16-first composite followed by
+an M8 and M1..M7 tail as required. Exact aligned NVFP4 M18 MLP shapes instead
+use one masked-M32 Tensor Core kernel; every FP8 M18 and each NVFP4 near-miss
+uses ordered M16+M2. At M32, the four exact aligned FP8 production shapes and
+the two exact aligned NVFP4 MLP shapes use one fixed-M32 Tensor Core kernel.
+Other valid FP8 and NVFP4 M32 cases use two ordered M16 launches. BF16 weights
+and the reference backend enqueue M checked M1 projections. The launcher
+validates the complete tile spans, scratch capacity, overflow, and input/output
+overlap before enqueueing any work.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
@@ -118,11 +120,28 @@ activations are 8-byte aligned. It combines canonical E2M1 values with their
 E4M3FN block scales before the same BF16 MMA. Neither route repacks or mutates
 the resident checkpoint.
 
+The fixed-M18 NVFP4 route accepts only `token_count=18` and those same two
+shapes under the same packed-weight 16-byte, block-scale 2-byte, and BF16-input
+8-byte alignment gates. The public input and output allocations remain strict
+C18 spans; the masked-M32 implementation loads only rows 0..17, zero-fills
+internal rows 18..31, and stores only rows 0..17. It therefore requires no C32
+capacity or padding from the caller. All FP8 M18 cases, NVFP4 shape near-misses,
+and calls missing any alignment gate retain the ordered public M16+M2 path.
+For `launch_projection_pair_tile_to_bf16_cuda`, both M18 projections must pass
+the exact gate before bypassing generic pair sub-tiling; the complete pair is
+validated before enqueue and its two masked-M32 kernels retain first-then-second
+order. The reference runner does not use a second stream for M18 gate/up: its
+two independent calls stay serial on the main stream, with no double/triple
+buffering or Prefill/Decode overlap.
+
 The fixed-M32 NVFP4 route accepts those same two shapes and alignment gates.
 Its single K64/LD72 WMMA kernel keeps two 16-token activation panels resident
 in shared memory and reuses each decoded 64-by-128 weight tile across two
 independent accumulator chains. Every other valid NVFP4 M32 projection falls
-back to two ordered public M16 launches.
+back to two ordered public M16 launches. At runner level only, an exact C32
+gate/up pair may overlap gate on the main stream with up on one auxiliary
+stream before an event join; that narrow branch overlap is separate from the
+projection binding API and does not generalize to M18 or Decode.
 
 Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
 256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
@@ -137,8 +156,9 @@ CTA for reuse by grid-stride row quads. Down stages 34 KiB; gate/up and lm-head
 stage 10 KiB. The cooperative global copy is 8 bytes wide, so all three routes
 preserve the existing 8-byte activation alignment contract; they add no repack
 or 16-byte public alignment requirement. Near-miss shapes, packed-weight or
-activation misalignment, and M2 through M31 retain their preceding routes;
-M32 uses the fixed-tile dispatch described above.
+activation misalignment retain their preceding routes. M2 through M17 and M19
+through M31 do likewise; exact M18 and M32 use the fixed-tile dispatches
+described above.
 
 Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
 4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
@@ -212,13 +232,16 @@ the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
 production routes at M1 through M32, BF16/reference fallback, M9..M15
-segmentation, M16 Tensor Core selection/two-M8 fallback, M17..M31 M16-first
-composition, exact M32 Tensor Core selection/two-M16 fallback, scratch behavior,
-whole-tile overlap/span validation, and fail-closed backend and variant
-handling. It also covers exact-shape FP8 M1 K/V and QKV/Z pair selection,
-near-miss and unaligned ordered fallbacks, different output sizes,
-cross-output alias rejection, fail-before-enqueue behavior, CUDA Graph node
-counts, and stale-error isolation. It uses only synthetic buffers.
+segmentation, M16 Tensor Core selection/two-M8 fallback, M17/M19..M31
+M16-first composition, exact M18 masked-M32 selection/M16+M2 fallback, exact
+M32 Tensor Core selection/two-M16 fallback, scratch behavior, whole-tile
+overlap/span validation, and fail-closed backend and variant handling. Its M18
+coverage checks both production shapes, FP8 and alignment fallbacks, strict
+C18 input/output spans, pair ordering, cross-output alias rejection, and
+fail-before-enqueue CUDA Graph node counts. It also covers exact-shape FP8 M1
+K/V and QKV/Z pair selection, other near-miss and unaligned ordered fallbacks,
+different output sizes, and stale-error isolation. It uses only synthetic
+buffers.
 
 `sm87_weight_only_gemv` covers awkward dimensions, aligned/unaligned dispatch,
 all packed E4M3FN and E2M1 positions, the model reduction lengths, independent
@@ -238,6 +261,15 @@ E2M1/E4M3 product lookup on both checkpoint-like and same-bank-stress fixtures.
 Production selects factorized K64/LD72; the final same-cubin gate requires no
 individual regression and at least 1.02x production-call-weighted speedup over
 the full-table K256 scale-window predecessor.
+The exact M18 masked-M32 gate is enabled with
+`Q3X_RUN_SM87_NVFP4_M18_MASKED_M32_PERF=1`. It compares the public production
+M18 entry with an explicit preceding M16+M2 baseline for both MLP shapes and
+checkpoint-like/same-bank distributions, while checking strict C18 capacity,
+bitwise outputs, replay, canaries, and kernel resources. Its final
+production-call-weighted speedup is 1.73817x. A detached P19/C32 B-C-C-B run
+measures 548.7825 to 439.5980 ms median TTFT (1.24837x), and matched Nsight
+traces reduce all CUDA kernels from 2,264 to 2,072 and the target projections
+from 384 to 192 launches.
 The FP8 M1 K/V pair correctness segment runs by default and covers all 254
 finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
 bitwise comparison, and output canaries. Its optional mirrored timing gate is
@@ -270,3 +302,11 @@ execution and verify `func`, grid, block, and dynamic-shared launch identity,
 including scalar function identity for packed-weight `+1` and activation `+2`
 fallbacks. The down gate also proves that the preserved direct XOR baseline
 remains a distinct callable kernel.
+
+For the exact-M18 production revision, Release CTest reports 49 passed, 5
+skipped, and 0 failed; host C++ ASan/UBSan reports 48 passed, 5 skipped, and 0
+failed. Exact C1/C8/C16/C32 pinned-model oracle runs pass. Device
+`compute-sanitizer` did not run to completion because this Orin reports GPU
+debugging features disabled, so it is recorded as platform-blocked rather than
+passed. See the
+[machine-readable M18 record](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).

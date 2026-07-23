@@ -2108,6 +2108,10 @@ The next kernel priority is a true M17-M32 projection path; overlap work should
 follow measured NCU stall evidence. Full commands, artifact hashes, ABI notes,
 and limits are in the [C32 composite prefill record](metadata/qwen36-27b-c32-composite-prefill-benchmark.json).
 
+This paragraph is retained as the historical `e6fac6b` baseline. Commit
+`09aa7f7` supersedes its M18 projection description only for the two exact
+aligned NVFP4 MLP shapes; see the current M18 section below.
+
 ## Production FP8 M32 projection
 
 Commit `5c4845b` promotes the fixed-M32 FP8 WMMA candidate into public and
@@ -2563,3 +2567,80 @@ clearing the end-to-end promotion gate. The logical Prefill/Decode plan split
 remains useful for independent phase benchmarks and kernel selection. Full
 rounds, decision thresholds, and limitations are in the
 [A/B sidecar rejection record](metadata/qwen36-27b-linear-ab-sidecar-rejection.json).
+
+## Exact NVFP4 M18 masked-M32 prefill
+
+Commit `09aa7f7` promotes a single-pass M18 projection for the exact aligned
+NVFP4 MLP shapes `[17408,5120]` and `[5120,17408]`. The detached baseline is
+`965ebb4`; its runtime is equivalent to `c58b797` because the intervening
+Linear-Attention sidecar work was documentation-only after its test candidate
+was removed. Other M18 shapes and insufficiently aligned operands preserve
+the ordered public M16+M2 fallback.
+
+The kernel uses an M32 WMMA tile internally but has an exact C18 external
+capacity contract. It globally reads only input rows 0 through 17, zero-fills
+the internal activation rows 18 through 31, and globally stores only output
+rows 0 through 17. Exact-C18 allocations, output-tail canaries, replay, finite
+checks, token-15/16 boundaries, invalid-route rejection, and graph-node counts
+all pass. No caller-visible 32-row input or output padding is required.
+
+The production API microbenchmark uses ten warmups, 24 measured iterations per
+pass, and four B-C-C-B rounds. It compares the candidate with explicit public
+M16+M2 calls across checkpoint-like and same-bank-stress scale distributions:
+
+| Shape and distribution | M16+M2 | Masked M32 | Speedup |
+| --- | ---: | ---: | ---: |
+| `[17408,5120]` gate/up, checkpoint-like | 1.38387 ms | 0.746593 ms | 1.85358x |
+| `[17408,5120]` gate/up, same-bank stress | 1.35469 ms | 0.749178 ms | 1.80824x |
+| `[5120,17408]` down, checkpoint-like | 1.45716 ms | 0.907094 ms | 1.60640x |
+| `[5120,17408]` down, same-bank stress | 1.42400 ms | 0.910023 ms | 1.56479x |
+
+Applying the production 128:64 gate/up-to-down call mix across both
+distributions reduces the weighted aggregate from 534.930 to 307.754 ms, or
+1.73817x.
+
+The P19/C32 detached-binary B-C-C-B run uses one warmup and five measured
+maximum-one-token iterations per process:
+
+| Process order | TTFT median |
+| --- | ---: |
+| Baseline 1 | 548.801 ms |
+| Candidate 1 | 439.642 ms |
+| Candidate 2 | 439.554 ms |
+| Baseline 2 | 548.764 ms |
+
+The mirrored means move from 548.7825 to 439.5980 ms, a -109.1845 ms
+(-19.8958%, 1.2483735x) improvement with no reversed round. The non-timing
+generation contract is unchanged.
+
+Matched Nsight Systems profiles attribute the mechanism directly:
+
+| Metric | M16+M2 baseline | Exact M18 | Change |
+| --- | ---: | ---: | ---: |
+| All kernel launches | 2,264 | 2,072 | -192 |
+| Summed all-kernel time | 562.744480 ms | 454.835648 ms | -107.908832 ms |
+| All-kernel span | 572.676640 ms | 460.716960 ms | -111.959680 ms |
+| Gate/up projection | 128 M16 / 125.570368 ms | 128 M18 / 106.655584 ms | -18.914784 ms |
+| Down projection | 64 M16 / 71.424832 ms | 64 M18 / 64.636960 ms | -6.787872 ms |
+| M2 projection tails | 192 / 83.358688 ms | 0 | -192 launches / -83.358688 ms |
+| Complete projection target | 384 / 280.353888 ms | 192 / 171.292544 ms | 1.636696x |
+
+Release validation reports 49 passes, five environment skips, and zero
+failures from 54 tests. The host C++ ASan/UBSan selection reports 48 passes,
+five skips, and zero failures from 53 tests; this is not a sanitizer claim for
+CUDA device code. Separate C1/C8/C16/C32 real-model processes preserve the
+pinned 19 prompt IDs, 26 generated IDs, exact decoded text, `im_end`, and all
+44 logical steps. Device `compute-sanitizer` could not run because this Orin
+reports that GPU debugging features are disabled; that check is
+platform-blocked, not passed. Exact-C18 allocation/canary coverage and the
+full-model oracle are the available device-memory-safety evidence.
+
+M18 gate and up remain ordered single kernels on the main stream. The route
+does not use the C32-only gate/up auxiliary stream, does not introduce
+double/triple buffering, and does not overlap Prefill with Decode. With exact
+M18 promoted and broader scheduling candidates exhausted or deferred, the next
+priority is a matched test-only gate for a Decode M1 NVFP4 factorized
+scale-codebook candidate; production integration follows only if that gate
+passes. Full binary identities, commands, hashes, profiler attribution, and
+limits are in the
+[M18 masked-M32 record](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).

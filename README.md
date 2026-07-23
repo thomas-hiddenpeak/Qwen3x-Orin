@@ -40,6 +40,20 @@ Nsight Systems traces reduce gate/up plus down work from 217.672096 to
 to pass the exact 27B model oracle. These measurements remain unlocked-clock,
 batch-one evidence rather than a serving-throughput claim.
 
+The current exact NVFP4 M18 prefill route replaces the usual ordered M16+M2
+composition for the aligned `[17408,5120]` and `[5120,17408]` MLP projections
+with one masked-M32 kernel. Its final production-call-weighted microbenchmark
+measures 1.73817x over the preceding M16+M2 path. A detached-binary P19/C32
+B-C-C-B comparison reduces median TTFT from 548.7825 to 439.5980 ms
+(1.24837x), and matched Nsight traces reduce all CUDA kernels from 2,264 to
+2,072 while the target MLP projections fall from 384 to 192 launches. Release
+CTest reports 49 passed, 5 skipped, and 0 failed; the host C++ ASan/UBSan build
+reports 48 passed, 5 skipped, and 0 failed. Exact C1/C8/C16/C32 model-oracle
+runs pass. Device `compute-sanitizer` was attempted, but Orin reported that GPU
+debugging features are disabled, so device memcheck is platform-blocked rather
+than passed. These are unlocked-clock batch-one diagnostics; see the
+[machine-readable M18 record](docs/metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
+
 The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
@@ -168,9 +182,9 @@ checked scalar fallback. Within M=1, aligned exact NVFP4 `[5120,17408]` down,
 activation-staged XOR-dual instances. Down stages its 34-KiB activation, while
 gate/up and lm-head each stage 10 KiB. All three use 8-byte cooperative global
 copies, so the public alignment contract and checkpoint layout are unchanged.
-Near-miss shapes, packed-weight or activation misalignment, and M2 through
-M31 retain their previous routes; M32 follows the fixed-tile dispatch
-described below.
+Near-miss shapes and packed-weight or activation misalignment retain their
+previous routes. M2 through M17 and M19 through M31 do likewise; exact M18 and
+M32 follow the fixed-tile dispatch described below.
 Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
@@ -200,8 +214,17 @@ causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
 single-token operations. With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
 shape-gated Tensor Core path above or safely falls back to two M8 launches.
-M17 through M31 use M16-first composition, so M18 is M16+M2. At M32, the four
-exact aligned FP8 production shapes and the exact aligned NVFP4
+M17 and M19 through M31 use M16-first composition. At exactly M18, aligned
+NVFP4 `[17408,5120]` and `[5120,17408]` projections use one masked-M32 Tensor
+Core kernel when packed weights are 16-byte aligned, block scales are 2-byte
+aligned, and the BF16 input is 8-byte aligned. Its public contract requires
+only the exact C18 input/output spans: rows 18 through 31 are zero-filled
+internally, never read from the caller, and never stored. Every FP8 M18 case,
+plus NVFP4 shape near-misses or calls that miss any alignment gate, uses the
+ordered M16+M2 fallback. The pair dispatcher validates both projections before
+enqueue and preserves first-then-second launch order; the production C18 MLP
+gate/up calls likewise remain serial on the main stream. At M32, the four exact
+aligned FP8 production shapes and the exact aligned NVFP4
 `[17408,5120]` gate/up and `[5120,17408]` down shapes use one fixed-M32 Tensor
 Core kernel. The NVFP4 route is the factorized K64/LD72 kernel: it keeps two
 16-token activation panels resident, coalesces scales in K256 windows, and
@@ -535,9 +558,13 @@ reference, opt-in shape-gated projection optimization, and opt-in `C<=32`
 prompt-prefix tiling. Recurrent state and causal attention still advance token
 by token inside each tile. It does not yet provide large-prefill kernels,
 continuous batching, a server, or a release-grade performance claim. Prefill
-and Decode now have distinct internal host-control plans, but production still
-executes both through the same runner and serialized CUDA schedule; overlapping
-buffers and multi-stream execution remain future measured work. The independent
+and Decode have distinct internal host-control plans but still execute through
+the same runner, without double/triple buffering or Prefill/Decode overlap.
+Most work, including exact M18 gate/up, remains serialized on the main stream.
+The narrow exception is exact aligned NVFP4 C32 MLP gate/up: the runner may
+overlap gate on its main stream with up on one owned auxiliary stream and join
+them with events. This is layer-local branch overlap, not a general multi-stream
+scheduler. The independent
 target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as

@@ -203,6 +203,11 @@ The diagnostic Phase 3 records are:
   which records the test-only exact-C32 production-dispatch A/B sidecar gate,
   three scheduling variants, four-output bitwise equality, marginal and
   regressing envelopes, and the decision to retain the serial runtime.
+- [`qwen36-27b-nvfp4-m18-masked-m32-benchmark.json`](qwen36-27b-nvfp4-m18-masked-m32-benchmark.json),
+  which records the exact aligned NVFP4 M18 masked-M32 Prefill route, exact-C18
+  capacity and bitwise gates, four-cell synthetic kernel result, P19/C32
+  B-C-C-B TTFT promotion, matched Nsight launch/time attribution, full model
+  replay, host sanitizer coverage, and the platform-blocked device memcheck.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

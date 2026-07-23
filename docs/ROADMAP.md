@@ -173,8 +173,11 @@ Deliverables:
   production shapes, with two-M16 fallback elsewhere.
 - [done, exact-shape gated] Fixed-M32 NVFP4 Tensor Core projections for
   `[17408,5120]` and `[5120,17408]`, with two-M16 fallback elsewhere.
-- Measure the general M17-M31 Tensor Core crossover after the two exact M32
-  production routes; retain M16-plus-tail composition until then.
+- [done, exact-shape gated] Masked-M32 NVFP4 Tensor Core projections for exact
+  M18 `[17408,5120]` and `[5120,17408]`, with exact external C18 capacity and
+  ordered M16+M2 fallback elsewhere.
+- Measure the remaining general M17 and M19-M31 Tensor Core crossover; retain
+  M16-plus-tail composition until a shape clears its own production gate.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -374,6 +377,24 @@ optimization through the existing logical Prefill/Decode plan split. Broad
 Prefill/Decode overlap remains invalid for one batch-one request because token
 and persistent state dependencies are causal; multi-request continuous
 batching is a later serving project, not an extension of local branch overlap.
+
+The exact M18 Prefill milestone (`09aa7f7`) is now complete. For the two aligned
+NVFP4 MLP shapes, an internally masked M32 kernel replaces M16+M2 without
+requiring padded caller storage. Its four microbenchmark cells improve by
+1.85358x/1.80824x for gate/up and 1.60640x/1.56479x for down; the 128:64
+production-call-weighted result is 1.73817x. P19/C32 mirrored TTFT improves
+from 548.7825 to 439.5980 ms (-19.8958%, 1.2483735x), and matched profiling
+reduces the target from 384 launches / 280.353888 ms to 192 launches /
+171.292544 ms (1.636696x). C1/C8/C16/C32 exact-model gates remain intact.
+M18 gate/up remains serial on the main stream, so this milestone is not
+double/triple buffering and does not extend the C32-only dual-stream policy.
+
+The immediate priority now moves to Decode M1 NVFP4 factorized scale-codebook
+work: first require a matched test-only correctness/resource/performance gate,
+then promote only a candidate that clears that gate into production dispatch.
+General M17/M19-M31 coverage and further multi-stream scheduling remain behind
+that measured decode target. See the
+[M18 masked-M32 record](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

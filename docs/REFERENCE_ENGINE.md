@@ -200,14 +200,36 @@ reproduces the same 19 prompt IDs, 26 output IDs, decoded text, stop reason,
 and 44 steps exactly. Its implementation and diagnostic performance record is
 [`qwen36-27b-c16-tensor-core-prefill-benchmark.json`](metadata/qwen36-27b-c16-tensor-core-prefill-benchmark.json).
 
-The bounded C32 composite baseline extends only the outer layer-major tile.
-Its validated leaf operations remain C16 or smaller: quantized projections
-use M16-first decomposition, causal Conv/GDN and full-attention Q/K+RoPE
-preprocessing execute ordered subtiles of at most 16 rows, and the final
-prompt/logits step remains scalar. Thus P19 uses one M18 outer tile internally
-resolved as M16+M2 projections, while P33 uses one M32 outer tile resolved as
-M16+M16. The same runner stream performs one final synchronization and one
-sequence-length commit for the complete outer tile.
+The historical bounded C32 composite baseline extended only the outer
+layer-major tile. At that milestone its validated leaf operations remained C16
+or smaller: quantized projections used M16-first decomposition, causal Conv/GDN
+and full-attention Q/K+RoPE preprocessing executed ordered subtiles of at most
+16 rows, and the final prompt/logits step remained scalar. Thus P19 used one
+M18 outer tile whose projections resolved as M16+M2, while P33 used one M32
+outer tile resolved as M16+M16. The same runner stream performed one final
+synchronization and one sequence-length commit for the complete outer tile.
+The M18 projection detail is retained here as historical evidence and is
+superseded for the two exact NVFP4 MLP shapes by commit `09aa7f7` below.
+
+Commit `09aa7f7` adds an exact aligned NVFP4 M18 route for
+`[17408,5120]` gate/up and `[5120,17408]` down projections. Its public contract
+accepts exact 18-row input and output spans: the masked-M32 WMMA kernel reads
+only those 18 input rows, zero-fills internal rows 18 through 31, and stores
+only output rows 0 through 17. It therefore requires no caller-visible C32
+padding. Other shapes and insufficiently aligned operands retain the ordered
+M16+M2 fallback.
+
+Against detached baseline `965ebb4` (runtime-equivalent to `c58b797`), the P19
+C32 B-C-C-B medians are 548.801, 439.642, 439.554, and 548.764 ms. Mirrored
+means improve from 548.7825 to 439.5980 ms (-109.1845 ms, -19.8958%,
+1.2483735x) without a reversed round. Matched Nsight Systems profiles replace
+384 target M16/M2 launches with 192 M18 launches and reduce their summed time
+from 280.353888 to 171.292544 ms (1.636696x). C1/C8/C16/C32 real-model runs
+preserve the exact pinned token/text/stop oracle. The M18 gate and up
+projections still execute serially on the main stream; this change adds
+neither buffering nor Prefill/Decode phase overlap. Full measurement and
+validation details are in the
+[`M18 masked-M32 record`](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
 
 The original C1 single-run timings are evidence, not performance targets:
 

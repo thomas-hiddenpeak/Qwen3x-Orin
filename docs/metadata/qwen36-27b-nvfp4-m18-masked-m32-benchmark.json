@@ -1,0 +1,446 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m18-masked-m32-benchmark",
+  "status": "production-exact-m18-nvfp4-masked-m32-prefill",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "09aa7f7b842c64703b74ed8ea1c7df4754ec5773",
+    "candidate_subject": "kernels: accelerate exact NVFP4 M18 prefill",
+    "baseline_commit": "965ebb4f0b5f87e148a848e5acfe19301681064a",
+    "baseline_subject": "docs: record rejected Linear A/B sidecar",
+    "inherited_c32_dual_stream_runtime_commit": "c58b797df4533c56da4555e5de019b50b5f05a0d",
+    "inherited_c32_dual_stream_runtime_subject": "runtime: overlap C32 MLP gate and up",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3636224,
+      "sha256": "53fde7a73bd55c746c646d7f55833ea60c724110eb930501a087d6a269979ed8",
+      "checked_in": false
+    },
+    "production_dispatch_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4322344,
+      "sha256": "1b4d0a4fc4e172cec55deeb7b414cf4fafa64629297d465888633c7bf6140d32",
+      "checked_in": false
+    },
+    "detached_baseline_binary": {
+      "local_path": "/tmp/q3x-m18-baseline-965ebb4/build/orin-release/qwen3x-orin",
+      "bytes": 3568120,
+      "sha256": "46a10be0df40121284fe69095d2892d8351d1e84edfc5fa3152ae438e0c5a7cc",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root; all timing results are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "scope": "exact 18-token NVFP4 prompt-prefix projection tiles on the SM87 weight-only backend",
+    "public_entry": "launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda",
+    "production_route": "kNvFp4M18MaskedM32Wmma",
+    "ordered_fallback_route": "kSplitM18IntoM16M2",
+    "eligibility": {
+      "projection_backend": "sm87_weight_only",
+      "token_count": 18,
+      "direct_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+      "weight_encoding": "NVFP4",
+      "packed_weight_alignment_bytes": 16,
+      "block_scale_alignment_bytes": 2,
+      "activation_alignment_bytes": 8
+    },
+    "masked_m32_kernel": {
+      "base_specialization": "K64/LD72 dual-resident-A fixed-M32 WMMA with K256 scale windows, factorized E2M1/E4M3 lookup, and vectorized decoded stores",
+      "internal_token_rows": 32,
+      "valid_token_rows": 18,
+      "masked_shared_rows": 14,
+      "global_input_rows_read": 18,
+      "global_output_rows_written": 18,
+      "padded_input_capacity_required": false,
+      "padded_output_capacity_required": false,
+      "wmma_accumulation_order_changed": false,
+      "kernel_nodes_per_projection": 1
+    },
+    "baseline": {
+      "sequence": ["one public M16 projection", "one public M2 projection"],
+      "kernel_nodes_per_projection": 2
+    },
+    "fallbacks": {
+      "other_valid_m18_shapes_or_alignment": "one ordered public M16 launch followed by one public M2 launch",
+      "fp8_m18": "one ordered public M16 launch followed by one public M2 launch",
+      "m17_and_m19": "retain the existing higher-level ordered split behavior",
+      "empty_rows_or_columns": "successful no-op"
+    },
+    "validation_before_enqueue": {
+      "complete_input_shape": [18, "columns"],
+      "complete_output_shape": [18, "rows"],
+      "null_pointer_checks": true,
+      "group_size_checks": true,
+      "finite_nonnegative_weight_scale_checks": true,
+      "size_overflow_and_address_wrap_checks": true,
+      "output_overlap_checks": ["packed_weights", "block_scales", "activations"],
+      "invalid_operation_enqueues_zero_nodes": true
+    },
+    "pair_dispatch": {
+      "exact_eligible_pair_kernel_nodes": 2,
+      "launch_order": "first projection then second projection on the caller stream",
+      "all_or_nothing_pair_validation": true,
+      "real_p19_runner_usage": "not used; the runner issues independent gate and up calls"
+    },
+    "phase_and_scheduling": {
+      "prefill_decode_plans_logically_separate": true,
+      "optimized_phase": "Prefill only",
+      "decode_changed": false,
+      "m18_gate_up_execution": "serial on one stream",
+      "m18_uses_c32_auxiliary_stream": false,
+      "c32_dual_stream_route_preserved": true,
+      "prefill_decode_overlap": false,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "continuous_batching": false
+    },
+    "resource_usage_each_exact_shape": {
+      "registers_per_thread": 46,
+      "static_shared_bytes": 24576,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5
+    }
+  },
+  "validation": {
+    "default_production_test": "pass",
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "host_cpp_asan_ubsan_suite": {
+      "build_type": "RelWithDebInfo",
+      "compile_flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "link_flags": "-fsanitize=address,undefined",
+      "runtime_options": {
+        "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "linked_libraries": ["libasan.so.8", "libubsan.so.1"],
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "coverage_note": "Host C++ was sanitizer-instrumented; CUDA translation units did not receive host sanitizer flags."
+    },
+    "cuda_compute_sanitizer": {
+      "status": "blocked",
+      "tool": "compute-sanitizer memcheck",
+      "targeted_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+      "exit_code_each": 99,
+      "diagnostic": "GPU debugging features are disabled",
+      "passed": false,
+      "interpretation": "This is a platform/tool restriction and is not a device-memory-check pass. Exact-capacity allocations, guard checks, bitwise CUDA tests, and model replay provide the available device-side safety evidence."
+    },
+    "direct_exact_capacity_gate": {
+      "candidate_input_capacity_tokens": 18,
+      "candidate_output_capacity_tokens": 18,
+      "separate_m32_oracle_input_capacity_tokens": 32,
+      "replay_output_capacity_tokens": 32,
+      "rows": [
+        {
+          "shape_n_by_k": [17408, 5120],
+          "distributions": ["checkpoint_like", "same_bank_stress"],
+          "outputs_checked_per_distribution": 313344,
+          "candidate_vs_public_m32_mismatches": 0,
+          "first16_vs_preceding_m16_plus_m2_mismatches": 0,
+          "tail2_bf16_mismatches": 0,
+          "replay_mismatches": 0
+        },
+        {
+          "shape_n_by_k": [5120, 17408],
+          "distributions": ["checkpoint_like", "same_bank_stress"],
+          "outputs_checked_per_distribution": 92160,
+          "candidate_vs_public_m32_mismatches": 0,
+          "first16_vs_preceding_m16_plus_m2_mismatches": 0,
+          "tail2_bf16_mismatches": 0,
+          "replay_mismatches": 0
+        }
+      ],
+      "tail2_max_abs": 0.0,
+      "tail2_max_rel": 0.0,
+      "outputs_finite": true,
+      "replay_tail_intact": true,
+      "default_smoke_output_tail_intact": true
+    },
+    "cuda_graph_dispatch_contract": {
+      "single_exact_m18_kernel_nodes": 1,
+      "single_m17_kernel_nodes": 2,
+      "single_m19_kernel_nodes": 2,
+      "single_packed_weight_plus_4_bytes_kernel_nodes": 3,
+      "single_block_scale_plus_1_byte_kernel_nodes": 3,
+      "single_shape_near_miss_kernel_nodes": 3,
+      "single_activation_plus_2_bytes_kernel_nodes": 18,
+      "pair_exact_m18_kernel_nodes": 2,
+      "pair_m17_kernel_nodes": 4,
+      "pair_m19_kernel_nodes": 4,
+      "pair_one_sided_packed_or_scale_misalignment_kernel_nodes": 5,
+      "pair_activation_plus_2_bytes_kernel_nodes": 36,
+      "alias_and_final_input_row_overlap_fail_before_enqueue": true,
+      "invalid_kernel_nodes": 0
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only"
+    },
+    "independent_review": "no production correctness, out-of-bounds, or enqueue-order blocker"
+  },
+  "same_binary_microbenchmark": {
+    "baseline": "explicit preceding public M16 plus public M2 launches",
+    "candidate": "public production M18 entry",
+    "protocol_per_round": "baseline-candidate-candidate-baseline",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "required_each_cell_speedup": 1.05,
+    "required_weighted_speedup": 1.15,
+    "cells": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "checkpoint_like",
+        "production_m16_plus_m2_ms": 1.38387,
+        "masked_m32_ms": 0.746593,
+        "speedup": 1.85358,
+        "gate": "pass"
+      },
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "same_bank_stress",
+        "production_m16_plus_m2_ms": 1.35469,
+        "masked_m32_ms": 0.749178,
+        "speedup": 1.80824,
+        "gate": "pass"
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "checkpoint_like",
+        "production_m16_plus_m2_ms": 1.45716,
+        "masked_m32_ms": 0.907094,
+        "speedup": 1.60640,
+        "gate": "pass"
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "same_bank_stress",
+        "production_m16_plus_m2_ms": 1.42400,
+        "masked_m32_ms": 0.910023,
+        "speedup": 1.56479,
+        "gate": "pass"
+      }
+    ],
+    "weighted_aggregate": {
+      "profile_call_weights_gate_up_down": [128, 64],
+      "weighting_note": "The 128:64 call weights are applied to each of the two distributions and then summed.",
+      "production_m16_plus_m2_ms": 534.930,
+      "masked_m32_ms": 307.754,
+      "speedup": 1.73817,
+      "all_cells_passed": true,
+      "gate": "pass"
+    }
+  },
+  "p19_c32_bccb": {
+    "user_text": "用一句话解释 CUDA 是什么。",
+    "prompt_token_count": 19,
+    "prefix_token_count": 18,
+    "m18_prefix_tiles": 1,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "max_tokens": 1,
+    "warmup_iterations": 1,
+    "measured_iterations_per_process": 5,
+    "projection_backend": "sm87_weight_only",
+    "order": ["baseline", "candidate", "candidate", "baseline"],
+    "median_ttft_ms_in_order": [548.801, 439.642, 439.554, 548.764],
+    "mirrored_pairs": [
+      {
+        "baseline_ms": 548.801,
+        "candidate_ms": 439.642,
+        "saved_ms": 109.159,
+        "reduction_percent": 19.890452095,
+        "speedup": 1.248290654669,
+        "gate": "pass"
+      },
+      {
+        "baseline_ms": 548.764,
+        "candidate_ms": 439.554,
+        "saved_ms": 109.210,
+        "reduction_percent": 19.901086806,
+        "speedup": 1.248456389886,
+        "gate": "pass"
+      }
+    ],
+    "combined": {
+      "baseline_mean_ms": 548.7825,
+      "candidate_mean_ms": 439.5980,
+      "saved_ms": 109.1845,
+      "reduction_percent": 19.895769271,
+      "speedup": 1.248373514,
+      "required_speedup": 1.10,
+      "reversed_pairs": 0,
+      "gate": "pass"
+    },
+    "output_contract": {
+      "status": "ok",
+      "prompt_ids_equal": true,
+      "generated_token_id": 77517,
+      "generated_text": "CUDA",
+      "stop_reason": "max_new_tokens",
+      "step_count": 19,
+      "all_non_timing_fields_equal": true
+    }
+  },
+  "p19_c32_nsys": {
+    "protocol": "separate baseline and candidate processes under external Nsight Systems CUDA tracing",
+    "prompt_token_count": 19,
+    "prefix_token_count": 18,
+    "requested_prefill_chunk_size": 32,
+    "max_tokens": 1,
+    "application_trace_flag_used": false,
+    "baseline": {
+      "all_kernel_count": 2264,
+      "all_kernel_sum_ms": 562.744480,
+      "all_kernel_span_ms": 572.676640,
+      "target_projection_rows": [
+        {
+          "family": "M16",
+          "shape": "17408x5120_gate_up",
+          "instances": 128,
+          "total_ms": 125.570368,
+          "average_us": 981.019
+        },
+        {
+          "family": "M16",
+          "shape": "5120x17408_down",
+          "instances": 64,
+          "total_ms": 71.424832,
+          "average_us": 1116.013
+        },
+        {
+          "family": "M2",
+          "shape": "runtime_shape",
+          "instances": 192,
+          "total_ms": 83.358688,
+          "average_us": 434.160
+        }
+      ],
+      "target_projection_launches": 384,
+      "target_projection_total_ms": 280.353888
+    },
+    "candidate": {
+      "all_kernel_count": 2072,
+      "all_kernel_sum_ms": 454.835648,
+      "all_kernel_span_ms": 460.716960,
+      "target_projection_rows": [
+        {
+          "family": "M18_masked_M32",
+          "shape": "17408x5120_gate_up",
+          "instances": 128,
+          "total_ms": 106.655584,
+          "average_us": 833.247
+        },
+        {
+          "family": "M18_masked_M32",
+          "shape": "5120x17408_down",
+          "instances": 64,
+          "total_ms": 64.636960,
+          "average_us": 1009.952
+        }
+      ],
+      "target_projection_launches": 192,
+      "target_projection_total_ms": 171.292544
+    },
+    "delta": {
+      "all_kernel_count_reduction": 192,
+      "all_kernel_count_reduction_percent": 8.480565371,
+      "all_kernel_sum_saved_ms": 107.908832,
+      "all_kernel_sum_reduction_percent": 19.175458105,
+      "all_kernel_span_saved_ms": 111.959680,
+      "all_kernel_span_reduction_percent": 19.550243921,
+      "target_projection_launch_reduction": 192,
+      "target_projection_launch_reduction_percent": 50.0,
+      "target_projection_saved_ms": 109.061344,
+      "target_projection_reduction_percent": 38.901313186,
+      "target_projection_speedup": 1.636696388
+    },
+    "attribution": "The target projection kernels save 109.061344 ms, while the complete kernel sum saves 107.908832 ms, the complete kernel span saves 111.959680 ms, and the unprofiled mirrored TTFT saves 109.184500 ms. The launch reduction is exactly the 192 former M2 tails."
+  },
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "commands": [
+      "ctest --test-dir build/orin-release --output-on-failure",
+      "Q3X_RUN_SM87_NVFP4_M18_MASKED_M32_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "for chunk in 1 8 16 32; do build/orin-release/q3x_reference_engine_e2e_test MODEL sm87 \"${chunk}\"; done",
+      "{BASELINE_OR_CANDIDATE} benchmark MODEL --prompt \"用一句话解释 CUDA 是什么。\" --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 544 --prefill-chunk-size 32 --projection-backend sm87",
+      "nsys profile --trace=cuda --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o OUTPUT {BASELINE_OR_CANDIDATE} generate MODEL --prompt \"用一句话解释 CUDA 是什么。\" --max-tokens 1 --prefill-chunk-size 32 --projection-backend sm87"
+    ],
+    "nsys_attribution_source": "CUPTI_ACTIVITY_KIND_KERNEL rows in the exported SQLite reports; target rows are classified by demangled M16, M2, and M18 masked-M32 kernel names."
+  },
+  "limitations": [
+    "GPU and memory clocks were not locked, so all timing comparisons are diagnostic.",
+    "The optional four-cell microbenchmark uses synthetic checkpoint-like and same-bank-stress fixtures; it is a kernel promotion gate, not a model or serving-throughput result.",
+    "CUDA compute-sanitizer device memcheck did not run because GPU debugging features are disabled on this Orin; the two exit-99 logs must not be interpreted as device-memory-check passes.",
+    "ASan and UBSan instrument host C++ only; they do not instrument the CUDA device code.",
+    "The production promotion is limited to exact aligned M18 NVFP4 [17408,5120] and [5120,17408] projections; other shapes and alignments retain ordered fallbacks.",
+    "M18 gate and up remain serial on one stream. The inherited auxiliary-stream route applies only to exact C32 gate/up, and this milestone adds no double/triple buffering, phase overlap, or Prefill/Decode overlap.",
+    "The end-to-end benchmark is batch-one generation for one tokenizer-pinned short prompt and one output token; it excludes engine-load time and does not establish concurrent-request or serving throughput.",
+    "The Nsight comparison uses separate baseline and candidate processes and is consistent with, but does not replace, the unprofiled B-C-C-B timing gate.",
+    "Raw logs, binaries, and profiler reports are local evidence and are not checked into the repository."
+  ],
+  "artifacts": [
+    {"role": "default production correctness and resource log", "local_path": "/tmp/q3x-m18-production-default.log", "bytes": 36900, "sha256": "847df6ea98b2a9afbfa736878b36a326bab35ec0c0cd8d2aa5cd34495628f74f", "checked_in": false},
+    {"role": "same-binary four-cell performance log", "local_path": "/tmp/q3x-m18-production-perf.log", "bytes": 43210, "sha256": "3cd612e8d458f276da13c527160f8df3a8ef5b526b79d750c1cab52d1b4776d6", "checked_in": false},
+    {"role": "exact-candidate Release suite log", "local_path": "/tmp/q3x-m18-release-final.log", "bytes": 7398, "sha256": "2ac32b0ec02780bdb793414ee8a58baff4a98d368e6fcdf3ce6fc8818560ef1a", "checked_in": false},
+    {"role": "verified host C++ ASan UBSan suite log", "local_path": "/tmp/q3x-m18-sanitize.log", "bytes": 23346, "sha256": "5f82e666ca331216bfc649e52cdeb74823e0517d1960468a84a49be3a2f8c7a4", "checked_in": false},
+    {"role": "blocked gate/up compute-sanitizer log", "local_path": "/tmp/q3x-m18-memcheck-gate-up.log", "bytes": 43405, "sha256": "e7457c96fbb1762a5c10a6434e47f40bada6610809de29ea98a66abd6e183930", "checked_in": false},
+    {"role": "blocked down compute-sanitizer log", "local_path": "/tmp/q3x-m18-memcheck-down.log", "bytes": 43405, "sha256": "d8be40f88dbb1392f53297fc10bd5c8d25cc4578dc8d882e8ba4b8c94442fa3b", "checked_in": false},
+    {"role": "C1 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m18-oracle-c1.log", "bytes": 242, "sha256": "1cbfac93bb5fbf8a678318472398c7f7db04e9dc8cdeefc71fcf5cec151ab878", "checked_in": false},
+    {"role": "C8 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m18-oracle-c8.log", "bytes": 240, "sha256": "2138ae66bcc29343d03c28aad62df7f134bbf4e9676a6d2ddd776ef55a9a3945", "checked_in": false},
+    {"role": "C16 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m18-oracle-c16.log", "bytes": 240, "sha256": "00eed8b547fda08b3eb60b794fba2b136def76991e7db0367beffab8460e3460", "checked_in": false},
+    {"role": "C32 real-model oracle log", "local_path": "/tmp/q3x-nvfp4-m18-oracle-c32.log", "bytes": 242, "sha256": "e8faf122747c3239b7ad8d4b9def599145cff0fce4993306a1af9b4243af5ba6", "checked_in": false},
+    {"role": "baseline B1 P19 C32 benchmark log", "local_path": "/tmp/q3x-nvfp4-m18-p19-c32-b1.log", "bytes": 3973, "sha256": "3473f51d7649b863f72d6c5a1363b6f98b275b19629da4907e73266088b66d6d", "checked_in": false},
+    {"role": "candidate C1 P19 C32 benchmark log", "local_path": "/tmp/q3x-nvfp4-m18-p19-c32-c1.log", "bytes": 3973, "sha256": "dfbf7c19645b56aeb661bbe330092543cdf3940c056d3b81ed5d919ee92015fb", "checked_in": false},
+    {"role": "candidate C2 P19 C32 benchmark log", "local_path": "/tmp/q3x-nvfp4-m18-p19-c32-c2.log", "bytes": 3973, "sha256": "48b023c2b0ef618254ff1e3312ca4cd3d9873c9f7f45ab6868ccd56b60e173d5", "checked_in": false},
+    {"role": "baseline B2 P19 C32 benchmark log", "local_path": "/tmp/q3x-nvfp4-m18-p19-c32-b2.log", "bytes": 3973, "sha256": "19c49b22ed69d84b2a673869ffa2de7633063534e58093471db066344d6558cf", "checked_in": false},
+    {"role": "baseline P19 C32 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m18-profile-baseline-p019-c32.nsys-rep", "bytes": 361823, "sha256": "74648008d164097c3da2f88febbfb18defd251f789dcd8f49fb53f25b02e2e6b", "checked_in": false},
+    {"role": "baseline P19 C32 Nsight Systems SQLite", "local_path": "/tmp/q3x-nvfp4-m18-profile-baseline-p019-c32.sqlite", "bytes": 1073152, "sha256": "ef9a8e360305fc2cc23b06eaa08b43aedacd4ce2cde2a01a8f3330e51e5ab29b", "checked_in": false},
+    {"role": "candidate P19 C32 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m18-profile-candidate-p019-c32.nsys-rep", "bytes": 347816, "sha256": "6d8a2a6a0f2ac39ed531e69f5227b71d956ec6974669690658d9c0541c3ba938", "checked_in": false},
+    {"role": "candidate P19 C32 Nsight Systems SQLite", "local_path": "/tmp/q3x-nvfp4-m18-profile-candidate-p019-c32.sqlite", "bytes": 1032192, "sha256": "bfc4f0fe036218379ac900606ac61dea38ddf71bc8822ecaecfd98e97b76528d", "checked_in": false},
+    {"role": "baseline P19 C32 Nsight run log", "local_path": "/tmp/q3x-nvfp4-m18-profile-baseline-p019-c32.log", "bytes": 2554, "sha256": "ac3f4fb765d7979425de885e69c44c6c11306845a825cb7b41c19d12ee844a3a", "checked_in": false},
+    {"role": "candidate P19 C32 Nsight run log", "local_path": "/tmp/q3x-nvfp4-m18-profile-candidate-p019-c32.log", "bytes": 2562, "sha256": "18d854dc14e4069e5a735ecc674a93b48f2233dd50d84402b961074ceaefbce3", "checked_in": false},
+    {"role": "baseline P19 C32 Nsight classified summary CSV", "local_path": "/tmp/q3x-nvfp4-m18-profile-baseline-p019-c32-summary.csv", "bytes": 247, "sha256": "fa369e97635b0f8c6326f2e61d81d0c58b9708950a8c5279e35e5cbca47751ce", "checked_in": false},
+    {"role": "candidate P19 C32 Nsight classified summary CSV", "local_path": "/tmp/q3x-nvfp4-m18-profile-candidate-p019-c32-summary.csv", "bytes": 230, "sha256": "c6a2f4a26bb21afd564e4f2b1f2240a7f7097ebee4ebb6ed29bc6910e82ea14d", "checked_in": false}
+  ],
+  "next_priority": "Decode M1 NVFP4 factorized scale-codebook"
+}
