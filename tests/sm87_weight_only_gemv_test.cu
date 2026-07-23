@@ -549,6 +549,19 @@ query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_lookup_resources_tes
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -13896,6 +13909,13 @@ void run_nvfp4_m32_wmma_smoke_case(
       test, stream, packed, scales, activations, baseline, rows, columns,
       kWeightScale2,
       q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda,
+      0xb4U, 0x4bU,
+      distribution_label + " K64/LD72 factorized vector store");
+  run_nvfp4_m32_candidate_smoke(
+      test, stream, packed, scales, activations, baseline, rows, columns,
+      kWeightScale2,
+      q3x::kernels::
           launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda,
       0x3cU, 0xc3U, distribution_label + " K128/LD136 single-A");
   run_nvfp4_m32_candidate_smoke(
@@ -13936,7 +13956,7 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
     std::size_t expected_static_shared_bytes;
     int minimum_active_blocks;
   };
-  constexpr std::array<Candidate, 4U> kCandidates{{
+  constexpr std::array<Candidate, 5U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda,
@@ -13948,6 +13968,10 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
       {"K64/LD72 factorized lookup",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_lookup_resources_test_cuda,
+       51, 24'576U, 5},
+      {"K64/LD72 factorized vector store",
+       q3x::kernels::
+           query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_resources_test_cuda,
        51, 24'576U, 5},
       {"K128/LD136 single-A",
        q3x::kernels::
@@ -14023,7 +14047,7 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
     const char* label;
     NvFp4M32TestLaunch launch;
   };
-  constexpr std::array<Candidate, 4U> kCandidates{{
+  constexpr std::array<Candidate, 5U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_test_cuda},
@@ -14033,6 +14057,9 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
       {"K64/LD72 factorized lookup",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_lookup_test_cuda},
+      {"K64/LD72 factorized vector store",
+       q3x::kernels::
+           launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda},
       {"K128/LD136 single-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda},
@@ -14689,10 +14716,15 @@ struct NvFp4M32WmmaCellMeasurement {
       std::numeric_limits<double>::quiet_NaN();
   double factorized_milliseconds =
       std::numeric_limits<double>::quiet_NaN();
+  double vector_store_reference_milliseconds =
+      std::numeric_limits<double>::quiet_NaN();
+  double vector_store_milliseconds =
+      std::numeric_limits<double>::quiet_NaN();
   bool k64_bitwise_equal = false;
   bool k128_bitwise_equal = false;
   bool scale_window_bitwise_equal = false;
   bool factorized_bitwise_equal = false;
+  bool vector_store_bitwise_equal = false;
   bool output_finite = false;
 };
 
@@ -14771,6 +14803,7 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
   DeviceBuffer<std::uint16_t> k128_output;
   DeviceBuffer<std::uint16_t> scale_window_output;
   DeviceBuffer<std::uint16_t> factorized_output;
+  DeviceBuffer<std::uint16_t> vector_store_output;
   bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
                             label + " allocate packed weights");
   ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
@@ -14789,6 +14822,9 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
   ready = ready && test.cuda_ok(
                        factorized_output.allocate(output_elements),
                        label + " allocate K64 factorized-lookup output");
+  ready = ready && test.cuda_ok(
+                       vector_store_output.allocate(output_elements),
+                       label + " allocate K64 factorized-vector output");
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(packed.get(), host_packed.data(),
                                        host_packed.size(),
@@ -14846,12 +14882,20 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
             shape.rows, shape.columns, factorized_output.get(),
             static_cast<void*>(stream));
   };
+  const auto launch_vector_store = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            shape.rows, shape.columns, vector_store_output.get(),
+            static_cast<void*>(stream));
+  };
 
   std::vector<std::uint16_t> baseline(output_elements);
   std::vector<std::uint16_t> candidate_k64(output_elements);
   std::vector<std::uint16_t> candidate_k128(output_elements);
   std::vector<std::uint16_t> candidate_scale_window(output_elements);
   std::vector<std::uint16_t> candidate_factorized(output_elements);
+  std::vector<std::uint16_t> candidate_vector_store(output_elements);
   NvFp4M32WmmaShapeMeasurement shape_measurement{};
   for (std::size_t distribution_index = 0U;
        distribution_index < kNvFp4M16K128ScaleDistributions.size();
@@ -14883,6 +14927,10 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
                          static_cast<cudaError_t>(launch_factorized()),
                          distribution_label +
                              " correctness K64 factorized lookup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_vector_store()),
+                         distribution_label +
+                             " correctness K64 factorized vector store");
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              baseline.data(), baseline_output.get(),
@@ -14919,6 +14967,15 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
                          distribution_label +
                              " copy K64 factorized lookup");
     ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_vector_store.data(),
+                             vector_store_output.get(),
+                             candidate_vector_store.size() *
+                                 sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label +
+                             " copy K64 factorized vector store");
+    ready = ready && test.cuda_ok(
                          cudaStreamSynchronize(stream),
                          distribution_label + " correctness synchronize");
     if (!ready) {
@@ -14929,6 +14986,7 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
     std::size_t k128_mismatches = 0U;
     std::size_t scale_window_mismatches = 0U;
     std::size_t factorized_mismatches = 0U;
+    std::size_t vector_store_mismatches = 0U;
     bool output_finite = true;
     for (std::size_t index = 0U; index < output_elements; ++index) {
       k64_mismatches += baseline[index] != candidate_k64[index] ? 1U : 0U;
@@ -14940,6 +14998,10 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
           candidate_scale_window[index] != candidate_factorized[index]
               ? 1U
               : 0U;
+      vector_store_mismatches +=
+          candidate_factorized[index] != candidate_vector_store[index]
+              ? 1U
+              : 0U;
       output_finite = output_finite &&
                       std::isfinite(decode_bf16(baseline[index])) &&
                       std::isfinite(decode_bf16(candidate_k64[index])) &&
@@ -14947,7 +15009,9 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
                       std::isfinite(
                           decode_bf16(candidate_scale_window[index])) &&
                       std::isfinite(
-                          decode_bf16(candidate_factorized[index]));
+                          decode_bf16(candidate_factorized[index])) &&
+                      std::isfinite(
+                          decode_bf16(candidate_vector_store[index]));
     }
     NvFp4M32WmmaCellMeasurement& measurement =
         shape_measurement.distributions[distribution_index];
@@ -14956,6 +15020,8 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
     measurement.scale_window_bitwise_equal =
         scale_window_mismatches == 0U;
     measurement.factorized_bitwise_equal = factorized_mismatches == 0U;
+    measurement.vector_store_bitwise_equal =
+        vector_store_mismatches == 0U;
     measurement.output_finite = output_finite;
     std::cout << "NVFP4_M32_WMMA_DIFF: " << label << " distribution="
               << nvfp4_m1_scale_distribution_name(distribution)
@@ -14966,6 +15032,8 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
               << " scale_window_vs_previous_production_k64="
               << scale_window_mismatches << '/' << output_elements
               << " factorized_vs_scale_window=" << factorized_mismatches
+              << '/' << output_elements
+              << " vector_store_vs_factorized=" << vector_store_mismatches
               << '/' << output_elements
               << " output_finite=" << (output_finite ? "true" : "false")
               << '\n';
@@ -14979,6 +15047,9 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
     test.expect(measurement.factorized_bitwise_equal,
                 distribution_label +
                     " K64 factorized lookup is bit-exact to scale-window");
+    test.expect(measurement.vector_store_bitwise_equal,
+                distribution_label +
+                    " K64 factorized vector store is bit-exact");
     test.expect(output_finite, distribution_label + " outputs remain finite");
 
     for (int iteration = 0; iteration < kWarmupIterations && ready;
@@ -14997,6 +15068,9 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
       ready = ready && test.cuda_ok(
                            static_cast<cudaError_t>(launch_factorized()),
                            distribution_label + " factorized warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_vector_store()),
+                           distribution_label + " vector-store warmup");
     }
     ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                   distribution_label + " warmup synchronize");
@@ -15012,10 +15086,13 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
     double scale_window_total = 0.0;
     double factorized_reference_total = 0.0;
     double factorized_total = 0.0;
+    double vector_store_reference_total = 0.0;
+    double vector_store_total = 0.0;
     bool k64_timings_finite = true;
     bool k128_timings_finite = true;
     bool scale_window_timings_finite = true;
     bool factorized_timings_finite = true;
+    bool vector_store_timings_finite = true;
     const auto measure_mirrored_pair =
         [&](const auto& launch_reference, const auto& launch_candidate,
             const char* const reference_name,
@@ -15079,7 +15156,17 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
             "production_k64_factorized_lookup",
             factorized_reference_total, factorized_total,
             factorized_timings_finite, round);
+        measure_mirrored_pair(
+            launch_factorized, launch_vector_store,
+            "production_k64_factorized_lookup",
+            "factorized_vector_store", vector_store_reference_total,
+            vector_store_total, vector_store_timings_finite, round);
       } else {
+        measure_mirrored_pair(
+            launch_factorized, launch_vector_store,
+            "production_k64_factorized_lookup",
+            "factorized_vector_store", vector_store_reference_total,
+            vector_store_total, vector_store_timings_finite, round);
         measure_mirrored_pair(
             launch_scale_window, launch_factorized,
             "previous_production_k64_scale_window",
@@ -15128,6 +15215,12 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
       measurement.factorized_milliseconds =
           factorized_total / kCandidateTimedPasses;
     }
+    if (vector_store_timings_finite) {
+      measurement.vector_store_reference_milliseconds =
+          vector_store_reference_total / kBaselineTimedPasses;
+      measurement.vector_store_milliseconds =
+          vector_store_total / kCandidateTimedPasses;
+    }
   }
   return shape_measurement;
 }
@@ -15135,7 +15228,7 @@ benchmark_nvfp4_m32_wmma_shape(TestContext& test, cudaStream_t stream,
 void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
                                                cudaStream_t stream) {
   if (!nvfp4_m32_wmma_performance_enabled()) {
-    std::cout << "SKIP: NVFP4 M32 WMMA dual-candidate performance segment; "
+    std::cout << "SKIP: NVFP4 M32 WMMA multi-candidate performance segment; "
                  "set Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1 to enable\n";
     return;
   }
@@ -15146,6 +15239,8 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
   constexpr double kMinimumScaleWindowWeightedSpeedup = 1.05;
   constexpr double kMinimumFactorizedCellSpeedup = 1.00;
   constexpr double kMinimumFactorizedWeightedSpeedup = 1.02;
+  constexpr double kMinimumVectorStoreCellSpeedup = 1.00;
+  constexpr double kMinimumVectorStoreWeightedSpeedup = 1.02;
   constexpr std::array<NvFp4M32WmmaShape, 2U> kShapes{{
       {17'408U, 5'120U, 128U, "NVFP4 M32 gate/up 17408x5120"},
       {5'120U, 17'408U, 64U, "NVFP4 M32 down 5120x17408"},
@@ -15166,10 +15261,13 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
   double weighted_scale_window = 0.0;
   double weighted_factorized_reference = 0.0;
   double weighted_factorized = 0.0;
+  double weighted_vector_store_reference = 0.0;
+  double weighted_vector_store = 0.0;
   bool all_k64_cells_pass = true;
   bool all_k128_cells_pass = true;
   bool all_scale_window_cells_pass = true;
   bool all_factorized_cells_pass = true;
+  bool all_vector_store_cells_pass = true;
   for (std::size_t shape_index = 0U; shape_index < kShapes.size();
        ++shape_index) {
     for (std::size_t distribution_index = 0U;
@@ -15188,6 +15286,9 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
       const double factorized_speedup =
           cell.factorized_reference_milliseconds /
           cell.factorized_milliseconds;
+      const double vector_store_speedup =
+          cell.vector_store_reference_milliseconds /
+          cell.vector_store_milliseconds;
       const bool k64_finite =
           std::isfinite(cell.k64_baseline_milliseconds) &&
           std::isfinite(cell.k64_dual_a_milliseconds) &&
@@ -15212,6 +15313,12 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
           std::isfinite(factorized_speedup) &&
           cell.factorized_reference_milliseconds > 0.0 &&
           cell.factorized_milliseconds > 0.0;
+      const bool vector_store_finite =
+          std::isfinite(cell.vector_store_reference_milliseconds) &&
+          std::isfinite(cell.vector_store_milliseconds) &&
+          std::isfinite(vector_store_speedup) &&
+          cell.vector_store_reference_milliseconds > 0.0 &&
+          cell.vector_store_milliseconds > 0.0;
       const bool k64_gate = cell.k64_bitwise_equal && cell.output_finite &&
                             k64_finite &&
                             k64_speedup >= kMinimumCellSpeedup;
@@ -15226,12 +15333,18 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
           cell.factorized_bitwise_equal && cell.output_finite &&
           factorized_finite &&
           factorized_speedup >= kMinimumFactorizedCellSpeedup;
+      const bool vector_store_gate =
+          cell.vector_store_bitwise_equal && cell.output_finite &&
+          vector_store_finite &&
+          vector_store_speedup >= kMinimumVectorStoreCellSpeedup;
       all_k64_cells_pass = all_k64_cells_pass && k64_gate;
       all_k128_cells_pass = all_k128_cells_pass && k128_gate;
       all_scale_window_cells_pass =
           all_scale_window_cells_pass && scale_window_gate;
       all_factorized_cells_pass =
           all_factorized_cells_pass && factorized_gate;
+      all_vector_store_cells_pass =
+          all_vector_store_cells_pass && vector_store_gate;
       const double profile_calls =
           static_cast<double>(kShapes[shape_index].profile_calls);
       weighted_k64_baseline +=
@@ -15248,6 +15361,10 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
           profile_calls * cell.factorized_reference_milliseconds;
       weighted_factorized +=
           profile_calls * cell.factorized_milliseconds;
+      weighted_vector_store_reference +=
+          profile_calls * cell.vector_store_reference_milliseconds;
+      weighted_vector_store +=
+          profile_calls * cell.vector_store_milliseconds;
       std::cout << "PERF_NVFP4_M32_WMMA_CELL: "
                 << kShapes[shape_index].label << " distribution="
                 << nvfp4_m1_scale_distribution_name(
@@ -15279,7 +15396,15 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
                 << " factorized_gate="
                 << (factorized_gate ? "PASS" : "FAIL")
                 << " factorized_minimum_speedup="
-                << kMinimumFactorizedCellSpeedup << '\n';
+                << kMinimumFactorizedCellSpeedup
+                << " vector_store_reference_factorized_ms="
+                << cell.vector_store_reference_milliseconds
+                << " vector_store_ms=" << cell.vector_store_milliseconds
+                << " vector_store_speedup=" << vector_store_speedup
+                << " vector_store_gate="
+                << (vector_store_gate ? "PASS" : "FAIL")
+                << " vector_store_minimum_speedup="
+                << kMinimumVectorStoreCellSpeedup << '\n';
     }
   }
 
@@ -15291,6 +15416,8 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
       weighted_scale_window_reference / weighted_scale_window;
   const double weighted_factorized_speedup =
       weighted_factorized_reference / weighted_factorized;
+  const double weighted_vector_store_speedup =
+      weighted_vector_store_reference / weighted_vector_store;
   const bool k64_aggregate_gate =
       all_k64_cells_pass && std::isfinite(weighted_k64_speedup) &&
       weighted_k64_speedup >= kMinimumWeightedSpeedup;
@@ -15305,20 +15432,27 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
       all_factorized_cells_pass &&
       std::isfinite(weighted_factorized_speedup) &&
       weighted_factorized_speedup >= kMinimumFactorizedWeightedSpeedup;
+  const bool vector_store_aggregate_gate =
+      all_vector_store_cells_pass &&
+      std::isfinite(weighted_vector_store_speedup) &&
+      weighted_vector_store_speedup >= kMinimumVectorStoreWeightedSpeedup;
   const bool any_candidate_eligible =
       k64_aggregate_gate || k128_aggregate_gate ||
-      scale_window_aggregate_gate || factorized_aggregate_gate;
+      scale_window_aggregate_gate || factorized_aggregate_gate ||
+      vector_store_aggregate_gate;
   const bool select_k64 =
       k64_aggregate_gate &&
       (!k128_aggregate_gate || weighted_k64_speedup >= weighted_k128_speedup);
-  const char* const selected_candidate =
-      factorized_aggregate_gate
-          ? "k64_factorized_lookup"
-          : (scale_window_aggregate_gate
-                 ? "k64_scale_window"
-                 : (!any_candidate_eligible
-                        ? "none"
-                        : (select_k64 ? "k64_dual_a" : "k128_single_a")));
+  const char* selected_candidate = "none";
+  if (vector_store_aggregate_gate) {
+    selected_candidate = "k64_factorized_vector_store";
+  } else if (factorized_aggregate_gate) {
+    selected_candidate = "k64_factorized_lookup";
+  } else if (scale_window_aggregate_gate) {
+    selected_candidate = "k64_scale_window";
+  } else if (any_candidate_eligible) {
+    selected_candidate = select_k64 ? "k64_dual_a" : "k128_single_a";
+  }
   std::cout << "PERF_NVFP4_M32_WMMA_AGGREGATE: "
             << "weighted_k64_baseline_two_public_m16_ms="
             << weighted_k64_baseline
@@ -15348,6 +15482,14 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
             << kMinimumFactorizedWeightedSpeedup
             << " factorized_gate="
             << (factorized_aggregate_gate ? "PASS" : "FAIL")
+            << " weighted_vector_store_reference_factorized_ms="
+            << weighted_vector_store_reference
+            << " weighted_vector_store_ms=" << weighted_vector_store
+            << " vector_store_speedup=" << weighted_vector_store_speedup
+            << " vector_store_required_speedup="
+            << kMinimumVectorStoreWeightedSpeedup
+            << " vector_store_gate="
+            << (vector_store_aggregate_gate ? "PASS" : "FAIL")
             << " selected=" << selected_candidate
             << " profile_calls=128:64"
             << " distributions=checkpoint_like:same_bank_stress\n";
@@ -15360,6 +15502,9 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
   test.expect(factorized_aggregate_gate,
               "NVFP4 M32 K64 factorized lookup clears every cell and the "
               "weighted scale-window-relative gate");
+  test.expect(vector_store_aggregate_gate,
+              "NVFP4 M32 K64 factorized vector store clears every cell and "
+              "the weighted factorized-relative gate");
 }
 
 constexpr std::array<std::size_t, 6U> kNvFp4GridCaps{{
