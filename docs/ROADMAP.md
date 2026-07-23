@@ -440,11 +440,25 @@ registers per thread and 24,576 static shared bytes, the kernel retains five
 active blocks per SM. This is unlocked-clock diagnostic evidence, not a causal
 speedup claim and not post-hoc evidence for the rejected dual-stream candidate.
 
-The next priority is a bounded test-only single-buffer raw-weight `cp.async`
-prefetch prototype: add one 4 KiB packed-weight stage, preserve the decoded
-weight buffer and arithmetic order, and first require exact output/canary,
-resource, and same-binary microbenchmark gates. General three-buffer
-scheduling, Prefill/Decode overlap, and continuous batching remain deferred.
+The bounded 4 KiB single-slot raw-weight `cp.async` prototype is now complete.
+Gate/up clears all 28 synthetic cells and 112 mirrored rounds at 1.06036x
+aggregate; matched M17 Nsight Compute measures 1.06315x, cuts long-scoreboard
+stalls from 5.26 to 2.67, and retains five CTAs/SM. The optimization is
+shape-sensitive: all six down screening cells regress. More importantly, the
+formal twelve-prompt B-C-C-B result is only 1.007587x (affected-only 1.008529x),
+below the required 1.01x whole-model gate despite no affected-prompt reversal
+and neutral fixed-M18/M32 controls. The temporary selector was fully withdrawn,
+and production remains serial for M17/M19-M31 and fixed M18 while preserving
+the existing M32-only auxiliary-stream route. See the
+[raw-weight cp.async rejection record](metadata/qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json).
+
+The next priority is now a trace-backed architecture study of the full
+Prefill/Decode phase timeline and scheduler. It must quantify same-request
+dependencies, CPU/GPU synchronization and idle time, and overlap available
+across requests, streams, copy engines, and continuous-batching boundaries.
+Only a material measured ceiling should advance a minimal phase-separation or
+overlap experiment. Wider raw-weight prefetch and general double/triple
+buffering remain stopped unless new evidence changes that ceiling.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

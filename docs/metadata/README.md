@@ -231,6 +231,17 @@ The diagnostic Phase 3 records are:
   Nsight Compute diagnostic of the retained production M17 kernel from the
   rejected candidate and records the evidence basis for a test-only 4 KiB
   raw-weight prefetch experiment.
+- [`qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json`](qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json),
+  which closes that 4 KiB single-slot experiment. The exact gate/up probe
+  passes all 28 synthetic cells and 112 mirrored rounds at 1.06036x aggregate,
+  while matched M17 Nsight Compute measures 1.06315x and lower long-scoreboard
+  pressure without reducing five-CTA occupancy. All six screened down cells
+  regress, however, and the formal twelve-prompt B-C-C-B result reaches only
+  1.007587x against the required 1.01x. The temporary selector was fully
+  withdrawn; production retains serial M17/M19-M31 and fixed-M18 gate/up plus
+  the existing exact-M32 auxiliary-stream route. The next priority is a
+  trace-backed Prefill/Decode phase and scheduler-overlap ceiling, not wider
+  local raw-weight prefetch.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged

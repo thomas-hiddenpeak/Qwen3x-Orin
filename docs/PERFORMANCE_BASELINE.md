@@ -2884,11 +2884,58 @@ SHA-256 `e99a80aa071a33d16dc200900faaae22b245f2a4c691b8f2bece467cc6bc26b2`;
 the 44,011-byte log has SHA-256
 `836a7237184a213dbfb0e97adb4c989d1bfe2b3e8f7c269fd88bc6a42d9986fd`.
 
-The next bounded step is therefore a test-only single-buffer raw-weight
-`cp.async` prefetch prototype. Three buffers and Prefill/Decode overlap remain
-deferred. All timings and counters use unlocked clocks. The whole-model runs
-are batch-one and maximum-one-generated-token; neither the synthetic
-microbenchmark nor the single-kernel NCU diagnostic is a serving-throughput
-result. Full identities, hashes, per-process medians, decision thresholds, and
-limits are in the
+That bounded 4 KiB raw-weight `cp.async` experiment is now measured and closed.
+The test-only kernel uses one shared raw-weight slot: after waiting for a K64 x
+N128 packed tile, each thread moves its aligned `uint4` into registers before
+the next asynchronous copy reuses the slot. It is logical register/shared
+double buffering, not a second shared slot or a three-buffer schedule. On the
+exact `17408x5120` gate/up shape, all 28 synthetic cells and all 112 mirrored
+rounds pass bitwise-output, canary, no-reversal, and 1.03x gates. The aggregate
+moves from 21.0109 to 19.8148 ms (1.06036x); the 14 per-M results range from
+1.05542x to 1.06570x.
+
+The result does not generalize to down projection. All six screened
+`5120x17408` cells at M17/M25/M31 remain correct but regress, ranging from
+0.985482x to 0.997861x, and every cell contains a mirrored-round reversal.
+Compiler resources remain within the five-CTA/SM gate: 48 registers per thread
+are unchanged, while static shared memory rises from 24,576 to 28,672 bytes.
+
+A matched unlocked-clock M17 Nsight Compute diagnostic measures 751.552 us for
+the retained kernel and 706.912 us for the candidate (1.06315x). Long-scoreboard
+stalls fall from 5.26 to 2.67 warps per active issue, SM throughput rises from
+45.03% to 51.33%, issue active from 44.85% to 48.24%, and tensor-pipe active
+from 19.11% to 20.23%. The candidate executes 87,040 `LDGSTS` instructions for
+44,564,480 bytes with zero reported shared `LDGSTS` bank conflicts. Occupancy
+remains five CTAs/SM and 83.33%. These counters support the isolated mechanism;
+they are not a serving result and do not override the whole-model gate.
+
+The formal whole-model gate used four independent B-C-C-B processes, C32, one
+warmup and five maximum-one-token measurements for each of twelve prompts. All
+four non-timing contracts are byte-identical at 11,566 bytes with SHA-256
+`b808fc56760a1d5d863608c9c4d94ce0b806b6511f90b50e2d2c137f69bddc61`.
+All ten affected prompts improve in both mirrored pairs; the fixed-M18 P19 and
+fixed-M32 P33 controls stay within 0.035% pair regression. The first and second
+aggregate pairs improve by 1.008139x and 1.007036x, but their combined result is
+only 1.007587x (affected-only 1.008529x), below the required 1.01x production
+threshold.
+
+The temporary gate/up selector is therefore rejected and fully withdrawn.
+Production retains serial runtime-mask gate/up execution for exact M17 and
+M19-M31, serial fixed M18, the existing exact-M32 auxiliary-stream route, and
+unchanged near-miss fallbacks. The retained test-only probe documents the local
+kernel opportunity but is not selected by production. The reverted state
+passes all 49 runnable CTest cases; the five skips are pre-existing.
+
+Local raw-weight prefetch widening is no longer the next priority. The next
+step is to quantify the full Prefill/Decode timeline and scheduler architecture
+with representative end-to-end traces, separating unavoidable same-request
+dependency from overlap available across requests, streams, copy engines, and
+continuous-batching boundaries. Phase separation, double/triple buffering, or
+Prefill/Decode overlap should be implemented only if that trace-backed ceiling
+is material and its memory, fairness, correctness, and tail-latency gates are
+explicit. All timings and counters here use unlocked clocks; the whole-model
+runs are batch-one and one generated token. Full identities, hashes, rows,
+thresholds, and claim limits are in the
+[raw-weight cp.async rejection record](metadata/qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json);
+the preceding rationale remains in the
 [M17-M32 dual-stream rejection record](metadata/qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json).
