@@ -7,6 +7,7 @@
   "source": {
     "base_head": "9eca6c7a7d595f8e86d905343be7430bd295e7de",
     "candidate_commit": null,
+    "production_commit": "a25240b690de7c06918326c7bbb1f670577312d6",
     "tree_state_at_measurement": "uncommitted production-promotion worktree based on base_head",
     "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
     "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
@@ -220,7 +221,25 @@
     "all_pairwise_and_average_stage_gates": "pass"
   },
   "production_validation_suites": {
-    "postpromotion_device_test": {"binary": {"local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test", "bytes": 4808712, "sha256": "a82451db43a48db053ee7eefaa42d2c3e8f3c80bb31908cd1de1ff224c89f87b", "gnu_build_id": "3579063d1174084901dc83056bfa434a40904ec6", "checked_in": false}, "default_status": "pass", "optional_weighted_speedup": 1.14400, "optional_status": "pass", "optional_log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/postpromotion-perf.log", "bytes": 60371, "sha256": "bfa0ce884b9711c166f2c3f3542b23ca0160643af84622de23a641a3412b5734"}},
+    "postpromotion_device_test": {
+      "exact_tree_binary": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/q3x_sm87_weight_only_gemv_test.postcommit-a25240b", "bytes": 4808712, "sha256": "35abeb877dd22ca8ee0f455953d33ab2e709fd71c6dc2ea7a4eef148848237ab", "gnu_build_id": "3579063d1174084901dc83056bfa434a40904ec6", "checked_in": false},
+      "default_status": "pass",
+      "exact_tree_optional_per_shape_speedups": [1.13126, 1.16360, 1.13965, 1.13425],
+      "exact_tree_optional_weighted_speedup": 1.14411,
+      "exact_tree_optional_status": "pass",
+      "exact_tree_optional_log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/postcommit-a25240b-perf.log", "bytes": 60375, "sha256": "b70a1ce2f2eb27320d4aea6423dde0b624e57360c8bb5f981a4efe65bf53d6b9"},
+      "precommit_optional_weighted_speedup": 1.14400,
+      "precommit_optional_status": "pass",
+      "precommit_optional_log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/postpromotion-perf.log", "bytes": 60371, "sha256": "bfa0ce884b9711c166f2c3f3542b23ca0160643af84622de23a641a3412b5734"}
+    },
+    "postcommit_runner_reproduction": {
+      "exact_tree_binary": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/qwen3x-orin.postcommit-a25240b", "bytes": 3923176, "sha256": "4ca85e7a21de39cab6875615740aebf4d9c2155a525cdc0df4bbbf5484669f99", "gnu_build_id": "f01942551b330c397e2a4cd2f7e7de033f6a03ec", "checked_in": false},
+      "symmetric_dual_a_build_id_equal": true,
+      "full_file_different_bytes": 4,
+      "only_difference_section": ".strtab",
+      "loaded_content_difference_bytes": 0,
+      "cause": "nvcc temporary-file basename changed on exact-tree rebuild"
+    },
     "release_build": {"command": "cmake --build --preset orin-release -j2", "all_targets_built": true, "status": "pass"},
     "ctest": {"command": "ctest --test-dir build/orin-release --output-on-failure -j2", "discovered": 56, "passed": 51, "skipped": 5, "failed": 0, "status": "pass"}
   },
@@ -235,6 +254,7 @@
     "the microbenchmark is synthetic checkpoint-like data rather than raw checkpoint payload, but exact public/predecessor arithmetic and two real-model prompt lengths are independently gated",
     "the P513 pre-promotion attribution lacks a candidate union/span breakdown and is not a post-promotion critical-path profile",
     "no candidate-specific Nsight Compute or racecheck claim is attached",
+    "the frozen five-process screen binary predates the mechanical internal-kernel symbol neutralization; the exact-tree postcommit binary uses the production-neutral symbol and independently reproduces a 1.14411x weighted pass",
     "the optimization is exact M32 only; M17-M31, M18, Decode M1, fallbacks, streams, and scheduler ownership are unchanged",
     "dual-resident A is intra-kernel shared-memory residency, not whole-runtime double/triple buffering or Prefill/Decode overlap"
   ],

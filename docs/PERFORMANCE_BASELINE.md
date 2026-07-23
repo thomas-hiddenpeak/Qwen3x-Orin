@@ -3599,6 +3599,12 @@ All remain below the frozen 0.5% stage limit, while overall TTFT falls by 2.94%
 and 3.76%. Release builds all targets, and CTest discovers 56 tests, passes 51,
 skips five configured fixtures, and fails none. Clocks were not locked, so the
 ratios are diagnostic promotion evidence rather than a release-latency claim.
+An exact-tree rebuild after commit retains both GNU Build IDs; the runner differs
+from the symmetric dual-A binary only in four `.strtab` bytes from an nvcc
+temporary filename, and the rebuilt device test independently replays at
+1.14411x weighted. The frozen five-process screen predates a mechanical
+internal-symbol neutralization; production code and the exact-tree replay use
+the neutral symbol.
 
 This promotion is shared-memory residency inside one kernel. It is not a
 system double/triple buffer and does not overlap causally ordered batch-one
