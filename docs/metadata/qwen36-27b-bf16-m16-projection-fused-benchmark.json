@@ -1,0 +1,723 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-bf16-m16-projection-fused-benchmark",
+  "status": "promoted-production-prefill-bf16-m16-projection-fused",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "c7cfdde1a5dd3a81c599e1218f451bff29ecb0e1",
+    "base_subject": "kernels: promote exact Q24 attention values",
+    "production_commit": null,
+    "tree_state_at_measurement": "uncommitted BF16 M16 projection-fused production promotion based on base_head",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "prompt_manifest": {
+      "local_path": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+      "bytes": 23197,
+      "sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966"
+    },
+    "binaries": {
+      "predecessor_runner": {
+        "local_path": "/tmp/q3x-bf16-m16-promotion/qwen3x-orin-predecessor",
+        "source_commit": "c7cfdde1a5dd3a81c599e1218f451bff29ecb0e1",
+        "bytes": 3925216,
+        "sha256": "78f0c5c4bf013f0aa052018a30f6a94b7b5d2d2356560e2aeb00a9f12e8cbd76",
+        "gnu_build_id": "67c3243ddc95b0050c10c38f23b8e8b7905d447f",
+        "dispatch": "generic BF16 pair tile for M16",
+        "checked_in": false
+      },
+      "candidate_runner": {
+        "local_path": "build/orin-release/qwen3x-orin",
+        "bytes": 3991584,
+        "sha256": "df1dbeeb54541f1ca000dee57121eb668ce61bd92c28a4e10843dfdf64610dc1",
+        "gnu_build_id": "cb1525a5f83fc3ca2143aadf9273eb8376dd5952",
+        "dispatch": "exact M16/N48/K5120 projection-fused BF16 pair",
+        "checked_in": false
+      },
+      "reference_gemv_device_test": {
+        "local_path": "build/orin-release/q3x_reference_gemv_cuda_test",
+        "bytes": 512832,
+        "sha256": "1932f204a6432eb6ebe7ee8c84144f76076697fc15d04c17f847697ae6072f09",
+        "gnu_build_id": "c191c7ad5577467e5a974b4ebe803f20ed38d6aa",
+        "checked_in": false
+      },
+      "projection_dispatch_device_test": {
+        "local_path": "build/orin-release/q3x_projection_backend_dispatch_test",
+        "bytes": 3613040,
+        "sha256": "144ac2923c004b217822af19db81c6539236cbc24829f0d119686193673ff43e",
+        "gnu_build_id": "e1378c6f398dedc53bf70b9839fe51f6f73de597",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "unified_memory_gib": 61.40,
+    "l2_cache_mib": 4.00,
+    "shared_memory_per_sm_kib": 164.00,
+    "reported_ddr_bandwidth_gb_per_second": 83.2,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks requires root in this environment; ratios are diagnostic promotion evidence rather than locked-clock release claims"
+  },
+  "phase_attribution_before_promotion": {
+    "status": "measured",
+    "source_code_commit": "c7cfdde1a5dd3a81c599e1218f451bff29ecb0e1",
+    "workload": "P513-C32-max1",
+    "prompt_tokens": 513,
+    "requested_and_effective_prefill_chunk_size": 32,
+    "prefix_tiles": 16,
+    "max_new_tokens": 1,
+    "generated_id": 9419,
+    "generated_text": "Hello",
+    "step_count": 513,
+    "generation_timing_log_ms": 5527.944,
+    "generation_nvtx_range_ns": 5528166304,
+    "kernel_count": 42709,
+    "kernel_raw_ns": 5893497216,
+    "kernel_union_ns": 5425624032,
+    "kernel_span_ns": 5526664320,
+    "kernel_idle_ns": 101040288,
+    "kernel_overlap_ns": 467873184,
+    "prefix": {
+      "nvtx_ranges": 16,
+      "nvtx_host_sum_ns": 5398712448,
+      "kernel_count": 42224,
+      "kernel_raw_ns": 5765568416,
+      "kernel_union_ns": 5297695232
+    },
+    "finish_prefill": {
+      "nvtx_ranges": 1,
+      "nvtx_host_ns": 129328544,
+      "kernel_count": 485,
+      "kernel_raw_ns": 127928800,
+      "kernel_union_ns": 127928800
+    },
+    "bf16_pair": {
+      "shape": "M16/N48/K5120",
+      "role": "linear-attention in_proj_a/in_proj_b",
+      "linear_attention_layers": 48,
+      "prefix_launches": 1536,
+      "prefix_raw_kernel_ns": 229592608,
+      "finish_prefill_m1_launches": 48,
+      "finish_prefill_m1_raw_kernel_ns": 917440,
+      "all_launches": 1584,
+      "all_raw_kernel_ns": 230510048,
+      "prefix_average_launch_ns": 149474.354167,
+      "share_of_generation_raw_percent": 3.911262,
+      "raw_over_generation_nvtx_range_percent": 4.169738,
+      "marginal_union_exposure_percent": 100.0,
+      "interpretation": "All 1536 M16 launches are in Prefix; the 48 M1 finish-prefill launches remain the generic path. Removing the complete predecessor name from the measured union removes its complete raw duration, so this phase is fully exposed on the captured critical path."
+    },
+    "artifacts": [
+      {
+        "role": "pre-promotion application log",
+        "local_path": "/tmp/q3x-post-attention-values-c7cfdde-HZwUiR/p513-post.log",
+        "bytes": 8662,
+        "sha256": "48de0448ff63413aef0c184682280608e44c1b99ba8c593287d6585ea647b068",
+        "checked_in": false
+      },
+      {
+        "role": "pre-promotion Nsight Systems report",
+        "local_path": "/tmp/q3x-post-attention-values-c7cfdde-HZwUiR/p513-post.nsys-rep",
+        "bytes": 3290968,
+        "sha256": "fee16902e1acdd7937e38b00bba04bfc9c8f9cbdc445b22c7477d58151c5b890",
+        "checked_in": false
+      },
+      {
+        "role": "pre-promotion SQLite export",
+        "local_path": "/tmp/q3x-post-attention-values-c7cfdde-HZwUiR/p513-post.sqlite",
+        "bytes": 9011200,
+        "sha256": "36ab0c4313d892ffeea9f9fa65f182455be123ba14d7f19aeed7ee1f27748dbf",
+        "checked_in": false
+      },
+      {
+        "role": "pre-promotion kernel summary CSV",
+        "local_path": "/tmp/q3x-post-attention-values-c7cfdde-HZwUiR/p513-post-kernel-summary_cuda_gpu_kern_sum.csv",
+        "bytes": 8430,
+        "sha256": "d2f2ba24f848253e71982985d7b1c3f9a942f8ce45e6d9a86f9ddcfc9cca93d7",
+        "checked_in": false
+      }
+    ]
+  },
+  "candidate_selection": {
+    "status": "projection-fused-selected-row-resident-removed",
+    "protocol": "same test binary, 64 warmups for hot, first-touch for sixteen cold banks, 512 logical launches per timed pass, four predecessor-candidate-candidate-predecessor rounds",
+    "row_resident_candidate": {
+      "grid": [48, 2, 1],
+      "registers_per_thread": 39,
+      "static_shared_bytes": 16384,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 6,
+      "hot_speedup": 2.83063,
+      "rotating_cold_speedup": 2.98126,
+      "final_source_symbols_present": false
+    },
+    "projection_fused_candidate": {
+      "grid": [48, 1, 1],
+      "registers_per_thread": 55,
+      "static_shared_bytes": 32768,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 4,
+      "hot_speedup": 4.48082,
+      "rotating_cold_speedup": 3.41249,
+      "speedup_over_row_resident_hot": 1.58298,
+      "speedup_over_row_resident_cold": 1.14465,
+      "selected": true
+    },
+    "artifacts": [
+      {
+        "role": "three-way default correctness and resource log",
+        "local_path": "/tmp/q3x-bf16-m16-candidate-tests/default.log",
+        "bytes": 859,
+        "sha256": "d6955e63bd1396e91d19008af5a1501e9a01380ce715c74a64eb0f98147b1a68",
+        "checked_in": false
+      },
+      {
+        "role": "three-way hot and rotating-cold selection log",
+        "local_path": "/tmp/q3x-bf16-m16-candidate-tests/hot-cold.log",
+        "bytes": 2948,
+        "sha256": "c047d0817306941e0ed6390e8161f1f46779077e62546286a6c5b9106be96e70",
+        "checked_in": false
+      }
+    ]
+  },
+  "implementation": {
+    "production_kernel": "bf16_gemv_pair_m16_projection_fused_kernel",
+    "preserved_predecessor_kernel": "bf16_gemv_pair_tile_bf16_kernel",
+    "exact_shape": {
+      "tokens_m": 16,
+      "rows_n": 48,
+      "columns_k": 5120,
+      "weight_type": "BF16",
+      "input_type": "BF16",
+      "output_type": "BF16"
+    },
+    "candidate_launch": {
+      "grid": [48, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "static_shared_layout": "float partial[2][16][256]",
+      "static_shared_bytes": 32768,
+      "ctas_per_call": 48,
+      "work_mapping": "one CTA owns one output row for both projections and all sixteen tokens"
+    },
+    "predecessor_launch": {
+      "grid": [48, 16, 2],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "static_shared_layout": "float partial[256]",
+      "static_shared_bytes": 1024,
+      "ctas_per_call": 1536,
+      "work_mapping": "one CTA owns one output row, one token, and one projection"
+    },
+    "mechanism": "Each exact CTA loads both row weights once, retains sixteen FP32 accumulator chains for each projection, and reuses every decoded activation across the two projections. The shared tree contains two independent projections by sixteen independent token reductions. This reduces the CTA count per public M16 pair call by 32x while preserving one public kernel launch.",
+    "arithmetic_contract": "For every token and projection, column traversal, fmaf operand order, one FP32 accumulator, the 256-thread shared reduction tree, and final BF16 round-to-nearest-even encoding match the predecessor exactly.",
+    "selector": {
+      "backend": "sm87_weight_only",
+      "required_weight_kind": "BF16 for both projections",
+      "required_equal_shape": "N48/K5120",
+      "M1_through_M15": "one generic BF16 pair kernel",
+      "M16": "one exact projection-fused kernel",
+      "M17_through_M31": "one exact M16 prefix followed by one generic tail",
+      "M32": "two ordered exact M16 kernels",
+      "other_backend_shape_or_kind": "existing generic/reference fallback",
+      "validation_order": "validate both complete projections and cross-ranges before recursive enqueue"
+    },
+    "new_cuda_streams": 0,
+    "new_cuda_events": 0,
+    "new_persistent_buffers": 0,
+    "whole_system_double_buffered": false,
+    "whole_system_triple_buffered": false,
+    "prefill_decode_scheduler_changed": false,
+    "decode_behavior": "M1 remains on the generic BF16 pair kernel",
+    "scope_boundary": "This is a phase-local exact Prefill kernel and selector. Prefill and Decode remain logically separate plans, while a batch-one request remains causally serialized."
+  },
+  "correctness_resource_graph_and_invalid_gates": {
+    "status": "pass",
+    "structured_full_output_bitwise_predecessor_candidate_identity": true,
+    "special_values": {
+      "covers": [
+        "positive_zero",
+        "negative_zero",
+        "positive_subnormal",
+        "negative_subnormal",
+        "finite_values",
+        "positive_infinity",
+        "negative_infinity",
+        "signaling_nan",
+        "quiet_nan",
+        "exact_cancellation"
+      ],
+      "bitwise_predecessor_candidate_identity": true,
+      "candidate_poison_replay_identity": true
+    },
+    "memory_contract": {
+      "head_and_tail_output_canaries": "intact",
+      "input_preserved": true,
+      "first_weights_preserved": true,
+      "second_weights_preserved": true,
+      "distinct_output_poison_patterns": true
+    },
+    "low_level_invalid_capture": {
+      "cases": ["all_null", "overlapping_outputs"],
+      "return_status": "cudaErrorInvalidValue",
+      "captured_graph_nodes_per_call": 0
+    },
+    "production_pair_validation": {
+      "cases": [
+        "mismatched_input_size",
+        "M0",
+        "M33",
+        "C32_cross_subtile_output_alias",
+        "C32_invalid_second_weight_before_enqueue",
+        "first_output_overlaps_second_weights",
+        "second_output_overlaps_first_weights",
+        "overlapping_outputs",
+        "fallback_scratch_overlaps_second_output"
+      ],
+      "invalid_second_projection_leaves_first_output_canary_untouched": true,
+      "zero_graph_nodes_for_M33_cross_subtile_alias_and_invalid_second_weight": true
+    },
+    "resources": {
+      "generic_predecessor": {
+        "registers_per_thread": 22,
+        "static_shared_bytes": 1024,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 6
+      },
+      "exact_production": {
+        "registers_per_thread": 55,
+        "static_shared_bytes": 32768,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "no_local_spill": true,
+      "nonzero_occupancy": true
+    },
+    "direct_graph": {
+      "generic_predecessor": {
+        "kernel_nodes": 1,
+        "grid": [48, 16, 2],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "exact_candidate": {
+        "kernel_nodes": 1,
+        "grid": [48, 1, 1],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "functions_non_null_and_distinct": true
+    },
+    "production_dispatch_graph": {
+      "M1": "generic(48x1x2)",
+      "M15": "generic(48x15x2)",
+      "M16": "exact(48x1x1)",
+      "M17": "ordered exact then generic",
+      "M32": "ordered exact then exact",
+      "all_blocks": [256, 1, 1],
+      "all_dynamic_shared_bytes": 0,
+      "status": "pass"
+    },
+    "final_logs": [
+      {
+        "role": "default correctness/resource/Graph",
+        "local_path": "/tmp/q3x-bf16-m16-production-final/default.log",
+        "bytes": 754,
+        "sha256": "67dd4a7fd6b414c481654ac5361f5d912a95e0abd85ca299f85153132e7beb99"
+      },
+      {
+        "role": "optional hot and rotating-cold gate",
+        "local_path": "/tmp/q3x-bf16-m16-production-final/hot-cold.log",
+        "bytes": 2317,
+        "sha256": "65305b85eb92ddd6b08f7f0776700500c066ae5b0b3c65c07d1d64256258d5eb"
+      },
+      {
+        "role": "production dispatch Graph identity",
+        "local_path": "/tmp/q3x-bf16-m16-production-dispatch/dispatch.log",
+        "bytes": 178,
+        "sha256": "c92d0413b09e1dfd7eccd23ee475ddbe4765a0803c05477f85bf216506d1b976"
+      }
+    ]
+  },
+  "sass_and_final_symbol_audit": {
+    "status": "pass",
+    "count_method": "Static cuobjdump function-block instruction rows; counts include prologue, EXIT, and NOP and are not dynamic instruction counts.",
+    "generic_predecessor": {
+      "static_instructions": 144,
+      "non_nop_instructions": 131,
+      "code_bytes": 2304,
+      "last_address": "0x08f0",
+      "registers_per_thread": 22,
+      "static_shared_bytes": 1024,
+      "local_bytes": 0,
+      "constant_bytes": 408,
+      "BAR": 9,
+      "LDG": 2,
+      "LDS": 17,
+      "LDS64": 0,
+      "STS": 9,
+      "FFMA": 1,
+      "STG": 1,
+      "LDL": 0,
+      "STL": 0,
+      "CALL": 0,
+      "canonical_instruction_rows_sha256": "c6c584e690e83346af43ab8d5144e5cfaff47e1e372e50f8b72afa9f506b2a2f"
+    },
+    "exact_production": {
+      "static_instructions": 1520,
+      "non_nop_instructions": 1511,
+      "code_bytes": 24320,
+      "last_address": "0x5ef0",
+      "registers_per_thread": 55,
+      "static_shared_bytes": 32768,
+      "local_bytes": 0,
+      "constant_bytes": 392,
+      "BAR": 9,
+      "LDG": 18,
+      "LDS": 512,
+      "LDS_scalar": 480,
+      "LDS64": 32,
+      "STS": 288,
+      "FFMA": 32,
+      "STG": 32,
+      "LDL": 0,
+      "STL": 0,
+      "CALL": 0,
+      "canonical_instruction_rows_sha256": "2485595799aefa1512c7af177b25f72607c6c89bdb5f493dacf66fa7a095bc60"
+    },
+    "interpretation": "The exact block is deliberately fully unrolled. One exact CTA performs the work of 32 predecessor CTAs per output row, reuses each row weight across sixteen tokens and each activation across both projections, and contains no local-memory spill or out-of-line helper call.",
+    "final_candidate_runner_and_reference_test_same_resource_and_function_counts": true,
+    "per_binary_symbol_count": {
+      "exact_sass_function_headers": 1,
+      "predecessor_sass_function_headers": 1,
+      "exact_resource_entries": 1,
+      "predecessor_resource_entries": 1,
+      "public_exact_host_launchers": 1
+    },
+    "removed_symbols": {
+      "row_resident": 0,
+      "projection_fused_test_alias": 0
+    }
+  },
+  "five_process_same_binary_microbenchmark": {
+    "status": "pass",
+    "environment_variable": "Q3X_RUN_BF16_M16_PROJECTION_FUSED_PERF=1",
+    "warmup_iterations_hot": 64,
+    "cold_first_touch_banks": 16,
+    "logical_launches_per_timed_pass": 512,
+    "measurement_rounds_per_process": 4,
+    "timed_order_per_round": ["predecessor", "candidate", "candidate", "predecessor"],
+    "independent_process_repeats": 5,
+    "minimum_required_speedup": 1.35,
+    "rotating_cold": {
+      "banks": 16,
+      "bytes_per_bank": 1146880,
+      "working_set_bytes": 18350080,
+      "working_set_over_l2": 4.375
+    },
+    "repeats": [
+      {
+        "run": 1,
+        "hot_predecessor_ms": 0.0992113,
+        "hot_candidate_ms": 0.0221151,
+        "hot_speedup": 4.48613,
+        "cold_predecessor_ms": 0.166904,
+        "cold_candidate_ms": 0.0484287,
+        "cold_speedup": 3.44638,
+        "log": {"local_path": "/tmp/q3x-bf16-m16-final-five/perf-1.log", "bytes": 2314, "sha256": "2f741a4fe354d872aeb8abdabf41f5e2d47238d17a8a4b13042cd7a3347d2d53"}
+      },
+      {
+        "run": 2,
+        "hot_predecessor_ms": 0.0997416,
+        "hot_candidate_ms": 0.0222537,
+        "hot_speedup": 4.48202,
+        "cold_predecessor_ms": 0.166832,
+        "cold_candidate_ms": 0.0484322,
+        "cold_speedup": 3.44464,
+        "log": {"local_path": "/tmp/q3x-bf16-m16-final-five/perf-2.log", "bytes": 2317, "sha256": "8c5d9bff1777d64974d751708abf18e9322b7e728aa39098c4d4ea4475f9d2a8"}
+      },
+      {
+        "run": 3,
+        "hot_predecessor_ms": 0.0997563,
+        "hot_candidate_ms": 0.0222646,
+        "hot_speedup": 4.48049,
+        "cold_predecessor_ms": 0.167130,
+        "cold_candidate_ms": 0.0488995,
+        "cold_speedup": 3.41783,
+        "log": {"local_path": "/tmp/q3x-bf16-m16-final-five/perf-3.log", "bytes": 2316, "sha256": "39c9c9a9413bf86551945069ac2bf71d03fa9b52c267af7ca9be104afc71429d"}
+      },
+      {
+        "run": 4,
+        "hot_predecessor_ms": 0.0997520,
+        "hot_candidate_ms": 0.0221849,
+        "hot_speedup": 4.49640,
+        "cold_predecessor_ms": 0.167058,
+        "cold_candidate_ms": 0.0491183,
+        "cold_speedup": 3.40114,
+        "log": {"local_path": "/tmp/q3x-bf16-m16-final-five/perf-4.log", "bytes": 2316, "sha256": "600ebce070f16f2ad3342bc4979a8871da201c29a1c378cc6e59f61d7ee49d7e"}
+      },
+      {
+        "run": 5,
+        "hot_predecessor_ms": 0.0997596,
+        "hot_candidate_ms": 0.0221967,
+        "hot_speedup": 4.49435,
+        "cold_predecessor_ms": 0.166886,
+        "cold_candidate_ms": 0.0490274,
+        "cold_speedup": 3.40394,
+        "log": {"local_path": "/tmp/q3x-bf16-m16-final-five/perf-5.log", "bytes": 2319, "sha256": "488074461cf42c8b3b4cdfe958a728cb2eccf973d133750d9099df4da4121f1f"}
+      }
+    ],
+    "summary": {
+      "hot_speedup_min": 4.48049,
+      "hot_speedup_median": 4.48613,
+      "hot_speedup_mean": 4.487878,
+      "hot_speedup_max": 4.49640,
+      "cold_speedup_min": 3.40114,
+      "cold_speedup_median": 3.41783,
+      "cold_speedup_mean": 3.422786,
+      "cold_speedup_max": 3.44638,
+      "all_hot_and_cold_rounds_non_regressing": true,
+      "selection_gate": "pass"
+    }
+  },
+  "end_to_end_bccb": {
+    "status": "pass",
+    "comparison": "frozen c7cfdde predecessor runner versus final candidate runner",
+    "process_order": ["baseline_1", "candidate_1", "candidate_2", "baseline_2"],
+    "common": {
+      "model": "nvidia/Qwen3.6-27B-NVFP4@0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "projection_backend": "sm87_weight_only",
+      "requested_and_effective_prefill_chunk_size": 32,
+      "max_sequence_length": 544,
+      "warmup_rounds": 1,
+      "clocks_locked": false
+    },
+    "max1": {
+      "prompts": ["P33", "P513"],
+      "measured_rounds_per_process": 5,
+      "process_medians_ms": {
+        "baseline_1": {
+          "P33": {"prefix": 322.004, "finish_prefill": 110.629, "ttft_total": 432.630},
+          "P513": {"prefix": 5343.426, "finish_prefill": 111.996, "ttft_total": 5455.422}
+        },
+        "candidate_1": {
+          "P33": {"prefix": 312.010, "finish_prefill": 110.612, "ttft_total": 422.631},
+          "P513": {"prefix": 5183.636, "finish_prefill": 112.021, "ttft_total": 5295.618}
+        },
+        "candidate_2": {
+          "P33": {"prefix": 312.105, "finish_prefill": 110.573, "ttft_total": 422.649},
+          "P513": {"prefix": 5184.454, "finish_prefill": 111.962, "ttft_total": 5296.434}
+        },
+        "baseline_2": {
+          "P33": {"prefix": 321.975, "finish_prefill": 110.609, "ttft_total": 432.585},
+          "P513": {"prefix": 5342.589, "finish_prefill": 112.002, "ttft_total": 5454.563}
+        }
+      },
+      "average_of_process_medians": {
+        "P33": {
+          "prefix": {"baseline_ms": 321.9895, "candidate_ms": 312.0575, "saved_ms": 9.9320, "reduction_percent": 3.08457, "speedup": 1.031827},
+          "finish_prefill": {"baseline_ms": 110.6190, "candidate_ms": 110.5925, "saved_ms": 0.0265, "speedup": 1.000240},
+          "ttft_total": {"baseline_ms": 432.6075, "candidate_ms": 422.6400, "saved_ms": 9.9675, "reduction_percent": 2.30405, "speedup": 1.023584}
+        },
+        "P513": {
+          "prefix": {"baseline_ms": 5343.0075, "candidate_ms": 5184.0450, "saved_ms": 158.9625, "reduction_percent": 2.97515, "speedup": 1.030664},
+          "finish_prefill": {"baseline_ms": 111.9990, "candidate_ms": 111.9915, "saved_ms": 0.0075, "speedup": 1.000067},
+          "ttft_total": {"baseline_ms": 5454.9925, "candidate_ms": 5296.0260, "saved_ms": 158.9665, "reduction_percent": 2.91415, "speedup": 1.030016}
+        }
+      },
+      "logs": [
+        {"arm": "baseline_1", "local_path": "/tmp/q3x-bf16-m16-bccb-max1/b1.log", "bytes": 22381, "sha256": "e0566f5a7bf5104ac499abe577f7b4489c6270e74e4f79b4f6229db1a9781a5a"},
+        {"arm": "candidate_1", "local_path": "/tmp/q3x-bf16-m16-bccb-max1/c1.log", "bytes": 22394, "sha256": "5ac6c1b84ba2ce6d4bee6f7e091e2ca20aa106fa7b03092ee798953296475f12"},
+        {"arm": "candidate_2", "local_path": "/tmp/q3x-bf16-m16-bccb-max1/c2.log", "bytes": 22394, "sha256": "20f964fd7127ff709f350adc9947cfcd8f7b84bde5eaad039e660bd738fcadd1"},
+        {"arm": "baseline_2", "local_path": "/tmp/q3x-bf16-m16-bccb-max1/b2.log", "bytes": 22386, "sha256": "a2c628eb3933c2d08e6e178b8b24bd797a8aa5f052e863e45c8d9793a09d757b"}
+      ]
+    },
+    "max8_P513": {
+      "measured_rounds_per_process": 3,
+      "process_medians_ms": {
+        "baseline_1": {"prefix": 5344.768, "finish_prefill": 112.120, "ttft": 5456.888, "decode_after_first": 784.876, "subsequent_token": 112.148, "total": 6241.764},
+        "candidate_1": {"prefix": 5187.377, "finish_prefill": 112.106, "ttft": 5299.329, "decode_after_first": 784.754, "subsequent_token": 112.115, "total": 6084.147},
+        "candidate_2": {"prefix": 5187.015, "finish_prefill": 112.115, "ttft": 5299.130, "decode_after_first": 784.575, "subsequent_token": 112.084, "total": 6083.705},
+        "baseline_2": {"prefix": 5346.617, "finish_prefill": 111.961, "ttft": 5458.609, "decode_after_first": 783.989, "subsequent_token": 112.003, "total": 6243.338}
+      },
+      "average_of_process_medians": {
+        "prefix": {"baseline_ms": 5345.6925, "candidate_ms": 5187.1960, "saved_ms": 158.4965, "reduction_percent": 2.964939, "speedup": 1.030555},
+        "finish_prefill": {"baseline_ms": 112.0405, "candidate_ms": 112.1105, "saved_ms": -0.0700, "reduction_percent": -0.062477, "speedup": 0.999376},
+        "ttft": {"baseline_ms": 5457.7485, "candidate_ms": 5299.2295, "saved_ms": 158.5190, "reduction_percent": 2.904476, "speedup": 1.029914},
+        "decode_after_first": {"baseline_ms": 784.4325, "candidate_ms": 784.6645, "saved_ms": -0.2320, "reduction_percent": -0.029576, "speedup": 0.999704},
+        "subsequent_token": {"baseline_ms": 112.0755, "candidate_ms": 112.0995, "saved_ms": -0.0240, "reduction_percent": -0.021414, "speedup": 0.999786},
+        "total": {"baseline_ms": 6242.5510, "candidate_ms": 6083.9260, "saved_ms": 158.6250, "reduction_percent": 2.541028, "speedup": 1.026073}
+      },
+      "exact_output_contract": {
+        "generated_ids": [9419, 0, 59720, 233, 1049, 5686, 1040, 488],
+        "generated_text": "Hello! 👋 It looks like you",
+        "stop_reason": "max_new_tokens",
+        "step_count": 520,
+        "all_processes_equal": true
+      },
+      "memory_note": "Both candidate processes and baseline_2 report persistent_drop_detected=0. Baseline_1 observed a 215093248-byte global-free-memory decrease; an immediate same-command baseline audit reported zero persistent or maximum drop. The isolated baseline-only global cudaMemGetInfo movement is retained as an environmental warning rather than attributed to the candidate.",
+      "logs": [
+        {"arm": "baseline_1", "local_path": "/tmp/q3x-bf16-m16-bccb-max8/b1.log", "bytes": 18248, "sha256": "88df9d668712a4a0359bc136430852318a0a7ab92b3c2a17920fc0bc526bd57c"},
+        {"arm": "candidate_1", "local_path": "/tmp/q3x-bf16-m16-bccb-max8/c1.log", "bytes": 18166, "sha256": "10c19caa61ea638cf8c94240bc3b6326717bc07466223ab10b0fc055710a5639"},
+        {"arm": "candidate_2", "local_path": "/tmp/q3x-bf16-m16-bccb-max8/c2.log", "bytes": 18159, "sha256": "3ab5d5f142706ad6de658da93dd7774348799f42e3c49dede20b31b75e357196"},
+        {"arm": "baseline_2", "local_path": "/tmp/q3x-bf16-m16-bccb-max8/b2.log", "bytes": 18169, "sha256": "49098761bb4c614d8d287837732b91fd2c9259d44cd9e6159bcb80a9890d63eb"},
+        {"arm": "baseline_memory_audit", "local_path": "/tmp/q3x-bf16-m16-bccb-max8/b3-memory-audit.log", "bytes": 18159, "sha256": "4cc01631542415e536d007274849847098e2778a4546c70acfcc3179cf20bdc4"}
+      ]
+    },
+    "interpretation": "The max1 savings are confined to Prefix while finish-prefill stays neutral. The max8 Decode-after-first and subsequent-token rows stay within 0.03%, as expected because M1 remains generic."
+  },
+  "post_promotion_profile": {
+    "status": "pass",
+    "workload": "P513-C32-max1",
+    "generated_id": 9419,
+    "generated_text": "Hello",
+    "timing_log_ms": 5366.391,
+    "generation_nvtx_range_ns": 5366616384,
+    "kernel_count": 42709,
+    "kernel_raw_ns": 5729023008,
+    "kernel_union_ns": 5261599744,
+    "kernel_span_ns": 5365228928,
+    "kernel_idle_ns": 103629184,
+    "kernel_overlap_ns": 467423264,
+    "prefix": {
+      "nvtx_ranges": 16,
+      "nvtx_host_sum_ns": 5235333184,
+      "kernel_count": 42224,
+      "kernel_raw_ns": 5599478208,
+      "kernel_union_ns": 5132054944
+    },
+    "finish_prefill": {
+      "nvtx_ranges": 1,
+      "nvtx_host_ns": 131135616,
+      "kernel_count": 485,
+      "kernel_raw_ns": 129544800,
+      "kernel_union_ns": 129544800
+    },
+    "bf16_pair": {
+      "exact_prefix_launches": 1536,
+      "exact_prefix_raw_ns": 66677600,
+      "exact_average_launch_ns": 43409.9,
+      "exact_median_launch_ns": 43072,
+      "exact_minimum_launch_ns": 39680,
+      "exact_maximum_launch_ns": 50208,
+      "generic_finish_prefill_m1_launches": 48,
+      "generic_finish_prefill_m1_raw_ns": 925152,
+      "predecessor_to_exact_prefix_speedup": 3.443324415,
+      "prefix_raw_saved_ns": 162915008,
+      "prefix_raw_reduction_percent": 70.958298,
+      "marginal_union_exposure_percent": 100.0
+    },
+    "before_after": {
+      "generation_timing_log_saved_ms": 161.553,
+      "generation_timing_log_reduction_percent": 2.922,
+      "generation_nvtx_range_saved_ns": 161549920,
+      "generation_nvtx_range_speedup": 1.030103,
+      "generation_projected_gpu_saved_ns": 161432224,
+      "generation_projected_gpu_speedup": 1.030089,
+      "prefix_projected_gpu_saved_ns": 163712480,
+      "prefix_projected_gpu_speedup": 1.031289,
+      "kernel_raw_saved_ns": 164474208,
+      "kernel_union_saved_ns": 164024288,
+      "kernel_launch_count_change": 0
+    },
+    "refreshed_marginal_critical_path_ranking": [
+      {"rank": 1, "kernel_role": "NVFP4 M32 gate/up N17408 K5120", "launches": 2048, "raw_ms": 2056.574848, "marginal_union_ms": 1589.151584, "exposure_percent": 77.272},
+      {"rank": 2, "kernel_role": "NVFP4 M32 down N5120 K17408", "launches": 1024, "raw_ms": 1037.387104, "marginal_union_ms": 1037.387104, "exposure_percent": 100.0},
+      {"rank": 3, "kernel_role": "GDN update row8", "launches": 1536, "raw_ms": 590.965984, "marginal_union_ms": 590.965984, "exposure_percent": 100.0},
+      {"rank": 4, "kernel_role": "FP8 M32 N10240 K5120", "launches": 768, "raw_ms": 390.640128, "marginal_union_ms": 390.640128, "exposure_percent": 100.0},
+      {"rank": 5, "kernel_role": "FP8 M32 N5120 K6144", "launches": 1024, "raw_ms": 382.470208, "marginal_union_ms": 382.470208, "exposure_percent": 100.0},
+      {"rank": 6, "kernel_role": "FP8 M32 N6144 K5120", "launches": 768, "raw_ms": 247.100736, "marginal_union_ms": 247.100736, "exposure_percent": 100.0}
+    ],
+    "ranking_note": "Marginal union is the measured union removed when all intervals of one kernel name are omitted. It is an attribution upper bound, not an additive speedup prediction, because dependencies and concurrent scheduling would move after an implementation change.",
+    "artifacts": [
+      {"role": "post-promotion application log", "local_path": "/tmp/q3x-bf16-m16-post-profile/generate.log", "bytes": 8939, "sha256": "c56e3150065681156f23c33d8ca127ebb72541c67c8ab063498031bc31ec186c", "checked_in": false},
+      {"role": "post-promotion Nsight Systems report", "local_path": "/tmp/q3x-bf16-m16-post-profile/p513-max1.nsys-rep", "bytes": 3286190, "sha256": "0d97ace394393a284e0315e38b49243ea1224c43ea90a3277728aca3e80a81f9", "checked_in": false},
+      {"role": "post-promotion SQLite export", "local_path": "/tmp/q3x-bf16-m16-post-profile/p513-max1.sqlite", "bytes": 9003008, "sha256": "19fd29c1c69a403f0f4e81de1229abf64cb5e0f7108445477dca139d3a0d814b", "checked_in": false},
+      {"role": "post-promotion kernel summary CSV", "local_path": "/tmp/q3x-bf16-m16-post-profile/kernel-summary_cuda_gpu_kern_sum.csv", "bytes": 8650, "sha256": "0a248c3cb8210d1bbec5b1d2d0028d4f71ef26554752634b3186e701ffdeaf97", "checked_in": false}
+    ]
+  },
+  "production_validation_suites": {
+    "status": "pass",
+    "release_build": {
+      "result": "all targets built",
+      "log": {"local_path": "/tmp/q3x-bf16-m16-final-verification/build.log", "bytes": 1668, "sha256": "d9a6babb63491247d47cd1a20d5aec869c01163b16abf2cc5228698f3f643ade"}
+    },
+    "ctest": {
+      "discovered": 56,
+      "passed": 51,
+      "skipped": 5,
+      "failed": 0,
+      "skipped_reason": "configured external model/tokenizer fixtures",
+      "log": {"local_path": "/tmp/q3x-bf16-m16-final-verification/ctest.log", "bytes": 7677, "sha256": "4105eb0ab6546561456dfaceb9e2676aa48dabcf3d2f789cd43b0d2c0b4c40c3"}
+    },
+    "git_diff_check": {
+      "status": "pass",
+      "log": {"local_path": "/tmp/q3x-bf16-m16-final-verification/diff-check.log", "bytes": 0, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
+    },
+    "pinned_model_e2e": {
+      "chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text_stop_im_end_and_steps": true,
+      "step_count": 44,
+      "logs": [
+        {"chunk": 1, "local_path": "/tmp/q3x-bf16-m16-model-e2e/chunk-1.log", "bytes": 242, "sha256": "8a59845b8a1ec88cfa3269967b5c9d0a04dbd286e4537e6910656067de92cd7b"},
+        {"chunk": 8, "local_path": "/tmp/q3x-bf16-m16-model-e2e/chunk-8.log", "bytes": 242, "sha256": "0dc1682fcccd56a15f985f1d414601fa41ae7d72fb3a3568b50a85f6203adf93"},
+        {"chunk": 16, "local_path": "/tmp/q3x-bf16-m16-model-e2e/chunk-16.log", "bytes": 242, "sha256": "7c67575c42a292c9b7ae770a618354ae2690c5a4b217ae0e7ebef5048c28dcf8"},
+        {"chunk": 32, "local_path": "/tmp/q3x-bf16-m16-model-e2e/chunk-32.log", "bytes": 242, "sha256": "718d5fe5bde4f259adcef27f68730b8456d14af1c4382a7a70a9fa22838ba498"}
+      ]
+    }
+  },
+  "decision": {
+    "result": "promote",
+    "reason": "The selected exact kernel is bitwise identical, passes Graph/resource/invalid and full-model gates, exceeds the 1.35x same-binary hot and cold gates in every process and round, reduces the actual P513 target by 70.96%, and improves P33/P513 TTFT by 2.30%/2.91% while Decode remains neutral.",
+    "rollback_when": "any exact-output or fallback regression, any local spill, loss of nonzero occupancy, a repeated same-binary hot or cold speedup below 1.35x, a greater-than-0.5% repeated Decode-stage regression, or a repeated whole-model TTFT reversal",
+    "production_commit": null
+  },
+  "limitations": [
+    "GPU and memory clocks were not locked, so all timings and ratios are diagnostic rather than locked-clock release claims.",
+    "The direct fixture is synthetic structured BF16 data; actual-checkpoint evidence is supplied by end-to-end generation and Nsight Systems rather than direct payload microbenchmarks.",
+    "The detached end-to-end runners are different source trees by design; same-binary microbenchmarks isolate predecessor and candidate kernels without binary-to-binary device-code drift.",
+    "One max8 baseline process observed a transient 215093248-byte global-free-memory decrease; both candidate processes, the second baseline, all max1 processes, and a same-command baseline audit were clean.",
+    "The optimization is exact-shape and Prefill-local. Decode M1 remains generic and no claim is made for other BF16 shapes.",
+    "Static SASS counts do not equal dynamic instruction counts, and no candidate-specific Nsight Compute or racecheck claim is attached.",
+    "Raw kernel durations double-count overlap. Marginal-union values are upper bounds and are not additive across kernel names.",
+    "This batch-one benchmark does not establish multi-request throughput, continuous batching, tail latency, power, thermal, or energy behavior.",
+    "No system-level double buffer, triple buffer, independent Prefill/Decode executor, or cross-request scheduler was added."
+  ],
+  "next_priority": {
+    "profile_refresh": "complete",
+    "selection_rule": "Prefer a mechanism with both material marginal critical-path exposure and unexhausted implementation leverage; do not select by raw overlapped duration alone.",
+    "measured_ranking": {
+      "NVFP4_M32_gate_up_marginal_ms": 1589.151584,
+      "NVFP4_M32_down_marginal_ms": 1037.387104,
+      "GDN_update_marginal_ms": 590.965984,
+      "FP8_M32_top_two_marginal_ms": [390.640128, 382.470208]
+    },
+    "main_line": "Audit the retained NVFP4 M32 gate/up and down NCU history for a materially new non-buffering mechanism; explicit scale-window ping-pong and activation cp.async are already evidence-exhausted. If no new mechanism survives that audit, run the next bounded GDN update candidate against the retained row8 predecessor.",
+    "closed_without_new_evidence": [
+      "NVFP4 M32 scale-window ping-pong",
+      "NVFP4 M32 activation-only cp.async pipeline",
+      "NVFP4 M17-M32 generalized dual-stream policy",
+      "NVFP4 M17-M31 raw-weight cp.async policy",
+      "GDN M16 shared-resident BF16-state row4 and row8 candidates",
+      "Decode NVFP4 factorized and full-product-table candidates"
+    ],
+    "whole_system_double_buffered": false,
+    "whole_system_triple_buffered": false,
+    "independent_prefill_decode_executors": false,
+    "scheduler_project": "Multi-request queues and independent executors remain separately gated by request/KV/workspace ownership, handoff, fairness, TTFT, inter-token, tail-latency, cancellation, and memory contracts."
+  }
+}

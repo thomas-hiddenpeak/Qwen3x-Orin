@@ -456,6 +456,71 @@ void fill_bf16_direct_fixture(const Bf16DirectFixture fixture,
   }
 }
 
+void fill_bf16_m16_pair_fixture(
+    std::vector<std::uint16_t>* const input,
+    std::vector<std::uint16_t>* const first_weights,
+    std::vector<std::uint16_t>* const second_weights) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  std::vector<std::uint16_t> first_token(kColumns);
+  fill_bf16_direct_fixture(Bf16DirectFixture::kStructured, &first_token,
+                           first_weights, kRows, kColumns);
+  std::copy(first_token.begin(), first_token.end(), input->begin());
+  for (std::size_t token = 1U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 23U + 11U) % 61U) - 30;
+      (*input)[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 64.0F);
+    }
+  }
+  for (std::size_t index = 0U; index < second_weights->size(); ++index) {
+    const int centered =
+        static_cast<int>((index * 29U + index / kColumns * 11U + 7U) %
+                         127U) -
+        63;
+    (*second_weights)[index] =
+        encode_bf16(static_cast<float>(centered) / 128.0F);
+  }
+}
+
+void fill_bf16_m16_special_pair_fixture(
+    std::vector<std::uint16_t>* const input,
+    std::vector<std::uint16_t>* const first_weights,
+    std::vector<std::uint16_t>* const second_weights) {
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  std::fill(input->begin(), input->end(), 0x0000U);
+  std::fill(first_weights->begin(), first_weights->end(), 0x0000U);
+  std::fill(second_weights->begin(), second_weights->end(), 0x0000U);
+  constexpr std::array<std::uint16_t, 8U> kSpecialValues = {
+      0x0000U, 0x8000U, 0x0001U, 0x8001U,
+      0x7f80U, 0xff80U, 0x7f81U, 0x7fc1U};
+  for (std::size_t token = 0U; token < kSpecialValues.size(); ++token) {
+    (*input)[token * kColumns] = kSpecialValues[token];
+  }
+  (*first_weights)[0U] = encode_bf16(1.0F);
+  (*second_weights)[0U] = encode_bf16(-1.0F);
+
+  // An exact cancellation cell whose terms land in adjacent reduction lanes.
+  (*input)[8U * kColumns] = encode_bf16(1.0F);
+  (*input)[8U * kColumns + 1U] = encode_bf16(1.0F);
+  (*first_weights)[8U * kColumns] = encode_bf16(1.0F);
+  (*first_weights)[8U * kColumns + 1U] = encode_bf16(-1.0F);
+  (*second_weights)[8U * kColumns] = encode_bf16(-2.0F);
+  (*second_weights)[8U * kColumns + 1U] = encode_bf16(2.0F);
+
+  // Mirror the special values through the read-only weight operands too.
+  (*input)[9U * kColumns + 2U] = encode_bf16(1.0F);
+  for (std::size_t index = 0U; index < kSpecialValues.size(); ++index) {
+    const std::size_t row = 16U + index;
+    (*first_weights)[row * kColumns + 2U] = kSpecialValues[index];
+    (*second_weights)[(kRows - 1U - index) * kColumns + 2U] =
+        kSpecialValues[index];
+  }
+}
+
 void run_bf16_direct_case(TestContext& test, cudaStream_t stream,
                           const Bf16DirectFixture fixture,
                           const std::string& label) {
@@ -647,6 +712,933 @@ template <typename Launch>
   (void)test.cuda_ok(cudaEventDestroy(start), label + " destroy start");
   (void)test.cuda_ok(cudaEventDestroy(stop), label + " destroy stop");
   return average_milliseconds;
+}
+
+template <typename Launch>
+[[nodiscard]] bool capture_single_bf16_pair_kernel(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    Launch&& launch, cudaKernelNodeParams* const parameters) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return false;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch());
+  test.expect(launch_status == cudaSuccess, label + " capture launch succeeds");
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end capture");
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " count nodes");
+    test.expect(node_count == 1U, label + " captures exactly one node");
+  }
+  if (ready && node_count == 1U) {
+    cudaGraphNode_t node = nullptr;
+    std::size_t capacity = 1U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                         label + " fetch node");
+    test.expect(capacity == 1U, label + " fetches exactly one node");
+    cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+    ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                  label + " read node type");
+    test.expect(node_type == cudaGraphNodeTypeKernel,
+                label + " node is a kernel");
+    ready = ready && test.cuda_ok(
+                         cudaGraphKernelNodeGetParams(node, parameters),
+                         label + " read kernel parameters");
+  } else {
+    ready = false;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+            ready;
+  }
+  return ready && launch_status == cudaSuccess;
+}
+
+template <typename Launch>
+void expect_invalid_bf16_pair_capture(TestContext& test, cudaStream_t stream,
+                                      const std::string& label,
+                                      Launch&& launch) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return;
+  }
+  test.expect(static_cast<cudaError_t>(launch()) == cudaErrorInvalidValue,
+              label + " rejects before enqueue");
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end capture");
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " count nodes");
+    test.expect(node_count == 0U, label + " captures zero nodes");
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+  }
+}
+
+void test_bf16_m16_pair_invalid_capture(TestContext& test,
+                                        cudaStream_t stream) {
+  const auto* const first_weights =
+      reinterpret_cast<const std::uint16_t*>(0x1'0000'0000ULL);
+  const auto* const second_weights =
+      reinterpret_cast<const std::uint16_t*>(0x2'0000'0000ULL);
+  const auto* const input =
+      reinterpret_cast<const std::uint16_t*>(0x3'0000'0000ULL);
+  auto* const first_output =
+      reinterpret_cast<std::uint16_t*>(0x4'0000'0000ULL);
+  expect_invalid_bf16_pair_capture(
+      test, stream, "BF16 M16 projection-fused null graph",
+      [&]() {
+        return q3x::kernels::
+            launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                nullptr, nullptr, nullptr, nullptr, nullptr,
+                static_cast<void*>(stream));
+      });
+  expect_invalid_bf16_pair_capture(
+      test, stream, "BF16 M16 projection-fused alias graph",
+      [&]() {
+        return q3x::kernels::
+            launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                first_weights, second_weights, input, first_output,
+                first_output + 1U, static_cast<void*>(stream));
+      });
+}
+
+void test_bf16_m16_projection_fused(TestContext& test,
+                                    cudaStream_t stream) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  const std::string label = "BF16 M16 pair production 48x5120";
+
+  int baseline_registers = -1;
+  int fused_registers = -1;
+  std::size_t baseline_shared = 0U;
+  std::size_t fused_shared = 0U;
+  std::size_t baseline_local = 0U;
+  std::size_t fused_local = 0U;
+  int baseline_active = -1;
+  int fused_active = -1;
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::kernels::query_bf16_gemv_pair_tile_bf16_cuda_resources(
+              &baseline_registers, &baseline_shared, &baseline_local,
+              &baseline_active)),
+      label + " query predecessor resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           query_bf16_gemv_pair_m16_projection_fused_cuda_resources(
+                               &fused_registers, &fused_shared, &fused_local,
+                               &fused_active)),
+                       label + " query projection-fused resources");
+  if (!ready) {
+    return;
+  }
+  test.expect(baseline_registers > 0 && fused_registers > 0,
+              label + " kernels report positive register counts");
+  test.expect(baseline_shared == 256U * sizeof(float),
+              label + " predecessor static shared memory is one reduction");
+  test.expect(fused_shared == 2U * kTokens * 256U * sizeof(float),
+              label + " projection-fused static shared memory is 32 reductions");
+  test.expect(baseline_local == 0U && fused_local == 0U,
+              label + " kernels do not spill local memory");
+  test.expect(baseline_active > 0 && fused_active > 0,
+              label + " kernels retain nonzero SM occupancy");
+  std::cout << "RESOURCE_BF16_M16_PAIR: predecessor_regs="
+            << baseline_registers << " predecessor_shared=" << baseline_shared
+            << " predecessor_local=" << baseline_local
+            << " predecessor_active=" << baseline_active
+            << " projection_fused_regs=" << fused_registers
+            << " projection_fused_shared=" << fused_shared
+            << " projection_fused_local=" << fused_local
+            << " projection_fused_active=" << fused_active << '\n';
+
+  std::vector<std::uint16_t> input(kTokens * kColumns);
+  std::vector<std::uint16_t> first_weights(kRows * kColumns);
+  std::vector<std::uint16_t> second_weights(kRows * kColumns);
+  fill_bf16_m16_pair_fixture(&input, &first_weights, &second_weights);
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> baseline_first;
+  DeviceBuffer<std::uint16_t> baseline_second;
+  DeviceBuffer<std::uint16_t> fused_first;
+  DeviceBuffer<std::uint16_t> fused_second;
+  ready = test.cuda_ok(device_input.allocate(input.size()),
+                       label + " allocate input");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(first_weights.size()),
+                       label + " allocate first weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(second_weights.size()),
+                       label + " allocate second weights");
+  ready = ready && test.cuda_ok(baseline_first.allocate(kOutputElements),
+                                label + " allocate predecessor first");
+  ready = ready && test.cuda_ok(baseline_second.allocate(kOutputElements),
+                                label + " allocate predecessor second");
+  ready = ready && test.cuda_ok(fused_first.allocate(kOutputElements),
+                                label + " allocate fused first");
+  ready = ready && test.cuda_ok(fused_second.allocate(kOutputElements),
+                                label + " allocate fused second");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(device_input.get(), input.data(),
+                      input.size() * sizeof(input.front()),
+                      cudaMemcpyHostToDevice, stream),
+      label + " upload input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() * sizeof(first_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() *
+                               sizeof(second_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload second weights");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+                               device_first_weights.get(),
+                               device_second_weights.get(), device_input.get(),
+                               kTokens, kRows, kColumns, baseline_first.get(),
+                               baseline_second.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch predecessor");
+  (void)seed_stale_error(test);
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                               device_first_weights.get(),
+                               device_second_weights.get(), device_input.get(),
+                               fused_first.get(), fused_second.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch projection-fused");
+  std::vector<std::uint16_t> host_baseline_first(kOutputElements);
+  std::vector<std::uint16_t> host_baseline_second(kOutputElements);
+  std::vector<std::uint16_t> host_fused_first(kOutputElements);
+  std::vector<std::uint16_t> host_fused_second(kOutputElements);
+  const auto download = [&](std::vector<std::uint16_t>* const host,
+                            const DeviceBuffer<std::uint16_t>& device,
+                            const std::string& name) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(host->data(), device.get(),
+                        host->size() * sizeof(host->front()),
+                        cudaMemcpyDeviceToHost, stream),
+        label + " download " + name);
+  };
+  ready = ready && download(&host_baseline_first, baseline_first,
+                            "predecessor first");
+  ready = ready && download(&host_baseline_second, baseline_second,
+                            "predecessor second");
+  ready = ready && download(&host_fused_first, fused_first, "fused first");
+  ready = ready && download(&host_fused_second, fused_second, "fused second");
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " synchronize");
+  if (!ready) {
+    return;
+  }
+  test.expect(host_fused_first == host_baseline_first,
+              label + " projection-fused first output is bitwise exact");
+  test.expect(host_fused_second == host_baseline_second,
+              label + " projection-fused second output is bitwise exact");
+
+  cudaKernelNodeParams baseline_parameters{};
+  cudaKernelNodeParams fused_parameters{};
+  ready = capture_single_bf16_pair_kernel(
+      test, stream, label + " predecessor graph",
+      [&]() {
+        return q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+            device_first_weights.get(), device_second_weights.get(),
+            device_input.get(), kTokens, kRows, kColumns,
+            baseline_first.get(), baseline_second.get(),
+            static_cast<void*>(stream));
+      },
+      &baseline_parameters);
+  ready = capture_single_bf16_pair_kernel(
+              test, stream, label + " projection-fused graph",
+              [&]() {
+                return q3x::kernels::
+                    launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                        device_first_weights.get(),
+                        device_second_weights.get(), device_input.get(),
+                        fused_first.get(), fused_second.get(),
+                        static_cast<void*>(stream));
+              },
+              &fused_parameters) &&
+          ready;
+  if (!ready) {
+    return;
+  }
+  const auto expect_geometry = [&](const cudaKernelNodeParams& parameters,
+                                   const unsigned int grid_y,
+                                   const unsigned int grid_z,
+                                   const std::string& name) {
+    test.expect(parameters.gridDim.x == kRows &&
+                    parameters.gridDim.y == grid_y &&
+                    parameters.gridDim.z == grid_z,
+                label + " " + name + " grid identity");
+    test.expect(parameters.blockDim.x == 256U &&
+                    parameters.blockDim.y == 1U &&
+                    parameters.blockDim.z == 1U,
+                label + " " + name + " block identity");
+    test.expect(parameters.sharedMemBytes == 0U,
+                label + " " + name + " dynamic shared identity");
+  };
+  expect_geometry(baseline_parameters, 16U, 2U, "predecessor");
+  expect_geometry(fused_parameters, 1U, 1U, "projection-fused");
+  test.expect(baseline_parameters.func != nullptr &&
+                  fused_parameters.func != nullptr,
+              label + " graph functions are non-null");
+  test.expect(baseline_parameters.func != fused_parameters.func,
+              label + " graph functions identify distinct kernels");
+  std::cout << "GRAPH_BF16_M16_PAIR: predecessor_grid=48x16x2"
+               " projection_fused_grid=48x1x1"
+               " block=256 dynamic_shared=0\n";
+}
+
+void test_bf16_m16_pair_special_values(TestContext& test,
+                                       cudaStream_t stream) {
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr std::size_t kGuardElements = 8U;
+  constexpr std::size_t kStorageElements =
+      kOutputElements + 2U * kGuardElements;
+  constexpr std::uint16_t kCanary = 0xa55aU;
+  constexpr std::uint16_t kFirstPoison = 0xdeadU;
+  constexpr std::uint16_t kSecondPoison = 0xbeefU;
+  const std::string label = "BF16 M16 pair special-value replay";
+
+  std::vector<std::uint16_t> input(kTokens * kColumns);
+  std::vector<std::uint16_t> first_weights(kRows * kColumns);
+  std::vector<std::uint16_t> second_weights(kRows * kColumns);
+  fill_bf16_m16_special_pair_fixture(&input, &first_weights,
+                                     &second_weights);
+  const auto make_initialized = [&](const std::uint16_t poison) {
+    std::vector<std::uint16_t> initialized(kStorageElements, kCanary);
+    std::fill_n(initialized.begin() +
+                    static_cast<std::ptrdiff_t>(kGuardElements),
+                kOutputElements, poison);
+    return initialized;
+  };
+  const std::vector<std::uint16_t> first_initialized =
+      make_initialized(kFirstPoison);
+  const std::vector<std::uint16_t> second_initialized =
+      make_initialized(kSecondPoison);
+
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> baseline_first;
+  DeviceBuffer<std::uint16_t> baseline_second;
+  DeviceBuffer<std::uint16_t> fused_first;
+  DeviceBuffer<std::uint16_t> fused_second;
+  bool ready = test.cuda_ok(device_input.allocate(input.size()),
+                            label + " allocate input");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(first_weights.size()),
+                       label + " allocate first weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(second_weights.size()),
+                       label + " allocate second weights");
+  ready = ready && test.cuda_ok(baseline_first.allocate(kStorageElements),
+                                label + " allocate predecessor first");
+  ready = ready && test.cuda_ok(baseline_second.allocate(kStorageElements),
+                                label + " allocate predecessor second");
+  ready = ready && test.cuda_ok(fused_first.allocate(kStorageElements),
+                                label + " allocate fused first");
+  ready = ready && test.cuda_ok(fused_second.allocate(kStorageElements),
+                                label + " allocate fused second");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(device_input.get(), input.data(),
+                      input.size() * sizeof(input.front()),
+                      cudaMemcpyHostToDevice, stream),
+      label + " upload input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() * sizeof(first_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() *
+                               sizeof(second_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload second weights");
+  const auto initialize_output = [&](DeviceBuffer<std::uint16_t>& output,
+                                     const std::vector<std::uint16_t>& values,
+                                     const std::string& name) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(output.get(), values.data(),
+                        values.size() * sizeof(values.front()),
+                        cudaMemcpyHostToDevice, stream),
+        label + " initialize " + name);
+  };
+  ready = ready && initialize_output(baseline_first, first_initialized,
+                                     "predecessor first");
+  ready = ready && initialize_output(baseline_second, first_initialized,
+                                     "predecessor second");
+  ready = ready &&
+          initialize_output(fused_first, first_initialized, "fused first");
+  ready = ready &&
+          initialize_output(fused_second, first_initialized, "fused second");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+              device_first_weights.get(), device_second_weights.get(),
+              device_input.get(), kTokens, kRows, kColumns,
+              baseline_first.get() + kGuardElements,
+              baseline_second.get() + kGuardElements,
+              static_cast<void*>(stream))),
+      label + " launch predecessor");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                               device_first_weights.get(),
+                               device_second_weights.get(), device_input.get(),
+                               fused_first.get() + kGuardElements,
+                               fused_second.get() + kGuardElements,
+                               static_cast<void*>(stream))),
+                       label + " launch projection-fused");
+  if (!ready) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_baseline_first(kStorageElements);
+  std::vector<std::uint16_t> host_baseline_second(kStorageElements);
+  std::vector<std::uint16_t> host_fused_first(kStorageElements);
+  std::vector<std::uint16_t> host_fused_second(kStorageElements);
+  const auto download = [&](std::vector<std::uint16_t>* const host,
+                            const DeviceBuffer<std::uint16_t>& device,
+                            const std::string& name) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(host->data(), device.get(),
+                        host->size() * sizeof(host->front()),
+                        cudaMemcpyDeviceToHost, stream),
+        label + " download " + name);
+  };
+  ready = download(&host_baseline_first, baseline_first, "predecessor first");
+  ready = ready && download(&host_baseline_second, baseline_second,
+                            "predecessor second");
+  ready = ready &&
+          download(&host_fused_first, fused_first, "fused first pass 1");
+  ready = ready &&
+          download(&host_fused_second, fused_second, "fused second pass 1");
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " pass 1 sync");
+  if (!ready) {
+    return;
+  }
+  const std::vector<std::uint16_t> host_fused_first_pass1 = host_fused_first;
+  const std::vector<std::uint16_t> host_fused_second_pass1 = host_fused_second;
+
+  ready = initialize_output(fused_first, second_initialized,
+                                     "fused first replay poison");
+  ready = ready && initialize_output(fused_second, second_initialized,
+                                     "fused second replay poison");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                               device_first_weights.get(),
+                               device_second_weights.get(), device_input.get(),
+                               fused_first.get() + kGuardElements,
+                               fused_second.get() + kGuardElements,
+                               static_cast<void*>(stream))),
+                       label + " replay projection-fused");
+  ready = ready &&
+          download(&host_fused_first, fused_first, "fused first replay");
+  ready = ready &&
+          download(&host_fused_second, fused_second, "fused second replay");
+  std::vector<std::uint16_t> input_after(input.size());
+  std::vector<std::uint16_t> first_weights_after(first_weights.size());
+  std::vector<std::uint16_t> second_weights_after(second_weights.size());
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           input_after.data(), device_input.get(),
+                           input_after.size() * sizeof(input_after.front()),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " download preserved input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           first_weights_after.data(),
+                           device_first_weights.get(),
+                           first_weights_after.size() *
+                               sizeof(first_weights_after.front()),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " download preserved first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           second_weights_after.data(),
+                           device_second_weights.get(),
+                           second_weights_after.size() *
+                               sizeof(second_weights_after.front()),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " download preserved second weights");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " replay sync");
+  if (!ready) {
+    return;
+  }
+
+  const auto expect_guards = [&](const std::vector<std::uint16_t>& output,
+                                 const std::string& name) {
+    bool intact = true;
+    for (std::size_t index = 0U; index < kGuardElements; ++index) {
+      intact = intact && output[index] == kCanary &&
+               output[kGuardElements + kOutputElements + index] == kCanary;
+    }
+    test.expect(intact, label + " " + name + " canaries are intact");
+  };
+  const auto expect_center_equal = [&](const std::vector<std::uint16_t>& actual,
+                                       const std::vector<std::uint16_t>& expected,
+                                       const std::string& name) {
+    test.expect(std::equal(
+                    actual.begin() +
+                        static_cast<std::ptrdiff_t>(kGuardElements),
+                    actual.begin() + static_cast<std::ptrdiff_t>(
+                                         kGuardElements + kOutputElements),
+                    expected.begin() +
+                        static_cast<std::ptrdiff_t>(kGuardElements)),
+                label + " " + name + " is bitwise exact");
+  };
+  expect_guards(host_baseline_first, "predecessor first");
+  expect_guards(host_baseline_second, "predecessor second");
+  const std::array<const std::vector<std::uint16_t>*, 4U> guarded_outputs = {
+      &host_fused_first_pass1, &host_fused_second_pass1,
+      &host_fused_first, &host_fused_second};
+  for (const std::vector<std::uint16_t>* const output : guarded_outputs) {
+    expect_guards(*output, "candidate/replay output");
+  }
+  expect_center_equal(host_fused_first_pass1, host_baseline_first,
+                      "fused first pass 1");
+  expect_center_equal(host_fused_second_pass1, host_baseline_second,
+                      "fused second pass 1");
+  expect_center_equal(host_fused_first, host_baseline_first,
+                      "fused first poison replay");
+  expect_center_equal(host_fused_second, host_baseline_second,
+                      "fused second poison replay");
+  test.expect(input_after == input, label + " preserves input");
+  test.expect(first_weights_after == first_weights,
+              label + " preserves first weights");
+  test.expect(second_weights_after == second_weights,
+              label + " preserves second weights");
+  const std::uint16_t cancellation =
+      host_baseline_first[kGuardElements + 8U * kRows + 8U];
+  test.expect((cancellation & 0x7fffU) == 0U,
+              label + " exact-cancellation cell remains zero");
+}
+
+void test_bf16_m16_projection_fused_performance(TestContext& test,
+                                                cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_BF16_M16_PROJECTION_FUSED_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: BF16 M16 projection-fused performance gate; set "
+                 "Q3X_RUN_BF16_M16_PROJECTION_FUSED_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr std::size_t kWarmupIterations = 64U;
+  constexpr std::size_t kMeasuredIterations = 512U;
+  constexpr int kRounds = 4;
+  constexpr double kMinimumSpeedup = 1.35;
+  const std::string label = "BF16 M16 projection-fused 48x5120 perf";
+  std::vector<std::uint16_t> input(kTokens * kColumns);
+  std::vector<std::uint16_t> first_weights(kRows * kColumns);
+  std::vector<std::uint16_t> second_weights(kRows * kColumns);
+  fill_bf16_m16_pair_fixture(&input, &first_weights, &second_weights);
+  DeviceBuffer<std::uint16_t> device_input;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> first_output;
+  DeviceBuffer<std::uint16_t> second_output;
+  bool ready = test.cuda_ok(device_input.allocate(input.size()),
+                            label + " allocate input");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(first_weights.size()),
+                       label + " allocate first weights");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(second_weights.size()),
+                       label + " allocate second weights");
+  ready = ready && test.cuda_ok(first_output.allocate(kOutputElements),
+                                label + " allocate first output");
+  ready = ready && test.cuda_ok(second_output.allocate(kOutputElements),
+                                label + " allocate second output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_input.get(), input.data(),
+                           input.size() * sizeof(input.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload input");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(), first_weights.data(),
+                           first_weights.size() * sizeof(first_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload first weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(), second_weights.data(),
+                           second_weights.size() *
+                               sizeof(second_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload second weights");
+  if (!ready) {
+    return;
+  }
+  const auto launch_predecessor = [&]() {
+    return q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+        device_first_weights.get(), device_second_weights.get(),
+        device_input.get(), kTokens, kRows, kColumns, first_output.get(),
+        second_output.get(), static_cast<void*>(stream));
+  };
+  const auto launch_projection_fused = [&]() {
+    return q3x::kernels::
+        launch_bf16_gemv_pair_m16_projection_fused_cuda(
+            device_first_weights.get(), device_second_weights.get(),
+            device_input.get(), first_output.get(), second_output.get(),
+            static_cast<void*>(stream));
+  };
+  for (std::size_t iteration = 0U;
+       ready && iteration < kWarmupIterations; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_predecessor()),
+                         label + " predecessor warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_projection_fused()),
+                         label + " projection-fused warmup");
+  }
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync");
+  if (!ready) {
+    return;
+  }
+
+  double predecessor_total = 0.0;
+  double fused_total = 0.0;
+  bool timing_finite = true;
+  bool every_round_non_regressing = true;
+  for (int round = 0; round < kRounds; ++round) {
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    const float predecessor_first = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " predecessor pass 1", launch_predecessor);
+    const float fused_first = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " fused pass 1",
+        launch_projection_fused);
+    const float fused_second = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, round_label + " fused pass 2",
+        launch_projection_fused);
+    const float predecessor_second = measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations,
+        round_label + " predecessor pass 2", launch_predecessor);
+    const bool round_finite =
+        std::isfinite(predecessor_first) && predecessor_first > 0.0F &&
+        std::isfinite(fused_first) && fused_first > 0.0F &&
+        std::isfinite(fused_second) && fused_second > 0.0F &&
+        std::isfinite(predecessor_second) && predecessor_second > 0.0F;
+    timing_finite = timing_finite && round_finite;
+    double round_speedup = std::numeric_limits<double>::quiet_NaN();
+    if (round_finite) {
+      predecessor_total += predecessor_first + predecessor_second;
+      fused_total += fused_first + fused_second;
+      round_speedup =
+          (predecessor_first + predecessor_second) /
+          (fused_first + fused_second);
+      every_round_non_regressing =
+          every_round_non_regressing && round_speedup >= 1.0;
+    }
+    std::cout << "PERF_BF16_M16_PAIR_ROUND: round=" << round + 1
+              << " predecessor1_ms=" << predecessor_first
+              << " fused1_ms=" << fused_first
+              << " fused2_ms=" << fused_second
+              << " predecessor2_ms=" << predecessor_second
+              << " speedup=" << round_speedup << '\n';
+  }
+  constexpr double kTimedPasses = 2.0 * static_cast<double>(kRounds);
+  const double predecessor_average = predecessor_total / kTimedPasses;
+  const double fused_average = fused_total / kTimedPasses;
+  const double fused_speedup = predecessor_average / fused_average;
+  const bool gate = timing_finite && every_round_non_regressing &&
+                    std::isfinite(fused_speedup) &&
+                    fused_speedup >= kMinimumSpeedup;
+  std::cout << "PERF_BF16_M16_PAIR: predecessor_ms=" << predecessor_average
+            << " projection_fused_ms=" << fused_average
+            << " projection_fused_speedup=" << fused_speedup
+            << " required_speedup=" << kMinimumSpeedup
+            << " every_round_non_regression="
+            << (every_round_non_regressing ? "PASS" : "FAIL")
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, label + " clears every-round and aggregate 1.35x gates");
+}
+
+void test_bf16_m16_projection_fused_rotating_cold_performance(
+    TestContext& test, cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_BF16_M16_PROJECTION_FUSED_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: BF16 M16 rotating-cold performance gate; set "
+                 "Q3X_RUN_BF16_M16_PROJECTION_FUSED_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kTokens = 16U;
+  constexpr std::size_t kRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr std::size_t kBankCount = 16U;
+  constexpr std::size_t kInputElements = kTokens * kColumns;
+  constexpr std::size_t kWeightElements = kRows * kColumns;
+  constexpr std::size_t kBankBytes =
+      (kInputElements + 2U * kWeightElements) * sizeof(std::uint16_t);
+  constexpr std::size_t kWorkingSetBytes = kBankCount * kBankBytes;
+  constexpr std::size_t kMeasuredIterations = 512U;
+  constexpr int kRounds = 4;
+  const std::string label = "BF16 M16 pair rotating-cold 48x5120 perf";
+
+  std::vector<std::uint16_t> base_input(kInputElements);
+  std::vector<std::uint16_t> base_first_weights(kWeightElements);
+  std::vector<std::uint16_t> base_second_weights(kWeightElements);
+  fill_bf16_m16_pair_fixture(&base_input, &base_first_weights,
+                             &base_second_weights);
+  std::vector<std::uint16_t> host_inputs(kBankCount * kInputElements);
+  std::vector<std::uint16_t> host_first_weights(kBankCount * kWeightElements);
+  std::vector<std::uint16_t> host_second_weights(kBankCount * kWeightElements);
+  for (std::size_t bank = 0U; bank < kBankCount; ++bank) {
+    std::copy(base_input.begin(), base_input.end(),
+              host_inputs.begin() +
+                  static_cast<std::ptrdiff_t>(bank * kInputElements));
+    std::copy(base_first_weights.begin(), base_first_weights.end(),
+              host_first_weights.begin() +
+                  static_cast<std::ptrdiff_t>(bank * kWeightElements));
+    std::copy(base_second_weights.begin(), base_second_weights.end(),
+              host_second_weights.begin() +
+                  static_cast<std::ptrdiff_t>(bank * kWeightElements));
+    const std::size_t input_index =
+        bank * kInputElements + (bank % kTokens) * kColumns +
+        (bank * 257U + 13U) % kColumns;
+    const std::size_t first_weight_index =
+        bank * kWeightElements + (bank % kRows) * kColumns +
+        (bank * 131U + 17U) % kColumns;
+    const std::size_t second_weight_index =
+        bank * kWeightElements + ((bank * 3U + 1U) % kRows) * kColumns +
+        (bank * 193U + 19U) % kColumns;
+    host_inputs[input_index] =
+        encode_bf16(static_cast<float>(static_cast<int>(bank) - 7) / 32.0F);
+    host_first_weights[first_weight_index] = encode_bf16(
+        static_cast<float>(static_cast<int>(bank * 5U % 23U) - 11) / 64.0F);
+    host_second_weights[second_weight_index] = encode_bf16(
+        static_cast<float>(static_cast<int>(bank * 7U % 29U) - 14) / 64.0F);
+  }
+
+  DeviceBuffer<std::uint16_t> device_inputs;
+  DeviceBuffer<std::uint16_t> device_first_weights;
+  DeviceBuffer<std::uint16_t> device_second_weights;
+  DeviceBuffer<std::uint16_t> baseline_first;
+  DeviceBuffer<std::uint16_t> baseline_second;
+  DeviceBuffer<std::uint16_t> fused_first;
+  DeviceBuffer<std::uint16_t> fused_second;
+  bool ready = test.cuda_ok(device_inputs.allocate(host_inputs.size()),
+                            label + " allocate input banks");
+  ready = ready && test.cuda_ok(
+                       device_first_weights.allocate(host_first_weights.size()),
+                       label + " allocate first-weight banks");
+  ready = ready && test.cuda_ok(
+                       device_second_weights.allocate(
+                           host_second_weights.size()),
+                       label + " allocate second-weight banks");
+  ready = ready && test.cuda_ok(baseline_first.allocate(kOutputElements),
+                                label + " allocate predecessor first");
+  ready = ready && test.cuda_ok(baseline_second.allocate(kOutputElements),
+                                label + " allocate predecessor second");
+  ready = ready && test.cuda_ok(fused_first.allocate(kOutputElements),
+                                label + " allocate fused first");
+  ready = ready && test.cuda_ok(fused_second.allocate(kOutputElements),
+                                label + " allocate fused second");
+  if (!ready) {
+    return;
+  }
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(device_inputs.get(), host_inputs.data(),
+                      host_inputs.size() * sizeof(host_inputs.front()),
+                      cudaMemcpyHostToDevice, stream),
+      label + " upload input banks");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_first_weights.get(),
+                           host_first_weights.data(),
+                           host_first_weights.size() *
+                               sizeof(host_first_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload first-weight banks");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           device_second_weights.get(),
+                           host_second_weights.data(),
+                           host_second_weights.size() *
+                               sizeof(host_second_weights.front()),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload second-weight banks");
+  if (!ready) {
+    return;
+  }
+  const auto launch_predecessor = [&](const std::size_t bank) {
+    return q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+        device_first_weights.get() + bank * kWeightElements,
+        device_second_weights.get() + bank * kWeightElements,
+        device_inputs.get() + bank * kInputElements, kTokens, kRows, kColumns,
+        baseline_first.get(), baseline_second.get(),
+        static_cast<void*>(stream));
+  };
+  const auto launch_fused = [&](const std::size_t bank) {
+    return q3x::kernels::
+        launch_bf16_gemv_pair_m16_projection_fused_cuda(
+            device_first_weights.get() + bank * kWeightElements,
+            device_second_weights.get() + bank * kWeightElements,
+            device_inputs.get() + bank * kInputElements, fused_first.get(),
+            fused_second.get(), static_cast<void*>(stream));
+  };
+  for (std::size_t bank = 0U; ready && bank < kBankCount; ++bank) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_predecessor(bank)),
+                         label + " predecessor first-touch");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_fused(bank)),
+                                  label + " fused first-touch");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " first-touch sync");
+  if (!ready) {
+    return;
+  }
+  const auto measure_rotating = [&](const auto& launch,
+                                    const std::string& pass_label) {
+    std::size_t bank = 0U;
+    return measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, pass_label, [&]() {
+          const int status = launch(bank);
+          bank = (bank + 1U) % kBankCount;
+          return status;
+        });
+  };
+
+  double predecessor_total = 0.0;
+  double fused_total = 0.0;
+  bool timing_finite = true;
+  bool every_round_non_regressing = true;
+  for (int round = 0; round < kRounds; ++round) {
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    const float predecessor_first =
+        measure_rotating(launch_predecessor,
+                         round_label + " predecessor pass 1");
+    const float fused_first =
+        measure_rotating(launch_fused, round_label + " fused pass 1");
+    const float fused_second =
+        measure_rotating(launch_fused, round_label + " fused pass 2");
+    const float predecessor_second =
+        measure_rotating(launch_predecessor,
+                         round_label + " predecessor pass 2");
+    const bool round_finite =
+        std::isfinite(predecessor_first) && predecessor_first > 0.0F &&
+        std::isfinite(fused_first) && fused_first > 0.0F &&
+        std::isfinite(fused_second) && fused_second > 0.0F &&
+        std::isfinite(predecessor_second) && predecessor_second > 0.0F;
+    double fused_cell_speedup = std::numeric_limits<double>::quiet_NaN();
+    if (round_finite) {
+      const double predecessor_cell =
+          (predecessor_first + predecessor_second) * 0.5;
+      const double fused_cell = (fused_first + fused_second) * 0.5;
+      fused_cell_speedup = predecessor_cell / fused_cell;
+      predecessor_total += predecessor_first + predecessor_second;
+      fused_total += fused_first + fused_second;
+      every_round_non_regressing =
+          every_round_non_regressing && fused_cell_speedup >= 1.0;
+    }
+    timing_finite = timing_finite && round_finite;
+    std::cout << "PERF_BF16_M16_PAIR_COLD_ROUND: banks=" << kBankCount
+              << " bank_bytes=" << kBankBytes
+              << " working_set_bytes=" << kWorkingSetBytes
+              << " round=" << round + 1
+              << " predecessor1_ms=" << predecessor_first
+              << " fused1_ms=" << fused_first
+              << " fused2_ms=" << fused_second
+              << " predecessor2_ms=" << predecessor_second
+              << " fused_speedup=" << fused_cell_speedup << '\n';
+  }
+  constexpr double kTimedPasses = 2.0 * static_cast<double>(kRounds);
+  const double predecessor_average = predecessor_total / kTimedPasses;
+  const double fused_average = fused_total / kTimedPasses;
+  const double fused_speedup = predecessor_average / fused_average;
+  const bool gate = timing_finite && every_round_non_regressing &&
+                    std::isfinite(fused_speedup) && fused_speedup >= 1.35;
+  std::cout << "PERF_BF16_M16_PAIR_COLD: banks=" << kBankCount
+            << " bank_bytes=" << kBankBytes
+            << " working_set_bytes=" << kWorkingSetBytes
+            << " predecessor_ms=" << predecessor_average
+            << " projection_fused_ms=" << fused_average
+            << " projection_fused_speedup=" << fused_speedup
+            << " every_round_non_regression="
+            << (every_round_non_regressing ? "PASS" : "FAIL")
+            << " gate=" << (gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(gate, label + " clears every-round and aggregate 1.35x gates");
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_predecessor(0U)),
+                       label + " exact predecessor");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_fused(0U)),
+                                label + " exact fused");
+  std::vector<std::uint16_t> host_baseline_first(kOutputElements);
+  std::vector<std::uint16_t> host_baseline_second(kOutputElements);
+  std::vector<std::uint16_t> host_fused_first(kOutputElements);
+  std::vector<std::uint16_t> host_fused_second(kOutputElements);
+  const auto download = [&](std::vector<std::uint16_t>* const host,
+                            const DeviceBuffer<std::uint16_t>& device,
+                            const std::string& name) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(host->data(), device.get(),
+                        host->size() * sizeof(host->front()),
+                        cudaMemcpyDeviceToHost, stream),
+        label + " download " + name);
+  };
+  ready = ready &&
+          download(&host_baseline_first, baseline_first, "predecessor first");
+  ready = ready && download(&host_baseline_second, baseline_second,
+                            "predecessor second");
+  ready = ready && download(&host_fused_first, fused_first, "fused first");
+  ready = ready && download(&host_fused_second, fused_second, "fused second");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " exact sync");
+  if (ready) {
+    test.expect(host_fused_first == host_baseline_first &&
+                    host_fused_second == host_baseline_second,
+                label + " fused outputs remain bitwise exact");
+  }
 }
 
 void test_bf16_direct_performance(TestContext& test, cudaStream_t stream) {
@@ -1692,6 +2684,7 @@ int main() {
                     "create non-blocking stream")) {
     return 1;
   }
+  test_bf16_m16_pair_invalid_capture(test, stream);
 
   // Awkward shapes exercise tails; target-K cases cover Qwen3.6 projection
   // dimensions without allocating full production matrices in a unit test.
@@ -1710,11 +2703,15 @@ int main() {
         "BF16 pair M" + std::to_string(token_count) +
             " production 48x5120");
   }
+  test_bf16_m16_projection_fused(test, stream);
+  test_bf16_m16_pair_special_values(test, stream);
   test_bf16_pair_numeric_edges(test, stream);
   test_bf16_pair_readonly_alias(test, stream);
   test_bf16_direct_readonly_alias(test, stream);
   test_bf16_direct_performance(test, stream);
   test_bf16_m1_pair_performance(test, stream);
+  test_bf16_m16_projection_fused_performance(test, stream);
+  test_bf16_m16_projection_fused_rotating_cold_performance(test, stream);
   run_fp8_case(test, stream, 7U, 37U, "FP8 awkward 7x37");
   run_fp8_case(test, stream, 3U, 5120U, "FP8 target-K 3x5120");
   run_fp8_static_case(test, stream, 7U, 37U,

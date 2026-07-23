@@ -3701,3 +3701,122 @@ largest phase-local hotspot; multi-request overlap remains a scheduler project.
 Full artifact hashes, five-process logs, SASS/resource identities, and B-C-C-B
 rows are in the
 [attention-values exact benchmark record](metadata/qwen36-27b-attention-values-exact-benchmark.json).
+
+## Prefill BF16 M16 A/B projection-fused promotion
+
+The fresh post-attention-values P513/C32/max1 profile exposed the linear-
+attention BF16 `in_proj_a`/`in_proj_b` pair as the next bounded exact-shape
+target. Sixteen prefix tiles across 48 linear-attention layers issue 1,536
+M16 pair kernels; they consumed 229.592608 ms and were fully exposed in the
+measured GPU union. The 48 finish-prefill M1 calls consumed another 0.917440
+ms, but are intentionally outside this Prefill specialization.
+
+The production `M16/N48/K5120` kernel maps one CTA to one output row and owns
+both projections for all sixteen tokens. It loads the two row weights once,
+retains 32 independent FP32 accumulator chains, and reuses every decoded
+activation across A and B. Shared memory is `float[2][16][256]`, so each token
+and projection retains the predecessor's column order, `fmaf` operands,
+256-thread reduction tree, and final BF16 round-to-nearest-even conversion.
+The public-call count is unchanged, while the CTA grid per M16 call falls from
+`(48,16,2)` to `(48,1,1)`.
+
+The selector is deliberately narrow. M1-M15 remain one generic pair kernel,
+M16 selects one exact kernel, M17-M31 run an exact M16 prefix followed by a
+generic tail, and M32 runs two ordered exact kernels. Full validation of both
+projections and all cross-ranges precedes recursive enqueue. Other backends,
+weight kinds, and shapes preserve their existing fallbacks; Decode M1 is
+unchanged.
+
+Two exact candidates were screened in the same test binary. The row-resident
+candidate reached 2.83063x hot and 2.98126x rotating-cold. The selected
+projection-fused candidate reached 4.48082x and 3.41249x, respectively. The
+losing row-resident kernel and all temporary test aliases were then removed.
+Final `cuobjdump` and runtime-resource results are:
+
+| Kernel | Grid | Registers | Static shared | Local | Active CTA/SM | Static instructions | `LDL` / `STL` / `CALL` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Generic predecessor | `(48,16,2)` | 22 | 1,024 B | 0 B | 6 | 144 | 0 / 0 / 0 |
+| Exact projection-fused | `(48,1,1)` | 55 | 32,768 B | 0 B | 4 | 1,520 | 0 / 0 / 0 |
+
+The exact function is intentionally fully unrolled: its larger static block
+performs the work of 32 predecessor CTAs per output row. It contains 32 static
+`FFMA` chains, 18 `LDG` instructions, and no spill or out-of-line helper call.
+The predecessor/exact kernels each have one SASS function and resource entry
+in both the final candidate runner and reference GEMV device-test binary; no
+BF16 M16 row-resident or projection-fused `_test` kernel alias remains.
+
+Default tests compare every output bit against the predecessor and cover
+finite structured inputs, signed zero, subnormals, infinities, signaling and
+quiet NaNs, exact cancellation, different poison replays, head/tail canaries,
+and input plus both weight buffers. Invalid low-level calls capture zero Graph
+nodes. Production-dispatch tests freeze function identity, order, grid, block,
+and zero dynamic shared memory for M1, M15, M16, M17, and M32, including the
+fail-before-enqueue cross-subtile and invalid-second-projection cases.
+
+Five independent same-binary processes use 64 hot warmups, sixteen cold-bank
+first touches, 512 launches per timed pass, and four B-C-C-B rounds. Each cold
+bank contains both weights and the input, so the 18,350,080-byte rotating
+working set is 4.375 times the reported 4 MiB L2.
+
+| Direct fixture | Minimum | Median | Mean | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Hot M16/N48/K5120 | 4.48049x | 4.48613x | 4.48788x | 4.49640x |
+| Rotating 16-bank cold | 3.40114x | 3.41783x | 3.42279x | 3.44638x |
+
+Every mirrored round is non-regressing and clears the frozen 1.35x gate.
+Separate-process B-C-C-B generation compares the frozen `c7cfdde` runner with
+the final candidate. Max1 uses one warmup and five measured rounds per process;
+P513/max8 uses one warmup and three measured rounds:
+
+| Workload and metric | Predecessor average | Projection-fused average | Speedup |
+| --- | ---: | ---: | ---: |
+| P33/max1 prefix | 321.9895 ms | 312.0575 ms | 1.031827x |
+| P33/max1 finish-prefill | 110.6190 ms | 110.5925 ms | 1.000240x |
+| P33/max1 TTFT / total | 432.6075 ms | 422.6400 ms | 1.023584x |
+| P513/max1 prefix | 5,343.0075 ms | 5,184.0450 ms | 1.030664x |
+| P513/max1 finish-prefill | 111.9990 ms | 111.9915 ms | 1.000067x |
+| P513/max1 TTFT / total | 5,454.9925 ms | 5,296.0260 ms | 1.030016x |
+| P513/max8 TTFT | 5,457.7485 ms | 5,299.2295 ms | 1.029914x |
+| P513/max8 Decode-after-first | 784.4325 ms | 784.6645 ms | 0.999704x |
+| P513/max8 subsequent token | 112.0755 ms | 112.0995 ms | 0.999786x |
+| P513/max8 total | 6,242.5510 ms | 6,083.9260 ms | 1.026073x |
+
+Thus P33 and P513 max1 TTFT fall by 9.9675 ms (2.304%) and 158.9665
+ms (2.914%). P513/max8 preserves the complete eight-token output while
+Decode-after-first and subsequent-token latency remain neutral within 0.03%,
+as expected from the unchanged M1 route. One first-baseline max8 process saw
+a 215,093,248-byte global-free-memory decrease. Both candidate processes, the
+second baseline, every max1 process, and an immediate same-command baseline
+audit were clean; the isolated baseline-only reading is retained as an
+environmental warning.
+
+The production P513 profile confirms the mechanism rather than relying only
+on end-to-end timing:
+
+| Profile metric | Predecessor | Projection-fused | Change |
+| --- | ---: | ---: | ---: |
+| Target Prefix launches | 1,536 | 1,536 | 0 |
+| Target Prefix raw time | 229.592608 ms | 66.677600 ms | -162.915008 ms, 3.44332x |
+| All generation kernel launches | 42,709 | 42,709 | 0 |
+| All generation raw time | 5,893.497216 ms | 5,729.023008 ms | -164.474208 ms |
+| All generation kernel union | 5,425.624032 ms | 5,261.599744 ms | -164.024288 ms |
+| Generation NVTX range | 5,528.166304 ms | 5,366.616384 ms | -161.549920 ms, 1.03010x |
+
+The final Release build completes every target. CTest discovers 56 tests,
+passes 51, skips five configured external fixtures, and fails none. Independent
+actual-checkpoint chunk 1/8/16/32 runs each preserve all 19 prompt IDs, 26
+generated IDs, exact text/`im_end`, and 44 steps.
+
+The refreshed critical-path ranking is now led by the already heavily tuned
+NVFP4 M32 gate/up route (1,589.152 ms marginal union), NVFP4 M32 down
+(1,037.387 ms), GDN update (590.966 ms), and the largest FP8 M32 rows
+(390.640/382.470 ms). The next gate therefore starts with a mechanism audit:
+the rejected M32 scale-window ping-pong and activation-only `cp.async` paths
+stay closed, and NVFP4 is revisited only for a materially new mechanism. If
+that audit finds none, the next bounded implementation target is GDN.
+
+This promotion adds neither a system double/triple buffer nor Prefill/Decode
+overlap. Prefill and Decode remain logically separated plans, but one batch-one
+request is still causally dependency-serialized. Full hashes, per-process
+rows, SASS inventory, profiler artifacts, and limitations are in the
+[BF16 M16 projection-fused benchmark record](metadata/qwen36-27b-bf16-m16-projection-fused-benchmark.json).

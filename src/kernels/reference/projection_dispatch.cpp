@@ -985,6 +985,11 @@ int launch_projection_pair_tile_to_bf16_cuda(
   if (fused_bf16_pair) {
     const auto& first = std::get<Bf16LinearWeight>(first_weight);
     const auto& second = std::get<Bf16LinearWeight>(second_weight);
+    if (token_count == 16U) {
+      return kernels::launch_bf16_gemv_pair_m16_projection_fused_cuda(
+          first.weight, second.weight, input, first_output, second_output,
+          cuda_stream);
+    }
     return kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
         first.weight, second.weight, input, token_count, first.output_size,
         first.input_size, first_output, second_output, cuda_stream);

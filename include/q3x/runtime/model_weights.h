@@ -378,10 +378,13 @@ struct WeightBindResult {
 // FP32 scratch must satisfy both independent projection contracts except on
 // the fused SM87 direct-to-BF16 path, where it is unused and may be null.
 //
-// supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B kernel
-// in subtiles of at most 16 tokens. C17..C32 is validated as one complete
-// operation before any subtile is enqueued. supports_fp8_projection_pair(...)
-// selects the fused SM87 FP8 K/V kernel only for M=1.
+// supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B route in
+// subtiles of at most 16 tokens. An exact M16 subtile uses one fixed-shape
+// projection-fused kernel; M1..M15 retain the generic pair kernel. C17..C32 is
+// validated as one complete operation before its M16 prefix and generic tail
+// (or two M16 subtiles for C32) are enqueued.
+// supports_fp8_projection_pair(...) selects the fused SM87 FP8 K/V kernel only
+// for M=1.
 // supports_fp8_qkv_z_projection_pair(...) selects the fused SM87 FP8 QKV/Z
 // kernel only for M=1 and the exact ordered [10240, 5120] then [6144, 5120]
 // shapes. At M=17..31, a pair of exact aligned NVFP4 MLP projections bypasses

@@ -93,6 +93,26 @@ enum class GemvStatus : std::uint8_t {
     std::size_t columns, std::uint16_t* first_output,
     std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
 
+// Exact production M16/N48/K5120 projection pair. One 256-thread CTA owns both
+// projections for a row, so every token activation is decoded once and fed to
+// independent A/B FP32 FMA chains. Each chain preserves the generic pair's
+// column order and 256-thread shared-memory reduction tree before BF16 RNE.
+[[nodiscard]] int launch_bf16_gemv_pair_m16_projection_fused_cuda(
+    const std::uint16_t* first_weights,
+    const std::uint16_t* second_weights, const std::uint16_t* input,
+    std::uint16_t* first_output, std::uint16_t* second_output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Kernel resource probes used by the exact-route and regression gates.
+// active_blocks_per_sm uses a 256-thread block and zero dynamic shared memory;
+// all destinations are required.
+[[nodiscard]] int query_bf16_gemv_pair_tile_bf16_cuda_resources(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* active_blocks_per_sm) noexcept;
+[[nodiscard]] int query_bf16_gemv_pair_m16_projection_fused_cuda_resources(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] int launch_fp8_gemv_reference_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,

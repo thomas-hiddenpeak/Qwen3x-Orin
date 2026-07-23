@@ -337,6 +337,18 @@ The diagnostic Phase 3 records are:
   Prefill and Decode remain logically separate plans but batch-one execution
   is dependency-serialized; the next step is a refreshed profile of the next
   hotspot.
+- [`qwen36-27b-bf16-m16-projection-fused-benchmark.json`](qwen36-27b-bf16-m16-projection-fused-benchmark.json),
+  which records the production exact M16/N48/K5120 linear-attention BF16 A/B
+  pair. It freezes the rejected row-resident comparison, selected 32-chain
+  projection-fused implementation, bitwise/special-value/replay/canary and
+  production Graph gates, final resources and SASS, five independent hot and
+  rotating-cold processes, P33/P513 max1 and P513 max8 B-C-C-B evidence, and
+  the before/after P513 profile. The exact target falls from 229.592608 to
+  66.677600 ms (3.44332x); P33/P513 max1 TTFT falls by 2.304%/2.914%, while
+  Decode remains neutral because M1 keeps the generic route. The record also
+  retains one baseline-only global-memory warning and its clean audit, and
+  makes clear that no system double/triple buffer or Prefill/Decode overlap
+  was introduced.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

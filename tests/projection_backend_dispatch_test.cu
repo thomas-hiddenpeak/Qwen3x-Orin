@@ -1,5 +1,6 @@
 #include "q3x/runtime/model_weights.h"
 
+#include "q3x/kernels/reference_gemv.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/runtime/decode_ops.h"
 
@@ -197,6 +198,144 @@ template <typename Launch>
                        "destroy capture stream " + label);
   }
   return ready ? kernel_nodes : kInvalidCount;
+}
+
+struct CapturedKernelLaunch {
+  void* function = nullptr;
+  dim3 grid{};
+  dim3 block{};
+  unsigned int dynamic_shared_bytes = 0U;
+};
+
+struct CapturedKernelChain {
+  bool valid = false;
+  std::vector<CapturedKernelLaunch> launches;
+};
+
+template <typename Launch>
+[[nodiscard]] CapturedKernelChain capture_ordered_kernel_chain(
+    TestContext& test, Launch&& launch, const std::string& label) {
+  CapturedKernelChain result;
+  cudaStream_t stream = nullptr;
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+      "create ordered capture stream " + label);
+  ready = ready && test.cuda_ok(
+                       cudaStreamBeginCapture(stream,
+                                              cudaStreamCaptureModeGlobal),
+                       "begin ordered capture " + label);
+  if (ready) {
+    const bool launch_ready =
+        static_cast<cudaError_t>(launch(stream)) == cudaSuccess;
+    test.expect(launch_ready, label + " ordered capture launch succeeds");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "end ordered capture " + label) &&
+            launch_ready;
+  }
+
+  std::vector<cudaGraphNode_t> nodes;
+  std::vector<cudaKernelNodeParams> parameters;
+  if (ready && graph != nullptr) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         "count ordered graph nodes " + label);
+    nodes.resize(node_count);
+    parameters.resize(node_count);
+    if (ready && node_count != 0U) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &node_count),
+                           "read ordered graph nodes " + label);
+    }
+    for (std::size_t index = 0U; ready && index < node_count; ++index) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                           "read ordered graph node type " + label);
+      test.expect(type == cudaGraphNodeTypeKernel,
+                  label + " ordered graph contains only kernels");
+      ready = ready && type == cudaGraphNodeTypeKernel &&
+              test.cuda_ok(cudaGraphKernelNodeGetParams(
+                               nodes[index], &parameters[index]),
+                           "read ordered kernel parameters " + label);
+    }
+
+    std::size_t edge_count = 0U;
+    if (ready) {
+#if CUDART_VERSION >= 12030
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, nullptr, nullptr, nullptr, &edge_count),
+          "count ordered graph edges " + label);
+#else
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, nullptr, nullptr, &edge_count),
+          "count ordered graph edges " + label);
+#endif
+    }
+    std::vector<cudaGraphNode_t> from(edge_count);
+    std::vector<cudaGraphNode_t> to(edge_count);
+    if (ready && edge_count != 0U) {
+#if CUDART_VERSION >= 12030
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, from.data(), to.data(), nullptr,
+                            &edge_count),
+          "read ordered graph edges " + label);
+#else
+      ready = test.cuda_ok(
+          cudaGraphGetEdges(graph, from.data(), to.data(), &edge_count),
+          "read ordered graph edges " + label);
+#endif
+    }
+
+    std::vector<std::size_t> indegree(node_count, 0U);
+    std::vector<std::size_t> successor(
+        node_count, std::numeric_limits<std::size_t>::max());
+    for (std::size_t edge = 0U; ready && edge < edge_count; ++edge) {
+      const auto from_position =
+          std::find(nodes.begin(), nodes.end(), from[edge]);
+      const auto to_position = std::find(nodes.begin(), nodes.end(), to[edge]);
+      ready = from_position != nodes.end() && to_position != nodes.end();
+      if (ready) {
+        const std::size_t from_index = static_cast<std::size_t>(
+            from_position - nodes.begin());
+        const std::size_t to_index =
+            static_cast<std::size_t>(to_position - nodes.begin());
+        ready = successor[from_index] ==
+                std::numeric_limits<std::size_t>::max();
+        successor[from_index] = to_index;
+        ++indegree[to_index];
+        ready = ready && indegree[to_index] == 1U;
+      }
+    }
+    std::size_t source = std::numeric_limits<std::size_t>::max();
+    std::size_t source_count = 0U;
+    for (std::size_t index = 0U; index < node_count; ++index) {
+      if (indegree[index] == 0U) {
+        source = index;
+        ++source_count;
+      }
+    }
+    ready = ready && node_count != 0U && source_count == 1U &&
+            edge_count + 1U == node_count;
+    for (std::size_t visited = 0U; ready && visited < node_count; ++visited) {
+      const cudaKernelNodeParams& selected = parameters[source];
+      result.launches.push_back(
+          {selected.func, selected.gridDim, selected.blockDim,
+           selected.sharedMemBytes});
+      if (visited + 1U < node_count) {
+        source = successor[source];
+        ready = source != std::numeric_limits<std::size_t>::max();
+      }
+    }
+  }
+  result.valid = ready;
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph),
+                       "destroy ordered graph " + label);
+  }
+  if (stream != nullptr) {
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy ordered capture stream " + label);
+  }
+  return result;
 }
 
 template <typename Launch>
@@ -1541,6 +1680,115 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
                   second),
               "production BF16 A/B pair selects the SM87 fast path");
 
+  const auto capture_production_pair = [&](const std::size_t token_count,
+                                           const std::string& label) {
+    return capture_ordered_kernel_chain(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return runtime::launch_projection_pair_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, first, second,
+              activation.get(), token_count, nullptr, 0U,
+              first_output.get(), second_output.get(),
+              static_cast<void*>(stream));
+        },
+        label);
+  };
+  const CapturedKernelChain generic_oracle = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::launch_bf16_gemv_pair_tile_bf16_cuda(
+            first_weights.get(), second_weights.get(), activation.get(), 1U,
+            kRows, kColumns, first_output.get(), second_output.get(),
+            static_cast<void*>(stream));
+      },
+      "BF16 generic pair identity oracle");
+  const CapturedKernelChain exact_oracle = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::
+            launch_bf16_gemv_pair_m16_projection_fused_cuda(
+                first_weights.get(), second_weights.get(), activation.get(),
+                first_output.get(), second_output.get(),
+                static_cast<void*>(stream));
+      },
+      "BF16 exact M16 pair identity oracle");
+  test.expect(generic_oracle.valid && generic_oracle.launches.size() == 1U,
+              "BF16 generic pair identity oracle is one kernel");
+  test.expect(exact_oracle.valid && exact_oracle.launches.size() == 1U,
+              "BF16 exact M16 pair identity oracle is one kernel");
+  if (generic_oracle.valid && generic_oracle.launches.size() == 1U &&
+      exact_oracle.valid && exact_oracle.launches.size() == 1U) {
+    void* const generic_function =
+        generic_oracle.launches.front().function;
+    void* const exact_function = exact_oracle.launches.front().function;
+    test.expect(generic_function != nullptr && exact_function != nullptr &&
+                    generic_function != exact_function,
+                "BF16 exact M16 function is distinct from generic pair");
+    const auto expect_launch = [&](const CapturedKernelLaunch& launch,
+                                   void* const function,
+                                   const unsigned int grid_y,
+                                   const unsigned int grid_z,
+                                   const std::string& label) {
+      test.expect(launch.function == function,
+                  label + " preserves kernel function identity");
+      test.expect(launch.grid.x == kRows && launch.grid.y == grid_y &&
+                      launch.grid.z == grid_z,
+                  label + " preserves grid identity");
+      test.expect(launch.block.x == 256U && launch.block.y == 1U &&
+                      launch.block.z == 1U,
+                  label + " preserves block identity");
+      test.expect(launch.dynamic_shared_bytes == 0U,
+                  label + " preserves zero dynamic shared memory");
+    };
+    const CapturedKernelChain m1 =
+        capture_production_pair(1U, "SM87 BF16 pair M1 identity graph");
+    const CapturedKernelChain m15 =
+        capture_production_pair(15U, "SM87 BF16 pair M15 identity graph");
+    const CapturedKernelChain m16 =
+        capture_production_pair(16U, "SM87 BF16 pair M16 identity graph");
+    const CapturedKernelChain m17 =
+        capture_production_pair(17U, "SM87 BF16 pair M17 identity graph");
+    const CapturedKernelChain m32 =
+        capture_production_pair(32U, "SM87 BF16 pair M32 identity graph");
+    test.expect(m1.valid && m1.launches.size() == 1U,
+                "SM87 BF16 pair M1 remains one generic kernel");
+    test.expect(m15.valid && m15.launches.size() == 1U,
+                "SM87 BF16 pair M15 remains one generic kernel");
+    test.expect(m16.valid && m16.launches.size() == 1U,
+                "SM87 BF16 pair M16 selects one exact kernel");
+    test.expect(m17.valid && m17.launches.size() == 2U,
+                "SM87 BF16 pair M17 is an ordered exact-plus-generic chain");
+    test.expect(m32.valid && m32.launches.size() == 2U,
+                "SM87 BF16 pair M32 is an ordered two-exact chain");
+    if (m1.valid && m1.launches.size() == 1U) {
+      expect_launch(m1.launches[0], generic_oracle.launches[0].function, 1U,
+                    2U, "SM87 BF16 pair M1 generic launch");
+    }
+    if (m15.valid && m15.launches.size() == 1U) {
+      expect_launch(m15.launches[0], generic_oracle.launches[0].function, 15U,
+                    2U, "SM87 BF16 pair M15 generic launch");
+    }
+    if (m16.valid && m16.launches.size() == 1U) {
+      expect_launch(m16.launches[0], exact_oracle.launches[0].function, 1U,
+                    1U, "SM87 BF16 pair M16 exact launch");
+    }
+    if (m17.valid && m17.launches.size() == 2U) {
+      expect_launch(m17.launches[0], exact_oracle.launches[0].function, 1U,
+                    1U, "SM87 BF16 pair M17 exact prefix");
+      expect_launch(m17.launches[1], generic_oracle.launches[0].function, 1U,
+                    2U, "SM87 BF16 pair M17 generic tail");
+    }
+    if (m32.valid && m32.launches.size() == 2U) {
+      expect_launch(m32.launches[0], exact_oracle.launches[0].function, 1U,
+                    1U, "SM87 BF16 pair M32 first exact tile");
+      expect_launch(m32.launches[1], exact_oracle.launches[0].function, 1U,
+                    1U, "SM87 BF16 pair M32 second exact tile");
+    }
+    std::cout << "GRAPH_BF16_PAIR_DISPATCH: M1=generic(48x1x2) "
+                 "M15=generic(48x15x2) M16=exact(48x1x1) "
+                 "M17=exact+generic M32=exact+exact block=256 shared=0\n";
+  }
+
   const auto run_fast = [&](const std::size_t token_count,
                             const std::string& label) {
     bool ready = test.cuda_ok(
@@ -1617,6 +1865,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
                 label + " graph contains one fused kernel per subtile");
   };
   run_fast(1U, "SM87 production BF16 pair M1");
+  run_fast(15U, "SM87 production BF16 pair M15");
   run_fast(16U, "SM87 production BF16 pair M16");
   run_fast(17U, "SM87 production BF16 pair M17");
   run_fast(18U, "SM87 production BF16 pair M18");

@@ -16,6 +16,9 @@ namespace {
 constexpr unsigned int kThreads = 256U;
 constexpr std::size_t kMaximumBlocks = 65535U;
 constexpr std::size_t kMaximumPairTokens = 16U;
+constexpr unsigned int kBf16M16Tokens = 16U;
+constexpr unsigned int kBf16M16Rows = 48U;
+constexpr unsigned int kBf16M16Columns = 5120U;
 constexpr std::size_t kMaximumGridX =
     static_cast<std::size_t>(std::numeric_limits<int>::max());
 
@@ -241,6 +244,74 @@ __global__ void bf16_gemv_pair_tile_bf16_kernel(
   }
 }
 
+__global__ void bf16_gemv_pair_m16_projection_fused_kernel(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input, std::uint16_t* const first_output,
+    std::uint16_t* const second_output) {
+  __shared__ float
+      partial[2U][kBf16M16Tokens][kThreads];
+
+  const unsigned int row = blockIdx.x;
+  const std::uint16_t* const first_row_weights =
+      first_weights + row * kBf16M16Columns;
+  const std::uint16_t* const second_row_weights =
+      second_weights + row * kBf16M16Columns;
+  float first_sums[kBf16M16Tokens] = {};
+  float second_sums[kBf16M16Tokens] = {};
+  for (unsigned int column = threadIdx.x;
+       column < kBf16M16Columns; column += kThreads) {
+    const float first_weight =
+        decode_bf16_device(first_row_weights[column]);
+    const float second_weight =
+        decode_bf16_device(second_row_weights[column]);
+#pragma unroll
+    for (unsigned int token = 0U; token < kBf16M16Tokens;
+         ++token) {
+      const float activation = decode_bf16_device(
+          input[token * kBf16M16Columns + column]);
+      first_sums[token] =
+          fmaf(first_weight, activation, first_sums[token]);
+      second_sums[token] =
+          fmaf(second_weight, activation, second_sums[token]);
+    }
+  }
+
+#pragma unroll
+  for (unsigned int token = 0U; token < kBf16M16Tokens; ++token) {
+    partial[0U][token][threadIdx.x] = first_sums[token];
+    partial[1U][token][threadIdx.x] = second_sums[token];
+  }
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+#pragma unroll
+      for (unsigned int token = 0U; token < kBf16M16Tokens;
+           ++token) {
+        partial[0U][token][threadIdx.x] +=
+            partial[0U][token][threadIdx.x + stride];
+        partial[1U][token][threadIdx.x] +=
+            partial[1U][token][threadIdx.x + stride];
+      }
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0U) {
+#pragma unroll
+    for (unsigned int token = 0U; token < kBf16M16Tokens;
+         ++token) {
+      const unsigned int output_index =
+          token * kBf16M16Rows + row;
+      first_output[output_index] =
+          encode_bf16_device(partial[0U][token][0U]);
+      second_output[output_index] =
+          encode_bf16_device(partial[1U][token][0U]);
+    }
+  }
+}
+
 __global__ void fp8_static_gemv_kernel(
     const Fp8StaticWeightAccessor weights,
     const std::uint16_t* const activation,
@@ -442,6 +513,101 @@ int launch_bf16_gemv_pair_tile_bf16_cuda(
       first_weights, second_weights, input, rows, columns, first_output,
       second_output);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_bf16_gemv_pair_m16_projection_fused_cuda(
+    const std::uint16_t* const first_weights,
+    const std::uint16_t* const second_weights,
+    const std::uint16_t* const input,
+    std::uint16_t* const first_output,
+    std::uint16_t* const second_output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kWeightElements =
+      static_cast<std::size_t>(kBf16M16Rows) * kBf16M16Columns;
+  constexpr std::size_t kInputElements =
+      static_cast<std::size_t>(kBf16M16Tokens) * kBf16M16Columns;
+  constexpr std::size_t kOutputElements =
+      static_cast<std::size_t>(kBf16M16Tokens) * kBf16M16Rows;
+  constexpr std::size_t kWeightBytes =
+      kWeightElements * sizeof(std::uint16_t);
+  constexpr std::size_t kInputBytes = kInputElements * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kOutputElements * sizeof(std::uint16_t);
+
+  if (first_weights == nullptr || second_weights == nullptr ||
+      input == nullptr || first_output == nullptr || second_output == nullptr ||
+      byte_range_overflows(first_weights, kWeightBytes) ||
+      byte_range_overflows(second_weights, kWeightBytes) ||
+      byte_range_overflows(input, kInputBytes) ||
+      byte_range_overflows(first_output, kOutputBytes) ||
+      byte_range_overflows(second_output, kOutputBytes) ||
+      ranges_overlap(first_output, kOutputBytes, first_weights, kWeightBytes) ||
+      ranges_overlap(first_output, kOutputBytes, second_weights, kWeightBytes) ||
+      ranges_overlap(first_output, kOutputBytes, input, kInputBytes) ||
+      ranges_overlap(second_output, kOutputBytes, first_weights, kWeightBytes) ||
+      ranges_overlap(second_output, kOutputBytes, second_weights, kWeightBytes) ||
+      ranges_overlap(second_output, kOutputBytes, input, kInputBytes) ||
+      ranges_overlap(first_output, kOutputBytes, second_output, kOutputBytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const dim3 blocks(kBf16M16Rows, 1U, 1U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_gemv_pair_m16_projection_fused_kernel<<<blocks, kThreads, 0U, stream>>>(
+      first_weights, second_weights, input, first_output, second_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+namespace {
+
+template <typename Kernel>
+[[nodiscard]] int query_bf16_pair_kernel_resources(
+    const Kernel kernel, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes, std::size_t* const local_bytes,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+}  // namespace
+
+int query_bf16_gemv_pair_tile_bf16_cuda_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const active_blocks_per_sm) noexcept {
+  return query_bf16_pair_kernel_resources(
+      bf16_gemv_pair_tile_bf16_kernel, registers_per_thread,
+      static_shared_bytes, local_bytes, active_blocks_per_sm);
+}
+
+int query_bf16_gemv_pair_m16_projection_fused_cuda_resources(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const active_blocks_per_sm) noexcept {
+  return query_bf16_pair_kernel_resources(
+      bf16_gemv_pair_m16_projection_fused_kernel, registers_per_thread,
+      static_shared_bytes, local_bytes, active_blocks_per_sm);
 }
 
 int launch_fp8_gemv_reference_cuda(

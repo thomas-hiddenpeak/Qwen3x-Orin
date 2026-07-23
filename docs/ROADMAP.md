@@ -539,16 +539,39 @@ neutral within the guard (+0.021% TTFT), reduce P513/max1 TTFT by 1.213%, and
 reduce P513/max8 subsequent-token latency by 0.987%. See the
 [attention-values exact promotion record](metadata/qwen36-27b-attention-values-exact-benchmark.json).
 
-Neither this kernel specialization nor the preceding FP8 M32 shared-memory
-residency change introduces a runtime double/triple buffer. Prefill and Decode
-are logically separated by the completed plan seam, but batch-one execution
-remains causally dependency-serialized. The next main-line step is to refresh
-the phase-local profile and select the next measured hotspot; rejected NVFP4
-product-table variants stay closed unless materially new evidence changes
-their ceiling. Independent executors and queues remain a future multi-request
-continuous-batching item after request/KV/workspace ownership, handoff,
-fairness, TTFT, inter-token, tail-latency, cancellation, and memory gates are
-explicit.
+The exact Prefill BF16 M16 A/B pair is now productionized as well. One CTA
+owns both N48/K5120 projections for all sixteen tokens, reusing each activation
+across two independent accumulator sets while preserving the predecessor's
+per-output arithmetic and BF16-RNE tree. The public-call count is unchanged,
+but the per-call grid contracts from `(48,16,2)` to `(48,1,1)`. The selected
+kernel uses 55 registers, 32,768 bytes static shared memory, zero local memory,
+and admits four CTAs/SM.
+
+Five independent same-binary processes span 4.48049x-4.49640x hot and
+3.40114x-3.44638x across a rotating 18,350,080-byte cold working set. Exact
+finite/nonfinite output, replay, guards, input and both weight buffers,
+fail-before-enqueue validation, M1/M15/M16/M17/M32 Graph identity, full Release,
+and actual-checkpoint chunk 1/8/16/32 gates pass. Detached B-C-C-B generation
+reduces P33/P513 max1 TTFT by 2.304%/2.914%; P513/max8 Decode-after-first and
+subsequent-token rows remain neutral within 0.03% because Decode M1 stays on
+the generic path. The post-promotion profile reduces the 1,536-launch exact
+target from 229.592608 to 66.677600 ms (3.44332x) and the full generation NVTX
+range by 161.549920 ms. See the
+[BF16 M16 projection-fused promotion record](metadata/qwen36-27b-bf16-m16-projection-fused-benchmark.json).
+
+None of these exact-kernel or shared-residency promotions introduces a runtime
+double/triple buffer. Prefill and Decode are logically separated by the
+completed plan seam, but batch-one execution remains causally dependency-
+serialized. The refreshed profile ranks NVFP4 M32 gate/up and down first by
+marginal critical-path exposure, followed by GDN and FP8 M32. Because the
+cheap NVFP4 M32 buffering paths already failed their frozen gates, the next
+main-line action is a mechanism audit: revisit NVFP4 only for materially new
+evidence, otherwise advance a bounded GDN candidate. Rejected product-table,
+scale-window ping-pong, activation-only `cp.async`, generalized dual-stream,
+and GDN shared-resident variants stay closed without a new mechanism.
+Independent executors and queues remain a future multi-request continuous-
+batching item after request/KV/workspace ownership, handoff, fairness, TTFT,
+inter-token, tail-latency, cancellation, and memory gates are explicit.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
