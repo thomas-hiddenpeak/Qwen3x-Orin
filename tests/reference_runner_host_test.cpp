@@ -649,6 +649,54 @@ void test_fake_linear_weight_validation(TestContext& test) {
                   near_miss_kv),
               "decode K/V pair selector preserves the split fallback for "
               "shape mismatches");
+
+  alignas(16) std::array<std::uint8_t, 16U> gate_packed{};
+  alignas(16) std::array<std::uint8_t, 16U> up_packed{};
+  alignas(2) std::array<std::uint8_t, 2U> gate_scales{};
+  alignas(2) std::array<std::uint8_t, 2U> up_scales{};
+  alignas(8) std::array<std::uint16_t, 4U> input{};
+  std::array<std::uint16_t, 4U> gate_output{};
+  std::array<std::uint16_t, 4U> up_output{};
+  float nvfp4_weight_scale = 1.0F / 64.0F;
+  float nvfp4_input_scale = 1.0F;
+  const runtime::LinearWeight gate = runtime::NvFp4LinearWeight{
+      gate_packed.data(), gate_scales.data(), &nvfp4_weight_scale,
+      &nvfp4_input_scale, nvfp4_weight_scale, nvfp4_input_scale, 17'408U,
+      runtime::kReferenceHiddenSize};
+  const runtime::LinearWeight up = runtime::NvFp4LinearWeight{
+      up_packed.data(), up_scales.data(), &nvfp4_weight_scale,
+      &nvfp4_input_scale, nvfp4_weight_scale, nvfp4_input_scale, 17'408U,
+      runtime::kReferenceHiddenSize};
+  test.expect(
+      detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+          input.data(), gate_output.data(), up_output.data(), 32U),
+      "exact aligned NVFP4 C32 MLP gate/up pair selects dual-stream prefill");
+  test.expect(
+      !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kReference, gate, up, input.data(),
+          gate_output.data(), up_output.data(), 32U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output.data(), up_output.data(), 31U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output.data(), gate_output.data(), 32U),
+      "dual-stream prefill selector preserves backend, tile, and distinct-output fallbacks");
+  const runtime::LinearWeight wrong_shape = runtime::NvFp4LinearWeight{
+      up_packed.data(), up_scales.data(), &nvfp4_weight_scale,
+      &nvfp4_input_scale, nvfp4_weight_scale, nvfp4_input_scale, 17'407U,
+      runtime::kReferenceHiddenSize};
+  test.expect(
+      !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, wrong_shape,
+          input.data(), gate_output.data(), up_output.data(), 32U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              reinterpret_cast<const std::uint16_t*>(
+                  reinterpret_cast<const std::uint8_t*>(input.data()) + 2U),
+              gate_output.data(), up_output.data(), 32U),
+      "dual-stream prefill selector preserves shape and alignment fallbacks");
 }
 
 void test_trace_layout_and_factory_error(TestContext& test) {

@@ -2,6 +2,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/kernels/reference_gemv.h"
 #include "q3x/runtime/decode_ops.h"
+#include "q3x/runtime/model_weights.h"
 
 #include <cuda_runtime.h>
 
@@ -5105,6 +5106,13 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m32_wmma_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m32_dual_stream_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M32_DUAL_STREAM_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -15505,6 +15513,369 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
   test.expect(vector_store_aggregate_gate,
               "NVFP4 M32 K64 factorized vector store clears every cell and "
               "the weighted factorized-relative gate");
+}
+
+void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
+                                                      cudaStream_t stream) {
+  if (!nvfp4_m32_dual_stream_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M32 gate/up dual-stream segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M32_DUAL_STREAM_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kTokens = 32U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 4;
+  constexpr double kRequiredSpeedup = 1.03;
+
+  std::vector<std::uint8_t> host_gate_packed(kRows * kPackedColumns);
+  std::vector<std::uint8_t> host_up_packed(host_gate_packed.size());
+  for (std::size_t index = 0U; index < host_gate_packed.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 3U + (index >> 5U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 7U) * 3U + 7U) & 0x0fU);
+    host_gate_packed[index] =
+        static_cast<std::uint8_t>(low | (high << 4U));
+    host_up_packed[index] =
+        static_cast<std::uint8_t>((low ^ 0x09U) |
+                                  ((high ^ 0x05U) << 4U));
+  }
+  std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
+  std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> sequential_gate_output;
+  DeviceBuffer<std::uint16_t> sequential_up_output;
+  DeviceBuffer<std::uint16_t> concurrent_gate_output;
+  DeviceBuffer<std::uint16_t> concurrent_up_output;
+  DeviceBuffer<float> scalar_scales;
+  bool ready = test.cuda_ok(gate_packed.allocate(host_gate_packed.size()),
+                            "dual stream allocate gate packed weights");
+  ready = ready && test.cuda_ok(
+                       up_packed.allocate(host_up_packed.size()),
+                       "dual stream allocate up packed weights");
+  ready = ready && test.cuda_ok(
+                       gate_scales.allocate(host_gate_scales.size()),
+                       "dual stream allocate gate block scales");
+  ready = ready && test.cuda_ok(
+                       up_scales.allocate(host_up_scales.size()),
+                       "dual stream allocate up block scales");
+  ready = ready && test.cuda_ok(
+                       activations.allocate(host_activations.size()),
+                       "dual stream allocate activations");
+  ready = ready && test.cuda_ok(
+                       sequential_gate_output.allocate(kOutputElements),
+                       "dual stream allocate sequential gate output");
+  ready = ready && test.cuda_ok(
+                       sequential_up_output.allocate(kOutputElements),
+                       "dual stream allocate sequential up output");
+  ready = ready && test.cuda_ok(
+                       concurrent_gate_output.allocate(kOutputElements),
+                       "dual stream allocate concurrent gate output");
+  ready = ready && test.cuda_ok(
+                       concurrent_up_output.allocate(kOutputElements),
+                       "dual stream allocate concurrent up output");
+  ready = ready && test.cuda_ok(
+                       scalar_scales.allocate(2U),
+                       "dual stream allocate scalar scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           gate_packed.get(), host_gate_packed.data(),
+                           host_gate_packed.size(), cudaMemcpyHostToDevice,
+                           stream),
+                       "dual stream initialize gate packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           up_packed.get(), host_up_packed.data(),
+                           host_up_packed.size(), cudaMemcpyHostToDevice,
+                           stream),
+                       "dual stream initialize up packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       "dual stream initialize activations");
+  const std::array<float, 2U> host_scalar_scales{{kWeightScale2, 1.0F}};
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           scalar_scales.get(), host_scalar_scales.data(),
+                           host_scalar_scales.size() * sizeof(float),
+                           cudaMemcpyHostToDevice, stream),
+                       "dual stream initialize scalar scales");
+  if (!ready) {
+    return;
+  }
+
+  cudaStream_t auxiliary_stream = nullptr;
+  cudaEvent_t inputs_ready = nullptr;
+  cudaEvent_t auxiliary_done = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&auxiliary_stream, cudaStreamNonBlocking),
+      "dual stream create auxiliary stream");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&inputs_ready,
+                                                cudaEventDisableTiming),
+                       "dual stream create input-ready event");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&auxiliary_done,
+                                                cudaEventDisableTiming),
+                       "dual stream create auxiliary-done event");
+  if (!ready) {
+    if (inputs_ready != nullptr) {
+      (void)cudaEventDestroy(inputs_ready);
+    }
+    if (auxiliary_done != nullptr) {
+      (void)cudaEventDestroy(auxiliary_done);
+    }
+    if (auxiliary_stream != nullptr) {
+      (void)cudaStreamDestroy(auxiliary_stream);
+    }
+    return;
+  }
+
+  const q3x::runtime::LinearWeight gate_weight =
+      q3x::runtime::NvFp4LinearWeight{
+          gate_packed.get(), gate_scales.get(), scalar_scales.get(),
+          scalar_scales.get() + 1U, kWeightScale2, 1.0F, kRows, kColumns};
+  const q3x::runtime::LinearWeight up_weight =
+      q3x::runtime::NvFp4LinearWeight{
+          up_packed.get(), up_scales.get(), scalar_scales.get(),
+          scalar_scales.get() + 1U, kWeightScale2, 1.0F, kRows, kColumns};
+  const auto launch_one = [&](const q3x::runtime::LinearWeight& weight,
+                              std::uint16_t* const output,
+                              cudaStream_t const launch_stream) noexcept {
+    return q3x::runtime::launch_projection_tile_to_bf16_cuda(
+        q3x::runtime::ProjectionBackend::kSm87WeightOnly, weight,
+        activations.get(), kTokens, nullptr, 0U, output,
+        static_cast<void*>(launch_stream));
+  };
+  const auto launch_sequential = [&]() noexcept -> int {
+    int status = launch_one(gate_weight, sequential_gate_output.get(),
+                            stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return launch_one(up_weight, sequential_up_output.get(), stream);
+  };
+  const auto launch_concurrent = [&]() noexcept -> int {
+    cudaError_t status = cudaEventRecord(inputs_ready, stream);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    status = cudaStreamWaitEvent(auxiliary_stream, inputs_ready, 0U);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    int launch_status =
+        launch_one(gate_weight, concurrent_gate_output.get(), stream);
+    if (launch_status != static_cast<int>(cudaSuccess)) {
+      return launch_status;
+    }
+    launch_status = launch_one(up_weight, concurrent_up_output.get(),
+                               auxiliary_stream);
+    if (launch_status != static_cast<int>(cudaSuccess)) {
+      return launch_status;
+    }
+    status = cudaEventRecord(auxiliary_done, auxiliary_stream);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    return static_cast<int>(
+        cudaStreamWaitEvent(stream, auxiliary_done, 0U));
+  };
+
+  std::vector<std::uint16_t> sequential_gate(kOutputElements);
+  std::vector<std::uint16_t> sequential_up(kOutputElements);
+  std::vector<std::uint16_t> concurrent_gate(kOutputElements);
+  std::vector<std::uint16_t> concurrent_up(kOutputElements);
+  double aggregate_sequential = 0.0;
+  double aggregate_concurrent = 0.0;
+  bool all_cells_pass = true;
+  for (const NvFp4M1ScaleDistribution distribution :
+       kNvFp4M16K128ScaleDistributions) {
+    const std::string distribution_label =
+        std::string("NVFP4 M32 gate/up dual stream ") +
+        nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
+                                     distribution);
+    host_up_scales = host_gate_scales;
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        distribution_label + " initialize gate scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             up_scales.get(), host_up_scales.data(),
+                             host_up_scales.size(), cudaMemcpyHostToDevice,
+                             stream),
+                         distribution_label + " initialize up scales");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_sequential()),
+                         distribution_label + " correctness sequential");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_concurrent()),
+                         distribution_label + " correctness concurrent");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             sequential_gate.data(),
+                             sequential_gate_output.get(),
+                             sequential_gate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy sequential gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             sequential_up.data(), sequential_up_output.get(),
+                             sequential_up.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy sequential up");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             concurrent_gate.data(),
+                             concurrent_gate_output.get(),
+                             concurrent_gate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy concurrent gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             concurrent_up.data(), concurrent_up_output.get(),
+                             concurrent_up.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy concurrent up");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " correctness synchronize");
+    if (!ready) {
+      break;
+    }
+    std::size_t gate_mismatches = 0U;
+    std::size_t up_mismatches = 0U;
+    for (std::size_t index = 0U; index < kOutputElements; ++index) {
+      gate_mismatches +=
+          sequential_gate[index] != concurrent_gate[index] ? 1U : 0U;
+      up_mismatches +=
+          sequential_up[index] != concurrent_up[index] ? 1U : 0U;
+    }
+    const bool bitwise_equal =
+        gate_mismatches == 0U && up_mismatches == 0U;
+    test.expect(bitwise_equal,
+                distribution_label + " outputs are bit-exact");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_sequential()),
+                           distribution_label + " sequential warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_concurrent()),
+                           distribution_label + " concurrent warmup");
+    }
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         distribution_label + " warmup synchronize");
+    if (!ready) {
+      break;
+    }
+
+    double sequential_total = 0.0;
+    double concurrent_total = 0.0;
+    bool timings_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const float sequential_first = measure_small_m_tile(
+          test, stream, launch_sequential, kMeasuredIterations,
+          distribution_label + " sequential pass 1");
+      const float concurrent_first = measure_small_m_tile(
+          test, stream, launch_concurrent, kMeasuredIterations,
+          distribution_label + " concurrent pass 1");
+      const float concurrent_second = measure_small_m_tile(
+          test, stream, launch_concurrent, kMeasuredIterations,
+          distribution_label + " concurrent pass 2");
+      const float sequential_second = measure_small_m_tile(
+          test, stream, launch_sequential, kMeasuredIterations,
+          distribution_label + " sequential pass 2");
+      const bool round_finite =
+          std::isfinite(sequential_first) &&
+          std::isfinite(concurrent_first) &&
+          std::isfinite(concurrent_second) &&
+          std::isfinite(sequential_second);
+      timings_finite = timings_finite && round_finite;
+      if (round_finite) {
+        sequential_total += sequential_first + sequential_second;
+        concurrent_total += concurrent_first + concurrent_second;
+      }
+      std::cout << "PERF_NVFP4_M32_DUAL_STREAM_ROUND: distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " round=" << round + 1
+                << " sequential_pass1_ms=" << sequential_first
+                << " concurrent_pass1_ms=" << concurrent_first
+                << " concurrent_pass2_ms=" << concurrent_second
+                << " sequential_pass2_ms=" << sequential_second << '\n';
+    }
+    const double timed_passes =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    const double sequential_ms = sequential_total / timed_passes;
+    const double concurrent_ms = concurrent_total / timed_passes;
+    const double speedup = sequential_ms / concurrent_ms;
+    const bool cell_gate =
+        bitwise_equal && timings_finite && std::isfinite(speedup) &&
+        speedup >= kRequiredSpeedup;
+    all_cells_pass = all_cells_pass && cell_gate;
+    aggregate_sequential += sequential_ms;
+    aggregate_concurrent += concurrent_ms;
+    std::cout << "PERF_NVFP4_M32_DUAL_STREAM_CELL: distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " sequential_ms=" << sequential_ms
+              << " concurrent_ms=" << concurrent_ms
+              << " speedup=" << speedup
+              << " required_speedup=" << kRequiredSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL")
+              << " gate_mismatches=" << gate_mismatches
+              << " up_mismatches=" << up_mismatches << '\n';
+  }
+
+  const double aggregate_speedup =
+      aggregate_sequential / aggregate_concurrent;
+  const bool aggregate_gate =
+      ready && all_cells_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_speedup >= kRequiredSpeedup;
+  std::cout << "PERF_NVFP4_M32_DUAL_STREAM_AGGREGATE: sequential_ms="
+            << aggregate_sequential
+            << " concurrent_ms=" << aggregate_concurrent
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kRequiredSpeedup
+            << " cells=checkpoint_like:same_bank_stress"
+            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(aggregate_gate,
+              "NVFP4 M32 gate/up dual stream clears both cells and the "
+              "three-percent scheduling gate");
+
+  (void)test.cuda_ok(cudaEventDestroy(inputs_ready),
+                     "dual stream destroy input-ready event");
+  (void)test.cuda_ok(cudaEventDestroy(auxiliary_done),
+                     "dual stream destroy auxiliary-done event");
+  (void)test.cuda_ok(cudaStreamDestroy(auxiliary_stream),
+                     "dual stream destroy auxiliary stream");
 }
 
 constexpr std::array<std::size_t, 6U> kNvFp4GridCaps{{
@@ -26939,6 +27310,7 @@ int main() {
   run_optional_nvfp4_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_k128_performance(test, stream);
   run_optional_nvfp4_m32_wmma_performance(test, stream);
+  run_optional_nvfp4_m32_dual_stream_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);

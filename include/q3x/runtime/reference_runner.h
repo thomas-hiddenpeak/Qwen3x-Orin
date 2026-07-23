@@ -236,6 +236,15 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Pure-host selector for the narrow C32 NVFP4 MLP scheduling optimization.
+// It accepts only the two exact aligned direct-output projections, so every
+// route that could touch the shared FP32 fallback scratch remains serial.
+[[nodiscard]] bool use_nvfp4_m32_prefill_gate_up_dual_stream(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* input,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    std::size_t token_count) noexcept;
+
 // Pure-host validation entry used by tests and factory preflight. It checks
 // exact batch-one workspace, cache, RoPE, and 48/16 schedule capacities.
 [[nodiscard]] ReferenceRunnerError validate_reference_workspace_plan(
@@ -268,15 +277,16 @@ class ReferenceRunner {
 
   // Executes 1..32 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Operations
-  // with a 16-token kernel contract are enqueued as ordered subtiles on the
-  // same stream, persistent conv/GDN/KV state is updated in token order, and
-  // the logical request length is committed once only after the complete tile
-  // synchronizes.
+  // with a 16-token kernel contract are enqueued as ordered subtiles.
+  // Persistent conv/GDN/KV state is updated in token order. The exact aligned
+  // SM87 NVFP4 C32 MLP gate/up pair may use one owned auxiliary stream and an
+  // event join; every fallback remains on the main stream, and the logical
+  // request length is committed only after the complete tile synchronizes.
   [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;
 
-  // A successful reset synchronizes the owned stream, clears all persistent
+  // A successful reset synchronizes the owned streams, clears all persistent
   // request state through RequestState::reset_async, clears poison, and
   // invalidates the prior trace. Reset is the only poison recovery operation.
   [[nodiscard]] ReferenceRunnerStatus reset() noexcept;
@@ -315,6 +325,9 @@ class ReferenceRunner {
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
   void* stream_ = nullptr;
+  void* prefill_auxiliary_stream_ = nullptr;
+  void* prefill_branch_ready_event_ = nullptr;
+  void* prefill_branch_done_event_ = nullptr;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   Views views_{};

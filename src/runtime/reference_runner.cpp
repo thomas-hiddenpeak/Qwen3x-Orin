@@ -709,6 +709,35 @@ bool use_qk_rope_tile(
              (kRopePairs * sizeof(float));
 }
 
+bool use_nvfp4_m32_prefill_gate_up_dual_stream(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    std::uint16_t* const gate_output, std::uint16_t* const up_output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  return backend == ProjectionBackend::kSm87WeightOnly &&
+         token_count == kMaximumProjectionTileTokenCount &&
+         gate != nullptr && up != nullptr &&
+         gate->output_size == kRows && gate->input_size == kColumns &&
+         up->output_size == kRows && up->input_size == kColumns &&
+         aligned(gate->packed_weight, 16U) &&
+         aligned(up->packed_weight, 16U) &&
+         aligned(gate->block_scale, alignof(std::uint16_t)) &&
+         aligned(up->block_scale, alignof(std::uint16_t)) &&
+         aligned(input, alignof(std::uint64_t)) &&
+         aligned(gate_output, alignof(std::uint16_t)) &&
+         aligned(up_output, alignof(std::uint16_t)) &&
+         gate_output != up_output;
+}
+
 ReferenceRunnerError validate_reference_workspace_plan(
     const RequestMemoryPlan& plan) noexcept {
   if (plan.batch_size != 1U || plan.prefill_chunk_size == 0U ||
@@ -827,6 +856,12 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   weights_ = std::exchange(other.weights_, nullptr);
   state_ = std::exchange(other.state_, nullptr);
   stream_ = std::exchange(other.stream_, nullptr);
+  prefill_auxiliary_stream_ =
+      std::exchange(other.prefill_auxiliary_stream_, nullptr);
+  prefill_branch_ready_event_ =
+      std::exchange(other.prefill_branch_ready_event_, nullptr);
+  prefill_branch_done_event_ =
+      std::exchange(other.prefill_branch_done_event_, nullptr);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   views_ = other.views_;
@@ -852,9 +887,26 @@ std::uint32_t ReferenceRunner::current_position() const noexcept {
 
 void ReferenceRunner::release() noexcept {
   if (stream_ != nullptr) {
-    const auto stream = reinterpret_cast<cudaStream_t>(stream_);
-    (void)cudaStreamSynchronize(stream);
-    (void)cudaStreamDestroy(stream);
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  if (prefill_branch_ready_event_ != nullptr) {
+    (void)cudaEventDestroy(
+        reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_));
+  }
+  if (prefill_branch_done_event_ != nullptr) {
+    (void)cudaEventDestroy(
+        reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamDestroy(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  if (stream_ != nullptr) {
+    (void)cudaStreamDestroy(reinterpret_cast<cudaStream_t>(stream_));
   }
   if (pinned_trace_ != nullptr) {
     (void)cudaFreeHost(pinned_trace_);
@@ -865,6 +917,9 @@ void ReferenceRunner::release() noexcept {
   weights_ = nullptr;
   state_ = nullptr;
   stream_ = nullptr;
+  prefill_auxiliary_stream_ = nullptr;
+  prefill_branch_ready_event_ = nullptr;
+  prefill_branch_done_event_ = nullptr;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   views_ = {};
@@ -885,6 +940,10 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
   if (stream_ != nullptr) {
     (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
   }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
   poisoned_ = true;
   trace_valid_ = false;
   ReferenceStepOutcome outcome;
@@ -896,6 +955,10 @@ ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
     const ReferenceRunnerStatus status) noexcept {
   if (stream_ != nullptr) {
     (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
   }
   poisoned_ = true;
   trace_valid_ = false;
@@ -915,6 +978,18 @@ std::optional<ReferenceTraceView> ReferenceRunner::last_trace() const noexcept {
 ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   if (!static_cast<bool>(*this)) {
     return runner_status(ReferenceRunnerError::kInvalidRunner, "reset");
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    const cudaError_t auxiliary_sync_status = cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+    if (auxiliary_sync_status != cudaSuccess) {
+      poisoned_ = true;
+      trace_valid_ = false;
+      return runner_status(ReferenceRunnerError::kCudaFailure,
+                           "reset_auxiliary_synchronize",
+                           kReferenceNoLayer,
+                           static_cast<int>(auxiliary_sync_status));
+    }
   }
   const RequestOperationStatus reset_status = state_->reset_async(stream_);
   if (!reset_status) {
@@ -1826,11 +1901,55 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                     "prefill_post_attention_layernorm", layer)) {
       return fail_prefill_tile(launch_failure);
     }
-    if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
-                 views_.projection[0], "prefill_mlp_gate_projection", layer) ||
-        !project(layer_weights.mlp.up_proj, views_.hidden[1],
-                 views_.projection[1], "prefill_mlp_up_projection", layer) ||
-        !check_cuda(launch_silu_mul_reference_cuda(
+    const bool use_gate_up_dual_stream =
+        prefill_auxiliary_stream_ != nullptr &&
+        prefill_branch_ready_event_ != nullptr &&
+        prefill_branch_done_event_ != nullptr &&
+        reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+            projection_backend_, layer_weights.mlp.gate_proj,
+            layer_weights.mlp.up_proj, views_.hidden[1],
+            views_.projection[0], views_.projection[1], token_count);
+    if (use_gate_up_dual_stream) {
+      const auto auxiliary_stream =
+          reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
+      const auto branch_ready =
+          reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_);
+      const auto branch_done =
+          reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_);
+      if (!check_cuda(
+              static_cast<int>(cudaEventRecord(branch_ready, stream)),
+              "prefill_mlp_branch_ready_record", layer) ||
+          !check_cuda(static_cast<int>(cudaStreamWaitEvent(
+                          auxiliary_stream, branch_ready, 0U)),
+                      "prefill_mlp_branch_ready_wait", layer) ||
+          !project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                   views_.projection[0], "prefill_mlp_gate_projection",
+                   layer) ||
+          !check_cuda(
+              launch_projection_tile_to_bf16_cuda(
+                  projection_backend_, layer_weights.mlp.up_proj,
+                  views_.hidden[1], token_count, views_.fp32_scratch,
+                  views_.fp32_scratch_elements, views_.projection[1],
+                  prefill_auxiliary_stream_),
+              "prefill_mlp_up_projection_auxiliary", layer) ||
+          !check_cuda(
+              static_cast<int>(cudaEventRecord(branch_done,
+                                               auxiliary_stream)),
+              "prefill_mlp_branch_done_record", layer) ||
+          !check_cuda(static_cast<int>(
+                          cudaStreamWaitEvent(stream, branch_done, 0U)),
+                      "prefill_mlp_branch_done_wait", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else if (!project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                        views_.projection[0],
+                        "prefill_mlp_gate_projection", layer) ||
+               !project(layer_weights.mlp.up_proj, views_.hidden[1],
+                        views_.projection[1],
+                        "prefill_mlp_up_projection", layer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+    if (!check_cuda(launch_silu_mul_reference_cuda(
                         views_.projection[0], views_.projection[1],
                         token_count * kReferenceIntermediateSize,
                         views_.projection[0], stream_),
@@ -1926,6 +2045,43 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+
+  if (options.projection_backend == ProjectionBackend::kSm87WeightOnly) {
+    cudaStream_t auxiliary_stream = nullptr;
+    cudaEvent_t branch_ready = nullptr;
+    cudaEvent_t branch_done = nullptr;
+    const bool auxiliary_ready =
+        cudaStreamCreateWithFlags(&auxiliary_stream,
+                                  cudaStreamNonBlocking) == cudaSuccess &&
+        cudaEventCreateWithFlags(&branch_ready,
+                                 cudaEventDisableTiming) == cudaSuccess &&
+        cudaEventCreateWithFlags(&branch_done,
+                                 cudaEventDisableTiming) == cudaSuccess;
+    if (auxiliary_ready) {
+      runner.prefill_auxiliary_stream_ =
+          reinterpret_cast<void*>(auxiliary_stream);
+      runner.prefill_branch_ready_event_ =
+          reinterpret_cast<void*>(branch_ready);
+      runner.prefill_branch_done_event_ =
+          reinterpret_cast<void*>(branch_done);
+    } else {
+      // The auxiliary branch is a latency optimization, not a runner
+      // dependency. Preserve the serial SM87 path if any control resource is
+      // unavailable, including after a partially successful allocation.
+      if (branch_ready != nullptr) {
+        (void)cudaEventDestroy(branch_ready);
+      }
+      if (branch_done != nullptr) {
+        (void)cudaEventDestroy(branch_done);
+      }
+      if (auxiliary_stream != nullptr) {
+        (void)cudaStreamDestroy(auxiliary_stream);
+      }
+      // This failure is deliberately downgraded to a serial fallback. Do not
+      // leak its thread-local CUDA last-error state to the returned runner.
+      (void)cudaGetLastError();
+    }
+  }
 
   status = cudaHostAlloc(&runner.pinned_logits_,
                          kReferenceVocabularySize * sizeof(float),
