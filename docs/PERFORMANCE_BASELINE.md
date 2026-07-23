@@ -59,6 +59,9 @@ The reduction-only warp-tail follow-up inside that fused kernel is recorded in
 The subsequent exact FP8 M1 full-attention Q+K/V fusion diagnostic is recorded
 in
 [`qwen36-27b-fp8-q-kv-fusion-benchmark.json`](metadata/qwen36-27b-fp8-q-kv-fusion-benchmark.json).
+The promoted Decode M1 Q+K/V reduction-scratch ping-pong follow-up is recorded
+in
+[`qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json`](metadata/qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json).
 The subsequent exact NVFP4 M1 down/residual/centered-RMSNorm cooperative fusion
 diagnostic is recorded in
 [`qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json).
@@ -3444,3 +3447,97 @@ buffers should be evaluated only inside that cross-kernel/stream dependency
 model. Frozen binaries, all 12 end-to-end log hashes, checkpoint offsets and
 payload hashes, raw SASS identities, warning, and claim limits are in the
 [reduction-scratch ping-pong benchmark record](metadata/qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json).
+
+## Decode M1 FP8 Q+K/V reduction-scratch ping-pong promotion
+
+The corresponding full-attention M1 route now also uses two reduction-scratch
+slots. The exact aligned Q `[12288,5120]` plus K/V `[1024,5120]` fusion keeps
+its `2048x256` topology, shared FP8 codebook, ordered Q then K/V execution,
+FFMA/reduction/scaling/BF16-RNE arithmetic, public ABI, validation, and
+fallbacks. Its scratch changes from `float[4][8]` to `float[2][4][8]`.
+Consecutive Q row quads, and the Q-to-K/V handoff in blocks 1024 through 1535,
+alternate slots. Every CTA executes at most two logical bodies, so no slot is
+reused before kernel completion. The producer barrier remains in each body;
+the post-consumer tail barrier is removed.
+
+This is a narrow CTA-local mechanism. It does not allocate two runtime
+workspaces, create a second stream, overlap kernels, or turn the
+dependency-serialized single-request Prefill/Decode path into a system-level
+double- or triple-buffered scheduler.
+
+All correctness and dispatch gates pass. The public and direct promoted hooks
+capture the same `2048x256` function, while the frozen tail-barrier predecessor
+is distinct with the same topology. All 41 invalid cases are checked through
+both launchers: 82 captures contain zero kernel nodes. Q, K, and V cover all
+254 finite E4M3FN codes plus `0x7f` and `0xff` in every packed byte position.
+The full-shape, poison/replay, ordered Q-row-quad and Q-to-K/V race signature,
+canary, input-preservation, actual-checkpoint, same-bank, and signed-NaN gates
+are exact. The NaN fixture classifies 24 outputs with correct class and sign.
+
+| Kernel | Registers | Static shared | Local | Active CTA/SM | SASS words / instructions | `BAR` / `FFMA` / `FADD` / `SHFL` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production two-slot ping-pong | 64 | 1,280 B | 0 B | 4 | 4,304 / 2,152 | 3 / 256 / 158 / 81 |
+| Tail-barrier predecessor | 64 | 1,152 B | 0 B | 4 | 4,144 / 2,072 | 5 / 256 / 140 / 81 |
+
+The exact raw `cuobjdump` instruction-line hashes are
+`5333899d89c2d3bfcf48a4a584e1947ac3b396fb7084a49887390308f9f8abac`
+and
+`bd5a0af0bfb91743ba0c9db1c6888a02d22da9a8019bb308ca8ea8d9af2ae946`.
+The predecessor hash is identical to the frozen base public kernel. To prevent
+canonicalization ambiguity, the metadata separately records text-normalized
+64-bit word hashes and hashes of the same words decoded as big-endian bytes.
+The symmetric tail-public and ping-pong-public engines each contain 145 CUDA
+functions; their full mangled-name sets, every per-function encoding hash, and
+every word count match. Only the host public launch stub selects the opposite
+Q+K/V role. Static SASS proves the intended mechanism and production isolation,
+not runtime stall causality.
+
+Five independent same-binary processes use ten warmups, 80 logical chains per
+timed pass, and five B-C-C-B rounds per fixture. Promotion retains the frozen
+1.01x actual-checkpoint and 1.00x same-bank gates:
+
+| Fixture | Minimum speedup | Median speedup | Maximum speedup | Frozen gate |
+| --- | ---: | ---: | ---: | ---: |
+| Layer-3 actual checkpoint | 1.02169x | 1.02387x | 1.02576x | >=1.01x PASS |
+| Same-bank stress | 1.01031x | 1.01259x | 1.01336x | >=1.00x PASS |
+
+Separate-process whole-model validation uses symmetric engines in B-C-C-B
+order, one warmup plus five measured generations per process, and requested
+and effective C32. Every process reproduces the exact output contract.
+
+| Workload and metric | Tail-public average | Ping-pong-public average | Speedup |
+| --- | ---: | ---: | ---: |
+| P19/max26 prompt prefill | 439.141 ms | 438.7775 ms | 1.000828438x |
+| P19/max26 Decode-after-first | 2,773.517 ms | 2,766.751 ms | 1.002445468x |
+| P19/max26 subsequent token | 110.939 ms | 110.669 ms | 1.002439708x |
+| P19/max26 total | 3,212.649 ms | 3,205.5615 ms | 1.002211001x |
+| P64/max1 prefix | 885.6755 ms | 886.049 ms | 0.999578466x |
+| P64/max1 finish-prefill | 111.6305 ms | 111.451 ms | 1.001610573x |
+| P64/max1 total | 997.299 ms | 997.492 ms | 0.999806515x |
+| P513/max1 prefix | 5,623.407 ms | 5,625.5905 ms | 0.999611863x |
+| P513/max1 finish-prefill | 113.3545 ms | 113.1135 ms | 1.002130603x |
+| P513/max1 total | 5,736.764 ms | 5,738.704 ms | 0.999661945x |
+
+The frozen end-to-end gate permits at most 0.5% regression at every workload
+stage. The worst observed regression is the P64 prefix at 0.042171%; every
+stage passes. P19 emits the same 26 IDs and text, stops on `im_end`, and takes
+44 steps. P64 and P513 both emit token 9419 (`Hello`), stop at
+`max_new_tokens`, and take 64 and 513 steps. All 12 processes report
+`status=ok` and `persistent_drop_detected=0`.
+
+The Release build passes, CTest discovers 56 tests, passes 51, skips five
+configured fixtures, and fails none. A final rebuild retains the formal
+artifact's GNU Build ID and loaded content; its full-file difference is only
+four `.strtab` bytes from an nvcc temporary name, and its independent optional
+retest remains positive at 1.02290x actual and 1.00596x stress.
+
+Production keeps the two-slot Q+K/V kernel. The next bounded screen is the
+test-only FP8 M32 dual-resident-A path. The broader main line remains
+phase-local kernel and dispatch work through the existing logical
+Prefill/Decode seam. General double/triple buffering remains deferred to a
+future explicit multi-request scheduler with ownership, KV/state/workspace
+lifetime, handoff, fairness, TTFT, inter-token, tail-latency, cancellation, and
+memory gates. Frozen binaries, all five micro logs, all 12 end-to-end log
+hashes, checkpoint offsets and payload hashes, SASS identities, and claim
+limits are in the
+[Q+K/V reduction-scratch benchmark record](metadata/qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json).

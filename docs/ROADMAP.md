@@ -157,6 +157,12 @@ Deliverables:
   replay, Graph, resource, frozen actual/stress, and P19/P64/P513 B-C-C-B gates
   pass. This is an intra-kernel scratch pipeline, not systemwide double/triple
   buffering or Prefill/Decode overlap.
+- [done, production promotion] Two-slot `float[2][4][8]` CTA-local
+  full-attention Q+K/V reduction-scratch ping-pong on the exact aligned
+  `[12288,5120]` plus paired `[1024,5120]` M1 route. Exhaustive Q/K/V code,
+  ordered handoff/race, replay, Graph, resource, five-process actual/stress,
+  and P19/P64/P513 B-C-C-B gates pass. This is also an intra-kernel scratch
+  pipeline, not a general runtime buffer or Prefill/Decode overlap.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 down projection for
   `[5120,17408]`, retaining the direct XOR test baseline plus scalar and
   near-miss fallbacks.
@@ -489,8 +495,18 @@ one CTA/kernel; the overall runner remains dependency-serialized and is not a
 general double- or triple-buffered system. See the
 [QKV/Z reduction-scratch promotion record](metadata/qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json).
 
-The immediate main line is phase-local kernel and dispatch optimization through
-the completed logical Prefill/Decode plan seam. Batch-one single-request
+The corresponding Decode FP8 full-attention Q+K/V reduction-scratch ping-pong
+is now productionized as well. Five independent actual-checkpoint processes
+reach a 1.02387x median speedup and five same-bank processes reach 1.01259x.
+Exact P19/P64/P513 B-C-C-B contracts pass; the worst whole-model stage
+regression is 0.042171% against the 0.5% limit. The two-slot scratch remains
+inside one CTA/kernel, and the single-request runner remains
+dependency-serialized. See the
+[Q+K/V reduction-scratch promotion record](metadata/qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json).
+
+The next bounded screen is the test-only FP8 M32 dual-resident-A path. After
+that screen, the main line remains phase-local kernel and dispatch optimization
+through the completed logical Prefill/Decode plan seam. Batch-one single-request
 Prefill and Decode are causally serial, and the measured phase trace exposes no
 useful general-buffering idle window. Independent executors and queues remain a
 future multi-request continuous-batching design item, after ownership,

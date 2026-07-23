@@ -128,6 +128,37 @@ query_sm87_fp8_w8a16_m1_q_kv_two_phase_fused_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_test_cuda(
+    const std::uint8_t* q_weights, float q_weight_scale,
+    const std::uint8_t* key_weights, float key_weight_scale,
+    const std::uint8_t* value_weights, float value_weight_scale,
+    const std::uint16_t* activation, std::size_t q_rows,
+    std::size_t kv_rows, std::size_t columns, std::uint16_t* q_output,
+    std::uint16_t* key_output, std::uint16_t* value_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_fp8_w8a16_m1_q_kv_tail_barrier_test_cuda(
+    const std::uint8_t* q_weights, float q_weight_scale,
+    const std::uint8_t* key_weights, float key_weight_scale,
+    const std::uint8_t* value_weights, float value_weight_scale,
+    const std::uint16_t* activation, std::size_t q_rows,
+    std::size_t kv_rows, std::size_t columns, std::uint16_t* q_output,
+    std::uint16_t* key_output, std::uint16_t* value_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_q_kv_tail_barrier_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -5455,6 +5486,14 @@ fp8_m1_qkv_z_reduction_scratch_ping_pong_performance_enabled() noexcept {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool
+fp8_m1_q_kv_reduction_scratch_ping_pong_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_FP8_M1_Q_KV_REDUCTION_SCRATCH_PING_PONG_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
@@ -7354,11 +7393,11 @@ void run_fp8_m1_q_kv_production_contract(TestContext& test,
               &resources.active_blocks_per_sm)),
       "FP8 Q+K/V public resource query");
   const bool resource_contract =
-      resource_ready && resources.registers_per_thread <= 64 &&
-      resources.static_shared_bytes <= 1'152U &&
+      resource_ready && resources.registers_per_thread == 64 &&
+      resources.static_shared_bytes == 1'280U &&
       resources.local_bytes == 0U &&
       resources.maximum_threads_per_block == 256 &&
-      resources.active_blocks_per_sm >= 4;
+      resources.active_blocks_per_sm == 4;
   test.expect(resource_contract,
               "FP8 Q+K/V public kernel preserves its resource contract");
   std::cout << "FP8_M1_Q_KV_PRODUCTION_CONTRACT: nodes=" << exact_nodes
@@ -7411,11 +7450,11 @@ void run_optional_fp8_m1_q_kv_fusion_performance(TestContext& test,
     return;
   }
   const bool resource_gate =
-      resources.registers_per_thread <= 64 &&
-      resources.static_shared_bytes <= 1'152U &&
+      resources.registers_per_thread == 64 &&
+      resources.static_shared_bytes == 1'280U &&
       resources.local_bytes == 0U &&
       resources.maximum_threads_per_block == 256 &&
-      resources.active_blocks_per_sm >= 4;
+      resources.active_blocks_per_sm == 4;
   test.expect(resource_gate, label + " preserves four-block SM87 residency");
   std::cout << "PERF_FP8_M1_Q_KV_FUSION_RESOURCES: grid=2048"
             << " block=256 kv_first_block=1024 kv_blocks=512"
@@ -7681,6 +7720,1249 @@ void run_optional_fp8_m1_q_kv_fusion_performance(TestContext& test,
             << " recommendation="
             << (performance_gate ? "KEEP" : "ABANDON")
             << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
+}
+
+void run_optional_fp8_m1_q_kv_reduction_scratch_ping_pong_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!fp8_m1_q_kv_reduction_scratch_ping_pong_performance_enabled()) {
+    std::cout
+        << "SKIP: FP8 M1 Q+K/V reduction-scratch ping-pong gate; set "
+           "Q3X_RUN_SM87_FP8_M1_Q_KV_REDUCTION_SCRATCH_PING_PONG_PERF=1 "
+           "together with Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE to "
+           "enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQRows = 12'288U;
+  constexpr std::size_t kKvRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::uint64_t kQOffset = 5'862'443'552ULL;
+  constexpr std::uint64_t kKeyOffset = 5'825'743'392ULL;
+  constexpr std::uint64_t kValueOffset = 5'925'358'112ULL;
+  constexpr std::string_view kQSha256 =
+      "6a688dbc61bfb33c1224c70b6c7b31e0429ad40d7d16d2107f5fa06dd1636d74";
+  constexpr std::string_view kKeySha256 =
+      "5f2b231009ca89447ac875a0f31bf9a22ef5d9e1ad900ad45bdbd3659bffa2e6";
+  constexpr std::string_view kValueSha256 =
+      "9c7a05577136027a738019bee827f2c8d48c6a04f53eac27657c3bacb5d7d607";
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 80;
+  constexpr int kMeasurementRounds = 5;
+  constexpr double kRequiredActualSpeedup = 1.01;
+  constexpr double kRequiredStressSpeedup = 1.00;
+  const char* const candidate_name =
+      "q_kv_two_phase_reduction_scratch_ping_pong_production";
+  const std::string label =
+      "FP8 M1 Q12288+K/V1024 K5120 reduction-scratch ping-pong";
+
+  const q3x::core::Sha256FileResult binary_identity =
+      q3x::core::sha256_file("/proc/self/exe");
+  test.expect(binary_identity.ok(), label + " hashes the running test binary");
+  if (!binary_identity.ok()) {
+    return;
+  }
+  std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_BINARY_IDENTITY: candidate="
+            << candidate_name << " sha256="
+            << binary_identity.digest->hex() << " gate=PASS\n";
+
+  const auto* const fake_q_weights =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  const auto* const fake_key_weights =
+      reinterpret_cast<const std::uint8_t*>(0x2'0000'0000ULL);
+  const auto* const fake_value_weights =
+      reinterpret_cast<const std::uint8_t*>(0x3'0000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x4'0000'0000ULL);
+  auto* const fake_q_output =
+      reinterpret_cast<std::uint16_t*>(0x5'0000'0000ULL);
+  auto* const fake_key_output =
+      reinterpret_cast<std::uint16_t*>(0x6'0000'0000ULL);
+  auto* const fake_value_output =
+      reinterpret_cast<std::uint16_t*>(0x7'0000'0000ULL);
+  const auto capture_one =
+      [&](const auto& launch, const std::string& capture_label,
+          cudaKernelNodeParams* const params, std::size_t* const nodes) {
+        cudaGraph_t graph = nullptr;
+        bool ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            capture_label + " begin capture");
+        cudaError_t launch_status = cudaErrorUnknown;
+        if (ready) {
+          launch_status = static_cast<cudaError_t>(launch());
+          ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                               capture_label + " end capture") &&
+                  ready;
+        }
+        *nodes = 0U;
+        if (ready) {
+          ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, nodes),
+                               capture_label + " query nodes") &&
+                  ready;
+        }
+        if (ready && *nodes == 1U && params != nullptr) {
+          cudaGraphNode_t node = nullptr;
+          std::size_t capacity = 1U;
+          ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                               capture_label + " get node") &&
+                  capacity == 1U &&
+                  test.cuda_ok(cudaGraphKernelNodeGetParams(node, params),
+                               capture_label + " get params") &&
+                  ready;
+        }
+        if (graph != nullptr) {
+          ready = test.cuda_ok(cudaGraphDestroy(graph),
+                               capture_label + " destroy graph") &&
+                  ready;
+        }
+        return std::make_pair(ready, launch_status);
+      };
+  const auto public_fake_launch = [&]() noexcept {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+        fake_q_weights, 1.0F / 64.0F, fake_key_weights, 1.0F / 96.0F,
+        fake_value_weights, 1.0F / 128.0F, fake_activation, kQRows, kKvRows,
+        kColumns, fake_q_output, fake_key_output, fake_value_output,
+        static_cast<void*>(stream));
+  };
+  const auto candidate_fake_launch = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_test_cuda(
+            fake_q_weights, 1.0F / 64.0F, fake_key_weights, 1.0F / 96.0F,
+            fake_value_weights, 1.0F / 128.0F, fake_activation, kQRows,
+            kKvRows, kColumns, fake_q_output, fake_key_output,
+            fake_value_output, static_cast<void*>(stream));
+  };
+  const auto tail_barrier_fake_launch = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_q_kv_tail_barrier_test_cuda(
+            fake_q_weights, 1.0F / 64.0F, fake_key_weights,
+            1.0F / 96.0F, fake_value_weights, 1.0F / 128.0F,
+            fake_activation, kQRows, kKvRows, kColumns, fake_q_output,
+            fake_key_output, fake_value_output, static_cast<void*>(stream));
+  };
+  cudaKernelNodeParams public_params{};
+  cudaKernelNodeParams candidate_params{};
+  cudaKernelNodeParams tail_barrier_params{};
+  std::size_t public_nodes = 0U;
+  std::size_t candidate_nodes = 0U;
+  std::size_t tail_barrier_nodes = 0U;
+  const auto public_capture = capture_one(
+      public_fake_launch, label + " public baseline", &public_params,
+      &public_nodes);
+  const auto candidate_capture = capture_one(
+      candidate_fake_launch, label + " candidate", &candidate_params,
+      &candidate_nodes);
+  const auto tail_barrier_capture = capture_one(
+      tail_barrier_fake_launch, label + " tail-barrier predecessor",
+      &tail_barrier_params, &tail_barrier_nodes);
+  const bool graph_gate =
+      public_capture.first && candidate_capture.first &&
+      tail_barrier_capture.first &&
+      public_capture.second == cudaSuccess &&
+      candidate_capture.second == cudaSuccess &&
+      tail_barrier_capture.second == cudaSuccess && public_nodes == 1U &&
+      candidate_nodes == 1U && tail_barrier_nodes == 1U &&
+      public_params.func == candidate_params.func &&
+      public_params.func != tail_barrier_params.func &&
+      public_params.gridDim.x == 2'048U &&
+      candidate_params.gridDim.x == public_params.gridDim.x &&
+      tail_barrier_params.gridDim.x == public_params.gridDim.x &&
+      public_params.gridDim.y == candidate_params.gridDim.y &&
+      public_params.gridDim.y == tail_barrier_params.gridDim.y &&
+      public_params.gridDim.z == candidate_params.gridDim.z &&
+      public_params.gridDim.z == tail_barrier_params.gridDim.z &&
+      public_params.blockDim.x == 256U &&
+      candidate_params.blockDim.x == public_params.blockDim.x &&
+      tail_barrier_params.blockDim.x == public_params.blockDim.x &&
+      public_params.blockDim.y == candidate_params.blockDim.y &&
+      public_params.blockDim.y == tail_barrier_params.blockDim.y &&
+      public_params.blockDim.z == candidate_params.blockDim.z &&
+      public_params.blockDim.z == tail_barrier_params.blockDim.z &&
+      public_params.sharedMemBytes == 0U &&
+      candidate_params.sharedMemBytes == public_params.sharedMemBytes &&
+      tail_barrier_params.sharedMemBytes == public_params.sharedMemBytes;
+  test.expect(graph_gate,
+              label + " public/direct production hooks match and the "
+                      "predecessor is distinct with identical topology");
+
+  struct InvalidLaunchArguments {
+    const std::uint8_t* q_weights;
+    float q_scale;
+    const std::uint8_t* key_weights;
+    float key_scale;
+    const std::uint8_t* value_weights;
+    float value_scale;
+    const std::uint16_t* activation;
+    std::size_t q_rows;
+    std::size_t kv_rows;
+    std::size_t columns;
+    std::uint16_t* q_output;
+    std::uint16_t* key_output;
+    std::uint16_t* value_output;
+  };
+  struct InvalidLaunchCase {
+    std::string name;
+    InvalidLaunchArguments arguments;
+  };
+  const InvalidLaunchArguments valid_arguments{
+      fake_q_weights,     1.0F / 64.0F, fake_key_weights,
+      1.0F / 96.0F,      fake_value_weights,
+      1.0F / 128.0F,     fake_activation,
+      kQRows,             kKvRows,
+      kColumns,           fake_q_output,
+      fake_key_output,    fake_value_output,
+  };
+  std::vector<InvalidLaunchCase> invalid_cases;
+  invalid_cases.reserve(41U);
+  const auto add_invalid = [&](std::string name, const auto& mutate) {
+    InvalidLaunchArguments arguments = valid_arguments;
+    mutate(arguments);
+    invalid_cases.push_back(
+        InvalidLaunchCase{std::move(name), arguments});
+  };
+
+  add_invalid("bad_q_rows", [](auto& args) { --args.q_rows; });
+  add_invalid("bad_kv_rows", [](auto& args) { --args.kv_rows; });
+  add_invalid("bad_columns", [](auto& args) { --args.columns; });
+  add_invalid("null_q_weights",
+              [](auto& args) { args.q_weights = nullptr; });
+  add_invalid("null_key_weights",
+              [](auto& args) { args.key_weights = nullptr; });
+  add_invalid("null_value_weights",
+              [](auto& args) { args.value_weights = nullptr; });
+  add_invalid("null_activation",
+              [](auto& args) { args.activation = nullptr; });
+  add_invalid("null_q_output", [](auto& args) { args.q_output = nullptr; });
+  add_invalid("null_key_output",
+              [](auto& args) { args.key_output = nullptr; });
+  add_invalid("null_value_output",
+              [](auto& args) { args.value_output = nullptr; });
+
+  constexpr std::array<std::pair<std::string_view, float>, 3U>
+      kInvalidScales{{
+          {"nan", std::numeric_limits<float>::quiet_NaN()},
+          {"inf", std::numeric_limits<float>::infinity()},
+          {"negative", -1.0F},
+      }};
+  for (const auto& invalid_scale : kInvalidScales) {
+    add_invalid("q_scale_" + std::string(invalid_scale.first),
+                [value = invalid_scale.second](auto& args) {
+                  args.q_scale = value;
+                });
+    add_invalid("key_scale_" + std::string(invalid_scale.first),
+                [value = invalid_scale.second](auto& args) {
+                  args.key_scale = value;
+                });
+    add_invalid("value_scale_" + std::string(invalid_scale.first),
+                [value = invalid_scale.second](auto& args) {
+                  args.value_scale = value;
+                });
+  }
+
+  add_invalid("misaligned_q_weights", [&](auto& args) {
+    args.q_weights = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_q_weights) + 1U);
+  });
+  add_invalid("misaligned_key_weights", [&](auto& args) {
+    args.key_weights = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_key_weights) + 1U);
+  });
+  add_invalid("misaligned_value_weights", [&](auto& args) {
+    args.value_weights = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_value_weights) + 1U);
+  });
+  add_invalid("misaligned_activation", [&](auto& args) {
+    args.activation = reinterpret_cast<const std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_activation) + 2U);
+  });
+  add_invalid("misaligned_q_output", [&](auto& args) {
+    args.q_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_q_output) + 1U);
+  });
+  add_invalid("misaligned_key_output", [&](auto& args) {
+    args.key_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_key_output) + 1U);
+  });
+  add_invalid("misaligned_value_output", [&](auto& args) {
+    args.value_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(fake_value_output) + 1U);
+  });
+
+  add_invalid("q_key_output_alias",
+              [](auto& args) { args.key_output = args.q_output; });
+  add_invalid("q_value_output_alias",
+              [](auto& args) { args.value_output = args.q_output; });
+  add_invalid("key_value_output_alias",
+              [](auto& args) { args.value_output = args.key_output; });
+
+  const auto output_at = [](const void* const pointer) noexcept {
+    return reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(pointer));
+  };
+  add_invalid("q_output_alias_q_weights", [&](auto& args) {
+    args.q_output = output_at(fake_q_weights);
+  });
+  add_invalid("q_output_alias_key_weights", [&](auto& args) {
+    args.q_output = output_at(fake_key_weights);
+  });
+  add_invalid("q_output_alias_value_weights", [&](auto& args) {
+    args.q_output = output_at(fake_value_weights);
+  });
+  add_invalid("key_output_alias_q_weights", [&](auto& args) {
+    args.key_output = output_at(fake_q_weights);
+  });
+  add_invalid("key_output_alias_key_weights", [&](auto& args) {
+    args.key_output = output_at(fake_key_weights);
+  });
+  add_invalid("key_output_alias_value_weights", [&](auto& args) {
+    args.key_output = output_at(fake_value_weights);
+  });
+  add_invalid("value_output_alias_q_weights", [&](auto& args) {
+    args.value_output = output_at(fake_q_weights);
+  });
+  add_invalid("value_output_alias_key_weights", [&](auto& args) {
+    args.value_output = output_at(fake_key_weights);
+  });
+  add_invalid("value_output_alias_value_weights", [&](auto& args) {
+    args.value_output = output_at(fake_value_weights);
+  });
+  add_invalid("q_output_alias_activation", [&](auto& args) {
+    args.q_output = output_at(fake_activation);
+  });
+  add_invalid("key_output_alias_activation", [&](auto& args) {
+    args.key_output = output_at(fake_activation);
+  });
+  add_invalid("value_output_alias_activation", [&](auto& args) {
+    args.value_output = output_at(fake_activation);
+  });
+
+  const auto launch_invalid = [&](const bool direct,
+                                  const InvalidLaunchArguments& args) noexcept {
+    if (direct) {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_test_cuda(
+              args.q_weights, args.q_scale, args.key_weights, args.key_scale,
+              args.value_weights, args.value_scale, args.activation,
+              args.q_rows, args.kv_rows, args.columns, args.q_output,
+              args.key_output, args.value_output, static_cast<void*>(stream));
+    }
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+        args.q_weights, args.q_scale, args.key_weights, args.key_scale,
+        args.value_weights, args.value_scale, args.activation, args.q_rows,
+        args.kv_rows, args.columns, args.q_output, args.key_output,
+        args.value_output, static_cast<void*>(stream));
+  };
+  bool invalid_zero_node_gate = true;
+  std::size_t invalid_capture_count = 0U;
+  std::size_t invalid_failure_count = 0U;
+  for (const InvalidLaunchCase& invalid_case : invalid_cases) {
+    for (unsigned int route = 0U; route < 2U; ++route) {
+      const bool direct = route == 1U;
+      const std::string route_name = direct ? "direct" : "public";
+      std::size_t nodes = 0U;
+      const auto capture = capture_one(
+          [&]() noexcept {
+            return launch_invalid(direct, invalid_case.arguments);
+          },
+          label + " invalid " + route_name + " " + invalid_case.name,
+          nullptr, &nodes);
+      const bool case_gate =
+          capture.first && capture.second == cudaErrorInvalidValue &&
+          nodes == 0U;
+      invalid_zero_node_gate = invalid_zero_node_gate && case_gate;
+      invalid_failure_count += case_gate ? 0U : 1U;
+      ++invalid_capture_count;
+      test.expect(case_gate,
+                  label + " " + route_name + " rejects " +
+                      invalid_case.name + " before enqueue");
+    }
+  }
+  invalid_zero_node_gate =
+      invalid_zero_node_gate && invalid_cases.size() == 41U &&
+      invalid_capture_count == 82U && invalid_failure_count == 0U;
+  test.expect(invalid_zero_node_gate,
+              label + " freezes the full public/direct invalid table");
+
+  Fp8KvPairKernelResources resources{};
+  const bool candidate_resource_ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
+              &resources.registers_per_thread,
+              &resources.static_shared_bytes, &resources.local_bytes,
+              &resources.maximum_threads_per_block,
+              &resources.active_blocks_per_sm)),
+      label + " query candidate resources");
+  const bool resource_gate =
+      candidate_resource_ready && resources.registers_per_thread == 64 &&
+      resources.static_shared_bytes == 1'280U &&
+      resources.local_bytes == 0U &&
+      resources.maximum_threads_per_block == 256 &&
+      resources.active_blocks_per_sm == 4;
+  test.expect(resource_gate, label + " clears frozen candidate resources");
+  Fp8KvPairKernelResources tail_resources{};
+  const bool tail_resource_ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_q_kv_tail_barrier_resources_test_cuda(
+              &tail_resources.registers_per_thread,
+              &tail_resources.static_shared_bytes, &tail_resources.local_bytes,
+              &tail_resources.maximum_threads_per_block,
+              &tail_resources.active_blocks_per_sm)),
+      label + " query tail-barrier predecessor resources");
+  const bool tail_resource_gate =
+      tail_resource_ready && tail_resources.registers_per_thread == 64 &&
+      tail_resources.static_shared_bytes == 1'152U &&
+      tail_resources.local_bytes == 0U &&
+      tail_resources.maximum_threads_per_block == 256 &&
+      tail_resources.active_blocks_per_sm >= 4;
+  test.expect(tail_resource_gate,
+              label + " freezes tail-barrier predecessor resources");
+  bool ready = candidate_resource_ready && tail_resource_ready;
+  const bool null_resource_gate =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
+              nullptr, &resources.static_shared_bytes, &resources.local_bytes,
+              &resources.maximum_threads_per_block,
+              &resources.active_blocks_per_sm)) == cudaErrorInvalidValue;
+  test.expect(null_resource_gate,
+              label + " resource query rejects a null destination");
+  std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_CONTRACT: candidate="
+            << candidate_name << " public_nodes=" << public_nodes
+            << " candidate_nodes=" << candidate_nodes
+            << " tail_predecessor_nodes=" << tail_barrier_nodes
+            << " public_direct_same_func_tail_distinct_2048x256="
+            << (graph_gate ? "true" : "false")
+            << " registers_per_thread=" << resources.registers_per_thread
+            << " static_shared_bytes=" << resources.static_shared_bytes
+            << " local_bytes=" << resources.local_bytes
+            << " maximum_threads_per_block="
+            << resources.maximum_threads_per_block
+            << " active_blocks_per_sm=" << resources.active_blocks_per_sm
+            << " tail_registers_per_thread="
+            << tail_resources.registers_per_thread
+            << " tail_static_shared_bytes="
+            << tail_resources.static_shared_bytes
+            << " tail_local_bytes=" << tail_resources.local_bytes
+            << " tail_maximum_threads_per_block="
+            << tail_resources.maximum_threads_per_block
+            << " tail_active_blocks_per_sm="
+            << tail_resources.active_blocks_per_sm
+            << " expected_barrier_instructions=3"
+            << " expected_tail_barrier_instructions=5"
+            << " invalid_cases=" << invalid_cases.size()
+            << " invalid_captures=" << invalid_capture_count
+            << " invalid_failures=" << invalid_failure_count
+            << " invalid_zero_node_gate="
+            << (invalid_zero_node_gate ? "PASS" : "FAIL")
+            << " tail_resource_gate="
+            << (tail_resource_gate ? "PASS" : "FAIL")
+            << " null_resource_gate="
+            << (null_resource_gate ? "PASS" : "FAIL")
+            << " gate="
+            << (graph_gate && resource_gate && tail_resource_gate &&
+                        invalid_zero_node_gate && null_resource_gate
+                    ? "PASS"
+                    : "FAIL")
+            << '\n';
+  if (!ready) {
+    return;
+  }
+
+  const char* const checkpoint_file_value =
+      std::getenv("Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE");
+  const bool checkpoint_source_gate =
+      checkpoint_file_value != nullptr && checkpoint_file_value[0] != '\0';
+  test.expect(checkpoint_source_gate,
+              label + " requires the pinned actual checkpoint shard");
+  if (!checkpoint_source_gate) {
+    return;
+  }
+  const std::string checkpoint_file = checkpoint_file_value;
+
+  std::vector<std::uint8_t> host_q_weights(kQRows * kColumns);
+  std::vector<std::uint8_t> host_key_weights(kKvRows * kColumns);
+  std::vector<std::uint8_t> host_value_weights(kKvRows * kColumns);
+  std::vector<std::uint16_t> host_activation(kColumns);
+  const auto fill_activation = [&]() {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + (column >> 3U) * 5U + 7U) %
+                           127U) -
+          63;
+      host_activation[column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  };
+  fill_activation();
+
+  DeviceBuffer<std::uint8_t> q_weights;
+  DeviceBuffer<std::uint8_t> key_weights;
+  DeviceBuffer<std::uint8_t> value_weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> baseline_q_output;
+  DeviceBuffer<std::uint16_t> baseline_key_output;
+  DeviceBuffer<std::uint16_t> baseline_value_output;
+  DeviceBuffer<std::uint16_t> candidate_q_storage;
+  DeviceBuffer<std::uint16_t> candidate_key_storage;
+  DeviceBuffer<std::uint16_t> candidate_value_storage;
+  ready = test.cuda_ok(q_weights.allocate(host_q_weights.size()),
+                       label + " allocate Q weights");
+  ready = ready && test.cuda_ok(key_weights.allocate(host_key_weights.size()),
+                                label + " allocate K weights");
+  ready = ready &&
+          test.cuda_ok(value_weights.allocate(host_value_weights.size()),
+                       label + " allocate V weights");
+  ready = ready && test.cuda_ok(activation.allocate(host_activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(baseline_q_output.allocate(kQRows),
+                                label + " allocate baseline Q output");
+  ready = ready && test.cuda_ok(baseline_key_output.allocate(kKvRows),
+                                label + " allocate baseline K output");
+  ready = ready && test.cuda_ok(baseline_value_output.allocate(kKvRows),
+                                label + " allocate baseline V output");
+  ready = ready && test.cuda_ok(
+                       candidate_q_storage.allocate(kQRows +
+                                                    2U * kGuardElements),
+                       label + " allocate guarded candidate Q output");
+  ready = ready && test.cuda_ok(
+                       candidate_key_storage.allocate(kKvRows +
+                                                      2U * kGuardElements),
+                       label + " allocate guarded candidate K output");
+  ready = ready && test.cuda_ok(
+                       candidate_value_storage.allocate(kKvRows +
+                                                        2U * kGuardElements),
+                       label + " allocate guarded candidate V output");
+  if (!ready) {
+    return;
+  }
+  std::uint16_t* const candidate_q_output =
+      candidate_q_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_key_output =
+      candidate_key_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_value_output =
+      candidate_value_storage.get() + kGuardElements;
+  float q_scale = 1.0F / 64.0F;
+  float key_scale = 1.0F / 96.0F;
+  float value_scale = 1.0F / 128.0F;
+  const auto launch_baseline = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_q_kv_tail_barrier_test_cuda(
+            q_weights.get(), q_scale, key_weights.get(), key_scale,
+            value_weights.get(), value_scale, activation.get(), kQRows,
+            kKvRows, kColumns, baseline_q_output.get(),
+            baseline_key_output.get(), baseline_value_output.get(),
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+        q_weights.get(), q_scale, key_weights.get(), key_scale,
+        value_weights.get(), value_scale, activation.get(), kQRows, kKvRows,
+        kColumns, candidate_q_output, candidate_key_output,
+        candidate_value_output, static_cast<void*>(stream));
+  };
+
+  std::vector<std::uint16_t> baseline_q(kQRows);
+  std::vector<std::uint16_t> baseline_key(kKvRows);
+  std::vector<std::uint16_t> baseline_value(kKvRows);
+  std::vector<std::uint16_t> first_q(kQRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> first_key(kKvRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> first_value(kKvRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> replay_q(first_q.size());
+  std::vector<std::uint16_t> replay_key(first_key.size());
+  std::vector<std::uint16_t> replay_value(first_value.size());
+
+  const auto capture_baseline = [&](const std::string& fixture_label) {
+    bool fixture_ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_baseline()),
+        fixture_label + " launch tail-barrier predecessor");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(baseline_q.data(), baseline_q_output.get(),
+                        baseline_q.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy baseline Q");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(baseline_key.data(), baseline_key_output.get(),
+                        baseline_key.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy baseline K");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(baseline_value.data(), baseline_value_output.get(),
+                        baseline_value.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy baseline V");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " baseline sync");
+    return fixture_ready;
+  };
+
+  const auto check_candidate = [&](const std::string& fixture_label,
+                                   const bool preserve_inputs,
+                                   const bool require_finite) {
+    bool fixture_ready = test.cuda_ok(
+        cudaMemsetAsync(candidate_q_storage.get(), 0xa5,
+                        first_q.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison first Q");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_key_storage.get(), 0x5a,
+                        first_key.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison first K");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_value_storage.get(), 0x3c,
+                        first_value.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison first V");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_candidate()),
+        fixture_label + " candidate first launch");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(first_q.data(), candidate_q_storage.get(),
+                        first_q.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy first Q");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(first_key.data(), candidate_key_storage.get(),
+                        first_key.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy first K");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(first_value.data(), candidate_value_storage.get(),
+                        first_value.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy first V");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_q_storage.get(), 0x1b,
+                        replay_q.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison replay Q");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_key_storage.get(), 0xe4,
+                        replay_key.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison replay K");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_value_storage.get(), 0x96,
+                        replay_value.size() * sizeof(std::uint16_t), stream),
+        fixture_label + " poison replay V");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_candidate()),
+        fixture_label + " candidate replay launch");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(replay_q.data(), candidate_q_storage.get(),
+                        replay_q.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy replay Q");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(replay_key.data(), candidate_key_storage.get(),
+                        replay_key.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy replay K");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(replay_value.data(), candidate_value_storage.get(),
+                        replay_value.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        fixture_label + " copy replay V");
+    std::vector<std::uint8_t> observed_q;
+    std::vector<std::uint8_t> observed_key;
+    std::vector<std::uint8_t> observed_value;
+    std::vector<std::uint16_t> observed_activation;
+    if (preserve_inputs) {
+      observed_q.resize(host_q_weights.size());
+      observed_key.resize(host_key_weights.size());
+      observed_value.resize(host_value_weights.size());
+      observed_activation.resize(host_activation.size());
+      fixture_ready = fixture_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_q.data(), q_weights.get(),
+                          observed_q.size(), cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved Q weights");
+      fixture_ready = fixture_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_key.data(), key_weights.get(),
+                          observed_key.size(), cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved K weights");
+      fixture_ready = fixture_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_value.data(), value_weights.get(),
+                          observed_value.size(), cudaMemcpyDeviceToHost,
+                          stream),
+          fixture_label + " copy preserved V weights");
+      fixture_ready = fixture_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_activation.data(), activation.get(),
+                          observed_activation.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved activation");
+    }
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " candidate sync");
+    if (!fixture_ready) {
+      return false;
+    }
+    std::size_t q_mismatches = 0U;
+    std::size_t key_mismatches = 0U;
+    std::size_t value_mismatches = 0U;
+    std::size_t replay_mismatches = 0U;
+    std::size_t nonfinite = 0U;
+    for (std::size_t row = 0U; row < kQRows; ++row) {
+      const std::uint16_t first = first_q[kGuardElements + row];
+      const std::uint16_t replay = replay_q[kGuardElements + row];
+      q_mismatches += baseline_q[row] != first ? 1U : 0U;
+      replay_mismatches += first != replay ? 1U : 0U;
+      nonfinite += !is_bf16_finite(first) ? 1U : 0U;
+    }
+    for (std::size_t row = 0U; row < kKvRows; ++row) {
+      const std::uint16_t first_k = first_key[kGuardElements + row];
+      const std::uint16_t replay_k = replay_key[kGuardElements + row];
+      const std::uint16_t first_v = first_value[kGuardElements + row];
+      const std::uint16_t replay_v = replay_value[kGuardElements + row];
+      key_mismatches += baseline_key[row] != first_k ? 1U : 0U;
+      value_mismatches += baseline_value[row] != first_v ? 1U : 0U;
+      replay_mismatches += first_k != replay_k ? 1U : 0U;
+      replay_mismatches += first_v != replay_v ? 1U : 0U;
+      nonfinite += !is_bf16_finite(first_k) ? 1U : 0U;
+      nonfinite += !is_bf16_finite(first_v) ? 1U : 0U;
+    }
+    bool guards_intact = true;
+    for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+      guards_intact =
+          guards_intact && first_q[guard] == 0xa5a5U &&
+          first_q[kGuardElements + kQRows + guard] == 0xa5a5U &&
+          first_key[guard] == 0x5a5aU &&
+          first_key[kGuardElements + kKvRows + guard] == 0x5a5aU &&
+          first_value[guard] == 0x3c3cU &&
+          first_value[kGuardElements + kKvRows + guard] == 0x3c3cU &&
+          replay_q[guard] == 0x1b1bU &&
+          replay_q[kGuardElements + kQRows + guard] == 0x1b1bU &&
+          replay_key[guard] == 0xe4e4U &&
+          replay_key[kGuardElements + kKvRows + guard] == 0xe4e4U &&
+          replay_value[guard] == 0x9696U &&
+          replay_value[kGuardElements + kKvRows + guard] == 0x9696U;
+    }
+    const bool inputs_preserved =
+        !preserve_inputs ||
+        (observed_q == host_q_weights &&
+         observed_key == host_key_weights &&
+         observed_value == host_value_weights &&
+         observed_activation == host_activation);
+    const bool bitwise = q_mismatches == 0U && key_mismatches == 0U &&
+                         value_mismatches == 0U;
+    const bool replay_gate = replay_mismatches == 0U;
+    const bool finite_gate = !require_finite || nonfinite == 0U;
+    test.expect(bitwise, fixture_label + " is bitwise Q/K/V identical");
+    test.expect(replay_gate,
+                fixture_label + " is stable after output poison replay");
+    test.expect(guards_intact, fixture_label + " preserves all canaries");
+    test.expect(inputs_preserved, fixture_label + " preserves all inputs");
+    if (require_finite) {
+      test.expect(finite_gate, fixture_label + " keeps outputs finite");
+    }
+    std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_DIFF: candidate="
+              << candidate_name << " fixture=" << fixture_label
+              << " q_mismatches=" << q_mismatches << '/' << kQRows
+              << " key_mismatches=" << key_mismatches << '/' << kKvRows
+              << " value_mismatches=" << value_mismatches << '/' << kKvRows
+              << " replay_mismatches=" << replay_mismatches << '/'
+              << (kQRows + 2U * kKvRows)
+              << " guards=" << (guards_intact ? "intact" : "BAD")
+              << " inputs_preserved="
+              << (inputs_preserved ? "true" : "false")
+              << " nonfinite_outputs=" << nonfinite << " gate="
+              << (bitwise && replay_gate && guards_intact &&
+                          inputs_preserved && finite_gate
+                      ? "PASS"
+                      : "FAIL")
+              << '\n';
+    return bitwise && replay_gate && guards_intact && inputs_preserved &&
+           finite_gate;
+  };
+
+  const auto read_checkpoint_slice =
+      [&](const std::uint64_t offset,
+          std::vector<std::uint8_t>& destination,
+          const std::string& tensor_label) {
+        std::ifstream input(checkpoint_file, std::ios::binary);
+        if (!input.is_open()) {
+          test.expect(false, label + " opens checkpoint for " + tensor_label);
+          return false;
+        }
+        input.seekg(0, std::ios::end);
+        const std::streamoff file_size = input.tellg();
+        const bool range_valid =
+            file_size >= 0 && offset <= static_cast<std::uint64_t>(file_size) &&
+            destination.size() <=
+                static_cast<std::uint64_t>(file_size) - offset;
+        test.expect(range_valid,
+                    label + " checkpoint contains " + tensor_label);
+        if (!range_valid) {
+          return false;
+        }
+        input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        input.read(reinterpret_cast<char*>(destination.data()),
+                   static_cast<std::streamsize>(destination.size()));
+        const bool complete = input.gcount() ==
+                              static_cast<std::streamsize>(destination.size());
+        test.expect(complete, label + " reads complete " + tensor_label);
+        return complete;
+      };
+
+  struct DistributionResult {
+    float baseline_milliseconds = std::numeric_limits<float>::quiet_NaN();
+    float candidate_milliseconds = std::numeric_limits<float>::quiet_NaN();
+    bool correct = false;
+  };
+  const auto benchmark = [&](const std::string& fixture_label) {
+    DistributionResult result{};
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kWarmupIterations && timing_ready; ++iteration) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_baseline()),
+          fixture_label + " baseline warmup");
+      timing_ready = timing_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_candidate()),
+          fixture_label + " candidate warmup");
+    }
+    timing_ready = timing_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " warmup sync");
+    if (!timing_ready) {
+      return result;
+    }
+    constexpr std::size_t kPasses =
+        2U * static_cast<std::size_t>(kMeasurementRounds);
+    std::array<float, kPasses> baseline_passes{};
+    std::array<float, kPasses> candidate_passes{};
+    bool finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          fixture_label + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B1");
+      const float c1 = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C1");
+      const float c2 = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C2");
+      const float b2 = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B2");
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      baseline_passes[pass] = b1;
+      baseline_passes[pass + 1U] = b2;
+      candidate_passes[pass] = c1;
+      candidate_passes[pass + 1U] = c2;
+      finite = finite && std::isfinite(b1) && std::isfinite(c1) &&
+               std::isfinite(c2) && std::isfinite(b2);
+      std::cout << "PERF_FP8_M1_Q_KV_REDUCTION_SCRATCH_ROUND: candidate="
+                << candidate_name << " fixture=" << fixture_label
+                << " round=" << round + 1 << " order=B-C-C-B"
+                << " logical_launches_per_pass=" << kMeasuredIterations
+                << " baseline_pass1_ms=" << b1
+                << " candidate_pass1_ms=" << c1
+                << " candidate_pass2_ms=" << c2
+                << " baseline_pass2_ms=" << b2 << '\n';
+    }
+    if (finite) {
+      result.baseline_milliseconds =
+          median_fp8_kv_pair_timing(baseline_passes);
+      result.candidate_milliseconds =
+          median_fp8_kv_pair_timing(candidate_passes);
+    }
+    return result;
+  };
+
+  const auto upload_current_fixture = [&](const std::string& fixture_label) {
+    bool fixture_ready = test.cuda_ok(
+        cudaMemcpyAsync(q_weights.get(), host_q_weights.data(),
+                        host_q_weights.size(), cudaMemcpyHostToDevice, stream),
+        fixture_label + " upload Q weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(key_weights.get(), host_key_weights.data(),
+                        host_key_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        fixture_label + " upload K weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(value_weights.get(), host_value_weights.data(),
+                        host_value_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        fixture_label + " upload V weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(activation.get(), host_activation.data(),
+                        host_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        fixture_label + " upload activation");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), fixture_label + " upload sync");
+    return fixture_ready;
+  };
+
+  // Exercise every finite E4M3FN byte in all four positions of the packed-x4
+  // loads independently for Q, K, and V. The isolated signed-NaN fixture
+  // below completes the raw 256-code coverage without making every row NaN.
+  std::array<std::array<bool, 256U>, 4U> q_code_coverage{};
+  std::array<std::array<bool, 256U>, 4U> key_code_coverage{};
+  std::array<std::array<bool, 256U>, 4U> value_code_coverage{};
+  const auto finite_code = [](const std::size_t index) noexcept {
+    const std::size_t finite_index = index % 254U;
+    return static_cast<std::uint8_t>(
+        finite_index < 127U ? finite_index : finite_index + 1U);
+  };
+  for (std::size_t row = 0U; row < kQRows; ++row) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const std::size_t byte_position = column & 3U;
+      const std::uint8_t code =
+          finite_code((column >> 2U) * 5U + row * 13U);
+      host_q_weights[row * kColumns + column] = code;
+      q_code_coverage[byte_position][code] = true;
+    }
+  }
+  for (std::size_t row = 0U; row < kKvRows; ++row) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const std::size_t byte_position = column & 3U;
+      const std::uint8_t key_code =
+          finite_code((column >> 2U) * 7U + row * 11U + 3U);
+      const std::uint8_t value_code =
+          finite_code((column >> 2U) * 9U + row * 17U + 5U);
+      host_key_weights[row * kColumns + column] = key_code;
+      host_value_weights[row * kColumns + column] = value_code;
+      key_code_coverage[byte_position][key_code] = true;
+      value_code_coverage[byte_position][value_code] = true;
+    }
+  }
+  bool finite_coverage_gate = true;
+  for (std::size_t byte_position = 0U; byte_position < 4U;
+       ++byte_position) {
+    const std::size_t q_codes = static_cast<std::size_t>(std::count(
+        q_code_coverage[byte_position].begin(),
+        q_code_coverage[byte_position].end(), true));
+    const std::size_t key_codes = static_cast<std::size_t>(std::count(
+        key_code_coverage[byte_position].begin(),
+        key_code_coverage[byte_position].end(), true));
+    const std::size_t value_codes = static_cast<std::size_t>(std::count(
+        value_code_coverage[byte_position].begin(),
+        value_code_coverage[byte_position].end(), true));
+    const bool position_gate =
+        q_codes == 254U && key_codes == 254U && value_codes == 254U &&
+        !q_code_coverage[byte_position][0x7fU] &&
+        !q_code_coverage[byte_position][0xffU] &&
+        !key_code_coverage[byte_position][0x7fU] &&
+        !key_code_coverage[byte_position][0xffU] &&
+        !value_code_coverage[byte_position][0x7fU] &&
+        !value_code_coverage[byte_position][0xffU];
+    finite_coverage_gate = finite_coverage_gate && position_gate;
+    test.expect(position_gate,
+                label + " covers all 254 finite codes in packed byte " +
+                    std::to_string(byte_position));
+    std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_CODE_COVERAGE: candidate="
+              << candidate_name << " phase=finite"
+              << " byte_position=" << byte_position
+              << " q_codes=" << q_codes << " key_codes=" << key_codes
+              << " value_codes=" << value_codes
+              << " gate=" << (position_gate ? "PASS" : "FAIL") << '\n';
+  }
+  q_scale = 1.0F / 64.0F;
+  key_scale = 1.0F / 96.0F;
+  value_scale = 1.0F / 128.0F;
+  const std::string exhaustive_label = label + " exhaustive finite 254x4x3";
+  if (!upload_current_fixture(exhaustive_label) ||
+      !capture_baseline(exhaustive_label)) {
+    return;
+  }
+  const bool exhaustive_finite_gate =
+      finite_coverage_gate &&
+      check_candidate(exhaustive_label, true, true);
+
+  // Neighboring Q row quads and the Q-to-K/V phase handoff receive distinct
+  // signs/magnitudes. The poison replay is intended to expose an incorrect
+  // scratch-slot reset or reuse even when one execution happens to serialize.
+  constexpr std::array<std::uint8_t, 4U> kQRaceCodes{{
+      0x30U, 0x38U, 0x40U, 0x48U,
+  }};
+  constexpr std::array<std::uint8_t, 4U> kKeyRaceCodes{{
+      0xb8U, 0xc8U, 0xb0U, 0xc0U,
+  }};
+  constexpr std::array<std::uint8_t, 4U> kValueRaceCodes{{
+      0x34U, 0x44U, 0xb4U, 0xc4U,
+  }};
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered = static_cast<int>((column * 13U + 5U) % 31U) - 15;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 32.0F);
+  }
+  for (std::size_t row = 0U; row < kQRows; ++row) {
+    const std::uint8_t code =
+        kQRaceCodes[((row / 4U) + (row & 3U)) & 3U];
+    std::fill_n(host_q_weights.data() + row * kColumns, kColumns, code);
+  }
+  for (std::size_t row = 0U; row < kKvRows; ++row) {
+    const std::uint8_t key_code =
+        kKeyRaceCodes[((row / 2U) + (row & 1U)) & 3U];
+    const std::uint8_t value_code =
+        kValueRaceCodes[(3U * (row / 2U) + (row & 1U)) & 3U];
+    std::fill_n(host_key_weights.data() + row * kColumns, kColumns,
+                key_code);
+    std::fill_n(host_value_weights.data() + row * kColumns, kColumns,
+                value_code);
+  }
+  const std::string race_label = label + " scratch race signature";
+  if (!upload_current_fixture(race_label) ||
+      !capture_baseline(race_label)) {
+    return;
+  }
+  const bool race_signature_gate = check_candidate(race_label, true, true);
+  std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_RACE_SIGNATURE: candidate="
+            << candidate_name
+            << " q_row_quad_handoff=true q_to_kv_handoff=true"
+            << " executions=2 replay_after_poison=true gate="
+            << (race_signature_gate ? "PASS" : "FAIL") << '\n';
+
+  std::fill(host_q_weights.begin(), host_q_weights.end(), 0U);
+  std::fill(host_key_weights.begin(), host_key_weights.end(), 0U);
+  std::fill(host_value_weights.begin(), host_value_weights.end(), 0U);
+  std::fill(host_activation.begin(), host_activation.end(),
+            encode_bf16(0.0F));
+  for (std::size_t byte_position = 0U; byte_position < 4U;
+       ++byte_position) {
+    host_activation[byte_position] = encode_bf16(1.0F);
+    for (std::size_t nan_index = 0U; nan_index < 2U; ++nan_index) {
+      const std::uint8_t code = nan_index == 0U ? 0x7fU : 0xffU;
+      const std::size_t row = 2U * byte_position + nan_index;
+      host_q_weights[row * kColumns + byte_position] = code;
+      host_key_weights[row * kColumns + byte_position] = code;
+      host_value_weights[row * kColumns + byte_position] = code;
+      q_code_coverage[byte_position][code] = true;
+      key_code_coverage[byte_position][code] = true;
+      value_code_coverage[byte_position][code] = true;
+    }
+  }
+  bool full_code_coverage_gate = true;
+  for (std::size_t byte_position = 0U; byte_position < 4U;
+       ++byte_position) {
+    const std::size_t q_codes = static_cast<std::size_t>(std::count(
+        q_code_coverage[byte_position].begin(),
+        q_code_coverage[byte_position].end(), true));
+    const std::size_t key_codes = static_cast<std::size_t>(std::count(
+        key_code_coverage[byte_position].begin(),
+        key_code_coverage[byte_position].end(), true));
+    const std::size_t value_codes = static_cast<std::size_t>(std::count(
+        value_code_coverage[byte_position].begin(),
+        value_code_coverage[byte_position].end(), true));
+    const bool position_gate =
+        q_codes == 256U && key_codes == 256U && value_codes == 256U;
+    full_code_coverage_gate = full_code_coverage_gate && position_gate;
+    test.expect(position_gate,
+                label + " completes raw-code coverage in packed byte " +
+                    std::to_string(byte_position));
+    std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_CODE_COVERAGE: candidate="
+              << candidate_name << " phase=complete_with_signed_nan"
+              << " byte_position=" << byte_position
+              << " q_codes=" << q_codes << " key_codes=" << key_codes
+              << " value_codes=" << value_codes
+              << " gate=" << (position_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const std::string nan_label = label + " isolated signed NaN x4 bytes x3";
+  if (!upload_current_fixture(nan_label) ||
+      !capture_baseline(nan_label)) {
+    return;
+  }
+  const bool nan_bitwise_gate = check_candidate(nan_label, true, false);
+  bool nan_class_sign_gate = true;
+  for (std::size_t byte_position = 0U; byte_position < 4U;
+       ++byte_position) {
+    for (std::size_t nan_index = 0U; nan_index < 2U; ++nan_index) {
+      const std::size_t row = 2U * byte_position + nan_index;
+      const auto classified = [](const std::uint16_t candidate_bits,
+                                 const std::uint16_t baseline_bits) {
+        return is_bf16_nan(candidate_bits) &&
+               is_bf16_nan(baseline_bits) &&
+               (candidate_bits & 0x8000U) ==
+                   (baseline_bits & 0x8000U);
+      };
+      const bool row_gate =
+          classified(first_q[kGuardElements + row], baseline_q[row]) &&
+          classified(first_key[kGuardElements + row], baseline_key[row]) &&
+          classified(first_value[kGuardElements + row], baseline_value[row]);
+      nan_class_sign_gate = nan_class_sign_gate && row_gate;
+      test.expect(row_gate,
+                  nan_label + " preserves NaN class/sign byte=" +
+                      std::to_string(byte_position) + " code=" +
+                      (nan_index == 0U ? "0x7f" : "0xff"));
+    }
+  }
+  std::size_t unexpected_nonfinite = 0U;
+  for (std::size_t row = 8U; row < kQRows; ++row) {
+    unexpected_nonfinite +=
+        !is_bf16_finite(first_q[kGuardElements + row]) ? 1U : 0U;
+  }
+  for (std::size_t row = 8U; row < kKvRows; ++row) {
+    unexpected_nonfinite +=
+        !is_bf16_finite(first_key[kGuardElements + row]) ? 1U : 0U;
+    unexpected_nonfinite +=
+        !is_bf16_finite(first_value[kGuardElements + row]) ? 1U : 0U;
+  }
+  const bool nan_gate = nan_bitwise_gate && nan_class_sign_gate &&
+                        full_code_coverage_gate &&
+                        unexpected_nonfinite == 0U;
+  test.expect(nan_gate,
+              nan_label + " isolates all 24 signed-NaN outputs");
+  std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_NAN_CLASSIFICATION: candidate="
+            << candidate_name << " classified_outputs=24"
+            << " unexpected_nonfinite=" << unexpected_nonfinite
+            << " bitwise_replay_guards_inputs="
+            << (nan_bitwise_gate ? "PASS" : "FAIL")
+            << " class_sign=" << (nan_class_sign_gate ? "PASS" : "FAIL")
+            << " gate=" << (nan_gate ? "PASS" : "FAIL") << '\n';
+  const bool correctness_gate = exhaustive_finite_gate &&
+                                race_signature_gate && nan_gate;
+  fill_activation();
+
+  constexpr std::array<Fp8M2CodeDistribution, 2U> kDistributions{{
+      Fp8M2CodeDistribution::kCheckpointLike,
+      Fp8M2CodeDistribution::kSameBankStress,
+  }};
+  std::array<DistributionResult, kDistributions.size()> results{};
+  bool distribution_gate = true;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kDistributions.size(); ++distribution_index) {
+    const Fp8M2CodeDistribution distribution =
+        kDistributions[distribution_index];
+    const bool actual =
+        distribution == Fp8M2CodeDistribution::kCheckpointLike;
+    const std::string distribution_name =
+        actual ? "actual_checkpoint" : "same_bank_stress";
+    bool fixture_ready = true;
+    if (actual) {
+      fixture_ready =
+          read_checkpoint_slice(kQOffset, host_q_weights, "layer-3 Q weights");
+      fixture_ready = fixture_ready && read_checkpoint_slice(
+                                           kKeyOffset, host_key_weights,
+                                           "layer-3 K weights");
+      fixture_ready = fixture_ready && read_checkpoint_slice(
+                                           kValueOffset, host_value_weights,
+                                           "layer-3 V weights");
+      q_scale = 0.000706264F;
+      key_scale = 0.00044686455F;
+      value_scale = 0.0004752023F;
+    } else {
+      fill_fp8_m2_code_distribution(host_q_weights, kQRows, kColumns,
+                                    distribution);
+      fill_fp8_m2_code_distribution(host_key_weights, kKvRows, kColumns,
+                                    distribution);
+      fill_fp8_m2_code_distribution(host_value_weights, kKvRows, kColumns,
+                                    distribution);
+      std::reverse(host_value_weights.begin(), host_value_weights.end());
+      q_scale = 1.0F / 64.0F;
+      key_scale = 1.0F / 96.0F;
+      value_scale = 1.0F / 128.0F;
+    }
+    const std::string q_hash = q3x::core::sha256(std::string_view(
+        reinterpret_cast<const char*>(host_q_weights.data()),
+        host_q_weights.size())).hex();
+    const std::string key_hash = q3x::core::sha256(std::string_view(
+        reinterpret_cast<const char*>(host_key_weights.data()),
+        host_key_weights.size())).hex();
+    const std::string value_hash = q3x::core::sha256(std::string_view(
+        reinterpret_cast<const char*>(host_value_weights.data()),
+        host_value_weights.size())).hex();
+    const bool identity_gate =
+        !actual || (q_hash == kQSha256 && key_hash == kKeySha256 &&
+                    value_hash == kValueSha256);
+    test.expect(identity_gate,
+                label + " matches pinned layer-3 Q/K/V payload hashes");
+    fixture_ready = fixture_ready && identity_gate;
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(q_weights.get(), host_q_weights.data(),
+                        host_q_weights.size(), cudaMemcpyHostToDevice, stream),
+        label + " upload " + distribution_name + " Q weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(key_weights.get(), host_key_weights.data(),
+                        host_key_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        label + " upload " + distribution_name + " K weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(value_weights.get(), host_value_weights.data(),
+                        host_value_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        label + " upload " + distribution_name + " V weights");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaMemcpyAsync(activation.get(), host_activation.data(),
+                        host_activation.size() * sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        label + " upload " + distribution_name + " activation");
+    fixture_ready = fixture_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream),
+        label + " upload " + distribution_name + " sync");
+    std::cout << "FP8_M1_Q_KV_REDUCTION_SCRATCH_FIXTURE: candidate="
+              << candidate_name << " fixture=" << distribution_name
+              << " source=" << (actual ? "actual_checkpoint" : "synthetic")
+              << " checkpoint_path="
+              << (actual ? checkpoint_file : "not_applicable")
+              << " q_offset=" << (actual ? kQOffset : 0U)
+              << " key_offset=" << (actual ? kKeyOffset : 0U)
+              << " value_offset=" << (actual ? kValueOffset : 0U)
+              << " q_sha256=" << q_hash << " key_sha256=" << key_hash
+              << " value_sha256=" << value_hash
+              << " q_scale=" << q_scale << " key_scale=" << key_scale
+              << " value_scale=" << value_scale
+              << " pinned_payload_identity="
+              << (identity_gate ? "PASS" : "FAIL") << '\n';
+    if (!fixture_ready ||
+        !capture_baseline(label + " " + distribution_name)) {
+      return;
+    }
+    results[distribution_index].correct = check_candidate(
+        label + " " + distribution_name, true, true);
+    const DistributionResult timing =
+        benchmark(label + " " + distribution_name);
+    results[distribution_index].baseline_milliseconds =
+        timing.baseline_milliseconds;
+    results[distribution_index].candidate_milliseconds =
+        timing.candidate_milliseconds;
+    const double speedup =
+        static_cast<double>(timing.baseline_milliseconds) /
+        static_cast<double>(timing.candidate_milliseconds);
+    const double required =
+        actual ? kRequiredActualSpeedup : kRequiredStressSpeedup;
+    const bool cell_gate = results[distribution_index].correct &&
+                           std::isfinite(speedup) && speedup >= required;
+    distribution_gate = distribution_gate && cell_gate;
+    std::cout << "PERF_FP8_M1_Q_KV_REDUCTION_SCRATCH: candidate="
+              << candidate_name << " fixture=" << distribution_name
+              << " baseline_tail_barrier_predecessor_median_ms="
+              << timing.baseline_milliseconds
+              << " candidate_ping_pong_median_ms="
+              << timing.candidate_milliseconds << " speedup=" << speedup
+              << " uplift_percent=" << (speedup - 1.0) * 100.0
+              << " required_speedup=" << required
+              << " bitwise_replay_guards_inputs="
+              << (results[distribution_index].correct ? "PASS" : "FAIL")
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const bool selected_gate =
+      graph_gate && invalid_zero_node_gate && resource_gate &&
+      tail_resource_gate && null_resource_gate && checkpoint_source_gate &&
+      correctness_gate && distribution_gate;
+  test.expect(selected_gate,
+              label + " clears contract, correctness, actual checkpoint, "
+                      "stress, and performance gates");
+  std::cout << "PERF_FP8_M1_Q_KV_REDUCTION_SCRATCH_SELECTED: candidate="
+            << candidate_name
+            << " q_shape=12288x5120 key_shape=1024x5120"
+            << " value_shape=1024x5120 grid=2048 block=256"
+            << " baseline=tail_barrier_predecessor"
+            << " checkpoint_path=" << checkpoint_file
+            << " required_actual_checkpoint_speedup="
+            << kRequiredActualSpeedup
+            << " required_same_bank_stress_speedup="
+            << kRequiredStressSpeedup
+            << " graph_gate=" << (graph_gate ? "PASS" : "FAIL")
+            << " resource_gate=" << (resource_gate ? "PASS" : "FAIL")
+            << " tail_resource_gate="
+            << (tail_resource_gate ? "PASS" : "FAIL")
+            << " invalid_zero_node_gate="
+            << (invalid_zero_node_gate ? "PASS" : "FAIL")
+            << " null_resource_gate="
+            << (null_resource_gate ? "PASS" : "FAIL")
+            << " exhaustive_256x4x3_gate="
+            << (correctness_gate ? "PASS" : "FAIL")
+            << " race_signature_gate="
+            << (race_signature_gate ? "PASS" : "FAIL")
+            << " distribution_gates="
+            << (distribution_gate ? "PASS" : "FAIL")
+            << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
 }
 
 struct Fp8QkvZFusionTiming {
@@ -31287,6 +32569,8 @@ int main() {
   run_fp8_m1_kv_pair_correctness_and_optional_performance(test, stream);
   run_fp8_m1_q_kv_production_contract(test, stream);
   run_optional_fp8_m1_q_kv_fusion_performance(test, stream);
+  run_optional_fp8_m1_q_kv_reduction_scratch_ping_pong_performance(test,
+                                                                    stream);
   run_fp8_m1_qkv_z_production_dispatch_contract(test, stream);
   run_optional_fp8_m1_qkv_z_fusion_performance(test, stream);
   run_optional_fp8_m1_qkv_z_reduction_scratch_ping_pong_performance(test,

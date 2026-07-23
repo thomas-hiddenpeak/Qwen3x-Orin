@@ -307,6 +307,16 @@ The diagnostic Phase 3 records are:
   external P19 memory-watermark warning and unavailable racecheck as explicit
   limitations, and makes clear that this intra-kernel scratch ping-pong is not
   general double/triple buffering or Prefill/Decode overlap.
+- [`qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json`](qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json),
+  which records the promoted two-slot CTA-local FP8 M1 full-attention Q+K/V
+  reduction-scratch pipeline. It freezes exhaustive 256-code/four-byte-position
+  coverage across Q, K, and V, ordered Q-row-quad and Q-to-K/V race/replay
+  contracts, exact checkpoint payloads, resources, three explicitly distinct
+  SASS canonicalizations, five independent actual/stress micro processes, and
+  exact P19/P64/P513 B-C-C-B evidence with all 12 log hashes. It also records
+  the symmetric-engine device-code isolation proof, zero persistent-drop flags,
+  the 0.042171% worst whole-model stage regression against the 0.5% limit, and
+  the boundary between this intra-kernel scratch mechanism and system buffering.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

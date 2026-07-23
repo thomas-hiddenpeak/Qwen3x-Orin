@@ -1333,6 +1333,10 @@ fp8_w8a16_gemv_bf16_projection_pair_row_quad_kernel(
 // One exact K/V row-pair task, kept separate from the production persistent
 // kernel so the full-attention fusion can preserve that baseline verbatim.
 // The arithmetic and reduction sequence intentionally mirrors the body above.
+// TailBarrier=true is the production predecessor. TailBarrier=false is used
+// only by the double-slot kernel's final K/V body; that scratch slot is never
+// reused before CTA exit, so the trailing barrier is unnecessary.
+template <bool TailBarrier>
 __device__ __forceinline__ void
 fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
     const std::uint8_t* const key_weights, const float key_weight_scale,
@@ -1459,15 +1463,17 @@ fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
       value_output[row1] = encode_bf16_rne(value_block_sum1);
     }
   }
-  __syncthreads();
+  if constexpr (TailBarrier) {
+    __syncthreads();
+  }
 }
 
-// Exact full-attention fusion. The Q phase exactly retains the
-// production 2,048-CTA row-quad order for [12288, 5120]. Blocks 1024..1535
-// then consume one of the 512 K/V row-pair tasks, reusing the codebook and
-// collapsing the existing Q + K/V launch chain into one kernel.
+// Test-only predecessor for the production full-attention fusion. It retains
+// the original single reduction-scratch slot and the tail block barrier after
+// every Q and K/V body so same-binary tests can measure the promoted kernel
+// against the exact prior implementation.
 __global__ __launch_bounds__(kThreads, 4) void
-fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel(
+fp8_w8a16_gemv_bf16_q_kv_two_phase_tail_barrier_test_kernel(
     const std::uint8_t* const q_weights, const float q_weight_scale,
     const std::uint8_t* const key_weights, const float key_weight_scale,
     const std::uint8_t* const value_weights, const float value_weight_scale,
@@ -1497,10 +1503,56 @@ fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel(
     const std::size_t row0 =
         2U * static_cast<std::size_t>(blockIdx.x -
                                      kFp8FullAttentionKvFirstBlock);
-    fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
+    fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body<true>(
         key_weights, key_weight_scale, value_weights, value_weight_scale,
         activation, kFp8KvPairColumns, row0, key_output, value_output,
         decoded_weights, warp_sums, lane, warp);
+  }
+}
+
+// Production topology-preserving full-attention Q + K/V fusion. Consecutive Q
+// row quads, plus the ordered Q-to-K/V handoff in blocks 1024..1535, alternate
+// reduction-scratch slots. The producer barrier in body i+1 cannot release
+// until warp 0 has completed body i. Every CTA executes at most two bodies,
+// so neither slot is reused before kernel completion.
+__global__ __launch_bounds__(kThreads, 4) void
+fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[2U][4U][kWarpsPerBlock];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+  decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  __syncthreads();
+
+  constexpr unsigned int kQRowQuads =
+      static_cast<unsigned int>(kFp8FullAttentionQRows / 4U);
+  unsigned int scratch_slot = 0U;
+  for (unsigned int row_quad = blockIdx.x; row_quad < kQRowQuads;
+       row_quad += kFp8FullAttentionBlocks) {
+    fp8_w8a16_gemv_bf16_complete_row_quad_no_tail_barrier_body(
+        q_weights, q_weight_scale, activation, kFp8KvPairColumns,
+        4U * row_quad, q_output, decoded_weights, warp_sums[scratch_slot],
+        lane, warp);
+    scratch_slot ^= 1U;
+  }
+
+  if (blockIdx.x >= kFp8FullAttentionKvFirstBlock &&
+      blockIdx.x <
+          kFp8FullAttentionKvFirstBlock + kFp8FullAttentionKvBlocks) {
+    const std::size_t row0 =
+        2U * static_cast<std::size_t>(blockIdx.x -
+                                     kFp8FullAttentionKvFirstBlock);
+    fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body<false>(
+        key_weights, key_weight_scale, value_weights, value_weight_scale,
+        activation, kFp8KvPairColumns, row0, key_output, value_output,
+        decoded_weights, warp_sums[scratch_slot], lane, warp);
   }
 }
 
@@ -7127,6 +7179,85 @@ nvfp4_w4a16_small_m8_gemm_bf16_fixed_shape_kernel(
           alignof(std::uint16_t)) == 0U;
 }
 
+[[nodiscard]] int validate_fp8_q_kv_launch(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output) noexcept {
+  if (q_rows != kFp8FullAttentionQRows || kv_rows != kFp8KvPairRows ||
+      columns != kFp8KvPairColumns) {
+    return invalid_value();
+  }
+  const int q_validation = validate_fp8_launch(
+      q_weights, q_weight_scale, activation, kFp8FullAttentionQRows,
+      kFp8KvPairColumns, q_output);
+  if (q_validation != static_cast<int>(cudaSuccess)) {
+    return q_validation;
+  }
+  const int key_validation = validate_fp8_launch(
+      key_weights, key_weight_scale, activation, kFp8KvPairRows,
+      kFp8KvPairColumns, key_output);
+  if (key_validation != static_cast<int>(cudaSuccess)) {
+    return key_validation;
+  }
+  const int value_validation = validate_fp8_launch(
+      value_weights, value_weight_scale, activation, kFp8KvPairRows,
+      kFp8KvPairColumns, value_output);
+  if (value_validation != static_cast<int>(cudaSuccess)) {
+    return value_validation;
+  }
+
+  const std::size_t q_output_bytes =
+      kFp8FullAttentionQRows * sizeof(std::uint16_t);
+  const std::size_t kv_output_bytes =
+      kFp8KvPairRows * sizeof(std::uint16_t);
+  const std::size_t q_weight_bytes =
+      kFp8FullAttentionQRows * kFp8KvPairColumns;
+  const std::size_t kv_weight_bytes =
+      kFp8KvPairRows * kFp8KvPairColumns;
+  if (ranges_overlap(q_output, q_output_bytes, key_output,
+                     kv_output_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, value_output,
+                     kv_output_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, value_output,
+                     kv_output_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, key_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(q_output, q_output_bytes, value_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, q_weights,
+                     q_weight_bytes) ||
+      ranges_overlap(key_output, kv_output_bytes, value_weights,
+                     kv_weight_bytes) ||
+      ranges_overlap(value_output, kv_output_bytes, q_weights,
+                     q_weight_bytes) ||
+      ranges_overlap(value_output, kv_output_bytes, key_weights,
+                     kv_weight_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] bool fp8_q_kv_launch_is_aligned(
+    const std::uint8_t* const q_weights,
+    const std::uint8_t* const key_weights,
+    const std::uint8_t* const value_weights,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const q_output,
+    const std::uint16_t* const key_output,
+    const std::uint16_t* const value_output) noexcept {
+  return pointer_is_aligned<alignof(std::uint32_t)>(q_weights) &&
+         pointer_is_aligned<alignof(std::uint32_t)>(key_weights) &&
+         pointer_is_aligned<alignof(std::uint32_t)>(value_weights) &&
+         pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
+         pointer_is_aligned<alignof(std::uint16_t)>(q_output) &&
+         pointer_is_aligned<alignof(std::uint16_t)>(key_output) &&
+         pointer_is_aligned<alignof(std::uint16_t)>(value_output);
+}
+
 void launch_fp8_qkv_z_two_phase_unchecked(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
     const std::uint8_t* const z_weights, const float z_weight_scale,
@@ -7149,6 +7280,34 @@ void launch_fp8_qkv_z_tail_barrier_test_unchecked(
       <<<blocks, kThreads, 0U, stream>>>(
           qkv_weights, qkv_weight_scale, z_weights, z_weight_scale,
           activation, columns, qkv_output, z_output);
+}
+
+void launch_fp8_q_kv_reduction_scratch_ping_pong_test_unchecked(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, std::uint16_t* const q_output,
+    std::uint16_t* const key_output, std::uint16_t* const value_output,
+    cudaStream_t const stream) noexcept {
+  fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel
+      <<<kFp8FullAttentionBlocks, kThreads, 0U, stream>>>(
+          q_weights, q_weight_scale, key_weights, key_weight_scale,
+          value_weights, value_weight_scale, activation, q_output,
+          key_output, value_output);
+}
+
+void launch_fp8_q_kv_tail_barrier_test_unchecked(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, std::uint16_t* const q_output,
+    std::uint16_t* const key_output, std::uint16_t* const value_output,
+    cudaStream_t const stream) noexcept {
+  fp8_w8a16_gemv_bf16_q_kv_two_phase_tail_barrier_test_kernel
+      <<<kFp8FullAttentionBlocks, kThreads, 0U, stream>>>(
+          q_weights, q_weight_scale, key_weights, key_weight_scale,
+          value_weights, value_weight_scale, activation, q_output,
+          key_output, value_output);
 }
 
 void launch_fp8_scalar_unchecked(
@@ -9194,6 +9353,9 @@ int query_sm87_fp8_w8a16_m1_qkv_z_reduction_scratch_ping_pong_resources_test_cud
   return static_cast<int>(cudaSuccess);
 }
 
+// Production exact-shape full-attention Q + K/V projection. The fixed launch
+// keeps the established 2,048-CTA topology while alternating two reduction
+// scratch slots across each CTA's at-most-two ordered logical bodies.
 int launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
     const std::uint8_t* const q_weights, const float q_weight_scale,
     const std::uint8_t* const key_weights, const float key_weight_scale,
@@ -9203,76 +9365,22 @@ int launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
     std::uint16_t* const q_output,
     std::uint16_t* const key_output, std::uint16_t* const value_output,
     void* const cuda_stream) noexcept {
-  if (q_rows != kFp8FullAttentionQRows || kv_rows != kFp8KvPairRows ||
-      columns != kFp8KvPairColumns) {
-    return invalid_value();
+  const int validation = validate_fp8_q_kv_launch(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_rows, kv_rows,
+      columns, q_output, key_output, value_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
   }
-  const int q_validation = validate_fp8_launch(
-      q_weights, q_weight_scale, activation, kFp8FullAttentionQRows,
-      kFp8KvPairColumns, q_output);
-  if (q_validation != static_cast<int>(cudaSuccess)) {
-    return q_validation;
-  }
-  const int key_validation = validate_fp8_launch(
-      key_weights, key_weight_scale, activation, kFp8KvPairRows,
-      kFp8KvPairColumns, key_output);
-  if (key_validation != static_cast<int>(cudaSuccess)) {
-    return key_validation;
-  }
-  const int value_validation = validate_fp8_launch(
-      value_weights, value_weight_scale, activation, kFp8KvPairRows,
-      kFp8KvPairColumns, value_output);
-  if (value_validation != static_cast<int>(cudaSuccess)) {
-    return value_validation;
-  }
-  const bool vector_shape =
-      (reinterpret_cast<std::uintptr_t>(q_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(key_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(value_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activation) %
-       alignof(std::uint64_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(q_output) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(key_output) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(value_output) %
-       alignof(std::uint16_t)) == 0U;
-  const std::size_t q_output_bytes =
-      kFp8FullAttentionQRows * sizeof(std::uint16_t);
-  const std::size_t kv_output_bytes =
-      kFp8KvPairRows * sizeof(std::uint16_t);
-  const std::size_t q_weight_bytes =
-      kFp8FullAttentionQRows * kFp8KvPairColumns;
-  const std::size_t kv_weight_bytes =
-      kFp8KvPairRows * kFp8KvPairColumns;
-  if (!vector_shape ||
-      ranges_overlap(q_output, q_output_bytes, key_output,
-                     kv_output_bytes) ||
-      ranges_overlap(q_output, q_output_bytes, value_output,
-                     kv_output_bytes) ||
-      ranges_overlap(key_output, kv_output_bytes, value_output,
-                     kv_output_bytes) ||
-      ranges_overlap(q_output, q_output_bytes, key_weights,
-                     kv_weight_bytes) ||
-      ranges_overlap(q_output, q_output_bytes, value_weights,
-                     kv_weight_bytes) ||
-      ranges_overlap(key_output, kv_output_bytes, q_weights,
-                     q_weight_bytes) ||
-      ranges_overlap(key_output, kv_output_bytes, value_weights,
-                     kv_weight_bytes) ||
-      ranges_overlap(value_output, kv_output_bytes, q_weights,
-                     q_weight_bytes) ||
-      ranges_overlap(value_output, kv_output_bytes, key_weights,
-                     kv_weight_bytes)) {
+  if (!fp8_q_kv_launch_is_aligned(q_weights, key_weights, value_weights,
+                                  activation, q_output, key_output,
+                                  value_output)) {
     return invalid_value();
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel
+  fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel
       <<<kFp8FullAttentionBlocks, kThreads, 0U, stream>>>(
           q_weights, q_weight_scale, key_weights, key_weight_scale,
           value_weights, value_weight_scale, activation, q_output,
@@ -9293,14 +9401,143 @@ int query_sm87_fp8_w8a16_m1_q_kv_two_phase_fused_resources_test_cuda(
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes, fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel);
+      &attributes,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      fp8_w8a16_gemv_bf16_q_kv_two_phase_row_group_kernel,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_test_cuda(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_q_kv_launch(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_rows, kv_rows,
+      columns, q_output, key_output, value_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!fp8_q_kv_launch_is_aligned(q_weights, key_weights, value_weights,
+                                  activation, q_output, key_output,
+                                  value_output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_q_kv_reduction_scratch_ping_pong_test_unchecked(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_output, key_output,
+      value_output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_m1_q_kv_tail_barrier_test_cuda(
+    const std::uint8_t* const q_weights, const float q_weight_scale,
+    const std::uint8_t* const key_weights, const float key_weight_scale,
+    const std::uint8_t* const value_weights, const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_q_kv_launch(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_rows, kv_rows,
+      columns, q_output, key_output, value_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!fp8_q_kv_launch_is_aligned(q_weights, key_weights, value_weights,
+                                  activation, q_output, key_output,
+                                  value_output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_q_kv_tail_barrier_test_unchecked(
+      q_weights, q_weight_scale, key_weights, key_weight_scale,
+      value_weights, value_weight_scale, activation, q_output, key_output,
+      value_output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_m1_q_kv_tail_barrier_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_tail_barrier_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_tail_barrier_test_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
