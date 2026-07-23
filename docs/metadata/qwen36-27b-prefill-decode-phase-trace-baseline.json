@@ -1,0 +1,455 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-decode-phase-trace-baseline",
+  "status": "diagnostic-phase-trace-baseline",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "registered_nvtx_git_commit": "8323e6ec69446f7c41778cc342be24f29e9f11d1",
+    "registered_nvtx_git_subject": "runtime: add phase-aware generation profiling",
+    "base_git_commit": "ffbe0e6f8dbbdb04eaec1547a8d38fdd6f10a679",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "binaries": {
+      "four_grid_and_event_calibration_precursor": {
+        "local_path": "/tmp/q3x-phase-observer-candidate/qwen3x-orin",
+        "bytes": 3781936,
+        "sha256": "05e1a8a297e2ec1f1bb19db40868dce3980ee57121e277b221d2526b8c44415b",
+        "elf_build_id": "d50e13e8515e31317859a5450992bd67705ef3e2",
+        "checked_in": false,
+        "note": "Frozen uncommitted precursor used by every main-grid and CUDA-event calibration capture; keeping one binary preserves grid comparability."
+      },
+      "default_off_bccb_baseline": {
+        "local_path": "/tmp/q3x-phase-observer-baseline-ffbe0e6/qwen3x-orin",
+        "bytes": 3706816,
+        "sha256": "36842c2548bf8b86908c538329e0910b900a2cd9f2e35c76edb216404707ef95",
+        "elf_build_id": "21f46e9d2854f92d661f0a5b9a11817886c5d089",
+        "source_commit": "ffbe0e6f8dbbdb04eaec1547a8d38fdd6f10a679",
+        "checked_in": false
+      },
+      "registered_validation_and_bccb_candidate": {
+        "local_path": "/tmp/q3x-phase-observer-final-candidate/qwen3x-orin",
+        "bytes": 3782576,
+        "sha256": "bc829dd428c5257d049bbaa2f0706ba4e0994f653da5c1b0fb8743dc46c6e703",
+        "elf_build_id": "d76d5d42fcd771a6487887cdbce84da1856e7a50",
+        "source_commit": "8323e6ec69446f7c41778cc342be24f29e9f11d1",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment"
+  },
+  "implementation_boundary": {
+    "logical_phase_ranges": [
+      "q3x.generation",
+      "q3x.prefill.prefix_step",
+      "q3x.prefill.prefix_tile",
+      "q3x.prefill.finish",
+      "q3x.decode.step"
+    ],
+    "committed_string_encoding": "nvtxDomainRegisterStringA plus NVTX_MESSAGE_TYPE_REGISTERED and nvtxRangePushEx",
+    "nvtx_ranges_default_enabled": false,
+    "enable_option": "--nvtx-phase-ranges",
+    "prefill_decode_logically_separate": true,
+    "separate_device_executors": false,
+    "general_double_buffer": false,
+    "general_triple_buffer": false,
+    "prefill_decode_overlap_within_one_request": false,
+    "continuous_batching": false,
+    "existing_narrow_overlap": "Exact M32 gate/up uses one auxiliary stream with a ready/done event handshake; M17-M31 and decode remain otherwise ordered."
+  },
+  "protocol": {
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "max_sequence_length": 544,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "warmup_rounds": 0,
+    "measured_rounds": 1,
+    "main_profile_trace_domains": ["cuda", "nvtx"],
+    "main_profile_cuda_event_trace": false,
+    "main_profile_workloads": [
+      {"id": "P19-C32-max26", "prompt_tokens": 19, "prefix_schedule": [18], "max_new_tokens": 26},
+      {"id": "P33-C32-max1", "prompt_tokens": 33, "prefix_schedule": [32], "max_new_tokens": 1},
+      {"id": "P64-C32-max1", "prompt_tokens": 64, "prefix_schedule": [32, 31], "max_new_tokens": 1},
+      {"id": "P513-C32-max1", "prompt_tokens": 513, "prefix_schedule": [32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32], "max_new_tokens": 1}
+    ],
+    "event_calibration": {
+      "workload": "P33-C32-max1",
+      "cuda_event_trace": true,
+      "purpose": "Calibrate the existing M32 two-stream event DAG only; this is not a primary timing sample."
+    },
+    "registered_capture_validation": {
+      "workload": "P33-C32-max1",
+      "trace_domains": ["nvtx"],
+      "purpose": "Verify final committed registered strings resolve through textId and preserve expected range cardinality.",
+      "replaces_main_grid_p33": false
+    }
+  },
+  "attribution_method": {
+    "nvtx_selection": "Completed q3x.* NVTX push/pop ranges; resolve coalesce(NVTX_EVENTS.text, StringIds.value via textId).",
+    "runtime_selection": "CUDA Runtime API calls whose host start/end lie inside a range on the same globalTid.",
+    "runtime_to_kernel_join": "correlationId plus k.globalPid = (r.globalTid & 0xFFFFFFFFFF000000)",
+    "reason_for_runtime_join": "CUDA launches are asynchronous, so GPU execution timestamps need not lie inside the host NVTX interval.",
+    "raw_kernel_ns": "sum(kernel.end - kernel.start)",
+    "union_kernel_ns": "length of the merged GPU kernel interval union",
+    "span_kernel_ns": "max(kernel.end) - min(kernel.start)",
+    "idle_ns": "span_kernel_ns - union_kernel_ns",
+    "overlap_ns": "raw_kernel_ns - union_kernel_ns"
+  },
+  "phase_trace_grid": [
+    {
+      "id": "P19-C32-max26",
+      "range_counts": {"generation": 1, "prefix_step": 0, "prefix_tile": 1, "finish_prefill": 1, "decode_step": 25},
+      "reported_phase_milliseconds": {
+        "prefix_executions": [335.980],
+        "finish_prefill": 136.597,
+        "prompt_prefill": 472.576,
+        "decode_after_first": 2799.487,
+        "total_generation": 3272.063
+      },
+      "generation_nvtx": {
+        "host_ns": 3272370560,
+        "raw_kernel_ns": 3243683040,
+        "union_kernel_ns": 3243683040,
+        "span_kernel_ns": 3271041088,
+        "idle_ns": 27358048,
+        "overlap_ns": 0,
+        "idle_percent_of_span": 0.836371,
+        "overlap_percent_of_raw": 0.0
+      },
+      "leaf_raw_kernel_ns": {"prefix": 328163648, "finish_prefill": 135242208, "decode": 2780277184},
+      "kernel_closure": {"generation_kernel_count": 12997, "missing": 0, "extra": 0, "duplicate_leaf_assignment": 0},
+      "artifacts": {
+        "log": {"local_path": "/tmp/q3x-phase-trace-20260723/p019-c32-max26.log", "bytes": 12723, "sha256": "7d3749d72efcf83d3fc9f06506906fc34e854a62efb2a84e53a3577d3b6ed890", "checked_in": false},
+        "primary_nsys_report": {"local_path": "/tmp/q3x-phase-trace-20260723/p019-c32-max26.nsys-rep", "bytes": 863964, "sha256": "bd106b8ba1925270009111ca8d72df452ddf34060ca2ce448e2dd2b84c49b80b", "checked_in": false},
+        "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-trace-20260723/p019-c32-max26.sqlite", "bytes": 2363392, "sha256": "6648f2e15a87a6628df63d733f8f04b09faeb189c8f0a1a66d0275fdda35d6c4", "checked_in": false}
+      }
+    },
+    {
+      "id": "P33-C32-max1",
+      "range_counts": {"generation": 1, "prefix_step": 0, "prefix_tile": 1, "finish_prefill": 1, "decode_step": 0},
+      "reported_phase_milliseconds": {
+        "prefix_executions": [342.791],
+        "finish_prefill": 125.004,
+        "prompt_prefill": 467.795,
+        "decode_after_first": 0.0,
+        "total_generation": 467.795
+      },
+      "generation_nvtx": {
+        "host_ns": 467828352,
+        "raw_kernel_ns": 486313216,
+        "union_kernel_ns": 457106784,
+        "span_kernel_ns": 466567616,
+        "idle_ns": 9460832,
+        "overlap_ns": 29206432,
+        "idle_percent_of_span": 2.027752,
+        "overlap_percent_of_raw": 6.005683
+      },
+      "leaf_raw_kernel_ns": {"prefix": 362597248, "finish_prefill": 123715968, "decode": 0},
+      "kernel_closure": {"generation_kernel_count": 2166, "missing": 0, "extra": 0, "duplicate_leaf_assignment": 0},
+      "artifacts": {
+        "log": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1.log", "bytes": 11965, "sha256": "275383f5b8305457f4d90d6757f461fb44660991db69b4c0676a10fd55dbaeff", "checked_in": false},
+        "primary_nsys_report": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1.nsys-rep", "bytes": 214797, "sha256": "c6317253b83dd648e67696ba0029a3cd9b3566d38b6fbb3d179afc950ca36e4b", "checked_in": false},
+        "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1.sqlite", "bytes": 712704, "sha256": "5d4dd4e1ab87687f4596b6bd9a04e83f7b3651304251be0bcc04c4a7773060bb", "checked_in": false}
+      }
+    },
+    {
+      "id": "P64-C32-max1",
+      "range_counts": {"generation": 1, "prefix_step": 0, "prefix_tile": 2, "finish_prefill": 1, "decode_step": 0},
+      "reported_phase_milliseconds": {
+        "prefix_executions": [343.592, 555.333],
+        "finish_prefill": 126.881,
+        "prompt_prefill": 1025.806,
+        "decode_after_first": 0.0,
+        "total_generation": 1025.806
+      },
+      "generation_nvtx": {
+        "host_ns": 1025832128,
+        "raw_kernel_ns": 1040271584,
+        "union_kernel_ns": 1011048896,
+        "span_kernel_ns": 1024331168,
+        "idle_ns": 13282272,
+        "overlap_ns": 29222688,
+        "idle_percent_of_span": 1.296678,
+        "overlap_percent_of_raw": 2.809140
+      },
+      "leaf_raw_kernel_ns": {"prefix": 914729824, "finish_prefill": 125541760, "decode": 0},
+      "kernel_closure": {"generation_kernel_count": 4230, "missing": 0, "extra": 0, "duplicate_leaf_assignment": 0},
+      "artifacts": {
+        "log": {"local_path": "/tmp/q3x-phase-trace-20260723/p064-c32-max1.log", "bytes": 12639, "sha256": "948cb49c8ebfcb45fa34b65b99110fa5314e42d5d7d855525f5633e858de5659", "checked_in": false},
+        "primary_nsys_report": {"local_path": "/tmp/q3x-phase-trace-20260723/p064-c32-max1.nsys-rep", "bytes": 358386, "sha256": "d58be541d4e80e79ca4acd9e44d6eb7c8da064a81099c7990c5815ad90cb9398", "checked_in": false},
+        "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-trace-20260723/p064-c32-max1.sqlite", "bytes": 1077248, "sha256": "55c7c4e196525a4dd4618b43b8a105e753d906f44d49a91e25c4406288e252a8", "checked_in": false}
+      }
+    },
+    {
+      "id": "P513-C32-max1",
+      "range_counts": {"generation": 1, "prefix_step": 0, "prefix_tile": 16, "finish_prefill": 1, "decode_step": 0},
+      "reported_phase_milliseconds": {
+        "prefix_executions": [341.724, 351.879, 375.530, 391.402, 407.333, 423.667, 439.760, 455.906, 472.951, 488.950, 505.086, 521.390, 537.489, 553.519, 569.590, 585.867],
+        "finish_prefill": 140.196,
+        "prompt_prefill": 7562.237,
+        "decode_after_first": 0.0,
+        "total_generation": 7562.237
+      },
+      "generation_nvtx": {
+        "host_ns": 7562280000,
+        "raw_kernel_ns": 7927874976,
+        "union_kernel_ns": 7461360896,
+        "span_kernel_ns": 7561023296,
+        "idle_ns": 99662400,
+        "overlap_ns": 466514080,
+        "idle_percent_of_span": 1.318107,
+        "overlap_percent_of_raw": 5.884478
+      },
+      "leaf_raw_kernel_ns": {"prefix": 7789256544, "finish_prefill": 138618432, "decode": 0},
+      "kernel_closure": {"generation_kernel_count": 42709, "missing": 0, "extra": 0, "duplicate_leaf_assignment": 0},
+      "artifacts": {
+        "log": {"local_path": "/tmp/q3x-phase-trace-20260723/p513-c32-max1.log", "bytes": 23994, "sha256": "7a8e767d6a2f363bc156b148f16a1a9efdd86ca7b743517def79fc66c51b7edf", "checked_in": false},
+        "primary_nsys_report": {"local_path": "/tmp/q3x-phase-trace-20260723/p513-c32-max1.nsys-rep", "bytes": 3117798, "sha256": "8cb08ebc29957696af93a95e29f5d7453d38dac38171f173f75388f83cfa524f", "checked_in": false},
+        "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-trace-20260723/p513-c32-max1.sqlite", "bytes": 8507392, "sha256": "c20d6c5e316f6d7ce5a58889b07f48f724e8ab2518049dcf68b374d67367e61c", "checked_in": false}
+      }
+    }
+  ],
+  "nvtx_kernel_closure": {
+    "status": "exact",
+    "kernel_assignment_rule": "Each generation kernel must be assigned to exactly one leaf phase through its launching Runtime API.",
+    "missing_kernels_total": 0,
+    "extra_kernels_total": 0,
+    "duplicate_leaf_assignments_total": 0,
+    "raw_duration_closure": "For every grid row, prefix + finish_prefill + decode raw kernel ns equals generation raw kernel ns exactly."
+  },
+  "hotspot_split": [
+    {
+      "workload": "P19-C32-max26",
+      "phase": "decode",
+      "phase_raw_kernel_ns": 2780277184,
+      "categories": [
+        {"name": "NVFP4 gate/up", "raw_kernel_ns": 992894848, "percent_of_phase_raw": 35.712081},
+        {"name": "FP8 QKV/Z", "raw_kernel_ns": 590892576, "percent_of_phase_raw": 21.253010},
+        {"name": "NVFP4 down", "raw_kernel_ns": 517950304, "percent_of_phase_raw": 18.629448},
+        {"name": "FP8 row projection", "raw_kernel_ns": 298799488, "percent_of_phase_raw": 10.747111},
+        {"name": "FP8 Q/KV", "raw_kernel_ns": 177646176, "percent_of_phase_raw": 6.389513}
+      ]
+    },
+    {
+      "workload": "P33-C32-max1",
+      "phase": "prefix",
+      "phase_raw_kernel_ns": 362597248,
+      "categories": [
+        {"name": "NVFP4 M32 gate/up", "raw_kernel_ns": 128553728, "percent_of_phase_raw": 35.453586},
+        {"name": "NVFP4 M32 down", "raw_kernel_ns": 64780608, "percent_of_phase_raw": 17.865720},
+        {"name": "GDN", "raw_kernel_ns": 36973984, "percent_of_phase_raw": 10.196984}
+      ]
+    },
+    {
+      "workload": "P64-C32-max1",
+      "phase": "generation",
+      "phase_raw_kernel_ns": 1040271584,
+      "categories": [
+        {"name": "FP8 projections", "raw_kernel_ns": 436825600, "percent_of_phase_raw": 41.991496},
+        {"name": "NVFP4 gate/up", "raw_kernel_ns": 283833280, "percent_of_phase_raw": 27.284536},
+        {"name": "NVFP4 down", "raw_kernel_ns": 153667584, "percent_of_phase_raw": 14.771872},
+        {"name": "GDN", "raw_kernel_ns": 77806080, "percent_of_phase_raw": 7.479401},
+        {"name": "full attention", "raw_kernel_ns": 35591968, "percent_of_phase_raw": 3.421411},
+        {"name": "BF16 pair", "raw_kernel_ns": 29965056, "percent_of_phase_raw": 2.880503}
+      ]
+    },
+    {
+      "workload": "P513-C32-max1",
+      "phase": "prefix",
+      "phase_raw_kernel_ns": 7789256544,
+      "categories": [
+        {"name": "NVFP4 gate/up", "raw_kernel_ns": 2055034176, "percent_of_phase_raw": 26.382931},
+        {"name": "attention scores", "raw_kernel_ns": 1875403360, "percent_of_phase_raw": 24.076795},
+        {"name": "NVFP4 down", "raw_kernel_ns": 1036783488, "percent_of_phase_raw": 13.310429},
+        {"name": "GDN", "raw_kernel_ns": 591498624, "percent_of_phase_raw": 7.593775},
+        {"name": "attention values", "raw_kernel_ns": 204346656, "percent_of_phase_raw": 2.623443}
+      ]
+    }
+  ],
+  "cuda_event_dag_calibration": {
+    "workload": "P33-C32-max1",
+    "baseline_cuda_event_trace": false,
+    "calibration_cuda_event_trace": true,
+    "event_objects": [
+      {"event_id": 7, "record_stream": 17, "record_count": 64},
+      {"event_id": 8, "record_stream": 18, "record_count": 64}
+    ],
+    "record_calls": 128,
+    "wait_calls": 128,
+    "directed_wait_edges": [
+      {"from_stream": 17, "to_stream": 18, "count": 64},
+      {"from_stream": 18, "to_stream": 17, "count": 64}
+    ],
+    "baseline_event_timestamps_nonzero": 0,
+    "calibration_event_timestamps_nonzero": 128,
+    "baseline_to_calibration_generation_delta": {
+      "host_ns": 2903264,
+      "host_percent": 0.620583,
+      "raw_kernel_ns": 4099904,
+      "raw_kernel_percent": 0.843058,
+      "union_kernel_ns": 4110880,
+      "union_kernel_percent": 0.899326,
+      "span_kernel_ns": 2907968,
+      "span_kernel_percent": 0.623268,
+      "overlap_ns": -10976,
+      "overlap_percent": -0.037581
+    },
+    "phase_perturbation": {
+      "prefix_host_ns": -972992,
+      "prefix_host_percent": -0.283849,
+      "prefix_raw_kernel_ns": 281536,
+      "prefix_raw_kernel_percent": 0.077644,
+      "finish_host_ns": 3881184,
+      "finish_host_percent": 3.104759,
+      "finish_raw_kernel_ns": 3818368,
+      "finish_raw_kernel_percent": 3.086399
+    },
+    "interpretation": "The exact two-stream event topology is established, but the single event-enabled sample perturbs phases in opposite directions. It is excluded from primary timing and cannot identify microsecond-scale removable critical path or prove that an event edge can be deleted.",
+    "artifacts": {
+      "log": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1-events.log", "bytes": 13097, "sha256": "fc6229e3e373b9a9d18138defbe9acf4fde34de8146c34f169f4998dd55beb2c", "checked_in": false},
+      "primary_nsys_report": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1-events.nsys-rep", "bytes": 216514, "sha256": "cac2ff710ed6ad27d46df4a2edc57cf47fff1b50daa514653f0c41c04ac0dc4b", "checked_in": false},
+      "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-trace-20260723/p033-c32-max1-events.sqlite", "bytes": 712704, "sha256": "40586b5d07a381f9953cdc1e92a520780b06c444228be408207a31da884cc477", "checked_in": false}
+    }
+  },
+  "registered_nvtx_validation": {
+    "status": "passed",
+    "generation_ranges": 1,
+    "prefix_tile_ranges": 1,
+    "finish_prefill_ranges": 1,
+    "decode_step_ranges": 0,
+    "resolved_through_text_id": true,
+    "registered_string_ids": {
+      "q3x.generation": 15,
+      "q3x.prefill.prefix_step": 16,
+      "q3x.prefill.prefix_tile": 17,
+      "q3x.prefill.finish": 18,
+      "q3x.decode.step": 19
+    },
+    "note": "This final-source NVTX-only capture validates committed registered strings and cardinality. It does not replace the frozen-binary P33 performance trace.",
+    "artifacts": {
+      "log": {"local_path": "/tmp/q3x-phase-registered-final-p33.log", "bytes": 13802, "sha256": "b2d71765ef22c42c82b1e0a37d0e5783154a7fd9cacf7e2e020dfee2d1292f7a", "checked_in": false},
+      "primary_nsys_report": {"local_path": "/tmp/q3x-phase-registered-final-p33.nsys-rep", "bytes": 215433, "sha256": "3bdcfcdf149d7d2b66c32abe792e769a1795e7395633006478a04110da132dfb", "checked_in": false},
+      "derived_post_analysis_sqlite": {"local_path": "/tmp/q3x-phase-registered-final-p33.sqlite", "bytes": 712704, "sha256": "9c345ee2aeea30268f1ff6f56401ac800f76ea672321d1e3653b00d463b30cf2", "checked_in": false}
+    }
+  },
+  "default_off_bccb": {
+    "status": "semantic_equivalence_and_no_material_regression",
+    "order": ["baseline", "candidate", "candidate", "baseline"],
+    "workloads": [
+      {"prompt_tokens": 19, "prefix_schedule": [18], "generated_tokens": 26},
+      {"prompt_tokens": 68, "prefix_schedule": [32, 32, 3], "generated_tokens": 22}
+    ],
+    "requested_prefill_chunk_size": 32,
+    "warmup_rounds": 1,
+    "measured_rounds": 5,
+    "nvtx_phase_ranges_candidate": false,
+    "semantic_contract": {
+      "bytes": 3367,
+      "sha256": "a10e79070a83fa20884dc557bb1ab00d31c549a36af1c39f9fe6093c98fef72a",
+      "identical_files": 4,
+      "selector": "status, projection.backend, requested/effective prefill chunk, max_new_tokens, stop_token_id, then each prompt's text, prompt_ids, generated_ids, generated_text, stop_reason, step_count, and steps"
+    },
+    "pair_sample_means": [
+      {
+        "pair": 1,
+        "baseline_ttft_ms": 749.3777,
+        "candidate_ttft_ms": 747.4950,
+        "ttft_delta_percent": -0.251235,
+        "baseline_total_ms": 3339.5089,
+        "candidate_total_ms": 3331.1777,
+        "total_delta_percent": -0.249474,
+        "baseline_decode_ms": 2590.1312,
+        "candidate_decode_ms": 2583.6825,
+        "decode_delta_percent": -0.248972
+      },
+      {
+        "pair": 2,
+        "baseline_ttft_ms": 748.3513,
+        "candidate_ttft_ms": 747.5941,
+        "ttft_delta_percent": -0.101182,
+        "baseline_total_ms": 3331.8737,
+        "candidate_total_ms": 3332.7546,
+        "total_delta_percent": 0.026439,
+        "baseline_decode_ms": 2583.5224,
+        "candidate_decode_ms": 2585.1603,
+        "decode_delta_percent": 0.063398
+      }
+    ],
+    "combined_sample_means": {
+      "baseline_ttft_ms": 748.8645,
+      "candidate_ttft_ms": 747.54455,
+      "ttft_delta_percent": -0.176260,
+      "baseline_total_ms": 3335.6913,
+      "candidate_total_ms": 3331.96615,
+      "total_delta_percent": -0.111676,
+      "baseline_decode_ms": 2586.8268,
+      "candidate_decode_ms": 2584.4214,
+      "decode_delta_percent": -0.092987,
+      "maximum_mirrored_regression_percent": 0.063398,
+      "maximum_mirrored_regression_location": "pair 2 decode"
+    },
+    "artifacts": [
+      {"run": "baseline_1_stdout", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair1-baseline.out", "bytes": 9592, "sha256": "6d3f0313911ed4fc766674f0a05787c9e4801182015a2d693cf8401989e98ebc", "checked_in": false},
+      {"run": "baseline_1_stderr", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair1-baseline.err", "bytes": 369, "sha256": "f51d1d3eb2e1dd6bd192c6f5cfc19b7db27b1b5912f621192ee40bbfeff81f13", "checked_in": false},
+      {"run": "candidate_1_stdout", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair1-candidate.out", "bytes": 13470, "sha256": "abe8d77e958b8c1c1ab83d174cc4a442eeaa4145d1a7cbdefd424f4f1b51aa0f", "checked_in": false},
+      {"run": "candidate_1_stderr", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair1-candidate.err", "bytes": 389, "sha256": "65d308c80cf18ee1e745b892137358752a842aca0fbf7c43c85ae1fc6b74bd7e", "checked_in": false},
+      {"run": "candidate_2_stdout", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair2-candidate.out", "bytes": 13470, "sha256": "fb581ca8465dc7d0017122eea4f77c25300ccfcc549587a6b0f5adca3ad01896", "checked_in": false},
+      {"run": "candidate_2_stderr", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair2-candidate.err", "bytes": 389, "sha256": "65d308c80cf18ee1e745b892137358752a842aca0fbf7c43c85ae1fc6b74bd7e", "checked_in": false},
+      {"run": "baseline_2_stdout", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair2-baseline.out", "bytes": 9592, "sha256": "f6062d731b09dbd15e1b16d2f9c96f46ee581660f6447ca14fac860fa864aba7", "checked_in": false},
+      {"run": "baseline_2_stderr", "local_path": "/tmp/q3x-phase-observer-final-bccb-pair2-baseline.err", "bytes": 369, "sha256": "f51d1d3eb2e1dd6bd192c6f5cfc19b7db27b1b5912f621192ee40bbfeff81f13", "checked_in": false}
+    ],
+    "interpretation": "The observer and registered NVTX support are default-off, preserve generation semantics exactly, and show no material timing regression. The small signed changes are unlocked-clock noise, not a speedup claim."
+  },
+  "artifact_identity_policy": {
+    "primary_profile_artifact": ".nsys-rep",
+    "primary_profile_mutability": "immutable after capture",
+    "sqlite_role": "derived post-analysis export",
+    "sqlite_identity_note": "Nsight analysis/export may append derived content. Every SQLite size and SHA256 above was frozen after all analysis completed and must not be substituted with its initial export hash."
+  },
+  "priority_conclusion": {
+    "decision": "Keep the logical Prefill/Decode split and measurement hooks, then optimize phase-local kernels before building a general double/triple-buffer or Prefill/Decode-overlap scheduler.",
+    "evidence": [
+      "The single-request execution is still dependency-serialized; a generated token cannot overlap its own Prefill or prior Decode step.",
+      "GPU span idle is only 0.84% to 2.03% across the four traces, so generic same-request buffering has little directly exposed idle time to recover.",
+      "P19 with 25 Decode steps spends 2.780 s raw kernel time in Decode, led by NVFP4 gate/up, FP8 projections, and NVFP4 down.",
+      "P513 Prefill is dominated by NVFP4 gate/up/down and attention scores; attention-score raw time alone is 24.08% of prefix raw time.",
+      "The existing M32 auxiliary-stream overlap is measurable, but event tracing perturbs the one-sample timing and does not justify deleting synchronization edges."
+    ],
+    "ordered_next_work": [
+      "Use the frozen phase baseline to screen bounded Prefill kernels, prioritizing long-context attention scores and the repeated NVFP4 projection path.",
+      "Use the P19 Decode profile to screen M1 NVFP4/FP8 projection improvements independently, with exact semantic and mirrored end-to-end gates.",
+      "Only after phase-local wins, design multi-request continuous batching or a phase scheduler where independent requests can overlap; define KV-memory, fairness, TTFT, inter-token-latency, and tail-latency gates first.",
+      "Treat double/triple buffering as a kernel- or pipeline-specific mechanism, not as a blanket architecture milestone."
+    ]
+  },
+  "limitations": [
+    "All timings use unlocked clocks and one measured process sample per trace cell.",
+    "All workloads are batch one and do not measure concurrent-request serving throughput.",
+    "The P33/P64/P513 cells generate only one token; they isolate TTFT and Prefill rather than steady-state Decode.",
+    "The P19 Decode cell is one fixed prompt/output trajectory and is not a distributional inter-token-latency benchmark.",
+    "Raw kernel duration double-counts concurrent kernels; union and span must be used for elapsed GPU occupancy interpretation.",
+    "The event-enabled P33 trace is a topology calibration sample and is excluded from the primary four-grid timing comparison.",
+    "The final registered-string P33 capture is NVTX-only validation from the committed binary, not a replacement performance trace.",
+    "No general double buffer, triple buffer, Prefill/Decode overlap, disaggregated Prefill/Decode executor, continuous batching, fairness policy, or serving scheduler is implemented."
+  ]
+}

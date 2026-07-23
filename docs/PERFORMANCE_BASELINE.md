@@ -2939,3 +2939,72 @@ thresholds, and claim limits are in the
 [raw-weight cp.async rejection record](metadata/qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json);
 the preceding rationale remains in the
 [M17-M32 dual-stream rejection record](metadata/qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json).
+
+## Prefill/Decode phase-trace baseline
+
+Commit `8323e6e` adds default-off, registered-string NVTX ranges for the whole
+generation, Prefill tiles/finalization, and Decode steps, together with matching
+benchmark phase timings. A final P33 NVTX-only capture resolves all five names
+through registered `textId` values and observes exactly one generation, one
+prefix tile, and one finish range. The main performance grid intentionally
+retains one earlier frozen observer binary for all four cells so that its rows
+remain directly comparable; the final registered capture validates the
+committed instrumentation and does not replace the grid's P33 timing row.
+
+CUDA kernels are attributed through their launching Runtime API inside the
+same-thread NVTX range, then joined by correlation and process identity. `raw`
+is the sum of kernel durations, `union` merges concurrent GPU intervals,
+`span` is first-kernel start through last-kernel end, `idle = span - union`, and
+`overlap = raw - union`:
+
+| Workload | Phase shape | Host | Raw | Union | Span | Idle | Overlap |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| P19, max26 | `18 + finish + 25 decode` | 3272.371 ms | 3243.683 ms | 3243.683 ms | 3271.041 ms | 27.358 ms (0.836%) | 0.000 ms |
+| P33, max1 | `32 + finish` | 467.828 ms | 486.313 ms | 457.107 ms | 466.568 ms | 9.461 ms (2.028%) | 29.206 ms |
+| P64, max1 | `32+31 + finish` | 1025.832 ms | 1040.272 ms | 1011.049 ms | 1024.331 ms | 13.282 ms (1.297%) | 29.223 ms |
+| P513, max1 | `16x32 + finish` | 7562.280 ms | 7927.875 ms | 7461.361 ms | 7561.023 ms | 99.662 ms (1.318%) | 466.514 ms |
+
+Range and kernel closure is exact. P19 contains 1/1/1/25
+generation/prefix/finish/decode ranges and 12,997 kernels; P33 contains
+1/1/1/0 and 2,166; P64 contains 1/2/1/0 and 4,230; P513 contains 1/16/1/0
+and 42,709. Every generation kernel belongs to exactly one leaf range, with
+zero missing, extra, or duplicate assignments, and leaf raw durations sum
+exactly to generation raw duration in every row.
+
+The profile redirects optimization toward phase-local compute rather than a
+blanket buffering rewrite. P19 Decode raw time is led by NVFP4 gate/up (35.71%),
+FP8 QKV/Z (21.25%), NVFP4 down (18.63%), and other FP8 projections. At P33,
+M32 gate/up and down are 35.45% and 17.87% of prefix raw time. At P513, NVFP4
+gate/up is 26.38%, attention scores 24.08%, NVFP4 down 13.31%, and GDN 7.59%.
+The four GPU spans expose only 0.84% to 2.03% idle; this is not evidence for a
+large same-request double/triple-buffer ceiling.
+
+A matched event-enabled P33 calibration observes 128 event records and 128
+waits: 64 edges from stream 17 to 18 and 64 back from 18 to 17, matching the
+existing M32 ready/done handshake. It also changes generation host/raw/union
+time by +0.621%/+0.843%/+0.899%, while prefix host time falls 0.284% and finish
+host time rises 3.105%. The event trace therefore establishes topology, but its
+single perturbed sample cannot prove microsecond-scale removable critical path
+or justify deleting an ordering edge.
+
+The final default-off B-C-C-B gate uses two prompts, one warmup, and five
+measurements per prompt/process. All four 3,367-byte semantic contracts are
+identical with SHA-256
+`a10e79070a83fa20884dc557bb1ab00d31c549a36af1c39f9fe6093c98fef72a`.
+Across all 20 samples per side, candidate deltas are -0.176260% TTFT,
+-0.111676% total generation, and -0.092987% Decode; the largest mirrored
+regression is only +0.063398% in pair-two Decode. These unlocked-clock changes
+are noise, not a speedup claim, and show no material default-off regression.
+
+Prefill and Decode are now logically separable and independently measurable,
+but production still uses one dependency-serialized runner. There is no
+general double/triple buffer, same-request phase overlap, continuous batching,
+or serving scheduler; only exact M32 gate/up retains its narrow layer-local
+auxiliary-stream overlap. The next priority is bounded long-context Prefill
+attention/projection work and M1 Decode projection work under separate exact
+gates. Multi-request phase scheduling should follow only with explicit KV
+memory, fairness, TTFT, inter-token-latency, and tail-latency gates. These are
+unlocked-clock, batch-one local diagnostics, not serving-throughput results.
+All binary/report/log identities, raw rows, event boundaries, and limitations
+are in the
+[phase-trace baseline record](metadata/qwen36-27b-prefill-decode-phase-trace-baseline.json).

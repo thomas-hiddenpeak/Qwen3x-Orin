@@ -242,6 +242,14 @@ The diagnostic Phase 3 records are:
   the existing exact-M32 auxiliary-stream route. The next priority is a
   trace-backed Prefill/Decode phase and scheduler-overlap ceiling, not wider
   local raw-weight prefetch.
+- [`qwen36-27b-prefill-decode-phase-trace-baseline.json`](qwen36-27b-prefill-decode-phase-trace-baseline.json),
+  which records the default-off phase-aware timing/NVTX contract, exact
+  P19/P33/P64/P513 range-to-kernel closure, CUDA-event topology calibration,
+  phase-local hotspot split, registered-string validation, and the matched
+  B-C-C-B proof that disabled instrumentation has no material regression. It
+  also freezes the current boundary: Prefill and Decode are logically
+  measurable but dependency-serialized, with no general double/triple buffer
+  or multi-request scheduler.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged
