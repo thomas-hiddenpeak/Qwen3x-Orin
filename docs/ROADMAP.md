@@ -176,8 +176,14 @@ Deliverables:
 - [done, exact-shape gated] Masked-M32 NVFP4 Tensor Core projections for exact
   M18 `[17408,5120]` and `[5120,17408]`, with exact external C18 capacity and
   ordered M16+M2 fallback elsewhere.
-- Measure the remaining general M17 and M19-M31 Tensor Core crossover; retain
-  M16-plus-tail composition until a shape clears its own production gate.
+- [done, exact-shape gated] Runtime-valid-count masked-M32 NVFP4 Tensor Core
+  projections for exact M17 and M19-M31 `[17408,5120]` and `[5120,17408]`,
+  with exact external M-row capacity and ordered M16-plus-at-most-M8 fallback
+  elsewhere.
+- [next, test-only gate] Measure gate/up dual-stream scheduling independently
+  at every exact M17-M32 count, including the fixed M18 specialization; promote
+  only new counts that clear their own correctness, resource, micro, and
+  end-to-end gates.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -399,11 +405,27 @@ removed. This rejects that specific fused-kernel factorization; raw down was
 not timed and no actual checkpoint tensor payload was used. See the
 [M1 factorized rejection record](metadata/qwen36-27b-nvfp4-m1-factorized-rejection.json).
 
-The next priority returns to general M17/M19-M31 masked-M32 Prefill coverage.
-First establish measured dispatch, exact-capacity, and dynamic-valid-count
-gates at the M17/M19 boundaries; then widen across M20-M31 and evaluate
-tokenizer-pinned long prompts only after the kernel gate passes. Further
-multi-stream scheduling remains behind this phase-local measured work.
+The general runtime-tail milestone (`8b19d2a`) is now complete. Exact aligned
+NVFP4 M17 and M19-M31 projections use one exact-capacity runtime-masked kernel,
+while fixed M18/M32 specializations and all near-miss fallbacks remain intact.
+The per-M production-call-weighted microbenchmark ranges from 1.59909x at M17
+to 4.19900x at M31. A tokenizer-pinned ten-prompt B-C-C-B comparison has no
+reversal in 10/10 cells and improves the equally weighted TTFT aggregate by
+25.914% (1.349789x). Matched P18/P26/P64 profiles reduce the runtime-tail target
+from 384/576/576 launches to 192 each and measure 1.514499x/2.510862x/3.860196x
+target speedups; the fixed P64 M32 portion remains 192 launches and moves only
+from 193.332160 to 193.260160 ms. C1/C8/C16/C32 exact-model gates pass. See the
+[runtime-tail metadata record](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json)
+and
+[pinned prompt manifest](../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json).
+
+The next priority is a test-only gate/up dual-stream matrix for every exact
+M17-M32 count, explicitly including the fixed M18 route and retaining the
+existing M32 result as the control. Each token count must independently clear
+bitwise, exact-span, graph/lifecycle, per-M microbenchmark, and end-to-end gates
+before any new scheduling policy enters production. General double/triple
+buffering or Prefill/Decode phase overlap remains deferred until those narrow
+per-M gates establish a repeatable critical-path envelope.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

@@ -1,0 +1,612 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark",
+  "status": "production-exact-m17-m31-nvfp4-runtime-masked-m32-prefill",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "8b19d2aa27370f7daafb743bf024fbcfc8b25950",
+    "candidate_subject": "kernels: accelerate NVFP4 prefill tails",
+    "candidate_parent_commit": "2ea98f40b787e9c7c88c14a0e3571a7fe55d5bab",
+    "comparison_boundary_commit": "2ea98f40b787e9c7c88c14a0e3571a7fe55d5bab",
+    "comparison_boundary_subject": "tests: validate runtime-masked NVFP4 prefill tails",
+    "frozen_baseline_runtime_commit": "09aa7f7b842c64703b74ed8ea1c7df4754ec5773",
+    "frozen_baseline_runtime_subject": "kernels: accelerate exact NVFP4 M18 prefill",
+    "baseline_provenance": {
+      "binary_was_built_from_runtime_commit": "09aa7f7b842c64703b74ed8ea1c7df4754ec5773",
+      "binary_was_not_rebuilt_from_comparison_boundary": true,
+      "must_not_be_described_as_built_from": "2ea98f40b787e9c7c88c14a0e3571a7fe55d5bab",
+      "intervening_commits": [
+        {
+          "commit": "1607e761b8acf39002bb9977d1973402a99c0f75",
+          "subject": "docs: record exact NVFP4 M18 prefill",
+          "production_runtime_effect": "none"
+        },
+        {
+          "commit": "f8d95fbf844a658c54670aca91828dd4ef2c50f7",
+          "subject": "docs: record rejected M1 factorized lookup",
+          "production_runtime_effect": "none"
+        },
+        {
+          "commit": "2ea98f40b787e9c7c88c14a0e3571a7fe55d5bab",
+          "subject": "tests: validate runtime-masked NVFP4 prefill tails",
+          "production_runtime_effect": "test-only runtime-masked kernel and validation; production application dispatch remained unchanged"
+        }
+      ],
+      "production_dispatch_behavior_equivalent_to_comparison_boundary": true,
+      "equivalence_scope": "The frozen application binary and the 2ea98f4 source boundary select the same production projection routes for every M17/M19-M31 workload used by the model B-C-C-B and Nsight comparisons. The test-only additions at 2ea98f4 were not reachable from the production application binary.",
+      "claim_boundary": "Behavioral equivalence is not build provenance and is not a byte-identity claim."
+    },
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3638928,
+      "sha256": "d22663b18e4f69ada2ce189f810d98ef9fb62126f266764a9b6219b03c633bfe",
+      "checked_in": false
+    },
+    "production_dispatch_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4392576,
+      "sha256": "f8877a7a184ad09b20c56cae2f4ec27c01331d1ed8ed6aa68ec0f326927b77d6",
+      "checked_in": false
+    },
+    "frozen_baseline_binary": {
+      "local_path": "/tmp/q3x-m17-m31-baseline-2ea98f4/qwen3x-orin",
+      "bytes": 3636224,
+      "sha256": "53fde7a73bd55c746c646d7f55833ea60c724110eb930501a087d6a269979ed8",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "prompt_manifest": {
+      "repository_path": "benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json",
+      "bytes": 17365,
+      "sha256": "4f1e8c9b7ef07560c1d9e27d305df7241547c6f747f110845f0dd85424d33335"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root; timing results are diagnostic unlocked-clock comparisons rather than locked-clock release claims"
+  },
+  "implementation": {
+    "scope": "runtime-count exact-capacity NVFP4 Prefill projections for M17 and M19 through M31 on the SM87 weight-only backend",
+    "public_entry": "launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda",
+    "production_route": "kNvFp4M17M31RuntimeMaskedM32Wmma",
+    "eligible_token_counts": [17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    "fixed_routes_unchanged": {
+      "m18": "launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda with kNvFp4M18MaskedM32Wmma",
+      "m32": "launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda with kNvFp4M32Wmma"
+    },
+    "eligibility": {
+      "projection_backend": "sm87_weight_only",
+      "direct_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+      "weight_encoding": "NVFP4",
+      "packed_weight_alignment_bytes": 16,
+      "block_scale_alignment_bytes": 2,
+      "activation_alignment_bytes": 8,
+      "output_alignment_bytes": 2
+    },
+    "runtime_masked_kernel": {
+      "internal_token_rows": 32,
+      "valid_token_rows": "runtime M in {17,19..31}",
+      "invalid_internal_rows_zero_filled": true,
+      "global_input_rows_read": "exactly M",
+      "global_output_rows_written": "exactly M",
+      "padded_input_capacity_required": false,
+      "padded_output_capacity_required": false,
+      "kernel_nodes_per_eligible_projection": 1,
+      "specializations": "one compiled specialization per production shape; M is a runtime valid-row parameter"
+    },
+    "public_fallback": {
+      "route": "kSplitM17M31IntoM16AndSmallM",
+      "sequence": "one ordered public M16 launch followed by public small-M launches of at most eight rows",
+      "applies_to": "valid non-empty shape or alignment cases that miss the direct route"
+    },
+    "production_dispatch": {
+      "single_projection_examples": {
+        "m25_previous_kernel_nodes": 3,
+        "m25_candidate_kernel_nodes": 1,
+        "m31_previous_kernel_nodes": 3,
+        "m31_candidate_kernel_nodes": 1
+      },
+      "pair_examples": {
+        "m25_previous_kernel_nodes": 6,
+        "m25_candidate_kernel_nodes": 2,
+        "m31_previous_kernel_nodes": 6,
+        "m31_candidate_kernel_nodes": 2
+      },
+      "pair_validation_before_first_enqueue": true,
+      "pair_launch_order": "first projection then second projection on the caller stream",
+      "one_sided_ineligible_pair": "both projections retain the existing ordered recursive subtile path",
+      "audited_one_sided_ineligible_m25_pair_kernel_nodes": 7
+    },
+    "validation_before_enqueue": {
+      "complete_input_shape": ["M", "columns"],
+      "complete_output_shape": ["M", "rows"],
+      "token_count_domain_checked": true,
+      "null_pointer_checks": true,
+      "group_size_checks": true,
+      "finite_nonnegative_weight_scale_checks": true,
+      "size_overflow_and_address_wrap_checks": true,
+      "input_output_and_weight_alias_checks": true,
+      "pair_cross_range_checks": true,
+      "invalid_operation_enqueues_zero_nodes": true
+    },
+    "resource_usage_each_runtime_shape": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 24576,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5
+    },
+    "phase_and_scheduling": {
+      "prefill_decode_plans_logically_separate": true,
+      "optimized_phase": "Prefill only",
+      "decode_changed": false,
+      "m17_m31_gate_up_execution": "ordered on the main stream",
+      "m17_m31_uses_c32_auxiliary_stream": false,
+      "preexisting_exact_m32_layer_local_auxiliary_stream_preserved": true,
+      "prefill_decode_overlap": false,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "continuous_batching": false
+    }
+  },
+  "validation": {
+    "production_tests": {
+      "route_registry": "pass",
+      "backend_dispatch": "pass",
+      "weight_only_cuda": "pass"
+    },
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0,
+      "skip_reason": "Four model end-to-end tests and the tokenizer test lacked their external paths in the CTest environment; the pinned model oracle was run explicitly afterward."
+    },
+    "host_cpp_asan_ubsan_suite": {
+      "build_type": "RelWithDebInfo",
+      "compile_flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "link_flags": "-fsanitize=address,undefined",
+      "runtime_options": {
+        "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "coverage_note": "Host C++ was sanitizer-instrumented; CUDA translation units did not receive host sanitizer flags."
+    },
+    "cuda_compute_sanitizer": {
+      "status": "blocked",
+      "command": "compute-sanitizer --tool memcheck --error-exitcode 99 build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "exit_code": 99,
+      "diagnostic": "GPU debugging features are disabled",
+      "error_summary": "1 error",
+      "passed": false,
+      "interpretation": "The test executable reached its own success line, but compute-sanitizer reported a platform/tool error and returned 99. This is not a device-memory-check pass."
+    },
+    "direct_exact_capacity_matrix": {
+      "production_token_counts": [17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+      "test_only_preserved_fixed_count": 18,
+      "shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+      "production_cells": 28,
+      "candidate_capacity": "exact M input and exact M output",
+      "candidate_vs_reference_mismatches": 0,
+      "outputs_finite": true,
+      "replay_mismatches": 0,
+      "replay_tail_intact": true,
+      "graph_examples": {
+        "m17_kernel_nodes": 1,
+        "m31_kernel_nodes": 1
+      },
+      "invalid_capture_graph_nodes": 0,
+      "status": "pass"
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only",
+      "coverage_boundary": "The pinned P19 oracle exercises the preserved fixed-M18 prefix under C32. It is a whole-model regression gate, not direct coverage of a newly promoted M17/M19-M31 route."
+    }
+  },
+  "same_binary_microbenchmark": {
+    "environment_variable": "Q3X_RUN_SM87_NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF=1",
+    "baseline": "explicit public M16 followed by public small-M launches of at most eight rows",
+    "candidate": "test-only direct entry for the same runtime-masked kernel used by the promoted production route",
+    "binary": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "protocol_per_round": "baseline-candidate-candidate-baseline",
+    "warmup_iterations_per_cell": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "timed_passes_per_variant_per_cell": 8,
+    "token_counts": [17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    "shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "cell_count": 56,
+    "required_each_cell_speedup": 1.05,
+    "required_each_m_weighted_speedup": 1.15,
+    "shape_call_weight_gate_up_to_down": "2:1",
+    "correctness_contract": {
+      "candidate_vs_public_m32_valid_extent_bitwise": true,
+      "first_16_rows_vs_production_fallback_bitwise": true,
+      "remaining_rows_vs_production_fallback_within_bf16_tolerance": true,
+      "outputs_finite": true,
+      "candidate_write_extent_tail_intact": true
+    },
+    "all_cells_passed": true,
+    "round_reversals": 0,
+    "minimum_observed_cell_speedup": 1.46349,
+    "per_m_weighted_results": [
+      {"m": 17, "production_fallback_ms": 7.64241, "runtime_masked_m32_ms": 4.77923, "speedup": 1.59909, "gate": "pass"},
+      {"m": 19, "production_fallback_ms": 10.66900, "runtime_masked_m32_ms": 4.78593, "speedup": 2.22925, "gate": "pass"},
+      {"m": 20, "production_fallback_ms": 11.07910, "runtime_masked_m32_ms": 4.78948, "speedup": 2.31321, "gate": "pass"},
+      {"m": 21, "production_fallback_ms": 13.67690, "runtime_masked_m32_ms": 4.80304, "speedup": 2.84755, "gate": "pass"},
+      {"m": 22, "production_fallback_ms": 12.97890, "runtime_masked_m32_ms": 4.80070, "speedup": 2.70354, "gate": "pass"},
+      {"m": 23, "production_fallback_ms": 14.94920, "runtime_masked_m32_ms": 4.80828, "speedup": 3.10906, "gate": "pass"},
+      {"m": 24, "production_fallback_ms": 11.14590, "runtime_masked_m32_ms": 4.80868, "speedup": 2.31787, "gate": "pass"},
+      {"m": 25, "production_fallback_ms": 13.01390, "runtime_masked_m32_ms": 4.81225, "speedup": 2.70434, "gate": "pass"},
+      {"m": 26, "production_fallback_ms": 13.75010, "runtime_masked_m32_ms": 4.81552, "speedup": 2.85538, "gate": "pass"},
+      {"m": 27, "production_fallback_ms": 16.05960, "runtime_masked_m32_ms": 4.82285, "speedup": 3.32989, "gate": "pass"},
+      {"m": 28, "production_fallback_ms": 16.47590, "runtime_masked_m32_ms": 4.82483, "speedup": 3.41481, "gate": "pass"},
+      {"m": 29, "production_fallback_ms": 19.06850, "runtime_masked_m32_ms": 4.83521, "speedup": 3.94367, "gate": "pass"},
+      {"m": 30, "production_fallback_ms": 18.38050, "runtime_masked_m32_ms": 4.83511, "speedup": 3.80147, "gate": "pass"},
+      {"m": 31, "production_fallback_ms": 20.33900, "runtime_masked_m32_ms": 4.84379, "speedup": 4.19900, "gate": "pass"}
+    ],
+    "descriptive_sum_across_m": {
+      "production_fallback_ms": 199.22891,
+      "runtime_masked_m32_ms": 67.36490,
+      "speedup": 2.957458706240,
+      "reduction_percent": 66.187186387759,
+      "gate_note": "This sum is descriptive; promotion required every one of the 14 independent per-M gates and every one of the 56 cells."
+    }
+  },
+  "tokenizer_pinned_c32_bccb": {
+    "order": ["baseline_b1", "candidate_c1", "candidate_c2", "baseline_b2"],
+    "processes": 4,
+    "engine_loads": 4,
+    "prompt_count_per_process": 10,
+    "max_tokens": 1,
+    "warmup_iterations": 1,
+    "measured_iterations_per_prompt_per_process": 5,
+    "samples_per_process": 50,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "max_sequence_length": 96,
+    "projection_backend": "sm87_weight_only",
+    "prompt_manifest": "benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json",
+    "timing_statistic": "median TTFT independently recomputed from the five samples for each prompt in each process",
+    "output_contract_canonicalization": {
+      "version": 1,
+      "encoding": "UTF-8",
+      "record_format": "Copy each selected complete key=value line verbatim from program output, preserving emitted quoting and escaping, in the declared order; terminate every record including the last with one LF byte.",
+      "global_field_order": [
+        "status",
+        "projection.backend",
+        "prefill.requested_chunk_size",
+        "prefill.effective_chunk_size",
+        "benchmark.prompt_count",
+        "benchmark.max_new_tokens",
+        "benchmark.stop_token_id"
+      ],
+      "per_prompt_field_order_for_each_original_index": [
+        "prompt.{i}.text",
+        "prompt.{i}.prompt_ids",
+        "prompt.{i}.generated_ids",
+        "prompt.{i}.generated_text",
+        "prompt.{i}.stop_reason",
+        "prompt.{i}.step_count",
+        "prompt.{i}.steps"
+      ],
+      "prompt_order": "original manifest/output order, i=0 through 9",
+      "canonical_bytes_each": 10210,
+      "sha256_each": "5b154c9af44dc2b7297eacf75e78664e4c56bf496d59111fce63d15357cc9028",
+      "all_four_byte_identical": true
+    },
+    "output_contract": {
+      "status": "ok",
+      "prompt_ids_match_manifest": true,
+      "generated_token_id_each": 9419,
+      "generated_text_each": "Hello",
+      "stop_reason_each": "max_new_tokens",
+      "step_count_equals_prompt_token_count": true,
+      "all_non_timing_fields_equal": true
+    },
+    "results": [
+      {"prompt": "P18", "prefix_schedule": [17], "b1_ms": 522.012, "c1_ms": 434.679, "c2_ms": 434.800, "b2_ms": 521.912, "baseline_mean_ms": 521.9620, "candidate_mean_ms": 434.7395, "saved_ms": 87.2225, "reduction_percent": 16.710507661, "speedup": 1.200631643, "reversed": false},
+      {"prompt": "P20", "prefix_schedule": [19], "b1_ms": 660.685, "c1_ms": 477.005, "c2_ms": 477.124, "b2_ms": 660.561, "baseline_mean_ms": 660.6230, "candidate_mean_ms": 477.0645, "saved_ms": 183.5585, "reduction_percent": 27.785665955, "speedup": 1.384766630, "reversed": false},
+      {"prompt": "P25", "prefix_schedule": [24], "b1_ms": 701.325, "c1_ms": 503.417, "c2_ms": 503.660, "b2_ms": 701.158, "baseline_mean_ms": 701.2415, "candidate_mean_ms": 503.5385, "saved_ms": 197.7030, "reduction_percent": 28.193282913, "speedup": 1.392627376, "reversed": false},
+      {"prompt": "P26", "prefix_schedule": [25], "b1_ms": 808.564, "c1_ms": 550.698, "c2_ms": 550.805, "b2_ms": 808.360, "baseline_mean_ms": 808.4620, "candidate_mean_ms": 550.7515, "saved_ms": 257.7105, "reduction_percent": 31.876637368, "speedup": 1.467925189, "reversed": false},
+      {"prompt": "P32", "prefix_schedule": [31], "b1_ms": 1139.637, "c1_ms": 647.631, "c2_ms": 647.720, "b2_ms": 1138.720, "baseline_mean_ms": 1139.1785, "candidate_mean_ms": 647.6755, "saved_ms": 491.5030, "reduction_percent": 43.145389419, "speedup": 1.758872306, "reversed": false},
+      {"prompt": "P50", "prefix_schedule": [32, 17], "b1_ms": 866.249, "c1_ms": 778.447, "c2_ms": 779.145, "b2_ms": 865.677, "baseline_mean_ms": 865.9630, "candidate_mean_ms": 778.7960, "saved_ms": 87.1670, "reduction_percent": 10.065903509, "speedup": 1.111925331, "reversed": false},
+      {"prompt": "P52", "prefix_schedule": [32, 19], "b1_ms": 1005.698, "c1_ms": 821.631, "c2_ms": 822.268, "b2_ms": 1005.115, "baseline_mean_ms": 1005.4065, "candidate_mean_ms": 821.9495, "saved_ms": 183.4570, "reduction_percent": 18.247047339, "speedup": 1.223197411, "reversed": false},
+      {"prompt": "P57", "prefix_schedule": [32, 24], "b1_ms": 1048.608, "c1_ms": 850.172, "c2_ms": 851.078, "b2_ms": 1047.993, "baseline_mean_ms": 1048.3005, "candidate_mean_ms": 850.6250, "saved_ms": 197.6755, "reduction_percent": 18.856759107, "speedup": 1.232388538, "reversed": false},
+      {"prompt": "P58", "prefix_schedule": [32, 25], "b1_ms": 1156.346, "c1_ms": 897.995, "c2_ms": 898.724, "b2_ms": 1155.632, "baseline_mean_ms": 1155.9890, "candidate_mean_ms": 898.3595, "saved_ms": 257.6295, "reduction_percent": 22.286500996, "speedup": 1.286777732, "reversed": false},
+      {"prompt": "P64", "prefix_schedule": [32, 31], "b1_ms": 1490.184, "c1_ms": 997.704, "c2_ms": 998.389, "b2_ms": 1488.797, "baseline_mean_ms": 1489.4905, "candidate_mean_ms": 998.0465, "saved_ms": 491.4440, "reduction_percent": 32.994101003, "speedup": 1.492405915, "reversed": false}
+    ],
+    "equal_prompt_weight_aggregate": {
+      "b1_sum_ms": 9399.308,
+      "c1_sum_ms": 6959.379,
+      "c2_sum_ms": 6963.713,
+      "b2_sum_ms": 9393.925,
+      "baseline_mean_sum_ms": 9396.6165,
+      "candidate_mean_sum_ms": 6961.5460,
+      "saved_ms": 2435.0705,
+      "reduction_percent": 25.914,
+      "speedup": 1.349789,
+      "no_reversal_prompts": 10,
+      "total_prompts": 10,
+      "interpretation": "This equally weights ten per-prompt medians. It is not token-weighted and is not a serving-throughput metric."
+    }
+  },
+  "matched_nsys": {
+    "protocol": "separate frozen-baseline and candidate application processes under external Nsight Systems CUDA tracing",
+    "trace": "cuda",
+    "application_trace_flag_used": false,
+    "requested_prefill_chunk_size": 32,
+    "max_tokens": 1,
+    "projection_backend": "sm87_weight_only",
+    "attribution_source": "CUPTI_ACTIVITY_KIND_KERNEL rows in the exported SQLite reports, classified by demangled fixed-M32, M16, small-M, and runtime-masked M32 kernel names",
+    "non_timing_contract_canonicalization": {
+      "version": 1,
+      "encoding": "UTF-8",
+      "field_order": [
+        "status",
+        "projection.backend",
+        "prefill.requested_chunk_size",
+        "prefill.effective_chunk_size",
+        "prompt.rendered",
+        "prompt.token_count",
+        "prompt.ids",
+        "generated.token_count",
+        "generated.ids",
+        "generated.text",
+        "generated.stop_reason",
+        "generated.step_count",
+        "trace.count"
+      ],
+      "algorithm": "For each field in field_order, select its unique complete key=value line from the process log, preserve the line bytes exactly, concatenate in field_order, and append one LF byte after every line including the last. Exclude progress, load, timing, profiler, and generated-report lines.",
+      "pair_hashes": {
+        "P18": "81481414f90f634eb414531c100e3fe5e27f2010e2b65617197c241783cf59b0",
+        "P26": "3c63e7bcfc3c76b38a62ffdb67ceb0c146e802fd625fab9b7074984cc218ff32",
+        "P64": "ba1791ede75f38d3a6391299f18d15ed0e79eb3574c13c2be88bb016237e9c73"
+      },
+      "baseline_candidate_equal_for_each_prompt": true
+    },
+    "acceptance_hard_gates": {
+      "actual_prompt_token_count_must_equal_filename_label": true,
+      "actual_prompt_ids_csv_sha256_must_equal_manifest": true,
+      "non_timing_contract_hash_must_match_pair": true
+    },
+    "profiles": [
+      {
+        "prompt": "P18",
+        "prefix_schedule": [17],
+        "baseline": {
+          "application_ttft_ms": 547.585,
+          "all_kernel_count": 2247,
+          "all_kernel_sum_ms": 536.938944,
+          "all_kernel_span_ms": 546.287424,
+          "changed_tail_family": "M16+M1",
+          "changed_tail_launches": 384,
+          "changed_tail_sum_ms": 257.606496
+        },
+        "candidate": {
+          "application_ttft_ms": 460.400,
+          "all_kernel_count": 2055,
+          "all_kernel_sum_ms": 449.431232,
+          "all_kernel_span_ms": 458.982528,
+          "changed_tail_family": "runtime-masked M17",
+          "changed_tail_launches": 192,
+          "changed_tail_sum_ms": 170.093504
+        },
+        "delta": {
+          "all_kernel_count_reduction": 192,
+          "all_kernel_sum_saved_ms": 87.507712,
+          "all_kernel_span_saved_ms": 87.304896,
+          "changed_tail_launch_reduction": 192,
+          "changed_tail_saved_ms": 87.512992,
+          "changed_tail_speedup": 1.514499319
+        }
+      },
+      {
+        "prompt": "P26",
+        "prefix_schedule": [25],
+        "baseline": {
+          "application_ttft_ms": 834.525,
+          "all_kernel_count": 2783,
+          "all_kernel_sum_ms": 823.055936,
+          "all_kernel_span_ms": 833.204000,
+          "changed_tail_family": "M16+M8+M1",
+          "changed_tail_launches": 576,
+          "changed_tail_sum_ms": 429.425312
+        },
+        "candidate": {
+          "application_ttft_ms": 575.902,
+          "all_kernel_count": 2399,
+          "all_kernel_sum_ms": 564.453184,
+          "all_kernel_span_ms": 574.560160,
+          "changed_tail_family": "runtime-masked M25",
+          "changed_tail_launches": 192,
+          "changed_tail_sum_ms": 171.027040
+        },
+        "delta": {
+          "all_kernel_count_reduction": 384,
+          "all_kernel_sum_saved_ms": 258.602752,
+          "all_kernel_span_saved_ms": 258.643840,
+          "changed_tail_launch_reduction": 384,
+          "changed_tail_saved_ms": 258.398272,
+          "changed_tail_speedup": 2.510862095
+        }
+      },
+      {
+        "prompt": "P64",
+        "prefix_schedule": [32, 31],
+        "baseline": {
+          "application_ttft_ms": 1515.219,
+          "all_kernel_count": 4614,
+          "all_kernel_sum_ms": 1531.614336,
+          "all_kernel_span_ms": 1514.018240,
+          "changed_tail_family": "M16+M8+M7",
+          "changed_tail_launches": 576,
+          "changed_tail_sum_ms": 663.078592,
+          "common_fixed_m32_launches": 192,
+          "common_fixed_m32_sum_ms": 193.332160
+        },
+        "candidate": {
+          "application_ttft_ms": 1027.634,
+          "all_kernel_count": 4230,
+          "all_kernel_sum_ms": 1041.613344,
+          "all_kernel_span_ms": 1026.293760,
+          "changed_tail_family": "runtime-masked M31",
+          "changed_tail_launches": 192,
+          "changed_tail_sum_ms": 171.773312,
+          "common_fixed_m32_launches": 192,
+          "common_fixed_m32_sum_ms": 193.260160
+        },
+        "delta": {
+          "all_kernel_count_reduction": 384,
+          "all_kernel_sum_saved_ms": 490.000992,
+          "all_kernel_span_saved_ms": 487.724480,
+          "changed_tail_launch_reduction": 384,
+          "changed_tail_saved_ms": 491.305280,
+          "changed_tail_speedup": 3.860195651,
+          "common_fixed_m32_launch_reduction": 0
+        }
+      }
+    ],
+    "attribution": "The changed-tail launch reductions and time savings closely track the independently measured B-C-C-B TTFT savings. P64 retains the same 192 fixed-M32 launches with nearly unchanged time, isolating the improvement to its following M31 tail."
+  },
+  "profile_correction": {
+    "status": "initial_capture_invalidated_and_replaced",
+    "initial_actual_prompt_token_count": 13,
+    "intended_prompt_token_counts": [18, 26, 64],
+    "cause": "A Bash helper declared local n=$1 words=$((n-12)) on the same local command; words observed the wrong or unset n scope, so every first-pass prompt rendered as P13 despite P18/P26/P64 filenames.",
+    "fix": "Remove arithmetic prompt construction from the profiling helper, read each validated user_text directly from the checked-in manifest with jq, and hard-gate the emitted prompt.token_count and manifest token-ID hash before accepting a capture.",
+    "initial_p13_profiles_admissible": false,
+    "initial_p13_results_cited": false,
+    "current_profile_paths_overwrote_invalid_same_named_outputs": true,
+    "only_final_artifact_hashes_below_are_admissible": true
+  },
+  "fixed_m18_m32_sass_preservation": {
+    "status": "candidate-qwen-to-frozen-qwen-byte-identical",
+    "scope": "four fixed production specializations: M18 and M32 for [17408,5120] and [5120,17408]",
+    "primary_qwen_to_qwen_proof": {
+      "normalization_contract": "Run cuobjdump SASS disassembly on each qwen3x-orin binary, retain the same four complete fixed-M18/fixed-M32 function sections in emitted order, replace their raw mangled Function header lines with the sequential markers FUNCTION 1 through FUNCTION 4, preserve every remaining byte, and compare the resulting files byte-for-byte.",
+      "specialization_count": 4,
+      "lines_each": 5332,
+      "bytes_each": 669668,
+      "sha256_each": "2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32",
+      "baseline_source_binary": "/tmp/q3x-m17-m31-baseline-2ea98f4/qwen3x-orin",
+      "candidate_source_binary": "build/orin-release/qwen3x-orin"
+    },
+    "secondary_demangled_header_proof": {
+      "normalization_contract": "Retain the complete four fixed-M18/fixed-M32 SASS function sections with their demangled Function headers in emitted order, omitting unrelated functions and container headers.",
+      "specialization_count": 4,
+      "lines_each": 5332,
+      "bytes_each": 670636,
+      "sha256_each": "9b0173b25e5c22e9f9c0e250b0b1fd7eaa435b169286dc8ae1ec3ec6327b0e00",
+      "baseline_source_binary": "/tmp/q3x-m17-m31-baseline-2ea98f4/qwen3x-orin",
+      "candidate_source_binary": "build/orin-release/q3x_sm87_weight_only_gemv_test"
+    },
+    "interpretation": "The promoted runtime-count specializations did not alter the compiled fixed-M18 or fixed-M32 production sections."
+  },
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "tests": [
+      "build/orin-release/q3x_sm87_projection_route_registry_test",
+      "build/orin-release/q3x_projection_backend_dispatch_test",
+      "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "ctest --test-dir build/orin-release --output-on-failure",
+      "Q3X_RUN_SM87_NVFP4_M17_M31_RUNTIME_MASKED_M32_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test"
+    ],
+    "oracle": "Run q3x_reference_engine_e2e_test against the pinned model at requested chunks 1, 8, 16, and 32.",
+    "bccb": "Run one baseline process, two candidate processes, then one baseline process. Each process loads once, warms every manifest prompt once, measures five TTFT samples per prompt, and preserves original prompt order.",
+    "nsys": "Profile matched P18, P26, and P64 generation in separate baseline/candidate processes with CUDA tracing, no CPU sampling or context-switch tracing, export each report to SQLite, and classify CUPTI kernel rows by demangled kernel family."
+  },
+  "next_priority": {
+    "experiment": "Measure layer-local gate/up auxiliary-stream overlap across exact aligned NVFP4 M17..M32: runtime-count M17 and M19..M31 plus the unchanged fixed M18 and M32 routes.",
+    "scope": "Test-only first; preserve current production scheduling—serial for M17..M31 with the pre-existing M32 auxiliary-stream path retained—until each new count passes every promotion gate.",
+    "promotion_gates": [
+      "Per-M serial-versus-concurrent same-binary measurements across M17..M32, with exact-output and canary checks under both checkpoint-like and same-bank-stress scale fixtures.",
+      "Tokenizer-pinned whole-model B-C-C-B timing with byte-identical non-timing contracts, a positive combined result, and no mirrored-pair reversal.",
+      "Nsight evidence that the intended gate/up kernels overlap and that any whole-model gain is attributable to the changed schedule."
+    ],
+    "deferred": "General double/triple buffering, Prefill/Decode phase overlap, and continuous batching remain separate later milestones."
+  },
+  "limitations": [
+    "GPU and memory clocks were not locked, so all timing comparisons are diagnostic.",
+    "The same-binary microbenchmark uses synthetic checkpoint-like and same-bank-stress scale fixtures; it is a kernel promotion gate, not a model or serving-throughput result.",
+    "The B-C-C-B result is batch-one, one generated token, one model load per process, and ten equally weighted tokenizer-pinned prompts. It excludes load time and does not establish concurrent-request or serving throughput.",
+    "CUDA compute-sanitizer device memcheck was blocked because GPU debugging features are disabled on this Orin. Exit 99 and ERROR SUMMARY: 1 error are recorded and must not be interpreted as a pass.",
+    "ASan and UBSan instrument host C++ only; they do not instrument CUDA device code.",
+    "Production promotion is limited to exact aligned NVFP4 [17408,5120] and [5120,17408] projections at M17 and M19..M31. M18 and M32 retain fixed routes, and other shapes or alignments retain ordered fallbacks.",
+    "Prefill and Decode are logically separate host-control plans, but this milestone adds no general double/triple buffering, no Prefill/Decode overlap, and no continuous batching. M17..M31 gate/up remains ordered on the main stream; only the pre-existing exact-M32 gate/up route has narrow layer-local auxiliary-stream overlap.",
+    "The exact-model P19 oracle is a preserved fixed-M18 regression gate; direct new-tail correctness is supplied by the exact-capacity CUDA matrix and tokenizer-pinned B-C-C-B contracts.",
+    "Nsight profiles use separate baseline and candidate processes and are consistent with, but do not replace, the unprofiled B-C-C-B timing gate.",
+    "Raw logs, binaries, SASS extracts, and profiler reports are local evidence and are not checked into the repository."
+  ],
+  "evidence_artifacts": {
+    "production_tests": [
+      {"role": "route registry", "local_path": "/tmp/q3x-m17-m31-production-registry.log", "bytes": 39, "sha256": "343cfb330ce08d93f3c018f783a6ef86e859ab7ca533394efce1025f2c492062", "checked_in": false},
+      {"role": "backend dispatch", "local_path": "/tmp/q3x-m17-m31-production-backend.log", "bytes": 41, "sha256": "ba2ca7dac9cc08dd583923d5f958c891908ec56ff7e8663b0ba893897c857b0b", "checked_in": false},
+      {"role": "weight-only CUDA", "local_path": "/tmp/q3x-m17-m31-production-weight-only.log", "bytes": 46225, "sha256": "9ae7234fd111a39c6b0f8d80244d05a4b21a2b1fcaa09cffa57b31693d3471c9", "checked_in": false},
+      {"role": "final default exploratory CUDA matrix", "local_path": "/tmp/q3x-m17-m31-runtime-default-final.log", "bytes": 46175, "sha256": "bc9cf22347043796215a80a57b875289597ad9cd0a73e9de40580aaaf2ad49f5", "checked_in": false},
+      {"role": "same-binary performance", "local_path": "/tmp/q3x-m17-m31-runtime-perf-final.log", "bytes": 134593, "sha256": "75decedc2cbb99e5276816662d082e3eb68262fd174511705ca7c613b1b873e9", "checked_in": false},
+      {"role": "Release CTest", "local_path": "/tmp/q3x-m17-m31-production-ctest.log", "bytes": 7398, "sha256": "501ffaf0370f3dac3e61dc71db5d4e3a60bd6cc27e9f3216beefc51aa6fdbe2f", "checked_in": false},
+      {"role": "host C++ ASan UBSan", "local_path": "/tmp/q3x-m17-m31-production-sanitize.log", "bytes": 7285, "sha256": "f371f47a2663999bfa4470cbc34443e544fa7b693dd42e00e0cc45c77f225150", "checked_in": false},
+      {"role": "blocked compute-sanitizer memcheck", "local_path": "/tmp/q3x-m17-m31-production-compute-sanitizer-exit99.log", "bytes": 46419, "sha256": "3e9bdd447f67ad72dce0d2da27b16a5b3522148f9bbb4f93595a294917134b03", "checked_in": false}
+    ],
+    "oracle": [
+      {"requested_chunk": 1, "local_path": "/tmp/q3x-m17-m31-oracle-c1.log", "bytes": 242, "sha256": "7e9b8fa8c557babb8fee711dc2b04a50e904a9af53c278234aa1c24a971742ff", "checked_in": false},
+      {"requested_chunk": 8, "local_path": "/tmp/q3x-m17-m31-oracle-c8.log", "bytes": 240, "sha256": "ff7e2bcff097efc41e1b4e35328e082cbad2db45a16b3e37537630d9ddbd4d7b", "checked_in": false},
+      {"requested_chunk": 16, "local_path": "/tmp/q3x-m17-m31-oracle-c16.log", "bytes": 242, "sha256": "c673a37760b22703daf115080d9cb695a35b90c1511616678604abf4cc0069cc", "checked_in": false},
+      {"requested_chunk": 32, "local_path": "/tmp/q3x-m17-m31-oracle-c32.log", "bytes": 239, "sha256": "6f6389b8522d76081909a533432a104953d17e69355b86c539d7fc518149b6bc", "checked_in": false}
+    ],
+    "bccb": [
+      {"role": "baseline B1 output", "local_path": "/tmp/q3x-m17-m31-b1.out", "bytes": 25971, "sha256": "473b9174b9195ed71abeee6840e9f40e55b5ff918cce76d59c4189978e404bba", "checked_in": false},
+      {"role": "candidate C1 output", "local_path": "/tmp/q3x-m17-m31-c1.out", "bytes": 25871, "sha256": "5ec958d9a8afcec92f0615868b59019ca607ceb745a5ec6d680ea5aeffcc28ce", "checked_in": false},
+      {"role": "candidate C2 output", "local_path": "/tmp/q3x-m17-m31-c2.out", "bytes": 25876, "sha256": "9dd027215a70cadda7538141d3025b787c802ef6a2c1b1bc31d724761ad7d583", "checked_in": false},
+      {"role": "baseline B2 output", "local_path": "/tmp/q3x-m17-m31-b2.out", "bytes": 25971, "sha256": "58befe6d1506e376beaf4402beb119ca12c837e969a7ec11ffb7d857f49b93de", "checked_in": false},
+      {"role": "independently recomputed summary", "local_path": "/tmp/q3x-m17-m31-bccb-summary.txt", "bytes": 937, "sha256": "1216e8598d16b2aea87fc20e8d9c241e7a15d26a92e1c1fe2a3f07043535ce54", "checked_in": false},
+      {"role": "canonical non-timing contract for each of B1/C1/C2/B2", "local_paths": ["/tmp/q3x-m17-m31-b1.contract", "/tmp/q3x-m17-m31-c1.contract", "/tmp/q3x-m17-m31-c2.contract", "/tmp/q3x-m17-m31-b2.contract"], "bytes_each": 10210, "sha256_each": "5b154c9af44dc2b7297eacf75e78664e4c56bf496d59111fce63d15357cc9028", "checked_in": false}
+    ],
+    "nsys": [
+      {"prompt": "P18", "variant": "baseline", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p018-c32.log", "bytes": 2560, "sha256": "dac680a99e94f6696890270e9c6713e0b8f9e18e76b5db17efe01bb5d11ba956"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p018-c32.nsys-rep", "bytes": 362113, "sha256": "fa6001e05242196971c0064efcf1f226d0d886521c0bd23b0ed359e04fdad1c4"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p018-c32.sqlite", "bytes": 1064960, "sha256": "f79f8bb58f1839513ac75fb6b0d24c42a97d594fa111713745467f87de8c70fc"}, "checked_in": false},
+      {"prompt": "P18", "variant": "candidate", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p018-c32.log", "bytes": 2653, "sha256": "582fc9235f0991d99d8c05a0671863f11d0e2498f820debd03270d363636ac7a"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p018-c32.nsys-rep", "bytes": 346717, "sha256": "d78a94bdf92ab491ebb42377d803870c69f0ba90cde090157e99b5bbdf2c4813"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p018-c32.sqlite", "bytes": 1028096, "sha256": "ec42f1c0e0d290bdfeeb91ece647f3d44d5e67a969a5f1a0edc67df9adb8333c"}, "checked_in": false},
+      {"prompt": "P26", "variant": "baseline", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p026-c32.log", "bytes": 2740, "sha256": "a4c4bf6264c19a6e284561b157ab0a19a682bd187f01a7a90979fcf4f5edf72b"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p026-c32.nsys-rep", "bytes": 406363, "sha256": "d63ff2572f97d3c22755f5fe24d1c5ec2c14d87a5b6e758a066f8bc615e90482"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p026-c32.sqlite", "bytes": 1179648, "sha256": "64b2ea38af0d7472fe50c673294259618e339cef257e0b9681d2080208594e13"}, "checked_in": false},
+      {"prompt": "P26", "variant": "candidate", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p026-c32.log", "bytes": 2919, "sha256": "d702b4b1da156e7ae723cb9bd0bdf9f4dbd1647ede31b9215417faabc457526c"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p026-c32.nsys-rep", "bytes": 374439, "sha256": "4b025942b8a232f29f8a5a3ec0e88b855f9bbe918ea3f275c79fd3db992f3b64"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p026-c32.sqlite", "bytes": 1097728, "sha256": "a94029bf54a9ae20584ad6af87019d10589af54de486e47b2786ec876754d937"}, "checked_in": false},
+      {"prompt": "P64", "variant": "baseline", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p064-c32.log", "bytes": 3115, "sha256": "d827111eeeea237daad065519f042149013973944242c31d1f40e987b63b845b"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p064-c32.nsys-rep", "bytes": 535866, "sha256": "d5be29b78fb6f6f3cc54d253e2683dd4ef4debb2637f56ca312faeba60871715"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-baseline-p064-c32.sqlite", "bytes": 1540096, "sha256": "4b40b8560c8e587f7ca46a0d95fa4975a23739187e6b0cdd184705d86bb7de6c"}, "checked_in": false},
+      {"prompt": "P64", "variant": "candidate", "run_log": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p064-c32.log", "bytes": 3123, "sha256": "45e51277efdbde89cd2095154c029119cd78ee52f8b1c97763892e493436c31e"}, "report": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p064-c32.nsys-rep", "bytes": 504141, "sha256": "6a4c4c20b7da4d487e56df19053ea33e1d0fee762c5a5dfb66fc75d8b0e53ed5"}, "sqlite": {"local_path": "/home/rm01/q3x-m17-m31-profiles/q3x-m17-m31-profile-candidate-p064-c32.sqlite", "bytes": 1454080, "sha256": "c285f3a0d8ae8f093902a387cb38c2afc47d9532e2b73ce60205f90db5fffb70"}, "checked_in": false}
+    ],
+    "sass": [
+      {"role": "primary frozen-qwen fixed-M18/M32 sections with sequential Function markers", "local_path": "/tmp/q3x-m17-m31-baseline-fixed-m18-m32.sass", "lines": 5332, "bytes": 669668, "sha256": "2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32", "checked_in": false},
+      {"role": "primary candidate-qwen fixed-M18/M32 sections with sequential Function markers", "local_path": "/tmp/q3x-m17-m31-candidate-fixed-m18-m32.sass", "lines": 5332, "bytes": 669668, "sha256": "2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32", "checked_in": false},
+      {"role": "secondary frozen-qwen fixed-M18/M32 sections with demangled headers", "local_path": "/tmp/qwen3x-orin.fixed-m18-m32.sass", "lines": 5332, "bytes": 670636, "sha256": "9b0173b25e5c22e9f9c0e250b0b1fd7eaa435b169286dc8ae1ec3ec6327b0e00", "checked_in": false},
+      {"role": "secondary candidate-test-binary fixed-M18/M32 sections with demangled headers", "local_path": "/tmp/q3x_sm87_weight_only_gemv_test.fixed-m18-m32.sass", "lines": 5332, "bytes": 670636, "sha256": "9b0173b25e5c22e9f9c0e250b0b1fd7eaa435b169286dc8ae1ec3ec6327b0e00", "checked_in": false}
+    ]
+  }
+}

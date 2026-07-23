@@ -208,6 +208,17 @@ The diagnostic Phase 3 records are:
   capacity and bitwise gates, four-cell synthetic kernel result, P19/C32
   B-C-C-B TTFT promotion, matched Nsight launch/time attribution, full model
   replay, host sanitizer coverage, and the platform-blocked device memcheck.
+- [`qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json`](qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json),
+  which records the production exact-capacity runtime-masked M17 and M19-M31
+  routes for both NVFP4 MLP shapes, all 14 weighted microbenchmark gates,
+  direct/pair/fallback and zero-node validation, the ten-prompt no-reversal
+  B-C-C-B result, matched P18/P26/P64 Nsight attribution, exact model and host
+  sanitizer suites, and unchanged fixed-M18/M32 production SASS. Its ten prompt
+  texts, token IDs, hashes, and C32 schedules are frozen separately in the
+  [`qwen36-27b-sm87-prefill-tail-prompts-v1.json` manifest](../../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json).
+  Prefill and Decode remain logically separate plans; only exact M32 gate/up
+  has the existing layer-local dual-stream path, with no general double/triple
+  buffering or Prefill/Decode overlap.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged

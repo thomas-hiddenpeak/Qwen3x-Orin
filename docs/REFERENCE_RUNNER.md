@@ -78,12 +78,13 @@ conv/GDN，或逐 position 写 K/V 并以 `first_position+t+1` 作为 GQA 的 ca
 SM87 FP8/NVFP4 projection 在 M2..M8 使用 small-M weight-reuse kernel；M9..M15
 按 M8 加剩余 M1..M7 分片。M16 对四个 FP8 production shapes 和两个 NVFP4 MLP
 shapes 使用 canonical-layout decode-to-BF16 Tensor Core kernel，不满足 exact-shape 或
-alignment gate 时退回两个有序 M8 launch。M17 与 M19..M31 先发出 M16，再以 M8 和
-M1..M7 处理 tail。精确 M18 对 NVFP4 `[17408,5120]` 和 `[5120,17408]` 启用单个
-masked-M32 Tensor Core kernel，门槛是 packed weight 16-byte、block scale 2-byte、
-BF16 input 8-byte 对齐。公开输入与输出只要求严格 C18 span；kernel 内部把 rows 18..31
-zero-fill，不从调用方读取这些行，也只存储前 18 行。所有 FP8 M18，以及 NVFP4 shape
-near-miss 或任一未对齐 case，都退回有序 M16+M2。M32 对四个 exact aligned FP8
+alignment gate 时退回两个有序 M8 launch。M17 与 M19..M31 对 exact aligned NVFP4
+`[17408,5120]` 和 `[5120,17408]` 启用单个 runtime-valid-count masked-M32 Tensor
+Core kernel，门槛是 packed weight 16-byte、block scale 2-byte、BF16 input 8-byte
+对齐。公开输入与输出只要求严格 M-row span；kernel 内部把 rows M..31 zero-fill，不从
+调用方读取这些行，也只存储前 M 行。精确 M18 保留独立的 fixed masked-M32 API 与
+specialization，并继续使用严格 C18 span。所有 FP8 M17..M31，以及 NVFP4 shape
+near-miss 或任一未对齐 case，都退回有序 M16 加至多 M8 的 tail。M32 对四个 exact aligned FP8
 production shapes，以及
 exact aligned NVFP4 `[17408,5120]` gate/up 和 `[5120,17408]` down，使用单个
 fixed-M32 Tensor Core kernel。NVFP4 走 K64/LD72 WMMA：两个 16-token activation panel
@@ -97,10 +98,11 @@ token 子块执行，避免因为 outer M>16 落回逐 token RoPE launch。
 C++ ABI 变更，包版本随之从 0.1.0 提升到 0.2.0，调用方必须按 exact-version 策略
 重新编译，不能把旧对象与新静态库混链。
 
-projection-pair API 对 exact M18 先完整校验两个 projection 和交叉 range，再按
-first-then-second 顺序各发出一个 masked-M32 kernel；fallback 在每个有序 subtile 内也
-保留 first-then-second 顺序。当前 runner 的 M18 MLP gate/up 是两个独立调用，均在主
-stream 上串行执行。只有 exact aligned
+projection-pair API 对 exact M17、M19..M31 以及 fixed M18 先完整校验两个
+projection、自然对齐和交叉 range，再按 first-then-second 顺序各发出一个
+masked-M32 kernel；任一侧不满足 direct gate 时，fallback 在每个有序 subtile 内也
+保留 first-then-second 顺序，不会在发现第二侧 host validation 错误前先入队第一侧。
+当前 runner 的这些 MLP gate/up 均在主 stream 上串行执行。只有 exact aligned
 NVFP4 C32 gate/up 可把 gate 发到主 stream、up 发到 auxiliary stream，再用 event join。
 这里没有双缓冲、三缓冲或 Prefill/Decode overlap；C32 特例只是单层内两个独立分支的
 窄范围并发。
@@ -158,10 +160,15 @@ factory 错误。controller/unit gates 覆盖 19-token prompt 的 `8+8+2` prefix
 fallback、tile malformed result 和失败传播，以及 C16/C32 边界与拆分；完整模型 fixture
 在目标 Orin 上以 C1、C8、C16、C32 分别执行，四者都要求保留精确的 19 个 prompt IDs、26 个
 output IDs、decoded text、`<|im_end|>` 和 44 个 runner steps。runner 本身不会把缺少
-checkpoint 误报为通过。当前 exact-M18 变更的 Release suite 为 49 passed / 5 skipped /
-0 failed；host C++ ASan/UBSan suite 为 48 passed / 5 skipped / 0 failed，CUDA translation
-units 不在该 host sanitizer 声明内。C1/C8/C16/C32 的目标模型 oracle 均通过。
+checkpoint 误报为通过。当前 M17/M19..M31 production 变更的 Release suite 为
+49 passed / 5 skipped / 0 failed；host C++ ASan/UBSan suite 为 48 passed /
+5 skipped / 0 failed，CUDA translation units 不在该 host sanitizer 声明内。
+C1/C8/C16/C32 的目标模型 oracle 均通过。
 `compute-sanitizer` device memcheck 在该 Orin 上因 “GPU debugging features are disabled”
-被平台阻断，因此不记为通过；严格 C18 allocation、默认 canary/bitwise gate 和完整模型
-oracle 是现有 device-side 安全证据。完整数据见
-[M18 masked-M32 benchmark](metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json)。
+被平台阻断，因此不记为通过；严格 exact-M allocation、默认 canary/bitwise gate、完整
+token-count 路由/零节点 invalid capture 和完整模型 oracle 是现有 device-side 安全证据。
+fixed M18/M32 production SASS 保持不变，四个 section 的归一化 SHA-256 为
+`2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32`。完整数据见
+[M17/M19-M31 runtime-masked benchmark](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json)
+和
+[tokenizer-pinned prompt manifest](../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json)。

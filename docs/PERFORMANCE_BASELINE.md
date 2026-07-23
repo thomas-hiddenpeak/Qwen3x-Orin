@@ -2702,3 +2702,95 @@ gates before long-prompt evaluation. Broader multi-stream scheduling remains
 deferred. Full rounds, hashes, compiler evidence, scope boundaries, and local
 artifact identities are in the
 [M1 factorized rejection record](metadata/qwen36-27b-nvfp4-m1-factorized-rejection.json).
+
+## Runtime-masked NVFP4 M17/M19-M31 prefill tails
+
+Commit `8b19d2aa27370f7daafb743bf024fbcfc8b25950` promotes the runtime-valid-count
+masked-M32 kernel for M17 and M19 through M31 at the exact aligned NVFP4 MLP
+shapes `[17408,5120]` and `[5120,17408]`. The public
+`launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda` API accepts exactly M17 and
+M19..M31 and owns only the exact M-row activation and output spans: the second
+internal 16-row panel reads only valid rows, zero-fills rows M through 31, and
+the epilogue stores only rows below M. It rejects M18, which continues to use
+its fixed masked specialization and API; M32
+continues to use its fixed factorized/vector-store specialization. Shape
+near-misses or insufficient packed-weight, block-scale, or activation alignment
+retain the public M16 plus at-most-M8 tail decomposition.
+
+Production dispatch selects one kernel node per eligible projection. Pair
+dispatch validates both complete tiles, natural input/output alignment,
+cross-weight/output ranges, aliases, and overflows before its first enqueue,
+then submits the two single-kernel projections in first-then-second order. If
+either projection misses the direct gate, both retain the existing recursive
+subtile path. The audited 4-byte-only packed-weight M24/M25 fallback boundaries
+capture three/four nodes, and an M25 pair with either only the first or only
+the second weight ineligible captures the established seven-node ordered
+fallback. Odd pointers, aliases, wrapping ranges, and a malformed second
+projection all fail with zero captured nodes, so the pair cannot be
+half-enqueued by a deterministic host validation error.
+
+The production-call-weighted per-M microbenchmark reports:
+
+| Token count | Weighted speedup over M16 plus tail |
+| ---: | ---: |
+| M17 | 1.59909x |
+| M19 | 2.22925x |
+| M20 | 2.31321x |
+| M21 | 2.84755x |
+| M22 | 2.70354x |
+| M23 | 3.10906x |
+| M24 | 2.31787x |
+| M25 | 2.70434x |
+| M26 | 2.85538x |
+| M27 | 3.32989x |
+| M28 | 3.41481x |
+| M29 | 3.94367x |
+| M30 | 3.80147x |
+| M31 | 4.19900x |
+
+The end-to-end promotion uses ten tokenizer-pinned C32 prompts whose prefix
+schedules exercise `17,19,24,25,31` alone and after one fixed M32 tile:
+P18/P20/P25/P26/P32 and P50/P52/P57/P58/P64. The four independent process
+contracts in B-C-C-B order are byte-identical, 10,210 bytes each, and share
+SHA-256
+`5b154c9af44dc2b7297eacf75e78664e4c56bf496d59111fce63d15357cc9028`.
+All ten prompt cells improve in both candidate processes, with no reversal in
+10/10 comparisons. The equally weighted ten-prompt aggregate is 1.349789x,
+or a 25.914% TTFT reduction. The short-prompt endpoints improve from 16.711%
+at P18 to 43.145% at P32; the long-prompt endpoints improve from 10.066% at
+P50 to 32.994% at P64. This is a per-prompt equal-weight aggregate, not a
+token-weighted serving-throughput result. The exact prompt text, IDs, hashes,
+and schedules are frozen in the
+[prefill-tail prompt manifest](../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json).
+
+Matched Nsight Systems captures isolate the mechanism at one single-tail,
+one longer single-tail, and one fixed-M32-plus-tail schedule:
+
+| Prompt | All kernels: baseline -> candidate | Kernel span: baseline -> candidate | Runtime-tail target: baseline -> candidate |
+| --- | --- | --- | --- |
+| P18 (`17`) | 2,247 / 536.938944 ms -> 2,055 / 449.431232 ms | 546.287424 -> 458.982528 ms | 384 / 257.606496 ms -> 192 / 170.093504 ms (1.514499x) |
+| P26 (`25`) | 2,783 / 823.055936 ms -> 2,399 / 564.453184 ms | 833.204 -> 574.560160 ms | 576 / 429.425312 ms -> 192 / 171.027040 ms (2.510862x) |
+| P64 (`32+31`) | 4,614 / 1,531.614336 ms -> 4,230 / 1,041.613344 ms | 1,514.018240 -> 1,026.293760 ms | 576 / 663.078592 ms -> 192 / 171.773312 ms (3.860196x) |
+
+The P64 fixed-M32 portion remains 192 launches and moves only from 193.332160
+to 193.260160 ms. The launch reduction and target-tail attribution therefore
+come from replacing each M17/M19-M31 M16-plus-tail projection with one runtime
+kernel, not from changing M32.
+
+Release reports 49 passes, five environment skips, and zero failures; the
+verified host C++ ASan/UBSan suite reports 48 passes, five skips, and zero
+failures. Separate C1/C8/C16/C32 exact-model oracle processes pass. The four
+fixed M18/M32 production SASS sections are unchanged and share normalized
+SHA-256
+`2574bd41a76f112e753f5784a97e38d54362394a2f2ab9c3b8ee32c6074bdf32`
+between the frozen and candidate binaries.
+
+Prefill and Decode remain logically separate host-control plans in one runner.
+This milestone adds neither a general double/triple buffer nor Prefill/Decode
+overlap. M17 through M31 gate/up projections remain ordered on the main stream;
+only the pre-existing exact M32 gate/up route owns a narrow layer-local
+auxiliary-stream overlap. These are unlocked-clock, batch-one local diagnostics
+rather than a concurrent-request or serving-throughput claim. Full protocols,
+binary/report hashes, raw profile attribution, correctness contracts, and
+limitations are in the
+[runtime-masked M17/M19-M31 record](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).

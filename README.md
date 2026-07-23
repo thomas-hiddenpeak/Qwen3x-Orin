@@ -54,6 +54,21 @@ debugging features are disabled, so device memcheck is platform-blocked rather
 than passed. These are unlocked-clock batch-one diagnostics; see the
 [machine-readable M18 record](docs/metadata/qwen36-27b-nvfp4-m18-masked-m32-benchmark.json).
 
+Commit `8b19d2aa27370f7daafb743bf024fbcfc8b25950` extends that exact-capacity
+design to M17 and M19 through M31 for the same two aligned NVFP4 MLP shapes,
+while retaining the fixed M18 and M32 production specializations. The
+production-call-weighted microbenchmark ranges from 1.59909x at M17 to
+4.19900x at M31. Across ten tokenizer-pinned prompts, the B-C-C-B comparison
+has no reversal and improves the equally weighted TTFT aggregate by 25.914%
+(1.349789x). Matched P18, P26, and P64 Nsight traces attribute the gain to
+removing M16-plus-tail work; the P64 target tail falls from 576 launches and
+663.078592 ms to 192 launches and 171.773312 ms (3.860196x). Release, host
+ASan/UBSan, C1/C8/C16/C32 oracle, exact-span, graph, and unchanged fixed
+M18/M32 SASS gates pass. See the
+[runtime-masked M17/M19-M31 record](docs/metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json)
+and its
+[pinned prompt manifest](benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json).
+
 The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
@@ -183,8 +198,9 @@ activation-staged XOR-dual instances. Down stages its 34-KiB activation, while
 gate/up and lm-head each stage 10 KiB. All three use 8-byte cooperative global
 copies, so the public alignment contract and checkpoint layout are unchanged.
 Near-miss shapes and packed-weight or activation misalignment retain their
-previous routes. M2 through M17 and M19 through M31 do likewise; exact M18 and
-M32 follow the fixed-tile dispatch described below.
+previous routes. M2 through M15 retain the small-M routes; exact M17 and M19
+through M31, fixed M18, and fixed M32 follow the masked/fixed-tile dispatch
+described below.
 Canonical FP8 projections whose K is a multiple of
 1,024 use packed-x4 when weights are 4-byte aligned and BF16 activations are
 8-byte aligned; other FP8 shapes also retain their scalar fallback. At M=8,
@@ -214,16 +230,19 @@ causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
 single-token operations. With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
 shape-gated Tensor Core path above or safely falls back to two M8 launches.
-M17 and M19 through M31 use M16-first composition. At exactly M18, aligned
-NVFP4 `[17408,5120]` and `[5120,17408]` projections use one masked-M32 Tensor
-Core kernel when packed weights are 16-byte aligned, block scales are 2-byte
-aligned, and the BF16 input is 8-byte aligned. Its public contract requires
-only the exact C18 input/output spans: rows 18 through 31 are zero-filled
-internally, never read from the caller, and never stored. Every FP8 M18 case,
-plus NVFP4 shape near-misses or calls that miss any alignment gate, uses the
-ordered M16+M2 fallback. The pair dispatcher validates both projections before
-enqueue and preserves first-then-second launch order; the production C18 MLP
-gate/up calls likewise remain serial on the main stream. At M32, the four exact
+At M17 and M19 through M31, aligned NVFP4 `[17408,5120]` and
+`[5120,17408]` projections use one runtime-valid-count masked-M32 Tensor Core
+kernel when packed weights are 16-byte aligned, block scales are 2-byte
+aligned, and the BF16 input is 8-byte aligned. The public API requires only
+the exact M-row input/output spans: internal rows M through 31 are zero-filled,
+never read from the caller, and never stored. M18 retains its separately fixed
+masked-M32 API and specialization with the same exact-C18 contract. Every FP8
+M17..M31 case, plus NVFP4 shape near-misses or calls that miss any alignment
+gate, uses the ordered M16 plus at-most-M8 tail fallback. The pair dispatcher
+validates both complete projections and their cross-ranges before enqueue,
+then either issues two ordered single-kernel masked projections or preserves
+the existing ordered recursive fallback. These M17..M31 MLP calls remain
+serial on the main stream. At M32, the four exact
 aligned FP8 production shapes and the exact aligned NVFP4
 `[17408,5120]` gate/up and `[5120,17408]` down shapes use one fixed-M32 Tensor
 Core kernel. The NVFP4 route is the factorized K64/LD72 kernel: it keeps two
@@ -560,7 +579,8 @@ by token inside each tile. It does not yet provide large-prefill kernels,
 continuous batching, a server, or a release-grade performance claim. Prefill
 and Decode have distinct internal host-control plans but still execute through
 the same runner, without double/triple buffering or Prefill/Decode overlap.
-Most work, including exact M18 gate/up, remains serialized on the main stream.
+Most work, including exact M17 through M31 gate/up, remains serialized on the
+main stream.
 The narrow exception is exact aligned NVFP4 C32 MLP gate/up: the runner may
 overlap gate on its main stream with up on one owned auxiliary stream and join
 them with events. This is layer-local branch overlap, not a general multi-stream
