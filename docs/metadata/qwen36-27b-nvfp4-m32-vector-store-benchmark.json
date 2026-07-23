@@ -347,6 +347,64 @@
       "required_each_cell_speedup": 1.0,
       "required_weighted_speedup": 1.005,
       "decision": "reject and remove; stress recovers but both checkpoint-like cells miss parity and the weighted gain is below threshold"
+    },
+    {
+      "candidate": "two-window shared-scale ping-pong with one next-window scale pass prefetched per K64 stage",
+      "resources": {
+        "registers_per_thread": 46,
+        "static_shared_bytes": 26624,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 5
+      },
+      "static_sass": {
+        "production_instructions": 712,
+        "candidate_instructions": 768,
+        "production_barriers": 5,
+        "candidate_barriers": 4,
+        "production_u16_global_loads": 4,
+        "candidate_u16_global_loads": 5,
+        "candidate_vector_decoded_stores": 4
+      },
+      "cell_speedups_gate_checkpoint_gate_stress_down_checkpoint_down_stress": [0.838291, 0.840399, 0.909282, 0.909911],
+      "weighted_reference_ms": 309.861,
+      "weighted_candidate_ms": 358.432,
+      "weighted_speedup": 0.864492,
+      "required_each_cell_speedup": 1.0,
+      "required_weighted_speedup": 1.02,
+      "decision": "reject and remove; reducing one static barrier does not repay the extra scale-prefetch control and shuffle/store schedule, and all four cells regress"
+    },
+    {
+      "candidate": "activation-only two-panel SM87 cp.async pipeline using two 8-byte copies per thread and K64-stage parity",
+      "resources": {
+        "registers_per_thread": 46,
+        "static_shared_bytes": 29184,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 5
+      },
+      "static_sass": {
+        "production_instructions": 712,
+        "candidate_instructions": 768,
+        "candidate_ldgsts_e_64": 4,
+        "candidate_ldgdepbar": 2,
+        "candidate_depbar": 2,
+        "production_activation_ldg_e_64": 2,
+        "candidate_activation_ldg_e_64": 0,
+        "production_activation_sts_64": 2,
+        "candidate_activation_sts_64": 0,
+        "barriers": 5,
+        "candidate_vector_decoded_stores": 4,
+        "hfma2": 16,
+        "local_loads": 0,
+        "local_stores": 0
+      },
+      "correctness": "both exact shapes are bit-exact, finite, guard-clean, graph-contract clean, and retain token-15/16 boundary exactness",
+      "cell_speedups_gate_checkpoint_gate_stress_down_checkpoint_down_stress": [0.706226, 0.706998, 0.753502, 0.753182],
+      "weighted_reference_ms": 310.487,
+      "weighted_candidate_ms": 429.151,
+      "weighted_speedup": 0.723491,
+      "required_each_cell_speedup": 1.0,
+      "required_weighted_speedup": 1.02,
+      "decision": "reject and remove; LDGSTS is emitted and occupancy is preserved, but per-stage dependency-barrier and pipeline-control cost dominates the activation latency available to hide"
     }
   ],
   "measurement_protocol": {
@@ -363,6 +421,7 @@
     "All timing evidence was collected in MAXN without confirmed locked clocks and is diagnostic rather than a release throughput claim.",
     "The production promotion is limited to the two exact aligned M32 NVFP4 shapes; existing fallbacks remain in place elsewhere.",
     "Prefill and Decode are logically separate plans but execute on one serial CUDA stream; this milestone adds no double/triple buffering or multi-stream overlap.",
+    "Both bounded explicit kernel-local buffering probes were removed after all four performance cells regressed; their measurements do not justify a production double-buffered route.",
     "The NCU down row uses the synthetic same-bank-stress scale distribution and is labeled separately from checkpoint-like evidence."
   ],
   "artifacts": [
@@ -385,7 +444,13 @@
     {"role": "baseline P33 Nsight kernel trace CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-baseline-p033-c32-kernel_cuda_gpu_trace.csv", "bytes": 927660, "sha256": "c9ce7db70bbbf7354e58cfe042076ebe80540a665f8e0765a3e2246f8b61c79e", "checked_in": false},
     {"role": "candidate P33 Nsight kernel trace CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-candidate-p033-c32-kernel_cuda_gpu_trace.csv", "bytes": 929554, "sha256": "113827bf03c487766cabaaf385b1aebcc5d65af49e20b000304b65cbb814e5c4", "checked_in": false},
     {"role": "rejected direct-U32 scale-table performance log", "local_path": "/tmp/q3x-nvfp4-m32-wide-scale-perf.log", "bytes": 69161, "sha256": "960181efbbe16c4847e7250d5d21fb25d7ab9f27def773dba0fa3fba1f36e605", "checked_in": false},
-    {"role": "rejected XOR-indexed U32 scale-table performance log", "local_path": "/tmp/q3x-nvfp4-m32-wide-swizzled-scale-perf.log", "bytes": 69377, "sha256": "b546eb5a4f72a538480dc5735cd518ae49b264d9a7f8c33ec6f4e4d2ff9581eb", "checked_in": false}
+    {"role": "rejected XOR-indexed U32 scale-table performance log", "local_path": "/tmp/q3x-nvfp4-m32-wide-swizzled-scale-perf.log", "bytes": 69377, "sha256": "b546eb5a4f72a538480dc5735cd518ae49b264d9a7f8c33ec6f4e4d2ff9581eb", "checked_in": false},
+    {"role": "rejected scale-window ping-pong default log", "local_path": "/tmp/q3x-nvfp4-m32-scale-pipeline-default.log", "bytes": 37258, "sha256": "24534a8a7ec1aa6b15db1c4cdf19a75740c61d90da918d24b80c38ab12fcfaeb", "checked_in": false},
+    {"role": "rejected scale-window ping-pong performance log", "local_path": "/tmp/q3x-nvfp4-m32-scale-pipeline-perf.log", "bytes": 69009, "sha256": "1dc2008bf592385d051d66be86a77bedf7513817260c4ccf583e6533567a4883", "checked_in": false},
+    {"role": "rejected async-activation default log", "local_path": "/tmp/q3x-nvfp4-m32-async-activation-default.log", "bytes": 37258, "sha256": "abf987fa3c46a441f642c48e10f0750591244772d1e180cbc49dec043485baef", "checked_in": false},
+    {"role": "rejected async-activation performance log", "local_path": "/tmp/q3x-nvfp4-m32-async-activation-perf.log", "bytes": 69220, "sha256": "b69ee17f873ceb251f81067d77a8d3a967bd020015695d8ec68f0b209e976d60", "checked_in": false},
+    {"role": "rejected async-activation SASS dump", "local_path": "/tmp/q3x-nvfp4-m32-async-activation.sass", "bytes": 20064782, "sha256": "f078d3b6eecee7d49bd2f6f4c609631f36bc1b82a5c87b3d78c017688cc4bc4b", "checked_in": false},
+    {"role": "rejected async-activation resource dump", "local_path": "/tmp/q3x-nvfp4-m32-async-activation.resources", "bytes": 31251, "sha256": "012905b11fe4dd55383e23c498fe8f1023308ea6d6382d3ba482051fe179dde1", "checked_in": false}
   ],
-  "next_priority": "Keep the vector-store K64/LD72 M32 production route. The bounded direct and XOR-indexed U32 scale-table probes did not clear the distribution gate and were removed. Next isolate stage buffering or software pipelining inside the M32 kernel while preserving 46-or-fewer registers, zero local memory, five CTAs/SM, exact BF16 output, and the four STS.128 stores; then use a matched trace to decide whether the existing logical Prefill/Decode plan split has enough independent work to justify multi-stream overlap."
+  "next_priority": "Keep the vector-store K64/LD72 M32 production route. Direct and XOR-indexed U32 scale-table probes, a scale-window ping-pong schedule, and an activation-only cp.async two-panel schedule all missed their promotion gates and were removed. Kernel-local explicit buffering is now evidence-exhausted for this route. Use a matched Prefill/Decode trace to quantify dependency-independent work and its overlap ceiling before changing the current one-stream execution policy; only implement multi-stream scheduling if the trace exposes enough independent work to repay events and reduced per-kernel residency."
 }

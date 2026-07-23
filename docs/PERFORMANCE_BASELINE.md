@@ -2429,9 +2429,32 @@ Direct indexing regressed the four-cell weighted aggregate to 0.99676x;
 high-bit XOR bank indexing recovered the stress cells but reached only
 1.00126x overall, below the 1.005x gate, with both checkpoint-like cells at or
 below parity. Both candidates were removed. This exhausts the cheap U32
-scale-table subpath, not every possible E2M1-pair layout. Prefill and Decode
-remain logically separate plans on one serial CUDA stream. Explicit stage
-buffering is the next gate; execution overlap remains conditional on a matched
-trace demonstrating independent work. Full binary identities, protocols,
-hashes, raw profiler artifacts, rejected follow-ups, and diagnostic limits are
-in the [vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).
+scale-table subpath, not every possible E2M1-pair layout.
+
+The two bounded explicit-buffering follow-ups also failed decisively and were
+removed:
+
+| Candidate | Resources | Four-cell speedup range | Weighted speedup |
+| --- | --- | ---: | ---: |
+| Two-window scale ping-pong | 46 regs, 26,624 B shared, 0 local, 5 CTA/SM | 0.83829-0.90991x | 0.86449x |
+| Activation-only `cp.async` two-panel pipeline | 46 regs, 29,184 B shared, 0 local, 5 CTA/SM | 0.70623-0.75350x | 0.72349x |
+
+Scale ping-pong reduces the static barrier count from five to four, but grows
+the kernel from 712 to 768 SASS instructions and makes every cell slower. The
+activation candidate also grows to 768 instructions. It does generate four
+`LDGSTS.E.64` instructions and removes the synchronous activation
+`LDG.E.64`/`STS.64` pairs while retaining the five barriers, four decoded-tile
+`STS.128`, 16 `HFMA2`, exact output, and five-CTA residency. Its two
+`LDGDEPBAR`/`DEPBAR` pairs and pipeline control nevertheless dominate the
+small activation panel's latency. Halving the copy count with a stronger
+16-byte alignment contract cannot credibly recover the observed 28% weighted
+gap, so that near-duplicate was not pursued.
+
+Prefill and Decode remain logically separate plans on one serial CUDA stream.
+With both low-footprint kernel-local buffering paths now measured, explicit
+M32 buffering is evidence-exhausted for this route. The next gate is a matched
+trace that quantifies dependency-independent execution and its theoretical
+overlap ceiling before any multi-stream policy is implemented. Full binary
+identities, protocols, hashes, raw profiler artifacts, rejected follow-ups,
+and diagnostic limits are in the
+[vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).

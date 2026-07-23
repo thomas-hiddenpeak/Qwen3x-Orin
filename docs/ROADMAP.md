@@ -337,10 +337,15 @@ Two immediate scale-table probes did not clear promotion: direct U32 indexing
 measured 0.99676x weighted, while high-bit-XOR U32 indexing reached only
 1.00126x against a 1.005x gate and left checkpoint-like cells at or below
 parity. Both were removed. This exhausts the cheap U32 scale-table subpath,
-not every possible E2M1-pair layout. The next priority is an isolated stage-
-buffering/pipeline gate, followed by prefill/decode execution overlap only if
-a trace demonstrates independent work; the logical plan split already exists,
-but execution is still serial on one stream. See the
+not every possible E2M1-pair layout. The subsequent low-footprint pipeline
+gates were also rejected and removed: scale-window ping-pong reached 0.86449x
+weighted, and an activation-only `cp.async` two-panel pipeline reached
+0.72349x, despite both retaining 46 registers, zero local memory, and five
+CTA/SM. Kernel-local explicit buffering is therefore evidence-exhausted for
+this M32 route. The next priority is a matched Prefill/Decode trace that
+quantifies dependency-independent work and the maximum useful overlap before
+changing the one-stream policy; the logical plan split already exists, but
+execution is still serial. See the
 [vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).
 
 Separately, default AF_ALG authentication
