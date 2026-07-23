@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-linear-ab-sidecar-rejection",
+  "status": "rejected-test-only-scheduling-candidate",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "83f3539",
+    "base_subject": "docs: record C32 MLP dual-stream overlap",
+    "candidate_commit": null,
+    "candidate_retained": false,
+    "runtime_changed": false,
+    "test_source_changed": false,
+    "project_version": "0.2.0"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "symmetric B-C-C-B timings are diagnostic rather than locked-clock release claims"
+  },
+  "fixture": {
+    "token_count": 32,
+    "input": {
+      "dtype": "BF16",
+      "shape": [32, 5120]
+    },
+    "qkv": {
+      "weight_dtype": "FP8 E4M3FN",
+      "weight_shape_n_by_k": [10240, 5120],
+      "output_shape": [32, 10240],
+      "dispatcher": "launch_projection_tile_to_bf16_cuda",
+      "production_route": "fixed-M32 FP8 WMMA"
+    },
+    "z": {
+      "weight_dtype": "FP8 E4M3FN",
+      "weight_shape_n_by_k": [6144, 5120],
+      "output_shape": [32, 6144],
+      "dispatcher": "launch_projection_tile_to_bf16_cuda",
+      "production_route": "fixed-M32 FP8 WMMA"
+    },
+    "a_b": {
+      "weight_dtype": "BF16",
+      "weight_shapes_n_by_k": [[48, 5120], [48, 5120]],
+      "output_shapes": [[32, 48], [32, 48]],
+      "dispatcher": "launch_projection_pair_tile_to_bf16_cuda",
+      "production_route": "two ordered fused C16 pair kernels"
+    },
+    "weights_and_input": "deterministic finite synthetic data",
+    "outputs_pairwise_distinct": true,
+    "fp32_scratch": "null; every measured route is direct-output"
+  },
+  "protocol": {
+    "auxiliary_stream": "one nonblocking CUDA stream created outside timing",
+    "events": "two reusable cudaEventDisableTiming events",
+    "warmup_iterations_per_strategy": 10,
+    "measured_iterations_per_pass": 24,
+    "bccb_rounds": 4,
+    "timing_scope": "production dispatch plus ready/wait/done/join envelope",
+    "correctness": "bitwise comparison of QKV, Z, A, and B outputs",
+    "minimum_micro_speedup": 1.03,
+    "production_promotion_requirement": "stable margin plus at least 1.01x end-to-end P33 B-C-C-B"
+  },
+  "measurements": [
+    {
+      "name": "interleaved_host_submission",
+      "schedule": "record ready; main QKV; auxiliary A/B; main Z; join",
+      "rounds_ms": [
+        {"serial_first": 1.35142, "concurrent_first": 1.34443, "concurrent_second": 1.35365, "serial_second": 1.35237},
+        {"serial_first": 1.35081, "concurrent_first": 1.29629, "concurrent_second": 1.31381, "serial_second": 1.35241},
+        {"serial_first": 1.35252, "concurrent_first": 1.30971, "concurrent_second": 1.33663, "serial_second": 1.35261},
+        {"serial_first": 1.35191, "concurrent_first": 1.35415, "concurrent_second": 1.33101, "serial_second": 1.35258}
+      ],
+      "sequential_ms": 1.35208,
+      "concurrent_envelope_ms": 1.32996,
+      "speedup": 1.01663,
+      "qkv_mismatches": 0,
+      "z_mismatches": 0,
+      "a_mismatches": 0,
+      "b_mismatches": 0,
+      "gate": "fail"
+    },
+    {
+      "name": "main_chain_first_run_1",
+      "schedule": "record ready; submit main QKV then Z; submit auxiliary A/B; join",
+      "rounds_ms": [
+        {"serial_first": 1.35173, "concurrent_first": 1.29041, "concurrent_second": 1.29367, "serial_second": 1.35221},
+        {"serial_first": 1.35305, "concurrent_first": 1.32239, "concurrent_second": 1.29279, "serial_second": 1.35295},
+        {"serial_first": 1.35293, "concurrent_first": 1.32535, "concurrent_second": 1.31701, "serial_second": 1.35232},
+        {"serial_first": 1.35263, "concurrent_first": 1.31218, "concurrent_second": 1.28448, "serial_second": 1.34980}
+      ],
+      "sequential_ms": 1.35220,
+      "concurrent_envelope_ms": 1.30479,
+      "speedup": 1.03634,
+      "all_concurrent_passes_faster": true,
+      "all_output_mismatches": 0,
+      "gate": "marginal-pass"
+    },
+    {
+      "name": "main_chain_first_run_2",
+      "schedule": "independent repeat of main_chain_first_run_1",
+      "rounds_ms": [
+        {"serial_first": 1.35484, "concurrent_first": 1.31222, "concurrent_second": 1.32401, "serial_second": 1.35391},
+        {"serial_first": 1.35515, "concurrent_first": 1.29742, "concurrent_second": 1.32510, "serial_second": 1.35428},
+        {"serial_first": 1.35445, "concurrent_first": 1.31553, "concurrent_second": 1.29890, "serial_second": 1.35454},
+        {"serial_first": 1.35503, "concurrent_first": 1.32923, "concurrent_second": 1.31945, "serial_second": 1.35540}
+      ],
+      "sequential_ms": 1.35470,
+      "concurrent_envelope_ms": 1.31523,
+      "speedup": 1.03001,
+      "all_concurrent_passes_faster": true,
+      "all_output_mismatches": 0,
+      "gate": "marginal-pass"
+    },
+    {
+      "name": "z_only_overlap",
+      "schedule": "main QKV; record ready; main Z concurrent with auxiliary A/B; join",
+      "rounds_ms": [
+        {"serial_first": 1.35081, "concurrent_first": 1.37069, "concurrent_second": 1.34918, "serial_second": 1.35148},
+        {"serial_first": 1.34933, "concurrent_first": 1.35686, "concurrent_second": 1.34862, "serial_second": 1.35153},
+        {"serial_first": 1.34917, "concurrent_first": 1.33528, "concurrent_second": 1.35071, "serial_second": 1.35042},
+        {"serial_first": 1.35048, "concurrent_first": 1.38525, "concurrent_second": 1.35073, "serial_second": 1.35014}
+      ],
+      "sequential_ms": 1.35042,
+      "concurrent_envelope_ms": 1.35591,
+      "speedup": 0.995949,
+      "reversed_concurrent_passes": true,
+      "all_output_mismatches": 0,
+      "gate": "fail"
+    }
+  ],
+  "combined_main_chain_first": {
+    "sequential_ms": 1.353450,
+    "concurrent_envelope_ms": 1.310010,
+    "speedup": 1.033160,
+    "saving_per_linear_attention_layer_ms": 0.043440,
+    "linear_attention_layers": 48,
+    "synthetic_p33_saving_ceiling_ms": 2.085120,
+    "relative_to_preceding_exact_commit_p33_ttft_percent": 0.4471
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the only passing schedule has insufficient and fragile margin for the end-to-end promotion gate; the resource-isolating schedule regresses",
+    "production_runtime_integration": false,
+    "test_only_candidate_removed": true,
+    "third_stream_pursued": false,
+    "later_join_pursued": false,
+    "prefill_decode_overlap_changed": false,
+    "current_runtime_policy": "retain exact C32 MLP gate/up dual-stream optimization; keep Linear-Attention QKV, Z, and A/B serial"
+  },
+  "limitations": [
+    "synthetic exact-shape production-dispatch gate, not a model or serving-throughput benchmark",
+    "unlocked clocks",
+    "one device and one CUDA software stack",
+    "no energy or power measurement",
+    "the experiment does not reject future kernel-local A/B optimization or multi-request continuous batching"
+  ]
+}

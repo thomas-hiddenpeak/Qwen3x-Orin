@@ -360,13 +360,20 @@ Nsight confirms all 64 target pairs actually overlap, rather than merely using
 two stream IDs. See the
 [gate/up dual-stream record](metadata/qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json).
 
-The next scheduling priority is a bounded production-dispatch experiment for
-the lower-footprint Linear-Attention A/B sidecar against QKV/Z. It must begin
-test-only, retain bitwise outputs, and clear its own kernel-envelope and
-end-to-end gates before entering `ReferenceRunner`. Broad Prefill/Decode
-overlap remains invalid for one batch-one request because token and persistent
-state dependencies are causal; multi-request continuous batching is a later
-serving project, not an extension of this local branch overlap.
+The bounded production-dispatch Linear-Attention A/B sidecar experiment was
+then rejected before runtime integration. All four outputs were bit-exact, but
+the two main-chain-first repetitions combined to only 1.03316x and at most
+2.085 ms of synthetic P33 saving, while the resource-isolating
+`QKV -> (Z || A/B)` variant regressed to 0.99595x with reversed passes. The
+large A/B grids contend with QKV/Z strongly enough that a third stream or a
+broader join is not justified. The test-only code was removed; see the
+[A/B sidecar rejection record](metadata/qwen36-27b-linear-ab-sidecar-rejection.json).
+
+Scheduling work now yields to phase-local profiling and kernel/dispatch
+optimization through the existing logical Prefill/Decode plan split. Broad
+Prefill/Decode overlap remains invalid for one batch-one request because token
+and persistent state dependencies are causal; multi-request continuous
+batching is a later serving project, not an extension of local branch overlap.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

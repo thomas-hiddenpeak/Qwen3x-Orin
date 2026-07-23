@@ -2527,3 +2527,39 @@ A/B sidecar against QKV/Z; Decode and broad multi-stream scheduling remain
 lower priority until their own gates pass. Full hashes, protocols, trace
 definitions, limitations, and rollback thresholds are in the
 [gate/up dual-stream record](metadata/qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json).
+
+## Rejected C32 Linear-Attention A/B sidecar
+
+The follow-up remained test-only and used the production dispatchers at the
+exact C32 checkpoint shapes: FP8 QKV `[10240,5120]`, FP8 Z `[6144,5120]`, and
+the BF16 A/B pair `[48,5120]`. Serial and auxiliary-stream schedules produced
+zero bit mismatches across all four outputs. Each timing included reusable
+ready/done event waits and the final main-stream join, with ten warmups and
+four 24-iteration B-C-C-B rounds.
+
+Three scheduling variants establish the practical limit:
+
+| Schedule | Serial | Concurrent envelope | Speedup | Result |
+| --- | ---: | ---: | ---: | --- |
+| A/B submitted between QKV and Z | 1.35208 ms | 1.32996 ms | 1.01663x | reject |
+| Main-chain-first QKV/Z, run 1 | 1.35220 ms | 1.30479 ms | 1.03634x | marginal |
+| Main-chain-first QKV/Z, run 2 | 1.35470 ms | 1.31523 ms | 1.03001x | marginal |
+| QKV serial, then Z parallel with A/B | 1.35042 ms | 1.35591 ms | 0.99595x | reject |
+
+The two main-chain-first repetitions combine to 1.03316x, but save only
+0.04344 ms per Linear-Attention layer. Even multiplying that synthetic saving
+across all 48 such layers gives 2.08512 ms, about 0.45% of the preceding
+466.3375 ms P33 TTFT, before runner overhead and cross-layer effects. The
+Z-only isolation also contains reversed passes and regresses in aggregate.
+The large 1,536-CTA A/B grids contend with the fixed-M32 QKV/Z kernels for SM,
+cache, and memory resources, so nominally independent work does not translate
+into robust critical-path reduction on this device.
+
+The candidate therefore did not enter `ReferenceRunner`; its optional test
+code was removed, and the committed runtime remains unchanged. A third stream,
+later join, and broader Prefill/Decode overlap are rejected at this stage
+because they add control complexity without a measured envelope capable of
+clearing the end-to-end promotion gate. The logical Prefill/Decode plan split
+remains useful for independent phase benchmarks and kernel selection. Full
+rounds, decision thresholds, and limitations are in the
+[A/B sidecar rejection record](metadata/qwen36-27b-linear-ab-sidecar-rejection.json).

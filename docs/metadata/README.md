@@ -199,6 +199,10 @@ The diagnostic Phase 3 records are:
   best-effort serial fallback and lifecycle contracts, production-dispatch
   bitwise/performance gates, real cross-stream overlap, P33 promotion rounds,
   P33/P65/P129/P513 scaling, and Release/sanitizer/model validation.
+- [`qwen36-27b-linear-ab-sidecar-rejection.json`](qwen36-27b-linear-ab-sidecar-rejection.json),
+  which records the test-only exact-C32 production-dispatch A/B sidecar gate,
+  three scheduling variants, four-output bitwise equality, marginal and
+  regressing envelopes, and the decision to retain the serial runtime.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
