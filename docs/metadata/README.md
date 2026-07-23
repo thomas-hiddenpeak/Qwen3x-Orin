@@ -250,6 +250,13 @@ The diagnostic Phase 3 records are:
   also freezes the current boundary: Prefill and Decode are logically
   measurable but dependency-serialized, with no general double/triple buffer
   or multi-request scheduler.
+- [`qwen36-27b-nvfp4-m1-down-residual-norm-warp-tail-rejection.json`](qwen36-27b-nvfp4-m1-down-residual-norm-warp-tail-rejection.json),
+  which records the rejected first post-trace Decode M1 experiment: full
+  finite/nonfinite, invalid-call, graph, and resource contracts pass, but all
+  five same-binary processes regress to 0.972242x-0.974540x against the 1.005x
+  gate. Matched NCU explains why fewer `BAR`/shared-memory instructions do not
+  win in this kernel, and the record freezes complete candidate removal with
+  no retained test probe, runtime change, end-to-end run, or dispatch change.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged

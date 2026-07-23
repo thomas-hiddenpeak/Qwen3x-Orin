@@ -1,0 +1,386 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-down-residual-norm-warp-tail-rejection",
+  "status": "rejected-test-only-decode-m1-down-residual-norm-warp-tail-candidate",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "c52bfc1ca2b0d4d9a21f74cf77faa5b46c61b945",
+    "base_subject": "docs: record phase-aware inference baseline",
+    "candidate_commit": null,
+    "candidate_retained": false,
+    "test_only_probe_retained": false,
+    "candidate_code_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4596920,
+      "sha256": "a95c85b7599bcec5296c54d5a650abd594f996118ff6e9959af930337b3779f2",
+      "checked_in": false,
+      "frozen_before_candidate_removal": true
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsight_compute": "2026.2.0.0 (build 37790515)",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "The direct timing uses symmetric B-C-C-B order under unlocked platform clocks. The matched NCU diagnostic requests base application clocks and cache control all, but is not a locked-clock serving claim."
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "scope": "the repeated centered-RMSNorm reduction inside the exact aligned SM87 NVFP4 M1 dense-MLP down projection plus residual-add and centered-RMSNorm cooperative kernel",
+    "shape_n_by_k": [5120, 17408],
+    "hidden_width": 5120,
+    "grid_blocks": 64,
+    "threads_per_block": 256,
+    "cooperative_launch": true,
+    "baseline": {
+      "name": "test-only shared-tree clone of the production implementation",
+      "shared_memory_strides": [128, 64, 32, 16, 8, 4, 2, 1],
+      "block_barrier_after_each_stride": true
+    },
+    "warp_tail": {
+      "name": "test-only shared-prefix plus warp-zero shuffle tail",
+      "shared_memory_strides": [128, 64, 32],
+      "warp_zero_shuffle_down_strides": [16, 8, 4, 2, 1],
+      "final_publication": "lane zero writes shared element zero followed by the final block synchronization",
+      "net_block_barriers_removed_per_reduction": 4
+    },
+    "numerical_contract": "The shared 128/64/32 prefix and shuffle 16/8/4/2/1 tail retain the full shared-tree pairwise addition order; all projection, BF16-RNE, residual, rsqrtf, centered-gamma, and output operations are unchanged.",
+    "production_public_launcher": "shared_tree",
+    "production_public_and_shared_tree_same_function": true,
+    "warp_tail_distinct_function": true,
+    "production_dispatch_ever_selected_candidate": false
+  },
+  "correctness_and_contract": {
+    "default_test": {
+      "status": "pass",
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "log": {
+        "local_path": "/tmp/q3x-down-warptail-default-root.log",
+        "bytes": 48446,
+        "sha256": "d9c575e8b8c08e02fec949123c8777970a3f634a2bd37cabe8d811a67bc1e6d2",
+        "checked_in": false
+      }
+    },
+    "resources": {
+      "query": "cudaFuncGetAttributes plus cudaOccupancyMaxActiveBlocksPerMultiprocessor",
+      "public": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 35904,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "shared_tree": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 35904,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "warp_tail": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 35904,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 4
+      },
+      "maximum_threads_per_block": 256,
+      "device_sm_count": 16,
+      "resident_grid_capacity_blocks": 64,
+      "launched_grid_blocks": 64,
+      "cooperative_launch_supported": true,
+      "gate": "pass"
+    },
+    "launch_identity": {
+      "public_grid_block": [64, 256],
+      "shared_tree_grid_block": [64, 256],
+      "warp_tail_grid_block": [64, 256],
+      "dynamic_shared_bytes": 0,
+      "public_shared_tree_same_function": true,
+      "warp_tail_distinct_function": true,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "cases": 42,
+      "launchers_per_case": 3,
+      "launchers": ["public", "shared_tree", "warp_tail"],
+      "all_rejected_before_enqueue": true,
+      "kernel_nodes": 0,
+      "gate": "pass"
+    },
+    "finite_fixture": {
+      "public_vs_ordered_baseline_raw_mismatches": "0/5120",
+      "public_vs_ordered_baseline_residual_mismatches": "0/5120",
+      "public_vs_ordered_baseline_norm_mismatches": "0/5120",
+      "shared_tree_vs_warp_tail_raw_mismatches": "0/5120",
+      "shared_tree_vs_warp_tail_residual_mismatches": "0/5120",
+      "shared_tree_vs_warp_tail_norm_mismatches": "0/5120",
+      "guards_intact": true,
+      "gate": "pass"
+    },
+    "signed_nonfinite_fixtures": [
+      {
+        "name": "residual_signed_nonfinite",
+        "raw_mismatches": "0/5120",
+        "residual_mismatches": "0/5120",
+        "norm_mismatches": "0/5120",
+        "warp_tail_raw_mismatches": "0/5120",
+        "warp_tail_residual_mismatches": "0/5120",
+        "warp_tail_norm_mismatches": "0/5120",
+        "class_and_sign": "pass",
+        "guards_intact": true
+      },
+      {
+        "name": "norm_weight_signed_nonfinite",
+        "raw_mismatches": "0/5120",
+        "residual_mismatches": "0/5120",
+        "norm_mismatches": "0/5120",
+        "warp_tail_raw_mismatches": "0/5120",
+        "warp_tail_residual_mismatches": "0/5120",
+        "warp_tail_norm_mismatches": "0/5120",
+        "class_and_sign": "pass",
+        "guards_intact": true
+      }
+    ],
+    "overall_gate": "pass"
+  },
+  "same_binary_microbenchmark": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_DOWN_RESIDUAL_NORM_WARP_TAIL_PERF=1 /tmp/q3x-down-wt-ncu.ZklQlF/q3x_sm87_weight_only_gemv_test",
+    "fixture": "deterministic finite synthetic checkpoint-like packed NVFP4 weights, E4M3FN block scales, BF16 activation, residual, and centered norm weight at exact [5120,17408]; no checkpoint tensor payload is claimed",
+    "comparison": "test-only full shared-tree clone versus test-only warp-tail clone in one frozen binary on disjoint output buffers",
+    "warmup_launches_per_implementation": 10,
+    "measured_launches_per_timed_pass": 40,
+    "measurement_rounds": 5,
+    "timed_order_per_round": ["shared_tree", "warp_tail", "warp_tail", "shared_tree"],
+    "statistic_per_process": "median of ten shared-tree timed-pass means divided by median of ten warp-tail timed-pass means",
+    "independent_process_repeats": 5,
+    "minimum_speedup": 1.005,
+    "repeats": [
+      {
+        "run": 1,
+        "shared_tree_milliseconds": 0.323086,
+        "warp_tail_milliseconds": 0.332310,
+        "speedup": 0.972242,
+        "recommendation": "DROP",
+        "gate": "fail",
+        "log": {
+          "local_path": "/tmp/q3x-down-warptail-root-r1.log",
+          "bytes": 49607,
+          "sha256": "4beaff88b35ccf7757ad779d6fd0ad10cebec9ae59b41234a15e6fc285a7e7a8"
+        }
+      },
+      {
+        "run": 2,
+        "shared_tree_milliseconds": 0.321659,
+        "warp_tail_milliseconds": 0.330167,
+        "speedup": 0.974232,
+        "recommendation": "DROP",
+        "gate": "fail",
+        "log": {
+          "local_path": "/tmp/q3x-down-warptail-root-r2.log",
+          "bytes": 49606,
+          "sha256": "6b6731a5da29894f6fb9cd362539d018ff6c93eabd632c4d5305f7051d345a69"
+        }
+      },
+      {
+        "run": 3,
+        "shared_tree_milliseconds": 0.317446,
+        "warp_tail_milliseconds": 0.326092,
+        "speedup": 0.973487,
+        "recommendation": "DROP",
+        "gate": "fail",
+        "log": {
+          "local_path": "/tmp/q3x-down-warptail-root-r3.log",
+          "bytes": 49606,
+          "sha256": "1d9ea279b6ae413e8e526072cecac7395ba06f6210a2168a62157eb486ddf9fd"
+        }
+      },
+      {
+        "run": 4,
+        "shared_tree_milliseconds": 0.322244,
+        "warp_tail_milliseconds": 0.330663,
+        "speedup": 0.974540,
+        "recommendation": "DROP",
+        "gate": "fail",
+        "log": {
+          "local_path": "/tmp/q3x-down-warptail-root-r4.log",
+          "bytes": 49606,
+          "sha256": "125de23ba56f013001de0e706e59ade5142f891303c0f11ba559597a46962448"
+        }
+      },
+      {
+        "run": 5,
+        "shared_tree_milliseconds": 0.317018,
+        "warp_tail_milliseconds": 0.325326,
+        "speedup": 0.974461,
+        "recommendation": "DROP",
+        "gate": "fail",
+        "log": {
+          "local_path": "/tmp/q3x-down-warptail-root-r5.log",
+          "bytes": 49606,
+          "sha256": "c6bc35ae7355082a2c666e40ce6463b973b56c3a62cac1a9c6859d5615588a1a"
+        }
+      }
+    ],
+    "summary": {
+      "speedup_min_median_mean_max": [0.972242, 0.974232, 0.9737924, 0.974540],
+      "mean_shared_tree_milliseconds": 0.3202906,
+      "mean_warp_tail_milliseconds": 0.3289116,
+      "ratio_of_means": 0.97378931,
+      "candidate_latency_increase_percent_from_ratio_of_means": 2.691618,
+      "processes_recommending_drop": "5/5",
+      "hard_gate": "fail"
+    }
+  },
+  "matched_nsight_compute": {
+    "purpose": "causal diagnostic after the hard microbenchmark gate failed; it does not override the rejection",
+    "binary_sha256": "a95c85b7599bcec5296c54d5a650abd594f996118ff6e9959af930337b3779f2",
+    "target_processes": "all",
+    "replay_mode": "kernel",
+    "cache_control": "all",
+    "clock_control": "base",
+    "passes_per_kernel": 6,
+    "kernel_name_base": "demangled",
+    "kernel_filters": {
+      "shared_tree": ".*nvfp4_w4a16_down_residual_norm_activation_staged_kernel.*[(]bool[)]0>.*",
+      "warp_tail": ".*nvfp4_w4a16_down_residual_norm_activation_staged_kernel.*[(]bool[)]1>.*"
+    },
+    "capture_requirement": "Use --target-processes all and demangled regex filters containing [(]bool[)]0 or [(]bool[)]1. A literal source-template filter does not reliably select these instantiated child-process kernels.",
+    "launch": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "registers_per_thread": [64, 64],
+      "static_shared_bytes": [35904, 35904],
+      "dynamic_shared_bytes": [0, 0],
+      "active_blocks_per_sm": [4, 4],
+      "local_bytes": [0, 0],
+      "spill_bytes": [0, 0]
+    },
+    "baseline_to_candidate": {
+      "duration_microseconds": [325.312, 336.032],
+      "speedup": 0.9680983,
+      "candidate_latency_increase_percent": 3.295298,
+      "opcode_instances": {
+        "BAR": [6656, 4608],
+        "LDS": [3228832, 3223776],
+        "STS": [14400, 11904],
+        "SHFL": [69184, 69504],
+        "LDG": [542336, 542336],
+        "STG": [5440, 5440],
+        "total": [17614472, 17620160]
+      },
+      "opcode_instance_deltas": {
+        "BAR": -2048,
+        "LDS": -5056,
+        "STS": -2496,
+        "SHFL": 320,
+        "total": 5688
+      },
+      "warp_cycles_per_active_issue": {
+        "barrier": [1.083438, 1.307431],
+        "barrier_relative_percent": 20.674279,
+        "long_scoreboard": [5.590736, 6.167188],
+        "long_scoreboard_relative_percent": 10.310843,
+        "short_scoreboard": [0.168024, 0.192750],
+        "short_scoreboard_relative_percent": 14.715755
+      },
+      "issue_active_percent": [67.434744, 65.584888],
+      "issue_active_relative_percent": -2.743179,
+      "warps_active_percent": [66.607100, 66.592234]
+    },
+    "interpretation": "The candidate removes BAR, LDS, and STS instructions, but introduces a serial shuffle dependency immediately before the final block synchronization. The observed barrier, long-scoreboard, and short-scoreboard stall ratios all rise while issue activity falls, offsetting the lower explicit BAR count. This is matched causal evidence for the local regression, not an end-to-end performance claim.",
+    "artifacts": {
+      "shared_tree_log": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/shared_tree.log",
+        "bytes": 21066,
+        "sha256": "35f406eb6baf482a9aeb1b9adab916f3ae628de7972730d8cb18f5c8a6a03f8f"
+      },
+      "shared_tree_report": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/shared_tree.ncu-rep",
+        "bytes": 1706071,
+        "sha256": "ed79a9f01dd858cee9b68146f08fe2d23c4a083c74f15942d44d254f062adf4c"
+      },
+      "shared_tree_raw_csv": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/shared_tree.raw.csv",
+        "bytes": 90232,
+        "sha256": "021b3bae8e6443877e28b04e1deddb2c47eb6e02d41e41537e4d66e789a78762"
+      },
+      "warp_tail_log": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/warp_tail.log",
+        "bytes": 21064,
+        "sha256": "1b858999288b2048653faf5ee77be4369bbd23107706d43b93ca0329ad38071c"
+      },
+      "warp_tail_report": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/warp_tail.ncu-rep",
+        "bytes": 1706333,
+        "sha256": "cd7155ff86a5e5a4fa814e4c48386149fc308cac65ab0ff5d7ea7ab685e504ca"
+      },
+      "warp_tail_raw_csv": {
+        "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/warp_tail.raw.csv",
+        "bytes": 90592,
+        "sha256": "3a476dcec575e651b902223135a74d9d6b4b216dc0ae82a40b05390b7940370c"
+      }
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "correctness_gate": "pass",
+    "resource_gate": "pass",
+    "microbenchmark_gate": "fail",
+    "reason": "The bitwise-correct candidate misses the 1.005 hard threshold in all five independent processes; the ratio of process-mean latencies is 0.97378931 and matched NCU also measures a 0.9680983 baseline/candidate ratio.",
+    "end_to_end_benchmark_run": false,
+    "end_to_end_reason": "The mandatory same-binary microbenchmark gate failed before the end-to-end stage.",
+    "candidate_code_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "retained_route": "the existing full shared-memory reduction tree in the production exact-M1 down/residual/norm cooperative kernel",
+    "priority_effect": "Do not spend an end-to-end iteration on this candidate. Continue the phase-local Prefill/Decode plan with a different Decode M1 projection mechanism.",
+    "scope_separation": "This rejection applies only to the [5120,17408] down/residual/norm kernel with 35,904 bytes of static shared memory. It does not reverse the earlier successful [17408,5120] post-attention residual/norm/gate/up/SiLU warp-tail reduction, which has a different kernel, shape, and 11,328-byte shared-memory layout."
+  },
+  "removal_validation": {
+    "candidate_commit": null,
+    "candidate_source_diff_after_removal": "empty",
+    "test_only_candidate_code_fully_removed": true,
+    "test_only_probe_retained": false,
+    "production_runtime_restored_to_base_head": true
+  },
+  "limitations": [
+    "The direct timing fixture is deterministic and production-shaped but synthetic; no actual checkpoint tensor payload was loaded.",
+    "GPU and memory clocks were not globally locked, so the five-process symmetric ratios are diagnostic rather than release latency claims.",
+    "The NCU runs use kernel replay and six passes; their counters explain the isolated kernel behavior but are not serving, TTFT, inter-token-latency, power, or energy measurements.",
+    "The hard microbenchmark failure intentionally stopped evaluation before end-to-end model benchmarking.",
+    "The candidate never entered production dispatch and all test-only candidate source was removed."
+  ],
+  "supporting_artifacts": [
+    {
+      "role": "candidate build log",
+      "local_path": "/tmp/q3x-sm87-down-residual-norm-warp-tail-build.log",
+      "bytes": 112,
+      "sha256": "75dcf70cec3fb9f1058097c569526be1b294308ecd08a5d27d03c39e571a630a",
+      "checked_in": false
+    },
+    {
+      "role": "frozen candidate test binary",
+      "local_path": "/tmp/q3x-down-wt-ncu.ZklQlF/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4596920,
+      "sha256": "a95c85b7599bcec5296c54d5a650abd594f996118ff6e9959af930337b3779f2",
+      "checked_in": false
+    }
+  ]
+}

@@ -3008,3 +3008,31 @@ unlocked-clock, batch-one local diagnostics, not serving-throughput results.
 All binary/report/log identities, raw rows, event boundaries, and limitations
 are in the
 [phase-trace baseline record](metadata/qwen36-27b-prefill-decode-phase-trace-baseline.json).
+
+## Decode M1 down/residual/norm warp-tail rejection
+
+The first post-trace Decode experiment tested the same shared-prefix/warp-zero
+reduction tail that benefits the separate post-attention gate/up fusion inside
+the exact `[5120,17408]` NVFP4 M1 down/residual/norm cooperative kernel. The
+test-only shared tree and warp-tail instances are bitwise identical for finite
+and two signed-nonfinite fixtures, reject all 42 invalid cases before enqueue,
+and have identical 64-register, 35,904-byte-static-shared, zero-local, four-CTA
+resources at a cooperative `64x256` launch.
+
+The performance gate rejects it decisively. Five independent same-binary
+B-C-C-B processes report baseline/candidate speedups from 0.972242x to
+0.974540x (median 0.974232x; ratio of means 0.97378931x), so all five fail the
+required 1.005x threshold. Matched six-pass NCU capture measures 325.312 versus
+336.032 us (0.9680983x). Although the candidate removes 2,048 `BAR`, 5,056
+`LDS`, and 2,496 `STS` opcode instances, barrier, long-scoreboard, and
+short-scoreboard stall ratios rise 20.67%, 10.31%, and 14.72%, while issue
+activity falls 2.74%. The serial shuffle dependency immediately before the
+final synchronization offsets the reduced explicit barrier count.
+
+No end-to-end run was warranted after the mandatory micro gate failed. All
+test-only candidate code was removed, no probe or runtime/dispatch change is
+retained, and production keeps the full shared-memory reduction tree. This
+does not invalidate the earlier successful `[17408,5120]` post-attention
+gate/up warp-tail kernel, whose shape and shared-memory layout differ. Exact
+logs, hashes, NCU filter requirements, counters, and claim limits are in the
+[down/residual/norm warp-tail rejection record](metadata/qwen36-27b-nvfp4-m1-down-residual-norm-warp-tail-rejection.json).
