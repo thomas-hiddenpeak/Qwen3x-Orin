@@ -257,6 +257,15 @@ The diagnostic Phase 3 records are:
   gate. Matched NCU explains why fewer `BAR`/shared-memory instructions do not
   win in this kernel, and the record freezes complete candidate removal with
   no retained test probe, runtime change, end-to-end run, or dispatch change.
+- [`qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json`](qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json),
+  which records the rejected test-only Decode M1 FP8 QKV/Z activation-staging
+  experiment: actual layer-0 checkpoint payload identity, exhaustive bitwise/
+  replay/canary/input and resource gates, all seven actual-checkpoint and
+  same-bank cap cells, and the frozen 0.913426x/0.905513x failure against the
+  1.02x/1.00x gates. It records the fixed 10-KiB-per-CTA staging mechanism,
+  exact log and restored-artifact identities, complete candidate removal, the
+  production-only NCU locality bound, and the stop-loss decision not to run
+  candidate NCU or end-to-end evaluation.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged

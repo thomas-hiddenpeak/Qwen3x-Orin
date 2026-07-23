@@ -1,0 +1,404 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection",
+  "status": "rejected-test-only-decode-m1-qkv-z-activation-staged-candidate",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "5db3fb0d474c0c539d4fc4a3453d34b1663b1670",
+    "base_subject": "docs: record rejected Decode warp-tail reduction",
+    "candidate_commit": null,
+    "candidate_retained": false,
+    "test_only_probe_retained": false,
+    "candidate_code_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "candidate_test_binary": {
+      "path_during_measurement": "build/q3x_sm87_weight_only_gemv_test",
+      "sha256_reported_by_candidate_log": "c40c431133cbed78987572bd74fd17fb15e9940a2ecd19c488038f7e5e2b72dc",
+      "retained": false,
+      "path_was_overwritten_by_reverted_build": true
+    },
+    "reverted_test_binary": {
+      "local_path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4527128,
+      "sha256": "465a74ae044722b488b922616279ff435eba1790f9146b508d9250732d180e5c",
+      "checked_in": false,
+      "source_tree": "exact base HEAD 5db3fb0d474c0c539d4fc4a3453d34b1663b1670"
+    },
+    "restored_source_blobs": {
+      "src/kernels/sm87/weight_only_gemv.cu": "ca77c0757ad015c3be57d6f08477a5343048e9cb",
+      "tests/sm87_weight_only_gemv_test.cu": "7f760b051c90b7ce499e274d75aeff007e004339",
+      "both_match_base_head": true
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "The direct timing uses symmetric B-C-C-B order under unlocked platform clocks; ratios are diagnostic rather than release or serving latency claims."
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "scope": "the exact aligned SM87 FP8 M1 linear-attention QKV [10240,5120] then Z [6144,5120] production two-phase kernel",
+    "qkv_shape_n_by_k": [10240, 5120],
+    "z_shape_n_by_k": [6144, 5120],
+    "threads_per_block": 256,
+    "baseline": {
+      "name": "current production two-phase fused row-quad kernel",
+      "activation_path": "each row-quad body reads the BF16 activation through the existing direct global-memory path",
+      "decoded_codebook_shared_bytes": 1024,
+      "warp_sums_shared_bytes": 128,
+      "static_shared_bytes": 1152
+    },
+    "activation_staged": {
+      "name": "test-only qkv_z_two_phase_activation_staged row-quad kernel",
+      "activation_bytes": 10240,
+      "activation_uint64_words": 1280,
+      "coalesced_uint64_words_per_thread": 5,
+      "copy_frequency": "once per CTA",
+      "reuse_scope": "all row quads assigned to the CTA across both ordered QKV and Z phases",
+      "decoded_codebook_shared_bytes": 1024,
+      "warp_sums_shared_bytes": 128,
+      "static_shared_bytes": 11392,
+      "synchronization": "the activation copy and codebook setup share the existing first block barrier",
+      "arithmetic_contract": "the production row-quad FMA, decode, reduction, scale, and BF16-RNE body and operation order are unchanged"
+    },
+    "test_only_grid_caps": [384, 512, 768, 1024, 1280, 1536, 2048],
+    "production_public_launcher_ever_selected_candidate": false
+  },
+  "checkpoint_fixture": {
+    "source": "actual checkpoint payload",
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "qkv": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "absolute_offset": 3485125152,
+      "bytes": 52428800,
+      "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "z": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+      "absolute_offset": 3537553952,
+      "bytes": 31457280,
+      "sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae"
+    },
+    "activation_bytes": 10240,
+    "activation_sha256": "3951f547a99d8a6ddec339f7819060a8548b0fb61255906d66a53c46e046c530",
+    "payload_hashes_recomputed_directly_from_absolute_offsets": true,
+    "payload_identity_gate": "pass"
+  },
+  "pre_candidate_production_ncu": {
+    "purpose": "Bound the direct-read locality before deciding whether a test-only activation-staging probe was justified; this is not a matched candidate comparison.",
+    "candidate_profiled": false,
+    "fixture": "the pinned actual layer-0 QKV/Z checkpoint payload and deterministic 10,240-byte BF16 activation",
+    "kernel": "fp8_w8a16_gemv_bf16_qkv_z_two_phase_row_quad_kernel",
+    "grid_blocks": 1536,
+    "threads_per_block": 256,
+    "binary_sha256": "2999aa98fc6362a634b5b84b7a1ae7a1ff7f24a624a6aba72f299fd33f59d394",
+    "replay_passes": 12,
+    "cache_control_requested": "all",
+    "clock_control_requested": "base",
+    "clocks_fixed": false,
+    "duration_ns_unlocked_diagnostic_only": 502368,
+    "global_load_bytes": {
+      "total_requests": 125829120,
+      "one_pass_qkv_z_weights": 83886080,
+      "logically_repeated_activation": 41943040,
+      "l1_lookup_hits": 41761920,
+      "l1_lookup_misses": 84067200,
+      "activation_miss_bytes_inferred": 181120,
+      "activation_l1_hit_percent_inferred": 99.568176,
+      "inference": "The exact tensor-byte accounting and streaming access pattern assign the 83,886,080 one-pass weight bytes to misses; the remaining miss bytes are attributed to activation. NCU does not label hit bytes by pointer, so this is an explicit inference rather than a direct per-allocation counter."
+    },
+    "throughput_percent": {
+      "l1tex": 83.45,
+      "l2": 62.51,
+      "dram_read": 81.98,
+      "sm": 48.42,
+      "issue_active": 48.53,
+      "warps_active": 65.71
+    },
+    "stalled_warps_per_issue_active": {
+      "barrier": 2.18,
+      "long_scoreboard": 6.28,
+      "short_scoreboard": 1.32
+    },
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 4
+    },
+    "implication": "At cap 1,536, staging replaces 41,943,040 bytes of row-quad activation requests with 15,728,640 bytes of one-copy-per-CTA requests, removing 26,214,400 logical bytes (20.833% of total requests). Almost all baseline activation requests already hit L1 and the 83,886,080-byte streaming weight path remains. A small shared-memory win was possible, but a DRAM-sized win was not.",
+    "artifacts": [
+      {
+        "role": "NCU report",
+        "local_path": "/tmp/q3x-fp8-qkvz-production-single-ncu.ncu-rep",
+        "bytes": 1649414,
+        "sha256": "9496eee8ffb66656a0a782599cbf71d739c05e299382df96a1765b9bb7b8d928"
+      },
+      {
+        "role": "NCU command log",
+        "local_path": "/tmp/q3x-fp8-qkvz-production-single-ncu.log",
+        "bytes": 24892,
+        "sha256": "fbea682c75e0a039fac284dd865bcc296e1b826141def03a58dac0792213eab5"
+      },
+      {
+        "role": "NCU raw CSV",
+        "local_path": "/tmp/q3x-fp8-qkvz-production-single-ncu-raw.csv",
+        "bytes": 20601,
+        "sha256": "b5fc80d26a3442f06e8146bb1fcfd8ce62fc0ee19aa1293113cb24be63ad5325"
+      },
+      {
+        "role": "NCU details text",
+        "local_path": "/tmp/q3x-fp8-qkvz-production-single-ncu-details.txt",
+        "bytes": 26083,
+        "sha256": "caabcd96860182350be1f1e33acbe4803b9720d98b958df73b61538eebae17aa"
+      },
+      {
+        "role": "production-baseline-binary SASS inventory used to identify the profiled kernel",
+        "local_path": "/tmp/q3x-fp8-qkvz-production-single-sass.txt",
+        "bytes": 276859,
+        "sha256": "1bfcdf98ea88d8a89ce01d4735d50f501a80fe9fd0c24009ed8651e11fa2a7cc"
+      }
+    ]
+  },
+  "correctness_and_contract": {
+    "production_identity": {
+      "public_and_performance_kernel_same_function_grid_block_shared": true,
+      "grid_blocks": 1536,
+      "threads_per_block": 256,
+      "dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "resources": {
+      "query": "cudaFuncGetAttributes plus cudaOccupancyMaxActiveBlocksPerMultiprocessor",
+      "production": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 1152,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "candidate": {
+        "registers_per_thread": 56,
+        "static_shared_bytes": 11392,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "candidate_limits": {
+        "maximum_registers_per_thread": 64,
+        "required_static_shared_bytes": 11392,
+        "required_local_bytes": 0,
+        "minimum_active_blocks_per_sm": 4
+      },
+      "null_resource_destination_rejected": true,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "null_alignment_shape_scale_cap_and_alias_return_contracts": "pass",
+      "cuda_graph_zero_node_gate_added": false,
+      "reason_zero_node_gate_not_added": "the hard performance gate rejected the test-only candidate before promotion hardening"
+    },
+    "finite_codebook": {
+      "finite_e4m3fn_codes": 254,
+      "all_four_packed_byte_positions": true,
+      "both_matrices": true,
+      "qkv_bf16_mismatches": "0/10240",
+      "z_bf16_mismatches": "0/6144",
+      "replay_mismatches": "0/16384",
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "isolated_weight_nan": {
+      "fp8_raw_codes": [127, 255],
+      "classified_outputs": 16,
+      "unexpected_nonfinite": 0,
+      "bitwise_replay_and_guards": true,
+      "class_and_sign": true,
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "all_fourteen_sweep_cells": {
+      "qkv_bf16_mismatches_per_cell": "0/10240",
+      "z_bf16_mismatches_per_cell": "0/6144",
+      "replay_mismatches_per_cell": "0/16384",
+      "output_guards_per_cell": "intact",
+      "inputs_preserved_per_cell": true,
+      "finite_outputs_per_cell": true,
+      "gate": "pass"
+    },
+    "overall_correctness_and_resource_gate": "pass"
+  },
+  "performance_protocol": {
+    "command": "Q3X_RUN_SM87_FP8_M1_QKV_Z_ACTIVATION_STAGED_PERF=1 Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_OFFSETS=3485125152:3537553952 ./build/q3x_sm87_weight_only_gemv_test",
+    "comparison": "current fused production kernel versus the test-only activation-staged kernel at the same requested cap and on identical buffers",
+    "warmup_iterations_per_route": 10,
+    "measured_logical_pairs_per_timed_pass": 80,
+    "measurement_rounds": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "statistic": "median of ten baseline timed-pass means divided by median of ten candidate timed-pass means",
+    "independent_process_repeats": 1,
+    "requested_caps": [384, 512, 768, 1024, 1280, 1536, 2048],
+    "baseline_effective_caps": "QKV uses the requested cap; Z uses min(requested cap,768)",
+    "frozen_production_topology_cap": 1536,
+    "required_actual_checkpoint_speedup": 1.02,
+    "required_same_bank_stress_speedup": 1.0,
+    "exploratory_symmetric_required_speedup": 1.005
+  },
+  "cap_sweep": [
+    {
+      "cap": 384,
+      "actual_checkpoint": {"baseline_ms": 0.492275, "candidate_ms": 0.531821, "speedup": 0.925641, "candidate_uplift_percent": -7.43589},
+      "same_bank_stress": {"baseline_ms": 0.447057, "candidate_ms": 0.491789, "speedup": 0.909042, "candidate_uplift_percent": -9.09582}
+    },
+    {
+      "cap": 512,
+      "actual_checkpoint": {"baseline_ms": 0.490921, "candidate_ms": 0.531714, "speedup": 0.923279, "candidate_uplift_percent": -7.67206},
+      "same_bank_stress": {"baseline_ms": 0.447409, "candidate_ms": 0.494214, "speedup": 0.905295, "candidate_uplift_percent": -9.47052}
+    },
+    {
+      "cap": 768,
+      "actual_checkpoint": {"baseline_ms": 0.487351, "candidate_ms": 0.529517, "speedup": 0.920369, "candidate_uplift_percent": -7.96307},
+      "same_bank_stress": {"baseline_ms": 0.484857, "candidate_ms": 0.498241, "speedup": 0.973138, "candidate_uplift_percent": -2.68622}
+    },
+    {
+      "cap": 1024,
+      "actual_checkpoint": {"baseline_ms": 0.483602, "candidate_ms": 0.525545, "speedup": 0.920192, "candidate_uplift_percent": -7.98078},
+      "same_bank_stress": {"baseline_ms": 0.441786, "candidate_ms": 0.485546, "speedup": 0.909874, "candidate_uplift_percent": -9.01258}
+    },
+    {
+      "cap": 1280,
+      "actual_checkpoint": {"baseline_ms": 0.484182, "candidate_ms": 0.528190, "speedup": 0.916682, "candidate_uplift_percent": -8.33184},
+      "same_bank_stress": {"baseline_ms": 0.441330, "candidate_ms": 0.486137, "speedup": 0.907831, "candidate_uplift_percent": -9.21691}
+    },
+    {
+      "cap": 1536,
+      "actual_checkpoint": {"baseline_ms": 0.483909, "candidate_ms": 0.529643, "speedup": 0.913651, "candidate_uplift_percent": -8.63487},
+      "same_bank_stress": {"baseline_ms": 0.441375, "candidate_ms": 0.486988, "speedup": 0.906337, "candidate_uplift_percent": -9.36632}
+    },
+    {
+      "cap": 2048,
+      "actual_checkpoint": {"baseline_ms": 0.487391, "candidate_ms": 0.534382, "speedup": 0.912063, "candidate_uplift_percent": -8.79367},
+      "same_bank_stress": {"baseline_ms": 0.445445, "candidate_ms": 0.491811, "speedup": 0.905724, "candidate_uplift_percent": -9.42760}
+    }
+  ],
+  "frozen_validation": {
+    "cap": 1536,
+    "selection_basis": "exact production QKV/Z topology",
+    "actual_checkpoint": {
+      "baseline_ms": 0.483885,
+      "candidate_ms": 0.529748,
+      "speedup": 0.913426,
+      "candidate_uplift_percent": -8.65745,
+      "candidate_latency_increase_percent": 9.47808,
+      "required_speedup": 1.02,
+      "bitwise_finite": true,
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "baseline_ms": 0.441462,
+      "candidate_ms": 0.487527,
+      "speedup": 0.905513,
+      "candidate_uplift_percent": -9.44866,
+      "candidate_latency_increase_percent": 10.43465,
+      "required_speedup": 1.0,
+      "bitwise_finite": true,
+      "gate": "fail"
+    },
+    "selected_gate": "fail"
+  },
+  "mechanism_interpretation": {
+    "observed": "Every actual-checkpoint cap regresses to 0.912063x-0.925641x; six of seven same-bank cells regress to 0.905295x-0.909874x and the remaining cap-768 cell reaches only 0.973138x.",
+    "resource_delta": "Static shared memory rises by exactly 10,240 bytes, from 1,152 to 11,392 bytes; registers fall from 64 to 56, local memory remains zero, and measured occupancy remains four CTAs per SM.",
+    "causal_hypothesis": "The fixed coalesced activation copy and subsequent shared-memory reads add CTA initialization and shared-memory traffic. The production direct activation reads are evidently cheap enough in this workload that eliminating repeated address-path reads does not repay staging, even though no extra barrier or occupancy loss is introduced.",
+    "claim_boundary": "The production-only NCU baseline bounds direct-read locality, but no matched candidate counters were collected. Candidate causality is therefore inferred from the controlled same-binary timing, the resource delta, and that production locality bound rather than from an NCU B/C comparison."
+  },
+  "decision": {
+    "result": "reject",
+    "correctness_gate": "pass",
+    "resource_gate": "pass",
+    "actual_checkpoint_gate": "fail",
+    "same_bank_non_regression_gate": "fail",
+    "reason": "The bitwise-correct candidate is slower at every tested cap and the frozen cap-1536 retest reaches only 0.913426x on actual checkpoint weights and 0.905513x on same-bank stress, missing both 1.02x and 1.00x mandatory gates.",
+    "candidate_nsight_compute_run": false,
+    "candidate_nsight_compute_stop_loss_reason": "The mandatory same-binary actual-checkpoint and stress gates failed decisively; a matched candidate NCU run would not change the production decision and was outside the bounded rejection path.",
+    "end_to_end_benchmark_run": false,
+    "end_to_end_stop_loss_reason": "The mandatory kernel gate failed before the end-to-end stage, so spending a model-load/generation iteration could not promote this candidate.",
+    "candidate_code_removed": true,
+    "test_only_probe_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "retained_route": "the existing production qkv_z_two_phase_row_quad kernel with direct activation reads",
+    "next_priority": "Continue Decode M1 work with a mechanism that reduces the weight/decode or scheduling critical path; do not revisit full 10-KiB per-CTA activation staging without new counter evidence or a materially different reuse topology."
+  },
+  "removal_validation": {
+    "candidate_source_diff_after_removal": "empty for both candidate-modified files",
+    "candidate_source_blob_matches_base_head": true,
+    "candidate_test_blob_matches_base_head": true,
+    "test_only_candidate_code_fully_removed": true,
+    "test_only_probe_retained": false,
+    "production_runtime_restored_to_base_head": true,
+    "rebuild_status": "pass",
+    "reverted_default_test": "pass"
+  },
+  "artifact_identity_validation": {
+    "performance_log_absolute_path": true,
+    "performance_log_stat_bytes_match": true,
+    "performance_log_wc_lines_match": true,
+    "performance_log_sha256_match": true,
+    "checkpoint_qkv_payload_sha256_recomputed_and_matched": true,
+    "checkpoint_z_payload_sha256_recomputed_and_matched": true,
+    "restored_source_git_blob_ids_match_base_head": true,
+    "reverted_binary_sha256_recomputed_and_matched": true
+  },
+  "supporting_artifacts": [
+    {
+      "role": "candidate actual-checkpoint and same-bank cap-sweep rejection log",
+      "local_path": "/tmp/q3x-fp8-qkvz-activation-staged-run1.log",
+      "bytes": 101940,
+      "lines": 445,
+      "sha256": "02c91f88672e4455063b13220d031eb82fc28216b7564131196ee084cdca750d",
+      "checked_in": false,
+      "process_exit_status": 1,
+      "result": "expected candidate performance rejection assertion"
+    },
+    {
+      "role": "post-removal default device test log",
+      "local_path": "/tmp/q3x-sm87-default-after-qkvz-staged-reject.log",
+      "bytes": 47122,
+      "lines": 287,
+      "sha256": "2133a8d24a848fca2c655a74e58390420c427549d524b6be4bd0b8c1303ade5c",
+      "checked_in": false,
+      "process_exit_status": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed"
+    }
+  ],
+  "limitations": [
+    "GPU and memory clocks were not globally locked; the symmetric same-process ratios are diagnostic rather than release, power, energy, or serving-throughput claims.",
+    "The cap sweep and frozen validation were run in one process. The regression is large and uniform enough to trigger the predefined stop-loss without independent process repeats.",
+    "The isolated nonfinite fixture injects signed FP8 weight NaNs. A BF16 activation raw-bit signed NaN/Inf/zero/subnormal fixture was identified as promotion hardening but was not added after the performance rejection.",
+    "Invalid calls passed their return-value contract, but candidate-specific CUDA Graph zero-node validation was not added after the performance rejection.",
+    "No Nsight Compute or end-to-end model run was performed because both mandatory frozen microbenchmark gates failed.",
+    "The candidate never entered production dispatch and all candidate source and test-only hooks were removed."
+  ]
+}

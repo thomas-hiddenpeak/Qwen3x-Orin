@@ -43,6 +43,8 @@ The subsequent eight-row lane-striped GDN diagnostic is recorded in
 The subsequent exact FP8 M1 linear-attention QKV/Z fusion diagnostic is
 recorded in
 [`qwen36-27b-fp8-qkv-z-fusion-benchmark.json`](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
+The rejected Decode M1 QKV/Z full-activation-staging follow-up is recorded in
+[`qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json`](metadata/qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json).
 The subsequent exact NVFP4 M1 dense-MLP gate/up/SiLU fusion diagnostic is
 recorded in
 [`qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
@@ -3036,3 +3038,76 @@ does not invalidate the earlier successful `[17408,5120]` post-attention
 gate/up warp-tail kernel, whose shape and shared-memory layout differ. Exact
 logs, hashes, NCU filter requirements, counters, and claim limits are in the
 [down/residual/norm warp-tail rejection record](metadata/qwen36-27b-nvfp4-m1-down-residual-norm-warp-tail-rejection.json).
+
+## Decode M1 FP8 QKV/Z activation-staging rejection
+
+The next bounded Decode experiment tested whether the existing exact M1 FP8
+QKV/Z two-phase kernel should stage its complete 5,120-element BF16 activation
+once per CTA. The test-only candidate copied 1,280 coalesced 64-bit words
+(10,240 bytes, five words per thread), shared the existing first barrier with
+the E4M3FN codebook setup, and reused that shared activation across every row
+quad assigned to the CTA in both ordered phases. The production row-quad FMA,
+decode, reduction, scale, and BF16-RNE operation order was unchanged. The
+public ABI, production launcher, and dispatch never selected the candidate.
+
+Correctness and resources pass. Against the current fused kernel at the same
+requested cap, all fourteen actual-checkpoint/same-bank cells have zero QKV/Z
+BF16 mismatches, zero replay mismatches, intact output canaries, preserved
+inputs, and finite outputs. Exhaustive finite E4M3FN byte positions and
+isolated signed-weight-NaN classification also pass, as do the return-value
+invalid contracts. The candidate uses 56 registers, exactly 11,392 bytes of
+static shared memory, zero local memory, 256 threads, and four active CTAs per
+SM; production uses 64 registers and 1,152 static-shared bytes at the same
+four-CTA occupancy.
+
+One same-binary process used the actual layer-0 checkpoint tensors, 10 warmups,
+80 logical QKV/Z pairs per timed pass, five B-C-C-B rounds, and separate
+checkpoint/stress measurements. Every cap regresses:
+
+| Requested cap | Actual checkpoint | Same-bank stress |
+| ---: | ---: | ---: |
+| 384 | 0.925641x | 0.909042x |
+| 512 | 0.923279x | 0.905295x |
+| 768 | 0.920369x | 0.973138x |
+| 1,024 | 0.920192x | 0.909874x |
+| 1,280 | 0.916682x | 0.907831x |
+| 1,536 | 0.913651x | 0.906337x |
+| 2,048 | 0.912063x | 0.905724x |
+
+The frozen production-topology cap-1,536 retest measures 0.483885 versus
+0.529748 ms on actual checkpoint bytes, or 0.913426x against the mandatory
+1.02x gate. Same-bank stress measures 0.441462 versus 0.487527 ms, or
+0.905513x against the mandatory 1.00x non-regression gate. Thus the candidate
+raises latency by 9.48% and 10.43% respectively; correctness and unchanged
+occupancy do not rescue the failed production-value gate.
+
+A production-only NCU baseline collected before implementing the candidate
+helps bound the mechanism. The exact cap-1,536 kernel requests 125,829,120
+global-load bytes: 83,886,080 bytes are the one-pass QKV/Z weights and
+41,943,040 bytes are the logically repeated activation. NCU reports 41,761,920
+L1-hit bytes and 84,067,200 L1-miss bytes. Under the explicit inference that
+the streaming weights account for the misses, 99.568% of activation bytes
+already hit L1; the remaining 181,120 miss bytes are only 0.432% of the
+activation traffic. Thus full per-CTA staging cannot remove the weight-dominant
+DRAM path.
+
+The likely candidate mechanism is therefore fixed staging cost without useful
+new locality: static shared memory grows by the activation's full 10,240 bytes,
+each CTA must populate it, and all later activation reads become shared-memory
+traffic. This remains an inference because no matched candidate NCU profile was
+collected. Both mandatory micro gates fail decisively, so the stop-loss
+intentionally excludes candidate NCU and end-to-end model runs; neither could
+promote the candidate after the hard gate failure. The production-only report
+is 1,649,414 bytes with SHA-256
+`9496eee8ffb66656a0a782599cbf71d739c05e299382df96a1765b9bb7b8d928`.
+
+All test-only code and hooks were removed. The kernel and test source blobs
+match base HEAD `5db3fb0d474c0c539d4fc4a3453d34b1663b1670` exactly, the restored binary
+passes the default device test, and production retains direct activation reads.
+The complete local rejection log is
+`/tmp/q3x-fp8-qkvz-activation-staged-run1.log` (101,940 bytes, 445 lines,
+SHA-256
+`02c91f88672e4455063b13220d031eb82fc28216b7564131196ee084cdca750d`).
+Exact per-cap latencies, checkpoint offsets and independently verified payload
+hashes, artifact identities, hardening omissions, and claim limits are in the
+[QKV/Z activation-staging rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json).
