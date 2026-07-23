@@ -16,6 +16,36 @@
 #include <utility>
 #include <vector>
 
+namespace q3x::runtime {
+
+int launch_attention_scores_baseline_24_4_256_test_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension,
+    float attention_scale, float* scores, void* cuda_stream) noexcept;
+
+int launch_attention_scores_warp_positions_24_4_256_test_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension,
+    float attention_scale, float* scores, void* cuda_stream) noexcept;
+
+bool use_attention_scores_warp_positions_24_4_256_test(
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension) noexcept;
+
+int query_attention_scores_baseline_24_4_256_test_cuda_resources(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+}  // namespace q3x::runtime
+
 namespace {
 
 class TestContext {
@@ -2699,6 +2729,1103 @@ void test_attention(TestContext& test, cudaStream_t stream) {
   }
 }
 
+struct AttentionScoreKernelResources {
+  int registers = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks_per_multiprocessor = 0;
+};
+
+using AttentionScoreTestLaunch = int (*)(
+    const std::uint16_t*, const std::uint16_t*, std::size_t, std::size_t,
+    std::size_t, std::size_t, float, float*, void*) noexcept;
+
+struct AttentionScoreGraphTopology {
+  void* function = nullptr;
+  dim3 grid{0U, 0U, 0U};
+  dim3 block{0U, 0U, 0U};
+  unsigned int dynamic_shared_bytes = 0U;
+};
+
+struct GqaGraphTopology {
+  AttentionScoreGraphTopology root;
+  std::vector<void*> non_root_functions;
+};
+
+void expect_invalid_attention_score_graph(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    const AttentionScoreTestLaunch launch,
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::size_t query_heads,
+    const std::size_t kv_heads,
+    const std::size_t sequence_length,
+    const std::size_t dimension,
+    const float scale,
+    float* const scores) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch(
+      query, key, query_heads, kv_heads, sequence_length, dimension, scale,
+      scores, static_cast<void*>(stream)));
+  test.expect(launch_status == cudaErrorInvalidValue,
+              label + " returns cudaErrorInvalidValue");
+  cudaGraph_t graph = nullptr;
+  if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                    label + " end capture")) {
+    return;
+  }
+  std::size_t node_count = 0U;
+  if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                   label + " count nodes")) {
+    test.expect(node_count == 0U, label + " captures zero graph nodes");
+  }
+  (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+[[nodiscard]] bool capture_attention_score_graph_topology(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    const AttentionScoreTestLaunch launch,
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::size_t sequence_length,
+    float* const scores,
+    AttentionScoreGraphTopology& topology) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return false;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch(
+      query, key, 24U, 4U, sequence_length, 256U, 0.0625F, scores,
+      static_cast<void*>(stream)));
+  test.expect(launch_status == cudaSuccess, label + " launch succeeds");
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end capture");
+  if (!ready) {
+    return false;
+  }
+  std::size_t node_count = 0U;
+  ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                       label + " count nodes");
+  test.expect(node_count == 1U, label + " captures exactly one node");
+  if (ready && node_count == 1U) {
+    cudaGraphNode_t node = nullptr;
+    std::size_t capacity = 1U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                         label + " fetch node");
+    test.expect(capacity == 1U, label + " fetches one node");
+    cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+    ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                  label + " read node type");
+    test.expect(node_type == cudaGraphNodeTypeKernel,
+                label + " node is a kernel");
+    cudaKernelNodeParams parameters{};
+    ready = ready && test.cuda_ok(
+                         cudaGraphKernelNodeGetParams(node, &parameters),
+                         label + " read kernel parameters");
+    if (ready) {
+      topology.function = parameters.func;
+      topology.grid = parameters.gridDim;
+      topology.block = parameters.blockDim;
+      topology.dynamic_shared_bytes = parameters.sharedMemBytes;
+    }
+  } else {
+    ready = false;
+  }
+  ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+          ready;
+  return ready;
+}
+
+[[nodiscard]] bool capture_gqa_graph_topology(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::uint16_t* const value,
+    const std::size_t sequence_length,
+    float* const scratch,
+    const std::size_t scratch_elements,
+    std::uint16_t* const output,
+    GqaGraphTopology& topology) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return false;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(
+      q3x::runtime::launch_gqa_attention_reference_cuda(
+          query, key, value, 24U, 4U, sequence_length, 256U, 0.0625F,
+          scratch, scratch_elements, output, static_cast<void*>(stream)));
+  test.expect(launch_status == cudaSuccess, label + " launch succeeds");
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end capture");
+  if (!ready) {
+    return false;
+  }
+
+  std::size_t node_count = 0U;
+  ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                       label + " count nodes");
+  test.expect(node_count == 3U, label + " captures three kernel nodes");
+  std::vector<cudaGraphNode_t> nodes(node_count);
+  std::size_t node_capacity = nodes.size();
+  if (ready && node_count != 0U) {
+    ready = test.cuda_ok(
+        cudaGraphGetNodes(graph, nodes.data(), &node_capacity),
+        label + " fetch nodes");
+    test.expect(node_capacity == node_count,
+                label + " fetches every graph node");
+  }
+
+  std::size_t root_count = 0U;
+  ready = ready && test.cuda_ok(
+                       cudaGraphGetRootNodes(graph, nullptr, &root_count),
+                       label + " count roots");
+  test.expect(root_count == 1U, label + " has exactly one root");
+  cudaGraphNode_t root = nullptr;
+  std::size_t root_capacity = 1U;
+  if (ready && root_count == 1U) {
+    ready = test.cuda_ok(cudaGraphGetRootNodes(graph, &root, &root_capacity),
+                         label + " fetch root");
+    test.expect(root_capacity == 1U, label + " fetches one root");
+  } else {
+    ready = false;
+  }
+
+  topology.non_root_functions.clear();
+  if (ready) {
+    for (const cudaGraphNode_t node : nodes) {
+      cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+      ready = test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                           label + " read node type") &&
+              ready;
+      test.expect(node_type == cudaGraphNodeTypeKernel,
+                  label + " contains only kernel nodes");
+      cudaKernelNodeParams parameters{};
+      if (node_type == cudaGraphNodeTypeKernel) {
+        ready = test.cuda_ok(cudaGraphKernelNodeGetParams(node, &parameters),
+                             label + " read kernel parameters") &&
+                ready;
+        if (node == root) {
+          topology.root.function = parameters.func;
+          topology.root.grid = parameters.gridDim;
+          topology.root.block = parameters.blockDim;
+          topology.root.dynamic_shared_bytes = parameters.sharedMemBytes;
+        } else {
+          topology.non_root_functions.push_back(parameters.func);
+        }
+      }
+    }
+  }
+  test.expect(topology.root.function != nullptr,
+              label + " root has a kernel identity");
+  test.expect(topology.non_root_functions.size() == 2U,
+              label + " has two non-root kernels");
+  ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+          ready;
+  return ready;
+}
+
+void test_attention_scores_warp_positions_exact(TestContext& test,
+                                                cudaStream_t stream) {
+  const int failures_before = test.failures();
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kMaximumSequence = 544U;
+  constexpr float kScale = 0.0625F;
+  constexpr std::size_t kGuardElements = 17U;
+  constexpr std::size_t kQueryElements = kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElements =
+      kMaximumSequence * kKvHeads * kDimension;
+  constexpr std::size_t kMaximumScoreElements =
+      kQueryHeads * kMaximumSequence;
+  constexpr std::array<std::size_t, 29U> kSequenceLengths{
+      1U,   2U,   3U,   4U,   5U,   6U,   7U,   8U,   9U,   63U,
+      64U,  65U,  66U,  67U,  68U,  69U,  70U,  71U,  72U,  127U,
+      128U, 129U, 255U, 256U, 257U, 511U, 512U, 513U, 544U};
+  const float canary = float_from_bits(0x4a55aa55U);
+
+  AttentionScoreKernelResources baseline_resources;
+  AttentionScoreKernelResources candidate_resources;
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_scores_baseline_24_4_256_test_cuda_resources(
+              nullptr, &baseline_resources.static_shared_bytes,
+              &baseline_resources.local_bytes,
+              &baseline_resources.maximum_threads,
+              &baseline_resources.active_blocks_per_multiprocessor)) ==
+          cudaErrorInvalidValue,
+      "attention score baseline resource query rejects null output");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
+              &candidate_resources.registers,
+              &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes, nullptr,
+              &candidate_resources.active_blocks_per_multiprocessor)) ==
+          cudaErrorInvalidValue,
+      "attention score candidate resource query rejects null output");
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_scores_baseline_24_4_256_test_cuda_resources(
+              &baseline_resources.registers,
+              &baseline_resources.static_shared_bytes,
+              &baseline_resources.local_bytes,
+              &baseline_resources.maximum_threads,
+              &baseline_resources.active_blocks_per_multiprocessor)),
+      "attention score baseline resource query");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
+              &candidate_resources.registers,
+              &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes,
+              &candidate_resources.maximum_threads,
+              &candidate_resources.active_blocks_per_multiprocessor)),
+      "attention score warp-position resource query");
+  if (!ready) {
+    return;
+  }
+  std::cout << "ATTENTION_SCORE_RESOURCES: baseline_regs="
+            << baseline_resources.registers
+            << " baseline_static_shared="
+            << baseline_resources.static_shared_bytes
+            << " baseline_local=" << baseline_resources.local_bytes
+            << " baseline_active_blocks="
+            << baseline_resources.active_blocks_per_multiprocessor
+            << " candidate_regs=" << candidate_resources.registers
+            << " candidate_static_shared="
+            << candidate_resources.static_shared_bytes
+            << " candidate_local=" << candidate_resources.local_bytes
+            << " candidate_active_blocks="
+            << candidate_resources.active_blocks_per_multiprocessor << '\n';
+  test.expect(baseline_resources.static_shared_bytes ==
+                  256U * sizeof(float),
+              "attention score baseline retains the exact shared tree");
+  test.expect(baseline_resources.local_bytes == 0U,
+              "attention score baseline has no local-memory spills");
+  test.expect(candidate_resources.static_shared_bytes == 0U,
+              "attention score candidate uses no static shared memory");
+  test.expect(candidate_resources.local_bytes == 0U,
+              "attention score candidate has no local-memory spills");
+  test.expect(candidate_resources.registers <= 64,
+              "attention score candidate stays below the hard register cap");
+  test.expect(candidate_resources.registers <= 40,
+              "attention score candidate meets the target register cap");
+  test.expect(candidate_resources.maximum_threads >= 256,
+              "attention score candidate supports a 256-thread block");
+  test.expect(candidate_resources.active_blocks_per_multiprocessor >= 4,
+              "attention score candidate retains hard occupancy floor");
+  test.expect(candidate_resources.active_blocks_per_multiprocessor >= 6,
+              "attention score candidate meets the target occupancy floor");
+
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<float> baseline_storage;
+  ManagedBuffer<float> candidate_storage;
+  ManagedBuffer<float> replay_storage;
+  ready = test.cuda_ok(query.allocate(kQueryElements),
+                       "attention score exact allocate query");
+  ready = ready && test.cuda_ok(key.allocate(kKeyElements),
+                                "attention score exact allocate key");
+  ready = ready && test.cuda_ok(
+      baseline_storage.allocate(kMaximumScoreElements +
+                                2U * kGuardElements),
+      "attention score exact allocate baseline");
+  ready = ready && test.cuda_ok(
+      candidate_storage.allocate(kMaximumScoreElements +
+                                 2U * kGuardElements),
+      "attention score exact allocate candidate");
+  ready = ready && test.cuda_ok(
+      replay_storage.allocate(kMaximumScoreElements + 2U * kGuardElements),
+      "attention score exact allocate replay");
+  if (!ready) {
+    return;
+  }
+
+  const auto finite_bf16_pattern = [](const std::size_t index,
+                                      const std::uint32_t salt) {
+    std::uint32_t mixed = static_cast<std::uint32_t>(index) * 747796405U +
+                          salt;
+    mixed ^= mixed >> 16U;
+    mixed *= 2246822519U;
+    mixed ^= mixed >> 13U;
+    const std::uint16_t sign =
+        static_cast<std::uint16_t>((mixed >> 31U) << 15U);
+    const std::uint16_t exponent = static_cast<std::uint16_t>(
+        (115U + ((mixed >> 8U) % 25U)) << 7U);
+    const std::uint16_t mantissa =
+        static_cast<std::uint16_t>(mixed & 0x007fU);
+    return static_cast<std::uint16_t>(sign | exponent | mantissa);
+  };
+  for (std::size_t index = 0U; index < query.size(); ++index) {
+    query[index] = finite_bf16_pattern(index, 0x9e3779b9U);
+  }
+  for (std::size_t index = 0U; index < key.size(); ++index) {
+    key[index] = finite_bf16_pattern(index, 0x85ebca6bU);
+  }
+  const std::vector<std::uint16_t> query_snapshot(query.data(),
+                                                   query.data() + query.size());
+  const std::vector<std::uint16_t> key_snapshot(key.data(),
+                                                 key.data() + key.size());
+  float* const baseline = baseline_storage.data() + kGuardElements;
+  float* const candidate = candidate_storage.data() + kGuardElements;
+  float* const replay = replay_storage.data() + kGuardElements;
+
+  const auto reference_tree_score = [&](const std::size_t query_head,
+                                        const std::size_t position) {
+    std::array<float, kDimension> partial{};
+    const std::size_t kv_head = query_head / (kQueryHeads / kKvHeads);
+    const std::size_t query_offset = query_head * kDimension;
+    const std::size_t key_offset =
+        (position * kKvHeads + kv_head) * kDimension;
+    for (std::size_t dimension = 0U; dimension < kDimension; ++dimension) {
+      partial[dimension] =
+          std::fma(decode_bf16(query[query_offset + dimension]),
+                   decode_bf16(key[key_offset + dimension]), 0.0F);
+    }
+    for (std::size_t stride = kDimension / 2U; stride != 0U; stride >>= 1U) {
+      for (std::size_t dimension = 0U; dimension < stride; ++dimension) {
+        partial[dimension] =
+            partial[dimension] + partial[dimension + stride];
+      }
+    }
+    return partial[0] * kScale;
+  };
+  const auto linear_fma_score = [&](const std::size_t query_head,
+                                    const std::size_t position) {
+    const std::size_t kv_head = query_head / (kQueryHeads / kKvHeads);
+    const std::size_t query_offset = query_head * kDimension;
+    const std::size_t key_offset =
+        (position * kKvHeads + kv_head) * kDimension;
+    float score = 0.0F;
+    for (std::size_t dimension = 0U; dimension < kDimension; ++dimension) {
+      score = std::fma(decode_bf16(query[query_offset + dimension]),
+                       decode_bf16(key[key_offset + dimension]), score);
+    }
+    return score * kScale;
+  };
+  bool reduction_order_sensitive = false;
+  for (std::size_t query_head = 0U;
+       query_head < kQueryHeads && !reduction_order_sensitive;
+       ++query_head) {
+    for (std::size_t position = 0U;
+         position < 8U && !reduction_order_sensitive; ++position) {
+      const float tree = reference_tree_score(query_head, position);
+      const float linear = linear_fma_score(query_head, position);
+      reduction_order_sensitive =
+          std::memcmp(&tree, &linear, sizeof(float)) != 0;
+    }
+  }
+  test.expect(reduction_order_sensitive,
+              "attention score finite fixture detects reduction reordering");
+
+  const auto guards_intact = [&](const ManagedBuffer<float>& storage,
+                                 const std::size_t active_elements) {
+    const float* const payload = storage.data() + kGuardElements;
+    return std::all_of(storage.data(), payload,
+                       [&](const float value) { return value == canary; }) &&
+           std::all_of(payload + active_elements,
+                       storage.data() + storage.size(),
+                       [&](const float value) { return value == canary; });
+  };
+
+  for (const std::size_t sequence_length : kSequenceLengths) {
+    const std::string label =
+        "attention score exact S=" + std::to_string(sequence_length);
+    const std::size_t active_elements = kQueryHeads * sequence_length;
+    std::fill_n(baseline_storage.data(), baseline_storage.size(), canary);
+    std::fill_n(candidate_storage.data(), candidate_storage.size(), canary);
+    std::fill_n(replay_storage.data(), replay_storage.size(), canary);
+
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_scores_baseline_24_4_256_test_cuda(
+                query.data(), key.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, kScale, baseline,
+                static_cast<void*>(stream))),
+        label + " baseline launch");
+    ready = ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_scores_warp_positions_24_4_256_test_cuda(
+                query.data(), key.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, kScale, candidate,
+                static_cast<void*>(stream))),
+        label + " candidate launch");
+    ready = ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_scores_warp_positions_24_4_256_test_cuda(
+                query.data(), key.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, kScale, replay,
+                static_cast<void*>(stream))),
+        label + " replay launch");
+    ready = ready &&
+            test.cuda_ok(cudaStreamSynchronize(stream), label + " sync");
+    if (!ready) {
+      return;
+    }
+    test.expect(std::memcmp(candidate, baseline,
+                            active_elements * sizeof(float)) == 0,
+                label + " candidate is raw-FP32 bitwise exact");
+    test.expect(std::memcmp(replay, candidate,
+                            active_elements * sizeof(float)) == 0,
+                label + " candidate replay is deterministic");
+    const std::size_t oracle_query_head = sequence_length % kQueryHeads;
+    const std::size_t oracle_position = sequence_length - 1U;
+    const float oracle =
+        reference_tree_score(oracle_query_head, oracle_position);
+    test.expect(
+        std::memcmp(&baseline[oracle_query_head * sequence_length +
+                              oracle_position],
+                    &oracle, sizeof(float)) == 0,
+        label + " baseline matches the independent shared-tree oracle");
+    test.expect(guards_intact(baseline_storage, active_elements),
+                label + " baseline canaries are intact");
+    test.expect(guards_intact(candidate_storage, active_elements),
+                label + " candidate canaries are intact");
+    test.expect(guards_intact(replay_storage, active_elements),
+                label + " replay canaries are intact");
+    test.expect(std::memcmp(query.data(), query_snapshot.data(),
+                            query.size() * sizeof(std::uint16_t)) == 0,
+                label + " query is unchanged");
+    test.expect(std::memcmp(key.data(), key_snapshot.data(),
+                            key.size() * sizeof(std::uint16_t)) == 0,
+                label + " key cache is unchanged");
+  }
+
+  constexpr std::size_t kSpecialSequence = 8U;
+  constexpr std::array<std::uint16_t, 12U> kSpecialBf16{
+      0x0000U,  // +0
+      0x8000U,  // -0
+      0x0001U,  // smallest positive subnormal
+      0x8001U,  // smallest negative subnormal
+      0x7f7fU,  // maximum positive finite
+      0xff7fU,  // maximum negative finite
+      0x7f80U,  // +infinity
+      0xff80U,  // -infinity
+      0x7fc1U,  // positive quiet NaN
+      0xffc1U,  // negative quiet NaN
+      0x7f81U,  // positive signaling NaN
+      0xff81U   // negative signaling NaN
+  };
+  constexpr std::array<std::size_t, 8U> kTreeSlots{
+      0U, 32U, 64U, 96U, 128U, 160U, 192U, 224U};
+  constexpr std::array<std::size_t, 4U> kShuffleBoundaryLanes{
+      0U, 15U, 16U, 31U};
+  constexpr std::size_t kSpecialKeyElements =
+      kSpecialSequence * kKvHeads * kDimension;
+  const std::size_t special_active_elements =
+      kQueryHeads * kSpecialSequence;
+  std::size_t isolated_special_cases = 0U;
+  for (std::size_t raw_index = 0U; raw_index < kSpecialBf16.size();
+       ++raw_index) {
+    for (std::size_t slot_index = 0U; slot_index < kTreeSlots.size();
+         ++slot_index) {
+      for (std::size_t lane_index = 0U;
+           lane_index < kShuffleBoundaryLanes.size(); ++lane_index) {
+        for (std::size_t operand = 0U; operand < 2U; ++operand) {
+          const std::string label =
+              "attention score isolated special raw=" +
+              std::to_string(raw_index) + " slot=" +
+              std::to_string(slot_index) + " lane=" +
+              std::to_string(lane_index) +
+              (operand == 0U ? " query" : " key");
+          std::fill_n(query.data(), query.size(),
+                      static_cast<std::uint16_t>(0x0000U));
+          std::fill_n(key.data(), kSpecialKeyElements,
+                      static_cast<std::uint16_t>(0x0000U));
+          const std::size_t query_head = isolated_special_cases % kQueryHeads;
+          const std::size_t kv_head =
+              query_head / (kQueryHeads / kKvHeads);
+          const std::size_t position =
+              (isolated_special_cases / kQueryHeads) % kSpecialSequence;
+          const std::size_t dimension =
+              kTreeSlots[slot_index] + kShuffleBoundaryLanes[lane_index];
+          const std::size_t query_index =
+              query_head * kDimension + dimension;
+          if (operand == 0U) {
+            query[query_index] = kSpecialBf16[raw_index];
+            for (std::size_t key_position = 0U;
+                 key_position < kSpecialSequence; ++key_position) {
+              key[(key_position * kKvHeads + kv_head) * kDimension +
+                  dimension] = encode_bf16(1.0F);
+            }
+          } else {
+            query[query_index] = encode_bf16(1.0F);
+            key[(position * kKvHeads + kv_head) * kDimension + dimension] =
+                kSpecialBf16[raw_index];
+          }
+          const std::vector<std::uint16_t> special_query_snapshot(
+              query.data(), query.data() + query.size());
+          const std::vector<std::uint16_t> special_key_snapshot(
+              key.data(), key.data() + kSpecialKeyElements);
+          std::fill_n(baseline_storage.data(), baseline_storage.size(),
+                      canary);
+          std::fill_n(candidate_storage.data(), candidate_storage.size(),
+                      canary);
+          std::fill_n(replay_storage.data(), replay_storage.size(), canary);
+
+          ready = test.cuda_ok(
+              static_cast<cudaError_t>(q3x::runtime::
+                  launch_attention_scores_baseline_24_4_256_test_cuda(
+                      query.data(), key.data(), kQueryHeads, kKvHeads,
+                      kSpecialSequence, kDimension, kScale, baseline,
+                      static_cast<void*>(stream))),
+              label + " baseline launch");
+          ready = ready && test.cuda_ok(
+              static_cast<cudaError_t>(q3x::runtime::
+                  launch_attention_scores_warp_positions_24_4_256_test_cuda(
+                      query.data(), key.data(), kQueryHeads, kKvHeads,
+                      kSpecialSequence, kDimension, kScale, candidate,
+                      static_cast<void*>(stream))),
+              label + " candidate launch");
+          ready = ready && test.cuda_ok(
+              static_cast<cudaError_t>(q3x::runtime::
+                  launch_attention_scores_warp_positions_24_4_256_test_cuda(
+                      query.data(), key.data(), kQueryHeads, kKvHeads,
+                      kSpecialSequence, kDimension, kScale, replay,
+                      static_cast<void*>(stream))),
+              label + " replay launch");
+          ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                        label + " sync");
+          if (!ready) {
+            return;
+          }
+          test.expect(std::memcmp(candidate, baseline,
+                                  special_active_elements * sizeof(float)) ==
+                          0,
+                      label + " is raw-FP32 bitwise exact");
+          test.expect(std::memcmp(replay, candidate,
+                                  special_active_elements * sizeof(float)) ==
+                          0,
+                      label + " replay is deterministic");
+          const float classified =
+              baseline[query_head * kSpecialSequence + position];
+          const std::uint16_t raw = kSpecialBf16[raw_index];
+          if ((raw & 0x7f80U) == 0x7f80U) {
+            if ((raw & 0x007fU) == 0U) {
+              test.expect(std::isinf(classified),
+                          label + " keeps isolated infinity observable");
+            } else {
+              test.expect(std::isnan(classified),
+                          label + " keeps isolated NaN observable");
+            }
+          } else {
+            test.expect(std::isfinite(classified),
+                        label + " is not masked by a nonfinite class");
+          }
+          test.expect(guards_intact(baseline_storage,
+                                    special_active_elements),
+                      label + " baseline canaries are intact");
+          test.expect(guards_intact(candidate_storage,
+                                    special_active_elements),
+                      label + " candidate canaries are intact");
+          test.expect(guards_intact(replay_storage, special_active_elements),
+                      label + " replay canaries are intact");
+          test.expect(std::memcmp(query.data(), special_query_snapshot.data(),
+                                  query.size() * sizeof(std::uint16_t)) == 0,
+                      label + " query is unchanged");
+          test.expect(std::memcmp(key.data(), special_key_snapshot.data(),
+                                  kSpecialKeyElements *
+                                      sizeof(std::uint16_t)) == 0,
+                      label + " key cache is unchanged");
+          ++isolated_special_cases;
+        }
+      }
+    }
+  }
+  std::cout << "ATTENTION_SCORE_BINARY_IDENTITY: finite_boundary_lengths="
+            << kSequenceLengths.size()
+            << " special_raw_bf16=" << kSpecialBf16.size()
+            << " tree_slots=" << kTreeSlots.size()
+            << " shuffle_boundary_lanes=" << kShuffleBoundaryLanes.size()
+            << " isolated_operand_cases=" << isolated_special_cases
+            << " replay=enabled status="
+            << (test.failures() == failures_before ? "PASS" : "FAIL")
+            << '\n';
+}
+
+void test_attention_scores_warp_positions_graph_contract(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kSequence = 513U;
+  constexpr std::size_t kQueryElements = 24U * 256U;
+  constexpr std::size_t kKeyElements = kSequence * 4U * 256U;
+  constexpr std::size_t kScoreElements = 24U * kSequence;
+  test.expect(
+      !q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+          24U, 4U, 64U, 256U),
+      "attention score production selector keeps S64 on the reference path");
+  test.expect(
+      q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+          24U, 4U, 65U, 256U),
+      "attention score production selector enables S65");
+  test.expect(
+      q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+          24U, 4U, 65535U * 8U, 256U),
+      "attention score production selector accepts the maximum grid");
+  test.expect(
+      !q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+          24U, 4U, 65535U * 8U + 1U, 256U),
+      "attention score production selector falls back above the maximum grid");
+  test.expect(
+      !q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+          23U, 4U, 65U, 256U) &&
+          !q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+              24U, 5U, 65U, 256U) &&
+          !q3x::runtime::use_attention_scores_warp_positions_24_4_256_test(
+              24U, 4U, 65U, 255U),
+      "attention score production selector rejects near-miss shapes");
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<float> scores;
+  ManagedBuffer<std::uint16_t> output;
+  bool ready = test.cuda_ok(query.allocate(kQueryElements),
+                            "attention score graph allocate query");
+  ready = ready && test.cuda_ok(key.allocate(kKeyElements),
+                                "attention score graph allocate key");
+  ready = ready && test.cuda_ok(value.allocate(kKeyElements),
+                                "attention score graph allocate value");
+  ready = ready && test.cuda_ok(scores.allocate(kScoreElements),
+                                "attention score graph allocate scores");
+  ready = ready && test.cuda_ok(output.allocate(kQueryElements),
+                                "attention score graph allocate output");
+  if (!ready) {
+    return;
+  }
+
+  constexpr std::array<std::pair<const char*, AttentionScoreTestLaunch>, 2U>
+      kLaunchers{{
+          {"baseline", q3x::runtime::
+                           launch_attention_scores_baseline_24_4_256_test_cuda},
+          {"candidate", q3x::runtime::
+                            launch_attention_scores_warp_positions_24_4_256_test_cuda},
+      }};
+  for (const auto& [name, launch] : kLaunchers) {
+    const std::string prefix =
+        std::string("attention score ") + name + " invalid graph ";
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "Q23", launch, query.data(), key.data(), 23U,
+        4U, kSequence, 256U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "KV5", launch, query.data(), key.data(), 24U,
+        5U, kSequence, 256U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "S0", launch, query.data(), key.data(), 24U,
+        4U, 0U, 256U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "S above grid", launch, query.data(),
+        key.data(), 24U, 4U, 65535U * 8U + 1U, 256U, 0.0625F,
+        scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "D255", launch, query.data(), key.data(), 24U,
+        4U, kSequence, 255U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "negative scale", launch, query.data(),
+        key.data(), 24U, 4U, kSequence, 256U, -1.0F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "infinite scale", launch, query.data(),
+        key.data(), 24U, 4U, kSequence, 256U,
+        std::numeric_limits<float>::infinity(), scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "NaN scale", launch, query.data(), key.data(),
+        24U, 4U, kSequence, 256U,
+        std::numeric_limits<float>::quiet_NaN(), scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "null query", launch, nullptr, key.data(), 24U,
+        4U, kSequence, 256U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "null key", launch, query.data(), nullptr, 24U,
+        4U, kSequence, 256U, 0.0625F, scores.data());
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "null scores", launch, query.data(), key.data(),
+        24U, 4U, kSequence, 256U, 0.0625F, nullptr);
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "query-output alias", launch, query.data(),
+        key.data(), 24U, 4U, kSequence, 256U, 0.0625F,
+        reinterpret_cast<float*>(query.data()));
+    expect_invalid_attention_score_graph(
+        test, stream, prefix + "key-output alias", launch, query.data(),
+        key.data(), 24U, 4U, kSequence, 256U, 0.0625F,
+        reinterpret_cast<float*>(key.data()));
+  }
+
+  AttentionScoreGraphTopology baseline_topology;
+  AttentionScoreGraphTopology candidate_topology;
+  ready = capture_attention_score_graph_topology(
+      test, stream, "attention score baseline positive graph",
+      q3x::runtime::launch_attention_scores_baseline_24_4_256_test_cuda,
+      query.data(), key.data(), kSequence, scores.data(), baseline_topology);
+  ready = capture_attention_score_graph_topology(
+              test, stream, "attention score candidate positive graph",
+              q3x::runtime::
+                  launch_attention_scores_warp_positions_24_4_256_test_cuda,
+              query.data(), key.data(), kSequence, scores.data(),
+              candidate_topology) &&
+          ready;
+  if (!ready) {
+    return;
+  }
+  test.expect(baseline_topology.function != nullptr,
+              "attention score baseline graph has a kernel identity");
+  test.expect(candidate_topology.function != nullptr,
+              "attention score candidate graph has a kernel identity");
+  test.expect(baseline_topology.function != candidate_topology.function,
+              "attention score graph kernel identities are distinct");
+  test.expect(baseline_topology.grid.x == 24U &&
+                  baseline_topology.grid.y == 1U &&
+                  baseline_topology.grid.z == 1U,
+              "attention score baseline graph grid is (24,1,1)");
+  test.expect(candidate_topology.grid.x == 24U &&
+                  candidate_topology.grid.y == 65U &&
+                  candidate_topology.grid.z == 1U,
+              "attention score candidate graph grid is (24,65,1)");
+  test.expect(baseline_topology.block.x == 256U &&
+                  baseline_topology.block.y == 1U &&
+                  baseline_topology.block.z == 1U,
+              "attention score baseline graph block is (256,1,1)");
+  test.expect(candidate_topology.block.x == 256U &&
+                  candidate_topology.block.y == 1U &&
+                  candidate_topology.block.z == 1U,
+              "attention score candidate graph block is (256,1,1)");
+  test.expect(baseline_topology.dynamic_shared_bytes == 0U &&
+                  candidate_topology.dynamic_shared_bytes == 0U,
+              "attention score graphs request zero dynamic shared memory");
+  std::cout << "ATTENTION_SCORE_GRAPH_TOPOLOGY: baseline_func="
+            << baseline_topology.function << " baseline_grid=("
+            << baseline_topology.grid.x << ',' << baseline_topology.grid.y
+            << ',' << baseline_topology.grid.z << ") candidate_func="
+            << candidate_topology.function << " candidate_grid=("
+            << candidate_topology.grid.x << ',' << candidate_topology.grid.y
+            << ',' << candidate_topology.grid.z << ") block=("
+            << candidate_topology.block.x << ',' << candidate_topology.block.y
+            << ',' << candidate_topology.block.z << ") dynamic_shared="
+            << candidate_topology.dynamic_shared_bytes << '\n';
+
+  GqaGraphTopology production_s64;
+  GqaGraphTopology production_s65;
+  ready = capture_gqa_graph_topology(
+      test, stream, "attention score production S64 graph", query.data(),
+      key.data(), value.data(), 64U, scores.data(), scores.size(),
+      output.data(), production_s64);
+  ready = capture_gqa_graph_topology(
+              test, stream, "attention score production S65 graph",
+              query.data(), key.data(), value.data(), 65U, scores.data(),
+              scores.size(), output.data(), production_s65) &&
+          ready;
+  if (!ready) {
+    return;
+  }
+  test.expect(production_s64.root.function == baseline_topology.function,
+              "attention score production S64 dispatches the reference score");
+  test.expect(production_s65.root.function == candidate_topology.function,
+              "attention score production S65 dispatches the warp-position score");
+  test.expect(production_s64.root.function != candidate_topology.function &&
+                  production_s65.root.function != baseline_topology.function,
+              "attention score production threshold selects distinct kernels");
+  test.expect(production_s64.root.grid.x == 24U &&
+                  production_s64.root.grid.y == 1U &&
+                  production_s64.root.grid.z == 1U,
+              "attention score production S64 root grid is (24,1,1)");
+  test.expect(production_s65.root.grid.x == 24U &&
+                  production_s65.root.grid.y == 9U &&
+                  production_s65.root.grid.z == 1U,
+              "attention score production S65 root grid is (24,9,1)");
+  test.expect(production_s64.root.block.x == 256U &&
+                  production_s64.root.block.y == 1U &&
+                  production_s64.root.block.z == 1U &&
+                  production_s65.root.block.x == 256U &&
+                  production_s65.root.block.y == 1U &&
+                  production_s65.root.block.z == 1U,
+              "attention score production roots retain 256-thread blocks");
+  test.expect(production_s64.root.dynamic_shared_bytes == 0U &&
+                  production_s65.root.dynamic_shared_bytes == 0U,
+              "attention score production roots use no dynamic shared memory");
+  test.expect(std::is_permutation(
+                  production_s64.non_root_functions.begin(),
+                  production_s64.non_root_functions.end(),
+                  production_s65.non_root_functions.begin(),
+                  production_s65.non_root_functions.end()),
+              "attention score production keeps softmax and value kernels");
+  std::cout << "ATTENTION_SCORE_PRODUCTION_DISPATCH: S64_func="
+            << production_s64.root.function << " S64_grid=("
+            << production_s64.root.grid.x << ','
+            << production_s64.root.grid.y << ','
+            << production_s64.root.grid.z << ") S65_func="
+            << production_s65.root.function << " S65_grid=("
+            << production_s65.root.grid.x << ','
+            << production_s65.root.grid.y << ','
+            << production_s65.root.grid.z
+            << ") downstream_kernel_identities=unchanged\n";
+}
+
+void test_attention_scores_warp_positions_perf(TestContext& test,
+                                               cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_ATTENTION_SCORES_WARP_POSITIONS_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: attention score warp-position performance gate; set "
+                 "Q3X_RUN_ATTENTION_SCORES_WARP_POSITIONS_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kMaximumSequence = 544U;
+  constexpr float kScale = 0.0625F;
+  constexpr std::size_t kWarmupIterations = 10U;
+  constexpr std::size_t kMeasuredIterations = 80U;
+  constexpr int kMeasurementRounds = 5;
+  constexpr std::array<std::size_t, 5U> kSequenceLengths{
+      65U, 128U, 257U, 513U, 544U};
+  constexpr std::size_t kQueryElements = kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElements =
+      kMaximumSequence * kKvHeads * kDimension;
+  constexpr std::size_t kScoreElements =
+      kQueryHeads * kMaximumSequence;
+
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<float> baseline;
+  ManagedBuffer<float> candidate;
+  bool ready = test.cuda_ok(query.allocate(kQueryElements),
+                            "attention score perf allocate query");
+  ready = ready && test.cuda_ok(key.allocate(kKeyElements),
+                                "attention score perf allocate key");
+  ready = ready && test.cuda_ok(baseline.allocate(kScoreElements),
+                                "attention score perf allocate baseline");
+  ready = ready && test.cuda_ok(candidate.allocate(kScoreElements),
+                                "attention score perf allocate candidate");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t index = 0U; index < query.size(); ++index) {
+    query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+  }
+  for (std::size_t index = 0U; index < key.size(); ++index) {
+    key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+  }
+
+  for (const std::size_t sequence_length : kSequenceLengths) {
+    const std::string label =
+        "attention score perf S=" + std::to_string(sequence_length);
+    const auto launch_baseline = [&]() {
+      return q3x::runtime::
+          launch_attention_scores_baseline_24_4_256_test_cuda(
+              query.data(), key.data(), kQueryHeads, kKvHeads,
+              sequence_length, kDimension, kScale, baseline.data(),
+              static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() {
+      return q3x::runtime::
+          launch_attention_scores_warp_positions_24_4_256_test_cuda(
+              query.data(), key.data(), kQueryHeads, kKvHeads,
+              sequence_length, kDimension, kScale, candidate.data(),
+              static_cast<void*>(stream));
+    };
+    for (std::size_t iteration = 0U;
+         ready && iteration < kWarmupIterations; ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           label + " baseline warmup");
+      ready = ready &&
+              test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                           label + " candidate warmup");
+    }
+    ready = ready &&
+            test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync");
+    if (!ready) {
+      return;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    bool timing_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " baseline 1",
+          launch_baseline);
+      const float candidate_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " candidate 1",
+          launch_candidate);
+      const float candidate_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " candidate 2",
+          launch_candidate);
+      const float baseline_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " baseline 2",
+          launch_baseline);
+      const bool round_finite =
+          std::isfinite(baseline_first) && baseline_first > 0.0F &&
+          std::isfinite(candidate_first) && candidate_first > 0.0F &&
+          std::isfinite(candidate_second) && candidate_second > 0.0F &&
+          std::isfinite(baseline_second) && baseline_second > 0.0F;
+      timing_finite = timing_finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_ATTENTION_SCORES_WARP_POSITIONS_ROUND: S="
+                << sequence_length << " round=" << round + 1
+                << " iterations=" << kMeasuredIterations
+                << " baseline1_ms=" << baseline_first
+                << " candidate1_ms=" << candidate_first
+                << " candidate2_ms=" << candidate_second
+                << " baseline2_ms=" << baseline_second << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    const double baseline_milliseconds = baseline_total / kTimedPasses;
+    const double candidate_milliseconds = candidate_total / kTimedPasses;
+    const double speedup = baseline_milliseconds / candidate_milliseconds;
+    const double required_speedup = sequence_length == 513U ? 1.20 : 1.05;
+    const bool gate_passed =
+        timing_finite && std::isfinite(speedup) &&
+        baseline_milliseconds > 0.0 && candidate_milliseconds > 0.0 &&
+        speedup >= required_speedup;
+    std::cout << "PERF_ATTENTION_SCORES_WARP_POSITIONS: S="
+              << sequence_length << " baseline_ms=" << baseline_milliseconds
+              << " candidate_ms=" << candidate_milliseconds
+              << " speedup=" << speedup
+              << " required_speedup=" << required_speedup
+              << " gate=" << (gate_passed ? "PASS" : "FAIL") << '\n';
+    test.expect(gate_passed, label + " clears its span gate");
+    test.expect(std::memcmp(candidate.data(), baseline.data(),
+                            kQueryHeads * sequence_length * sizeof(float)) ==
+                    0,
+                label + " repeated output stays bitwise exact");
+  }
+
+  constexpr std::size_t kChainFirstSequence = 65U;
+  constexpr std::size_t kChainLastSequence = 513U;
+  constexpr std::size_t kChainWarmupIterations = 10U;
+  constexpr std::size_t kChainMeasuredIterations = 1U;
+  constexpr double kChainRequiredSpeedup = 1.20;
+  const std::string chain_label = "attention score P513 chain S65..513";
+  const auto launch_baseline_chain = [&]() {
+    for (std::size_t sequence_length = kChainFirstSequence;
+         sequence_length <= kChainLastSequence; ++sequence_length) {
+      const int status = q3x::runtime::
+          launch_attention_scores_baseline_24_4_256_test_cuda(
+              query.data(), key.data(), kQueryHeads, kKvHeads,
+              sequence_length, kDimension, kScale, baseline.data(),
+              static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_candidate_chain = [&]() {
+    for (std::size_t sequence_length = kChainFirstSequence;
+         sequence_length <= kChainLastSequence; ++sequence_length) {
+      const int status = q3x::runtime::
+          launch_attention_scores_warp_positions_24_4_256_test_cuda(
+              query.data(), key.data(), kQueryHeads, kKvHeads,
+              sequence_length, kDimension, kScale, candidate.data(),
+              static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  for (std::size_t iteration = 0U;
+       ready && iteration < kChainWarmupIterations; ++iteration) {
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_baseline_chain()),
+        chain_label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate_chain()),
+                         chain_label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                chain_label + " warmup sync");
+  if (!ready) {
+    return;
+  }
+
+  double chain_baseline_total = 0.0;
+  double chain_candidate_total = 0.0;
+  bool chain_timing_finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string round_label =
+        chain_label + " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " baseline 1", launch_baseline_chain);
+    const float candidate_first = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " candidate 1", launch_candidate_chain);
+    const float candidate_second = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " candidate 2", launch_candidate_chain);
+    const float baseline_second = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " baseline 2", launch_baseline_chain);
+    const bool round_finite =
+        std::isfinite(baseline_first) && baseline_first > 0.0F &&
+        std::isfinite(candidate_first) && candidate_first > 0.0F &&
+        std::isfinite(candidate_second) && candidate_second > 0.0F &&
+        std::isfinite(baseline_second) && baseline_second > 0.0F;
+    chain_timing_finite = chain_timing_finite && round_finite;
+    if (round_finite) {
+      chain_baseline_total += baseline_first + baseline_second;
+      chain_candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_ATTENTION_SCORES_WARP_POSITIONS_CHAIN_ROUND: round="
+              << round + 1 << " kernels_per_chain="
+              << (kChainLastSequence - kChainFirstSequence + 1U)
+              << " baseline1_ms=" << baseline_first
+              << " candidate1_ms=" << candidate_first
+              << " candidate2_ms=" << candidate_second
+              << " baseline2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kChainTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double chain_baseline_milliseconds =
+      chain_baseline_total / kChainTimedPasses;
+  const double chain_candidate_milliseconds =
+      chain_candidate_total / kChainTimedPasses;
+  const double chain_speedup =
+      chain_baseline_milliseconds / chain_candidate_milliseconds;
+  const bool chain_gate_passed =
+      chain_timing_finite && std::isfinite(chain_speedup) &&
+      chain_baseline_milliseconds > 0.0 &&
+      chain_candidate_milliseconds > 0.0 &&
+      chain_speedup >= kChainRequiredSpeedup;
+  std::cout << "PERF_ATTENTION_SCORES_WARP_POSITIONS_CHAIN: first_S="
+            << kChainFirstSequence << " last_S=" << kChainLastSequence
+            << " kernels_per_chain="
+            << (kChainLastSequence - kChainFirstSequence + 1U)
+            << " baseline_ms=" << chain_baseline_milliseconds
+            << " candidate_ms=" << chain_candidate_milliseconds
+            << " speedup=" << chain_speedup
+            << " required_speedup=" << kChainRequiredSpeedup
+            << " gate=" << (chain_gate_passed ? "PASS" : "FAIL") << '\n';
+  test.expect(chain_gate_passed,
+              chain_label + " clears the hard 1.20x aggregate gate");
+  test.expect(std::memcmp(candidate.data(), baseline.data(),
+                          kQueryHeads * kChainLastSequence * sizeof(float)) ==
+                  0,
+              chain_label + " final S513 output stays bitwise exact");
+}
+
 void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
                                            cudaStream_t stream,
                                            const std::size_t sequence_length) {
@@ -3094,6 +4221,9 @@ int main() {
   test_qk_rope_tile_perf(test, stream);
   test_softmax(test, stream);
   test_attention(test, stream);
+  test_attention_scores_warp_positions_exact(test, stream);
+  test_attention_scores_warp_positions_graph_contract(test, stream);
+  test_attention_scores_warp_positions_perf(test, stream);
   test_fused_gqa_sigmoid_gate_exact(test, stream);
   test_fused_gqa_sigmoid_gate_perf(test, stream);
   test_nonfinite(test, stream);
