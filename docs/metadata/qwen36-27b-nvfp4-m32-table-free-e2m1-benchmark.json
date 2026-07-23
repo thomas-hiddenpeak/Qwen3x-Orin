@@ -525,6 +525,56 @@
         "candidate_symbols_remaining": 0
       },
       "reopen_when": "a materially different topology or profiler evidence changes the synchronization/occupancy mechanism"
+    },
+    "exact_m32_down_dual_a_dual_decoded_b_pipeline": {
+      "status": "rejected_and_removed",
+      "base_commit": "0f26e58985e512bdc8630547656761cbd11b8ebd",
+      "scope": "test-only exact-M32 [5120,17408] down projection; production dispatch, public ABI, and the selected table-free kernel were never changed",
+      "mechanism": "alternate two shared activation tiles and two decoded-B tiles; after each current WMMA stage, populate the inactive A/B slot and use one CTA barrier as both current-consumed and next-published",
+      "barrier_model": {
+        "k256_windows": 68,
+        "production_dynamic_cta_barriers": 614,
+        "candidate_dynamic_cta_barriers": 343,
+        "barriers_removed": 271,
+        "reduction_percent": 44.1,
+        "interpretation": "synchronous software buffering and barrier merging, not cp.async or a claim of true producer/consumer concurrency"
+      },
+      "protocol": {
+        "baseline": "current production table-free E2M1 exact-M32 down test hook",
+        "scale_distributions": ["synthetic_checkpoint_like", "synthetic_same_bank_stress"],
+        "warmup_iterations": 10,
+        "logical_launches_per_pass": 24,
+        "rounds": 4,
+        "round_order": "baseline-candidate-candidate-baseline",
+        "required_minimum_cell_speedup": 1.0,
+        "required_minimum_round_speedup": 1.0,
+        "required_aggregate_speedup": 1.03,
+        "clocks_locked": false
+      },
+      "resources": {
+        "baseline": {"registers_per_thread": 48, "static_shared_bytes": 23552, "local_bytes": 0, "threads_per_cta": 256, "active_ctas_per_sm": 5, "active_warps_per_sm": 40},
+        "candidate": {"registers_per_thread": 56, "static_shared_bytes": 46592, "local_bytes": 0, "threads_per_cta": 256, "active_ctas_per_sm": 3, "active_warps_per_sm": 24},
+        "candidate_gate": "pass"
+      },
+      "correctness": {
+        "default_outputs": 163840,
+        "default_mismatches_to_two_production_m16_calls": 0,
+        "performance_mismatches_per_distribution": 0,
+        "poison_replay_mismatches": 0,
+        "token_15_16_boundary": "exact",
+        "guards": "intact",
+        "valid_graph_kernel_nodes": 1,
+        "invalid_alias_near_miss_wrong_projection_graph_nodes": 0,
+        "status": "pass"
+      },
+      "cells": [
+        {"distribution": "synthetic_checkpoint_like", "baseline_ms": 0.891853, "candidate_ms": 1.02148, "speedup": 0.873096, "minimum_round_speedup": 0.872322, "gate": "fail"},
+        {"distribution": "synthetic_same_bank_stress", "baseline_ms": 0.891547, "candidate_ms": 1.02240, "speedup": 0.872016, "minimum_round_speedup": 0.871715, "gate": "fail"}
+      ],
+      "aggregate": {"baseline_ms": 1.78340, "candidate_ms": 2.04388, "speedup": 0.872556, "required_speedup": 1.03, "positive_rounds": 0, "rounds": 8, "gate": "fail"},
+      "decision": "reject and remove: exactness and resources pass, but both distributions and all eight mirrored rounds regress; the 44.1 percent barrier reduction does not offset the drop from 40 to 24 active warps per SM",
+      "post_removal_validation": {"target": "q3x_sm87_weight_only_gemv_test", "status": "pass", "candidate_symbols_remaining": 0},
+      "reopen_when": "a mechanism preserves substantially more occupancy or profiler evidence identifies independent latency that can be hidden without doubling both A and decoded-B shared storage"
     }
   },
   "limitations": [
@@ -535,7 +585,8 @@
     "The optimization applies only to exact M32 Prefill MLP projections. Decode M1 and M17-M31/M18 routes are unchanged.",
     "The runtime has logical Prefill/Decode plans and one layer-local M32 gate/up auxiliary stream, but no general double/triple buffering or Prefill/Decode overlap for a batch-one request.",
     "The rejected pair-fused follow-up used one unlocked-clock process and two synthetic scale distributions. It did not use actual checkpoint tensor payloads; the mandatory micro gate failed before NCU, Nsys, or end-to-end work was warranted.",
-    "The three pair-fused variants were sequential uncommitted test-only probes. Their logs freeze results, but the first two source/binary states were not retained as release-reproducible artifacts."
+    "The three pair-fused variants were sequential uncommitted test-only probes. Their logs freeze results, but the first two source/binary states were not retained as release-reproducible artifacts.",
+    "The rejected down pipeline used one unlocked-clock process and synthetic scale distributions rather than actual checkpoint tensor payloads. Its mandatory same-cubin gate failed before NCU, Nsys, or end-to-end work was warranted."
   ],
   "artifacts": [
     {"role": "final-binary same-cubin micro and pair run 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/micro-final1.log", "bytes": 62845, "sha256": "df70568da76bf7e0d051b0f34b49219fca6e453893974124e8e95a06698cd73a", "checked_in": false},
@@ -568,7 +619,10 @@
     {"role": "rejected 256-thread dual-B pair-fused resource screen", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-default.log", "bytes": 54610, "sha256": "c9bf16b45ab00bd894a6fd9742c508149e84e7f999a7e841f1967d335da3c866", "checked_in": false},
     {"role": "512-thread dual-B pair-fused default resource smoke", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-512-default.log", "bytes": 54582, "sha256": "f37ad772cf7cc991ec8193cceb80344a99159520a89b46ba62b0ddea7509bcec", "checked_in": false},
     {"role": "rejected 512-thread dual-B pair-fused performance screen", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-512-run1.log", "bytes": 65917, "sha256": "2a8e95f9f574483294512c8130dd9ea1ec46842fef47223cd4b1ad294c816274", "checked_in": false},
-    {"role": "post-rejection candidate-removal default smoke", "local_path": "/tmp/q3x-m32-pair-fused-reverted-default.log", "bytes": 54298, "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4", "checked_in": false}
+    {"role": "post-rejection candidate-removal default smoke", "local_path": "/tmp/q3x-m32-pair-fused-reverted-default.log", "bytes": 54298, "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4", "checked_in": false},
+    {"role": "exact-M32 down dual-A/dual-B default correctness and resource smoke", "local_path": "/tmp/q3x-m32-down-dual-ab-default2.log", "bytes": 55222, "sha256": "ba4670f1c1e12d784ee091119fa1fde83c3fe2252021e07ee0f8a2fa083d8328", "checked_in": false},
+    {"role": "rejected exact-M32 down dual-A/dual-B same-cubin performance screen", "local_path": "/tmp/q3x-m32-down-dual-ab-perf1.log", "bytes": 58847, "sha256": "70aef919d40bff3ea32bb55759148b33396966282bb44f8f2abec7786464d4f9", "checked_in": false},
+    {"role": "post-down-rejection candidate-removal default smoke", "local_path": "/tmp/q3x-m32-down-dual-ab-reverted-default.log", "bytes": 54298, "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4", "checked_in": false}
   ],
-  "next_priority": "The exact-M32 pair-fused CTA gate is evidence-closed. Keep the production table-free dual-stream route and next prototype the 0.932 s exact-M32 down projection with a materially different dual-A/dual-decoded-B CTA-local pipeline; require zero spill, at least three CTAs per SM, and at least 1.03x kernel speedup before broader integration. If that gate fails, advance the bounded register-resident GDN state candidate. General double/triple buffering and multi-request Prefill/Decode overlap remain a separate scheduler milestone."
+  "next_priority": "Both exact-M32 pair-fused CTA and down dual-A/dual-decoded-B pipeline gates are evidence-closed. Keep the production table-free kernels and existing M32 gate/up dual stream. Next screen the bounded Prefill GDN M16 register-resident BF16 state mechanism, requiring zero local spill, at least three CTAs per SM, exact per-token BF16 state boundaries, and at least 1.20x micro speedup before integration. General double/triple buffering and multi-request Prefill/Decode overlap remain a separate scheduler milestone."
 }

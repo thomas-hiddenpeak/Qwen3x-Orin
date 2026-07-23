@@ -3957,12 +3957,31 @@ CTAs/SM. All candidate and harness code was removed, and the rebuilt default
 SM87 weight-only test passes with no pair-fused symbols remaining. No NCU,
 Nsys, or end-to-end run is claimed after the mandatory micro gate failed.
 
-The production table-free dual-stream path therefore remains selected. The
-next bounded target is the 932.156 ms exact-M32 down projection, using a
-materially different CTA-local dual-A/dual-decoded-B synchronization pipeline;
-it must retain zero spill, at least three CTAs/SM, and clear a 1.03x early
-kernel gate before broader integration. Register-resident GDN state follows if
-that down gate fails. This remains an intra-kernel experiment, not general
-system double/triple buffering or multi-request Prefill/Decode overlap.
+The subsequent exact-M32 down dual-A/dual-decoded-B screen is also closed. Its
+synchronous ping-pong schedule merges the current-consumed and next-published
+barriers, reducing the modeled dynamic CTA barriers from 614 to 343 across the
+68 K256 windows without changing K order, WMMA order, or BF16 boundaries.
+Correctness, replay, token15/16, guards, valid/invalid Graph, and resources all
+pass:
+
+| Down route | Registers | Shared | Local | Active CTA / warps per SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production table-free | 48 | 23,552 B | 0 B | 5 / 40 |
+| Dual-A/dual-B candidate | 56 | 46,592 B | 0 B | 3 / 24 |
+
+The occupancy cost dominates the 44.1% barrier reduction. Checkpoint-like
+scales measure 0.873096x with a 0.872322x minimum round; same-bank stress
+measures 0.872016x with a 0.871715x minimum round. The 0.872556x aggregate is
+below the frozen 1.03x gate, and all eight mirrored rounds regress. The
+candidate and its harness were removed, the rebuilt default test passes, and
+no NCU, Nsys, or end-to-end work is claimed after this mandatory gate failure.
+
+The production table-free kernels and existing M32 gate/up dual stream
+therefore remain selected. The next bounded mechanism is Prefill GDN M16 state
+held in a static per-thread BF16 register partition across the complete C16
+chain, with zero local spill, at least three CTAs/SM, exact per-token BF16 state
+boundaries, and a 1.20x early micro gate. These remain intra-kernel experiments,
+not general system double/triple buffering or multi-request Prefill/Decode
+overlap.
 Full hashes, per-process rows, SASS identities, profiling summaries, and
 limitations are in the [table-free E2M1 benchmark record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).

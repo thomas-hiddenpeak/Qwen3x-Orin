@@ -570,19 +570,28 @@ activation/codebook reuse through these pair-CTA topologies without changing
 the runtime scheduler. See the
 [table-free E2M1 record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).
 
+The bounded exact-M32 down dual-A/dual-decoded-B pipeline is now measured and
+rejected as well. It preserves all output, replay, boundary, guard, Graph, and
+resource contracts and cuts the modeled dynamic CTA barriers by 44.1%, but its
+46,592-byte shared footprint reduces residency from 5 CTA/40 warps to 3 CTA/24
+warps per SM. Both scale distributions and all eight mirrored rounds regress;
+the aggregate is 0.872556x against the frozen 1.03x gate. The candidate was
+removed without a production change. See the
+[table-free E2M1 record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).
+
 None of these exact-kernel or shared-residency promotions introduces a runtime
 double/triple buffer. Prefill and Decode are logically separated by the
 completed plan seam, but batch-one execution remains causally dependency-
 serialized. The refreshed profile ranks NVFP4 M32 gate/up and down first by
 marginal critical-path exposure, followed by GDN and FP8 M32. Gate/up pair CTA
-fusion is now evidence-closed; the next main-line action is a bounded exact-M32
-down dual-A/dual-decoded-B pipeline, whose combined synchronization mechanism
-has not been covered by the rejected scale-only or activation-only probes. It
-must keep zero local memory, at least three CTAs/SM, and clear a 1.03x early
-kernel gate. If it fails, advance a bounded register-resident GDN-state
-candidate. Rejected product-table, pair-fused CTA, scale-window ping-pong,
-activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
-variants stay closed without a new mechanism.
+fusion and down shared A/B ping-pong are now evidence-closed. The next
+main-line action is a bounded register-resident Prefill GDN M16 state candidate
+that keeps each thread's static BF16 state partition across the C16 chain. It
+must keep zero local memory, at least three CTAs/SM, exact per-token BF16 state
+boundaries, and clear a 1.20x early micro gate. Rejected product-table,
+pair-fused CTA, shared A/B pipeline, scale-window ping-pong, activation-only
+`cp.async`, generalized dual-stream, and GDN shared-resident variants stay
+closed without a new mechanism.
 Independent executors and queues remain a future multi-request continuous-
 batching item after request/KV/workspace ownership, handoff, fairness, TTFT,
 inter-token, tail-latency, cancellation, and memory gates are explicit.
