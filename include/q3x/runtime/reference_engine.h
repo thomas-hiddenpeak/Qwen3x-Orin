@@ -65,6 +65,10 @@ struct ReferenceGenerateOptions {
   // Full statistics is the compatibility default. Prediction-only compute
   // steps populate ReferenceStepResult::prediction instead of logits.
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
+  // Emit static NVTX ranges around the host-side prefill/decode runner
+  // boundaries. Disabled by default so ordinary generation pays one
+  // predictable dispatch branch.
+  bool emit_nvtx_phase_ranges = false;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -73,6 +77,10 @@ enum class ReferenceStopReason : std::uint8_t {
 };
 
 struct ReferenceGenerationTiming {
+  // One aggregate duration for each prefix_step or prefix_tile execution, in
+  // execution order. The final prompt token has its own field below.
+  std::vector<double> prefix_execution_milliseconds;
+  double finish_prefill_milliseconds = 0.0;
   double prompt_prefill_milliseconds = 0.0;
   double time_to_first_token_milliseconds = 0.0;
   std::vector<double> subsequent_token_milliseconds;
@@ -277,6 +285,7 @@ struct GenerationControlOptions {
   std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   bool capture_trace = false;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
+  bool emit_nvtx_phase_ranges = false;
 };
 
 struct GenerationControl {

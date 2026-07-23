@@ -41,13 +41,14 @@ void PrintUsage(std::ostream& output) {
       << "  qwen3x-orin probe      Inspect the CUDA device and run a smoke kernel\n"
       << "  qwen3x-orin models     List catalogued target architectures\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
-         "[--max-tokens N] [--trace] "
+         "[--max-tokens N] [--trace] [--nvtx-phase-ranges] "
          "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin benchmark MODEL_DIR --prompt TEXT [--prompt TEXT ...] "
          "[--max-tokens N] [--warmup N] [--iterations N] "
          "[--max-sequence-length N] "
          "[--prefill-chunk-size N] "
+         "[--nvtx-phase-ranges] "
          "[--projection-backend reference|sm87]\n"
       << "  qwen3x-orin help       Show this help\n";
 }
@@ -56,7 +57,7 @@ void PrintGenerateUsage(std::ostream& output) {
   output
       << "Usage:\n"
       << "  qwen3x-orin generate MODEL_DIR --prompt TEXT "
-         "[--max-tokens N] [--trace] "
+         "[--max-tokens N] [--trace] [--nvtx-phase-ranges] "
          "[--prefill-chunk-size N] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
@@ -65,6 +66,8 @@ void PrintGenerateUsage(std::ostream& output) {
       << kCliMaximumMaxTokens << ", default " << kCliDefaultMaxTokens
       << ")\n"
       << "  --trace         Capture per-step activation boundary digests\n"
+      << "  --nvtx-phase-ranges\n"
+      << "                  Emit Prefill/Decode NVTX ranges for profiling\n"
       << "  --prefill-chunk-size N\n"
       << "                  Prompt-prefix projection tile size (1.."
       << kCliMaximumPrefillChunkSize << ", default "
@@ -81,6 +84,7 @@ void PrintBenchmarkUsage(std::ostream& output) {
          "[--prompt TEXT ...] [--max-tokens N] [--warmup N] "
          "[--iterations N] [--max-sequence-length N] "
          "[--prefill-chunk-size N] "
+         "[--nvtx-phase-ranges] "
          "[--projection-backend reference|sm87]\n\n"
       << "Options:\n"
       << "  --prompt TEXT              Repeatable non-empty user message\n"
@@ -101,6 +105,8 @@ void PrintBenchmarkUsage(std::ostream& output) {
       << "                              Prompt-prefix projection tile size (1.."
       << kCliMaximumPrefillChunkSize << ", default "
       << kCliDefaultPrefillChunkSize << ")\n"
+      << "  --nvtx-phase-ranges       Emit Prefill/Decode NVTX ranges for "
+         "profiling\n"
       << "  --projection-backend reference|sm87\n"
       << "                              Projection policy (default reference)\n";
 }
@@ -206,6 +212,7 @@ struct GenerateCliOptions {
   std::uint32_t max_tokens = kCliDefaultMaxTokens;
   std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
   bool trace = false;
+  bool nvtx_phase_ranges = false;
   q3x::runtime::ProjectionBackend projection_backend =
       q3x::runtime::ProjectionBackend::kReference;
 };
@@ -270,6 +277,7 @@ struct GenerateParseResult {
   bool max_tokens_seen = false;
   bool prefill_chunk_size_seen = false;
   bool trace_seen = false;
+  bool nvtx_phase_ranges_seen = false;
   bool projection_backend_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
@@ -316,6 +324,15 @@ struct GenerateParseResult {
       }
       trace_seen = true;
       options.trace = true;
+      continue;
+    }
+    if (argument == "--nvtx-phase-ranges") {
+      if (nvtx_phase_ranges_seen) {
+        result.error = "--nvtx-phase-ranges may be specified only once";
+        return result;
+      }
+      nvtx_phase_ranges_seen = true;
+      options.nvtx_phase_ranges = true;
       continue;
     }
     if (argument == "--prefill-chunk-size") {
@@ -372,6 +389,7 @@ struct BenchmarkCliOptions {
   std::uint32_t iterations = kCliDefaultBenchmarkIterations;
   std::uint32_t max_sequence_length = kCliDefaultMaxSequenceLength;
   std::uint32_t prefill_chunk_size = kCliDefaultPrefillChunkSize;
+  bool nvtx_phase_ranges = false;
   q3x::runtime::ProjectionBackend projection_backend =
       q3x::runtime::ProjectionBackend::kReference;
 };
@@ -401,6 +419,7 @@ struct BenchmarkParseResult {
   bool iterations_seen = false;
   bool max_sequence_length_seen = false;
   bool prefill_chunk_size_seen = false;
+  bool nvtx_phase_ranges_seen = false;
   bool projection_backend_seen = false;
   for (int index = 3; index < argc; ++index) {
     const std::string_view argument(argv[index]);
@@ -490,6 +509,15 @@ struct BenchmarkParseResult {
                        "]";
         return result;
       }
+      continue;
+    }
+    if (argument == "--nvtx-phase-ranges") {
+      if (nvtx_phase_ranges_seen) {
+        result.error = "--nvtx-phase-ranges may be specified only once";
+        return result;
+      }
+      nvtx_phase_ranges_seen = true;
+      options.nvtx_phase_ranges = true;
       continue;
     }
     if (argument == "--projection-backend") {
@@ -728,6 +756,8 @@ void PrintGeneration(
   output << "generated.stop_reason="
          << q3x::runtime::to_string(generation.stop_reason) << '\n'
          << "generated.step_count=" << generation.steps.size() << '\n'
+         << "timing.finish_prefill_ms="
+         << generation.timing.finish_prefill_milliseconds << '\n'
          << "timing.prompt_prefill_ms="
          << generation.timing.prompt_prefill_milliseconds << '\n'
          << "timing.time_to_first_token_ms="
@@ -736,6 +766,8 @@ void PrintGeneration(
          << generation.timing.decode_after_first_milliseconds << '\n'
          << "timing.total_generation_ms="
          << generation.timing.total_generation_milliseconds << '\n';
+  PrintTimings(output, "timing.prefix_execution_ms",
+               generation.timing.prefix_execution_milliseconds);
   PrintTimings(output, "timing.subsequent_token_ms",
                generation.timing.subsequent_token_milliseconds);
   output << "trace.count=" << generation.traces.size() << '\n';
@@ -778,6 +810,8 @@ int RunGenerate(const int argc, char** const argv) {
   q3x::runtime::ReferenceOneShotOptions options;
   options.generation.max_new_tokens = parsed.value->max_tokens;
   options.generation.capture_trace = parsed.value->trace;
+  options.generation.emit_nvtx_phase_ranges =
+      parsed.value->nvtx_phase_ranges;
   options.generation.prefill_chunk_size = parsed.value->prefill_chunk_size;
   options.generation.logits_mode =
       q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
@@ -786,6 +820,8 @@ int RunGenerate(const int argc, char** const argv) {
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
   std::cerr << " max_tokens=" << parsed.value->max_tokens
             << " trace=" << (parsed.value->trace ? 1 : 0)
+            << " nvtx_phase_ranges="
+            << (parsed.value->nvtx_phase_ranges ? 1 : 0)
             << " requested_prefill_chunk_size="
             << parsed.value->prefill_chunk_size
             << " effective_prefill_chunk_size="
@@ -850,10 +886,20 @@ void PrintBenchmarkReport(
                  ? "predicted_token_only"
                  : "full_statistics")
          << '\n'
+         << "benchmark.nvtx_phase_ranges="
+         << (report.nvtx_phase_ranges_emitted ? 1 : 0) << '\n'
          << "benchmark.max_new_tokens=" << report.max_new_tokens << '\n'
          << "benchmark.stop_token_id=" << report.stop_token_id << '\n'
          << "benchmark.sample_count=" << report.samples.size() << '\n';
   PrintStringField(output, "model.directory", model_directory.string());
+  PrintLatencyStatistics(output, "stats.prompt_prefix",
+                         report.prompt_prefix);
+  PrintLatencyStatistics(output, "stats.finish_prefill",
+                         report.finish_prefill);
+  PrintLatencyStatistics(output, "stats.prompt_prefill",
+                         report.prompt_prefill);
+  PrintLatencyStatistics(output, "stats.decode_after_first",
+                         report.decode_after_first);
   PrintLatencyStatistics(output, "stats.time_to_first_token",
                          report.time_to_first_token);
   PrintLatencyStatistics(output, "stats.total_generation",
@@ -890,6 +936,14 @@ void PrintBenchmarkReport(
            << prefix << ".step_count=" << prompt.step_sequence.size()
            << '\n';
     PrintBenchmarkSteps(output, prefix + ".steps", prompt.step_sequence);
+    PrintLatencyStatistics(output, prefix + ".prompt_prefix",
+                           prompt.prompt_prefix);
+    PrintLatencyStatistics(output, prefix + ".finish_prefill",
+                           prompt.finish_prefill);
+    PrintLatencyStatistics(output, prefix + ".prompt_prefill",
+                           prompt.prompt_prefill);
+    PrintLatencyStatistics(output, prefix + ".decode_after_first",
+                           prompt.decode_after_first);
     PrintLatencyStatistics(output, prefix + ".time_to_first_token",
                            prompt.time_to_first_token);
     PrintLatencyStatistics(output, prefix + ".total_generation",
@@ -903,10 +957,18 @@ void PrintBenchmarkReport(
     const std::string prefix = "sample." + std::to_string(index);
     output << prefix << ".prompt_index=" << sample.prompt_index << '\n'
            << prefix << ".measured_round=" << sample.measured_round << '\n'
+           << prefix << ".finish_prefill_ms="
+           << sample.timing.finish_prefill_milliseconds << '\n'
+           << prefix << ".prompt_prefill_ms="
+           << sample.timing.prompt_prefill_milliseconds << '\n'
            << prefix << ".time_to_first_token_ms="
            << sample.timing.time_to_first_token_milliseconds << '\n'
+           << prefix << ".decode_after_first_ms="
+           << sample.timing.decode_after_first_milliseconds << '\n'
            << prefix << ".total_generation_ms="
            << sample.timing.total_generation_milliseconds << '\n';
+    PrintTimings(output, prefix + ".prefix_execution_ms",
+                 sample.timing.prefix_execution_milliseconds);
     PrintTimings(output, prefix + ".subsequent_token_ms",
                  sample.timing.subsequent_token_milliseconds);
   }
@@ -978,6 +1040,8 @@ int RunBenchmark(const int argc, char** const argv) {
   benchmark_options.measured_rounds = parsed.value->iterations;
   benchmark_options.max_new_tokens = parsed.value->max_tokens;
   benchmark_options.prefill_chunk_size = parsed.value->prefill_chunk_size;
+  benchmark_options.emit_nvtx_phase_ranges =
+      parsed.value->nvtx_phase_ranges;
   benchmark_options.logits_mode =
       q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   std::cerr << "progress=running_benchmark prompts="
@@ -985,6 +1049,8 @@ int RunBenchmark(const int argc, char** const argv) {
             << " warmup_rounds=" << parsed.value->warmup_rounds
             << " measured_rounds=" << parsed.value->iterations
             << " max_tokens=" << parsed.value->max_tokens
+            << " nvtx_phase_ranges="
+            << (parsed.value->nvtx_phase_ranges ? 1 : 0)
             << " requested_prefill_chunk_size="
             << parsed.value->prefill_chunk_size
             << " effective_prefill_chunk_size="

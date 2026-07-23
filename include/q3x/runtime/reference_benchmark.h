@@ -38,6 +38,8 @@ struct ReferenceBenchmarkOptions {
   // The CLI explicitly selects prediction-only; direct API callers retain
   // the full-statistics generation default unless they opt in here.
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
+  // Emits stable prefill/decode NVTX ranges for an explicitly profiled run.
+  bool emit_nvtx_phase_ranges = false;
 };
 
 // count==0 means that no values exist for this metric. Median is the middle
@@ -70,6 +72,11 @@ struct ReferenceBenchmarkPromptReport {
   std::string generated_text;
   ReferenceStopReason stop_reason = ReferenceStopReason::kMaxNewTokens;
   std::vector<ReferenceBenchmarkStep> step_sequence;
+  // Each sample contributes the sum of its prefix-execution invocations.
+  ReferenceLatencyStatistics prompt_prefix;
+  ReferenceLatencyStatistics finish_prefill;
+  ReferenceLatencyStatistics prompt_prefill;
+  ReferenceLatencyStatistics decode_after_first;
   ReferenceLatencyStatistics time_to_first_token;
   ReferenceLatencyStatistics total_generation;
   // This distribution flattens every post-first-token latency from every
@@ -96,11 +103,17 @@ struct ReferenceBenchmarkReport {
   std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
   std::vector<ReferenceBenchmarkPromptReport> prompts;
   std::vector<ReferenceBenchmarkSample> samples;
+  // Each sample contributes the sum of its prefix-execution invocations.
+  ReferenceLatencyStatistics prompt_prefix;
+  ReferenceLatencyStatistics finish_prefill;
+  ReferenceLatencyStatistics prompt_prefill;
+  ReferenceLatencyStatistics decode_after_first;
   ReferenceLatencyStatistics time_to_first_token;
   ReferenceLatencyStatistics total_generation;
   ReferenceLatencyStatistics subsequent_token;
   ReferenceBenchmarkMemory device_memory;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
+  bool nvtx_phase_ranges_emitted = false;
 };
 
 struct ReferenceBenchmarkDiagnostic {

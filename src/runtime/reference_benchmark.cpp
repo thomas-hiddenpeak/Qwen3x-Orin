@@ -119,6 +119,118 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   return true;
 }
 
+[[nodiscard]] bool valid_latency(const double milliseconds) noexcept {
+  return std::isfinite(milliseconds) && milliseconds >= 0.0;
+}
+
+[[nodiscard]] bool approximately_equal_latency(const double lhs,
+                                                const double rhs) noexcept {
+  constexpr double kAbsoluteToleranceMilliseconds = 1.0e-6;
+  constexpr double kRelativeTolerance = 1.0e-6;
+  const double scale = std::max(std::abs(lhs), std::abs(rhs));
+  return std::abs(lhs - rhs) <=
+         kAbsoluteToleranceMilliseconds + kRelativeTolerance * scale;
+}
+
+// Returns the offending field/invariant, or an empty string for a valid
+// decomposition. The prefix total is returned for phase aggregation.
+[[nodiscard]] std::string timing_validation_error(
+    const ReferenceGeneration& generation,
+    double& prompt_prefix_milliseconds) {
+  const ReferenceGenerationTiming& timing = generation.timing;
+  if (generation.prompt_token_ids.empty() ||
+      generation.effective_prefill_chunk_size == 0U ||
+      generation.effective_prefill_chunk_size >
+          kMaximumRequestPrefillChunkSize) {
+    return "prefix_execution_milliseconds.size";
+  }
+  const std::size_t prefix_token_count =
+      generation.prompt_token_ids.size() - 1U;
+  const std::size_t effective_prefill_chunk_size =
+      generation.effective_prefill_chunk_size;
+  const std::size_t expected_prefix_execution_count =
+      effective_prefill_chunk_size > 1U
+          ? prefix_token_count / effective_prefill_chunk_size +
+                (prefix_token_count % effective_prefill_chunk_size != 0U)
+          : prefix_token_count;
+  if (timing.prefix_execution_milliseconds.size() !=
+      expected_prefix_execution_count) {
+    return "prefix_execution_milliseconds.size";
+  }
+  if (generation.generated_token_ids.empty() ||
+      timing.subsequent_token_milliseconds.size() !=
+          generation.generated_token_ids.size() - 1U) {
+    return "subsequent_token_milliseconds.size";
+  }
+
+  prompt_prefix_milliseconds = 0.0;
+  for (std::size_t index = 0U;
+       index < timing.prefix_execution_milliseconds.size(); ++index) {
+    const double milliseconds = timing.prefix_execution_milliseconds[index];
+    if (!valid_latency(milliseconds)) {
+      return "prefix_execution_milliseconds[" + std::to_string(index) +
+             "]";
+    }
+    prompt_prefix_milliseconds += milliseconds;
+    if (!std::isfinite(prompt_prefix_milliseconds)) {
+      return "prefix_execution_milliseconds.sum";
+    }
+  }
+  if (!valid_latency(timing.finish_prefill_milliseconds)) {
+    return "finish_prefill_milliseconds";
+  }
+  if (!valid_latency(timing.prompt_prefill_milliseconds)) {
+    return "prompt_prefill_milliseconds";
+  }
+  if (!valid_latency(timing.time_to_first_token_milliseconds)) {
+    return "time_to_first_token_milliseconds";
+  }
+  double subsequent_token_total = 0.0;
+  for (std::size_t index = 0U;
+       index < timing.subsequent_token_milliseconds.size(); ++index) {
+    const double milliseconds =
+        timing.subsequent_token_milliseconds[index];
+    if (!valid_latency(milliseconds)) {
+      return "subsequent_token_milliseconds[" + std::to_string(index) +
+             "]";
+    }
+    subsequent_token_total += milliseconds;
+    if (!std::isfinite(subsequent_token_total)) {
+      return "subsequent_token_milliseconds.sum";
+    }
+  }
+  if (!valid_latency(timing.decode_after_first_milliseconds)) {
+    return "decode_after_first_milliseconds";
+  }
+  if (!valid_latency(timing.total_generation_milliseconds)) {
+    return "total_generation_milliseconds";
+  }
+
+  const double reconstructed_prefill =
+      prompt_prefix_milliseconds + timing.finish_prefill_milliseconds;
+  if (!std::isfinite(reconstructed_prefill) ||
+      !approximately_equal_latency(reconstructed_prefill,
+                                   timing.prompt_prefill_milliseconds)) {
+    return "prefix_execution_plus_finish_prefill";
+  }
+  if (!approximately_equal_latency(timing.prompt_prefill_milliseconds,
+                                   timing.time_to_first_token_milliseconds)) {
+    return "prompt_prefill_equals_time_to_first_token";
+  }
+  if (!approximately_equal_latency(subsequent_token_total,
+                                   timing.decode_after_first_milliseconds)) {
+    return "subsequent_token_equals_decode_after_first";
+  }
+  const double reconstructed_total = timing.prompt_prefill_milliseconds +
+                                     timing.decode_after_first_milliseconds;
+  if (!std::isfinite(reconstructed_total) ||
+      !approximately_equal_latency(reconstructed_total,
+                                   timing.total_generation_milliseconds)) {
+    return "prompt_prefill_plus_decode_after_first";
+  }
+  return {};
+}
+
 }  // namespace
 
 namespace reference_benchmark_detail {
@@ -266,6 +378,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     report.warmup_rounds = options.warmup_rounds;
     report.measured_rounds = options.measured_rounds;
     report.logits_mode = options.logits_mode;
+    report.nvtx_phase_ranges_emitted = options.emit_nvtx_phase_ranges;
     report.max_new_tokens = options.max_new_tokens;
     report.stop_token_id = options.stop_token_id;
     report.prefill_chunk_size = options.prefill_chunk_size;
@@ -278,12 +391,24 @@ ReferenceBenchmarkResult run_benchmark_control(
         options.device_memory_drop_tolerance_bytes;
 
     std::vector<std::optional<ReferenceGeneration>> baselines(prompts.size());
+    std::vector<std::vector<double>> prompt_prompt_prefix(prompts.size());
+    std::vector<std::vector<double>> prompt_finish_prefill(prompts.size());
+    std::vector<std::vector<double>> prompt_prompt_prefill(prompts.size());
+    std::vector<std::vector<double>> prompt_decode_after_first(prompts.size());
     std::vector<std::vector<double>> prompt_ttft(prompts.size());
     std::vector<std::vector<double>> prompt_total(prompts.size());
     std::vector<std::vector<double>> prompt_subsequent(prompts.size());
+    std::vector<double> all_prompt_prefix;
+    std::vector<double> all_finish_prefill;
+    std::vector<double> all_prompt_prefill;
+    std::vector<double> all_decode_after_first;
     std::vector<double> all_ttft;
     std::vector<double> all_total;
     std::vector<double> all_subsequent;
+    all_prompt_prefix.reserve(sample_count);
+    all_finish_prefill.reserve(sample_count);
+    all_prompt_prefill.reserve(sample_count);
+    all_decode_after_first.reserve(sample_count);
     all_ttft.reserve(sample_count);
     all_total.reserve(sample_count);
 
@@ -293,6 +418,7 @@ ReferenceBenchmarkResult run_benchmark_control(
     generation_options.capture_trace = false;
     generation_options.prefill_chunk_size = options.prefill_chunk_size;
     generation_options.logits_mode = options.logits_mode;
+    generation_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
 
     auto run_phase = [&](const std::uint32_t rounds,
                          const bool warmup) -> bool {
@@ -326,6 +452,21 @@ ReferenceBenchmarkResult run_benchmark_control(
             return false;
           }
 
+          double prompt_prefix_milliseconds = 0.0;
+          const std::string timing_error = timing_validation_error(
+              *generated.value, prompt_prefix_milliseconds);
+          if (!timing_error.empty()) {
+            result.diagnostic = benchmark_diagnostic(
+                ReferenceBenchmarkError::kInvalidTiming,
+                "generation returned an invalid or inconsistent timing "
+                "decomposition");
+            result.diagnostic.prompt_index = prompt_index;
+            result.diagnostic.round = round;
+            result.diagnostic.warmup = warmup;
+            result.diagnostic.mismatch_field = timing_error;
+            return false;
+          }
+
           if (!baselines[prompt_index].has_value()) {
             baselines[prompt_index] = *generated.value;
           } else {
@@ -349,12 +490,28 @@ ReferenceBenchmarkResult run_benchmark_control(
             sample.measured_round = round;
             sample.timing = generated.value->timing;
             report.samples.push_back(std::move(sample));
+            const double finish_prefill =
+                generated.value->timing.finish_prefill_milliseconds;
+            const double prompt_prefill =
+                generated.value->timing.prompt_prefill_milliseconds;
+            const double decode_after_first =
+                generated.value->timing.decode_after_first_milliseconds;
             const double ttft =
                 generated.value->timing.time_to_first_token_milliseconds;
             const double total =
                 generated.value->timing.total_generation_milliseconds;
+            prompt_prompt_prefix[prompt_index].push_back(
+                prompt_prefix_milliseconds);
+            prompt_finish_prefill[prompt_index].push_back(finish_prefill);
+            prompt_prompt_prefill[prompt_index].push_back(prompt_prefill);
+            prompt_decode_after_first[prompt_index].push_back(
+                decode_after_first);
             prompt_ttft[prompt_index].push_back(ttft);
             prompt_total[prompt_index].push_back(total);
+            all_prompt_prefix.push_back(prompt_prefix_milliseconds);
+            all_finish_prefill.push_back(finish_prefill);
+            all_prompt_prefill.push_back(prompt_prefill);
+            all_decode_after_first.push_back(decode_after_first);
             all_ttft.push_back(ttft);
             all_total.push_back(total);
             for (const double latency :
@@ -400,17 +557,32 @@ ReferenceBenchmarkResult run_benchmark_control(
       return result;
     }
 
+    const auto prompt_prefix_stats =
+        compute_latency_statistics(all_prompt_prefix);
+    const auto finish_prefill_stats =
+        compute_latency_statistics(all_finish_prefill);
+    const auto prompt_prefill_stats =
+        compute_latency_statistics(all_prompt_prefill);
+    const auto decode_after_first_stats =
+        compute_latency_statistics(all_decode_after_first);
     const auto ttft_stats = compute_latency_statistics(all_ttft);
     const auto total_stats = compute_latency_statistics(all_total);
     const auto subsequent_stats =
         compute_latency_statistics(all_subsequent);
-    if (!ttft_stats.has_value() || !total_stats.has_value() ||
-        !subsequent_stats.has_value()) {
+    if (!prompt_prefix_stats.has_value() ||
+        !finish_prefill_stats.has_value() ||
+        !prompt_prefill_stats.has_value() ||
+        !decode_after_first_stats.has_value() || !ttft_stats.has_value() ||
+        !total_stats.has_value() || !subsequent_stats.has_value()) {
       result.diagnostic = benchmark_diagnostic(
           ReferenceBenchmarkError::kInvalidTiming,
           "generation returned a negative or non-finite timing");
       return result;
     }
+    report.prompt_prefix = *prompt_prefix_stats;
+    report.finish_prefill = *finish_prefill_stats;
+    report.prompt_prefill = *prompt_prefill_stats;
+    report.decode_after_first = *decode_after_first_stats;
     report.time_to_first_token = *ttft_stats;
     report.total_generation = *total_stats;
     report.subsequent_token = *subsequent_stats;
@@ -419,13 +591,25 @@ ReferenceBenchmarkResult run_benchmark_control(
     for (std::size_t index = 0U; index < prompts.size(); ++index) {
       ReferenceBenchmarkPromptReport prompt =
           prompt_report(prompts[index], *baselines[index]);
+      const auto per_prompt_prompt_prefix =
+          compute_latency_statistics(prompt_prompt_prefix[index]);
+      const auto per_prompt_finish_prefill =
+          compute_latency_statistics(prompt_finish_prefill[index]);
+      const auto per_prompt_prompt_prefill =
+          compute_latency_statistics(prompt_prompt_prefill[index]);
+      const auto per_prompt_decode_after_first =
+          compute_latency_statistics(prompt_decode_after_first[index]);
       const auto per_prompt_ttft =
           compute_latency_statistics(prompt_ttft[index]);
       const auto per_prompt_total =
           compute_latency_statistics(prompt_total[index]);
       const auto per_prompt_subsequent =
           compute_latency_statistics(prompt_subsequent[index]);
-      if (!per_prompt_ttft.has_value() || !per_prompt_total.has_value() ||
+      if (!per_prompt_prompt_prefix.has_value() ||
+          !per_prompt_finish_prefill.has_value() ||
+          !per_prompt_prompt_prefill.has_value() ||
+          !per_prompt_decode_after_first.has_value() ||
+          !per_prompt_ttft.has_value() || !per_prompt_total.has_value() ||
           !per_prompt_subsequent.has_value()) {
         result.diagnostic = benchmark_diagnostic(
             ReferenceBenchmarkError::kInvalidTiming,
@@ -433,6 +617,10 @@ ReferenceBenchmarkResult run_benchmark_control(
         result.diagnostic.prompt_index = index;
         return result;
       }
+      prompt.prompt_prefix = *per_prompt_prompt_prefix;
+      prompt.finish_prefill = *per_prompt_finish_prefill;
+      prompt.prompt_prefill = *per_prompt_prompt_prefill;
+      prompt.decode_after_first = *per_prompt_decode_after_first;
       prompt.time_to_first_token = *per_prompt_ttft;
       prompt.total_generation = *per_prompt_total;
       prompt.subsequent_token = *per_prompt_subsequent;

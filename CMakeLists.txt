@@ -570,6 +570,13 @@ if(BUILD_TESTING)
   set_tests_properties(generate_duplicate_prefill_chunk
     PROPERTIES WILL_FAIL TRUE
   )
+  add_test(NAME generate_duplicate_nvtx_phase_ranges
+    COMMAND qwen3x-orin generate unused-model-directory
+            --prompt test --nvtx-phase-ranges --nvtx-phase-ranges
+  )
+  set_tests_properties(generate_duplicate_nvtx_phase_ranges
+    PROPERTIES WILL_FAIL TRUE
+  )
   add_test(NAME benchmark_help COMMAND qwen3x-orin benchmark --help)
   add_test(NAME benchmark_invalid_iterations
     COMMAND qwen3x-orin benchmark unused-model-directory
@@ -618,6 +625,13 @@ if(BUILD_TESTING)
             --prefill-chunk-size 16
   )
   set_tests_properties(benchmark_duplicate_prefill_chunk
+    PROPERTIES WILL_FAIL TRUE
+  )
+  add_test(NAME benchmark_duplicate_nvtx_phase_ranges
+    COMMAND qwen3x-orin benchmark unused-model-directory
+            --prompt test --nvtx-phase-ranges --nvtx-phase-ranges
+  )
+  set_tests_properties(benchmark_duplicate_nvtx_phase_ranges
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME benchmark_request_plan_preflight

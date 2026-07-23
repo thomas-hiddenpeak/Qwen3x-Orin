@@ -1,5 +1,7 @@
 #include "q3x/runtime/reference_engine.h"
 
+#include <nvtx3/nvToolsExt.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -11,6 +13,97 @@
 
 namespace q3x::runtime::reference_engine_detail {
 namespace {
+
+inline constexpr char kNvtxGeneration[] = "q3x.generation";
+inline constexpr char kNvtxPrefixStep[] = "q3x.prefill.prefix_step";
+inline constexpr char kNvtxPrefixTile[] = "q3x.prefill.prefix_tile";
+inline constexpr char kNvtxFinishPrefill[] = "q3x.prefill.finish";
+inline constexpr char kNvtxDecodeStep[] = "q3x.decode.step";
+
+enum class NvtxRangeName : std::uint8_t {
+  kGeneration,
+  kPrefixStep,
+  kPrefixTile,
+  kFinishPrefill,
+  kDecodeStep,
+};
+
+struct RegisteredNvtxStrings {
+  nvtxStringHandle_t generation = nullptr;
+  nvtxStringHandle_t prefix_step = nullptr;
+  nvtxStringHandle_t prefix_tile = nullptr;
+  nvtxStringHandle_t finish_prefill = nullptr;
+  nvtxStringHandle_t decode_step = nullptr;
+};
+
+[[nodiscard]] const RegisteredNvtxStrings& registered_nvtx_strings() {
+  static const RegisteredNvtxStrings strings{
+      nvtxDomainRegisterStringA(nullptr, kNvtxGeneration),
+      nvtxDomainRegisterStringA(nullptr, kNvtxPrefixStep),
+      nvtxDomainRegisterStringA(nullptr, kNvtxPrefixTile),
+      nvtxDomainRegisterStringA(nullptr, kNvtxFinishPrefill),
+      nvtxDomainRegisterStringA(nullptr, kNvtxDecodeStep)};
+  return strings;
+}
+
+[[nodiscard]] nvtxStringHandle_t registered_nvtx_string(
+    const NvtxRangeName name) {
+  const RegisteredNvtxStrings& strings = registered_nvtx_strings();
+  switch (name) {
+    case NvtxRangeName::kGeneration:
+      return strings.generation;
+    case NvtxRangeName::kPrefixStep:
+      return strings.prefix_step;
+    case NvtxRangeName::kPrefixTile:
+      return strings.prefix_tile;
+    case NvtxRangeName::kFinishPrefill:
+      return strings.finish_prefill;
+    case NvtxRangeName::kDecodeStep:
+      return strings.decode_step;
+  }
+  return strings.generation;
+}
+
+class ScopedNvtxRange final {
+ public:
+  explicit ScopedNvtxRange(const nvtxStringHandle_t message) noexcept {
+    nvtxEventAttributes_t attributes{};
+    attributes.version = NVTX_VERSION;
+    attributes.size = NVTX_EVENT_ATTRIB_STRUCT_SIZE;
+    attributes.messageType = NVTX_MESSAGE_TYPE_REGISTERED;
+    attributes.message.registered = message;
+    (void)nvtxRangePushEx(&attributes);
+  }
+
+  ~ScopedNvtxRange() { (void)nvtxRangePop(); }
+
+  ScopedNvtxRange(const ScopedNvtxRange&) = delete;
+  ScopedNvtxRange& operator=(const ScopedNvtxRange&) = delete;
+};
+
+template <bool EmitRange>
+class GenerationNvtxRange final {};
+
+template <>
+class GenerationNvtxRange<true> final {
+ public:
+  GenerationNvtxRange() noexcept
+      : range_(registered_nvtx_string(NvtxRangeName::kGeneration)) {}
+
+ private:
+  ScopedNvtxRange range_;
+};
+
+template <bool EmitRange, typename Callback>
+auto invoke_with_optional_nvtx(const NvtxRangeName range_name,
+                               Callback&& callback) -> decltype(callback()) {
+  if constexpr (!EmitRange) {
+    return callback();
+  } else {
+    const ScopedNvtxRange range(registered_nvtx_string(range_name));
+    return callback();
+  }
+}
 
 GenerationControlResult failure(const GenerationControlError error,
                                 const ReferenceRunnerStatus status = {}) {
@@ -33,9 +126,8 @@ bool checked_required_steps(const std::size_t prompt_tokens,
   return true;
 }
 
-}  // namespace
-
-GenerationControlResult run_generation_control(
+template <bool EmitNvtx>
+GenerationControlResult run_generation_control_impl(
     const std::vector<std::uint32_t>& prompt_token_ids,
     const GenerationControlOptions& options,
     const PrefillPlan& prefill_plan,
@@ -67,6 +159,8 @@ GenerationControlResult run_generation_control(
     return failure(GenerationControlError::kCapacityExceeded);
   }
 
+  [[maybe_unused]] const GenerationNvtxRange<EmitNvtx> generation_range;
+
   try {
     GenerationControl control;
     control.generated_token_ids.reserve(options.max_new_tokens);
@@ -74,6 +168,7 @@ GenerationControlResult run_generation_control(
 
     auto execute = [&](void* const phase_context,
                        const StepFunction phase_step,
+                       const NvtxRangeName nvtx_range_name,
                        const std::uint32_t input_token,
                        const bool compute_logits,
                        double& elapsed,
@@ -85,8 +180,11 @@ GenerationControlResult run_generation_control(
       step_options.capture_trace = options.capture_trace;
       step_options.measure_timing = true;
       step_options.logits_mode = options.logits_mode;
-      ReferenceStepOutcome outcome =
-          phase_step(phase_context, input_token, step_options);
+      ReferenceStepOutcome outcome = invoke_with_optional_nvtx<EmitNvtx>(
+          nvtx_range_name,
+          [&]() {
+            return phase_step(phase_context, input_token, step_options);
+          });
       if (!outcome) {
         failed_status = outcome.status;
         return GenerationControlError::kRunnerFailure;
@@ -147,6 +245,13 @@ GenerationControlResult run_generation_control(
         prefill_plan.prefix_tile == nullptr) {
       return failure(GenerationControlError::kInvalidArgument);
     }
+    const std::size_t prefix_execution_count =
+        effective_prefill_chunk_size > 1U
+            ? prefix_token_count / effective_prefill_chunk_size +
+                  (prefix_token_count % effective_prefill_chunk_size != 0U)
+            : prefix_token_count;
+    control.timing.prefix_execution_milliseconds.reserve(
+        prefix_execution_count);
 
     std::size_t prefix_index = 0U;
     if (effective_prefill_chunk_size > 1U) {
@@ -156,10 +261,15 @@ GenerationControlResult run_generation_control(
                      prefix_token_count - prefix_index);
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
-        ReferencePrefillTileOutcome outcome = prefill_plan.prefix_tile(
-            prefill_plan.context,
-            prompt_token_ids.data() + prefix_index,
-            tile_token_count, tile_options);
+        const auto invoke_prefix_tile = [&]() {
+          return prefill_plan.prefix_tile(
+              prefill_plan.context,
+              prompt_token_ids.data() + prefix_index,
+              tile_token_count, tile_options);
+        };
+        ReferencePrefillTileOutcome outcome =
+            invoke_with_optional_nvtx<EmitNvtx>(NvtxRangeName::kPrefixTile,
+                                                invoke_prefix_tile);
         if (!outcome) {
           return failure(GenerationControlError::kRunnerFailure,
                          outcome.status);
@@ -203,6 +313,7 @@ GenerationControlResult run_generation_control(
         if (!std::isfinite(accumulated_prefill)) {
           return failure(GenerationControlError::kUnexpectedStep);
         }
+        control.timing.prefix_execution_milliseconds.push_back(tile_elapsed);
         control.timing.prompt_prefill_milliseconds = accumulated_prefill;
         prefix_index += tile_token_count;
       }
@@ -211,12 +322,19 @@ GenerationControlResult run_generation_control(
         double elapsed = 0.0;
         const GenerationControlError error = execute(
             prefill_plan.context, prefill_plan.prefix_step,
+            NvtxRangeName::kPrefixStep,
             prompt_token_ids[prefix_index], false, elapsed,
             predicted_token, runner_failure_status);
         if (error != GenerationControlError::kNone) {
           return failure(error, runner_failure_status);
         }
-        control.timing.prompt_prefill_milliseconds += elapsed;
+        const double accumulated_prefill =
+            control.timing.prompt_prefill_milliseconds + elapsed;
+        if (!std::isfinite(accumulated_prefill)) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
+        control.timing.prefix_execution_milliseconds.push_back(elapsed);
+        control.timing.prompt_prefill_milliseconds = accumulated_prefill;
         ++prefix_index;
       }
     }
@@ -225,12 +343,19 @@ GenerationControlResult run_generation_control(
       double elapsed = 0.0;
       const GenerationControlError error = execute(
           prefill_plan.context, prefill_plan.finish_prefill,
+          NvtxRangeName::kFinishPrefill,
           prompt_token_ids.back(), true, elapsed,
           predicted_token, runner_failure_status);
       if (error != GenerationControlError::kNone) {
         return failure(error, runner_failure_status);
       }
-      control.timing.prompt_prefill_milliseconds += elapsed;
+      const double prompt_prefill =
+          control.timing.prompt_prefill_milliseconds + elapsed;
+      if (!std::isfinite(prompt_prefill)) {
+        return failure(GenerationControlError::kUnexpectedStep);
+      }
+      control.timing.finish_prefill_milliseconds = elapsed;
+      control.timing.prompt_prefill_milliseconds = prompt_prefill;
     }
 
     control.generated_token_ids.push_back(predicted_token);
@@ -247,15 +372,24 @@ GenerationControlResult run_generation_control(
         double elapsed = 0.0;
         const GenerationControlError error = execute(
             decode_plan.context, decode_plan.decode_step,
+            NvtxRangeName::kDecodeStep,
             input_token, true, elapsed, predicted_token,
             runner_failure_status);
         if (error != GenerationControlError::kNone) {
           return failure(error, runner_failure_status);
         }
+        const double decode_after_first =
+            control.timing.decode_after_first_milliseconds + elapsed;
+        const double total_generation =
+            control.timing.total_generation_milliseconds + elapsed;
+        if (!std::isfinite(decode_after_first) ||
+            !std::isfinite(total_generation)) {
+          return failure(GenerationControlError::kUnexpectedStep);
+        }
         control.generated_token_ids.push_back(predicted_token);
         control.timing.subsequent_token_milliseconds.push_back(elapsed);
-        control.timing.decode_after_first_milliseconds += elapsed;
-        control.timing.total_generation_milliseconds += elapsed;
+        control.timing.decode_after_first_milliseconds = decode_after_first;
+        control.timing.total_generation_milliseconds = total_generation;
         if (predicted_token == options.stop_token_id) {
           control.stop_reason = ReferenceStopReason::kImEnd;
           break;
@@ -271,6 +405,21 @@ GenerationControlResult run_generation_control(
   } catch (const std::length_error&) {
     return failure(GenerationControlError::kAllocationFailure);
   }
+}
+
+}  // namespace
+
+GenerationControlResult run_generation_control(
+    const std::vector<std::uint32_t>& prompt_token_ids,
+    const GenerationControlOptions& options,
+    const PrefillPlan& prefill_plan,
+    const DecodePlan& decode_plan) {
+  if (options.emit_nvtx_phase_ranges) {
+    return run_generation_control_impl<true>(
+        prompt_token_ids, options, prefill_plan, decode_plan);
+  }
+  return run_generation_control_impl<false>(
+      prompt_token_ids, options, prefill_plan, decode_plan);
 }
 
 GenerationControlResult run_generation_control(

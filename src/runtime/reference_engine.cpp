@@ -619,6 +619,7 @@ ReferenceGenerateResult ReferenceEngine::generate(
     control_options.prefill_chunk_size = options.prefill_chunk_size;
     control_options.capture_trace = options.capture_trace;
     control_options.logits_mode = options.logits_mode;
+    control_options.emit_nvtx_phase_ranges = options.emit_nvtx_phase_ranges;
 
     reference_engine_detail::PrefillPlan prefill_plan;
     prefill_plan.context = &step_context;

@@ -29,6 +29,18 @@ class TestContext {
   int failures_ = 0;
 };
 
+bool has_consistent_prefill_timing(
+    const runtime::ReferenceGenerationTiming& timing) {
+  double prefix_sum = 0.0;
+  for (const double elapsed : timing.prefix_execution_milliseconds) {
+    prefix_sum += elapsed;
+  }
+  return prefix_sum + timing.finish_prefill_milliseconds ==
+             timing.prompt_prefill_milliseconds &&
+         timing.prompt_prefill_milliseconds ==
+             timing.time_to_first_token_milliseconds;
+}
+
 enum class PhaseCall : std::uint8_t {
   kPrefixStep,
   kPrefixTile,
@@ -353,10 +365,15 @@ void test_prefill_decode_and_stop(TestContext& test) {
   }
   test.expect(flags, "trace and timing flags reach every step");
   test.expect(result.value->steps.size() == 4U &&
+                  result.value->timing.prefix_execution_milliseconds ==
+                      std::vector<double>({1.0, 2.0}) &&
+                  result.value->timing.finish_prefill_milliseconds == 3.0 &&
                   result.value->timing.prompt_prefill_milliseconds == 6.0 &&
                   result.value->timing.time_to_first_token_milliseconds == 6.0 &&
                   result.value->timing.subsequent_token_milliseconds ==
                       std::vector<double>({4.0}) &&
+                  result.value->timing.decode_after_first_milliseconds == 4.0 &&
+                  has_consistent_prefill_timing(result.value->timing) &&
                   result.value->timing.total_generation_milliseconds == 10.0,
               "TTFT includes all prefill and later token timing is separate");
 }
@@ -442,7 +459,11 @@ void test_explicit_phase_plans(TestContext& test) {
                       std::vector<std::uint32_t>(canonical_prompt.begin() + 16,
                                                  canonical_prompt.begin() + 18) &&
                   fake.inputs == std::vector<std::uint32_t>({118U, 42U}) &&
+                  result.value->timing.prefix_execution_milliseconds ==
+                      std::vector<double>({10.0, 10.0}) &&
+                  result.value->timing.finish_prefill_milliseconds == 1.0 &&
                   result.value->timing.prompt_prefill_milliseconds == 21.0 &&
+                  has_consistent_prefill_timing(result.value->timing) &&
                   result.value->timing.subsequent_token_milliseconds ==
                       std::vector<double>({2.0}),
               "C16 plan routes 16+2, final prompt TTFT, and subsequent "
@@ -464,7 +485,11 @@ void test_explicit_phase_plans(TestContext& test) {
                       std::vector<std::uint32_t>(canonical_prompt.begin(),
                                                  canonical_prompt.begin() + 18) &&
                   fake.inputs == std::vector<std::uint32_t>({118U, 42U}) &&
+                  result.value->timing.prefix_execution_milliseconds ==
+                      std::vector<double>({10.0}) &&
+                  result.value->timing.finish_prefill_milliseconds == 1.0 &&
                   result.value->timing.prompt_prefill_milliseconds == 11.0 &&
+                  has_consistent_prefill_timing(result.value->timing) &&
                   result.value->timing.subsequent_token_milliseconds ==
                       std::vector<double>({2.0}),
               "C32 plan routes the 18-token prefix as one tile while keeping "
@@ -588,7 +613,10 @@ void test_explicit_phase_plan_shape_matrix(TestContext& test) {
 
       const bool case_passed =
           route_matches && input_matches && result.value->steps.size() ==
-                                               prompt_size + 1U;
+                                               prompt_size + 1U &&
+          result.value->timing.prefix_execution_milliseconds.size() ==
+              expected_prefix_calls &&
+          has_consistent_prefill_timing(result.value->timing);
       if (!case_passed) {
         std::cerr << "  phase matrix mismatch: prompt_size=" << prompt_size
                   << " chunk_size=" << chunk_size << '\n';
@@ -597,6 +625,86 @@ void test_explicit_phase_plan_shape_matrix(TestContext& test) {
                   "phase plans preserve routing across prompt and chunk boundaries");
     }
   }
+}
+
+void test_nvtx_phase_ranges_preserve_control_semantics(TestContext& test) {
+  const auto run = [](FakeRunner& fake, const bool emit_nvtx_ranges,
+                      const std::uint32_t chunk_size) {
+    fake.predictions = {42U, runtime::kQwen36ImEndTokenId};
+    PhaseContext prefill_context{&fake};
+    PhaseContext decode_context{&fake};
+
+    detail::PrefillPlan prefill_plan;
+    prefill_plan.context = &prefill_context;
+    prefill_plan.prefix_step = fake_prefix_step;
+    prefill_plan.finish_prefill = fake_finish_prefill;
+    prefill_plan.prefix_tile = fake_prefix_tile;
+
+    detail::DecodePlan decode_plan;
+    decode_plan.context = &decode_context;
+    decode_plan.decode_step = fake_decode_step;
+
+    detail::GenerationControlOptions control_options =
+        options(2U, 4U, false, chunk_size);
+    control_options.emit_nvtx_phase_ranges = emit_nvtx_ranges;
+    return detail::run_generation_control(
+        {10U, 11U, 12U}, control_options, prefill_plan, decode_plan);
+  };
+
+  FakeRunner baseline_fake;
+  FakeRunner nvtx_fake;
+  const auto baseline = run(baseline_fake, false, 1U);
+  const auto with_nvtx = run(nvtx_fake, true, 1U);
+  const runtime::ReferenceGenerateOptions default_generate_options;
+  const detail::GenerationControlOptions default_control_options;
+  test.expect(!default_generate_options.emit_nvtx_phase_ranges &&
+                  !default_control_options.emit_nvtx_phase_ranges,
+              "NVTX phase ranges are disabled by default");
+  test.expect(baseline && with_nvtx &&
+                  baseline_fake.phase_calls == nvtx_fake.phase_calls &&
+                  baseline_fake.inputs == nvtx_fake.inputs &&
+                  baseline.value->generated_token_ids ==
+                      with_nvtx.value->generated_token_ids &&
+                  baseline.value->stop_reason == with_nvtx.value->stop_reason &&
+                  baseline.value->timing.prefix_execution_milliseconds ==
+                      with_nvtx.value->timing.prefix_execution_milliseconds &&
+                  baseline.value->timing.finish_prefill_milliseconds ==
+                      with_nvtx.value->timing.finish_prefill_milliseconds &&
+                  baseline.value->timing.prompt_prefill_milliseconds ==
+                      with_nvtx.value->timing.prompt_prefill_milliseconds &&
+                  baseline.value->timing.subsequent_token_milliseconds ==
+                      with_nvtx.value->timing.subsequent_token_milliseconds &&
+                  baseline.value->timing.decode_after_first_milliseconds ==
+                      with_nvtx.value->timing.decode_after_first_milliseconds &&
+                  baseline.value->timing.total_generation_milliseconds ==
+                      with_nvtx.value->timing.total_generation_milliseconds,
+              "enabled NVTX ranges preserve phase ordering, output, and "
+              "timing semantics");
+
+  FakeRunner tiled_baseline_fake;
+  FakeRunner tiled_nvtx_fake;
+  const auto tiled_baseline = run(tiled_baseline_fake, false, 2U);
+  const auto tiled_with_nvtx = run(tiled_nvtx_fake, true, 2U);
+  test.expect(tiled_baseline && tiled_with_nvtx &&
+                  tiled_baseline_fake.phase_calls ==
+                      tiled_nvtx_fake.phase_calls &&
+                  tiled_baseline_fake.tile_inputs ==
+                      tiled_nvtx_fake.tile_inputs &&
+                  tiled_baseline.value->timing.prefix_execution_milliseconds ==
+                      tiled_with_nvtx.value->timing
+                          .prefix_execution_milliseconds &&
+                  tiled_baseline.value->timing.finish_prefill_milliseconds ==
+                      tiled_with_nvtx.value->timing
+                          .finish_prefill_milliseconds,
+              "enabled NVTX ranges preserve tiled-prefix semantics");
+
+  FakeRunner failure_fake;
+  failure_fake.fail_at = 0U;
+  const auto failed_with_nvtx = run(failure_fake, true, 1U);
+  test.expect(!failed_with_nvtx &&
+                  failed_with_nvtx.error ==
+                      detail::GenerationControlError::kRunnerFailure,
+              "enabled NVTX ranges preserve runner-failure propagation");
 }
 
 void test_max_tokens_and_first_stop(TestContext& test) {
@@ -668,10 +776,15 @@ void test_chunked_prefix_tiles(TestContext& test) {
                   result.value->steps[19].timing.has_value(),
               "tile metadata expands into continuous per-token transcript steps");
   test.expect(result.value->timing.prompt_prefill_milliseconds == 31.0 &&
+                  result.value->timing.prefix_execution_milliseconds ==
+                      std::vector<double>({10.0, 10.0, 10.0}) &&
+                  result.value->timing.finish_prefill_milliseconds == 1.0 &&
                   result.value->timing.time_to_first_token_milliseconds ==
                       31.0 &&
+                  has_consistent_prefill_timing(result.value->timing) &&
                   result.value->timing.subsequent_token_milliseconds ==
                       std::vector<double>({2.0}) &&
+                  result.value->timing.decode_after_first_milliseconds == 2.0 &&
                   result.value->timing.total_generation_milliseconds == 33.0,
               "TTFT sums whole-tile times plus the scalar final-prompt step");
 
@@ -896,6 +1009,17 @@ void test_validation_and_runner_failures(TestContext& test) {
   }
 
   fake = {};
+  fake.predictions = {1U, runtime::kQwen36ImEndTokenId};
+  fake.override_timing = true;
+  fake.timing_milliseconds = std::numeric_limits<double>::max();
+  result = detail::run_generation_control(
+      {1U}, options(2U, 2U), &fake, fake_step);
+  test.expect(!result &&
+                  result.error ==
+                      detail::GenerationControlError::kUnexpectedStep,
+              "decode timing accumulation rejects finite-value overflow");
+
+  fake = {};
   fake.predictions = {1U};
   fake.wrong_position = true;
   result = detail::run_generation_control(
@@ -959,6 +1083,7 @@ int main() {
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
   test_explicit_phase_plan_shape_matrix(test);
+  test_nvtx_phase_ranges_preserve_control_semantics(test);
   test_prediction_only_control(test);
   test_result_arm_validation(test);
   test_max_tokens_and_first_stop(test);

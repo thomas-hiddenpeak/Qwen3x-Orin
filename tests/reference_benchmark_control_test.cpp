@@ -36,13 +36,24 @@ runtime::ReferenceGeneration make_generation(const std::string_view prompt,
   const std::uint32_t discriminator = prompt == "alpha" ? 1U : 2U;
   runtime::ReferenceGeneration generation;
   generation.prompt_token_ids = {100U, discriminator};
-  generation.generated_token_ids = {
-      200U + discriminator, runtime::kQwen36ImEndTokenId};
+  if (subsequent.empty()) {
+    generation.generated_token_ids = {runtime::kQwen36ImEndTokenId};
+  } else {
+    generation.generated_token_ids.push_back(200U + discriminator);
+    for (std::size_t index = 1U; index < subsequent.size(); ++index) {
+      generation.generated_token_ids.push_back(
+          300U + discriminator * 16U + static_cast<std::uint32_t>(index));
+    }
+    generation.generated_token_ids.push_back(runtime::kQwen36ImEndTokenId);
+  }
   generation.generated_text = prompt == "alpha" ? "A" : "B";
   generation.stop_reason = runtime::ReferenceStopReason::kImEnd;
+  generation.timing.prefix_execution_milliseconds = {ttft / 4.0};
+  generation.timing.finish_prefill_milliseconds = ttft * 3.0 / 4.0;
   generation.timing.prompt_prefill_milliseconds = ttft;
   generation.timing.time_to_first_token_milliseconds = ttft;
   generation.timing.subsequent_token_milliseconds = std::move(subsequent);
+  generation.timing.decode_after_first_milliseconds = total - ttft;
   generation.timing.total_generation_milliseconds = total;
 
   runtime::ReferenceStepResult prefix;
@@ -53,16 +64,19 @@ runtime::ReferenceGeneration make_generation(const std::string_view prompt,
   first.position = 1U;
   first.input_token_id = discriminator;
   runtime::ReferenceStepLogits first_logits;
-  first_logits.predicted_token_id = 200U + discriminator;
+  first_logits.predicted_token_id = generation.generated_token_ids.front();
   first.logits.emplace(first_logits);
   generation.steps.push_back(first);
-  runtime::ReferenceStepResult stop;
-  stop.position = 2U;
-  stop.input_token_id = 200U + discriminator;
-  runtime::ReferenceStepLogits stop_logits;
-  stop_logits.predicted_token_id = runtime::kQwen36ImEndTokenId;
-  stop.logits.emplace(stop_logits);
-  generation.steps.push_back(stop);
+  for (std::size_t index = 1U;
+       index < generation.generated_token_ids.size(); ++index) {
+    runtime::ReferenceStepResult decode;
+    decode.position = static_cast<std::uint32_t>(1U + index);
+    decode.input_token_id = generation.generated_token_ids[index - 1U];
+    runtime::ReferenceStepLogits decode_logits;
+    decode_logits.predicted_token_id = generation.generated_token_ids[index];
+    decode.logits.emplace(decode_logits);
+    generation.steps.push_back(std::move(decode));
+  }
   return generation;
 }
 
@@ -71,9 +85,15 @@ struct FakeGenerator {
   bool mismatch = false;
   bool fail = false;
   bool invalid_timing = false;
+  bool nan_phase_timing = false;
+  bool inconsistent_phase_timing = false;
+  bool inconsistent_decode_phase_timing = false;
+  bool invalid_prefix_cardinality = false;
+  bool invalid_subsequent_cardinality = false;
   std::uint32_t expected_prefill_chunk_size = 4U;
   runtime::ReferenceLogitsMode expected_logits_mode =
       runtime::ReferenceLogitsMode::kFullStatistics;
+  bool expected_emit_nvtx_phase_ranges = false;
   bool preserve_full_arm = false;
   bool add_both_arms = false;
   bool add_prefix_prediction = false;
@@ -95,7 +115,9 @@ runtime::ReferenceGenerateResult fake_generate(
   if (options.max_new_tokens != 8U || options.capture_trace ||
       options.prefill_chunk_size != fake.expected_prefill_chunk_size ||
       options.stop_token_id != runtime::kQwen36ImEndTokenId ||
-      options.logits_mode != fake.expected_logits_mode) {
+      options.logits_mode != fake.expected_logits_mode ||
+      options.emit_nvtx_phase_ranges !=
+          fake.expected_emit_nvtx_phase_ranges) {
     result.diagnostic.code = runtime::ReferenceEngineError::kInvalidArgument;
     return result;
   }
@@ -103,7 +125,8 @@ runtime::ReferenceGenerateResult fake_generate(
   static const double kTtft[] = {1.0, 2.0, 10.0, 20.0, 30.0, 40.0};
   static const double kTotal[] = {2.0, 4.0, 20.0, 40.0, 60.0, 80.0};
   static const std::vector<double> kSubsequent[] = {
-      {1.0}, {2.0}, {3.0, 4.0}, {5.0}, {6.0, 7.0}, {}};
+      {0.25, 0.25, 0.5}, {0.5, 1.5}, {3.0, 4.0, 3.0},
+      {5.0, 15.0}, {6.0, 7.0, 17.0}, {10.0, 30.0}};
   runtime::ReferenceGeneration generation = make_generation(
       prompt, kTtft[call], kTotal[call], kSubsequent[call]);
   if (options.logits_mode ==
@@ -134,6 +157,22 @@ runtime::ReferenceGenerateResult fake_generate(
   generation.effective_prefill_chunk_size = options.prefill_chunk_size;
   if (fake.invalid_timing) {
     generation.timing.time_to_first_token_milliseconds = -1.0;
+  }
+  if (fake.nan_phase_timing) {
+    generation.timing.prefix_execution_milliseconds.front() =
+        std::numeric_limits<double>::quiet_NaN();
+  }
+  if (fake.inconsistent_phase_timing) {
+    generation.timing.finish_prefill_milliseconds += 1.0;
+  }
+  if (fake.inconsistent_decode_phase_timing) {
+    generation.timing.decode_after_first_milliseconds += 1.0;
+  }
+  if (fake.invalid_prefix_cardinality) {
+    generation.timing.prefix_execution_milliseconds.push_back(0.0);
+  }
+  if (fake.invalid_subsequent_cardinality) {
+    generation.timing.subsequent_token_milliseconds.push_back(0.0);
   }
   if (fake.mismatch && call == 2U) {
     generation.generated_text = "changed";
@@ -231,21 +270,46 @@ void test_control_success(TestContext& test) {
                   report.time_to_first_token.p95_milliseconds == 40.0 &&
                   report.time_to_first_token.maximum_milliseconds == 40.0,
               "aggregate TTFT statistics exclude warmups");
+  test.expect(report.prompt_prefix.count == 4U &&
+                  report.prompt_prefix.minimum_milliseconds == 2.5 &&
+                  report.prompt_prefix.median_milliseconds == 6.25 &&
+                  report.prompt_prefix.p95_milliseconds == 10.0 &&
+                  report.finish_prefill.median_milliseconds == 18.75 &&
+                  report.finish_prefill.p95_milliseconds == 30.0 &&
+                  report.prompt_prefill.median_milliseconds == 25.0 &&
+                  report.decode_after_first.median_milliseconds == 25.0,
+              "aggregate phase statistics use one prefix sum per sample");
   test.expect(report.total_generation.median_milliseconds == 50.0 &&
                   report.total_generation.p95_milliseconds == 80.0 &&
-                  report.subsequent_token.count == 5U &&
-                  report.subsequent_token.median_milliseconds == 5.0 &&
-                  report.subsequent_token.p95_milliseconds == 7.0,
+                  report.subsequent_token.count == 10U &&
+                  report.subsequent_token.median_milliseconds == 6.5 &&
+                  report.subsequent_token.p95_milliseconds == 30.0,
               "total and flattened subsequent-token statistics are exact");
   test.expect(report.prompts.size() == 2U &&
+                  report.prompts[0].prompt_prefix.median_milliseconds == 5.0 &&
+                  report.prompts[1].finish_prefill.median_milliseconds ==
+                      22.5 &&
+                  report.prompts[0].prompt_prefill.median_milliseconds ==
+                      20.0 &&
+                  report.prompts[1]
+                          .decode_after_first
+                          .median_milliseconds == 30.0 &&
                   report.prompts[0].time_to_first_token.median_milliseconds ==
                       20.0 &&
                   report.prompts[1].time_to_first_token.median_milliseconds ==
                       30.0 &&
-                  report.prompts[0].step_sequence.size() == 3U &&
+                  report.prompts[0].step_sequence.size() == 5U &&
                   report.prompts[0].step_sequence[1].predicted_token_id ==
                       std::optional<std::uint32_t>(201U),
               "per-prompt statistics and replay step signature are retained");
+  test.expect(report.samples[0].timing.prefix_execution_milliseconds ==
+                      std::vector<double>({2.5}) &&
+                  report.samples[0].timing.finish_prefill_milliseconds == 7.5 &&
+                  report.samples[0]
+                          .timing.prompt_prefill_milliseconds == 10.0 &&
+                  report.samples[0]
+                          .timing.decode_after_first_milliseconds == 10.0,
+              "sample reports retain the complete phase decomposition");
   test.expect(memory.calls == 7U &&
                   report.device_memory.start_free_bytes == 1'000U &&
                   report.device_memory.end_free_bytes == 900U &&
@@ -294,6 +358,22 @@ void test_prediction_only_mode(TestContext& test) {
                         ".logits_mode") != std::string::npos,
                 "benchmark rejects a result arm inconsistent with logits mode");
   }
+}
+
+void test_nvtx_phase_option_propagation(TestContext& test) {
+  FakeGenerator generator;
+  generator.expected_emit_nvtx_phase_ranges = true;
+  FakeMemory memory;
+  memory.free_bytes = {1'000U, 1'000U};
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.warmup_rounds = 0U;
+  options.measured_rounds = 1U;
+  options.emit_nvtx_phase_ranges = true;
+  const auto result = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(result && generator.calls == 1U &&
+                  result.value->nvtx_phase_ranges_emitted,
+              "benchmark propagates explicit NVTX phase range emission");
 }
 
 void test_repeatability_and_failures(TestContext& test) {
@@ -381,8 +461,66 @@ void test_repeatability_and_failures(TestContext& test) {
   result = detail::run_benchmark_control(
       {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
   test.expect(!result && result.diagnostic.code ==
-                             runtime::ReferenceBenchmarkError::kInvalidTiming,
-              "negative measured timing fails the completed benchmark");
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "time_to_first_token_milliseconds",
+              "negative measured timing identifies the invalid phase");
+
+  generator = {};
+  generator.nan_phase_timing = true;
+  memory.free_bytes = {1'000U, 1'000U};
+  memory.calls = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "prefix_execution_milliseconds[0]",
+              "a NaN phase timing is rejected before aggregation");
+
+  generator = {};
+  generator.inconsistent_phase_timing = true;
+  memory.calls = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "prefix_execution_plus_finish_prefill",
+              "an inconsistent phase decomposition is rejected");
+
+  generator = {};
+  generator.inconsistent_decode_phase_timing = true;
+  memory.calls = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "subsequent_token_equals_decode_after_first",
+              "an inconsistent decode-phase sum is rejected");
+
+  generator = {};
+  generator.invalid_prefix_cardinality = true;
+  memory.calls = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "prefix_execution_milliseconds.size",
+              "a prefix timing count inconsistent with dispatch is rejected");
+
+  generator = {};
+  generator.invalid_subsequent_cardinality = true;
+  memory.calls = 0U;
+  result = detail::run_benchmark_control(
+      {"alpha"}, invalid, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!result && result.diagnostic.code ==
+                             runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  result.diagnostic.mismatch_field ==
+                      "subsequent_token_milliseconds.size",
+              "a decode timing count inconsistent with tokens is rejected");
 }
 
 void test_zero_warmup_and_memory_boundary(TestContext& test) {
@@ -457,6 +595,7 @@ int main() {
   test_statistics(test);
   test_control_success(test);
   test_prediction_only_mode(test);
+  test_nvtx_phase_option_propagation(test);
   test_repeatability_and_failures(test);
   test_zero_warmup_and_memory_boundary(test);
   test_maximum_prefill_chunk_boundary(test);
