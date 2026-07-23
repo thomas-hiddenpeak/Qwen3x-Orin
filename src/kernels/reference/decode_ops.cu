@@ -30,6 +30,19 @@ constexpr std::size_t kWarpPositionAttentionScoreHeadDimension =
 constexpr unsigned int kWarpPositionAttentionScoreWarpsPerBlock = 8U;
 constexpr std::size_t kWarpPositionAttentionScoreMaximumSequence =
     kMaximumBlocks * kWarpPositionAttentionScoreWarpsPerBlock;
+constexpr std::size_t kExactAttentionValueQueryHeads = kFusedGqaQueryHeads;
+constexpr std::size_t kExactAttentionValueKvHeads = kFusedGqaKvHeads;
+constexpr std::size_t kExactAttentionValueHeadDimension =
+    kFusedGqaHeadDimension;
+constexpr unsigned int kExactAttentionValueQueriesPerKv =
+    static_cast<unsigned int>(kExactAttentionValueQueryHeads /
+                              kExactAttentionValueKvHeads);
+constexpr unsigned int kExactAttentionValuePositionStride =
+    static_cast<unsigned int>(kExactAttentionValueKvHeads *
+                              kExactAttentionValueHeadDimension);
+constexpr std::size_t kExactAttentionValueMaximumSequence =
+    static_cast<std::size_t>(std::numeric_limits<unsigned int>::max()) /
+    kExactAttentionValuePositionStride;
 constexpr std::size_t kQkRopeQueryHeads = 24U;
 constexpr std::size_t kQkRopeKvHeads = 4U;
 constexpr std::size_t kFullPreprocessQueryHeads = 24U;
@@ -60,6 +73,18 @@ static_assert(
 static_assert(kWarpPositionAttentionScoreMaximumSequence <=
               std::numeric_limits<unsigned int>::max() /
                   kWarpPositionAttentionScoreQueryHeads);
+static_assert(kExactAttentionValueQueryHeads % kExactAttentionValueKvHeads ==
+              0U);
+static_assert(kExactAttentionValueQueriesPerKv *
+                  kExactAttentionValueKvHeads ==
+              kExactAttentionValueQueryHeads);
+static_assert(kExactAttentionValueHeadDimension == kThreads);
+static_assert(kExactAttentionValuePositionStride == 1'024U);
+static_assert(kExactAttentionValueMaximumSequence != 0U);
+static_assert(
+    kExactAttentionValueMaximumSequence <=
+    std::numeric_limits<unsigned int>::max() /
+        kExactAttentionValueQueryHeads);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -844,6 +869,38 @@ __global__ void attention_values_kernel(
   }
 }
 
+// Exact Q24/KV4/D256 attention-value specialization. A two-dimensional 6x4
+// grid exposes both the query-within-KV group and KV head directly, so the
+// kernel needs no dynamic division or remainder. One thread retains one output
+// dimension while traversing positions in exactly the reference FMA order.
+__global__ void attention_values_exact_24_4_256_kernel(
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const unsigned int sequence_length,
+    std::uint16_t* const output) {
+  const unsigned int query_within_kv = blockIdx.x;
+  const unsigned int kv_head = blockIdx.y;
+  const unsigned int query_head =
+      kv_head * kExactAttentionValueQueriesPerKv + query_within_kv;
+  const unsigned int dimension = threadIdx.x;
+  unsigned int probability_index = query_head * sequence_length;
+  unsigned int value_index =
+      kv_head * static_cast<unsigned int>(kExactAttentionValueHeadDimension) +
+      dimension;
+
+  float value = 0.0F;
+#pragma unroll 4
+  for (unsigned int position = 0U; position < sequence_length; ++position) {
+    value = fmaf(probabilities[probability_index],
+                 decode_bf16_device(value_cache[value_index]), value);
+    ++probability_index;
+    value_index += kExactAttentionValuePositionStride;
+  }
+  output[query_head *
+             static_cast<unsigned int>(kExactAttentionValueHeadDimension) +
+         dimension] = encode_bf16_device(value);
+}
+
 // Each CTA owns one query head, so the score, softmax, value, and gate phases
 // retain the reference kernels' thread mapping and reduction order. The
 // explicit BF16 encode/decode below preserves the observable rounding boundary
@@ -984,6 +1041,18 @@ enum class AttentionScoreImplementation {
          head_dimension == kWarpPositionAttentionScoreHeadDimension;
 }
 
+[[nodiscard]] bool use_attention_values_exact_24_4_256(
+    const std::size_t query_head_count,
+    const std::size_t kv_head_count,
+    const std::size_t sequence_length,
+    const std::size_t head_dimension) noexcept {
+  return query_head_count == kExactAttentionValueQueryHeads &&
+         kv_head_count == kExactAttentionValueKvHeads &&
+         sequence_length != 0U &&
+         sequence_length <= kExactAttentionValueMaximumSequence &&
+         head_dimension == kExactAttentionValueHeadDimension;
+}
+
 void launch_attention_scores_unchecked(
     const AttentionScoreImplementation implementation,
     const std::uint16_t* const query,
@@ -1049,6 +1118,38 @@ void launch_attention_scores_unchecked(
          !byte_range_overflows(scores, score_bytes) &&
          !ranges_overlap(query, kQueryBytes, scores, score_bytes) &&
          !ranges_overlap(key_cache, key_bytes, scores, score_bytes);
+}
+
+[[nodiscard]] bool valid_attention_value_test_arguments(
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const std::size_t query_head_count,
+    const std::size_t kv_head_count,
+    const std::size_t sequence_length,
+    const std::size_t head_dimension,
+    const std::uint16_t* const output) noexcept {
+  if (query_head_count != kExactAttentionValueQueryHeads ||
+      kv_head_count != kExactAttentionValueKvHeads || sequence_length == 0U ||
+      sequence_length > kExactAttentionValueMaximumSequence ||
+      head_dimension != kExactAttentionValueHeadDimension ||
+      value_cache == nullptr || probabilities == nullptr || output == nullptr) {
+    return false;
+  }
+
+  const std::size_t value_bytes =
+      sequence_length * kExactAttentionValuePositionStride *
+      sizeof(std::uint16_t);
+  const std::size_t probability_bytes =
+      kExactAttentionValueQueryHeads * sequence_length * sizeof(float);
+  constexpr std::size_t kOutputBytes =
+      kExactAttentionValueQueryHeads * kExactAttentionValueHeadDimension *
+      sizeof(std::uint16_t);
+  return !byte_range_overflows(value_cache, value_bytes) &&
+         !byte_range_overflows(probabilities, probability_bytes) &&
+         !byte_range_overflows(output, kOutputBytes) &&
+         !ranges_overlap(value_cache, value_bytes, output, kOutputBytes) &&
+         !ranges_overlap(probabilities, probability_bytes, output,
+                         kOutputBytes);
 }
 
 template <bool kCentered, bool kApplySiluGate>
@@ -1192,6 +1293,134 @@ int query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks, attention_scores_warp_positions_24_4_256_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_attention_values_baseline_24_4_256_test_cuda(
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const std::size_t query_head_count,
+    const std::size_t kv_head_count,
+    const std::size_t sequence_length,
+    const std::size_t head_dimension,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!valid_attention_value_test_arguments(
+          value_cache, probabilities, query_head_count, kv_head_count,
+          sequence_length, head_dimension, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  attention_values_kernel<<<row_block_count(query_head_count), kThreads, 0U,
+                            stream>>>(
+      value_cache, probabilities, query_head_count, kv_head_count,
+      sequence_length, head_dimension, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_attention_values_exact_24_4_256_test_cuda_selection(
+    const std::size_t query_head_count,
+    const std::size_t kv_head_count,
+    const std::size_t sequence_length,
+    const std::size_t head_dimension,
+    int* const selected) noexcept {
+  if (selected == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  *selected = use_attention_values_exact_24_4_256(
+                  query_head_count, kv_head_count, sequence_length,
+                  head_dimension)
+                  ? 1
+                  : 0;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_attention_values_exact_24_4_256_test_cuda(
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const std::size_t query_head_count,
+    const std::size_t kv_head_count,
+    const std::size_t sequence_length,
+    const std::size_t head_dimension,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!valid_attention_value_test_arguments(
+          value_cache, probabilities, query_head_count, kv_head_count,
+          sequence_length, head_dimension, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  const dim3 blocks(kExactAttentionValueQueriesPerKv,
+                    static_cast<unsigned int>(kExactAttentionValueKvHeads),
+                    1U);
+  (void)cudaGetLastError();
+  attention_values_exact_24_4_256_kernel<<<blocks, kThreads, 0U, stream>>>(
+      value_cache, probabilities, static_cast<unsigned int>(sequence_length),
+      output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_attention_values_baseline_24_4_256_test_cuda_resources(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status =
+      cudaFuncGetAttributes(&attributes, attention_values_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, attention_values_kernel, static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_attention_values_exact_24_4_256_test_cuda_resources(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, attention_values_exact_24_4_256_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, attention_values_exact_24_4_256_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
@@ -1704,9 +1933,21 @@ int launch_gqa_attention_reference_cuda(
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  attention_values_kernel<<<blocks, kThreads, 0U, stream>>>(
-      value_cache, probabilities_scratch, query_head_count, kv_head_count,
-      sequence_length, head_dimension, output);
+  if (use_attention_values_exact_24_4_256(
+          query_head_count, kv_head_count, sequence_length,
+          head_dimension)) {
+    const dim3 value_blocks(
+        kExactAttentionValueQueriesPerKv,
+        static_cast<unsigned int>(kExactAttentionValueKvHeads), 1U);
+    attention_values_exact_24_4_256_kernel
+        <<<value_blocks, kThreads, 0U, stream>>>(
+            value_cache, probabilities_scratch,
+            static_cast<unsigned int>(sequence_length), output);
+  } else {
+    attention_values_kernel<<<blocks, kThreads, 0U, stream>>>(
+        value_cache, probabilities_scratch, query_head_count, kv_head_count,
+        sequence_length, head_dimension, output);
+  }
   return static_cast<int>(cudaGetLastError());
 }
 

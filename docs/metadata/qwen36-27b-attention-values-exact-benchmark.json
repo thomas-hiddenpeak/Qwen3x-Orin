@@ -1,0 +1,492 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-attention-values-exact-benchmark",
+  "status": "promoted-production-q24-kv4-d256-attention-values",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "eb58cc223f8fe0be7fd134f13ac59e15ff13e573",
+    "base_subject": "docs: close FP8 M32 exact-tree evidence",
+    "production_commit": null,
+    "tree_state_at_measurement": "uncommitted exact-attention-values production promotion based on base_head",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "binaries": {
+      "final_device_test": {
+        "local_path": "build/orin-release/q3x_decode_ops_cuda_test",
+        "bytes": 576856,
+        "sha256": "da7fe84d9f4df8df53c370b26b16cffa0168b05d5dece0508f03b8df7f8f1533",
+        "gnu_build_id": "78f404bd328f47c9eca12d37b000ce2adf8622ba",
+        "checked_in": false
+      },
+      "five_process_screen_device_test": {
+        "local_path_at_measurement": "build/orin-release/q3x_decode_ops_cuda_test",
+        "path_was_subsequently_replaced_by_final_device_test": true,
+        "bytes": 576504,
+        "sha256": "b7cd1b5be1494d36dcc37f3db775eaab9fa390bf2350e6c99cff2d1727683df0",
+        "gnu_build_id": "352ae1a0cada9f63689ea19894b27388891c2d96",
+        "checked_in": false
+      },
+      "final_exact_tree_runner": {
+        "local_path": "build/orin-release/qwen3x-orin",
+        "bytes": 3925216,
+        "sha256": "78f0c5c4bf013f0aa052018a30f6a94b7b5d2d2356560e2aeb00a9f12e8cbd76",
+        "gnu_build_id": "67c3243ddc95b0050c10c38f23b8e8b7905d447f",
+        "dispatch": "exact production path after selector and fallback-Graph test hardening",
+        "checked_in": false
+      },
+      "symmetric_generic_public_runner": {
+        "local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/qwen3x-orin.baseline",
+        "bytes": 3925112,
+        "sha256": "eede9146f36a92e409bcc810554a5500cb1d28e0e0519289bdf52df31fa45870",
+        "gnu_build_id": "2e1ef8286ad4f501bd69b4d8285f756375b93ccf",
+        "dispatch": "generic predecessor attention_values_kernel",
+        "checked_in": false
+      },
+      "symmetric_exact_public_runner": {
+        "local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/qwen3x-orin.candidate",
+        "bytes": 3925016,
+        "sha256": "3a5704790851cce076d20db3a21cdb5448735a632f57f1d6bd5f4d28de1d5175",
+        "gnu_build_id": "14144b54c06e8f4cf789aa8d953c8226de4e42e8",
+        "dispatch": "exact Q24/KV4/D256 production attention-values kernel",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks requires root in this environment; symmetric ratios are diagnostic promotion evidence rather than locked-clock release claims"
+  },
+  "pre_promotion_phase_attribution": {
+    "status": "measured",
+    "source_code_commit": "a25240b690de7c06918326c7bbb1f670577312d6",
+    "workload": "P513-C32-max1",
+    "phase": "generation",
+    "prompt_tokens": 513,
+    "requested_and_effective_prefill_chunk_size": 32,
+    "max_new_tokens": 1,
+    "generated_id": 9419,
+    "generated_text": "Hello",
+    "step_count": 513,
+    "kernel_count": 42709,
+    "generation_host_span_ns": 5587660256,
+    "generation_kernel_raw_ns": 5952201280,
+    "generation_kernel_union_ns": 5484432736,
+    "generation_kernel_span_ns": 5586233792,
+    "generation_kernel_idle_ns": 101801056,
+    "generation_kernel_overlap_ns": 467768544,
+    "attention_values": {
+      "launches": 7184,
+      "raw_kernel_ns": 206459424,
+      "mean_launch_ns": 28738.8,
+      "median_launch_ns": 27072,
+      "minimum_launch_ns": 8512,
+      "maximum_launch_ns": 161120,
+      "share_of_generation_raw_percent": 3.468623,
+      "raw_over_generation_host_upper_bound_percent": 3.694917,
+      "prefix_launches": 7168,
+      "prefix_raw_kernel_ns": 203946080,
+      "finish_prefill_launches": 16,
+      "finish_prefill_raw_kernel_ns": 2513344,
+      "hot_prefix_launches_S65_through_S512": 6944,
+      "hot_prefix_raw_kernel_ns": 197276896,
+      "hot_prefix_share_of_attention_values_percent": 95.55,
+      "cold_first_populated_leaf_and_finish_launches": 240,
+      "cold_first_populated_leaf_and_finish_raw_kernel_ns": 9182528,
+      "cold_share_of_attention_values_percent": 4.45
+    },
+    "interpretation": "The phase was large enough for a bounded specialization screen but could save at most about 3.695% of this one-process host span even if eliminated completely; raw-kernel time is not a critical-path sum because kernels overlap.",
+    "artifacts": {
+      "nsys_report": {"local_path": "/tmp/q3x-attention-values-a25240b-Zwlt7b/p513-current.nsys-rep", "bytes": 3262332, "sha256": "bad4138b7fe4f02625967fb68cd93f4f27a91e228591b140bf88058e120eee1f", "checked_in": false},
+      "application_log": {"local_path": "/tmp/q3x-attention-values-a25240b-Zwlt7b/p513-current.log", "bytes": 9056, "sha256": "b9b1c538327d705107cb0c8ee8ffc0967c563ea530e298fd3adda3c01f0906d7", "checked_in": false},
+      "sqlite": {"local_path": "/tmp/q3x-attention-values-a25240b-Zwlt7b/p513-current.sqlite", "bytes": 9199616, "sha256": "358fe348acf9534a2951a5c0f5929ad57000ca4d5044638e07795df6d90088da", "checked_in": false},
+      "kernel_summary_csv": {"local_path": "/tmp/q3x-attention-values-a25240b-Zwlt7b/p513-current-kernel-summary_cuda_gpu_kern_sum.csv", "bytes": 8458, "sha256": "7f625e4ee3530818432c460d1059c0a985940e0eb506fc8ee470e96881e86427", "checked_in": false}
+    }
+  },
+  "implementation": {
+    "public_entry_point": "launch_gqa_attention_reference_cuda",
+    "production_kernel": "attention_values_exact_24_4_256_kernel",
+    "preserved_predecessor_kernel": "attention_values_kernel",
+    "selector": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "minimum_sequence_length_inclusive": 1,
+      "maximum_sequence_length_inclusive": 4194303,
+      "maximum_formula": "floor(UINT_MAX / (4 * 256))",
+      "all_other_shapes_or_larger_sequences": "generic predecessor attention_values_kernel"
+    },
+    "candidate_launch": {
+      "grid": [6, 4, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "ctas": 24,
+      "work_mapping": "grid.x is the query within a six-query KV group, grid.y is the KV head, and each thread retains one output dimension across all positions",
+      "position_stride_elements": 1024,
+      "index_width_bits": 32,
+      "loop_unroll": 4
+    },
+    "predecessor_launch": {
+      "grid": [24, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "ctas": 24,
+      "work_mapping": "one CTA per query head with runtime query-to-KV division and size_t indexing"
+    },
+    "arithmetic_contract": "One thread computes one output dimension; position order, fmaf operand order, BF16 decode, one loop-carried FP32 accumulator, and final BF16-RNE encode are unchanged.",
+    "mechanism": "The fixed two-dimensional grid removes runtime 64-bit query-to-KV division/remainder and most generic index arithmetic while keeping the same 24-CTA parallelism and observable arithmetic.",
+    "public_header_and_abi_unchanged": true,
+    "unadvertised_test_hook_symbols_added": 5,
+    "new_cuda_streams": 0,
+    "new_persistent_buffers": 0,
+    "general_double_buffer": false,
+    "general_triple_buffer": false,
+    "prefill_decode_scheduler_changed": false,
+    "scope_boundary": "The same phase-local selector is reached in Prefill and Decode. Their host plans remain logically separate, but a batch-one request remains dependency-serialized."
+  },
+  "correctness_resource_graph_and_invalid_gates": {
+    "status": "pass",
+    "finite_boundary_sequence_lengths": [1, 2, 3, 4, 5, 6, 7, 8, 9, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 127, 128, 129, 255, 256, 257, 511, 512, 513, 544],
+    "gqa_mapping_heads": [0, 5, 6, 11, 12, 17, 18, 23],
+    "dimension_boundaries": [0, 1, 31, 32, 63, 64, 127, 128, 191, 192, 254, 255],
+    "full_output_bitwise_predecessor_candidate_identity": true,
+    "candidate_bitwise_replay": true,
+    "independent_host_fma_oracle_cells_per_sequence": 96,
+    "different_output_poison_patterns": true,
+    "head_and_tail_guards": "intact",
+    "value_cache_preserved": true,
+    "probabilities_preserved": true,
+    "special_values": {
+      "raw_bf16_cases": 16,
+      "raw_fp32_probability_cases": 14,
+      "covers": ["positive_zero", "negative_zero", "positive_subnormal", "negative_subnormal", "finite", "positive_infinity", "negative_infinity", "positive_nan", "negative_nan"],
+      "nan_class_and_infinity_sign_checks": true,
+      "bitwise_predecessor_candidate_and_replay": true
+    },
+    "resources": {
+      "generic_predecessor": {"registers_per_thread": 40, "static_shared_bytes": 0, "local_bytes": 0, "active_blocks_per_sm": 6},
+      "exact_production": {"registers_per_thread": 26, "static_shared_bytes": 0, "local_bytes": 0, "active_blocks_per_sm": 6},
+      "candidate_register_increase": -14,
+      "occupancy_gate": "pass"
+    },
+    "positive_graph": {
+      "generic_predecessor": {"kernel_nodes": 1, "grid": [24, 1, 1], "block": [256, 1, 1], "dynamic_shared_bytes": 0},
+      "exact_candidate": {"kernel_nodes": 1, "grid": [6, 4, 1], "block": [256, 1, 1], "dynamic_shared_bytes": 0},
+      "functions_non_null_and_distinct": true
+    },
+    "production_graph_S513": {
+      "generic_predecessor_present": false,
+      "exact_candidate_present": true,
+      "status": "pass"
+    },
+    "selector_hardening": {
+      "selector_is_self_contained_for_zero_sequence": true,
+      "null_result_pointer": "cudaErrorInvalidValue",
+      "cases": [
+        {"shape": "Q24/KV4/D256/S0", "selected": false},
+        {"shape": "Q24/KV4/D256/S1", "selected": true},
+        {"shape": "Q24/KV4/D256/S4194303", "selected": true},
+        {"shape": "Q24/KV4/D256/S4194304", "selected": false},
+        {"shape": "Q23/KV4/D256/S513", "selected": false},
+        {"shape": "Q24/KV5/D256/S513", "selected": false},
+        {"shape": "Q24/KV4/D255/S513", "selected": false}
+      ],
+      "status": "pass"
+    },
+    "production_fallback_graph_Q12_KV4_D256_S513": {
+      "generic_predecessor_present": true,
+      "exact_candidate_present": false,
+      "status": "pass"
+    },
+    "invalid_capture": {
+      "launchers": 2,
+      "cases_per_launcher": 10,
+      "cases": ["Q23", "KV5", "S0", "S_overflow", "D255", "null_value", "null_probabilities", "null_output", "value_output_alias", "probability_output_alias"],
+      "return_status": "cudaErrorInvalidValue",
+      "captured_graph_nodes_per_call": 0,
+      "status": "pass"
+    },
+    "resource_query_rejects_null_outputs": true,
+    "postpromotion_default_and_optional_log": {
+      "local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/postpromotion-perf.log",
+      "bytes": 15979,
+      "sha256": "198b743dc3ef6eb6e1da2fa86ee89c602b276ef3f5fa8012b3db1fdf83bee0f0",
+      "default_status": "pass",
+      "optional_measurements_valid": true,
+      "post_hardening_replay": {"hot_S513_speedup": 1.49071, "cold_S513_speedup": 1.80770, "hot_S65_through_S513_chain_speedup": 1.39294},
+      "checked_in": false
+    }
+  },
+  "sass_and_symmetric_device_identity": {
+    "status": "pass",
+    "kernel_static_inventory": {
+      "count_method": "Count the first address/encoding line for each instruction in the named cuobjdump function block.",
+      "generic_predecessor": {
+        "static_instructions": 376,
+        "BAR": 0,
+        "CALL": 2,
+        "MUFU": 3,
+        "integer_float_conversions": 6,
+        "LDG": 14,
+        "FFMA": 7,
+        "IMAD": 131,
+        "BRA": 17,
+        "constant_bytes": 408,
+        "raw_function_block_sha256": "bed51c866113cd9ce4e0dbae080b87b0d9cb4a85c9206b3cdc1431b4cbbe3d44"
+      },
+      "exact_production": {
+        "static_instructions": 112,
+        "BAR": 0,
+        "CALL": 0,
+        "MUFU": 0,
+        "integer_float_conversions": 0,
+        "LDG": 10,
+        "FFMA": 5,
+        "IMAD": 25,
+        "BRA": 7,
+        "constant_bytes": 384,
+        "raw_function_block_sha256": "f18cedd619c12b7ad9da846d40985bcd5d783eaf0bee3ff49b6fc7ae6baba276"
+      },
+      "dynamic_64_bit_division_helper": {"generic_predecessor": "present", "exact_production": "absent"}
+    },
+    "symmetric_runner_device_code": {
+      "cuda_functions_each": 150,
+      "full_function_name_sets_equal": true,
+      "raw_cuobjdump_sass_sha256_both": "81210943be76ef5923fb48ea2888c91f0da9577b0d895cdc82b6bdcc00f3c54d",
+      "canonicalization": "Replace _GLOBAL__N__[A-Za-z0-9_]+ with _GLOBAL__N__CANONICAL in the complete cuobjdump SASS output before hashing.",
+      "canonicalized_complete_cuobjdump_sass_sha256_both": "7f9b9e8e512eb9c27f47215837e176deec56722fbe37c7a994719e2bb3b18132",
+      "cuobjdump_elf_sha256_both": "64279bfd3c316d74142e4e1a7b3aa337fd7a2027a9877c37f488054fa6a46eb1",
+      "cuobjdump_resource_usage_sha256_both": "cc7de99cdf1657008467b29f03fa37e20398153a4546b87f0403cf02ac5bbba6",
+      "raw_sass_equal": true,
+      "device_elf_equal": true,
+      "resource_usage_equal": true,
+      "final_exact_tree_runner_raw_and_canonicalized_hashes_equal": true,
+      "only_intended_role_difference": "The host public GQA value-phase dispatch selects the generic predecessor or the exact kernel; both runners contain identical CUDA device code."
+    }
+  },
+  "five_process_same_binary_microbenchmark": {
+    "status": "pass",
+    "binary": "five_process_screen_device_test",
+    "environment_variable": "Q3X_RUN_ATTENTION_VALUES_EXACT_PERF=1",
+    "same_binary": true,
+    "independent_processes": 5,
+    "warmup_iterations_per_route": 10,
+    "timed_launches_per_pass": 80,
+    "mirrored_rounds_per_process": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "aggregate_definition": "Each process reports the arithmetic mean of ten generic pass means divided by the arithmetic mean of ten exact pass means.",
+    "hot_sequence_lengths": [1, 2, 4, 8, 16, 32, 64, 65, 128, 257, 513, 544],
+    "cold_fixture": {"sequence_length": 513, "value_banks": 16, "bank_bytes": 1050624, "working_set_bytes": 16809984, "probabilities": "hot", "value_cache": "rotating read-only banks"},
+    "chain_fixture": {"first_sequence_length": 65, "last_sequence_length": 513, "kernels_per_chain": 449},
+    "frozen_selection_policy": {"minimum_hot_chain_speedup": 1.15, "minimum_cold_S513_speedup": 1.0, "short_and_individual_cells": "report-only non-regression evidence"},
+    "repeats": [
+      {
+        "run": 1,
+        "hot_speedups_aligned_with_sequence_lengths": [1.01245, 1.08154, 1.12694, 1.18404, 1.18994, 1.24242, 1.32919, 1.30170, 1.39458, 1.44175, 1.49055, 1.50671],
+        "hot_S513": {"generic_ms": 0.0472051, "exact_ms": 0.0316696, "speedup": 1.49055},
+        "cold_S513": {"generic_ms": 0.155442, "exact_ms": 0.0859592, "speedup": 1.80833},
+        "hot_chain": {"generic_ms": 12.8516, "exact_ms": 9.20351, "speedup": 1.39638},
+        "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/micro-p1.log", "bytes": 15884, "sha256": "7586ca2a71f76dc561a16bff344c2e5b19f76492f60fec1f91c4e5f81f2e76c4", "checked_in": false}
+      },
+      {
+        "run": 2,
+        "hot_speedups_aligned_with_sequence_lengths": [1.10918, 1.15459, 1.16317, 1.16977, 1.19470, 1.22978, 1.32816, 1.31529, 1.40753, 1.44876, 1.49140, 1.49918],
+        "hot_S513": {"generic_ms": 0.0472306, "exact_ms": 0.0316686, "speedup": 1.49140},
+        "cold_S513": {"generic_ms": 0.155351, "exact_ms": 0.0858938, "speedup": 1.80864},
+        "hot_chain": {"generic_ms": 12.8220, "exact_ms": 9.17528, "speedup": 1.39745},
+        "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/micro-p2.log", "bytes": 15880, "sha256": "b808f1ce4abe3fd50f3736ef089d5340fdb2f75f28edc55bbf6d44bb6164d3cb", "checked_in": false}
+      },
+      {
+        "run": 3,
+        "hot_speedups_aligned_with_sequence_lengths": [1.11607, 1.16149, 1.16087, 1.16507, 1.19679, 1.24245, 1.31574, 1.31206, 1.38370, 1.44647, 1.49766, 1.49560],
+        "hot_S513": {"generic_ms": 0.0472812, "exact_ms": 0.0315701, "speedup": 1.49766},
+        "cold_S513": {"generic_ms": 0.155419, "exact_ms": 0.0859366, "speedup": 1.80853},
+        "hot_chain": {"generic_ms": 12.8352, "exact_ms": 9.17145, "speedup": 1.39948},
+        "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/micro-p3.log", "bytes": 15869, "sha256": "1e4a97a292e397a7e9c5d32dd6547a3167d622e9d4264d2036a1bdc318925e6d", "checked_in": false}
+      },
+      {
+        "run": 4,
+        "hot_speedups_aligned_with_sequence_lengths": [1.11033, 1.17252, 1.16924, 1.17473, 1.18936, 1.23267, 1.32307, 1.31587, 1.40418, 1.44484, 1.49085, 1.49770],
+        "hot_S513": {"generic_ms": 0.0472646, "exact_ms": 0.0317031, "speedup": 1.49085},
+        "cold_S513": {"generic_ms": 0.155670, "exact_ms": 0.0865788, "speedup": 1.79801},
+        "hot_chain": {"generic_ms": 12.7827, "exact_ms": 9.15764, "speedup": 1.39585},
+        "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/micro-p4.log", "bytes": 15884, "sha256": "7488e190010096d0f50c22df2ea8a6646803d8ae50bb0572145be3ec60cddbad", "checked_in": false}
+      },
+      {
+        "run": 5,
+        "hot_speedups_aligned_with_sequence_lengths": [1.10762, 1.15511, 1.15455, 1.18506, 1.20431, 1.24128, 1.32890, 1.30545, 1.39595, 1.44746, 1.49090, 1.49916],
+        "hot_S513": {"generic_ms": 0.0471556, "exact_ms": 0.0316291, "speedup": 1.49090},
+        "cold_S513": {"generic_ms": 0.155368, "exact_ms": 0.0858634, "speedup": 1.80948},
+        "hot_chain": {"generic_ms": 12.8526, "exact_ms": 9.19238, "speedup": 1.39819},
+        "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/micro-p5.log", "bytes": 15867, "sha256": "4876b5e6719649633b68c226cd73de1aa97af669afad734f9365d3d1f4c23cdc", "checked_in": false}
+      }
+    ],
+    "speedup_min_median_max_by_hot_sequence": [
+      {"sequence_length": 1, "minimum": 1.01245, "median": 1.10918, "maximum": 1.11607},
+      {"sequence_length": 2, "minimum": 1.08154, "median": 1.15511, "maximum": 1.17252},
+      {"sequence_length": 4, "minimum": 1.12694, "median": 1.16087, "maximum": 1.16924},
+      {"sequence_length": 8, "minimum": 1.16507, "median": 1.17473, "maximum": 1.18506},
+      {"sequence_length": 16, "minimum": 1.18936, "median": 1.19470, "maximum": 1.20431},
+      {"sequence_length": 32, "minimum": 1.22978, "median": 1.24128, "maximum": 1.24245},
+      {"sequence_length": 64, "minimum": 1.31574, "median": 1.32816, "maximum": 1.32919},
+      {"sequence_length": 65, "minimum": 1.30170, "median": 1.31206, "maximum": 1.31587},
+      {"sequence_length": 128, "minimum": 1.38370, "median": 1.39595, "maximum": 1.40753},
+      {"sequence_length": 257, "minimum": 1.44175, "median": 1.44647, "maximum": 1.44876},
+      {"sequence_length": 513, "minimum": 1.49055, "median": 1.49090, "maximum": 1.49766},
+      {"sequence_length": 544, "minimum": 1.49560, "median": 1.49916, "maximum": 1.50671}
+    ],
+    "cold_S513_speedup_min_median_max": [1.79801, 1.80853, 1.80948],
+    "hot_S65_through_S513_chain_speedup_min_median_max": [1.39585, 1.39745, 1.39948],
+    "all_final_process_measurements_valid": true,
+    "all_short_and_long_hot_cells_positive": true,
+    "selection_gate": "pass",
+    "hardening_boundary": "The five-process screen predates only the mechanical self-contained S!=0 selector check and added fallback-Graph assertions. The exact kernel and every measured valid-shape production path are unchanged; the final exact-tree binary independently replays hot S513 at 1.49071x, cold S513 at 1.80770x, and the S65..S513 chain at 1.39294x."
+  },
+  "symmetric_end_to_end_BCCB": {
+    "status": "exact_contract_passed_and_all_stage_regressions_below_limit",
+    "comparison": "symmetric generic-public versus exact-public runners in four independent processes ordered B-C-C-B",
+    "run_order": ["baseline_1", "candidate_1", "candidate_2", "baseline_2"],
+    "warmup_generations_per_process": 1,
+    "requested_and_effective_prefill_chunk_size": 32,
+    "projection_backend": "sm87_weight_only",
+    "request_max_sequence_length": 544,
+    "maximum_allowed_regression_percent_per_stage": 0.5,
+    "workloads": [
+      {
+        "name": "P33-C32-max1",
+        "measured_generations_per_process": 5,
+        "phase_scope": "short Prefill control; no Decode-after-first samples",
+        "correctness_contract": {"prompt_tokens": 33, "generated_ids": [9419], "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 33, "prefix_execution_entries_per_sample": 1, "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 322.204, "finish_prefill": 110.804, "prompt_prefill": 433.054, "time_to_first_token": 433.054, "total_generation": 433.054, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p33-b1.log", "bytes": 6166, "sha256": "c224feff93cbf51a072137995fdcc28cd3424bc6f29d0af7e6a1ab4d39cde781", "checked_in": false}},
+          {"run": "candidate_1", "prompt_prefix": 322.246, "finish_prefill": 110.802, "prompt_prefill": 433.069, "time_to_first_token": 433.069, "total_generation": 433.069, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p33-c1.log", "bytes": 6180, "sha256": "42039630f8ab39350337e7656fdec28f496c8a9d044830fc6920f3642f53162c", "checked_in": false}},
+          {"run": "candidate_2", "prompt_prefix": 322.168, "finish_prefill": 110.901, "prompt_prefill": 433.055, "time_to_first_token": 433.055, "total_generation": 433.055, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p33-c2.log", "bytes": 6172, "sha256": "1b548c26c3ddd5519c074383bd270f92a0bd91826893a17c29327db4f44cb650", "checked_in": false}},
+          {"run": "baseline_2", "prompt_prefix": 322.144, "finish_prefill": 110.755, "prompt_prefill": 432.885, "time_to_first_token": 432.885, "total_generation": 432.885, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p33-b2.log", "bytes": 6166, "sha256": "b3629aced207a03c4851e10d682e07848bd92d237a4e44c5200b5d17ef15818e", "checked_in": false}}
+        ],
+        "average_of_process_medians_ms": {"baseline": {"prompt_prefix": 322.1740, "finish_prefill": 110.7795, "prompt_prefill": 432.9695, "time_to_first_token": 432.9695, "total_generation": 432.9695}, "candidate": {"prompt_prefix": 322.2070, "finish_prefill": 110.8515, "prompt_prefill": 433.0620, "time_to_first_token": 433.0620, "total_generation": 433.0620}},
+        "speedup": {"prompt_prefix": 0.999897581, "finish_prefill": 0.999350482, "prompt_prefill": 0.999786405, "time_to_first_token": 0.999786405, "total_generation": 0.999786405},
+        "time_to_first_token_reduction_percent": -0.021364091,
+        "worst_average_stage_regression_percent": 0.064993975,
+        "worst_pairwise_stage_regression_percent": 0.131822491,
+        "gate": "pass"
+      },
+      {
+        "name": "P513-C32-max1",
+        "measured_generations_per_process": 5,
+        "phase_scope": "long Prefill; no Decode-after-first samples",
+        "correctness_contract": {"prompt_tokens": 513, "generated_ids": [9419], "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 513, "prefix_execution_entries_per_sample": 16, "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 5407.172, "finish_prefill": 113.339, "prompt_prefill": 5520.523, "time_to_first_token": 5520.523, "total_generation": 5520.523, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-b1.log", "bytes": 18267, "sha256": "5a71ba4cb514525e94dbea919ee18463e5dd086ee6e3c5e6a46e724985377315", "checked_in": false}},
+          {"run": "candidate_1", "prompt_prefix": 5342.594, "finish_prefill": 112.126, "prompt_prefill": 5454.732, "time_to_first_token": 5454.732, "total_generation": 5454.732, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-c1.log", "bytes": 18267, "sha256": "f08cb6f6e71a95e05ac58f5173c9155635f1e064c13e79214f721877b1f044fc", "checked_in": false}},
+          {"run": "candidate_2", "prompt_prefix": 5342.144, "finish_prefill": 112.062, "prompt_prefill": 5454.250, "time_to_first_token": 5454.250, "total_generation": 5454.250, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-c2.log", "bytes": 18281, "sha256": "c2821ee9c7b6938de0b2557a621eceb8814ad94a5c5afa4956677bf2737f56d6", "checked_in": false}},
+          {"run": "baseline_2", "prompt_prefix": 5409.110, "finish_prefill": 113.253, "prompt_prefill": 5522.364, "time_to_first_token": 5522.364, "total_generation": 5522.364, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-b2.log", "bytes": 18274, "sha256": "bdc2f12cf50fa4d8173a6ef038d4dd3c8c7c15e179045ea60ea810d383c737b7", "checked_in": false}}
+        ],
+        "average_of_process_medians_ms": {"baseline": {"prompt_prefix": 5408.1410, "finish_prefill": 113.2960, "prompt_prefill": 5521.4435, "time_to_first_token": 5521.4435, "total_generation": 5521.4435}, "candidate": {"prompt_prefix": 5342.3690, "finish_prefill": 112.0940, "prompt_prefill": 5454.4910, "time_to_first_token": 5454.4910, "total_generation": 5454.4910}},
+        "speedup": {"prompt_prefix": 1.012311392, "finish_prefill": 1.010723143, "prompt_prefill": 1.012274748, "time_to_first_token": 1.012274748, "total_generation": 1.012274748},
+        "time_to_first_token_saved_ms": 66.9525,
+        "time_to_first_token_reduction_percent": 1.212590512,
+        "all_average_and_matched_pair_stages_improved": true,
+        "gate": "pass"
+      },
+      {
+        "name": "P513-C32-max8",
+        "measured_generations_per_process": 3,
+        "phase_scope": "long Prefill plus seven Decode-after-first steps",
+        "correctness_contract": {"prompt_tokens": 513, "generated_ids": [9419, 0, 59720, 233, 1049, 5686, 1040, 488], "generated_text": "Hello! 👋 It looks like you", "stop_reason": "max_new_tokens", "step_count": 520, "prefix_execution_entries_per_sample": 16, "subsequent_token_samples_per_process": 21, "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 5411.968, "finish_prefill": 113.292, "prompt_prefill": 5525.261, "decode_after_first": 793.305, "time_to_first_token": 5525.261, "total_generation": 6318.644, "subsequent_token": 113.324, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-max8-b1.log", "bytes": 17770, "sha256": "3636eba67d46ea166bed75f73d2984efd6d987708ff78f8e40d19f416af84bfc", "checked_in": false}},
+          {"run": "candidate_1", "prompt_prefix": 5343.934, "finish_prefill": 112.027, "prompt_prefill": 5455.961, "decode_after_first": 784.529, "time_to_first_token": 5455.961, "total_generation": 6240.489, "subsequent_token": 112.063, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-max8-c1.log", "bytes": 17770, "sha256": "3b75e909d9b66ee0c9b64ffaf57ca239b28ccc63cad70c73b5ac92fcc6d70989", "checked_in": false}},
+          {"run": "candidate_2", "prompt_prefix": 5340.648, "finish_prefill": 112.159, "prompt_prefill": 5452.840, "decode_after_first": 785.265, "time_to_first_token": 5452.840, "total_generation": 6237.990, "subsequent_token": 112.184, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-max8-c2.log", "bytes": 17770, "sha256": "53c172f1f4166f36826a9dac011fdef375dc7ff6a865689e66c70d9182518ab8", "checked_in": false}},
+          {"run": "baseline_2", "prompt_prefix": 5408.144, "finish_prefill": 113.173, "prompt_prefill": 5521.284, "decode_after_first": 792.173, "time_to_first_token": 5521.284, "total_generation": 6313.544, "subsequent_token": 113.159, "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/e2e-p513-max8-b2.log", "bytes": 17770, "sha256": "590d5450c34f89f1b13ee64676cc2fd3443ab3dc1f1d73cbcb5f8e630379819d", "checked_in": false}}
+        ],
+        "average_of_process_medians_ms": {"baseline": {"prompt_prefix": 5410.0560, "finish_prefill": 113.2325, "prompt_prefill": 5523.2725, "decode_after_first": 792.7390, "time_to_first_token": 5523.2725, "total_generation": 6316.0940, "subsequent_token": 113.2415}, "candidate": {"prompt_prefix": 5342.2910, "finish_prefill": 112.0930, "prompt_prefill": 5454.4005, "decode_after_first": 784.8970, "time_to_first_token": 5454.4005, "total_generation": 6239.2395, "subsequent_token": 112.1235}},
+        "speedup": {"prompt_prefix": 1.012684633, "finish_prefill": 1.010165666, "prompt_prefill": 1.012626869, "decode_after_first": 1.009991120, "time_to_first_token": 1.012626869, "total_generation": 1.012317928, "subsequent_token": 1.009971148},
+        "total_generation_saved_ms": 76.8545,
+        "total_generation_reduction_percent": 1.216804246,
+        "subsequent_token_reduction_percent": 0.987270568,
+        "all_average_and_matched_pair_stages_improved": true,
+        "gate": "pass"
+      }
+    ],
+    "memory_contract": {
+      "request_arena_bytes_all_processes": 120676352,
+      "maximum_persistent_drop_bytes": 20164608,
+      "persistent_drop_detected_all_processes": 0,
+      "all_twelve_status_ok": true,
+      "gate": "pass"
+    },
+    "all_correctness_memory_pairwise_and_average_stage_gates": "pass"
+  },
+  "production_validation_suites": {
+    "post_hardening_exact_tree_replay": {
+      "status": "pass",
+      "runner": "final_exact_tree_runner",
+      "workload": "P513-C32-max1",
+      "warmup_generations": 1,
+      "measured_generations": 3,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 513,
+      "prompt_prefix_median_ms": 5342.881,
+      "finish_prefill_median_ms": 112.170,
+      "time_to_first_token_median_ms": 5455.037,
+      "total_generation_median_ms": 5455.037,
+      "persistent_drop_detected": 0,
+      "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/posthardening-p513.log", "bytes": 17419, "sha256": "3f359055be6a21539899b392ffeae20233b613832418fb1078eef272fa13ed31", "checked_in": false}
+    },
+    "release_build": {
+      "command": "cmake --build --preset orin-release -j2",
+      "all_targets_built": true,
+      "status": "pass",
+      "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/final-build.log", "bytes": 1823, "sha256": "f9f8154a6bd057c1493c96195a979d146c42c6468ab4908859279d91b36a8f3a", "checked_in": false}
+    },
+    "final_default_device_test": {
+      "binary": "final_device_test",
+      "optional_performance_gate": "skipped by default",
+      "correctness_resources_selector_graph_dispatch_and_fallback_status": "pass",
+      "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/final-default.log", "bytes": 2099, "sha256": "d4072450c986aee110b749fe1533c18adf239e454b4cbad0f485414864ba367c", "checked_in": false}
+    },
+    "ctest": {
+      "command": "ctest --preset orin-release --output-on-failure",
+      "discovered": 56,
+      "passed": 51,
+      "skipped": 5,
+      "failed": 0,
+      "status": "pass",
+      "log": {"local_path": "/tmp/q3x-attention-values-production-eb58cc2-XemPwD/final-ctest.log", "bytes": 7595, "sha256": "6c496a6ba9a617e25a40b5f973053462aec6980441c4dba122e2a3e7bd99d0b8", "checked_in": false}
+    }
+  },
+  "decision": {
+    "selected": "exact Q24/KV4/D256 attention-values kernel",
+    "production_promotion": "keep",
+    "reason": "Exact finite/nonfinite, bitwise replay, independent-oracle, poison, guard, input-preservation, selector-boundary, invalid-Graph, positive-Graph, production and fallback dispatch, resource, SASS, five-process hot/cold/chain, post-hardening replay, symmetric-device, P33 guard, P513 Prefill/Decode, memory, full-build, and CTest gates pass. The five-process hot S513 range is 1.49055x-1.49766x, the full S65..S513 chain is 1.39585x-1.39948x, P513 max1 TTFT falls 1.213%, and P513 max8 subsequent-token latency falls 0.987%.",
+    "release_latency_claim": false,
+    "next_priority": "Refresh the production phase-local profile and screen the new largest hotspot before reopening evidence-exhausted variants; keep multi-request overlap as a separately gated scheduler project."
+  },
+  "limitations": [
+    "GPU and memory clocks were not locked; micro and B-C-C-B ratios are diagnostic promotion evidence, not release-latency claims.",
+    "The direct microbenchmark uses deterministic synthetic value/probability fixtures rather than raw checkpoint activations, although real-model P33 and P513 gates independently preserve exact generated outputs.",
+    "The rotating-cold fixture changes only the read-only value-cache bank; probabilities intentionally stay hot to approximate the softmax-to-value handoff.",
+    "The pre-promotion P513 profile is one unlocked-clock process, and its raw kernel sum overlaps; its 3.695% host-span ratio is only an upper bound, not critical-path attribution.",
+    "No candidate-specific Nsight Compute or racecheck claim is attached.",
+    "The exact selector supports Q24/KV4/D256 only. Other shapes and sequences above 4,194,303 retain the generic predecessor, and real-model validation here reaches request length 544 rather than the arithmetic maximum.",
+    "P33 max1 is a short-Prefill control and shows a 0.0214% diagnostic TTFT regression within the frozen 0.5% stage guard; it contains no subsequent Decode samples.",
+    "The symmetric B-C-C-B runners and five-process screen predate the final mechanical S!=0 selector and fallback-Graph test hardening. The valid exact-shape kernel path and full CUDA SASS are unchanged, and the final exact-tree runner independently reproduces the P513 output and micro speedups.",
+    "This is a phase-local kernel specialization. It adds no runtime double/triple buffering, stream overlap, continuous batching, or cross-request scheduler ownership; batch-one Prefill and Decode remain causally serialized despite their logical plan split."
+  ]
+}

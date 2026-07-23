@@ -3614,3 +3614,90 @@ queues remain a future scheduler project with explicit request/KV/workspace
 ownership, fairness, latency, cancellation, and memory contracts. Full binary,
 SASS, micro, and end-to-end identities are in the
 [FP8 M32 dual-resident-A benchmark record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).
+
+## Exact Q24/KV4/D256 attention-values promotion
+
+The refreshed post-M32 P513 profile attributes 7,184 `attention_values`
+launches and 206.459 ms of raw kernel time to this phase. That is 3.469% of
+generation raw-kernel time, or a 3.695% host-span upper bound. The production
+Q24/KV4/D256 path now uses a fixed-shape kernel with grid `(6,4,1)` and block
+`(256,1,1)`. The grid exposes `query_within_kv` and `kv_head` directly, uses
+32-bit indexes through the proven `S <= UINT_MAX/1024` bound, and unrolls four
+positions while retaining one loop-carried accumulator. The generic kernel is
+unchanged for every other shape and for sequences outside that bound.
+
+The exact kernel preserves the predecessor's position order, `fmaf` operand
+order, BF16 decode, and final BF16-RNE encode. It removes the dynamic 64-bit
+division helper and most generic indexing. `cuobjdump` reports:
+
+| Kernel | Registers | Static shared | Local | Active CTA/SM | Function-block SASS lines | Dynamic-division helper |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Generic predecessor | 40 | 0 B | 0 B | 6 | 376 | present |
+| Exact production | 26 | 0 B | 0 B | 6 | 112 | absent |
+
+Default tests cover 29 sequence boundaries through S544, all six-query GQA
+mapping boundaries, dimension boundaries around 32/128/256, finite values,
+signed zero, subnormals, infinities, signed NaNs, different poison patterns,
+deterministic replay, guards, and input preservation. Invalid captures produce
+zero Graph nodes. Positive Graph capture proves distinct predecessor/exact
+functions, predecessor grid `(24,1,1)`, exact grid `(6,4,1)`, 256 threads, and
+zero dynamic shared memory. After promotion, the P513 production Graph contains
+the exact function and no predecessor value function. Selector tests freeze
+S0/S1/Smax/Smax+1 plus near-shape decisions, and a Q12/KV4/D256 production
+Graph contains the predecessor value function while excluding the exact one.
+
+Five independent same-binary processes use ten warmups, 80 launches per timed
+pass, five B-C-C-B rounds, and report-only selection. The aggregate chain
+covers every S from 65 through 513. The cold guard rotates sixteen identical
+S513 V banks: each bank is 1,050,624 bytes and the 16,809,984-byte read-only
+working set is about four times Orin L2; probabilities stay hot to model the
+softmax-to-value handoff.
+
+| Direct fixture | Minimum | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| Hot S65 | 1.30170x | 1.31206x | 1.31587x |
+| Hot S128 | 1.38370x | 1.39595x | 1.40753x |
+| Hot S257 | 1.44175x | 1.44647x | 1.44876x |
+| Hot S513 | 1.49055x | 1.49090x | 1.49766x |
+| Hot S544 | 1.49560x | 1.49916x | 1.50671x |
+| Hot S65..513 chain | 1.39585x | 1.39745x | 1.39948x |
+| Rotating-cold V, S513 | 1.79801x | 1.80853x | 1.80948x |
+
+The additional S1/2/4/8/16/32/64 cells are positive in every final process;
+S1 is launch-noise dominated and spans 1.01245x to 1.11607x. No sequence
+threshold is therefore needed inside the exact-shape selector.
+
+Symmetric predecessor-public and exact-public runners have identical
+canonicalized device SASS (`7f9b9e8e512eb9c27f47215837e176deec56722fbe37c7a994719e2bb3b18132`);
+only the host value dispatch differs. Separate-process B-C-C-B results use one
+warmup and five measured generations for max1, and one warmup plus three
+measured generations for P513/max8:
+
+| Workload and metric | Predecessor average | Exact average | Speedup |
+| --- | ---: | ---: | ---: |
+| P33/max1 TTFT / total | 432.9695 ms | 433.0620 ms | 0.999786405x |
+| P513/max1 prefix | 5,408.1410 ms | 5,342.3690 ms | 1.012311392x |
+| P513/max1 finish-prefill | 113.2960 ms | 112.0940 ms | 1.010723143x |
+| P513/max1 TTFT / total | 5,521.4435 ms | 5,454.4910 ms | 1.012274748x |
+| P513/max8 TTFT | 5,523.2725 ms | 5,454.4005 ms | 1.012626869x |
+| P513/max8 Decode-after-first | 792.7390 ms | 784.8970 ms | 1.009991120x |
+| P513/max8 subsequent token | 113.2415 ms | 112.1235 ms | 1.009971148x |
+| P513/max8 total | 6,316.0940 ms | 6,239.2395 ms | 1.012317928x |
+
+P33's 0.0214% diagnostic regression is below the frozen 0.5% stage limit.
+P513 max1 TTFT falls by 66.953 ms (1.213%); P513 max8 subsequent-token latency
+falls by 0.987%, and total generation falls by 76.855 ms (1.217%). All twelve
+processes reproduce their exact token IDs/text/stop/step contracts and report
+`persistent_drop_detected=0`. Clocks were not locked, so these ratios are
+promotion diagnostics rather than release-latency claims.
+
+The final Release build completes every target. CTest discovers 56 tests,
+passes 51, skips five configured fixtures, and fails none. This optimization
+changes one phase-local kernel and its production selector. It does not add a
+runtime double/triple buffer or cross-kernel streams: Prefill and Decode remain
+logically separate plans but causally serialized for a batch-one request. The
+next main-line step is a fresh production profile and bounded screen of the new
+largest phase-local hotspot; multi-request overlap remains a scheduler project.
+Full artifact hashes, five-process logs, SASS/resource identities, and B-C-C-B
+rows are in the
+[attention-values exact benchmark record](metadata/qwen36-27b-attention-values-exact-benchmark.json).

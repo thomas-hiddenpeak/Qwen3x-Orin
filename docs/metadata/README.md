@@ -326,6 +326,17 @@ The diagnostic Phase 3 records are:
   same 149 CUDA functions with identical encodings, while P33 and P513 TTFT
   improve by 2.94% and 3.76% respectively without changing the serialized
   Prefill/Decode scheduler or adding system double/triple buffering.
+- [`qwen36-27b-attention-values-exact-benchmark.json`](qwen36-27b-attention-values-exact-benchmark.json),
+  which records the production exact Q24/KV4/D256 attention-values route, its
+  40-to-26 register and 376-to-112 `cuobjdump` function-block reductions,
+  exact output/replay/guard/Graph/resource and full-suite gates, five-process
+  hot-cell (1.30170x-1.50671x), S65..S513 chain (1.39585x-1.39948x), and rotating
+  16-bank cold-S513 (1.79801x-1.80948x) results, neutral P33/max1 guard, and
+  P513 reductions of 1.213% for max1 TTFT and 0.987% for max8
+  subsequent-token latency. It introduces no runtime double/triple buffering:
+  Prefill and Decode remain logically separate plans but batch-one execution
+  is dependency-serialized; the next step is a refreshed profile of the next
+  hotspot.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

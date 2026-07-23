@@ -44,6 +44,33 @@ int query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
 
+int launch_attention_values_baseline_24_4_256_test_cuda(
+    const std::uint16_t* value_cache, const float* probabilities,
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension,
+    std::uint16_t* output, void* cuda_stream) noexcept;
+
+int launch_attention_values_exact_24_4_256_test_cuda(
+    const std::uint16_t* value_cache, const float* probabilities,
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension,
+    std::uint16_t* output, void* cuda_stream) noexcept;
+
+int query_attention_values_baseline_24_4_256_test_cuda_resources(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_attention_values_exact_24_4_256_test_cuda_resources(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_attention_values_exact_24_4_256_test_cuda_selection(
+    std::size_t query_head_count, std::size_t kv_head_count,
+    std::size_t sequence_length, std::size_t head_dimension,
+    int* selected) noexcept;
+
 }  // namespace q3x::runtime
 
 namespace {
@@ -2741,6 +2768,10 @@ using AttentionScoreTestLaunch = int (*)(
     const std::uint16_t*, const std::uint16_t*, std::size_t, std::size_t,
     std::size_t, std::size_t, float, float*, void*) noexcept;
 
+using AttentionValueTestLaunch = int (*)(
+    const std::uint16_t*, const float*, std::size_t, std::size_t,
+    std::size_t, std::size_t, std::uint16_t*, void*) noexcept;
+
 struct AttentionScoreGraphTopology {
   void* function = nullptr;
   dim3 grid{0U, 0U, 0U};
@@ -2843,6 +2874,95 @@ void expect_invalid_attention_score_graph(
   return ready;
 }
 
+void expect_invalid_attention_value_graph(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    const AttentionValueTestLaunch launch,
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const std::size_t query_heads,
+    const std::size_t kv_heads,
+    const std::size_t sequence_length,
+    const std::size_t dimension,
+    std::uint16_t* const output) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch(
+      value_cache, probabilities, query_heads, kv_heads, sequence_length,
+      dimension, output, static_cast<void*>(stream)));
+  test.expect(launch_status == cudaErrorInvalidValue,
+              label + " returns cudaErrorInvalidValue");
+  cudaGraph_t graph = nullptr;
+  if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                    label + " end capture")) {
+    return;
+  }
+  std::size_t node_count = 0U;
+  if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                   label + " count nodes")) {
+    test.expect(node_count == 0U, label + " captures zero graph nodes");
+  }
+  (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+[[nodiscard]] bool capture_attention_value_graph_topology(
+    TestContext& test, cudaStream_t stream, const std::string& label,
+    const AttentionValueTestLaunch launch,
+    const std::uint16_t* const value_cache,
+    const float* const probabilities,
+    const std::size_t sequence_length,
+    std::uint16_t* const output,
+    AttentionScoreGraphTopology& topology) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return false;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch(
+      value_cache, probabilities, 24U, 4U, sequence_length, 256U, output,
+      static_cast<void*>(stream)));
+  test.expect(launch_status == cudaSuccess, label + " launch succeeds");
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end capture");
+  if (!ready) {
+    return false;
+  }
+  std::size_t node_count = 0U;
+  ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                       label + " count nodes");
+  test.expect(node_count == 1U, label + " captures exactly one node");
+  if (ready && node_count == 1U) {
+    cudaGraphNode_t node = nullptr;
+    std::size_t capacity = 1U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                         label + " fetch node");
+    test.expect(capacity == 1U, label + " fetches one node");
+    cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+    ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                  label + " read node type");
+    test.expect(node_type == cudaGraphNodeTypeKernel,
+                label + " node is a kernel");
+    cudaKernelNodeParams parameters{};
+    ready = ready && test.cuda_ok(
+                         cudaGraphKernelNodeGetParams(node, &parameters),
+                         label + " read kernel parameters");
+    if (ready) {
+      topology.function = parameters.func;
+      topology.grid = parameters.gridDim;
+      topology.block = parameters.blockDim;
+      topology.dynamic_shared_bytes = parameters.sharedMemBytes;
+    }
+  } else {
+    ready = false;
+  }
+  ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+          ready;
+  return ready;
+}
+
 [[nodiscard]] bool capture_gqa_graph_topology(
     TestContext& test, cudaStream_t stream, const std::string& label,
     const std::uint16_t* const query,
@@ -2852,7 +2972,10 @@ void expect_invalid_attention_score_graph(
     float* const scratch,
     const std::size_t scratch_elements,
     std::uint16_t* const output,
-    GqaGraphTopology& topology) {
+    GqaGraphTopology& topology,
+    const std::size_t query_head_count = 24U,
+    const std::size_t kv_head_count = 4U,
+    const std::size_t head_dimension = 256U) {
   if (!test.cuda_ok(
           cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
           label + " begin capture")) {
@@ -2860,8 +2983,9 @@ void expect_invalid_attention_score_graph(
   }
   const cudaError_t launch_status = static_cast<cudaError_t>(
       q3x::runtime::launch_gqa_attention_reference_cuda(
-          query, key, value, 24U, 4U, sequence_length, 256U, 0.0625F,
-          scratch, scratch_elements, output, static_cast<void*>(stream)));
+          query, key, value, query_head_count, kv_head_count, sequence_length,
+          head_dimension, 0.0625F, scratch, scratch_elements, output,
+          static_cast<void*>(stream)));
   test.expect(launch_status == cudaSuccess, label + " launch succeeds");
   cudaGraph_t graph = nullptr;
   bool ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
@@ -3826,6 +3950,930 @@ void test_attention_scores_warp_positions_perf(TestContext& test,
               chain_label + " final S513 output stays bitwise exact");
 }
 
+void test_attention_values_exact(TestContext& test, cudaStream_t stream) {
+  const int failures_before = test.failures();
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kMaximumSequence = 544U;
+  constexpr std::size_t kValueElements =
+      kMaximumSequence * kKvHeads * kDimension;
+  constexpr std::size_t kProbabilityElements =
+      kQueryHeads * kMaximumSequence;
+  constexpr std::size_t kOutputElements = kQueryHeads * kDimension;
+  constexpr std::size_t kMaximumSupportedSequence =
+      static_cast<std::size_t>(std::numeric_limits<unsigned int>::max()) /
+      (kKvHeads * kDimension);
+  constexpr std::array<std::size_t, 29U> kSequenceLengths{
+      1U,   2U,   3U,   4U,   5U,   6U,   7U,   8U,   9U,   63U,
+      64U,  65U,  66U,  67U,  68U,  69U,  70U,  71U,  72U,  127U,
+      128U, 129U, 255U, 256U, 257U, 511U, 512U, 513U, 544U};
+  constexpr std::array<std::size_t, 8U> kMappingHeads{
+      0U, 5U, 6U, 11U, 12U, 17U, 18U, 23U};
+  constexpr std::array<std::size_t, 12U> kBoundaryDimensions{
+      0U, 1U, 31U, 32U, 63U, 64U, 127U, 128U, 191U, 192U, 254U, 255U};
+
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_values_exact_24_4_256_test_cuda_selection(
+              kQueryHeads, kKvHeads, 1U, kDimension, nullptr)) ==
+          cudaErrorInvalidValue,
+      "attention value selector query rejects null output");
+  const auto expect_selection = [&](const std::size_t query_heads,
+                                    const std::size_t kv_heads,
+                                    const std::size_t sequence_length,
+                                    const std::size_t dimension,
+                                    const bool expected,
+                                    const std::string& label) {
+    int selected = -1;
+    const cudaError_t status = static_cast<cudaError_t>(
+        q3x::runtime::
+            query_attention_values_exact_24_4_256_test_cuda_selection(
+                query_heads, kv_heads, sequence_length, dimension,
+                &selected));
+    test.expect(status == cudaSuccess, label + " selector query succeeds");
+    test.expect(selected == (expected ? 1 : 0),
+                label + " selector result matches");
+  };
+  expect_selection(kQueryHeads, kKvHeads, 0U, kDimension, false,
+                   "attention value S0");
+  expect_selection(kQueryHeads, kKvHeads, 1U, kDimension, true,
+                   "attention value S1");
+  expect_selection(kQueryHeads, kKvHeads, kMaximumSupportedSequence,
+                   kDimension, true, "attention value maximum S");
+  expect_selection(kQueryHeads, kKvHeads, kMaximumSupportedSequence + 1U,
+                   kDimension, false, "attention value maximum S plus one");
+  expect_selection(23U, kKvHeads, 513U, kDimension, false,
+                   "attention value Q23");
+  expect_selection(kQueryHeads, 5U, 513U, kDimension, false,
+                   "attention value KV5");
+  expect_selection(kQueryHeads, kKvHeads, 513U, 255U, false,
+                   "attention value D255");
+
+  AttentionScoreKernelResources baseline_resources;
+  AttentionScoreKernelResources candidate_resources;
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_values_baseline_24_4_256_test_cuda_resources(
+              nullptr, &baseline_resources.static_shared_bytes,
+              &baseline_resources.local_bytes,
+              &baseline_resources.maximum_threads,
+              &baseline_resources.active_blocks_per_multiprocessor)) ==
+          cudaErrorInvalidValue,
+      "attention value baseline resource query rejects null output");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_values_exact_24_4_256_test_cuda_resources(
+              &candidate_resources.registers,
+              &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes, nullptr,
+              &candidate_resources.active_blocks_per_multiprocessor)) ==
+          cudaErrorInvalidValue,
+      "attention value candidate resource query rejects null output");
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_values_baseline_24_4_256_test_cuda_resources(
+              &baseline_resources.registers,
+              &baseline_resources.static_shared_bytes,
+              &baseline_resources.local_bytes,
+              &baseline_resources.maximum_threads,
+              &baseline_resources.active_blocks_per_multiprocessor)),
+      "attention value baseline resource query");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_attention_values_exact_24_4_256_test_cuda_resources(
+              &candidate_resources.registers,
+              &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes,
+              &candidate_resources.maximum_threads,
+              &candidate_resources.active_blocks_per_multiprocessor)),
+      "attention value exact resource query");
+  if (!ready) {
+    return;
+  }
+  std::cout << "ATTENTION_VALUE_RESOURCES: baseline_regs="
+            << baseline_resources.registers
+            << " baseline_static_shared="
+            << baseline_resources.static_shared_bytes
+            << " baseline_local=" << baseline_resources.local_bytes
+            << " baseline_active_blocks="
+            << baseline_resources.active_blocks_per_multiprocessor
+            << " candidate_regs=" << candidate_resources.registers
+            << " candidate_static_shared="
+            << candidate_resources.static_shared_bytes
+            << " candidate_local=" << candidate_resources.local_bytes
+            << " candidate_active_blocks="
+            << candidate_resources.active_blocks_per_multiprocessor << '\n';
+  test.expect(baseline_resources.static_shared_bytes == 0U &&
+                  baseline_resources.local_bytes == 0U,
+              "attention value baseline has no shared memory or spills");
+  test.expect(candidate_resources.static_shared_bytes == 0U &&
+                  candidate_resources.local_bytes == 0U,
+              "attention value candidate has no shared memory or spills");
+  test.expect(baseline_resources.maximum_threads >= 256 &&
+                  candidate_resources.maximum_threads >= 256,
+              "attention value kernels support 256-thread blocks");
+  test.expect(candidate_resources.registers <= baseline_resources.registers,
+              "attention value candidate does not increase registers");
+  test.expect(candidate_resources.active_blocks_per_multiprocessor >=
+                  baseline_resources.active_blocks_per_multiprocessor,
+              "attention value candidate preserves predecessor occupancy");
+
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<float> probabilities;
+  GuardedBf16Buffer baseline;
+  GuardedBf16Buffer candidate;
+  GuardedBf16Buffer replay;
+  ready = test.cuda_ok(value.allocate(kValueElements),
+                       "attention value exact allocate value cache");
+  ready = ready && test.cuda_ok(
+      probabilities.allocate(kProbabilityElements),
+      "attention value exact allocate probabilities");
+  ready = ready && baseline.allocate(test, kOutputElements,
+                                     "attention value exact baseline");
+  ready = ready && candidate.allocate(test, kOutputElements,
+                                      "attention value exact candidate");
+  ready = ready && replay.allocate(test, kOutputElements,
+                                   "attention value exact replay");
+  if (!ready) {
+    return;
+  }
+
+  for (std::size_t index = 0U; index < value.size(); ++index) {
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 11U) % 67U) -
+                           33) /
+        64.0F);
+  }
+  for (std::size_t index = 0U; index < probabilities.size(); ++index) {
+    probabilities[index] =
+        static_cast<float>(static_cast<int>((index * 37U + 19U) % 61U) -
+                           30) /
+        256.0F;
+  }
+  const std::vector<std::uint16_t> value_snapshot(
+      value.data(), value.data() + value.size());
+  const std::vector<float> probability_snapshot(
+      probabilities.data(), probabilities.data() + probabilities.size());
+
+  for (const std::size_t sequence_length : kSequenceLengths) {
+    const std::string label =
+        "attention value exact S=" + std::to_string(sequence_length);
+    baseline.initialize(0x7fc1U, 0x1357U, 0x2468U);
+    candidate.initialize(0x7fc2U, 0x369cU, 0x147aU);
+    replay.initialize(0x7fc3U, 0x55aaU, 0xaa55U);
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_baseline_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, baseline.data(),
+                static_cast<void*>(stream))),
+        label + " baseline launch");
+    ready = ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_exact_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, candidate.data(),
+                static_cast<void*>(stream))),
+        label + " candidate launch");
+    ready = ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_exact_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                sequence_length, kDimension, replay.data(),
+                static_cast<void*>(stream))),
+        label + " replay launch");
+    ready = ready &&
+            test.cuda_ok(cudaStreamSynchronize(stream), label + " sync");
+    if (!ready) {
+      return;
+    }
+    expect_bf16_bits_equal(test, candidate.data(), baseline.data(),
+                           kOutputElements,
+                           label + " candidate matches predecessor");
+    expect_bf16_bits_equal(test, replay.data(), candidate.data(),
+                           kOutputElements,
+                           label + " candidate replay is deterministic");
+    for (const std::size_t query_head : kMappingHeads) {
+      const std::size_t kv_head = query_head / (kQueryHeads / kKvHeads);
+      for (const std::size_t dimension : kBoundaryDimensions) {
+        float accumulated = 0.0F;
+        for (std::size_t position = 0U; position < sequence_length;
+             ++position) {
+          const std::size_t value_index =
+              (position * kKvHeads + kv_head) * kDimension + dimension;
+          accumulated = std::fma(
+              probabilities[query_head * sequence_length + position],
+              decode_bf16(value[value_index]), accumulated);
+        }
+        const std::uint16_t expected = encode_bf16(accumulated);
+        const std::size_t output_index =
+            query_head * kDimension + dimension;
+        test.expect(baseline.data()[output_index] == expected,
+                    label + " independent oracle Q=" +
+                        std::to_string(query_head) + " D=" +
+                        std::to_string(dimension));
+      }
+    }
+    baseline.expect_guards(test, label + " baseline");
+    candidate.expect_guards(test, label + " candidate");
+    replay.expect_guards(test, label + " replay");
+    test.expect(std::memcmp(value.data(), value_snapshot.data(),
+                            value.size() * sizeof(std::uint16_t)) == 0,
+                label + " value cache is unchanged");
+    test.expect(std::memcmp(probabilities.data(), probability_snapshot.data(),
+                            probabilities.size() * sizeof(float)) == 0,
+                label + " probabilities are unchanged");
+  }
+
+  constexpr std::size_t kSpecialSequence = 8U;
+  constexpr std::array<std::uint16_t, 16U> kSpecialValues{
+      0x0000U, 0x8000U, 0x0001U, 0x8001U, 0x0080U, 0x8080U,
+      0x3f80U, 0xbf80U, 0x7f7fU, 0xff7fU, 0x7f80U, 0xff80U,
+      0x7fc1U, 0xffc1U, 0x7f81U, 0xff81U};
+  constexpr std::array<std::uint32_t, 14U> kSpecialProbabilityBits{
+      0x00000000U, 0x80000000U, 0x00000001U, 0x80000001U,
+      0x00800000U, 0x80800000U, 0x3f800000U, 0xbf800000U,
+      0x3eaaaaabU, 0xbeaaaaabU, 0x7f800000U, 0xff800000U,
+      0x7fc12345U, 0xffc12345U};
+  const auto run_special_case = [&](const std::string& label,
+                                    const std::size_t query_head,
+                                    const std::size_t dimension,
+                                    const bool expect_infinite,
+                                    const bool expect_nan,
+                                    const bool expected_sign) {
+    const std::vector<std::uint16_t> special_value_snapshot(
+        value.data(), value.data() + value.size());
+    const std::vector<float> special_probability_snapshot(
+        probabilities.data(), probabilities.data() + probabilities.size());
+    baseline.initialize(0x7fc1U, 0x1357U, 0x2468U);
+    candidate.initialize(0x7fc2U, 0x369cU, 0x147aU);
+    replay.initialize(0x7fc3U, 0x55aaU, 0xaa55U);
+    bool case_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_baseline_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                kSpecialSequence, kDimension, baseline.data(),
+                static_cast<void*>(stream))),
+        label + " baseline launch");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_exact_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                kSpecialSequence, kDimension, candidate.data(),
+                static_cast<void*>(stream))),
+        label + " candidate launch");
+    case_ready = case_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            launch_attention_values_exact_24_4_256_test_cuda(
+                value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+                kSpecialSequence, kDimension, replay.data(),
+                static_cast<void*>(stream))),
+        label + " replay launch");
+    case_ready = case_ready &&
+                 test.cuda_ok(cudaStreamSynchronize(stream), label + " sync");
+    if (!case_ready) {
+      ready = false;
+      return;
+    }
+    expect_bf16_bits_equal(test, candidate.data(), baseline.data(),
+                           kOutputElements,
+                           label + " candidate matches predecessor");
+    expect_bf16_bits_equal(test, replay.data(), candidate.data(),
+                           kOutputElements,
+                           label + " replay is deterministic");
+    const float selected =
+        decode_bf16(baseline.data()[query_head * kDimension + dimension]);
+    if (expect_nan) {
+      test.expect(std::isnan(selected), label + " preserves NaN class");
+    } else if (expect_infinite) {
+      test.expect(std::isinf(selected) &&
+                      std::signbit(selected) == expected_sign,
+                  label + " preserves infinity sign and class");
+    } else {
+      test.expect(std::isfinite(selected), label + " remains finite");
+    }
+    baseline.expect_guards(test, label + " baseline");
+    candidate.expect_guards(test, label + " candidate");
+    replay.expect_guards(test, label + " replay");
+    test.expect(std::memcmp(value.data(), special_value_snapshot.data(),
+                            value.size() * sizeof(std::uint16_t)) == 0,
+                label + " value cache is unchanged");
+    test.expect(std::memcmp(probabilities.data(),
+                            special_probability_snapshot.data(),
+                            probabilities.size() * sizeof(float)) == 0,
+                label + " probabilities are unchanged");
+  };
+
+  for (std::size_t index = 0U; ready && index < kSpecialValues.size();
+       ++index) {
+    std::fill_n(value.data(), value.size(), static_cast<std::uint16_t>(0U));
+    std::fill_n(probabilities.data(), probabilities.size(), 0.0F);
+    const std::size_t query_head = kMappingHeads[index % kMappingHeads.size()];
+    const std::size_t dimension =
+        kBoundaryDimensions[index % kBoundaryDimensions.size()];
+    const std::size_t position = index % kSpecialSequence;
+    const std::size_t kv_head = query_head / (kQueryHeads / kKvHeads);
+    value[(position * kKvHeads + kv_head) * kDimension + dimension] =
+        kSpecialValues[index];
+    probabilities[query_head * kSpecialSequence + position] = 1.0F;
+    const std::uint16_t raw = kSpecialValues[index];
+    const bool nonfinite = (raw & 0x7f80U) == 0x7f80U;
+    const bool infinite = nonfinite && (raw & 0x007fU) == 0U;
+    const bool nan = nonfinite && !infinite;
+    run_special_case("attention value special BF16 index=" +
+                         std::to_string(index),
+                     query_head, dimension, infinite, nan,
+                     (raw & 0x8000U) != 0U);
+  }
+  for (std::size_t index = 0U;
+       ready && index < kSpecialProbabilityBits.size(); ++index) {
+    std::fill_n(value.data(), value.size(), static_cast<std::uint16_t>(0U));
+    std::fill_n(probabilities.data(), probabilities.size(), 0.0F);
+    const std::size_t query_head =
+        kMappingHeads[(index + 3U) % kMappingHeads.size()];
+    const std::size_t dimension =
+        kBoundaryDimensions[(index + 5U) % kBoundaryDimensions.size()];
+    const std::size_t position = index % kSpecialSequence;
+    const std::size_t kv_head = query_head / (kQueryHeads / kKvHeads);
+    value[(position * kKvHeads + kv_head) * kDimension + dimension] =
+        encode_bf16(1.0F);
+    const float raw = float_from_bits(kSpecialProbabilityBits[index]);
+    probabilities[query_head * kSpecialSequence + position] = raw;
+    run_special_case("attention value special FP32 probability index=" +
+                         std::to_string(index),
+                     query_head, dimension, std::isinf(raw), std::isnan(raw),
+                     std::signbit(raw));
+  }
+  std::cout << "ATTENTION_VALUE_BINARY_IDENTITY: finite_boundary_lengths="
+            << kSequenceLengths.size() << " mapping_heads="
+            << kMappingHeads.size() << " dimension_boundaries="
+            << kBoundaryDimensions.size() << " special_bf16="
+            << kSpecialValues.size() << " special_fp32="
+            << kSpecialProbabilityBits.size() << " replay=enabled status="
+            << (test.failures() == failures_before ? "PASS" : "FAIL")
+            << '\n';
+}
+
+void test_attention_values_exact_graph_contract(TestContext& test,
+                                                cudaStream_t stream) {
+  constexpr std::size_t kSequence = 513U;
+  constexpr std::size_t kQueryElements = 24U * 256U;
+  constexpr std::size_t kCacheElements = kSequence * 4U * 256U;
+  constexpr std::size_t kProbabilityElements = 24U * kSequence;
+  constexpr std::size_t kMaximumSupportedSequence =
+      static_cast<std::size_t>(std::numeric_limits<unsigned int>::max()) /
+      (4U * 256U);
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<float> probabilities;
+  ManagedBuffer<std::uint16_t> output;
+  bool ready = test.cuda_ok(query.allocate(kQueryElements),
+                            "attention value graph allocate query");
+  ready = ready && test.cuda_ok(key.allocate(kCacheElements),
+                                "attention value graph allocate key");
+  ready = ready && test.cuda_ok(value.allocate(kCacheElements),
+                                "attention value graph allocate value");
+  ready = ready && test.cuda_ok(
+      probabilities.allocate(kProbabilityElements),
+      "attention value graph allocate probabilities");
+  ready = ready && test.cuda_ok(output.allocate(kQueryElements),
+                                "attention value graph allocate output");
+  if (!ready) {
+    return;
+  }
+
+  constexpr std::array<std::pair<const char*, AttentionValueTestLaunch>, 2U>
+      kLaunchers{{
+          {"baseline", q3x::runtime::
+                           launch_attention_values_baseline_24_4_256_test_cuda},
+          {"candidate", q3x::runtime::
+                            launch_attention_values_exact_24_4_256_test_cuda},
+      }};
+  for (const auto& [name, launch] : kLaunchers) {
+    const std::string prefix =
+        std::string("attention value ") + name + " invalid graph ";
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "Q23", launch, value.data(),
+        probabilities.data(), 23U, 4U, kSequence, 256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "KV5", launch, value.data(),
+        probabilities.data(), 24U, 5U, kSequence, 256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "S0", launch, value.data(),
+        probabilities.data(), 24U, 4U, 0U, 256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "S overflow", launch, value.data(),
+        probabilities.data(), 24U, 4U, kMaximumSupportedSequence + 1U,
+        256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "D255", launch, value.data(),
+        probabilities.data(), 24U, 4U, kSequence, 255U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "null value", launch, nullptr,
+        probabilities.data(), 24U, 4U, kSequence, 256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "null probabilities", launch, value.data(),
+        nullptr, 24U, 4U, kSequence, 256U, output.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "null output", launch, value.data(),
+        probabilities.data(), 24U, 4U, kSequence, 256U, nullptr);
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "value-output alias", launch, value.data(),
+        probabilities.data(), 24U, 4U, kSequence, 256U, value.data());
+    expect_invalid_attention_value_graph(
+        test, stream, prefix + "probability-output alias", launch,
+        value.data(), probabilities.data(), 24U, 4U, kSequence, 256U,
+        reinterpret_cast<std::uint16_t*>(probabilities.data()));
+  }
+
+  AttentionScoreGraphTopology baseline_topology;
+  AttentionScoreGraphTopology candidate_topology;
+  ready = capture_attention_value_graph_topology(
+      test, stream, "attention value baseline positive graph",
+      q3x::runtime::launch_attention_values_baseline_24_4_256_test_cuda,
+      value.data(), probabilities.data(), kSequence, output.data(),
+      baseline_topology);
+  ready = capture_attention_value_graph_topology(
+              test, stream, "attention value candidate positive graph",
+              q3x::runtime::launch_attention_values_exact_24_4_256_test_cuda,
+              value.data(), probabilities.data(), kSequence, output.data(),
+              candidate_topology) &&
+          ready;
+  if (!ready) {
+    return;
+  }
+  test.expect(baseline_topology.function != nullptr &&
+                  candidate_topology.function != nullptr &&
+                  baseline_topology.function != candidate_topology.function,
+              "attention value Graph kernel identities are non-null and distinct");
+  test.expect(baseline_topology.grid.x == 24U &&
+                  baseline_topology.grid.y == 1U &&
+                  baseline_topology.grid.z == 1U,
+              "attention value baseline Graph grid is (24,1,1)");
+  test.expect(candidate_topology.grid.x == 6U &&
+                  candidate_topology.grid.y == 4U &&
+                  candidate_topology.grid.z == 1U,
+              "attention value exact Graph grid is (6,4,1)");
+  test.expect(baseline_topology.block.x == 256U &&
+                  baseline_topology.block.y == 1U &&
+                  baseline_topology.block.z == 1U &&
+                  candidate_topology.block.x == 256U &&
+                  candidate_topology.block.y == 1U &&
+                  candidate_topology.block.z == 1U,
+              "attention value Graph kernels use 256-thread blocks");
+  test.expect(baseline_topology.dynamic_shared_bytes == 0U &&
+                  candidate_topology.dynamic_shared_bytes == 0U,
+              "attention value Graph kernels use zero dynamic shared memory");
+  std::cout << "ATTENTION_VALUE_GRAPH_TOPOLOGY: baseline_func="
+            << baseline_topology.function << " baseline_grid=("
+            << baseline_topology.grid.x << ',' << baseline_topology.grid.y
+            << ',' << baseline_topology.grid.z << ") candidate_func="
+            << candidate_topology.function << " candidate_grid=("
+            << candidate_topology.grid.x << ',' << candidate_topology.grid.y
+            << ',' << candidate_topology.grid.z << ") block=("
+            << candidate_topology.block.x << ',' << candidate_topology.block.y
+            << ',' << candidate_topology.block.z << ") dynamic_shared="
+            << candidate_topology.dynamic_shared_bytes << '\n';
+
+  GqaGraphTopology production;
+  ready = capture_gqa_graph_topology(
+      test, stream, "attention value production S513 graph", query.data(),
+      key.data(), value.data(), kSequence, probabilities.data(),
+      probabilities.size(), output.data(), production);
+  if (!ready) {
+    return;
+  }
+  const bool production_has_baseline =
+      std::find(production.non_root_functions.begin(),
+                production.non_root_functions.end(),
+                baseline_topology.function) !=
+      production.non_root_functions.end();
+  const bool production_has_candidate =
+      std::find(production.non_root_functions.begin(),
+                production.non_root_functions.end(),
+                candidate_topology.function) !=
+      production.non_root_functions.end();
+  test.expect(!production_has_baseline,
+              "attention value production no longer dispatches the predecessor");
+  test.expect(production_has_candidate,
+              "attention value production dispatches the exact kernel");
+  std::cout << "ATTENTION_VALUE_PRODUCTION_DISPATCH: S=513 baseline_present="
+            << (production_has_baseline ? "yes" : "no")
+            << " candidate_present="
+            << (production_has_candidate ? "yes" : "no") << '\n';
+
+  GqaGraphTopology fallback_production;
+  ready = capture_gqa_graph_topology(
+      test, stream, "attention value production Q12 fallback graph",
+      query.data(), key.data(), value.data(), kSequence,
+      probabilities.data(), probabilities.size(), output.data(),
+      fallback_production, 12U, 4U, 256U);
+  if (!ready) {
+    return;
+  }
+  const bool fallback_has_baseline =
+      std::find(fallback_production.non_root_functions.begin(),
+                fallback_production.non_root_functions.end(),
+                baseline_topology.function) !=
+      fallback_production.non_root_functions.end();
+  const bool fallback_has_candidate =
+      std::find(fallback_production.non_root_functions.begin(),
+                fallback_production.non_root_functions.end(),
+                candidate_topology.function) !=
+      fallback_production.non_root_functions.end();
+  test.expect(fallback_has_baseline,
+              "attention value Q12 production fallback uses predecessor");
+  test.expect(!fallback_has_candidate,
+              "attention value Q12 production fallback excludes exact kernel");
+  std::cout << "ATTENTION_VALUE_PRODUCTION_FALLBACK: Q=12 KV=4 D=256 S=513 "
+               "baseline_present="
+            << (fallback_has_baseline ? "yes" : "no")
+            << " candidate_present="
+            << (fallback_has_candidate ? "yes" : "no") << '\n';
+}
+
+void test_attention_values_exact_perf(TestContext& test,
+                                      cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_ATTENTION_VALUES_EXACT_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: attention value exact performance gate; set "
+                 "Q3X_RUN_ATTENTION_VALUES_EXACT_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKvHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kMaximumSequence = 544U;
+  constexpr std::size_t kWarmupIterations = 10U;
+  constexpr std::size_t kMeasuredIterations = 80U;
+  constexpr int kMeasurementRounds = 5;
+  constexpr std::array<std::size_t, 12U> kSequenceLengths{
+      1U,  2U,  4U,  8U,  16U, 32U,
+      64U, 65U, 128U, 257U, 513U, 544U};
+  constexpr std::size_t kValueElements =
+      kMaximumSequence * kKvHeads * kDimension;
+  constexpr std::size_t kProbabilityElements =
+      kQueryHeads * kMaximumSequence;
+  constexpr std::size_t kOutputElements = kQueryHeads * kDimension;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<float> probabilities;
+  ManagedBuffer<std::uint16_t> baseline;
+  ManagedBuffer<std::uint16_t> candidate;
+  bool ready = test.cuda_ok(value.allocate(kValueElements),
+                            "attention value perf allocate value");
+  ready = ready && test.cuda_ok(
+      probabilities.allocate(kProbabilityElements),
+      "attention value perf allocate probabilities");
+  ready = ready && test.cuda_ok(baseline.allocate(kOutputElements),
+                                "attention value perf allocate baseline");
+  ready = ready && test.cuda_ok(candidate.allocate(kOutputElements),
+                                "attention value perf allocate candidate");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t index = 0U; index < value.size(); ++index) {
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 43U + 13U) % 97U) -
+                           48) /
+        64.0F);
+  }
+  for (std::size_t index = 0U; index < probabilities.size(); ++index) {
+    probabilities[index] =
+        static_cast<float>(static_cast<int>((index * 31U + 7U) % 89U) -
+                           44) /
+        256.0F;
+  }
+
+  const auto launch_baseline = [&](const std::size_t sequence_length) {
+    return q3x::runtime::
+        launch_attention_values_baseline_24_4_256_test_cuda(
+            value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+            sequence_length, kDimension, baseline.data(),
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&](const std::size_t sequence_length) {
+    return q3x::runtime::launch_attention_values_exact_24_4_256_test_cuda(
+        value.data(), probabilities.data(), kQueryHeads, kKvHeads,
+        sequence_length, kDimension, candidate.data(),
+        static_cast<void*>(stream));
+  };
+
+  for (const std::size_t sequence_length : kSequenceLengths) {
+    const std::string label =
+        "attention value hot perf S=" + std::to_string(sequence_length);
+    for (std::size_t iteration = 0U;
+         ready && iteration < kWarmupIterations; ++iteration) {
+      ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_baseline(sequence_length)),
+          label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(
+                               launch_candidate(sequence_length)),
+                           label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " warmup sync");
+    if (!ready) {
+      return;
+    }
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    bool timing_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          label + " round=" + std::to_string(round + 1);
+      const auto baseline_launch = [&]() {
+        return launch_baseline(sequence_length);
+      };
+      const auto candidate_launch = [&]() {
+        return launch_candidate(sequence_length);
+      };
+      const float baseline_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " baseline 1",
+          baseline_launch);
+      const float candidate_first = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " candidate 1",
+          candidate_launch);
+      const float candidate_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " candidate 2",
+          candidate_launch);
+      const float baseline_second = measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " baseline 2",
+          baseline_launch);
+      const bool round_finite =
+          std::isfinite(baseline_first) && baseline_first > 0.0F &&
+          std::isfinite(candidate_first) && candidate_first > 0.0F &&
+          std::isfinite(candidate_second) && candidate_second > 0.0F &&
+          std::isfinite(baseline_second) && baseline_second > 0.0F;
+      timing_finite = timing_finite && round_finite;
+      if (round_finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_ATTENTION_VALUES_EXACT_ROUND: cache=hot S="
+                << sequence_length << " round=" << round + 1
+                << " iterations=" << kMeasuredIterations
+                << " baseline1_ms=" << baseline_first
+                << " candidate1_ms=" << candidate_first
+                << " candidate2_ms=" << candidate_second
+                << " baseline2_ms=" << baseline_second << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    const double baseline_milliseconds = baseline_total / kTimedPasses;
+    const double candidate_milliseconds = candidate_total / kTimedPasses;
+    const double speedup = baseline_milliseconds / candidate_milliseconds;
+    const bool measurement_valid =
+        timing_finite && std::isfinite(speedup) &&
+        baseline_milliseconds > 0.0 && candidate_milliseconds > 0.0;
+    std::cout << "PERF_ATTENTION_VALUES_EXACT: cache=hot S="
+              << sequence_length << " baseline_ms=" << baseline_milliseconds
+              << " candidate_ms=" << candidate_milliseconds
+              << " speedup=" << speedup
+              << " selection=REPORT_ONLY valid="
+              << (measurement_valid ? "yes" : "no") << '\n';
+    test.expect(measurement_valid, label + " produces a valid measurement");
+    expect_bf16_bits_equal(test, candidate.data(), baseline.data(),
+                           kOutputElements,
+                           label + " final output remains bitwise exact");
+  }
+
+  constexpr std::size_t kColdSequence = 513U;
+  constexpr std::size_t kColdBankCount = 16U;
+  constexpr std::size_t kColdBankElements =
+      kColdSequence * kKvHeads * kDimension;
+  constexpr std::size_t kColdBankBytes =
+      kColdBankElements * sizeof(std::uint16_t);
+  constexpr std::size_t kColdWorkingSetBytes =
+      kColdBankCount * kColdBankBytes;
+  ManagedBuffer<std::uint16_t> cold_values;
+  ready = test.cuda_ok(
+      cold_values.allocate(kColdBankCount * kColdBankElements),
+      "attention value cold perf allocate rotating value banks");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t bank = 0U; bank < kColdBankCount; ++bank) {
+    std::copy_n(value.data(), kColdBankElements,
+                cold_values.data() + bank * kColdBankElements);
+  }
+  const auto launch_cold_baseline = [&](const std::size_t bank) {
+    return q3x::runtime::
+        launch_attention_values_baseline_24_4_256_test_cuda(
+            cold_values.data() + bank * kColdBankElements,
+            probabilities.data(), kQueryHeads, kKvHeads, kColdSequence,
+            kDimension, baseline.data(), static_cast<void*>(stream));
+  };
+  const auto launch_cold_candidate = [&](const std::size_t bank) {
+    return q3x::runtime::launch_attention_values_exact_24_4_256_test_cuda(
+        cold_values.data() + bank * kColdBankElements, probabilities.data(),
+        kQueryHeads, kKvHeads, kColdSequence, kDimension, candidate.data(),
+        static_cast<void*>(stream));
+  };
+  for (std::size_t bank = 0U; ready && bank < kColdBankCount; ++bank) {
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_cold_baseline(bank)),
+        "attention value cold perf baseline first-touch");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(
+                             launch_cold_candidate(bank)),
+                         "attention value cold perf candidate first-touch");
+  }
+  ready = ready && test.cuda_ok(
+                       cudaStreamSynchronize(stream),
+                       "attention value cold perf first-touch sync");
+  if (!ready) {
+    return;
+  }
+  const auto measure_cold_baseline = [&](const std::string& label) {
+    std::size_t bank = 0U;
+    return measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, label, [&]() {
+          const int status = launch_cold_baseline(bank);
+          bank = (bank + 1U) % kColdBankCount;
+          return status;
+        });
+  };
+  const auto measure_cold_candidate = [&](const std::string& label) {
+    std::size_t bank = 0U;
+    return measure_cuda_span_milliseconds(
+        test, stream, kMeasuredIterations, label, [&]() {
+          const int status = launch_cold_candidate(bank);
+          bank = (bank + 1U) % kColdBankCount;
+          return status;
+        });
+  };
+  double cold_baseline_total = 0.0;
+  double cold_candidate_total = 0.0;
+  bool cold_timing_finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string round_label =
+        "attention value cold S513 round=" + std::to_string(round + 1);
+    const float baseline_first =
+        measure_cold_baseline(round_label + " baseline 1");
+    const float candidate_first =
+        measure_cold_candidate(round_label + " candidate 1");
+    const float candidate_second =
+        measure_cold_candidate(round_label + " candidate 2");
+    const float baseline_second =
+        measure_cold_baseline(round_label + " baseline 2");
+    const bool round_finite =
+        std::isfinite(baseline_first) && baseline_first > 0.0F &&
+        std::isfinite(candidate_first) && candidate_first > 0.0F &&
+        std::isfinite(candidate_second) && candidate_second > 0.0F &&
+        std::isfinite(baseline_second) && baseline_second > 0.0F;
+    cold_timing_finite = cold_timing_finite && round_finite;
+    if (round_finite) {
+      cold_baseline_total += baseline_first + baseline_second;
+      cold_candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_ATTENTION_VALUES_EXACT_COLD_ROUND: "
+                 "cache=rotating-cold-value banks="
+              << kColdBankCount << " bank_bytes=" << kColdBankBytes
+              << " working_set_bytes=" << kColdWorkingSetBytes
+              << " S=" << kColdSequence << " iterations="
+              << kMeasuredIterations
+              << " round=" << round + 1
+              << " baseline1_ms=" << baseline_first
+              << " candidate1_ms=" << candidate_first
+              << " candidate2_ms=" << candidate_second
+              << " baseline2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kColdTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double cold_baseline_milliseconds =
+      cold_baseline_total / kColdTimedPasses;
+  const double cold_candidate_milliseconds =
+      cold_candidate_total / kColdTimedPasses;
+  const double cold_speedup =
+      cold_baseline_milliseconds / cold_candidate_milliseconds;
+  const bool cold_measurement_valid =
+      cold_timing_finite && std::isfinite(cold_speedup) &&
+      cold_baseline_milliseconds > 0.0 &&
+      cold_candidate_milliseconds > 0.0;
+  std::cout << "PERF_ATTENTION_VALUES_EXACT_COLD: "
+               "cache=rotating-cold-value banks="
+            << kColdBankCount << " bank_bytes=" << kColdBankBytes
+            << " working_set_bytes=" << kColdWorkingSetBytes
+            << " S=" << kColdSequence
+            << " baseline_ms=" << cold_baseline_milliseconds
+            << " candidate_ms=" << cold_candidate_milliseconds
+            << " speedup=" << cold_speedup
+            << " selection=REPORT_ONLY valid="
+            << (cold_measurement_valid ? "yes" : "no") << '\n';
+  test.expect(cold_measurement_valid,
+              "attention value cold S513 produces a valid measurement");
+  expect_bf16_bits_equal(test, candidate.data(), baseline.data(),
+                         kOutputElements,
+                         "attention value cold S513 stays bitwise exact");
+
+  constexpr std::size_t kChainFirstSequence = 65U;
+  constexpr std::size_t kChainLastSequence = 513U;
+  constexpr std::size_t kChainWarmupIterations = 10U;
+  constexpr std::size_t kChainMeasuredIterations = 1U;
+  const std::string chain_label =
+      "attention value hot chain S65..513";
+  const auto launch_baseline_chain = [&]() {
+    for (std::size_t sequence_length = kChainFirstSequence;
+         sequence_length <= kChainLastSequence; ++sequence_length) {
+      const int status = launch_baseline(sequence_length);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_candidate_chain = [&]() {
+    for (std::size_t sequence_length = kChainFirstSequence;
+         sequence_length <= kChainLastSequence; ++sequence_length) {
+      const int status = launch_candidate(sequence_length);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  for (std::size_t iteration = 0U;
+       ready && iteration < kChainWarmupIterations; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline_chain()),
+                         chain_label + " baseline warmup");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate_chain()),
+                         chain_label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                chain_label + " warmup sync");
+  if (!ready) {
+    return;
+  }
+  double chain_baseline_total = 0.0;
+  double chain_candidate_total = 0.0;
+  bool chain_timing_finite = true;
+  for (int round = 0; round < kMeasurementRounds; ++round) {
+    const std::string round_label =
+        chain_label + " round=" + std::to_string(round + 1);
+    const float baseline_first = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " baseline 1", launch_baseline_chain);
+    const float candidate_first = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " candidate 1", launch_candidate_chain);
+    const float candidate_second = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " candidate 2", launch_candidate_chain);
+    const float baseline_second = measure_cuda_span_milliseconds(
+        test, stream, kChainMeasuredIterations,
+        round_label + " baseline 2", launch_baseline_chain);
+    const bool round_finite =
+        std::isfinite(baseline_first) && baseline_first > 0.0F &&
+        std::isfinite(candidate_first) && candidate_first > 0.0F &&
+        std::isfinite(candidate_second) && candidate_second > 0.0F &&
+        std::isfinite(baseline_second) && baseline_second > 0.0F;
+    chain_timing_finite = chain_timing_finite && round_finite;
+    if (round_finite) {
+      chain_baseline_total += baseline_first + baseline_second;
+      chain_candidate_total += candidate_first + candidate_second;
+    }
+    std::cout << "PERF_ATTENTION_VALUES_EXACT_CHAIN_ROUND: cache=hot round="
+              << round + 1 << " kernels_per_chain="
+              << (kChainLastSequence - kChainFirstSequence + 1U)
+              << " baseline1_ms=" << baseline_first
+              << " candidate1_ms=" << candidate_first
+              << " candidate2_ms=" << candidate_second
+              << " baseline2_ms=" << baseline_second << '\n';
+  }
+  constexpr double kChainTimedPasses =
+      2.0 * static_cast<double>(kMeasurementRounds);
+  const double chain_baseline_milliseconds =
+      chain_baseline_total / kChainTimedPasses;
+  const double chain_candidate_milliseconds =
+      chain_candidate_total / kChainTimedPasses;
+  const double chain_speedup =
+      chain_baseline_milliseconds / chain_candidate_milliseconds;
+  const bool chain_measurement_valid =
+      chain_timing_finite && std::isfinite(chain_speedup) &&
+      chain_baseline_milliseconds > 0.0 &&
+      chain_candidate_milliseconds > 0.0;
+  std::cout << "PERF_ATTENTION_VALUES_EXACT_CHAIN: cache=hot first_S="
+            << kChainFirstSequence << " last_S=" << kChainLastSequence
+            << " kernels_per_chain="
+            << (kChainLastSequence - kChainFirstSequence + 1U)
+            << " baseline_ms=" << chain_baseline_milliseconds
+            << " candidate_ms=" << chain_candidate_milliseconds
+            << " speedup=" << chain_speedup
+            << " selection=REPORT_ONLY valid="
+            << (chain_measurement_valid ? "yes" : "no") << '\n';
+  test.expect(chain_measurement_valid,
+              chain_label + " produces a valid aggregate measurement");
+  expect_bf16_bits_equal(test, candidate.data(), baseline.data(),
+                         kOutputElements,
+                         chain_label + " final S513 output is bitwise exact");
+}
+
 void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
                                            cudaStream_t stream,
                                            const std::size_t sequence_length) {
@@ -4224,6 +5272,9 @@ int main() {
   test_attention_scores_warp_positions_exact(test, stream);
   test_attention_scores_warp_positions_graph_contract(test, stream);
   test_attention_scores_warp_positions_perf(test, stream);
+  test_attention_values_exact(test, stream);
+  test_attention_values_exact_graph_contract(test, stream);
+  test_attention_values_exact_perf(test, stream);
   test_fused_gqa_sigmoid_gate_exact(test, stream);
   test_fused_gqa_sigmoid_gate_perf(test, stream);
   test_nonfinite(test, stream);

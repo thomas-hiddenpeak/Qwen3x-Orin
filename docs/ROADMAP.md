@@ -183,6 +183,8 @@ Deliverables:
   Q/K+RoPE subtiles, one stream, and one outer state commit.
 - [done, exact-shape gated] Fixed-M32 FP8 Tensor Core projections for four
   production shapes, with two-M16 fallback elsewhere.
+- [done, productionized exact shape] Attention-values for Q24/KV4/D256, with
+  the generic predecessor retained as a test baseline and fallback elsewhere.
 - [done, exact-shape gated] Fixed-M32 NVFP4 Tensor Core projections for
   `[17408,5120]` and `[5120,17408]`, with two-M16 fallback elsewhere.
 - [done, exact-shape gated] Masked-M32 NVFP4 Tensor Core projections for exact
@@ -523,11 +525,26 @@ persistent memory drop. These unlocked-clock ratios are diagnostic promotion
 evidence, not a release-latency claim. See the
 [FP8 M32 dual-resident-A promotion record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).
 
-This is still a kernel-local shared-memory residency change, not a runtime
-double/triple buffer. Batch-one Prefill and Decode remain causally serial
-through the completed logical plan seam. The next main-line step is refreshed
-phase-local attribution followed by a bounded attention-values screen; rejected
-NVFP4 product-table variants stay closed unless materially new evidence changes
+The subsequent exact Q24/KV4/D256 attention-values route is now productionized.
+It reduces registers from 40 to 26 and the `cuobjdump` function-block count
+from 376 to 112 instruction lines while retaining six active CTAs/SM. Across
+five independent same-binary processes, the hot
+S65/S128/S257/S513/S544 cells span 1.30170x-1.50671x; the complete hot
+S65..S513 chain spans
+1.39585x-1.39948x, and the rotating 16-bank cold S513 guard spans
+1.79801x-1.80948x. Exact finite/nonfinite output, replay, guards, input
+preservation, invalid-call, CUDA Graph topology/production identity, resource,
+and full Release/model test gates pass. Symmetric B-C-C-B runs keep P33/max1
+neutral within the guard (+0.021% TTFT), reduce P513/max1 TTFT by 1.213%, and
+reduce P513/max8 subsequent-token latency by 0.987%. See the
+[attention-values exact promotion record](metadata/qwen36-27b-attention-values-exact-benchmark.json).
+
+Neither this kernel specialization nor the preceding FP8 M32 shared-memory
+residency change introduces a runtime double/triple buffer. Prefill and Decode
+are logically separated by the completed plan seam, but batch-one execution
+remains causally dependency-serialized. The next main-line step is to refresh
+the phase-local profile and select the next measured hotspot; rejected NVFP4
+product-table variants stay closed unless materially new evidence changes
 their ceiling. Independent executors and queues remain a future multi-request
 continuous-batching item after request/KV/workspace ownership, handoff,
 fairness, TTFT, inter-token, tail-latency, cancellation, and memory gates are
