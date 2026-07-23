@@ -33,7 +33,7 @@ enum class ProjectionShape : std::uint8_t {
   kNvFp4_248320x5120,
 };
 
-// Every value names a production control-flow leaf, except for the three
+// Every value names a production control-flow leaf, except for the four
 // explicit recursive fallbacks. Those fallbacks deliberately re-enter the
 // complete M1/M8/M16 dispatchers so offset-pointer eligibility and
 // launch-error ordering remain unchanged.
@@ -66,6 +66,8 @@ enum class ProjectionRoute : std::uint8_t {
   kFp8M16Wmma,
   kNvFp4M16Wmma,
   kSplitM16IntoM8,
+  kNvFp4M18MaskedM32Wmma,
+  kSplitM18IntoM16M2,
   kFp8M32Wmma,
   kNvFp4M32Wmma,
   kSplitM32IntoM16,
@@ -220,6 +222,11 @@ select_fp8_projection_plan(
       (query.columns % kFp8VectorColumns) == 0U &&
       query.weight_aligned_4 && query.activation_aligned_8;
 
+  if (query.token_count == 18U) {
+    return make_projection_plan(shape, ProjectionRoute::kSplitM18IntoM16M2,
+                                0U, 2U);
+  }
+
   if (query.token_count == 32U) {
     if (is_fp8_m16_wmma_shape(shape) && query.weight_aligned_16 &&
         query.activation_aligned_8) {
@@ -302,6 +309,16 @@ select_nvfp4_projection_plan(
       (query.columns % kNvFp4VectorColumns) == 0U &&
       query.weight_aligned_4 && query.activation_aligned_8;
 
+  if (query.token_count == 18U) {
+    if (is_nvfp4_mlp_shape(shape) && query.weight_aligned_16 &&
+        query.activation_aligned_8 && query.block_scales_aligned_2) {
+      return make_projection_plan(
+          shape, ProjectionRoute::kNvFp4M18MaskedM32Wmma);
+    }
+    return make_projection_plan(shape, ProjectionRoute::kSplitM18IntoM16M2,
+                                0U, 2U);
+  }
+
   if (query.token_count == 32U) {
     if (is_nvfp4_mlp_shape(shape) && query.weight_aligned_16 &&
         query.activation_aligned_8 && query.block_scales_aligned_2) {
@@ -380,7 +397,7 @@ select_projection_plan(
     const ProjectionQuery& query) noexcept {
   if (query.token_count == 0U || query.token_count > 32U ||
       (query.token_count > 8U && query.token_count != 16U &&
-       query.token_count != 32U)) {
+       query.token_count != 18U && query.token_count != 32U)) {
     return make_projection_plan(ProjectionShape::kUnknown,
                                 ProjectionRoute::kInvalid, 0U, 0U);
   }

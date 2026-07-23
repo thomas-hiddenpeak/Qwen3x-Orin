@@ -2822,7 +2822,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_kernel(
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U,
           bool kFactorizedProductLookup = false,
-          bool kVectorizedDecodedStore = false>
+          bool kVectorizedDecodedStore = false,
+          unsigned int kValidTokenCount = 32U>
 __global__ __launch_bounds__(kThreads, 5) void
 nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
@@ -2884,6 +2885,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   static_assert(kProductWordCount == 2'048U);
   static_assert(kProductInitializationPasses == 8U);
   static_assert(!kVectorizedDecodedStore || kFactorizedProductLookup);
+  static_assert(kValidTokenCount == 18U || kValidTokenCount == kTokenCount);
   static_assert((kSharedWeightWordsPerRow * sizeof(std::uint32_t)) %
                     alignof(uint4) ==
                 0U);
@@ -2991,12 +2993,23 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
             activation_index / kActivationWordsPerToken;
         const unsigned int activation_word =
             activation_index % kActivationWordsPerToken;
-        shared_activations[token * kSharedActivationWordsPerToken +
-                           activation_word] =
-            *reinterpret_cast<const std::uint64_t*>(
-                activations + static_cast<std::size_t>(token) * kColumns +
-                first_k +
-                activation_word * kBf16ValuesPerActivationWord);
+        if constexpr (kValidTokenCount == kTokenCount) {
+          shared_activations[token * kSharedActivationWordsPerToken +
+                             activation_word] =
+              *reinterpret_cast<const std::uint64_t*>(
+                  activations + static_cast<std::size_t>(token) * kColumns +
+                  first_k +
+                  activation_word * kBf16ValuesPerActivationWord);
+        } else {
+          shared_activations[token * kSharedActivationWordsPerToken +
+                             activation_word] =
+              token < kValidTokenCount
+                  ? *reinterpret_cast<const std::uint64_t*>(
+                        activations +
+                        static_cast<std::size_t>(token) * kColumns + first_k +
+                        activation_word * kBf16ValuesPerActivationWord)
+                  : std::uint64_t{0U};
+        }
       }
 
       const unsigned int first_vector_column =
@@ -3113,9 +3126,15 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
        index += kThreads) {
     const unsigned int token = index / kOutputColumnsPerBlock;
     const unsigned int local_column = index % kOutputColumnsPerBlock;
-    output[static_cast<std::size_t>(token) * kRows + first_output_column +
-           local_column] =
-        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+    if constexpr (kValidTokenCount == kTokenCount) {
+      output[static_cast<std::size_t>(token) * kRows + first_output_column +
+             local_column] =
+          encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+    } else if (token < kValidTokenCount) {
+      output[static_cast<std::size_t>(token) * kRows + first_output_column +
+             local_column] =
+          encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+    }
   }
 }
 
@@ -7381,6 +7400,48 @@ void launch_nvfp4_lm_head_activation_staged_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+[[nodiscard]] int validate_nvfp4_m18_launch(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  constexpr std::size_t kTokenCount = 18U;
+  if ((columns % kNvFp4GroupSize) != 0U ||
+      !std::isfinite(weight_scale_2) || weight_scale_2 < 0.0F ||
+      multiply_overflows(rows, columns)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(kTokenCount, columns) ||
+      multiply_overflows(kTokenCount, rows)) {
+    return invalid_value();
+  }
+  const std::size_t activation_elements = kTokenCount * columns;
+  const std::size_t output_elements = kTokenCount * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      packed_weights == nullptr || block_scales == nullptr ||
+      activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t packed_bytes =
+      rows * (columns / kNvFp4ValuesPerByte);
+  const std::size_t scale_bytes = rows * (columns / kNvFp4GroupSize);
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes =
+      output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, packed_weights, packed_bytes) ||
+      ranges_overlap(output, output_bytes, block_scales, scale_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] int validate_nvfp4_m32_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -7765,7 +7826,8 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked(
 // Production factorized specialization that explicitly groups each four
 // decoded BF16x2 words into one aligned shared-memory uint4 store.
 template <std::size_t kRows, std::size_t kColumns,
-          unsigned int kSharedLeadingDimension = 72U>
+          unsigned int kSharedLeadingDimension = 72U,
+          unsigned int kValidTokenCount = 32U>
 void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -7775,7 +7837,7 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked(
   constexpr unsigned int kBlocks =
       static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
   nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
-      kRows, kColumns, kSharedLeadingDimension, true, true>
+      kRows, kColumns, kSharedLeadingDimension, true, true, kValidTokenCount>
       <<<kBlocks, kThreads, 0U, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
@@ -10898,6 +10960,58 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_res
   return static_cast<int>(cudaSuccess);
 }
 
+// Test-only resource gate for the exact production M18 specialization.
+int query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda(
+    const std::size_t rows, const std::size_t columns,
+    int* const registers_per_thread, std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes, int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns) ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (rows == 17'408U) {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            17'408U, 5'120U, 72U, true, true, 18U>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              17'408U, 5'120U, 72U, true, true, 18U>,
+          static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 18U>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              5'120U, 17'408U, 72U, true, true, 18U>,
+          static_cast<int>(kThreads), 0U);
+    }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
 // Test-only direct entry for the K128/LD136 fixed-M32 single-resident-A-panel
 // candidate. Production dispatch and the public ABI remain unchanged.
 int launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda(
@@ -11383,6 +11497,62 @@ int launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
       activations + kHalfTokens * columns, kHalfTokens, rows, columns,
       output + kHalfTokens * rows, cuda_stream);
   return status;
+}
+
+int launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kPrefixTokens = 16U;
+  constexpr std::size_t kTailTokens = 2U;
+  const int validation = validate_nvfp4_m18_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_nvfp4_projection_query(18U, packed_weights, block_scales,
+                                  activations, rows, columns));
+  if (plan.route == registry::ProjectionRoute::kNvFp4M18MaskedM32Wmma) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    (void)cudaGetLastError();
+    switch (plan.shape) {
+      case registry::ProjectionShape::kNvFp4_17408x5120:
+        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked<
+            17'408U, 5'120U, 72U, 18U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      case registry::ProjectionShape::kNvFp4_5120x17408:
+        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked<
+            5'120U, 17'408U, 72U, 18U>(
+            packed_weights, block_scales, weight_scale_2, activations, output,
+            stream);
+        break;
+      default:
+        return invalid_value();
+    }
+    return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route != registry::ProjectionRoute::kSplitM18IntoM16M2) {
+    return invalid_value();
+  }
+
+  int status = launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+  return launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+      packed_weights, block_scales, weight_scale_2,
+      activations + kPrefixTokens * columns, kTailTokens, rows, columns,
+      output + kPrefixTokens * rows, cuda_stream);
 }
 
 int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(

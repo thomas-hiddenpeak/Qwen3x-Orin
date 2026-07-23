@@ -353,16 +353,17 @@ struct WeightBindResult {
 // token-major BF16 [token_count, linear_input_size(weight)] and output is
 // contiguous token-major BF16 [token_count, linear_output_size(weight)].
 // token_count must be in [1, 32]. M=1 delegates to the single-token entry
-// point above. For M=16..31, SM87 FP8 and NVFP4 launch a fixed M16 prefix
-// followed by fused launches of at most eight tokens for the remaining tail.
-// At M=32, the exact aligned FP8 production shapes and the two exact aligned
-// NVFP4 MLP shapes use one fixed-M32 kernel; every other weight-only case uses
-// two ordered M16 launches. M=2..15 uses the same at-most-eight-token fused
-// launches. The reference backend and BF16 weights enqueue the existing
-// FP32-scratch reference path in token order while reusing the same
-// output-sized buffer; only M=1 may select the exact-shape BF16 direct-output
-// route described above. The complete tile is validated before any work is
-// enqueued.
+// point above. At M=18, the two exact aligned NVFP4 MLP shapes use one masked
+// M32 kernel that reads and writes exactly 18 rows. Every other M=16..31 case
+// launches a fixed M16 prefix followed by fused launches of at most eight
+// tokens for the remaining tail. At M=32, the exact aligned FP8 production
+// shapes and the two exact aligned NVFP4 MLP shapes use one fixed-M32 kernel;
+// every other weight-only case uses two ordered M16 launches. M=2..15 uses
+// the same at-most-eight-token fused launches. The reference backend and BF16
+// weights enqueue the existing FP32-scratch reference path in token order
+// while reusing the same output-sized buffer; only M=1 may select the exact-
+// shape BF16 direct-output route described above. The complete tile is
+// validated before any work is enqueued.
 [[nodiscard]] int launch_projection_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::size_t token_count,
@@ -382,8 +383,10 @@ struct WeightBindResult {
 // selects the fused SM87 FP8 K/V kernel only for M=1.
 // supports_fp8_qkv_z_projection_pair(...) selects the fused SM87 FP8 QKV/Z
 // kernel only for M=1 and the exact ordered [10240, 5120] then [6144, 5120]
-// shapes. Every other valid combination, including unaligned exact-shape
-// inputs, preserves the existing tile dispatch and its numerical behavior.
+// shapes. At M=18, a pair of exact aligned NVFP4 MLP projections bypasses
+// pair sub-tiling so each projection can use its single masked-M32 kernel.
+// Every other valid combination, including unaligned exact-shape inputs,
+// preserves the existing tile dispatch and its numerical behavior.
 [[nodiscard]] int launch_projection_pair_tile_to_bf16_cuda(
     ProjectionBackend backend, const LinearWeight& first_weight,
     const LinearWeight& second_weight, const std::uint16_t* input,

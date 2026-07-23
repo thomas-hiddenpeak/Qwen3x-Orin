@@ -779,6 +779,12 @@ int launch_projection_tile_to_bf16_cuda(
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
+      if (token_count == 18U) {
+        return kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, spans.rows, spans.columns,
+            output, cuda_stream);
+      }
       if (token_count == 32U) {
         return kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
             selected->packed_weight, selected->block_scale,
@@ -863,6 +869,24 @@ int launch_projection_pair_tile_to_bf16_cuda(
   const bool eligible_fp8_qkv_z_pair =
       token_count == 1U && supports_fp8_qkv_z_projection_pair(
                                backend, first_weight, second_weight);
+  const auto* const first_nvfp4 =
+      std::get_if<NvFp4LinearWeight>(&first_weight);
+  const auto* const second_nvfp4 =
+      std::get_if<NvFp4LinearWeight>(&second_weight);
+  const auto is_exact_nvfp4_mlp_shape = [](const NvFp4LinearWeight& weight) {
+    return (weight.output_size == 17'408U && weight.input_size == 5'120U) ||
+           (weight.output_size == 5'120U && weight.input_size == 17'408U);
+  };
+  const bool eligible_nvfp4_m18_pair =
+      backend == ProjectionBackend::kSm87WeightOnly && token_count == 18U &&
+      first_nvfp4 != nullptr && second_nvfp4 != nullptr &&
+      is_exact_nvfp4_mlp_shape(*first_nvfp4) &&
+      is_exact_nvfp4_mlp_shape(*second_nvfp4) &&
+      pointer_is_aligned(first_nvfp4->packed_weight, 16U) &&
+      pointer_is_aligned(second_nvfp4->packed_weight, 16U) &&
+      pointer_is_aligned(first_nvfp4->block_scale, 2U) &&
+      pointer_is_aligned(second_nvfp4->block_scale, 2U) &&
+      pointer_is_aligned(input, 8U);
   bool aligned_fp8_pair = false;
   if (eligible_fp8_kv_pair || eligible_fp8_qkv_z_pair) {
     const auto& first = std::get<Fp8LinearWeight>(first_weight);
@@ -895,6 +919,23 @@ int launch_projection_pair_tile_to_bf16_cuda(
       direct_output);
   if (cross_validation != static_cast<int>(cudaSuccess)) {
     return cross_validation;
+  }
+
+  // Preserve full-operation validation above, then keep the established
+  // first-projection-before-second launch order while allowing each exact
+  // M18 NVFP4 projection to reach its single masked-M32 kernel.
+  if (eligible_nvfp4_m18_pair) {
+    int status = kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+        first_nvfp4->packed_weight, first_nvfp4->block_scale,
+        first_nvfp4->weight_scale_2, input, first_spans.rows,
+        first_spans.columns, first_output, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+        second_nvfp4->packed_weight, second_nvfp4->block_scale,
+        second_nvfp4->weight_scale_2, input, second_spans.rows,
+        second_spans.columns, second_output, cuda_stream);
   }
 
   if (token_count > 16U) {

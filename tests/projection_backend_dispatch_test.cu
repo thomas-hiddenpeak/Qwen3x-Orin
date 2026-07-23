@@ -834,14 +834,20 @@ void test_tile_routes(TestContext& test) {
       reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
   const auto* const production_nvfp4_weight =
       reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const production_nvfp4_second_weight =
+      reinterpret_cast<const std::uint8_t*>(0x21'0000'0000ULL);
   const auto* const production_nvfp4_scale =
       reinterpret_cast<const std::uint8_t*>(0x30'0000'0000ULL);
+  const auto* const production_nvfp4_second_scale =
+      reinterpret_cast<const std::uint8_t*>(0x31'0000'0000ULL);
   const auto* const production_companion_scales =
       reinterpret_cast<const float*>(0x40'0000'0000ULL);
   const auto* const production_input =
       reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
   auto* const production_output =
       reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const production_second_output =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
   const runtime::LinearWeight production_fp8 = runtime::Fp8LinearWeight{
       production_fp8_weight, production_companion_scales,
       production_companion_scales + 1U, 1.0F, 1.0F, 5'120U, 6'144U};
@@ -849,6 +855,257 @@ void test_tile_routes(TestContext& test) {
       production_nvfp4_weight, production_nvfp4_scale,
       production_companion_scales, production_companion_scales + 1U,
       1.0F, 1.0F, 17'408U, 5'120U};
+  const runtime::LinearWeight production_nvfp4_second =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_second_weight, production_nvfp4_second_scale,
+          production_companion_scales + 2U,
+          production_companion_scales + 3U, 1.0F, 1.0F, 17'408U, 5'120U};
+  const runtime::LinearWeight production_nvfp4_down =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 5'120U, 17'408U};
+
+  const auto capture_production_nvfp4_tile =
+      [&](const runtime::LinearWeight& weight,
+          const std::uint16_t* const input, const std::size_t token_count,
+          std::uint16_t* const tile_output, const std::string& label,
+          bool* const linear_chain) {
+        std::size_t total_nodes = 0U;
+        return captured_kernel_node_count(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::launch_projection_tile_to_bf16_cuda(
+                  runtime::ProjectionBackend::kSm87WeightOnly, weight, input,
+                  token_count, nullptr, 0U, tile_output,
+                  static_cast<void*>(stream));
+            },
+            label, &total_nodes, linear_chain);
+      };
+  const auto capture_production_nvfp4_pair =
+      [&](const runtime::LinearWeight& first_weight,
+          const runtime::LinearWeight& second_weight,
+          const std::uint16_t* const input, const std::size_t token_count,
+          std::uint16_t* const first_output,
+          std::uint16_t* const second_output, const std::string& label,
+          bool* const linear_chain) {
+        std::size_t total_nodes = 0U;
+        return captured_kernel_node_count(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::launch_projection_pair_tile_to_bf16_cuda(
+                  runtime::ProjectionBackend::kSm87WeightOnly, first_weight,
+                  second_weight, input, token_count, nullptr, 0U,
+                  first_output, second_output, static_cast<void*>(stream));
+            },
+            label, &total_nodes, linear_chain);
+      };
+
+  bool production_nvfp4_m18_gate_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4, production_input, 18U, production_output,
+          "SM87 NVFP4 production gate/up M18 dispatch graph",
+          &production_nvfp4_m18_gate_linear_chain) == 1U,
+      "SM87 NVFP4 production gate/up M18 uses one masked-M32 kernel");
+  test.expect(production_nvfp4_m18_gate_linear_chain,
+              "SM87 NVFP4 production gate/up M18 is a single-node chain");
+
+  bool production_nvfp4_m18_down_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_down, production_input, 18U, production_output,
+          "SM87 NVFP4 production down M18 dispatch graph",
+          &production_nvfp4_m18_down_linear_chain) == 1U,
+      "SM87 NVFP4 production down M18 uses one masked-M32 kernel");
+  test.expect(production_nvfp4_m18_down_linear_chain,
+              "SM87 NVFP4 production down M18 is a single-node chain");
+
+  bool production_nvfp4_m17_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4, production_input, 17U, production_output,
+          "SM87 NVFP4 production M17 dispatch graph",
+          &production_nvfp4_m17_linear_chain) == 2U,
+      "SM87 NVFP4 production M17 remains M16+M1");
+  test.expect(production_nvfp4_m17_linear_chain,
+              "SM87 NVFP4 production M17 fallback remains ordered");
+
+  bool production_nvfp4_m19_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4, production_input, 19U, production_output,
+          "SM87 NVFP4 production M19 dispatch graph",
+          &production_nvfp4_m19_linear_chain) == 2U,
+      "SM87 NVFP4 production M19 remains M16+M3");
+  test.expect(production_nvfp4_m19_linear_chain,
+              "SM87 NVFP4 production M19 fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_m18_weight4 =
+      runtime::NvFp4LinearWeight{
+          reinterpret_cast<const std::uint8_t*>(
+              reinterpret_cast<std::uintptr_t>(production_nvfp4_weight) +
+              4U),
+          production_nvfp4_scale, production_companion_scales,
+          production_companion_scales + 1U, 1.0F, 1.0F, 17'408U, 5'120U};
+  bool production_nvfp4_m18_weight4_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_m18_weight4, production_input, 18U,
+          production_output,
+          "SM87 NVFP4 4-byte-aligned M18 fallback graph",
+          &production_nvfp4_m18_weight4_linear_chain) == 3U,
+      "SM87 NVFP4 4-byte-aligned M18 uses two M8 kernels plus M2");
+  test.expect(production_nvfp4_m18_weight4_linear_chain,
+              "SM87 NVFP4 4-byte-aligned M18 fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_m18_scale1 =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale + 1U,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 17'408U, 5'120U};
+  bool production_nvfp4_m18_scale1_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_m18_scale1, production_input, 18U,
+          production_output, "SM87 NVFP4 byte-aligned scale M18 fallback graph",
+          &production_nvfp4_m18_scale1_linear_chain) == 3U,
+      "SM87 NVFP4 byte-aligned scale M18 uses two M8 kernels plus M2");
+  test.expect(production_nvfp4_m18_scale1_linear_chain,
+              "SM87 NVFP4 byte-aligned scale M18 fallback remains ordered");
+
+  const auto* const production_input2 =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(production_input) + 2U);
+  bool production_nvfp4_m18_input2_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4, production_input2, 18U, production_output,
+          "SM87 NVFP4 2-byte-aligned input M18 fallback graph",
+          &production_nvfp4_m18_input2_linear_chain) == 18U,
+      "SM87 NVFP4 2-byte-aligned input M18 preserves scalar token order");
+  test.expect(production_nvfp4_m18_input2_linear_chain,
+              "SM87 NVFP4 2-byte-aligned input M18 fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_m18_near_miss =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 17'407U, 5'120U};
+  bool production_nvfp4_m18_near_miss_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_m18_near_miss, production_input, 18U,
+          production_output, "SM87 NVFP4 near-miss M18 fallback graph",
+          &production_nvfp4_m18_near_miss_linear_chain) == 3U,
+      "SM87 NVFP4 near-miss M18 uses two M8 kernels plus M2");
+  test.expect(production_nvfp4_m18_near_miss_linear_chain,
+              "SM87 NVFP4 near-miss M18 fallback remains ordered");
+
+  bool production_nvfp4_m18_pair_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4, production_nvfp4_second, production_input, 18U,
+          production_output, production_second_output,
+          "SM87 NVFP4 production gate/up pair M18 dispatch graph",
+          &production_nvfp4_m18_pair_linear_chain) == 2U,
+      "SM87 NVFP4 production gate/up pair M18 uses two masked-M32 kernels");
+  test.expect(production_nvfp4_m18_pair_linear_chain,
+              "SM87 NVFP4 production gate/up pair M18 remains ordered");
+
+  bool production_nvfp4_m17_pair_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4, production_nvfp4_second, production_input, 17U,
+          production_output, production_second_output,
+          "SM87 NVFP4 production gate/up pair M17 dispatch graph",
+          &production_nvfp4_m17_pair_linear_chain) == 4U,
+      "SM87 NVFP4 production gate/up pair M17 remains two M16+M1 paths");
+  test.expect(production_nvfp4_m17_pair_linear_chain,
+              "SM87 NVFP4 production gate/up pair M17 remains ordered");
+
+  bool production_nvfp4_m19_pair_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4, production_nvfp4_second, production_input, 19U,
+          production_output, production_second_output,
+          "SM87 NVFP4 production gate/up pair M19 dispatch graph",
+          &production_nvfp4_m19_pair_linear_chain) == 4U,
+      "SM87 NVFP4 production gate/up pair M19 remains two M16+M3 paths");
+  test.expect(production_nvfp4_m19_pair_linear_chain,
+              "SM87 NVFP4 production gate/up pair M19 remains ordered");
+
+  bool production_nvfp4_m18_pair_weight4_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4_m18_weight4, production_nvfp4_second,
+          production_input, 18U, production_output, production_second_output,
+          "SM87 NVFP4 one-sided 4-byte-aligned pair M18 fallback graph",
+          &production_nvfp4_m18_pair_weight4_linear_chain) == 5U,
+      "SM87 NVFP4 one-sided 4-byte-aligned pair M18 uses three prefix plus "
+      "two tail kernels");
+  test.expect(
+      production_nvfp4_m18_pair_weight4_linear_chain,
+      "SM87 NVFP4 one-sided 4-byte-aligned pair M18 remains ordered");
+
+  bool production_nvfp4_m18_pair_scale1_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4_m18_scale1, production_nvfp4_second,
+          production_input, 18U, production_output, production_second_output,
+          "SM87 NVFP4 one-sided byte-scale pair M18 fallback graph",
+          &production_nvfp4_m18_pair_scale1_linear_chain) == 5U,
+      "SM87 NVFP4 one-sided byte-scale pair M18 uses three prefix plus two "
+      "tail kernels");
+  test.expect(production_nvfp4_m18_pair_scale1_linear_chain,
+              "SM87 NVFP4 one-sided byte-scale pair M18 remains ordered");
+
+  bool production_nvfp4_m18_pair_input2_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_pair(
+          production_nvfp4, production_nvfp4_second, production_input2, 18U,
+          production_output, production_second_output,
+          "SM87 NVFP4 2-byte-aligned input pair M18 fallback graph",
+          &production_nvfp4_m18_pair_input2_linear_chain) == 36U,
+      "SM87 NVFP4 2-byte-aligned input pair M18 preserves 36 scalar "
+      "kernels");
+  test.expect(production_nvfp4_m18_pair_input2_linear_chain,
+              "SM87 NVFP4 2-byte-aligned input pair M18 remains ordered");
+
+  auto* const production_last_m18_input_row =
+      reinterpret_cast<std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(production_input) +
+          17U * 5'120U * sizeof(std::uint16_t));
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, production_nvfp4,
+            production_input, 18U, nullptr, 0U,
+            production_last_m18_input_row, static_cast<void*>(stream));
+      },
+      "SM87 NVFP4 M18 output overlaps final input row");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, production_nvfp4,
+            production_nvfp4_second, production_input, 18U, nullptr, 0U,
+            production_output, production_output,
+            static_cast<void*>(stream));
+      },
+      "SM87 NVFP4 M18 pair aliases outputs");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_pair_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, production_nvfp4,
+            production_nvfp4_second, production_input, 18U, nullptr, 0U,
+            production_output, production_last_m18_input_row,
+            static_cast<void*>(stream));
+      },
+      "SM87 NVFP4 M18 pair second output overlaps final input row");
+
   const auto capture_production_m32 =
       [&](const runtime::LinearWeight& weight,
           const std::string& label, bool* const linear_chain) {
