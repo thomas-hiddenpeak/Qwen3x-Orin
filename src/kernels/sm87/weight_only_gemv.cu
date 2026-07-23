@@ -2,6 +2,7 @@
 
 #include "projection_route_registry.h"
 
+#include <cuda_bf16.h>
 #include <cooperative_groups.h>
 #include <cuda_runtime.h>
 #include <mma.h>
@@ -2298,6 +2299,88 @@ __device__ __forceinline__ void decode_nvfp4x8_to_bf16x8(
   }
 }
 
+__device__ __forceinline__ std::uint32_t multiply_bf16x2_bits(
+    const std::uint32_t value_bits, const std::uint16_t scale_bits) {
+  const __nv_bfloat162_raw value_raw{
+      static_cast<std::uint16_t>(value_bits),
+      static_cast<std::uint16_t>(value_bits >> 16U)};
+  const __nv_bfloat162_raw scale_raw{scale_bits, scale_bits};
+  const __nv_bfloat162 values(value_raw);
+  const __nv_bfloat162 scales(scale_raw);
+  const __nv_bfloat162_raw result_raw =
+      static_cast<__nv_bfloat162_raw>(__hmul2_rn(values, scales));
+  return static_cast<std::uint32_t>(result_raw.x) |
+         (static_cast<std::uint32_t>(result_raw.y) << 16U);
+}
+
+__device__ __forceinline__ void decode_nvfp4x8_to_bf16x8_factorized(
+    const std::uint32_t packed,
+    const std::uint32_t* const decoded_e2m1_byte_pairs,
+    const std::uint16_t decoded_scale, std::uint32_t* const output) {
+#pragma unroll
+  for (unsigned int byte_index = 0U; byte_index < sizeof(packed);
+       ++byte_index) {
+    const std::uint8_t encoded = static_cast<std::uint8_t>(
+        (packed >> (byte_index * 8U)) & 0xffU);
+    output[byte_index] = multiply_bf16x2_bits(
+        decoded_e2m1_byte_pairs[encoded], decoded_scale);
+  }
+}
+
+template <bool kFactorized>
+struct NvFp4M32ProductLookupStorage;
+
+template <>
+struct alignas(32) NvFp4M32ProductLookupStorage<false> {
+  std::uint32_t product_words[kFp8EncodedValueCount *
+                              kNvFp4EncodedValueCount / 2U];
+};
+
+template <>
+struct alignas(32) NvFp4M32ProductLookupStorage<true> {
+  std::uint32_t e2m1_byte_pairs[kFp8EncodedValueCount];
+  std::uint16_t scale_values[kFp8EncodedValueCount];
+};
+
+static_assert(sizeof(NvFp4M32ProductLookupStorage<false>) == 8'192U);
+static_assert(sizeof(NvFp4M32ProductLookupStorage<true>) == 1'536U);
+
+// Test-only exhaustive semantic gate for the factorized M32 lookup. Every
+// thread compares one E4M3FN scale code and one packed pair of E2M1 values.
+__global__ void nvfp4_factorized_product_lookup_exhaustive_kernel(
+    std::uint32_t* const factorized, std::uint32_t* const reference) {
+  constexpr unsigned int kPackedByteCount = 256U;
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * kPackedByteCount;
+  const unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= kCombinationCount) {
+    return;
+  }
+  const std::uint8_t scale_code =
+      static_cast<std::uint8_t>(index / kPackedByteCount);
+  const std::uint8_t packed =
+      static_cast<std::uint8_t>(index % kPackedByteCount);
+  const std::uint8_t low_code = packed & 0x0fU;
+  const std::uint8_t high_code = packed >> 4U;
+  const std::uint16_t decoded_low = encode_bf16_rne(decode_e2m1(low_code));
+  const std::uint16_t decoded_high =
+      encode_bf16_rne(decode_e2m1(high_code));
+  const std::uint16_t decoded_scale =
+      encode_bf16_rne(decode_e4m3fn(scale_code));
+  const std::uint32_t value_pair =
+      static_cast<std::uint32_t>(decoded_low) |
+      (static_cast<std::uint32_t>(decoded_high) << 16U);
+  factorized[index] = multiply_bf16x2_bits(value_pair, decoded_scale);
+
+  const float scale = decode_e4m3fn(scale_code);
+  const std::uint16_t reference_low =
+      encode_bf16_rne(decode_e2m1(low_code) * scale);
+  const std::uint16_t reference_high =
+      encode_bf16_rne(decode_e2m1(high_code) * scale);
+  reference[index] = static_cast<std::uint32_t>(reference_low) |
+                     (static_cast<std::uint32_t>(reference_high) << 16U);
+}
+
 // Preserved K64 C16 baseline for the two checkpoint-bound NVFP4 MLP
 // projections. Production uses the K128 exact-shape specialization below;
 // this implementation remains test-addressable for bitwise and performance
@@ -2703,14 +2786,18 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_kernel(
   }
 }
 
-// Selected K256 scale-window production variant of the fixed-M32 K64 kernel.
+// K256 scale-window family of the fixed-M32 K64 kernel. Production also
+// factorizes the signed-product lookup into packed E2M1 pairs and E4M3 scales;
+// the full product-table specialization remains test-addressable as the
+// previous-production baseline.
 // Eight adjacent U16 scale words for each output row are cooperatively loaded
 // into the otherwise-unused [64,72) padding of the K64 shared B tile. Four
 // consecutive K64 stages then reuse that window, turning the strided per-row
 // global scale loads into 16-byte row segments without changing decoded B or
 // the WMMA accumulation order.
 template <std::size_t kRows, std::size_t kColumns,
-          unsigned int kSharedLeadingDimension = 72U>
+          unsigned int kSharedLeadingDimension = 72U,
+          bool kFactorizedProductLookup = false>
 __global__ __launch_bounds__(kThreads, 5) void
 nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
@@ -2776,8 +2863,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     std::uint32_t weights[kSharedWeightWordCount];
     float output[kSharedOutputCount];
   };
-  __shared__ __align__(32)
-      std::uint32_t decoded_product_words[kProductWordCount];
+  __shared__ NvFp4M32ProductLookupStorage<kFactorizedProductLookup>
+      product_lookup;
   __shared__ __align__(32) std::uint64_t
       shared_activations[kTokenCount * kSharedActivationWordsPerToken];
   __shared__ BOrCStorage b_or_c;
@@ -2786,28 +2873,40 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   const unsigned int thread = threadIdx.x;
   const unsigned int warp = thread / kWarpSize;
 
-  const unsigned int product_pair = thread & 7U;
-  const float decoded_low =
-      decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U));
-  const float decoded_high =
-      decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U + 1U));
-#pragma unroll 1
-  for (unsigned int pass = 0U; pass < kProductInitializationPasses; ++pass) {
-    const unsigned int scale_code = (thread >> 3U) + pass * 32U;
-    const float decoded_scale =
-        decode_e4m3fn(static_cast<std::uint8_t>(scale_code));
+  if constexpr (kFactorizedProductLookup) {
+    const std::uint8_t encoded = static_cast<std::uint8_t>(thread);
     const std::uint16_t low =
-        encode_bf16_rne(decoded_low * decoded_scale);
+        encode_bf16_rne(decode_e2m1(encoded & 0x0fU));
     const std::uint16_t high =
-        encode_bf16_rne(decoded_high * decoded_scale);
-    decoded_product_words[thread + pass * kThreads] =
+        encode_bf16_rne(decode_e2m1(encoded >> 4U));
+    product_lookup.e2m1_byte_pairs[thread] =
         static_cast<std::uint32_t>(low) |
         (static_cast<std::uint32_t>(high) << 16U);
+    product_lookup.scale_values[thread] =
+        encode_bf16_rne(decode_e4m3fn(encoded));
+  } else {
+    const unsigned int product_pair = thread & 7U;
+    const float decoded_low =
+        decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U));
+    const float decoded_high =
+        decode_e2m1(static_cast<std::uint8_t>(product_pair * 2U + 1U));
+#pragma unroll 1
+    for (unsigned int pass = 0U; pass < kProductInitializationPasses;
+         ++pass) {
+      const unsigned int scale_code = (thread >> 3U) + pass * 32U;
+      const float decoded_scale =
+          decode_e4m3fn(static_cast<std::uint8_t>(scale_code));
+      const std::uint16_t low =
+          encode_bf16_rne(decoded_low * decoded_scale);
+      const std::uint16_t high =
+          encode_bf16_rne(decoded_high * decoded_scale);
+      product_lookup.product_words[thread + pass * kThreads] =
+          static_cast<std::uint32_t>(low) |
+          (static_cast<std::uint32_t>(high) << 16U);
+    }
   }
   __syncthreads();
 
-  const auto* const decoded_products =
-      reinterpret_cast<const std::uint16_t*>(decoded_product_words);
   wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
   wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
   wmma::fill_fragment(accumulator0, 0.0F);
@@ -2882,21 +2981,43 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
           static_cast<std::uint8_t>(encoded_scales & 0xffU);
       const std::uint8_t scale1 =
           static_cast<std::uint8_t>(encoded_scales >> 8U);
-      const std::uint16_t* const products0 =
-          decoded_products +
-          static_cast<unsigned int>(scale0) * kNvFp4EncodedValueCount;
-      const std::uint16_t* const products1 =
-          decoded_products +
-          static_cast<unsigned int>(scale1) * kNvFp4EncodedValueCount;
       std::uint32_t* const decoded =
           b_or_c.weights +
           local_output_column * kSharedWeightWordsPerRow +
           vector_in_row *
               (kValuesPerWeightVector / kBf16ValuesPerWeightWord);
-      decode_nvfp4x8_to_bf16x8(packed.x, products0, decoded);
-      decode_nvfp4x8_to_bf16x8(packed.y, products0, decoded + 4U);
-      decode_nvfp4x8_to_bf16x8(packed.z, products1, decoded + 8U);
-      decode_nvfp4x8_to_bf16x8(packed.w, products1, decoded + 12U);
+      if constexpr (kFactorizedProductLookup) {
+        const std::uint16_t decoded_scale0 =
+            product_lookup.scale_values[scale0];
+        const std::uint16_t decoded_scale1 =
+            product_lookup.scale_values[scale1];
+        decode_nvfp4x8_to_bf16x8_factorized(
+            packed.x, product_lookup.e2m1_byte_pairs, decoded_scale0,
+            decoded);
+        decode_nvfp4x8_to_bf16x8_factorized(
+            packed.y, product_lookup.e2m1_byte_pairs, decoded_scale0,
+            decoded + 4U);
+        decode_nvfp4x8_to_bf16x8_factorized(
+            packed.z, product_lookup.e2m1_byte_pairs, decoded_scale1,
+            decoded + 8U);
+        decode_nvfp4x8_to_bf16x8_factorized(
+            packed.w, product_lookup.e2m1_byte_pairs, decoded_scale1,
+            decoded + 12U);
+      } else {
+        const auto* const decoded_products =
+            reinterpret_cast<const std::uint16_t*>(
+                product_lookup.product_words);
+        const std::uint16_t* const products0 =
+            decoded_products +
+            static_cast<unsigned int>(scale0) * kNvFp4EncodedValueCount;
+        const std::uint16_t* const products1 =
+            decoded_products +
+            static_cast<unsigned int>(scale1) * kNvFp4EncodedValueCount;
+        decode_nvfp4x8_to_bf16x8(packed.x, products0, decoded);
+        decode_nvfp4x8_to_bf16x8(packed.y, products0, decoded + 4U);
+        decode_nvfp4x8_to_bf16x8(packed.z, products1, decoded + 8U);
+        decode_nvfp4x8_to_bf16x8(packed.w, products1, decoded + 12U);
+      }
       __syncthreads();
 
       const auto* const shared_a =
@@ -7578,6 +7699,24 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_scale_window_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
+// Production specialization that factorizes the 8 KiB signed-product table
+// into a 1 KiB packed-E2M1 byte table plus a 512-byte E4M3 scale table.
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 72U>
+void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+      kRows, kColumns, kSharedLeadingDimension, true>
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+}
+
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 136U>
 void launch_nvfp4_small_m16_wmma_k128_unchecked(
@@ -7611,6 +7750,21 @@ void launch_nvfp4_small_m32_wmma_k128_single_a_unchecked(
 }
 
 }  // namespace
+
+int launch_sm87_nvfp4_factorized_product_lookup_exhaustive_test_cuda(
+    std::uint32_t* const factorized, std::uint32_t* const reference,
+    void* const cuda_stream) noexcept {
+  if (factorized == nullptr || reference == nullptr ||
+      factorized == reference) {
+    return invalid_value();
+  }
+  constexpr unsigned int kBlocks = 256U;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_factorized_product_lookup_exhaustive_kernel
+      <<<kBlocks, kThreads, 0U, stream>>>(factorized, reference);
+  return static_cast<int>(cudaGetLastError());
+}
 
 int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
     const std::uint8_t* const weights, const float weight_scale,
@@ -10398,8 +10552,8 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only direct entry for the selected K256 scale-window production
-// specialization. This keeps the public ABI free of experiment controls.
+// Test-only direct entry for the preserved pre-factorization K256 scale-window
+// baseline. This keeps the public ABI free of experiment controls.
 int launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_scale_window_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -10481,6 +10635,99 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_scale_window_resources_test
           &active_blocks,
           nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
               5'120U, 17'408U>,
+          static_cast<int>(kThreads), 0U);
+    }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_lookup_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_m32_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns)) {
+    return invalid_value();
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (rows == 17'408U) {
+    launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked<
+        17'408U, 5'120U>(packed_weights, block_scales, weight_scale_2,
+                         activations, output, stream);
+  } else {
+    launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked<
+        5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
+                         activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_lookup_resources_test_cuda(
+    const std::size_t rows, const std::size_t columns,
+    int* const registers_per_thread, std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes, int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns) ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (rows == 17'408U) {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            17'408U, 5'120U, 72U, true>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              17'408U, 5'120U, 72U, true>,
+          static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              5'120U, 17'408U, 72U, true>,
           static_cast<int>(kThreads), 0U);
     }
   }
@@ -11005,12 +11252,12 @@ int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
     (void)cudaGetLastError();
     switch (plan.shape) {
       case registry::ProjectionShape::kNvFp4_17408x5120:
-        launch_nvfp4_small_m32_wmma_k64_dual_a_scale_window_unchecked<
+        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked<
             17'408U, 5'120U>(packed_weights, block_scales, weight_scale_2,
                              activations, output, stream);
         break;
       case registry::ProjectionShape::kNvFp4_5120x17408:
-        launch_nvfp4_small_m32_wmma_k64_dual_a_scale_window_unchecked<
+        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked<
             5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
                              activations, output, stream);
         break;
