@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-dual-resident-a-benchmark",
+  "status": "promoted-production-prefill-fp8-m32-dual-resident-a",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "9eca6c7a7d595f8e86d905343be7430bd295e7de",
+    "candidate_commit": null,
+    "tree_state_at_measurement": "uncommitted production-promotion worktree based on base_head",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment; symmetric ratios are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda",
+    "production_kernel": "fp8_w8a16_small_m32_gemm_bf16_wmma_dual_resident_a_kernel",
+    "preserved_predecessor_kernel": "fp8_w8a16_small_m32_gemm_bf16_wmma_fixed_shape_kernel",
+    "token_count": 32,
+    "output_columns_per_cta": 128,
+    "threads_per_cta": 256,
+    "k_columns_per_stage": 64,
+    "shared_leading_dimension": 72,
+    "direct_shapes_n_by_k": [
+      [10240, 5120],
+      [5120, 6144],
+      [6144, 5120],
+      [12288, 5120]
+    ],
+    "p33_logical_call_weights": [48, 64, 48, 16],
+    "predecessor_schedule": "decode B once, consume A[0:16], overwrite the single A panel, then consume A[16:32]",
+    "production_schedule": "load both A[0:16] and A[16:32] panels before the stage-ready barrier; load each B WMMA fragment once and reuse it across two independent accumulator chains",
+    "arithmetic_contract": "each accumulator retains the predecessor K-stage and MMA dependency order; FP8 decode, FP32 accumulation, scaling, and BF16-RNE output are unchanged",
+    "shared_layout_bytes": {
+      "e4m3fn_codebook": 512,
+      "resident_a_32x72_bf16": 4608,
+      "b_or_c_union": 18432,
+      "total": 23552
+    },
+    "barriers": {
+      "predecessor_static_instructions": 8,
+      "production_static_instructions": 4,
+      "predecessor_dynamic_k5120": 324,
+      "production_dynamic_k5120": 162,
+      "predecessor_dynamic_k6144": 388,
+      "production_dynamic_k6144": 194
+    },
+    "public_validation_registry_header_and_fallback_contracts_unchanged": true,
+    "scope_boundary": "this is shared-memory residency and fragment reuse inside one projection kernel; it adds no runtime double/triple buffer, stream, cross-kernel overlap, Prefill/Decode overlap, or continuous batching"
+  },
+  "correctness_resource_graph_and_invalid_gates": {
+    "status": "pass",
+    "four_production_shapes": true,
+    "bitwise_public_vs_predecessor_mismatches": 0,
+    "direct_dual_a_replay_mismatches": 0,
+    "token_15_16_boundary_mismatches": 0,
+    "different_output_poison_patterns": true,
+    "head_and_tail_canaries": "intact",
+    "weights_and_activations_preserved": true,
+    "exhaustive_e4m3fn": {
+      "raw_codes": 256,
+      "packed_byte_positions": 4,
+      "code_position_combinations": 1024,
+      "nan_codes": [127, 255],
+      "classified_nan_outputs": 256,
+      "unexpected_nonfinite_outputs": 0,
+      "class_sign_and_bitwise_replay": true
+    },
+    "graph_identity_after_promotion": {
+      "public_and_direct_dual_a_same_function": true,
+      "fixed_predecessor_distinct": true,
+      "kernel_nodes_each": 1,
+      "grid_x_by_shape": [80, 40, 48, 96],
+      "block_x": 256,
+      "dynamic_shared_bytes": 0
+    },
+    "invalid_capture": {
+      "near_miss_shape": "cudaErrorInvalidValue",
+      "output_activation_alias": "cudaErrorInvalidValue",
+      "misaligned_weight": "cudaErrorInvalidValue",
+      "misaligned_activation": "cudaErrorInvalidValue",
+      "captured_kernel_nodes": 0
+    },
+    "resource_query_rejects_null_and_near_miss_before_output_writes": true,
+    "postpromotion_default_log": {
+      "local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/postpromotion-default.log",
+      "bytes": 52629,
+      "sha256": "5e2c2db10ebaa7599d5d58eba8c7c68f97982428e21c626ac39875aebff6c510",
+      "checked_in": false
+    }
+  },
+  "sass_and_resources": {
+    "shape_invariant_resources": {
+      "fixed_predecessor": {"registers_per_thread": 46, "static_shared_bytes": 21248, "local_bytes": 0, "maximum_threads_per_block": 256, "active_blocks_per_sm": 5},
+      "production_dual_resident_a": {"registers_per_thread": 47, "static_shared_bytes": 23552, "local_bytes": 0, "maximum_threads_per_block": 256, "active_blocks_per_sm": 5}
+    },
+    "shape_invariant_static_instruction_counts": {
+      "fixed_predecessor": {"instructions": 656, "BAR": 8, "HMMA": 4, "LDS": 48, "STS": 15, "LD_E": 16},
+      "production_dual_resident_a": {"instructions": 632, "BAR": 4, "HMMA": 4, "LDS": 48, "STS": 15, "LD_E": 12}
+    },
+    "canonicalization": {
+      "address_first_encoding": "one lowercase address and the first 64-bit encoding word per cuobjdump instruction line",
+      "all_encoding_words": "both ordered lowercase 64-bit encoding words per instruction"
+    },
+    "per_shape": [
+      {"shape_n_by_k": [10240, 5120], "predecessor_address_first_sha256": "f22cf8dfd6f48851fb77b348410af62aa45abb4b47ea498a5512c02f07f80698", "predecessor_all_words_sha256": "aed7c43497f00a4b3f8293824bac8d7bcbed7c67ee42591ad7fb9942851f9ceb", "production_address_first_sha256": "b02051a565effda530ab22578536fcd33da4f1fcc166208791d0469066b8ee71", "production_all_words_sha256": "f5095946441cf056a4d65fcc72cd74c413066ce79304ac750175cc9cd5fe4e93"},
+      {"shape_n_by_k": [5120, 6144], "predecessor_address_first_sha256": "65322a35f14bb40bc34b7606136f298fee74dc379feb6ddb9945ef371d46f7b1", "predecessor_all_words_sha256": "3f167fd8363585a88764b3f821bb7b08fb894a0a3e6c48af399cd770a3efa276", "production_address_first_sha256": "b445d554a841befdc3fd274313a459f77fb5dc84023ecc6599f2e4d1e1545159", "production_all_words_sha256": "5385ca918551ad7665579f1d0b7fa04eb77373efaee1d237c05bff0a444b3c53"},
+      {"shape_n_by_k": [6144, 5120], "predecessor_address_first_sha256": "4d50c9b09753d44ef467cfaba0875bacfb7f8a7e19d752c58ca89c54d587b9fd", "predecessor_all_words_sha256": "673237dc3196e01d90e181a76740a239368e8edd25ce982613bcb1a95fa33643", "production_address_first_sha256": "49949cdb0224ee9dcca25d558e886c833c0583579969116634298a5f1364781a", "production_all_words_sha256": "94e2bb6f950097127bc18b41c231f1be94e4fe3b7793f5e4b144c92f99db457c"},
+      {"shape_n_by_k": [12288, 5120], "predecessor_address_first_sha256": "2cce6a9f973e8621cc50f122b5c513c34d18728d1f52b7c6eac795d621031b75", "predecessor_all_words_sha256": "3a1ab359fbf20f27ea12e18c1aaf2c427a0fceaa5dfe3e7bf4db3765f1426eb3", "production_address_first_sha256": "ac3875f2c268df565c5518f1dc50873fc4117a57b8c7ea96bad6b51f07fb935b", "production_all_words_sha256": "b7c81dc80634f9b316eef2d1909f91ee63877310f1def9e09224e3d552346986"}
+    ],
+    "frozen_base_predecessor_hashes_equal": true,
+    "resource_gate": "pass"
+  },
+  "same_binary_microbenchmark": {
+    "status": "pass",
+    "screen_binary": {
+      "local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/q3x_sm87_weight_only_gemv_test.screen",
+      "bytes": 4808624,
+      "sha256": "ce28bec7f9f1b39847c7bb4ef9a2945bebb5484ac9bd42b7cf82781e77330a29",
+      "gnu_build_id": "f3e5629c3e77d56bf3df208d8ecce4c277eff617",
+      "checked_in": false
+    },
+    "environment_variable": "Q3X_RUN_SM87_FP8_M32_DUAL_RESIDENT_A_PERF=1",
+    "warmup_iterations_per_route": 10,
+    "logical_launches_per_timed_pass": 80,
+    "measurement_rounds_per_process": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "statistic_per_process": "median of ten predecessor pass means divided by the median of ten dual-resident-A pass means",
+    "independent_process_repeats": 5,
+    "frozen_policy": {"minimum_per_shape_speedup": 1.0, "minimum_p33_weighted_speedup": 1.03},
+    "repeats": [
+      {"run": 1, "shapes": [{"shape_n_by_k": [10240, 5120], "predecessor_ms": 0.729647, "dual_a_ms": 0.644801, "speedup": 1.13158}, {"shape_n_by_k": [5120, 6144], "predecessor_ms": 0.571216, "dual_a_ms": 0.486119, "speedup": 1.17505}, {"shape_n_by_k": [6144, 5120], "predecessor_ms": 0.465915, "dual_a_ms": 0.408733, "speedup": 1.13990}, {"shape_n_by_k": [12288, 5120], "predecessor_ms": 0.868817, "dual_a_ms": 0.766385, "speedup": 1.13366}], "weighted_predecessor_ms": 107.846, "weighted_dual_a_ms": 93.9434, "weighted_speedup": 1.14799, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/perf-final-p1.log", "bytes": 59695, "sha256": "b0f8f5ef7fe4ae5c80e6369fb4bdff83328c3ee258a4418b18a9b3877dc6c9a3"}},
+      {"run": 2, "shapes": [{"shape_n_by_k": [10240, 5120], "predecessor_ms": 0.730343, "dual_a_ms": 0.645339, "speedup": 1.13172}, {"shape_n_by_k": [5120, 6144], "predecessor_ms": 0.567940, "dual_a_ms": 0.486028, "speedup": 1.16853}, {"shape_n_by_k": [6144, 5120], "predecessor_ms": 0.465254, "dual_a_ms": 0.408461, "speedup": 1.13904}, {"shape_n_by_k": [12288, 5120], "predecessor_ms": 0.868135, "dual_a_ms": 0.765803, "speedup": 1.13363}], "weighted_predecessor_ms": 107.627, "weighted_dual_a_ms": 93.9411, "weighted_speedup": 1.14569, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/perf-final-p2.log", "bytes": 59703, "sha256": "b4bbd4c250e4eb1a53db4bd68cc08da791b23c800505d9d85d1d9b001629d9f5"}},
+      {"run": 3, "shapes": [{"shape_n_by_k": [10240, 5120], "predecessor_ms": 0.729948, "dual_a_ms": 0.645009, "speedup": 1.13169}, {"shape_n_by_k": [5120, 6144], "predecessor_ms": 0.567734, "dual_a_ms": 0.486710, "speedup": 1.16647}, {"shape_n_by_k": [6144, 5120], "predecessor_ms": 0.465125, "dual_a_ms": 0.408336, "speedup": 1.13907}, {"shape_n_by_k": [12288, 5120], "predecessor_ms": 0.868263, "dual_a_ms": 0.764484, "speedup": 1.13575}], "weighted_predecessor_ms": 107.591, "weighted_dual_a_ms": 93.9418, "weighted_speedup": 1.14529, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/perf-final-p3.log", "bytes": 59701, "sha256": "8cf9887f5262f3121ce1604b053dba759d107018f3b5b23d0b7848bb90e9a2d1"}},
+      {"run": 4, "shapes": [{"shape_n_by_k": [10240, 5120], "predecessor_ms": 0.729188, "dual_a_ms": 0.644278, "speedup": 1.13179}, {"shape_n_by_k": [5120, 6144], "predecessor_ms": 0.561740, "dual_a_ms": 0.483440, "speedup": 1.16197}, {"shape_n_by_k": [6144, 5120], "predecessor_ms": 0.463731, "dual_a_ms": 0.406684, "speedup": 1.14027}, {"shape_n_by_k": [12288, 5120], "predecessor_ms": 0.869360, "dual_a_ms": 0.764791, "speedup": 1.13673}], "weighted_predecessor_ms": 107.121, "weighted_dual_a_ms": 93.6230, "weighted_speedup": 1.14418, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/perf-final-p4.log", "bytes": 59695, "sha256": "e76527e7322dec37a956832b365ce85997528cf71e995885fd88460292f440a0"}},
+      {"run": 5, "shapes": [{"shape_n_by_k": [10240, 5120], "predecessor_ms": 0.728786, "dual_a_ms": 0.643311, "speedup": 1.13287}, {"shape_n_by_k": [5120, 6144], "predecessor_ms": 0.565593, "dual_a_ms": 0.483644, "speedup": 1.16944}, {"shape_n_by_k": [6144, 5120], "predecessor_ms": 0.463971, "dual_a_ms": 0.406715, "speedup": 1.14078}, {"shape_n_by_k": [12288, 5120], "predecessor_ms": 0.867972, "dual_a_ms": 0.764966, "speedup": 1.13465}], "weighted_predecessor_ms": 107.338, "weighted_dual_a_ms": 93.5939, "weighted_speedup": 1.14685, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-final-9eca6c7/perf-final-p5.log", "bytes": 59704, "sha256": "05ccb4c3067d577b93e569ab816b79f4cbce019143f77e31259d2d5cb6eb8abb"}}
+    ],
+    "summary": {
+      "weighted_speedup_min_median_mean_max": [1.14418, 1.14569, 1.14600, 1.14799],
+      "per_shape_speedup_medians": [1.13172, 1.16853, 1.13990, 1.13465],
+      "all_twenty_shape_process_cells_passed": true,
+      "all_five_weighted_processes_passed": true,
+      "selection_gate": "pass"
+    }
+  },
+  "symmetric_engine_isolation": {
+    "status": "pass",
+    "baseline_public": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/qwen3x-orin.symmetric-baseline-public", "bytes": 3923160, "sha256": "f99731efe75a03569ad499f86de21fee622bb80baa520dd24002a6c7d04a3271", "gnu_build_id": "751c5704c44ee98ab0bf11637c696b71c38dad71", "dispatch": "fixed single-resident-A predecessor", "checked_in": false},
+    "dual_a_public": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/qwen3x-orin.symmetric-dual-a-public", "bytes": 3923176, "sha256": "a5f9f02ae8751cf2dd3a036a18d151146b64182f785e8e3c415e1f8d97ccddea", "gnu_build_id": "f01942551b330c397e2a4cd2f7e7de033f6a03ec", "dispatch": "dual-resident-A production", "checked_in": false},
+    "cuda_functions_each": 149,
+    "full_mangled_function_name_sets_equal": true,
+    "all_per_function_encoding_hashes_and_word_counts_equal": true,
+    "encoding_mismatches": 0,
+    "target_kernels_present_in_both": 8,
+    "only_role_difference": "the host public M32 exact-shape cases select the predecessor or dual-resident-A unchecked launcher"
+  },
+  "phase_attribution_before_promotion": {
+    "p33": {"m32_raw_kernel_ms": 86.826912, "prefix_raw_kernel_ms": 362.597248, "percent_of_prefix_raw": 23.9458, "application_host_ms": 467.828352},
+    "p513_post_attention_profile": {"m32_raw_kernel_ms": 1385.601216, "prefix_raw_kernel_ms": 6033.203296, "percent_of_prefix_raw": 22.9663, "application_wall_ms": 5796.407, "raw_over_wall_upper_bound_percent": 23.9045},
+    "claim_boundary": "P33 is a frozen same-capture phase trace; P513 uses the newer SHA-matched post-attention CSV but has no candidate union/span breakdown. These values justified priority and bounded an expected gain; they are not post-promotion critical-path attribution."
+  },
+  "end_to_end_bccb": {
+    "status": "exact_contract_passed_and_all_stage_regressions_below_limit",
+    "comparison": "symmetric predecessor-public versus dual-A-public runners in four independent processes ordered B-C-C-B",
+    "run_order": ["baseline_1", "candidate_1", "candidate_2", "baseline_2"],
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "max_new_tokens": 1,
+    "requested_and_effective_prefill_chunk_size": 32,
+    "projection_backend": "sm87_weight_only",
+    "request_max_sequence_length": 544,
+    "maximum_allowed_regression_percent_per_stage": 0.5,
+    "workloads": [
+      {
+        "name": "P33-C32-max1",
+        "correctness_contract": {"generated_id": 9419, "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 33, "prefix_execution_entries_per_sample": 1, "semantic_sha256": "c1e0b28a9d92ab6e6aba8d2506e8af4a61d017753a5587abdab7cfcbcf470d1f", "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 335.551, "finish_prefill": 110.519, "prompt_prefill": 446.040, "time_to_first_token": 446.040, "total_generation": 446.040, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p33-b1.log", "bytes": 6559, "sha256": "bcda86ea303db1470c7b73313fad6327cf4bf3f80bf062545ed0bbeb4e79cad3"}},
+          {"run": "candidate_1", "prompt_prefix": 322.350, "finish_prefill": 110.854, "prompt_prefill": 433.207, "time_to_first_token": 433.207, "total_generation": 433.207, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p33-c1.log", "bytes": 6555, "sha256": "ff016074d8d5b2ef04ebea0aea4e2fcfc351554769fbf3af27ae1db9c65e9398"}},
+          {"run": "candidate_2", "prompt_prefix": 322.460, "finish_prefill": 110.710, "prompt_prefill": 433.248, "time_to_first_token": 433.248, "total_generation": 433.248, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p33-c2.log", "bytes": 6555, "sha256": "e3081b551a2c190d43f472c73e7878c4242c01a359f68ce7800b1bd416eb6a8a"}},
+          {"run": "baseline_2", "prompt_prefix": 335.884, "finish_prefill": 110.753, "prompt_prefill": 446.671, "time_to_first_token": 446.671, "total_generation": 446.671, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p33-b2.log", "bytes": 6561, "sha256": "0f8e080e37da514d148427c9c498cf2a2edf8881ab4d0a0c3a05a30b0e3ab983"}}
+        ],
+        "average_of_process_medians_ms": {"baseline": {"prompt_prefix": 335.7175, "finish_prefill": 110.6360, "prompt_prefill": 446.3555, "time_to_first_token": 446.3555, "total_generation": 446.3555}, "candidate": {"prompt_prefix": 322.4050, "finish_prefill": 110.7820, "prompt_prefill": 433.2275, "time_to_first_token": 433.2275, "total_generation": 433.2275}},
+        "speedup": {"prompt_prefix": 1.041291, "finish_prefill": 0.998682, "prompt_prefill": 1.030303, "time_to_first_token": 1.030303, "total_generation": 1.030303},
+        "worst_average_stage_regression_percent": 0.131964,
+        "worst_pairwise_stage_regression_percent": 0.303115
+      },
+      {
+        "name": "P513-C32-max1",
+        "correctness_contract": {"generated_id": 9419, "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 513, "prefix_execution_entries_per_sample": 16, "semantic_sha256": "fd2cea189db4472fd55e024e5be2903a3a478b17670a69a62683218c2f3c2706", "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 5629.780, "finish_prefill": 113.248, "prompt_prefill": 5743.028, "time_to_first_token": 5743.028, "total_generation": 5743.028, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p513-b1.log", "bytes": 18656, "sha256": "fb8e515bfb97085b2f666d807c37a9b239cfc201a5205732af2f2f4e95fc4cfd"}},
+          {"run": "candidate_1", "prompt_prefix": 5411.892, "finish_prefill": 113.254, "prompt_prefill": 5525.145, "time_to_first_token": 5525.145, "total_generation": 5525.145, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p513-c1.log", "bytes": 18656, "sha256": "39df3b29913432d7216676db22cbe01599a2eb25a2da5a853cf30074403db85b"}},
+          {"run": "candidate_2", "prompt_prefix": 5410.744, "finish_prefill": 113.284, "prompt_prefill": 5523.986, "time_to_first_token": 5523.986, "total_generation": 5523.986, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p513-c2.log", "bytes": 18662, "sha256": "8aaab52e3e3768faf6d9834d3753ee37824e65c8bf13fb9b7cff554a95fc6289"}},
+          {"run": "baseline_2", "prompt_prefix": 5625.053, "finish_prefill": 113.139, "prompt_prefill": 5738.168, "time_to_first_token": 5738.168, "total_generation": 5738.168, "log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/e2e-p513-b2.log", "bytes": 18656, "sha256": "b1eb3cf924679910359e4126bc867e6d126615723d36ce5df94f98a3001bda13"}}
+        ],
+        "average_of_process_medians_ms": {"baseline": {"prompt_prefix": 5627.4165, "finish_prefill": 113.1935, "prompt_prefill": 5740.5980, "time_to_first_token": 5740.5980, "total_generation": 5740.5980}, "candidate": {"prompt_prefix": 5411.3180, "finish_prefill": 113.2690, "prompt_prefill": 5524.5655, "time_to_first_token": 5524.5655, "total_generation": 5524.5655}},
+        "speedup": {"prompt_prefix": 1.039935, "finish_prefill": 0.999333, "prompt_prefill": 1.039104, "time_to_first_token": 1.039104, "total_generation": 1.039104},
+        "worst_average_stage_regression_percent": 0.066700,
+        "worst_pairwise_stage_regression_percent": 0.128161
+      }
+    ],
+    "memory_contract": {"all_eight_status_ok": true, "all_eight_persistent_drop_detected": 0, "gate": "pass"},
+    "all_pairwise_and_average_stage_gates": "pass"
+  },
+  "production_validation_suites": {
+    "postpromotion_device_test": {"binary": {"local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test", "bytes": 4808712, "sha256": "a82451db43a48db053ee7eefaa42d2c3e8f3c80bb31908cd1de1ff224c89f87b", "gnu_build_id": "3579063d1174084901dc83056bfa434a40904ec6", "checked_in": false}, "default_status": "pass", "optional_weighted_speedup": 1.14400, "optional_status": "pass", "optional_log": {"local_path": "/tmp/q3x-phase-fp8-m32-dual-a-production-9eca6c7/postpromotion-perf.log", "bytes": 60371, "sha256": "bfa0ce884b9711c166f2c3f3542b23ca0160643af84622de23a641a3412b5734"}},
+    "release_build": {"command": "cmake --build --preset orin-release -j2", "all_targets_built": true, "status": "pass"},
+    "ctest": {"command": "ctest --test-dir build/orin-release --output-on-failure -j2", "discovered": 56, "passed": 51, "skipped": 5, "failed": 0, "status": "pass"}
+  },
+  "decision": {
+    "selected": "FP8 fixed-M32 dual-resident-A WMMA",
+    "production_promotion": "keep",
+    "reason": "all resource, exhaustive-code, NaN, bitwise, replay, canary, input, invalid-Graph, function-identity, five-process micro, symmetric-engine, P33/P513 exact-model, memory, build, and test gates pass; the five-process weighted micro range is 1.14418x-1.14799x and symmetric end-to-end TTFT latency falls 2.94% at P33 and 3.76% at P513",
+    "release_latency_claim": false
+  },
+  "limitations": [
+    "GPU and memory clocks were not locked",
+    "the microbenchmark is synthetic checkpoint-like data rather than raw checkpoint payload, but exact public/predecessor arithmetic and two real-model prompt lengths are independently gated",
+    "the P513 pre-promotion attribution lacks a candidate union/span breakdown and is not a post-promotion critical-path profile",
+    "no candidate-specific Nsight Compute or racecheck claim is attached",
+    "the optimization is exact M32 only; M17-M31, M18, Decode M1, fallbacks, streams, and scheduler ownership are unchanged",
+    "dual-resident A is intra-kernel shared-memory residency, not whole-runtime double/triple buffering or Prefill/Decode overlap"
+  ],
+  "next_priority": {
+    "main_line": "refresh phase-local hotspot attribution after the M32 promotion, then screen the remaining attention-values path before reopening evidence-exhausted NVFP4 product-table variants",
+    "logical_prefill_decode_plan_seam": true,
+    "independent_prefill_decode_executors_or_queues": false,
+    "whole_system_double_buffered": false,
+    "whole_system_triple_buffered": false,
+    "future_scheduler_design": "multi-request continuous batching with explicit request/KV/workspace ownership, handoff, fairness, TTFT, inter-token, tail-latency, cancellation, and memory gates"
+  }
+}

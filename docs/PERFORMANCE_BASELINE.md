@@ -3531,8 +3531,8 @@ artifact's GNU Build ID and loaded content; its full-file difference is only
 four `.strtab` bytes from an nvcc temporary name, and its independent optional
 retest remains positive at 1.02290x actual and 1.00596x stress.
 
-Production keeps the two-slot Q+K/V kernel. The next bounded screen is the
-test-only FP8 M32 dual-resident-A path. The broader main line remains
+Production keeps the two-slot Q+K/V kernel. The subsequent bounded FP8 M32
+dual-resident-A screen is recorded below. The broader main line remains
 phase-local kernel and dispatch work through the existing logical
 Prefill/Decode seam. General double/triple buffering remains deferred to a
 future explicit multi-request scheduler with ownership, KV/state/workspace
@@ -3541,3 +3541,70 @@ memory gates. Frozen binaries, all five micro logs, all 12 end-to-end log
 hashes, checkpoint offsets and payload hashes, SASS identities, and claim
 limits are in the
 [Q+K/V reduction-scratch benchmark record](metadata/qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json).
+
+## Prefill FP8 M32 dual-resident-A promotion
+
+The four exact FP8 M32 projections now keep both 16-token A panels resident
+through each K64 stage. A decoded B fragment is loaded once and reused by two
+independent accumulator chains; each chain preserves the predecessor K/MMA
+order. The public validation, route registry, fallback, ABI, streams, and
+scheduler are unchanged.
+
+| Kernel | Registers | Static shared | Local | Active CTA/SM | Instructions | `BAR` | Dynamic barriers K5120 / K6144 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Fixed single-resident predecessor | 46 | 21,248 B | 0 B | 5 | 656 | 8 | 324 / 388 |
+| Production dual-resident A | 47 | 23,552 B | 0 B | 5 | 632 | 4 | 162 / 194 |
+
+All four production shapes pass public-versus-predecessor bitwise comparison,
+different-poison direct replay, token-15/16, canary, and input-preservation
+gates. The first shape covers all 256 E4M3FN raw codes in all four packed-byte
+positions; `0x7f` and `0xff` produce all 256 expected signed NaN outputs with
+no unexpected nonfinite result. Invalid shape, alias, and input-alignment
+calls capture zero kernel nodes. After promotion, the public and direct dual-A
+hooks capture the same function, while the preserved predecessor remains a
+distinct function with the same launch topology.
+
+Five independent same-binary processes use ten warmups, 80 launches per timed
+pass, and five B-C-C-B rounds. The frozen gates require every shape to be
+non-regressing and the `48:64:48:16` P33-weighted result to reach 1.03x:
+
+| Shape N x K | Minimum | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| 10240 x 5120 | 1.13158x | 1.13172x | 1.13287x |
+| 5120 x 6144 | 1.16197x | 1.16853x | 1.17505x |
+| 6144 x 5120 | 1.13904x | 1.13990x | 1.14078x |
+| 12288 x 5120 | 1.13363x | 1.13465x | 1.13673x |
+| P33-weighted | 1.14418x | 1.14569x | 1.14799x |
+
+The symmetric predecessor-public and dual-A-public runners each contain 149
+CUDA functions. Their complete mangled-name sets, instruction-word counts,
+and every per-function encoding hash are identical; only the host public M32
+role changes. Separate-process P33 and P513 B-C-C-B validation uses one warmup
+and five measured generations per process:
+
+| Workload and metric | Predecessor-public average | Dual-A-public average | Speedup |
+| --- | ---: | ---: | ---: |
+| P33 prefix | 335.7175 ms | 322.4050 ms | 1.041291x |
+| P33 finish-prefill | 110.6360 ms | 110.7820 ms | 0.998682x |
+| P33 TTFT / total | 446.3555 ms | 433.2275 ms | 1.030303x |
+| P513 prefix | 5,627.4165 ms | 5,411.3180 ms | 1.039935x |
+| P513 finish-prefill | 113.1935 ms | 113.2690 ms | 0.999333x |
+| P513 TTFT / total | 5,740.5980 ms | 5,524.5655 ms | 1.039104x |
+
+Every process emits token 9419 (`Hello`) with exact prompt and step contracts,
+uses one P33 or sixteen P513 prefix-execution entries per sample, and reports
+`persistent_drop_detected=0`. The averaged finish-prefill regressions are
+0.132% and 0.067%; the worst paired-process regressions are 0.303% and 0.128%.
+All remain below the frozen 0.5% stage limit, while overall TTFT falls by 2.94%
+and 3.76%. Release builds all targets, and CTest discovers 56 tests, passes 51,
+skips five configured fixtures, and fails none. Clocks were not locked, so the
+ratios are diagnostic promotion evidence rather than a release-latency claim.
+
+This promotion is shared-memory residency inside one kernel. It is not a
+system double/triple buffer and does not overlap causally ordered batch-one
+Prefill and Decode. The next step is refreshed phase-local attribution followed
+by a bounded attention-values screen. Multi-request independent executors and
+queues remain a future scheduler project with explicit request/KV/workspace
+ownership, fairness, latency, cancellation, and memory contracts. Full binary,
+SASS, micro, and end-to-end identities are in the
+[FP8 M32 dual-resident-A benchmark record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).

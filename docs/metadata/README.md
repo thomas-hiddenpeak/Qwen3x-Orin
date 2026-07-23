@@ -317,6 +317,15 @@ The diagnostic Phase 3 records are:
   the symmetric-engine device-code isolation proof, zero persistent-drop flags,
   the 0.042171% worst whole-model stage regression against the 0.5% limit, and
   the boundary between this intra-kernel scratch mechanism and system buffering.
+- [`qwen36-27b-fp8-m32-dual-resident-a-benchmark.json`](qwen36-27b-fp8-m32-dual-resident-a-benchmark.json),
+  which records the promoted exact-shape FP8 M32 dual-resident-A WMMA route.
+  It freezes full 256-code/four-byte-position bitwise and NaN coverage, resource
+  and Graph role gates, the preserved single-resident predecessor SASS, five
+  independent same-binary micro processes, and symmetric P33/P513 B-C-C-B
+  evidence. The record also proves that both end-to-end runners contain the
+  same 149 CUDA functions with identical encodings, while P33 and P513 TTFT
+  improve by 2.94% and 3.76% respectively without changing the serialized
+  Prefill/Decode scheduler or adding system double/triple buffering.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

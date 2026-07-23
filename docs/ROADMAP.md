@@ -504,17 +504,34 @@ inside one CTA/kernel, and the single-request runner remains
 dependency-serialized. See the
 [Q+K/V reduction-scratch promotion record](metadata/qwen36-27b-fp8-m1-q-kv-reduction-scratch-ping-pong-benchmark.json).
 
-The next bounded screen is the test-only FP8 M32 dual-resident-A path. After
-that screen, the main line remains phase-local kernel and dispatch optimization
-through the completed logical Prefill/Decode plan seam. Batch-one single-request
-Prefill and Decode are causally serial, and the measured phase trace exposes no
-useful general-buffering idle window. Independent executors and queues remain a
-future multi-request continuous-batching design item, after ownership,
-KV/state/workspace lifetime, handoff, fairness, TTFT, inter-token, tail-latency,
-cancellation, and memory gates are explicit. Double/triple buffers should be
-evaluated only inside that cross-kernel/stream dependency model. Direct
-row-major BF16 shared-resident GDN state and wider raw-weight prefetch remain
-stopped unless materially new evidence changes their ceilings.
+The exact-shape FP8 M32 dual-resident-A screen is now productionized. Both
+16-token A panels remain resident across each K64 stage, so one decoded B
+fragment feeds two independent accumulator chains. Static shared memory moves
+from 21,248 to 23,552 bytes and registers from 46 to 47 while five CTAs/SM are
+retained. Static `BAR` instructions fall from 8 to 4; the K5120/K6144 dynamic
+barrier counts fall from 324/388 to 162/194. Exhaustive 256-code by four-byte
+position, signed-NaN, bitwise/replay, token-15/16, canary/input, invalid Graph,
+resource, and post-promotion public-function identity gates all pass.
+
+Five independent same-binary processes produce a P33-weighted 1.14418x to
+1.14799x speedup, with a 1.14569x median. Symmetric predecessor-public and
+dual-A-public runners contain the same 149 CUDA functions and identical
+per-function encodings. Exact P33/P513 B-C-C-B runs improve average TTFT from
+446.3555 to 433.2275 ms (-2.94%) and from 5,740.5980 to 5,524.5655 ms
+(-3.76%); all eight processes reproduce token 9419 (`Hello`) and report no
+persistent memory drop. These unlocked-clock ratios are diagnostic promotion
+evidence, not a release-latency claim. See the
+[FP8 M32 dual-resident-A promotion record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).
+
+This is still a kernel-local shared-memory residency change, not a runtime
+double/triple buffer. Batch-one Prefill and Decode remain causally serial
+through the completed logical plan seam. The next main-line step is refreshed
+phase-local attribution followed by a bounded attention-values screen; rejected
+NVFP4 product-table variants stay closed unless materially new evidence changes
+their ceiling. Independent executors and queues remain a future multi-request
+continuous-batching item after request/KV/workspace ownership, handoff,
+fairness, TTFT, inter-token, tail-latency, cancellation, and memory gates are
+explicit.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
