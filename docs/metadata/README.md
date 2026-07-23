@@ -287,6 +287,26 @@ The diagnostic Phase 3 records are:
   gates. The record freezes candidate/clean binary identities, static-SASS
   attribution and its no-NCU limit, host/SM87 NaN-canonicalization boundaries,
   complete candidate removal, and unchanged production dispatch.
+- [`qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection.json`](qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection.json),
+  which records the rejected test-only Prefill GDN M16 row4/row8
+  shared-resident BF16 state candidates. Both pass exact M1/M2/M8/M16
+  in-place/disjoint output and state, poison replay, C16 versus C8+C8, Graph,
+  canary, input-preservation, and resource gates, but the hardened 24-bank
+  screen reaches only 0.627300x and 0.752132x against production row8. The
+  record freezes the initial same-TU dynamic-shared padding hazard, final
+  test-only-TU isolation, complete candidate removal, restored production
+  source/resource/SASS identity, exact artifact hashes, and the stop-loss
+  decision not to run candidate NCU, Nsys, or end-to-end evaluation.
+- [`qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json`](qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json),
+  which records the promoted two-slot CTA-local FP8 M1 QKV/Z reduction-scratch
+  pipeline. It freezes exhaustive 256-code/four-byte-position coverage,
+  four-cap race-signature/replay and Graph contracts, exact checkpoint payload
+  identity, resources and per-function SASS, the 142-non-target-function
+  production-isolation proof, frozen 1.02407x/1.00697x micro gates, and exact
+  P19/P64/P513 B-C-C-B evidence with all 12 log hashes. The record retains the
+  external P19 memory-watermark warning and unavailable racecheck as explicit
+  limitations, and makes clear that this intra-kernel scratch ping-pong is not
+  general double/triple buffering or Prefill/Decode overlap.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

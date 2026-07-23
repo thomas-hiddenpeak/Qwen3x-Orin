@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark",
+  "status": "promoted-production-decode-m1-qkv-z-reduction-scratch-ping-pong",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "8e85584cbe369470f6c8c573fceca4f58d3697ce",
+    "candidate_commit": null,
+    "tree_state_at_measurement": "uncommitted production-promotion worktree based on base_head",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "binaries": {
+      "pre_promotion_baseline_runner": {
+        "local_path": "/tmp/q3x-phase-next-8e85584/qwen3x-orin.baseline",
+        "bytes": 3851432,
+        "sha256": "ea3a410acbdec3b367f975fb76046882b00fb28f68f5ad5c4df73f6392177573",
+        "gnu_build_id": "48b58304f86552643190962fb4dddc8ee7095382",
+        "source_tree": "pre-promotion worktree based on base_head; the old tail-barrier kernel remains production-dispatched and both A/B kernels are present",
+        "checked_in": false
+      },
+      "production_candidate_runner": {
+        "local_path": "/tmp/q3x-phase-next-8e85584/qwen3x-orin.qkv-z-ping-pong-candidate",
+        "bytes": 3851560,
+        "sha256": "41379609b4b4f3ccd7a92557eff7463ecfeb27cd3298df0c4d0cd9613d4420bf",
+        "gnu_build_id": "c09498192e327041e93ebb3952b3ec07ed39aaad",
+        "checked_in": false
+      },
+      "post_promotion_device_test": {
+        "local_path": "/tmp/q3x-phase-next-8e85584/q3x_sm87_weight_only_gemv_test.post-promotion",
+        "bytes": 4599936,
+        "sha256": "1b6363c1fe2dd95ba545f23c157b512b7d80a6a58c25a9449f549b27807eeecc",
+        "gnu_build_id": "f9e857bd55cc84a62b419d472e170c3c2249bbfb",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root in this environment; symmetric B-C-C-B ratios are diagnostic rather than release-grade absolute latency claims"
+  },
+  "implementation": {
+    "phase": "the M1 route used by Decode and final-prompt/finish-prefill, including C1 delegation",
+    "scope": "the exact aligned SM87 FP8 linear-attention QKV [10240,5120] then Z [6144,5120] production two-phase kernel",
+    "production_kernel": "fp8_w8a16_gemv_bf16_qkv_z_two_phase_reduction_scratch_ping_pong_kernel",
+    "tail_barrier_predecessor_kernel": "fp8_w8a16_gemv_bf16_qkv_z_two_phase_tail_barrier_test_kernel",
+    "qkv_shape_n_by_k": [10240, 5120],
+    "z_shape_n_by_k": [6144, 5120],
+    "dtype": "F8_E4M3 weights and BF16 activation/output",
+    "threads_per_block": 256,
+    "production_grid_blocks": 1536,
+    "qkv_grid_stride_blocks": 1536,
+    "z_grid_stride_blocks": 768,
+    "phase_order": ["qkv", "z"],
+    "scratch": {
+      "declaration": "float[2][4][8]",
+      "slots": 2,
+      "rows_per_body": 4,
+      "warps_per_block": 8,
+      "bytes": 256,
+      "slot_toggle": "scratch_slot ^= 1 after every logical row-quad body",
+      "lifetime": "one slot sequence spans the ordered QKV phase into the Z phase",
+      "producer_barrier": "the barrier after lane-0 warp partial-sum stores remains inside every body",
+      "removed_barrier": "the trailing block barrier after warp 0 consumes one body is removed",
+      "reuse_safety": "body i+1 writes the opposite slot; its retained producer barrier cannot release before warp 0 has finished body i, preventing body i+2 from reusing body i's slot early"
+    },
+    "arithmetic_contract": "the weight decode, BF16 activation decode, FFMA order, warp/block reduction, scale, and BF16-RNE output order are unchanged",
+    "decoded_codebook_shared_across_phases": true,
+    "launches_per_qkv_z_pair": 1,
+    "fallback_and_public_validation_contracts_unchanged": true,
+    "scope_boundary": "this is two-slot CTA-local reduction scratch inside one kernel; it is not a whole-runtime double buffer, a triple buffer, cross-kernel overlap, or Prefill/Decode overlap"
+  },
+  "checkpoint_fixture": {
+    "source": "actual checkpoint payload",
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "safetensors_data_base": 126512,
+    "qkv": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "dtype": "F8_E4M3",
+      "shape": [10240, 5120],
+      "absolute_offset_begin": 3485125152,
+      "absolute_offset_end": 3537553952,
+      "bytes": 52428800,
+      "payload_sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "z": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+      "dtype": "F8_E4M3",
+      "shape": [6144, 5120],
+      "absolute_offset_begin": 3537553952,
+      "absolute_offset_end": 3569011232,
+      "bytes": 31457280,
+      "payload_sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae"
+    },
+    "qkv_end_equals_z_begin": true,
+    "activation_bytes": 10240,
+    "activation_sha256": "3951f547a99d8a6ddec339f7819060a8548b0fb61255906d66a53c46e046c530",
+    "payload_identity_gate": "pass"
+  },
+  "correctness_and_dispatch_gates": {
+    "status": "pass",
+    "production_identity": {
+      "public_launcher_captured": true,
+      "cap1536_performance_launcher_captured": true,
+      "direct_ping_pong_test_launcher_captured": true,
+      "public_cap_and_direct_launch_same_function_grid_block_and_dynamic_shared": true,
+      "tail_barrier_predecessor_captured": true,
+      "tail_barrier_predecessor_is_distinct_function_with_same_topology": true,
+      "kernel_nodes_per_valid_capture": 1,
+      "grid_blocks": 1536,
+      "threads_per_block": 256,
+      "dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "null_alignment_shape_scale_cap_and_alias_contracts": "pass",
+      "invalid_cuda_graph_kernel_nodes": 0,
+      "null_resource_destination_rejected": true,
+      "gate": "pass"
+    },
+    "exhaustive_e4m3fn": {
+      "finite_codes": 254,
+      "nan_codes": [127, 255],
+      "all_256_codes_per_byte_position": true,
+      "packed_byte_positions": [0, 1, 2, 3],
+      "matrices": ["qkv", "z"],
+      "requested_grid_caps": [512, 1024, 1536, 4096],
+      "qkv_bf16_mismatches_per_cell": "0/10240",
+      "z_bf16_mismatches_per_cell": "0/6144",
+      "replay_mismatches_per_cell": "0/16384",
+      "output_canaries": "intact",
+      "input_preservation_checked_at_cap512": true,
+      "gate": "pass"
+    },
+    "reduction_scratch_race_signature": {
+      "requested_grid_caps": [512, 1024, 1536, 4096],
+      "executions_per_cap": 2,
+      "replay_after_first_per_cap": 1,
+      "qkv_bf16_mismatches_per_cap": "0/10240",
+      "z_bf16_mismatches_per_cap": "0/6144",
+      "replay_mismatches_per_cap": "0/16384",
+      "output_canaries": "intact",
+      "gate": "pass"
+    },
+    "isolated_nan_classification": {
+      "raw_codes": [127, 255],
+      "both_matrices_and_all_four_byte_positions": true,
+      "classified_outputs": 16,
+      "unexpected_nonfinite": 0,
+      "bitwise_replay_and_canaries": true,
+      "class_and_sign": true,
+      "gate": "pass"
+    },
+    "actual_checkpoint_and_same_bank_full_shape": {
+      "qkv_bf16_mismatches_per_fixture": "0/10240",
+      "z_bf16_mismatches_per_fixture": "0/6144",
+      "replay_mismatches_per_fixture": "0/16384",
+      "output_canaries": "intact",
+      "finite_outputs": true,
+      "gate": "pass"
+    }
+  },
+  "sass_and_resources": {
+    "method": "cuobjdump Function sections normalized to their exact 64-bit encoding words, one lowercase 0x-prefixed word per line before SHA-256; the encoding stream includes each instruction control word and excludes disassembly text",
+    "cross_binary_production_isolation": {
+      "baseline_engine_cuda_functions": 144,
+      "post_promotion_engine_cuda_functions": 144,
+      "qkv_z_target_symbols_excluded_per_binary": 2,
+      "non_target_functions_compared": 142,
+      "non_target_mangled_function_name_sets_equal": true,
+      "non_target_per_mangled_name_normalized_sha256_and_word_count_equal": true,
+      "non_target_per_name_mismatches": 0,
+      "target_role_swap": [
+        {
+          "baseline_symbol_role": "test-only reduction-scratch ping-pong candidate",
+          "post_promotion_symbol_role": "public production reduction-scratch ping-pong",
+          "normalized_section_sha256": "46e3f218deb005bb3feea4e23dc57bde7aa3695a756beb27754bc9847a48b602",
+          "section_64bit_words": 2416
+        },
+        {
+          "baseline_symbol_role": "public production row-quad tail-barrier kernel",
+          "post_promotion_symbol_role": "test-only tail-barrier predecessor",
+          "normalized_section_sha256": "37be9574c5b6d3257820952e3624c21ea39ce8ba355539e198109481c96f36e3",
+          "section_64bit_words": 2240
+        }
+      ],
+      "interpretation": "the only normalized engine SASS change is the intended exchange of the two QKV/Z target roles and production dispatch; every non-target function is identical by full mangled name, normalized encoding hash, and word count, with no evidence of unrelated kernel-codegen drift"
+    },
+    "production_ping_pong": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1280,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "section_64bit_words": 2416,
+      "instruction_count": 1208,
+      "normalized_section_sha256": "46e3f218deb005bb3feea4e23dc57bde7aa3695a756beb27754bc9847a48b602",
+      "instruction_counts": {
+        "BAR": 2,
+        "FFMA": 128,
+        "FADD": 88,
+        "SHFL": 41
+      }
+    },
+    "tail_barrier_predecessor": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "section_64bit_words": 2240,
+      "instruction_count": 1120,
+      "normalized_section_sha256": "37be9574c5b6d3257820952e3624c21ea39ce8ba355539e198109481c96f36e3",
+      "instruction_counts": {
+        "BAR": 3,
+        "FFMA": 128,
+        "FADD": 70,
+        "SHFL": 41
+      }
+    },
+    "resource_gate": "pass",
+    "interpretation": "the promoted kernel removes one static BAR while retaining four active CTAs/SM; static instruction counts describe the compiled mechanism and are not stall attribution"
+  },
+  "same_binary_microbenchmark": {
+    "status": "pass",
+    "command": "Q3X_RUN_SM87_FP8_M1_QKV_Z_REDUCTION_SCRATCH_PING_PONG_PERF=1 Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_OFFSETS=3485125152:3537553952 /tmp/q3x-phase-next-8e85584/q3x_sm87_weight_only_gemv_test.post-promotion",
+    "comparison": "test-only tail-barrier predecessor versus the exact public production ping-pong kernel on identical buffers and frozen 1536/768 topology",
+    "warmup_iterations_per_route": 10,
+    "measured_logical_qkv_z_pairs_per_timed_pass": 80,
+    "measurement_rounds": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "statistic": "median of ten baseline timed-pass means divided by the median of ten candidate timed-pass means",
+    "frozen_cap": 1536,
+    "policy": {
+      "minimum_actual_checkpoint_speedup": 1.01,
+      "minimum_same_bank_stress_speedup": 1.0,
+      "exploratory_symmetric_speedup": 1.01,
+      "exploratory_symmetric_gate_is_selection_gate": false
+    },
+    "formal_post_promotion_retest": {
+      "actual_checkpoint": {
+        "tail_barrier_predecessor_median_ms": 0.482807,
+        "production_ping_pong_median_ms": 0.471458,
+        "speedup": 1.02407,
+        "uplift_percent": 2.40712,
+        "required_speedup": 1.01,
+        "gate": "pass"
+      },
+      "same_bank_stress": {
+        "tail_barrier_predecessor_median_ms": 0.442070,
+        "production_ping_pong_median_ms": 0.439011,
+        "speedup": 1.00697,
+        "uplift_percent": 0.696698,
+        "required_speedup": 1.0,
+        "gate": "pass"
+      },
+      "exploratory_symmetric_1p01_gate": "fail",
+      "selection_gate": "pass"
+    }
+  },
+  "production_validation_suites": {
+    "post_promotion_default_device_test": {
+      "command": "/tmp/q3x-phase-next-8e85584/q3x_sm87_weight_only_gemv_test.post-promotion",
+      "result": "SM87 weight-only GEMV tests passed",
+      "status": "pass"
+    },
+    "post_promotion_performance_device_test": {
+      "command": "the same post-promotion device-test binary with Q3X_RUN_SM87_FP8_M1_QKV_Z_REDUCTION_SCRATCH_PING_PONG_PERF and frozen checkpoint variables",
+      "result": "all correctness, resource, frozen-policy, and selected gates pass",
+      "status": "pass"
+    },
+    "release_build": {
+      "command": "cmake --build --preset orin-release -j2",
+      "all_targets_built": true,
+      "status": "pass"
+    },
+    "ctest": {
+      "command": "ctest --test-dir build/orin-release --output-on-failure -j2",
+      "discovered": 56,
+      "passed": 51,
+      "skipped": 5,
+      "failed": 0,
+      "skip_scope": "one tokenizer fixture and four configured model-fixture skips",
+      "interpretation": "the P19/P64/P513 real-model runs below are separate completed evidence; configured skips are not counted as model coverage",
+      "status": "pass"
+    }
+  },
+  "end_to_end_bccb": {
+    "status": "exact_contract_passed_and_all_total_latency_averages_improved",
+    "comparison": "pre-promotion worktree runner based on base_head versus the post-promotion runner in four independent processes; both binaries contain the A/B kernels, while their production dispatch selects the old and promoted roles respectively",
+    "run_order": ["baseline_1", "candidate_1", "candidate_2", "baseline_2"],
+    "warmup_generations_per_process": 1,
+    "measured_generations_per_process": 5,
+    "generation_timing_excludes_engine_load": true,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "projection_backend": "sm87_weight_only",
+    "request_max_sequence_length": 544,
+    "maximum_allowed_regression_percent_per_workload_stage": 0.5,
+    "workloads": [
+      {
+        "name": "P19-C32-max26",
+        "prompt_token_count": 19,
+        "max_new_tokens": 26,
+        "correctness_contract": {
+          "generated_token_count": 26,
+          "generated_ids": [77517, 220, 95761, 32449, 220, 97039, 101692, 119548, 97792, 125574, 102027, 103725, 3709, 109238, 97327, 21966, 220, 127361, 130111, 95860, 103806, 108751, 97792, 97995, 1710, 248046],
+          "generated_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+          "stop_reason": "im_end",
+          "step_count": 44,
+          "all_four_processes_exact": true
+        },
+        "process_medians_ms": [
+          {
+            "run": "baseline_1",
+            "prompt_prefix": 328.436,
+            "finish_prefill": 111.185,
+            "prompt_prefill": 439.637,
+            "decode_after_first": 2786.258,
+            "subsequent_token": 111.454,
+            "total_generation": 3225.894,
+            "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p19-c32-b1.log", "bytes": 7950, "sha256": "fbb423a1cd839a78c74cd9db49ea78f81288c25426b053c9febd3e20b4249936", "checked_in": false}
+          },
+          {
+            "run": "candidate_1",
+            "prompt_prefix": 328.538,
+            "finish_prefill": 110.492,
+            "prompt_prefill": 439.024,
+            "decode_after_first": 2772.257,
+            "subsequent_token": 110.865,
+            "total_generation": 3211.280,
+            "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p19-c32-c1.log", "bytes": 7952, "sha256": "7181123ba2d379492e6406cbd7e1c7e12d93cd59147ee40bad5244521159fb66", "checked_in": false}
+          },
+          {
+            "run": "candidate_2",
+            "prompt_prefix": 328.342,
+            "finish_prefill": 110.538,
+            "prompt_prefill": 438.858,
+            "decode_after_first": 2777.115,
+            "subsequent_token": 110.864,
+            "total_generation": 3215.829,
+            "external_memory_warning": true,
+            "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p19-c32-c2.log", "bytes": 8033, "sha256": "5232dfb5f8e0044f77b13f5b3eff930080df00b7bfcbfee482d5f4a6663bb7b8", "checked_in": false}
+          },
+          {
+            "run": "baseline_2",
+            "prompt_prefix": 328.352,
+            "finish_prefill": 111.135,
+            "prompt_prefill": 439.481,
+            "decode_after_first": 2784.434,
+            "subsequent_token": 111.378,
+            "total_generation": 3223.875,
+            "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p19-c32-b2.log", "bytes": 7944, "sha256": "d2b061695b09d6b95f37cdeee06a40549cdc59c603f6bd20df3858bd29cc0861", "checked_in": false}
+          }
+        ],
+        "average_of_process_medians_ms": {
+          "baseline": {"prompt_prefill": 439.559, "decode_after_first": 2785.346, "subsequent_token": 111.416, "total_generation": 3224.8845},
+          "candidate": {"prompt_prefill": 438.941, "decode_after_first": 2774.686, "subsequent_token": 110.8645, "total_generation": 3213.5545}
+        },
+        "speedup": {
+          "prompt_prefill": 1.001407934,
+          "decode_after_first": 1.003841876,
+          "subsequent_token": 1.004974541,
+          "total_generation": 1.003525691
+        }
+      },
+      {
+        "name": "P64-C32-max1",
+        "prompt_token_count": 64,
+        "max_new_tokens": 1,
+        "correctness_contract": {"generated_token_count": 1, "generated_id": 9419, "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 64, "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 885.924, "finish_prefill": 112.023, "total_generation": 997.958, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p64-c32-b1.log", "bytes": 7308, "sha256": "ceb151db0114eb342f5f87fdde6ee98ca1af7b2b4c028b4a759ab205717186fb", "checked_in": false}},
+          {"run": "candidate_1", "prompt_prefix": 886.175, "finish_prefill": 111.755, "total_generation": 997.893, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p64-c32-c1.log", "bytes": 7337, "sha256": "5d46ea1aa55ea3bdab726e05d7b4e8cc23eb8202c825d04af7f04a62602210ff", "checked_in": false}},
+          {"run": "candidate_2", "prompt_prefix": 886.235, "finish_prefill": 111.362, "total_generation": 997.625, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p64-c32-c2.log", "bytes": 7308, "sha256": "768e6e5a88dfde7bbe2913cf666c9f2c5385189d9129adcf69ebf274838f58ed", "checked_in": false}},
+          {"run": "baseline_2", "prompt_prefix": 885.970, "finish_prefill": 112.113, "total_generation": 998.096, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p64-c32-b2.log", "bytes": 7315, "sha256": "2d58339854805bf096518e2f883c15ffb7100631585e2253c4a8e1af26382bf8", "checked_in": false}}
+        ],
+        "average_of_process_medians_ms": {
+          "baseline": {"prompt_prefix": 885.947, "finish_prefill": 112.068, "total_generation": 998.027},
+          "candidate": {"prompt_prefix": 886.205, "finish_prefill": 111.5585, "total_generation": 997.759}
+        },
+        "speedup": {"prompt_prefix": 0.999708871, "finish_prefill": 1.004567111, "total_generation": 1.000268602}
+      },
+      {
+        "name": "P513-C32-max1",
+        "prompt_token_count": 513,
+        "max_new_tokens": 1,
+        "correctness_contract": {"generated_token_count": 1, "generated_id": 9419, "generated_text": "Hello", "stop_reason": "max_new_tokens", "step_count": 513, "all_four_processes_exact": true},
+        "process_medians_ms": [
+          {"run": "baseline_1", "prompt_prefix": 5627.194, "finish_prefill": 113.889, "total_generation": 5742.379, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p513-c32-b1.log", "bytes": 18656, "sha256": "437fad2e3d652e903b6c768be4ec3f8cc18039ff173a7414a92aa14b0ac6fabe", "checked_in": false}},
+          {"run": "candidate_1", "prompt_prefix": 5629.479, "finish_prefill": 113.153, "total_generation": 5742.730, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p513-c32-c1.log", "bytes": 18663, "sha256": "be04d88ef2280c60bbf4e2815bbd12f1610259338eb2fe0e32cdb7ca46eac9a7", "checked_in": false}},
+          {"run": "candidate_2", "prompt_prefix": 5625.211, "finish_prefill": 113.227, "total_generation": 5738.466, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p513-c32-c2.log", "bytes": 18656, "sha256": "d36674706e610e21abf62143017da8ffff1dfe7454364aff4e82a825c38f176d", "checked_in": false}},
+          {"run": "baseline_2", "prompt_prefix": 5625.935, "finish_prefill": 113.735, "total_generation": 5739.676, "log": {"local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-e2e-p513-c32-b2.log", "bytes": 18663, "sha256": "73d6e674b1460bbd47476c5a14af6dad1e4e5f2a9889f361b9ef37a3ed26238b", "checked_in": false}}
+        ],
+        "average_of_process_medians_ms": {
+          "baseline": {"prompt_prefix": 5626.5645, "finish_prefill": 113.812, "total_generation": 5741.0275},
+          "candidate": {"prompt_prefix": 5627.345, "finish_prefill": 113.19, "total_generation": 5740.598}
+        },
+        "speedup": {"prompt_prefix": 0.999861302, "finish_prefill": 1.005495185, "total_generation": 1.000074818}
+      }
+    ],
+    "independent_stage_gate_review": {
+      "P19_C32_max26_worst_regression": {"stage": "prompt_prefix", "regression_percent": 0.0140, "gate": "pass"},
+      "P64_C32_max1_worst_regression": {"stage": "prompt_prefix", "regression_percent": 0.0291, "gate": "pass"},
+      "P513_C32_max1_worst_regression": {"stage": "prompt_prefix", "regression_percent": 0.0139, "gate": "pass"},
+      "all_workload_and_stage_gates": "pass"
+    },
+    "external_memory_warning": {
+      "run": "P19-C32-max26 candidate_2",
+      "warning": "device_memory_persistent_drop",
+      "start_free_bytes": 41937817600,
+      "end_free_bytes": 41652248576,
+      "minimum_free_bytes": 41477079040,
+      "total_device_bytes": 65932095488,
+      "persistent_drop_bytes": 285569024,
+      "maximum_observed_drop_bytes": 460738560,
+      "tolerance_bytes": 67108864,
+      "detected": true,
+      "process_status": "ok",
+      "correctness_contract_valid": true,
+      "timing_rows_valid": true,
+      "interpretation": "the warning is a process-external device-wide cudaMemGetInfo watermark; this single observation is retained as a limitation and is not evidence of a causal code leak"
+    }
+  },
+  "validation_artifacts": {
+    "post_promotion_performance_log": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-ping-pong-perf-post-promotion.log",
+      "bytes": 70578,
+      "sha256": "efb39da155273fb1a7d492f145348f64280975c3db41937c6fa1aaa26c832beb",
+      "checked_in": false
+    },
+    "post_promotion_default_log": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-ping-pong-default-post-promotion.log",
+      "bytes": 47985,
+      "sha256": "36fb14f1c96b8cb3a6086176388402d60e7c986c4f4ac4ec899849c4b030aef6",
+      "checked_in": false
+    },
+    "post_promotion_sass_dump": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-post-promotion.sass",
+      "bytes": 21121861,
+      "sha256": "59ef2638eebce5814f8da4536f6359b77a1c05dc167114dd160afc7dc9d1b385",
+      "checked_in": false
+    },
+    "baseline_engine_sass_dump": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qwen3x-orin.baseline.sass",
+      "bytes": 24461790,
+      "sha256": "c5774050360117d1e2be2c8afbf50abfd933f716fcb215331e8aa0e09d7f2708",
+      "checked_in": false
+    },
+    "post_promotion_engine_sass_dump": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qwen3x-orin.qkv-z-ping-pong-candidate.sass",
+      "bytes": 24461794,
+      "sha256": "124b7e336cec94ee8c67bbe06d7611c52adfc6c5f3027d1d535bb028bd6e1fc5",
+      "checked_in": false
+    },
+    "compute_sanitizer_racecheck_attempt": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/qkv-z-ping-pong-racecheck.log",
+      "bytes": 70812,
+      "sha256": "b336f8bd2bc5d72ceff34b71f7a577763bb0f14607e6cb311e112d91f980b749",
+      "checked_in": false,
+      "attempted_scope": "the first 12 launches of the promoted QKV/Z kernel",
+      "exit_code": 99,
+      "tool_message": "GPU debugging features are disabled",
+      "tool_summary": "1 hazard displayed (1 error, 0 warnings)",
+      "status": "unavailable",
+      "interpretation": "the one tool error is the unavailable GPU-debugging feature, not an observed kernel data hazard; racecheck cannot be claimed as pass or fail on this device/driver"
+    }
+  },
+  "decision": {
+    "selected": "production QKV/Z reduction-scratch ping-pong",
+    "production_promotion": "keep",
+    "reason": "all exhaustive, race/replay, canary/input, invalid Graph, function-identity, resource, and exact-model contracts pass; the frozen actual-checkpoint 1.01x gate and same-bank 1.00x guard pass; all three separate-process whole-model total-latency averages improve",
+    "exploratory_symmetric_1p01_gate": "fail",
+    "exploratory_gate_does_not_override_frozen_policy": true,
+    "release_latency_claim": false
+  },
+  "limitations": [
+    "clocks were not locked",
+    "the microbenchmark is one same-binary process and the whole-model comparison uses independent detached processes",
+    "the static SASS delta is mechanism evidence, not measured stall causality",
+    "Compute Sanitizer racecheck is unavailable because GPU debugging features are disabled on this Orin/driver; the tool exit 99 is neither a kernel pass nor a kernel failure",
+    "one P19 candidate process reported an external device-wide persistent-memory watermark warning despite status=ok and exact output",
+    "the promoted ping-pong is CTA-local reduction scratch only; the overall runtime remains dependency-serialized"
+  ],
+  "next_priority": {
+    "existing_logical_prefill_decode_plan_seam": true,
+    "independent_prefill_decode_executors_or_queues": false,
+    "whole_system_double_buffered": false,
+    "whole_system_triple_buffered": false,
+    "general_cross_kernel_or_cross_stream_overlap": false,
+    "single_request_batch1_dependency": "Prefill must causally produce the first token before Decode feedback can begin; the measured phase trace does not expose a useful same-request idle window for general buffering",
+    "main_line": "continue phase-local kernel and dispatch optimization through the completed logical Prefill/Decode plan seam",
+    "future_scheduler_design": "independent executors and queues belong to future multi-request continuous batching, after explicit ownership, KV/state lifetime, handoff, fairness, TTFT, inter-token, tail-latency, and cancellation contracts are defined",
+    "buffering_rule": "evaluate double/triple buffers only inside an explicit cross-kernel and cross-stream dependency model; buffer count alone is not an overlap architecture",
+    "required_gates": [
+      "bitwise phase and full-model replay",
+      "CUDA Graph and invalid-call contracts",
+      "KV/state/workspace lifetime and memory-watermark bounds",
+      "TTFT, inter-token latency, tail latency, throughput, fairness, and cancellation safety"
+    ]
+  }
+}

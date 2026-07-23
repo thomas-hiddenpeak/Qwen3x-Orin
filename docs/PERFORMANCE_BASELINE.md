@@ -45,6 +45,9 @@ recorded in
 [`qwen36-27b-fp8-qkv-z-fusion-benchmark.json`](metadata/qwen36-27b-fp8-qkv-z-fusion-benchmark.json).
 The rejected Decode M1 QKV/Z full-activation-staging follow-up is recorded in
 [`qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json`](metadata/qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json).
+The promoted Decode M1 QKV/Z reduction-scratch ping-pong follow-up is recorded
+in
+[`qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json`](metadata/qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json).
 The subsequent exact NVFP4 M1 dense-MLP gate/up/SiLU fusion diagnostic is
 recorded in
 [`qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json`](metadata/qwen36-27b-nvfp4-gate-up-silu-fusion-benchmark.json).
@@ -3241,11 +3244,203 @@ All candidate implementation, ABI, environment, and test hooks were removed.
 The kernel and test sources match base HEAD `dcab3d3` byte-for-byte, the clean
 Release target rebuilds, and the default device test passes. This stops the
 full-product-table family unless materially new evidence changes its ceiling.
-The completed design gate selects Prefill GDN M16 shared-resident BF16 state as
-the main line, directly against production row8 and with row4/row8 resident
-branches under explicit resource and performance stop-loss gates. Decode FP8
-QKV/Z reduction-scratch ping-pong is a lower-effort independent quick screen
-that may run in parallel but does not block the main line. Neither candidate is
-implemented yet. Exact binaries, mirrored rows, log hashes, SASS hashes,
-removal proof, and limitations are in the
+At that point the design gate selected Prefill GDN M16 shared-resident BF16
+state as the next bounded screen, with Decode FP8 QKV/Z reduction-scratch
+ping-pong as an independent quick screen. Both screens were subsequently
+implemented and measured; the GDN result is closed below. Exact binaries,
+mirrored rows, log hashes, SASS hashes, removal proof, and limitations for the
+full-product-table screen are in the
 [full-product-table rejection record](metadata/qwen36-27b-nvfp4-m1-full-product-table-rejection.json).
+
+## Prefill GDN M16 shared-resident BF16 state rejection
+
+The bounded Prefill GDN screen tested whether one value-head CTA should keep
+its complete `[128,128]` recurrent BF16 state in 32,768 bytes of opt-in dynamic
+shared memory across an M16 tile. Two test-only branches preserved the existing
+four-row and eight-row lane-striped arithmetic. Both copied global state into
+shared memory once, rounded every token update back to BF16 before the next
+token, and copied the final state back once. Production row8 was the direct
+baseline for both branches; neither candidate entered the public header,
+production selector, runtime, or engine.
+
+The first implementation exposed a CUDA translation-unit isolation hazard
+before formal timing. Merely placing a 16-byte-aligned dynamic-shared candidate
+in `gdn_decode.cu` padded every production GDN static-shared section by eight
+bytes: row4 moved from 18,056 to 18,064 bytes and row8 from 34,568 to 34,576
+bytes. That artifact was excluded. The candidates were moved into a CUDA source
+linked only into the GDN device test, and the production source, resources, and
+SASS were restored before measurement. Production row4 remains 40 registers,
+18,056 static-shared bytes, zero dynamic/local bytes, and six active CTAs/SM;
+production row8 remains 40 registers, 34,568 static-shared bytes, zero
+dynamic/local bytes, and four active CTAs/SM. Their normalized SASS hashes are
+`a2e442b6c6f376fff44cb6a11d7f75606f1ab39ee112c296229e817398b9477e`
+and
+`a91e5113444940c3781c6c92eed7572ea2c7b1486d21b41ba646580843eaba90`,
+identical to base HEAD `8e85584`.
+
+Correctness, contract, and resource gates all pass in the isolated binary.
+For candidate token counts M1/M2/M8/M16, row4 and row8 are bitwise equal to
+production for output and persistent state in both in-place and disjoint modes.
+Disjoint input state and all other inputs remain unchanged; output tails and
+canaries remain intact. M16 poison/replay and ordered C8+C8 versus C16 are exact.
+Each valid candidate captures as one distinct `48x256` kernel node with 32,768
+dynamic-shared bytes, while invalid paths return `cudaErrorInvalidValue` and
+capture zero nodes. Row4 uses 40 registers, 18,064 static plus 32,768 dynamic
+shared bytes, zero local memory, and clears the three-CTA/SM minimum. Row8 uses
+40 registers, 34,576 static plus 32,768 dynamic shared bytes, zero local memory,
+and clears the two-CTA/SM minimum.
+
+The hard performance gate deliberately exceeds the 4 MiB L2 state footprint.
+Each variant rotates equally across 24 independent state banks, or 36 MiB of
+state, and fully resets all state/output banks before every pass. Each pass has
+48 warmup and 480 measured M16 launches, giving every bank two warmups and 20
+timed launches. Five same-binary B-C-C-B rounds produce ten per-launch pass
+averages per side; promotion requires the candidate median to be at least
+1.20x faster and the candidate mean to beat the baseline mean in every round.
+
+| Branch versus production row8 | Production | Resident candidate | Speedup | Candidate latency |
+| --- | ---: | ---: | ---: | ---: |
+| Row4 resident | 0.390997 ms | 0.623302 ms | 0.627300x | +59.413499% |
+| Row8 resident | 0.390995 ms | 0.519849 ms | 0.752132x | +32.955409% |
+
+Both branches fail decisively: all ten candidate passes are slower for each
+branch, no round favors either candidate, and the selected branch is `none`.
+The final 24-bank state and last output remain bitwise identical after every
+timed round, so the failure is performance-only. The mandatory micro gate
+therefore triggered stop-loss before candidate NCU, Nsys, or end-to-end model
+evaluation. Bank conflicts and lower residency are plausible design-level
+explanations, not measured stall attribution.
+
+All candidate implementation, ABI, tests, and build wiring were removed.
+`CMakeLists.txt`, the production GDN CUDA source, and the GDN CUDA test match
+base HEAD `8e85584` byte-for-byte. Production keeps its eight-row lane-striped
+path. This closes direct row-major BF16 shared-resident state; GDN residency
+should reopen only with a materially different bank-friendly packed layout or
+new measured evidence. The independently passed Decode FP8 QKV/Z
+reduction-scratch ping-pong candidate was subsequently productionized and
+validated below. The retained candidate binary is 983,976
+bytes with SHA-256
+`15b375eef5b4cfa17f5a150cb75ec7ec46d0667b632ac4f0fd3e7d5a8f0b63b6`;
+the 6,215-byte log has SHA-256
+`c69cd2d43a8c7b58e22b8805d4f109ee8abe84a83d0b5a2d101beed3bd9f08f4`.
+Exact raw rounds, artifact identities, resource gates, removal proof, and
+limitations are in the
+[shared-resident rejection record](metadata/qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection.json).
+
+## Decode M1 FP8 QKV/Z reduction-scratch ping-pong promotion
+
+The passed QKV/Z follow-up now replaces the production two-phase kernel's
+single reduction-scratch slot and tail barrier with two CTA-local slots on the
+M1 route used by Decode and final-prompt/finish-prefill. Shared
+scratch is `float[2][4][8]`: adjacent row-quad bodies alternate slots, and the
+slot sequence continues across the ordered QKV-to-Z phase boundary. The
+producer barrier after lane-0 warp stores remains in every body; only the
+trailing barrier after warp 0 consumes a body is removed. The retained barrier
+in body `i+1` cannot release before warp 0 finishes body `i`, so body `i+2`
+cannot reuse body `i`'s slot early. Weight/BF16 decode, FFMA order, reduction,
+scale, BF16-RNE, the 1,536/768 QKV/Z topology, public ABI, validation, and
+fallbacks remain unchanged.
+
+This mechanism is deliberately narrow. It is a two-slot reduction-scratch
+pipeline inside one CTA and one kernel launch, not a whole-runtime double
+buffer, triple buffer, cross-kernel/stream schedule, or Prefill/Decode overlap.
+The runtime already has logically distinct Prefill and Decode host-control
+plans, but their execution remains dependency-serialized.
+
+All promotion gates pass. The public launcher, cap-1536 performance launcher,
+and direct ping-pong test hook capture the same function and launch
+configuration; the tail-barrier predecessor is a distinct function with the
+same topology. Invalid calls capture zero CUDA Graph nodes, and null resource
+destinations are rejected. Exhaustive coverage includes all 254 finite E4M3FN
+codes plus `0x7f`/`0xff` in all four packed byte positions for both QKV and Z.
+Caps 512, 1,024, 1,536, and 4,096 have zero QKV/Z or replay mismatches, intact
+canaries, and a dedicated race-signature fixture with one initial execution
+plus one replay per cap; the cap-512 case also verifies input preservation.
+Signed-NaN class/sign checks pass.
+
+| Kernel | Registers | Static shared | Local | Active CTA/SM | SASS words / instructions | `BAR` / `FFMA` / `FADD` / `SHFL` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production two-slot ping-pong | 64 | 1,280 B | 0 B | 4 | 2,416 / 1,208 | 2 / 128 / 88 / 41 |
+| Tail-barrier predecessor | 64 | 1,152 B | 0 B | 4 | 2,240 / 1,120 | 3 / 128 / 70 / 41 |
+
+The normalized SASS hashes are
+`46e3f218deb005bb3feea4e23dc57bde7aa3695a756beb27754bc9847a48b602`
+and
+`37be9574c5b6d3257820952e3624c21ea39ce8ba355539e198109481c96f36e3`.
+The frozen base and post-promotion engines each contain 144 CUDA functions.
+After excluding the two QKV/Z target symbols, the remaining 142 full mangled
+function-name sets are identical, and every same-name function has the same
+`(normalized encoding hash, word count)` pair: zero per-name mismatches. The two
+target hashes and word counts are also identical across engines; only their
+test/production roles and production dispatch swap. This rules out observed
+unrelated kernel code-generation drift, while static SASS still does not
+establish stall causality.
+
+The formal same-binary test uses the actual layer-0 checkpoint payload, ten
+warmups, 80 logical QKV/Z pairs per timed pass, and five B-C-C-B rounds at the
+frozen cap 1,536. The tail-barrier predecessor is the baseline:
+
+| Fixture | Tail predecessor | Production ping-pong | Speedup | Frozen gate |
+| --- | ---: | ---: | ---: | ---: |
+| Actual checkpoint | 0.482807 ms | 0.471458 ms | 1.02407x | >=1.01x PASS |
+| Same-bank stress | 0.442070 ms | 0.439011 ms | 1.00697x | >=1.00x PASS |
+
+The exploratory symmetric 1.01x stress threshold fails, but it is explicitly
+not the selection policy. Both frozen production gates pass.
+
+Separate-process whole-model validation compares a pre-promotion worktree based
+on base HEAD with the post-promotion runner in B-C-C-B order. Both binaries
+contain the A/B kernels; their production dispatch selects the old and promoted
+roles respectively. Each process uses one warmup and five measured generations,
+C32 requested/effective, and exact output contracts:
+
+| Workload and metric | Base average | Production average | Speedup |
+| --- | ---: | ---: | ---: |
+| P19/max26 prompt prefill | 439.559 ms | 438.941 ms | 1.001407934x |
+| P19/max26 Decode-after-first | 2,785.346 ms | 2,774.686 ms | 1.003841876x |
+| P19/max26 subsequent token | 111.416 ms | 110.8645 ms | 1.004974541x |
+| P19/max26 total | 3,224.8845 ms | 3,213.5545 ms | 1.003525691x |
+| P64/max1 prefix | 885.947 ms | 886.205 ms | 0.999708871x |
+| P64/max1 finish-prefill | 112.068 ms | 111.5585 ms | 1.004567111x |
+| P64/max1 total | 998.027 ms | 997.759 ms | 1.000268602x |
+| P513/max1 prefix | 5,626.5645 ms | 5,627.345 ms | 0.999861302x |
+| P513/max1 finish-prefill | 113.812 ms | 113.190 ms | 1.005495185x |
+| P513/max1 total | 5,741.0275 ms | 5,740.598 ms | 1.000074818x |
+
+The frozen end-to-end gate allows at most 0.5% regression for every workload
+and stage. Independent review finds the worst regression is prompt-prefix only:
+0.0140% at P19, 0.0291% at P64, and 0.0139% at P513. Every stage gate passes.
+
+All four P19 processes produce the same 26 token IDs and text, stop on
+`im_end`, and execute 44 steps. All P64 and P513 processes produce token 9419
+(`Hello`), stop at `max_new_tokens`, and execute 64 and 513 steps respectively.
+One P19 candidate process reports a 285,569,024-byte device-wide
+`cudaMemGetInfo` persistent-drop warning against a 67,108,864-byte tolerance,
+but returns `status=ok` with valid exact output and timing rows. It is retained
+as an external memory-watermark limitation, not attributed as evidence of a
+causal code leak.
+
+Compute Sanitizer racecheck was attempted for the first 12 promoted-kernel
+launches, but this Orin/driver reports `GPU debugging features are disabled`
+and exits 99. Its one summarized error is tool unavailability, not a reported
+kernel hazard; racecheck is therefore neither passed nor failed. The promotion's
+race evidence remains the explicit happens-before argument, four-cap
+race-signature/replay fixtures, and Graph contracts.
+
+The post-promotion Release build completes all targets. CTest discovers 56
+tests, passes 51, skips one tokenizer plus four configured model fixtures, and
+fails none. The real-model P19/P64/P513 runs above are separate completed
+evidence; the five configured skips are not counted as model coverage.
+
+Production keeps the two-slot kernel. The immediate main line remains
+phase-local kernel and dispatch optimization through the already completed
+logical Prefill/Decode plan seam. For batch-one single-request generation,
+Prefill must causally produce the first token before Decode feedback begins,
+and the measured phase trace does not expose a useful general-buffering idle
+window. Independent executors/queues belong to future multi-request continuous
+batching, after ownership, KV/state lifetime, fairness, TTFT, inter-token,
+tail-latency, cancellation, and memory contracts are explicit. Double/triple
+buffers should be evaluated only inside that cross-kernel/stream dependency
+model. Frozen binaries, all 12 end-to-end log hashes, checkpoint offsets and
+payload hashes, raw SASS identities, warning, and claim limits are in the
+[reduction-scratch ping-pong benchmark record](metadata/qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json).

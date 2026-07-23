@@ -1,0 +1,321 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection",
+  "status": "rejected-test-only-prefill-gdn-m16-shared-resident-bf16-state-candidates",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "8e85584cbe369470f6c8c573fceca4f58d3697ce",
+    "base_subject": "docs: record rejected M1 full product table",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted test-only additions on base_head",
+    "candidate_retained": false,
+    "candidate_code_removed": true,
+    "candidate_test_source_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "project_version": "0.2.0",
+    "restored_files": {
+      "CMakeLists.txt": {
+        "git_blob_sha1": "23d5a75cbc98c6f0ff0d03cda40dbe3e56c22886",
+        "sha256": "8b34bc2639a0bc2b7741668ce235b8f55a3e24a9ede48b5c6113124db9b8cdc7"
+      },
+      "src/kernels/reference/gdn_decode.cu": {
+        "git_blob_sha1": "33940e980b4db9ab328c34a8b2947e8b1fb4104f",
+        "sha256": "5a52972961cf0ce6f29fbb0c60167583dc9b255d73fc786d540a574415568964"
+      },
+      "tests/gdn_decode_cuda_test.cu": {
+        "git_blob_sha1": "659e9db8f066e3359bd65fa99b7058f2255ad571",
+        "sha256": "0c450744f9f4ba9b9a787dd5b241260a17e4bc4f3f4c445ce05542e2844ac5de"
+      },
+      "all_match_base_head": true
+    },
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/q3x_gdn_decode_cuda_test.rejected-candidate",
+      "bytes": 983976,
+      "sha256": "15b375eef5b4cfa17f5a150cb75ec7ec46d0667b632ac4f0fd3e7d5a8f0b63b6",
+      "gnu_build_id": "342421cd6efed57519994d5fa2e500c51a3aac58",
+      "checked_in": false,
+      "retained_local_evidence": true
+    },
+    "candidate_run_log": {
+      "local_path": "/tmp/q3x-phase-next-8e85584/gdn-state-resident-perf.log",
+      "bytes": 6215,
+      "lines": 44,
+      "sha256": "c69cd2d43a8c7b58e22b8805d4f109ee8abe84a83d0b5a2d101beed3bd9f08f4",
+      "checked_in": false,
+      "retained_local_evidence": true
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "The same-binary B-C-C-B screen ran under unlocked platform clocks. The large regressions and ten-of-ten slower passes are sufficient for stop-loss, but the absolute latencies are not release claims."
+  },
+  "candidate": {
+    "phase": "Prefill",
+    "token_count": 16,
+    "operation": "Gated DeltaNet recurrent update",
+    "activation_state_and_output_dtype": "BF16",
+    "baseline": "production eight-row lane-striped GDN tile kernel",
+    "branches": [
+      "four-row lane-striped shared-resident state",
+      "eight-row lane-striped shared-resident state"
+    ],
+    "launch": {
+      "grid_blocks": 48,
+      "threads_per_block": 256,
+      "one_cta_per_value_head": true,
+      "dynamic_shared_bytes": 32768
+    },
+    "state_layout": {
+      "global_shape": [48, 128, 128],
+      "resident_shape_per_cta": [128, 128],
+      "resident_storage": "row-major BF16 in dynamic shared memory",
+      "resident_bytes_per_cta": 32768,
+      "initial_copy": "cooperative global-to-shared copy before token zero",
+      "recurrence_boundary": "encode every updated state element to BF16 after each token and decode that BF16 value on the next token",
+      "final_copy": "cooperative shared-to-global copy after the last token",
+      "in_place_state_supported": true
+    },
+    "production_launcher_ever_selected_candidate": false
+  },
+  "correctness_and_contract": {
+    "opt_in_dynamic_shared_configured": true,
+    "production_vs_candidate_bitwise": {
+      "token_counts": [1, 2, 8, 16],
+      "branches": ["row4", "row8"],
+      "output_exact": true,
+      "persistent_state_exact": true,
+      "in_place_state_exact": true,
+      "disjoint_state_exact": true,
+      "disjoint_input_state_preserved": true,
+      "input_tensors_preserved": true,
+      "output_tail_preserved": true,
+      "canaries_intact": true,
+      "gate": "pass"
+    },
+    "m16_replay": {
+      "poisoned_output_and_state_then_replayed": true,
+      "output_exact": true,
+      "state_exact": true,
+      "canaries_intact": true,
+      "gate": "pass"
+    },
+    "chunk_equivalence": {
+      "comparison": "C16 versus ordered C8+C8",
+      "branches": ["row4", "row8"],
+      "output_exact": true,
+      "state_exact": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production": {
+        "kernel_nodes": 1,
+        "grid_x": 48,
+        "block_x": 256,
+        "dynamic_shared_bytes": 0
+      },
+      "candidates": {
+        "kernel_nodes_each": 1,
+        "grid_x": 48,
+        "block_x": 256,
+        "dynamic_shared_bytes": 32768,
+        "functions_distinct_from_production_and_each_other": true
+      },
+      "invalid_candidate_paths_enqueue_zero_nodes": true,
+      "gate": "pass"
+    },
+    "timing_final_state_and_last_output_bitwise": true
+  },
+  "translation_unit_isolation": {
+    "initial_same_tu_probe": {
+      "candidate_location": "src/kernels/reference/gdn_decode.cu",
+      "effect": "the module-level 16-byte dynamic-shared alignment padded every production GDN static-shared section by eight bytes",
+      "production_row4_static_shared_before_bytes": 18056,
+      "production_row4_static_shared_with_candidate_bytes": 18064,
+      "production_row8_static_shared_before_bytes": 34568,
+      "production_row8_static_shared_with_candidate_bytes": 34576,
+      "accepted_for_measurement": false,
+      "excluded_from_final_measurement": true
+    },
+    "final_measured_probe": {
+      "candidate_location": "test-only CUDA translation unit linked only into q3x_gdn_decode_cuda_test",
+      "production_library_contains_candidate": false,
+      "production_source_restored_before_measurement": true,
+      "production_resources_restored_before_measurement": true,
+      "production_sass_restored_before_measurement": true
+    }
+  },
+  "resources": {
+    "production_row4": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 18056,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 1024,
+      "active_blocks_per_sm": 6
+    },
+    "production_row8": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34568,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 1024,
+      "active_blocks_per_sm": 4
+    },
+    "candidate_row4": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 18064,
+      "dynamic_shared_bytes": 32768,
+      "total_shared_bytes": 50832,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "minimum_active_blocks_per_sm_gate": 3,
+      "gate": "pass"
+    },
+    "candidate_row8": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34576,
+      "dynamic_shared_bytes": 32768,
+      "total_shared_bytes": 67344,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "minimum_active_blocks_per_sm_gate": 2,
+      "gate": "pass"
+    }
+  },
+  "performance_protocol": {
+    "shape": "GDN M16",
+    "baseline_for_both_branches": "production row8",
+    "state_bank_count_per_variant": 24,
+    "state_bytes_per_bank": 1572864,
+    "state_bytes_per_variant": 37748736,
+    "state_working_set_mib_per_variant": 36,
+    "reset_before_every_pass": "all 24 state banks copied from the same initial BF16 state and all 24 output banks zeroed",
+    "warmup_launches_per_pass": 48,
+    "measured_launches_per_pass": 480,
+    "warmup_launches_per_bank": 2,
+    "measured_launches_per_bank": 20,
+    "cursor_policy": "round-robin across all 24 banks with equal frequency",
+    "round_order": "B-C-C-B",
+    "rounds": 5,
+    "raw_passes_per_variant": 10,
+    "summary_statistic": "median of ten per-launch pass averages",
+    "minimum_median_speedup": 1.2,
+    "additional_gate": "for every round, mean(B1,B2) must be greater than mean(C1,C2)",
+    "overall_policy": "either row4 or row8 may promote if all correctness, resource, median-speedup, and per-round gates pass"
+  },
+  "performance": {
+    "row4": {
+      "rounds_ms_per_launch": [
+        {"baseline_first": 0.390420, "candidate_first": 0.622698, "candidate_second": 0.622757, "baseline_second": 0.390402},
+        {"baseline_first": 0.391039, "candidate_first": 0.623387, "candidate_second": 0.623302, "baseline_second": 0.390910},
+        {"baseline_first": 0.390993, "candidate_first": 0.623370, "candidate_second": 0.623377, "baseline_second": 0.391022},
+        {"baseline_first": 0.390998, "candidate_first": 0.623301, "candidate_second": 0.623393, "baseline_second": 0.391039},
+        {"baseline_first": 0.391060, "candidate_first": 0.623290, "candidate_second": 0.623283, "baseline_second": 0.390996}
+      ],
+      "baseline_median_ms": 0.390997,
+      "candidate_median_ms": 0.623302,
+      "speedup": 0.627300,
+      "candidate_latency_increase_percent": 59.413499,
+      "candidate_passes_slower": 10,
+      "candidate_passes_total": 10,
+      "all_candidate_passes_slower": true,
+      "all_five_rounds_candidate_faster": false,
+      "all_rounds_faster": false,
+      "timing_bitwise": true,
+      "gate": "fail"
+    },
+    "row8": {
+      "rounds_ms_per_launch": [
+        {"baseline_first": 0.391060, "candidate_first": 0.519925, "candidate_second": 0.519788, "baseline_second": 0.391046},
+        {"baseline_first": 0.391081, "candidate_first": 0.519866, "candidate_second": 0.519929, "baseline_second": 0.390986},
+        {"baseline_first": 0.390988, "candidate_first": 0.519875, "candidate_second": 0.519832, "baseline_second": 0.390954},
+        {"baseline_first": 0.391009, "candidate_first": 0.519874, "candidate_second": 0.519800, "baseline_second": 0.390996},
+        {"baseline_first": 0.390994, "candidate_first": 0.519732, "candidate_second": 0.519828, "baseline_second": 0.390993}
+      ],
+      "baseline_median_ms": 0.390995,
+      "candidate_median_ms": 0.519849,
+      "speedup": 0.752132,
+      "candidate_latency_increase_percent": 32.955409,
+      "candidate_passes_slower": 10,
+      "candidate_passes_total": 10,
+      "all_candidate_passes_slower": true,
+      "all_five_rounds_candidate_faster": false,
+      "all_rounds_faster": false,
+      "timing_bitwise": true,
+      "gate": "fail"
+    },
+    "selected": "none",
+    "overall_gate": "fail"
+  },
+  "sass_audit": {
+    "method": "cuobjdump exact Function section extraction; each retained 64-bit encoding word is normalized to one lowercase 0x-prefixed hexadecimal line before SHA-256; instruction_count is word_count divided by two",
+    "production_row4": {
+      "normalized_encoding_sha256": "a2e442b6c6f376fff44cb6a11d7f75606f1ab39ee112c296229e817398b9477e",
+      "instruction_count": 1416,
+      "matches_base_head": true
+    },
+    "production_row8": {
+      "normalized_encoding_sha256": "a91e5113444940c3781c6c92eed7572ea2c7b1486d21b41ba646580843eaba90",
+      "instruction_count": 1680,
+      "matches_base_head": true
+    },
+    "candidate_row4": {
+      "normalized_encoding_sha256": "48c9b67c2d46d35f1aaec8b9d57a196035f267b91c9f2b3c7a178d8dc3c43d17",
+      "instruction_count": 1432
+    },
+    "candidate_row8": {
+      "normalized_encoding_sha256": "951da0a821d18d3462b951b4e1072bf82a4584f34005aa4de938f16bf8feee52",
+      "instruction_count": 1696
+    },
+    "production_identity_gate": "pass"
+  },
+  "stop_loss": {
+    "reason": "Both branches are bitwise exact but materially slower than production row8. Row4 reaches 0.627300x and row8 reaches 0.752132x; all ten candidate passes for each branch are slower and neither approaches the required 1.20x median gate.",
+    "candidate_ncu_run": false,
+    "candidate_nsys_run": false,
+    "end_to_end_model_run": false,
+    "reason_no_profiler_or_model_run": "The mandatory same-binary micro gate failed before profiler or end-to-end qualification; neither later stage could promote the candidate.",
+    "candidate_removed": true,
+    "production_policy": "retain the production eight-row lane-striped GDN path",
+    "rejected_family": "direct row-major BF16 shared-resident GDN state",
+    "reopen_condition": "only reopen GDN state residency with a materially different bank-friendly packed layout or new measured evidence that changes the ceiling",
+    "next_mainline": "productionize the independently gated Decode FP8 QKV/Z reduction-scratch ping-pong candidate and run whole-model validation"
+  },
+  "interpretation": {
+    "bounded_conclusion": "Removing token-to-token global state traffic is insufficient when the direct row-major shared-state access pattern and lower residency make both resident branches slower.",
+    "causality_limit": "No candidate NCU report was collected after the hard micro gate failed, so bank conflicts and occupancy are design-level hypotheses rather than measured stall attribution.",
+    "decision": "Stop direct BF16 shared-resident state work and require a bank-friendly packed layout before any future GDN residency probe."
+  },
+  "removal_validation": {
+    "scope": "CMakeLists.txt, src/kernels/reference/gdn_decode.cu, tests/gdn_decode_cuda_test.cu, and the removed test-only candidate translation unit",
+    "scoped_files_match_base_head": true,
+    "candidate_translation_unit_absent": true,
+    "whole_worktree_clean_claimed": false,
+    "note": "Independent Decode QKV/Z work remains in other files and is outside this rejection cleanup."
+  },
+  "limitations": [
+    "one unlocked-clock Jetson AGX Orin and one CUDA software stack",
+    "same-binary M16 kernel screening rather than TTFT, Decode throughput, or serving throughput",
+    "deterministic synthetic GDN inputs and state rather than a checkpoint-derived state trajectory",
+    "no candidate Nsight Compute or Nsight Systems profile because the mandatory micro gate failed",
+    "no end-to-end model run because the mandatory micro gate failed",
+    "the result rejects this direct row-major BF16 shared-state layout, not every packed or bank-aware state-residency design"
+  ]
+}

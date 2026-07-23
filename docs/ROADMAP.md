@@ -151,6 +151,12 @@ Deliverables:
   ordered `[10240,5120]` and `[6144,5120]` matrices, with independent
   fallbacks for C2..C16, near-miss shapes, other backends, and insufficient
   alignment.
+- [done, production promotion] Two-slot `float[2][4][8]` CTA-local QKV/Z
+  reduction-scratch ping-pong, preserving the per-body producer barrier and
+  1,536/768 topology while removing the tail barrier. Exhaustive code/race,
+  replay, Graph, resource, frozen actual/stress, and P19/P64/P513 B-C-C-B gates
+  pass. This is an intra-kernel scratch pipeline, not systemwide double/triple
+  buffering or Prefill/Decode overlap.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 down projection for
   `[5120,17408]`, retaining the direct XOR test baseline plus scalar and
   near-miss fallbacks.
@@ -465,15 +471,34 @@ removed without a production-dispatch change; no actual checkpoint payload,
 candidate NCU, or end-to-end run was used. See the
 [full-product-table rejection record](metadata/qwen36-27b-nvfp4-m1-full-product-table-rejection.json).
 
-The current priority stops the full-product-table family. The completed design
-gate selects Prefill GDN M16 shared-resident BF16 state as the main line,
-directly against production row8 and with row4/row8 resident branches under
-explicit resource and performance stop-loss gates. Decode FP8 QKV/Z
-reduction-scratch ping-pong is a lower-effort independent quick screen that may
-run in parallel but does not block the main line. Neither candidate is
-implemented yet. Wider raw-weight prefetch, general double/triple buffering,
-and multi-request scheduling remain stopped unless new evidence changes their
-ceiling.
+The Prefill GDN M16 shared-resident BF16 state screen is now closed and
+rejected. Its row4 and row8 test-only branches pass exact output/state,
+in-place/disjoint, replay, C8+C8, Graph, canary, input-preservation, and resource
+gates, but the hardened 24-bank B-C-C-B screen reaches only 0.627300x and
+0.752132x against production row8 and the required 1.20x gate. Every candidate
+pass is slower. The candidates and build/test wiring were removed, production
+row8 remains selected, and no candidate NCU or end-to-end run was warranted.
+See the
+[GDN shared-resident rejection record](metadata/qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection.json).
+
+The independently passed Decode FP8 QKV/Z reduction-scratch ping-pong is now
+productionized. Its frozen actual-checkpoint and stress cells reach 1.02407x
+and 1.00697x, exact P19/P64/P513 B-C-C-B contracts pass, and all three averaged
+whole-model totals improve. The promoted two-slot scratch lives only inside
+one CTA/kernel; the overall runner remains dependency-serialized and is not a
+general double- or triple-buffered system. See the
+[QKV/Z reduction-scratch promotion record](metadata/qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark.json).
+
+The immediate main line is phase-local kernel and dispatch optimization through
+the completed logical Prefill/Decode plan seam. Batch-one single-request
+Prefill and Decode are causally serial, and the measured phase trace exposes no
+useful general-buffering idle window. Independent executors and queues remain a
+future multi-request continuous-batching design item, after ownership,
+KV/state/workspace lifetime, handoff, fairness, TTFT, inter-token, tail-latency,
+cancellation, and memory gates are explicit. Double/triple buffers should be
+evaluated only inside that cross-kernel/stream dependency model. Direct
+row-major BF16 shared-resident GDN state and wider raw-weight prefetch remain
+stopped unless materially new evidence changes their ceilings.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
