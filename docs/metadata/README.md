@@ -279,6 +279,14 @@ The diagnostic Phase 3 records are:
   production SASS, two consistently regressing full-shape synthetic cells, the
   static-instruction interpretation, removal of all candidate code, and the
   explicit absence of a production-dispatch change.
+- [`qwen36-27b-nvfp4-m1-full-product-table-rejection.json`](qwen36-27b-nvfp4-m1-full-product-table-rejection.json),
+  which records the rejected test-only Decode M1 canonical full-product-table
+  candidate for the fused residual/norm/gate/up/SiLU hotspot. Corrected
+  synthetic checkpoint-like and same-bank screens reach only 0.656836x and
+  0.615217x despite bitwise full-path, replay, canary, graph, and resource
+  gates. The record freezes candidate/clean binary identities, static-SASS
+  attribution and its no-NCU limit, host/SM87 NaN-canonicalization boundaries,
+  complete candidate removal, and unchanged production dispatch.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

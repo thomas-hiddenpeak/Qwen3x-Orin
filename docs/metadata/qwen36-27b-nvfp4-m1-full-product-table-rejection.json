@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-full-product-table-rejection",
+  "status": "rejected-test-only-decode-m1-full-product-table-candidate",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "dcab3d355baa07d3d56dd1a12c0e4799acc9bca3",
+    "base_subject": "docs: record long-context attention score promotion",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted test-only additions on base_head",
+    "candidate_retained": false,
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "project_version": "0.2.0",
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-m1-full-product-table-rejection-dcab3d3/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4667016,
+      "sha256": "e5e29c50a008fe35463d045c79e3a82846e188b52b49184d1c4c17e8030b86d9",
+      "gnu_build_id": "9e61698f01df89936a7aeea4081100881931dc3b",
+      "checked_in": false,
+      "retained_local_evidence": true
+    },
+    "clean_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 4528992,
+      "sha256": "92d7e7dfc554d30be9c1c5a1e34730fcc84f2b96dadc6377a328b6597197d2f6",
+      "gnu_build_id": "da2daccfed01d635fa480eb5b298faa6658c9ff0",
+      "checked_in": false,
+      "source_tree": "exact base_head after candidate removal"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "clocks_locked": false,
+    "clock_note": "The mirrored B-C-C-B measurements are an unlocked-clock bounded screening gate, not a release-grade latency claim."
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "weight_encoding": "NVFP4",
+    "activation_and_output_dtype": "BF16",
+    "scope": "only the fused residual-add plus centered-RMSNorm plus gate/up plus SiLU production hotspot",
+    "selected_shape_n_by_k": [17408, 5120],
+    "baseline_entry": "public production residual_norm_gate_up_silu dispatcher",
+    "candidate_entry": "test-only exact phase clone with a canonical full product table",
+    "production_dispatch_ever_selected_candidate": false,
+    "table": {
+      "logical_layout": "uint16[scale_code * 16 + nvfp4_nibble]",
+      "logical_entries": 4096,
+      "storage": "uint32[2048]",
+      "bytes": 8192,
+      "initialization": "256 threads times 8 passes, writing adjacent uint16 products",
+      "lookup": "direct shared uint16 lookup in the projection phases",
+      "phase_disjoint_union": "the 8,192-byte table aliases the earlier 256-float norm scratch after the norm phase",
+      "activation_shared_bytes": 10240,
+      "total_static_shared_bytes": 18432
+    }
+  },
+  "correctness_and_contract": {
+    "exhaustive_table_dump": {
+      "logical_entries": 4096,
+      "finite_entries": 4064,
+      "finite_bitwise_mismatches": 0,
+      "nan_entries": 32,
+      "nan_class_mismatches": 0,
+      "nan_sign_differences": 16,
+      "nan_payload_differences": 32,
+      "guards_intact": true,
+      "null_output_rejected": true,
+      "odd_uint16_output_rejected": true,
+      "gate": "pass"
+    },
+    "nan_reference_limit": "Host multiplication is not a raw-bit oracle for SM87 FMUL NaN canonicalization. The dump therefore gates finite results bitwise and NaNs by class/count; sign and payload differences are diagnostic only.",
+    "bounded_full_path": {
+      "shape_n_by_k": [2048, 512],
+      "fixtures": [
+        {
+          "name": "checkpoint_like",
+          "residual_mismatches": 0,
+          "residual_values": 512,
+          "gate_mismatches": 0,
+          "gate_values": 2048,
+          "up_mismatches": 0,
+          "up_values": 2048,
+          "replay_mismatches": 0,
+          "replay_values": 4608,
+          "guards_intact": true,
+          "inputs_preserved": true
+        },
+        {
+          "name": "same_bank_stress",
+          "residual_mismatches": 0,
+          "residual_values": 512,
+          "gate_mismatches": 0,
+          "gate_values": 2048,
+          "up_mismatches": 0,
+          "up_values": 2048,
+          "replay_mismatches": 0,
+          "replay_values": 4608,
+          "guards_intact": true,
+          "inputs_preserved": true
+        },
+        {
+          "name": "signed_nan_scale_codes",
+          "residual_mismatches": 0,
+          "residual_values": 512,
+          "gate_mismatches": 0,
+          "gate_values": 2048,
+          "up_mismatches": 0,
+          "up_values": 2048,
+          "matching_nan_values": 6,
+          "target_nan_class_and_sign": true,
+          "replay_mismatches": 0,
+          "replay_values": 4608,
+          "guards_intact": true,
+          "inputs_preserved": true
+        }
+      ],
+      "production_vs_candidate_bitwise_is_authoritative_for_nan_paths": true,
+      "gate": "pass"
+    },
+    "graph_identity": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "grid_x": 64,
+      "block_x": 256,
+      "dynamic_shared_bytes": 0,
+      "functions_distinct": true,
+      "gate": "pass"
+    },
+    "candidate_specific_invalid_graph": {
+      "cases": 1,
+      "case": "misaligned BF16 residual-left pointer",
+      "status": "cudaErrorInvalidValue",
+      "enqueued_nodes": 0,
+      "gate": "pass"
+    },
+    "exact_full_shape": [
+      {
+        "distribution": "synthetic_checkpoint_like",
+        "actual_payload": false,
+        "mismatches": 0,
+        "finite": true,
+        "guards_intact": true,
+        "replay_exact_after_repoison": true,
+        "replay_guards_intact": true,
+        "gate": "pass"
+      },
+      {
+        "distribution": "same_bank_stress",
+        "actual_payload": false,
+        "mismatches": 0,
+        "finite": true,
+        "guards_intact": true,
+        "replay_exact_after_repoison": true,
+        "replay_guards_intact": true,
+        "gate": "pass"
+      }
+    ]
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 18432,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "candidate_gate": "pass"
+  },
+  "performance_protocol": {
+    "selected_hotspot_only": true,
+    "shape_n_by_k": [17408, 5120],
+    "data_distributions": [
+      "synthetic_checkpoint_like",
+      "same_bank_stress"
+    ],
+    "actual_checkpoint_payload_used": false,
+    "warmup_launches_per_route": 10,
+    "round_order": "B-C-C-B",
+    "rounds": 4,
+    "launches_per_pass": 64,
+    "summary_statistic": "median of eight per-launch pass averages",
+    "minimum_selected_speedup": 1.03,
+    "minimum_each_cell_speedup": 1.0
+  },
+  "performance": [
+    {
+      "distribution": "synthetic_checkpoint_like",
+      "actual_payload": false,
+      "rounds_ms_per_launch": [
+        {"baseline_first": 0.614509, "candidate_first": 0.935427, "candidate_second": 0.935577, "baseline_second": 0.614241},
+        {"baseline_first": 0.614591, "candidate_first": 0.935291, "candidate_second": 0.935603, "baseline_second": 0.614434},
+        {"baseline_first": 0.614404, "candidate_first": 0.935256, "candidate_second": 0.935637, "baseline_second": 0.614399},
+        {"baseline_first": 0.614655, "candidate_first": 0.935328, "candidate_second": 0.936190, "baseline_second": 0.618631}
+      ],
+      "baseline_median_ms": 0.614472,
+      "candidate_median_ms": 0.935502,
+      "speedup": 0.656836,
+      "candidate_latency_increase_percent": 52.244854,
+      "all_candidate_passes_slower": true,
+      "gate": "fail"
+    },
+    {
+      "distribution": "same_bank_stress",
+      "actual_payload": false,
+      "rounds_ms_per_launch": [
+        {"baseline_first": 0.618387, "candidate_first": 1.004980, "candidate_second": 1.005370, "baseline_second": 0.618319},
+        {"baseline_first": 0.618574, "candidate_first": 1.005080, "candidate_second": 1.005400, "baseline_second": 0.618456},
+        {"baseline_first": 0.618593, "candidate_first": 1.005020, "candidate_second": 1.004920, "baseline_second": 0.618308},
+        {"baseline_first": 0.618487, "candidate_first": 1.005340, "candidate_second": 1.005510, "baseline_second": 0.618188}
+      ],
+      "baseline_median_ms": 0.618422,
+      "candidate_median_ms": 1.005210,
+      "speedup": 0.615217,
+      "candidate_latency_increase_percent": 62.544347,
+      "all_candidate_passes_slower": true,
+      "gate": "fail"
+    }
+  ],
+  "sass_audit": {
+    "method": "cuobjdump exact Function section extraction; each retained 64-bit encoding word is normalized to one lowercase hexadecimal line before SHA-256; instruction_count is word_count divided by two",
+    "production_section": {
+      "specialization": "residual_norm_gate_up_silu<17408,5120,true>",
+      "encoding_words": 2688,
+      "instruction_count": 1344,
+      "normalized_encoding_sha256_in_candidate_binary": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a",
+      "normalized_encoding_sha256_in_clean_binary": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a",
+      "identity_gate": "pass"
+    },
+    "candidate_section": {
+      "specialization": "full_product_table_test<17408,5120>",
+      "encoding_words": 3040,
+      "instruction_count": 1520,
+      "normalized_encoding_sha256": "1407eb1150b052bfb527b3ac7bd195c9abcf4702662be6a5cfb1b82d99674a3a"
+    },
+    "whole_section_opcode_counts": {
+      "production": {"FFMA": 101, "FADD": 76, "FMUL": 81, "LDS": 87, "LDS_plain": 80, "LDS_128": 2, "LDS_U16": 5, "HFMA2": 0, "PRMT": 3, "IMAD": 217},
+      "candidate": {"FFMA": 101, "FADD": 76, "FMUL": 19, "LDS": 79, "LDS_plain": 8, "LDS_128": 2, "LDS_U16": 69, "HFMA2": 2, "PRMT": 3, "IMAD": 373}
+    },
+    "hot_projection_loop": {
+      "production_instructions": 393,
+      "candidate_instructions": 531,
+      "candidate_instruction_increase": 138,
+      "unchanged_FFMA": 64,
+      "unchanged_global_loads": 12,
+      "removed_FMUL": 64,
+      "removed_LDS": 8,
+      "added_IMAD_SHL": 100,
+      "added_IMAD_U32": 61,
+      "added_LOP3": 38,
+      "HFMA2": 0
+    },
+    "interpretation": "The direct table removes scalar multiply and shared-load work, but product-table addressing, index construction, and BF16 expansion add a longer integer dependency chain. The candidate section's two HFMA2 instructions are outside the product projection hot loop in constant-materialization/control code; the hot loop has zero HFMA2, so this is not the earlier factorized HFMA2 chain. The extra integer work is a plausible static explanation for the measured regression.",
+    "causality_limit": "This is a static-SASS inference. No matched candidate Nsight Compute profile was collected."
+  },
+  "decision": {
+    "result": "reject",
+    "selected_gate": "fail",
+    "reason": "Both corrected synthetic full-shape cells regress decisively: 0.656836x and 0.615217x. They fail the 1.03 selected-hotspot gate and the 1.00 per-cell non-regression gate, with every mirrored candidate pass slower.",
+    "candidate_code_removed": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "candidate_nsight_compute_run": false,
+    "end_to_end_run": false,
+    "stop_loss": "Stop the Decode M1 full-product-table family unless materially new evidence changes the implementation ceiling.",
+    "next_priority": "The completed design gate selects Prefill GDN M16 shared-resident BF16 state as the main line, directly against production row8 and with row4/row8 resident branches under explicit resource and performance stop-loss gates. Decode FP8 QKV/Z reduction-scratch ping-pong is a lower-effort independent quick screen that may run in parallel but does not block the main line. Neither candidate is implemented yet."
+  },
+  "removal_validation": {
+    "candidate_source_and_test_hooks_removed": true,
+    "kernel_source_sha256": "98bea4442c0a8b9b0eec09568531413023c55347bf12d8bb6dcbda2cecf39bf7",
+    "kernel_source_matches_base_head": true,
+    "test_source_sha256": "ae9234480382563574f84a876a2f87bb28c14ad553f9cd3741e9ffe42f0ccd74",
+    "test_source_matches_base_head": true,
+    "scoped_git_diff_exit_code": 0,
+    "worktree_status_after_removal": "clean",
+    "release_target_rebuild": "pass",
+    "default_device_test": "pass",
+    "production_runtime_restored": true
+  },
+  "limitations": [
+    "Both timing fixtures are synthetic and are explicitly logged with actual_payload=false. No actual checkpoint tensor payload was used, so this is not actual-checkpoint promotion evidence.",
+    "The timing is a same-binary selected-kernel screen, not a model, TTFT, Decode-throughput, serving, power, or energy benchmark.",
+    "No candidate Nsight Compute or end-to-end run was performed after the mandatory micro gate failed.",
+    "GPU and memory clocks were not locked.",
+    "The exhaustive host table reference cannot require raw NaN sign or payload identity across host arithmetic and SM87 FMUL canonicalization; authoritative nonfinite evidence is the production-versus-candidate full-path bitwise comparison.",
+    "The candidate-specific invalid Graph check covered the selected misaligned BF16 input. It was not expanded into a new full candidate-only invalid corpus after rejection.",
+    "Static SASS supports an implementation-level hypothesis only; without matched NCU it is not counter-based causal attribution.",
+    "The candidate never entered production dispatch, and every candidate implementation, ABI, environment hook, and test hook was removed."
+  ],
+  "artifacts": [
+    {"role": "candidate target identity confirmation log", "local_path": "/tmp/q3x-m1-full-product-corrected-build.log", "bytes": 112, "sha256": "75dcf70cec3fb9f1058097c569526be1b294308ecd08a5d27d03c39e571a630a", "checked_in": false, "result": "pass"},
+    {"role": "candidate default correctness/resource log", "local_path": "/tmp/q3x-m1-full-product-corrected-default.log", "bytes": 49081, "sha256": "a3dbcc93d13d89033be788432653be6327e7fdb44ebc9a2d0ff534a4496807d7", "checked_in": false, "result": "pass"},
+    {"role": "corrected selected-hotspot performance rejection log", "local_path": "/tmp/q3x-m1-full-product-corrected-perf.log", "bytes": 51842, "sha256": "59f3fe7b864f31562d9fd9511844b90f787673a5f1b172c3f647b3351e4e1ae3", "checked_in": false, "result": "expected single performance rejection assertion"},
+    {"role": "post-removal Release target build log", "local_path": "/tmp/q3x-m1-full-product-cleanup-build.log", "bytes": 430, "sha256": "98c1fd9248830578355babc0cc53cbb126f7239eb33862c2314cf9306ca85652", "checked_in": false, "result": "pass"},
+    {"role": "post-removal default device-test log", "local_path": "/tmp/q3x-m1-full-product-cleanup-default.log", "bytes": 47122, "sha256": "2133a8d24a848fca2c655a74e58390420c427549d524b6be4bd0b8c1303ade5c", "checked_in": false, "result": "pass"},
+    {"role": "candidate normalized SASS encodings", "local_path": "/tmp/q3x-m1-full-product-table-rejection-dcab3d3/candidate-full-table.encoding64.normalized", "bytes": 57760, "sha256": "1407eb1150b052bfb527b3ac7bd195c9abcf4702662be6a5cfb1b82d99674a3a", "checked_in": false},
+    {"role": "production comparator normalized SASS encodings", "local_path": "/tmp/q3x-m1-full-product-table-rejection-dcab3d3/production-fused.encoding64.normalized", "bytes": 51072, "sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a", "checked_in": false}
+  ]
+}

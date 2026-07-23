@@ -185,6 +185,11 @@ Deliverables:
   synthetic gates passed, but the representative whole-model result reached
   only 1.007059x against the required 1.01x, so production retains serial
   M17-M31/M18 scheduling and the existing M32-only auxiliary stream.
+- [measured and rejected] Replace Decode M1 NVFP4 scale/nibble multiplication
+  with a canonical 8-KiB full-product table in the exact fused
+  residual/norm/gate/up/SiLU hotspot. Corrected synthetic screens reach only
+  0.656836x and 0.615217x; the candidate was removed and production is
+  unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -452,13 +457,23 @@ and production remains serial for M17/M19-M31 and fixed M18 while preserving
 the existing M32-only auxiliary-stream route. See the
 [raw-weight cp.async rejection record](metadata/qwen36-27b-nvfp4-m17-m31-gate-up-raw-weight-cp-async-rejection.json).
 
-The next priority is now a trace-backed architecture study of the full
-Prefill/Decode phase timeline and scheduler. It must quantify same-request
-dependencies, CPU/GPU synchronization and idle time, and overlap available
-across requests, streams, copy engines, and continuous-batching boundaries.
-Only a material measured ceiling should advance a minimal phase-separation or
-overlap experiment. Wider raw-weight prefetch and general double/triple
-buffering remain stopped unless new evidence changes that ceiling.
+The subsequent Decode M1 canonical full-product-table screen is also closed.
+Its exact fused residual/norm/gate/up/SiLU path passes bitwise, replay, canary,
+graph, and resource gates, but corrected synthetic checkpoint-like and
+same-bank measurements reach only 0.656836x and 0.615217x. The candidate was
+removed without a production-dispatch change; no actual checkpoint payload,
+candidate NCU, or end-to-end run was used. See the
+[full-product-table rejection record](metadata/qwen36-27b-nvfp4-m1-full-product-table-rejection.json).
+
+The current priority stops the full-product-table family. The completed design
+gate selects Prefill GDN M16 shared-resident BF16 state as the main line,
+directly against production row8 and with row4/row8 resident branches under
+explicit resource and performance stop-loss gates. Decode FP8 QKV/Z
+reduction-scratch ping-pong is a lower-effort independent quick screen that may
+run in parallel but does not block the main line. Neither candidate is
+implemented yet. Wider raw-weight prefetch, general double/triple buffering,
+and multi-request scheduling remain stopped unless new evidence changes their
+ceiling.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical

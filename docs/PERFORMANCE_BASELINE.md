@@ -3186,3 +3186,66 @@ multi-request phase scheduling remains later architecture work with explicit
 KV-memory, fairness, TTFT, inter-token, and tail-latency gates. Exact binaries,
 raw rows, report hashes, contracts, warnings, and claim limits are in the
 [warp-position benchmark record](metadata/qwen36-27b-prefill-attention-score-warp-positions-benchmark.json).
+
+## Decode M1 NVFP4 full-product-table rejection
+
+The first Decode projection screen after the attention promotion tested only
+the exact `[17408,5120]` residual-add/centered-RMSNorm/gate/up/SiLU hotspot. A
+test-only phase clone initialized a canonical 4,096-entry BF16 product table,
+indexed as `table[scale_code * 16 + nvfp4_nibble]`, then replaced dynamic
+scale/nibble multiplication with direct shared `uint16` lookup. The 8,192-byte
+table reused the earlier 256-float norm scratch phase and coexisted with the
+10,240-byte activation stage, for 18,432 bytes of static shared memory. The
+candidate never entered the public selector, production dispatch, or headers.
+
+Correctness and resource gates pass. The exhaustive table dump has zero
+finite-bit mismatches across 4,064 finite entries and zero NaN-class
+mismatches across 32 NaNs. Host arithmetic is not a raw-bit oracle for SM87
+FMUL NaN canonicalization: the observed 16 sign and 32 payload differences are
+diagnostic, while the authoritative bounded production-versus-candidate
+full-path fixture is bitwise exact, including signed-NaN scale codes. The
+checkpoint-like, same-bank, and signed-NaN bounded fixtures have zero residual,
+gate, up, and replay mismatches, intact canaries, and preserved inputs. Exact
+full-shape replay after a different poison also passes for both timed fixtures.
+The candidate retains 64 registers, zero local memory, 256 threads, and four
+active CTAs/SM, while static shared memory grows from production's 11,328 bytes
+to 18,432 bytes.
+
+The corrected screen uses synthetic data only (`actual_payload=false`), 10
+warmups, 64 launches per pass, four B-C-C-B rounds, and the median of eight
+per-launch pass averages. Every candidate pass is slower:
+
+| Synthetic fixture | Production | Full table | Speedup | Candidate latency |
+| --- | ---: | ---: | ---: | ---: |
+| Checkpoint-like | 0.614472 ms | 0.935502 ms | 0.656836x | +52.244854% |
+| Same-bank stress | 0.618422 ms | 1.005210 ms | 0.615217x | +62.544347% |
+
+Both cells fail the required 1.00x non-regression gate, and the selected cell
+also fails its 1.03x promotion gate. These corrected values supersede the
+earlier preliminary fixture run; no actual checkpoint payload, model, TTFT,
+Decode-throughput, NCU, or end-to-end claim is attached to this rejection.
+
+Static SASS gives a bounded implementation hypothesis, not NCU causality. The
+full candidate section grows from 1,344 to 1,520 instructions. Its hot
+projection loop grows from 393 to 531 instructions: removing 64 `FMUL` and
+eight `LDS` while leaving 64 `FFMA` and 12 global loads unchanged adds 100
+`IMAD.SHL`, 61 `IMAD.U32`, and 38 `LOP3` instructions for table addressing,
+index construction, and BF16 expansion. The candidate section's two `HFMA2`
+instructions sit outside this hot loop in constant/control code; the product
+projection loop itself has none and is not the earlier factorized `HFMA2`
+chain. Production's normalized section hash is
+unchanged between candidate and clean binaries. The failed hard gate therefore
+triggered stop-loss before candidate NCU or end-to-end evaluation.
+
+All candidate implementation, ABI, environment, and test hooks were removed.
+The kernel and test sources match base HEAD `dcab3d3` byte-for-byte, the clean
+Release target rebuilds, and the default device test passes. This stops the
+full-product-table family unless materially new evidence changes its ceiling.
+The completed design gate selects Prefill GDN M16 shared-resident BF16 state as
+the main line, directly against production row8 and with row4/row8 resident
+branches under explicit resource and performance stop-loss gates. Decode FP8
+QKV/Z reduction-scratch ping-pong is a lower-effort independent quick screen
+that may run in parallel but does not block the main line. Neither candidate is
+implemented yet. Exact binaries, mirrored rows, log hashes, SASS hashes,
+removal proof, and limitations are in the
+[full-product-table rejection record](metadata/qwen36-27b-nvfp4-m1-full-product-table-rejection.json).
