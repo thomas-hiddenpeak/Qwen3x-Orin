@@ -622,6 +622,10 @@ launch_sm87_nvfp4_factorized_product_lookup_exhaustive_test_cuda(
     std::uint32_t* factorized, std::uint32_t* reference,
     void* cuda_stream = nullptr) noexcept;
 
+[[nodiscard]] int launch_sm87_nvfp4_table_free_e2m1_exhaustive_test_cuda(
+    std::uint32_t* candidate, std::uint32_t* reference,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda(
     std::size_t rows, std::size_t columns, int* registers_per_thread,
@@ -663,6 +667,19 @@ launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_c
 
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda(
     std::size_t rows, std::size_t columns, int* registers_per_thread,
     std::size_t* static_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
@@ -5369,6 +5386,13 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m32_wmma_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m32_table_free_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M32_TABLE_FREE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -17570,6 +17594,99 @@ void run_nvfp4_factorized_product_lookup_exhaustive(TestContext& test,
               label + " matches every product-table BF16 bit");
 }
 
+void run_nvfp4_table_free_e2m1_exhaustive(TestContext& test,
+                                           cudaStream_t stream) {
+  constexpr std::size_t kScaleCodes = 256U;
+  constexpr std::size_t kPackedBytes = 256U;
+  constexpr std::size_t kPackedBytePositions = 4U;
+  constexpr std::size_t kCombinations =
+      kScaleCodes * kPackedBytes * kPackedBytePositions;
+  DeviceBuffer<std::uint32_t> candidate_device;
+  DeviceBuffer<std::uint32_t> reference_device;
+  const std::string label = "NVFP4 table-free E2M1 exhaustive";
+  bool ready = test.cuda_ok(candidate_device.allocate(kCombinations),
+                            label + " allocate candidate output");
+  ready = ready && test.cuda_ok(reference_device.allocate(kCombinations),
+                                label + " allocate reference output");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           launch_sm87_nvfp4_table_free_e2m1_exhaustive_test_cuda(
+                               candidate_device.get(), reference_device.get(),
+                               static_cast<void*>(stream))),
+                       label + " launch");
+  std::vector<std::uint32_t> candidate(kCombinations);
+  std::vector<std::uint32_t> reference(kCombinations);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_device.get(),
+                           candidate.size() * sizeof(std::uint32_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           reference.data(), reference_device.get(),
+                           reference.size() * sizeof(std::uint32_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy reference output");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t word_mismatches = 0U;
+  std::size_t half_mismatches = 0U;
+  std::size_t first_mismatch = kCombinations;
+  for (std::size_t index = 0U; index < kCombinations; ++index) {
+    if (candidate[index] != reference[index]) {
+      ++word_mismatches;
+      first_mismatch = std::min(first_mismatch, index);
+    }
+    half_mismatches +=
+        static_cast<std::uint16_t>(candidate[index]) !=
+                static_cast<std::uint16_t>(reference[index])
+            ? 1U
+            : 0U;
+    half_mismatches +=
+        static_cast<std::uint16_t>(candidate[index] >> 16U) !=
+                static_cast<std::uint16_t>(reference[index] >> 16U)
+            ? 1U
+            : 0U;
+  }
+  constexpr std::size_t kOneScaleCode = 0x38U;
+  constexpr std::size_t kNegativeZeroPair = 0x88U;
+  bool signed_zero_preserved = true;
+  for (std::size_t position = 0U; position < kPackedBytePositions;
+       ++position) {
+    const std::size_t index =
+        (kOneScaleCode * kPackedBytes + kNegativeZeroPair) *
+            kPackedBytePositions +
+        position;
+    signed_zero_preserved =
+        signed_zero_preserved && candidate[index] == 0x8000'8000U &&
+        reference[index] == 0x8000'8000U;
+  }
+  std::cout << "NVFP4_TABLE_FREE_E2M1_DIFF: combinations="
+            << kCombinations << " word_mismatches=" << word_mismatches
+            << " half_mismatches=" << half_mismatches
+            << " signed_zero_all_positions="
+            << (signed_zero_preserved ? "true" : "false");
+  if (first_mismatch != kCombinations) {
+    const std::size_t pair_index =
+        first_mismatch / kPackedBytePositions;
+    std::cout << " first_scale_code=" << pair_index / kPackedBytes
+              << " first_packed_byte=" << pair_index % kPackedBytes
+              << " first_byte_position="
+              << first_mismatch % kPackedBytePositions << " first_reference=0x"
+              << std::hex << reference[first_mismatch]
+              << " first_candidate=0x" << candidate[first_mismatch]
+              << std::dec;
+  }
+  const bool gate = word_mismatches == 0U && signed_zero_preserved;
+  std::cout << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, label + " matches all four PRMT output positions");
+}
+
 void run_nvfp4_m32_candidate_smoke(
     TestContext& test, cudaStream_t stream,
     const DeviceBuffer<std::uint8_t>& packed,
@@ -18132,6 +18249,13 @@ void run_nvfp4_m32_wmma_smoke_case(
       test, stream, packed, scales, activations, baseline, rows, columns,
       kWeightScale2,
       q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda,
+      0x6dU, 0xd6U,
+      distribution_label + " K64/LD72 table-free E2M1");
+  run_nvfp4_m32_candidate_smoke(
+      test, stream, packed, scales, activations, baseline, rows, columns,
+      kWeightScale2,
+      q3x::kernels::
           launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda,
       0x3cU, 0xc3U, distribution_label + " K128/LD136 single-A");
   run_nvfp4_m32_candidate_smoke(
@@ -18172,7 +18296,7 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
     std::size_t expected_static_shared_bytes;
     int minimum_active_blocks;
   };
-  constexpr std::array<Candidate, 8U> kCandidates{{
+  constexpr std::array<Candidate, 9U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda,
@@ -18189,6 +18313,10 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_resources_test_cuda,
        51, 24'576U, 5},
+      {"K64/LD72 table-free E2M1",
+       q3x::kernels::
+           query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda,
+       51, 23'552U, 5},
       {"M18 masked-M32 factorized vector store",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda,
@@ -18275,7 +18403,7 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
     const char* label;
     NvFp4M32TestLaunch launch;
   };
-  constexpr std::array<Candidate, 5U> kCandidates{{
+  constexpr std::array<Candidate, 6U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_test_cuda},
@@ -18288,6 +18416,9 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
       {"K64/LD72 factorized vector store",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda},
+      {"K64/LD72 table-free E2M1",
+       q3x::kernels::
+           launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda},
       {"K128/LD136 single-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda},
@@ -20057,6 +20188,836 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
               "the weighted factorized-relative gate");
 }
 
+struct NvFp4M32TableFreeCellMeasurement {
+  double production_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  bool bitwise_equal = false;
+  bool output_finite = false;
+};
+
+struct NvFp4M32TableFreeShapeMeasurement {
+  std::array<NvFp4M32TableFreeCellMeasurement,
+             kNvFp4M16K128ScaleDistributions.size()>
+      distributions{};
+};
+
+[[nodiscard]] NvFp4M32TableFreeShapeMeasurement
+benchmark_nvfp4_m32_table_free_shape(
+    TestContext& test, cudaStream_t stream,
+    const NvFp4M32WmmaShape& shape) {
+  constexpr std::size_t kTokens = 32U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 4;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  const std::size_t packed_columns = shape.columns / 2U;
+  const std::size_t scale_columns = shape.columns / 16U;
+  const std::size_t output_elements = kTokens * shape.rows;
+  const std::string label = shape.label;
+
+  std::vector<std::uint8_t> host_packed(shape.rows * packed_columns);
+  std::array<bool, 16U> low_nibble_covered{};
+  std::array<bool, 16U> high_nibble_covered{};
+  for (std::size_t row = 0U; row < shape.rows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < packed_columns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * packed_columns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+      low_nibble_covered[low] = true;
+      high_nibble_covered[high] = true;
+    }
+  }
+  test.expect(std::all_of(low_nibble_covered.begin(),
+                          low_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " table-free covers every low-nibble code");
+  test.expect(std::all_of(high_nibble_covered.begin(),
+                          high_nibble_covered.end(),
+                          [](const bool covered) { return covered; }),
+              label + " table-free covers every high-nibble code");
+
+  std::vector<std::uint8_t> host_scales(shape.rows * scale_columns);
+  std::vector<std::uint16_t> host_activations(kTokens * shape.columns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < shape.columns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * shape.columns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> production_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate table-free packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate table-free scales");
+  ready = ready && test.cuda_ok(
+                       activations.allocate(host_activations.size()),
+                       label + " allocate table-free activations");
+  ready = ready && test.cuda_ok(
+                       production_output.allocate(output_elements),
+                       label + " allocate table-free production output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(output_elements),
+                       label + " allocate table-free candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " initialize table-free packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " initialize table-free activations");
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_production = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            shape.rows, shape.columns, production_output.get(),
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            shape.rows, shape.columns, candidate_output.get(),
+            static_cast<void*>(stream));
+  };
+
+  std::vector<std::uint16_t> production(output_elements);
+  std::vector<std::uint16_t> candidate(output_elements);
+  NvFp4M32TableFreeShapeMeasurement shape_measurement{};
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_label =
+        label + " " + nvfp4_m1_scale_distribution_name(distribution);
+    fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        distribution_label + " initialize table-free scales");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_production()),
+                         distribution_label + " correctness production");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         distribution_label + " correctness candidate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             production.data(), production_output.get(),
+                             production.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy production");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate.data(), candidate_output.get(),
+                             candidate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         distribution_label + " copy candidate");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  distribution_label +
+                                      " correctness synchronize");
+    if (!ready) {
+      return shape_measurement;
+    }
+
+    std::size_t mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t index = 0U; index < output_elements; ++index) {
+      mismatches += production[index] != candidate[index] ? 1U : 0U;
+      output_finite = output_finite &&
+                      std::isfinite(decode_bf16(production[index])) &&
+                      std::isfinite(decode_bf16(candidate[index]));
+    }
+    NvFp4M32TableFreeCellMeasurement& measurement =
+        shape_measurement.distributions[distribution_index];
+    measurement.bitwise_equal = mismatches == 0U;
+    measurement.output_finite = output_finite;
+    std::cout << "NVFP4_M32_TABLE_FREE_DIFF: " << label
+              << " distribution="
+              << nvfp4_m1_scale_distribution_name(distribution)
+              << " mismatches=" << mismatches << '/' << output_elements
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << '\n';
+    test.expect(measurement.bitwise_equal,
+                distribution_label + " table-free output is bit-exact");
+    test.expect(output_finite,
+                distribution_label + " table-free output remains finite");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_production()),
+                           distribution_label + " production warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           distribution_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  distribution_label + " warmup synchronize");
+    if (!ready) {
+      return shape_measurement;
+    }
+
+    double production_total = 0.0;
+    double candidate_total = 0.0;
+    bool finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string suffix =
+          distribution_label + " round=" + std::to_string(round + 1);
+      const float production_first = measure_small_m_tile(
+          test, stream, launch_production, kMeasuredIterations,
+          suffix + " production pass 1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          suffix + " candidate pass 1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          suffix + " candidate pass 2");
+      const float production_second = measure_small_m_tile(
+          test, stream, launch_production, kMeasuredIterations,
+          suffix + " production pass 2");
+      const bool round_finite =
+          std::isfinite(production_first) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) &&
+          std::isfinite(production_second);
+      finite = finite && round_finite;
+      if (round_finite) {
+        production_total += production_first + production_second;
+        candidate_total += candidate_first + candidate_second;
+      }
+      std::cout << "PERF_NVFP4_M32_TABLE_FREE_ROUND: " << label
+                << " distribution="
+                << nvfp4_m1_scale_distribution_name(distribution)
+                << " round=" << round + 1
+                << " production_pass1_ms=" << production_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " production_pass2_ms=" << production_second << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    if (finite) {
+      measurement.production_milliseconds = production_total / kTimedPasses;
+      measurement.candidate_milliseconds = candidate_total / kTimedPasses;
+    }
+  }
+  return shape_measurement;
+}
+
+struct NvFp4M32TableFreePairMeasurement {
+  double production_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double minimum_round_speedup =
+      std::numeric_limits<double>::quiet_NaN();
+  bool bitwise_equal = false;
+  bool output_finite = false;
+};
+
+void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
+                                                cudaStream_t stream) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kTokens = 32U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 4;
+  constexpr double kMinimumCellSpeedup = 1.0;
+  constexpr double kMinimumRoundSpeedup = 1.0;
+  constexpr double kMinimumAggregateSpeedup = 1.02;
+
+  std::vector<std::uint8_t> host_gate_packed(kRows * kPackedColumns);
+  std::vector<std::uint8_t> host_up_packed(host_gate_packed.size());
+  for (std::size_t index = 0U; index < host_gate_packed.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 3U + (index >> 5U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 7U) * 3U + 7U) & 0x0fU);
+    host_gate_packed[index] =
+        static_cast<std::uint8_t>(low | (high << 4U));
+    host_up_packed[index] = static_cast<std::uint8_t>(
+        (low ^ 0x09U) | ((high ^ 0x05U) << 4U));
+  }
+  std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
+  std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> production_gate_output;
+  DeviceBuffer<std::uint16_t> production_up_output;
+  DeviceBuffer<std::uint16_t> candidate_gate_output;
+  DeviceBuffer<std::uint16_t> candidate_up_output;
+  bool ready = test.cuda_ok(
+      gate_packed.allocate(host_gate_packed.size()),
+      "table-free pair allocate gate packed weights");
+  ready = ready && test.cuda_ok(
+                       up_packed.allocate(host_up_packed.size()),
+                       "table-free pair allocate up packed weights");
+  ready = ready && test.cuda_ok(
+                       gate_scales.allocate(host_gate_scales.size()),
+                       "table-free pair allocate gate block scales");
+  ready = ready && test.cuda_ok(
+                       up_scales.allocate(host_up_scales.size()),
+                       "table-free pair allocate up block scales");
+  ready = ready && test.cuda_ok(
+                       activations.allocate(host_activations.size()),
+                       "table-free pair allocate activations");
+  ready = ready && test.cuda_ok(
+                       production_gate_output.allocate(kOutputElements),
+                       "table-free pair allocate production gate output");
+  ready = ready && test.cuda_ok(
+                       production_up_output.allocate(kOutputElements),
+                       "table-free pair allocate production up output");
+  ready = ready && test.cuda_ok(
+                       candidate_gate_output.allocate(kOutputElements),
+                       "table-free pair allocate candidate gate output");
+  ready = ready && test.cuda_ok(
+                       candidate_up_output.allocate(kOutputElements),
+                       "table-free pair allocate candidate up output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(gate_packed.get(),
+                                       host_gate_packed.data(),
+                                       host_gate_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       "table-free pair initialize gate packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                                       host_up_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       "table-free pair initialize up packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       "table-free pair initialize activations");
+  if (!ready) {
+    return;
+  }
+
+  cudaStream_t auxiliary_stream = nullptr;
+  cudaEvent_t inputs_ready = nullptr;
+  cudaEvent_t auxiliary_done = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&auxiliary_stream, cudaStreamNonBlocking),
+      "table-free pair create auxiliary stream");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&inputs_ready,
+                                                cudaEventDisableTiming),
+                       "table-free pair create input-ready event");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&auxiliary_done,
+                                                cudaEventDisableTiming),
+                       "table-free pair create auxiliary-done event");
+  const auto cleanup = [&]() {
+    if (stream != nullptr) {
+      (void)test.cuda_ok(cudaStreamSynchronize(stream),
+                         "table-free pair final primary synchronize");
+    }
+    if (auxiliary_stream != nullptr) {
+      (void)test.cuda_ok(
+          cudaStreamSynchronize(auxiliary_stream),
+          "table-free pair final auxiliary synchronize");
+    }
+    if (inputs_ready != nullptr) {
+      (void)test.cuda_ok(cudaEventDestroy(inputs_ready),
+                         "table-free pair destroy input-ready event");
+    }
+    if (auxiliary_done != nullptr) {
+      (void)test.cuda_ok(cudaEventDestroy(auxiliary_done),
+                         "table-free pair destroy auxiliary-done event");
+    }
+    if (auxiliary_stream != nullptr) {
+      (void)test.cuda_ok(cudaStreamDestroy(auxiliary_stream),
+                         "table-free pair destroy auxiliary stream");
+    }
+  };
+  if (!ready) {
+    cleanup();
+    return;
+  }
+
+  const auto launch_one = [&](const bool table_free,
+                              const std::uint8_t* const packed,
+                              const std::uint8_t* const scales,
+                              std::uint16_t* const output,
+                              cudaStream_t const launch_stream) noexcept {
+    if (table_free) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
+              packed, scales, kWeightScale2, activations.get(), kRows,
+              kColumns, output, static_cast<void*>(launch_stream));
+    }
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda(
+            packed, scales, kWeightScale2, activations.get(), kRows,
+            kColumns, output, static_cast<void*>(launch_stream));
+  };
+  const auto launch_pair = [&](const bool table_free) noexcept -> int {
+    std::uint16_t* const gate_output =
+        table_free ? candidate_gate_output.get()
+                   : production_gate_output.get();
+    std::uint16_t* const up_output =
+        table_free ? candidate_up_output.get() : production_up_output.get();
+    cudaError_t status = cudaEventRecord(inputs_ready, stream);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    status = cudaStreamWaitEvent(auxiliary_stream, inputs_ready, 0U);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    int launch_status = launch_one(table_free, gate_packed.get(),
+                                   gate_scales.get(), gate_output, stream);
+    if (launch_status != static_cast<int>(cudaSuccess)) {
+      return launch_status;
+    }
+    launch_status = launch_one(table_free, up_packed.get(), up_scales.get(),
+                               up_output, auxiliary_stream);
+    if (launch_status != static_cast<int>(cudaSuccess)) {
+      return launch_status;
+    }
+    status = cudaEventRecord(auxiliary_done, auxiliary_stream);
+    if (status != cudaSuccess) {
+      return static_cast<int>(status);
+    }
+    return static_cast<int>(
+        cudaStreamWaitEvent(stream, auxiliary_done, 0U));
+  };
+  const auto launch_production_pair = [&]() noexcept -> int {
+    return launch_pair(false);
+  };
+  const auto launch_candidate_pair = [&]() noexcept -> int {
+    return launch_pair(true);
+  };
+
+  std::vector<std::uint16_t> production_gate(kOutputElements);
+  std::vector<std::uint16_t> production_up(kOutputElements);
+  std::vector<std::uint16_t> candidate_gate(kOutputElements);
+  std::vector<std::uint16_t> candidate_up(kOutputElements);
+  std::array<NvFp4M32TableFreePairMeasurement,
+             kNvFp4M16K128ScaleDistributions.size()>
+      measurements{};
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_name =
+        nvfp4_m1_scale_distribution_name(distribution);
+    const std::string cell_label =
+        "NVFP4 M32 table-free gate/up pair " + distribution_name;
+    fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
+                                     distribution);
+    host_up_scales = host_gate_scales;
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        cell_label + " initialize gate scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             up_scales.get(), host_up_scales.data(),
+                             host_up_scales.size(), cudaMemcpyHostToDevice,
+                             stream),
+                         cell_label + " initialize up scales");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_production_pair()),
+                         cell_label + " correctness production pair");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate_pair()),
+                         cell_label + " correctness candidate pair");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             production_gate.data(),
+                             production_gate_output.get(),
+                             production_gate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy production gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             production_up.data(), production_up_output.get(),
+                             production_up.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy production up");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_gate.data(),
+                             candidate_gate_output.get(),
+                             candidate_gate.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy candidate gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_up.data(), candidate_up_output.get(),
+                             candidate_up.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy candidate up");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         cell_label + " correctness synchronize");
+    if (!ready) {
+      cleanup();
+      return;
+    }
+
+    NvFp4M32TableFreePairMeasurement& measurement =
+        measurements[distribution_index];
+    std::size_t gate_mismatches = 0U;
+    std::size_t up_mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t index = 0U; index < kOutputElements; ++index) {
+      gate_mismatches +=
+          production_gate[index] != candidate_gate[index] ? 1U : 0U;
+      up_mismatches +=
+          production_up[index] != candidate_up[index] ? 1U : 0U;
+      output_finite =
+          output_finite &&
+          std::isfinite(decode_bf16(production_gate[index])) &&
+          std::isfinite(decode_bf16(production_up[index])) &&
+          std::isfinite(decode_bf16(candidate_gate[index])) &&
+          std::isfinite(decode_bf16(candidate_up[index]));
+    }
+    measurement.bitwise_equal =
+        gate_mismatches == 0U && up_mismatches == 0U;
+    measurement.output_finite = output_finite;
+    std::cout << "NVFP4_M32_TABLE_FREE_PAIR_DIFF: distribution="
+              << distribution_name << " gate_mismatches=" << gate_mismatches
+              << '/' << kOutputElements
+              << " up_mismatches=" << up_mismatches << '/'
+              << kOutputElements
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << '\n';
+    test.expect(measurement.bitwise_equal,
+                cell_label + " is bit-exact for both projections");
+    test.expect(output_finite,
+                cell_label + " keeps both projection outputs finite");
+
+    for (int iteration = 0; iteration < kWarmupIterations && ready;
+         ++iteration) {
+      ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_production_pair()),
+          cell_label + " production pair warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate_pair()),
+                           cell_label + " candidate pair warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " warmup synchronize");
+    if (!ready) {
+      cleanup();
+      return;
+    }
+
+    double production_total = 0.0;
+    double candidate_total = 0.0;
+    double minimum_round_speedup =
+        std::numeric_limits<double>::infinity();
+    bool timings_finite = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          cell_label + " round=" + std::to_string(round + 1);
+      const float production_first = measure_small_m_tile(
+          test, stream, launch_production_pair, kMeasuredIterations,
+          round_label + " production pass 1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate_pair, kMeasuredIterations,
+          round_label + " candidate pass 1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate_pair, kMeasuredIterations,
+          round_label + " candidate pass 2");
+      const float production_second = measure_small_m_tile(
+          test, stream, launch_production_pair, kMeasuredIterations,
+          round_label + " production pass 2");
+      const bool round_finite =
+          std::isfinite(production_first) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) &&
+          std::isfinite(production_second) && production_first > 0.0F &&
+          candidate_first > 0.0F && candidate_second > 0.0F &&
+          production_second > 0.0F;
+      double round_speedup = std::numeric_limits<double>::quiet_NaN();
+      timings_finite = timings_finite && round_finite;
+      if (round_finite) {
+        const double production_round =
+            static_cast<double>(production_first) + production_second;
+        const double candidate_round =
+            static_cast<double>(candidate_first) + candidate_second;
+        round_speedup = production_round / candidate_round;
+        production_total += production_round;
+        candidate_total += candidate_round;
+        minimum_round_speedup =
+            std::min(minimum_round_speedup, round_speedup);
+      }
+      std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_ROUND: distribution="
+                << distribution_name << " round=" << round + 1
+                << " order=B-C-C-B"
+                << " production_pass1_ms=" << production_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " production_pass2_ms=" << production_second
+                << " round_speedup=" << round_speedup << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    if (timings_finite) {
+      measurement.production_milliseconds =
+          production_total / kTimedPasses;
+      measurement.candidate_milliseconds = candidate_total / kTimedPasses;
+      measurement.minimum_round_speedup = minimum_round_speedup;
+    }
+  }
+
+  bool all_cells_pass = ready;
+  double aggregate_production = 0.0;
+  double aggregate_candidate = 0.0;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M32TableFreePairMeasurement& measurement =
+        measurements[distribution_index];
+    const double speedup = measurement.production_milliseconds /
+                           measurement.candidate_milliseconds;
+    const bool finite =
+        std::isfinite(measurement.production_milliseconds) &&
+        std::isfinite(measurement.candidate_milliseconds) &&
+        std::isfinite(measurement.minimum_round_speedup) &&
+        std::isfinite(speedup) && measurement.production_milliseconds > 0.0 &&
+        measurement.candidate_milliseconds > 0.0;
+    const bool cell_gate = measurement.bitwise_equal &&
+                           measurement.output_finite && finite &&
+                           speedup >= kMinimumCellSpeedup &&
+                           measurement.minimum_round_speedup >=
+                               kMinimumRoundSpeedup;
+    all_cells_pass = all_cells_pass && cell_gate;
+    aggregate_production += measurement.production_milliseconds;
+    aggregate_candidate += measurement.candidate_milliseconds;
+    std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_CELL: distribution="
+              << nvfp4_m1_scale_distribution_name(
+                     kNvFp4M16K128ScaleDistributions[distribution_index])
+              << " production_pair_ms="
+              << measurement.production_milliseconds
+              << " candidate_pair_ms="
+              << measurement.candidate_milliseconds
+              << " speedup=" << speedup
+              << " minimum_round_speedup="
+              << measurement.minimum_round_speedup
+              << " required_minimum_round_speedup="
+              << kMinimumRoundSpeedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate, "NVFP4 M32 table-free gate/up pair " +
+                               std::string(nvfp4_m1_scale_distribution_name(
+                                   kNvFp4M16K128ScaleDistributions[
+                                       distribution_index])) +
+                               " clears its absolute-envelope gate");
+  }
+
+  const double aggregate_speedup =
+      aggregate_production / aggregate_candidate;
+  const bool promotion_gate =
+      all_cells_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_production > 0.0 && aggregate_candidate > 0.0 &&
+      aggregate_speedup >= kMinimumAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_AGGREGATE: "
+            << "production_pair_ms=" << aggregate_production
+            << " candidate_pair_ms=" << aggregate_candidate
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " all_cells=" << (all_cells_pass ? "PASS" : "FAIL")
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " promotion_gate="
+            << (promotion_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(promotion_gate,
+              "NVFP4 M32 table-free gate/up pair clears the same-binary "
+              "absolute-envelope promotion gate");
+  cleanup();
+}
+
+void run_optional_nvfp4_m32_table_free_performance(TestContext& test,
+                                                     cudaStream_t stream) {
+  if (!nvfp4_m32_table_free_performance_enabled()) {
+    std::cout << "SKIP: NVFP4 M32 table-free E2M1 performance segment; set "
+                 "Q3X_RUN_SM87_NVFP4_M32_TABLE_FREE_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr double kMinimumCellSpeedup = 1.0;
+  constexpr double kMinimumScreenWeightedSpeedup = 1.005;
+  constexpr double kPromotionWeightedSpeedup = 1.02;
+  constexpr std::size_t kExpectedProductionSharedBytes = 24'576U;
+  constexpr std::size_t kExpectedCandidateSharedBytes = 23'552U;
+  constexpr std::array<NvFp4M32WmmaShape, 2U> kShapes{{
+      {17'408U, 5'120U, 128U,
+       "NVFP4 M32 table-free gate/up 17408x5120"},
+      {5'120U, 17'408U, 64U,
+       "NVFP4 M32 table-free down 5120x17408"},
+  }};
+
+  bool resource_gate = true;
+  for (const NvFp4M32WmmaShape& shape : kShapes) {
+    int production_registers = -1;
+    std::size_t production_shared = std::numeric_limits<std::size_t>::max();
+    std::size_t production_local = std::numeric_limits<std::size_t>::max();
+    int production_maximum_threads = -1;
+    int production_active_blocks = -1;
+    int candidate_registers = -1;
+    std::size_t candidate_shared = std::numeric_limits<std::size_t>::max();
+    std::size_t candidate_local = std::numeric_limits<std::size_t>::max();
+    int candidate_maximum_threads = -1;
+    int candidate_active_blocks = -1;
+    const cudaError_t production_status = static_cast<cudaError_t>(
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_resources_test_cuda(
+                shape.rows, shape.columns, &production_registers,
+                &production_shared, &production_local,
+                &production_maximum_threads, &production_active_blocks));
+    const cudaError_t candidate_status = static_cast<cudaError_t>(
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda(
+                shape.rows, shape.columns, &candidate_registers,
+                &candidate_shared, &candidate_local,
+                &candidate_maximum_threads, &candidate_active_blocks));
+    const bool shape_gate =
+        production_status == cudaSuccess && candidate_status == cudaSuccess &&
+        production_registers <= 51 &&
+        production_shared == kExpectedProductionSharedBytes &&
+        production_local == 0U && production_maximum_threads == 256 &&
+        production_active_blocks >= 5 && candidate_registers <= 51 &&
+        candidate_shared == kExpectedCandidateSharedBytes &&
+        candidate_local == 0U && candidate_maximum_threads == 256 &&
+        candidate_active_blocks >= 5;
+    resource_gate = resource_gate && shape_gate;
+    std::cout << "NVFP4_M32_TABLE_FREE_RESOURCES: shape=" << shape.rows
+              << 'x' << shape.columns
+              << " production_status=" << static_cast<int>(production_status)
+              << " production_registers=" << production_registers
+              << " production_shared=" << production_shared
+              << " production_local=" << production_local
+              << " production_maximum_threads="
+              << production_maximum_threads
+              << " production_active_blocks=" << production_active_blocks
+              << " candidate_status=" << static_cast<int>(candidate_status)
+              << " candidate_registers=" << candidate_registers
+              << " candidate_shared=" << candidate_shared
+              << " candidate_local=" << candidate_local
+              << " candidate_maximum_threads=" << candidate_maximum_threads
+              << " candidate_active_blocks=" << candidate_active_blocks
+              << " gate=" << (shape_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(shape_gate, std::string(shape.label) +
+                                " clears table-free resource gate");
+  }
+
+  std::array<NvFp4M32TableFreeShapeMeasurement, kShapes.size()>
+      measurements{};
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    measurements[shape_index] = benchmark_nvfp4_m32_table_free_shape(
+        test, stream, kShapes[shape_index]);
+  }
+
+  double weighted_production = 0.0;
+  double weighted_candidate = 0.0;
+  bool all_cells_pass = resource_gate;
+  for (std::size_t shape_index = 0U; shape_index < kShapes.size();
+       ++shape_index) {
+    for (std::size_t distribution_index = 0U;
+         distribution_index < kNvFp4M16K128ScaleDistributions.size();
+         ++distribution_index) {
+      const NvFp4M32TableFreeCellMeasurement& cell =
+          measurements[shape_index].distributions[distribution_index];
+      const double speedup =
+          cell.production_milliseconds / cell.candidate_milliseconds;
+      const bool finite =
+          std::isfinite(cell.production_milliseconds) &&
+          std::isfinite(cell.candidate_milliseconds) &&
+          std::isfinite(speedup) && cell.production_milliseconds > 0.0 &&
+          cell.candidate_milliseconds > 0.0;
+      const bool cell_gate = cell.bitwise_equal && cell.output_finite &&
+                             finite && speedup >= kMinimumCellSpeedup;
+      all_cells_pass = all_cells_pass && cell_gate;
+      const double profile_calls =
+          static_cast<double>(kShapes[shape_index].profile_calls);
+      weighted_production +=
+          profile_calls * cell.production_milliseconds;
+      weighted_candidate += profile_calls * cell.candidate_milliseconds;
+      std::cout << "PERF_NVFP4_M32_TABLE_FREE_CELL: "
+                << kShapes[shape_index].label << " distribution="
+                << nvfp4_m1_scale_distribution_name(
+                       kNvFp4M16K128ScaleDistributions[distribution_index])
+                << " production_ms=" << cell.production_milliseconds
+                << " candidate_ms=" << cell.candidate_milliseconds
+                << " speedup=" << speedup
+                << " bitwise=" << (cell.bitwise_equal ? "true" : "false")
+                << " output_finite="
+                << (cell.output_finite ? "true" : "false")
+                << " required_speedup=" << kMinimumCellSpeedup
+                << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    }
+  }
+
+  const double weighted_speedup = weighted_production / weighted_candidate;
+  const bool screen_gate =
+      all_cells_pass && std::isfinite(weighted_speedup) &&
+      weighted_production > 0.0 && weighted_candidate > 0.0 &&
+      weighted_speedup >= kMinimumScreenWeightedSpeedup;
+  const bool promotion_ready =
+      screen_gate && weighted_speedup >= kPromotionWeightedSpeedup;
+  std::cout << "PERF_NVFP4_M32_TABLE_FREE_AGGREGATE: "
+            << "weighted_production_ms=" << weighted_production
+            << " weighted_candidate_ms=" << weighted_candidate
+            << " speedup=" << weighted_speedup
+            << " screen_required_speedup=" << kMinimumScreenWeightedSpeedup
+            << " promotion_required_speedup=" << kPromotionWeightedSpeedup
+            << " all_cells=" << (all_cells_pass ? "PASS" : "FAIL")
+            << " promotion_ready="
+            << (promotion_ready ? "true" : "false")
+            << " profile_calls=128:64"
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " gate=" << (screen_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(promotion_ready,
+              "NVFP4 M32 table-free E2M1 clears the 1.02x weighted "
+              "production promotion gate");
+  run_nvfp4_m32_table_free_pair_performance(test, stream);
+}
+
 struct NvFp4M18MaskedM32CellMeasurement {
   double baseline_milliseconds = std::numeric_limits<double>::quiet_NaN();
   double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
@@ -21515,10 +22476,9 @@ void run_optional_nvfp4_m17_m32_dual_stream_performance(
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 4;
-  constexpr double kRequiredCellSpeedup = 1.03;
+  constexpr double kRequiredGeneralizationSpeedup = 1.03;
+  constexpr double kRequiredM32RetentionSpeedup = 1.01;
   constexpr double kMinimumRoundSpeedup = 1.0;
-  constexpr double kRequiredPerMSpeedup = 1.03;
-  constexpr double kRequiredAggregateSpeedup = 1.03;
   constexpr std::array<std::size_t, 16U> kTokenCounts{{
       17U, 18U, 19U, 20U, 21U, 22U, 23U, 24U,
       25U, 26U, 27U, 28U, 29U, 30U, 31U, 32U,
@@ -22023,9 +22983,12 @@ void run_optional_nvfp4_m17_m32_dual_stream_performance(
       measurement.winning_rounds = winning_rounds;
       const double speedup = measurement.sequential_milliseconds /
                              measurement.concurrent_milliseconds;
+      const double required_cell_speedup =
+          token_count == kMaximumTokens ? kRequiredM32RetentionSpeedup
+                                        : kRequiredGeneralizationSpeedup;
       const bool cell_gate =
           measurement.correctness && measurement.timings_finite &&
-          std::isfinite(speedup) && speedup >= kRequiredCellSpeedup &&
+          std::isfinite(speedup) && speedup >= required_cell_speedup &&
           measurement.winning_rounds == kMeasurementRounds &&
           measurement.minimum_round_speedup >= kMinimumRoundSpeedup;
       measurement.promotion_gate = cell_gate;
@@ -22036,7 +22999,7 @@ void run_optional_nvfp4_m17_m32_dual_stream_performance(
                 << " concurrent_ms="
                 << measurement.concurrent_milliseconds
                 << " speedup=" << speedup
-                << " required_cell_speedup=" << kRequiredCellSpeedup
+                << " required_cell_speedup=" << required_cell_speedup
                 << " winning_rounds=" << measurement.winning_rounds << '/'
                 << kMeasurementRounds
                 << " required_winning_rounds=" << kMeasurementRounds
@@ -22095,21 +23058,30 @@ void run_optional_nvfp4_m17_m32_dual_stream_performance(
       }
     }
     const double per_m_speedup = per_m_sequential / per_m_concurrent;
+    const double required_per_m_speedup =
+        token_count == kMaximumTokens ? kRequiredM32RetentionSpeedup
+                                      : kRequiredGeneralizationSpeedup;
     const bool per_m_gate =
         all_cells_valid && all_cell_gates_pass &&
         std::isfinite(per_m_speedup) &&
-        per_m_speedup >= kRequiredPerMSpeedup;
+        per_m_speedup >= required_per_m_speedup;
     all_per_m_gates_pass = all_per_m_gates_pass && per_m_gate;
-    passed_m_count += per_m_gate ? 1U : 0U;
-    aggregate_sequential += per_m_sequential;
-    aggregate_concurrent += per_m_concurrent;
+    const bool included_in_aggregate =
+        !full_sweep || token_count != kMaximumTokens;
+    if (included_in_aggregate) {
+      passed_m_count += per_m_gate ? 1U : 0U;
+      aggregate_sequential += per_m_sequential;
+      aggregate_concurrent += per_m_concurrent;
+    }
     std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_PER_M: M="
               << token_count << " sequential_ms=" << per_m_sequential
               << " concurrent_ms=" << per_m_concurrent
               << " speedup=" << per_m_speedup
-              << " required_speedup=" << kRequiredPerMSpeedup
+              << " required_speedup=" << required_per_m_speedup
               << " minimum_cell_speedup=" << minimum_cell_speedup
-              << " required_cell_speedup=" << kRequiredCellSpeedup
+              << " required_cell_speedup=" << required_per_m_speedup
+              << " aggregate_scope="
+              << (included_in_aggregate ? "included" : "m32_control")
               << " all_cell_gates="
               << (all_cell_gates_pass ? "PASS" : "FAIL")
               << " distributions=checkpoint_like:same_bank_stress"
@@ -22120,24 +23092,33 @@ void run_optional_nvfp4_m17_m32_dual_stream_performance(
                     " gate/up dual stream clears its per-M promotion gate");
   }
 
-  const std::size_t tested_m_count = kTokenCounts.size() - first_token_index;
+  const std::size_t tested_m_count =
+      full_sweep ? kTokenCounts.size() - 1U : 1U;
+  const double required_aggregate_speedup =
+      full_sweep ? kRequiredGeneralizationSpeedup
+                 : kRequiredM32RetentionSpeedup;
   const double aggregate_speedup =
       aggregate_sequential / aggregate_concurrent;
   const bool aggregate_gate =
       all_per_m_gates_pass && std::isfinite(aggregate_speedup) &&
-      aggregate_speedup >= kRequiredAggregateSpeedup;
+      aggregate_speedup >= required_aggregate_speedup;
   std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_AGGREGATE: sequential_ms="
             << aggregate_sequential
             << " concurrent_ms=" << aggregate_concurrent
             << " speedup=" << aggregate_speedup
-            << " required_speedup=" << kRequiredAggregateSpeedup
+            << " required_speedup=" << required_aggregate_speedup
             << " passed_m=" << passed_m_count << '/' << tested_m_count
+            << " aggregate_scope="
+            << (full_sweep ? "M17-M31_with_M32_control" : "M32_retention")
             << " distributions=checkpoint_like:same_bank_stress"
             << " promotion_gate=" << (aggregate_gate ? "PASS" : "FAIL")
             << '\n';
-  test.expect(aggregate_gate,
-              "NVFP4 M17-M32 gate/up dual stream clears every per-M and "
-              "aggregate promotion gate");
+  test.expect(
+      aggregate_gate,
+      full_sweep
+          ? "NVFP4 M17-M31 gate/up dual-stream candidate clears every "
+            "per-M gate, the aggregate promotion gate, and the M32 control"
+          : "NVFP4 M32 production dual stream clears its retention gate");
 
   (void)test.cuda_ok(cudaStreamSynchronize(stream),
                      "dual stream final primary synchronize");
@@ -33462,6 +34443,7 @@ int main() {
   run_nvfp4_m17_m31_public_invalid_capture_contract(test, stream);
   run_nvfp4_m32_public_fallback_graph_contract(test, stream);
   run_nvfp4_factorized_product_lookup_exhaustive(test, stream);
+  run_nvfp4_table_free_e2m1_exhaustive(test, stream);
   run_nvfp4_m32_wmma_resource_gates(test);
 
   for (std::size_t token_count = 2U; token_count <= 8U; ++token_count) {
@@ -33596,6 +34578,7 @@ int main() {
   run_optional_nvfp4_m16_wmma_performance(test, stream);
   run_optional_nvfp4_m16_k128_performance(test, stream);
   run_optional_nvfp4_m32_wmma_performance(test, stream);
+  run_optional_nvfp4_m32_table_free_performance(test, stream);
   run_optional_nvfp4_m18_masked_m32_performance(test, stream);
   run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(test, stream);
   run_optional_nvfp4_m17_m31_raw_weight_cp_async_performance(test, stream);

@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark",
+  "status": "promoted-production-nvfp4-m32-table-free-e2m1",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "41f1c5f9835430e7b44c46398880f7f531009cf5",
+    "base_subject": "kernels: fuse exact BF16 M16 projection pair",
+    "production_commit": null,
+    "tree_state_at_measurement": "uncommitted NVFP4 exact-M32 table-free E2M1 production promotion based on base_head",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "prompt_manifest": {
+      "local_path": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+      "bytes": 23197,
+      "sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966"
+    },
+    "binaries": {
+      "baseline_runner": {
+        "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/qwen3x-orin-base-41f1c5f",
+        "source_commit": "41f1c5f9835430e7b44c46398880f7f531009cf5",
+        "bytes": 3991584,
+        "sha256": "129c133c0ae0a998103003035a70bd61e74b2967be4eca35ca70d226f0fa010d",
+        "gnu_build_id": "af666b8cb852e5fca9f6408f9d8550b1130a95e7",
+        "dispatch": "factorized E2M1 pair table plus vectorized decoded stores",
+        "checked_in": false
+      },
+      "candidate_runner": {
+        "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/qwen3x-orin-candidate",
+        "bytes": 4060640,
+        "sha256": "1d42b7f1b9ee0add891111d58458d94aa4075f6abb6aedd3c93490b00a36eb96",
+        "gnu_build_id": "1a65cc25dc761e66ffc2a2e5f9afab928f3e92f5",
+        "dispatch": "table-free E2M1 PRMT decode plus vectorized decoded stores",
+        "checked_in": false
+      },
+      "same_cubin_test": {
+        "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/q3x_sm87_weight_only_gemv_test-final",
+        "bytes": 4947936,
+        "sha256": "ac62d9fe350807b30d601dccfb73268f8021d8fef6fe2a630db87b82af6c9a50",
+        "gnu_build_id": "abc606778efb8d234855bf6b5d11a699545d8b40",
+        "contains_preserved_baseline_and_candidate": true,
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "unified_memory_gib": 61.40,
+    "l2_cache_mib": 4.00,
+    "shared_memory_per_sm_kib": 164.00,
+    "reported_ddr_bandwidth_gb_per_second": 83.2,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "ncu_version": "2026.2.0.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false
+  },
+  "implementation": {
+    "production_kernel_template": "nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel",
+    "preserved_baseline_specialization": "kFactorizedProductLookup=true, kVectorizedDecodedStore=true, kValidTokenCount=32, kTableFreeE2M1=false",
+    "candidate_specialization": "kFactorizedProductLookup=true, kVectorizedDecodedStore=true, kValidTokenCount=32, kTableFreeE2M1=true",
+    "exact_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+    "exact_token_count_m": 32,
+    "baseline_lookup": {
+      "e2m1_pair_table_bytes": 1024,
+      "e4m3_scale_table_bytes": 512,
+      "total_lookup_bytes": 1536
+    },
+    "candidate_lookup": {
+      "e2m1_pair_table_bytes": 0,
+      "e4m3_scale_table_bytes": 512,
+      "total_lookup_bytes": 512,
+      "mechanism": "Ten PRMT operations construct each eight-value E2M1 BF16 vector from register immediates, five per four-value half; four existing HFMA2.BF16_V2 operations apply the decoded E4M3 scale. Code 8 remains exact BF16 negative zero."
+    },
+    "arithmetic_contract": "The E2M1 and E4M3 decoded BF16 bits, BF16x2 multiplication instruction and rounding modifier, WMMA operands, accumulation order, and vectorized shared-memory decoded-weight stores remain exact.",
+    "dispatch_scope": {
+      "exact_aligned_m32_gate_up_and_down": "candidate",
+      "m18": "unchanged factorized masked-M32 path",
+      "m17_m31": "unchanged runtime-valid factorized masked-M32 path",
+      "decode_m1": "unchanged persistent/vector paths",
+      "fallbacks_and_other_shapes": "unchanged"
+    },
+    "scheduling_scope": "The existing exact-M32 gate/up auxiliary stream is retained. This change adds no stream, event, buffer, double/triple buffering, or Prefill/Decode overlap."
+  },
+  "validation": {
+    "table_free_e2m1_exhaustive_gate": {
+      "e4m3_scale_codes": 256,
+      "packed_e2m1_bytes": 256,
+      "packed_byte_positions": 4,
+      "combinations": 262144,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "signed_zero_all_positions": true,
+      "nan_scale_encodings_covered": true
+    },
+    "direct_shape_gate": {
+      "shapes": 2,
+      "total_bf16_outputs_checked": 720896,
+      "candidate_vs_preserved_baseline_mismatches": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary_exact": true,
+      "outputs_finite": true,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1,
+      "invalid_graph_zero_node_contract": true,
+      "public_route_uses_table_free_specialization": true
+    },
+    "same_cubin_gate_up_pair_gate": {
+      "distributions": 2,
+      "gate_outputs_per_distribution": 557056,
+      "up_outputs_per_distribution": 557056,
+      "gate_mismatches": 0,
+      "up_mismatches": 0,
+      "outputs_finite": true
+    },
+    "resources": {
+      "baseline": {
+        "registers_per_thread": 46,
+        "static_shared_bytes": 24576,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 5
+      },
+      "candidate": {
+        "registers_per_thread": 48,
+        "static_shared_bytes": 23552,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 5
+      }
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only"
+    },
+    "release_suite": {
+      "build": "pass",
+      "discovered": 56,
+      "passed": 51,
+      "skipped_configured_external_fixtures": 5,
+      "failed": 0
+    },
+    "host_cpp_asan_ubsan_suite": {
+      "build_directory": "build/review-sanitize",
+      "compile_flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "link_flags": "-fsanitize=address,undefined",
+      "linked_libraries": ["libasan.so.8", "libubsan.so.1"],
+      "runtime_options": {
+        "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "discovered_excluding_package_consumer": 55,
+      "passed": 50,
+      "skipped_configured_external_fixtures": 5,
+      "failed": 0,
+      "sanitizer_error_matches": 0,
+      "coverage_note": "ASan and UBSan instrument host C++ only; CUDA device code is covered by exhaustive, guard, graph, replay, and model tests."
+    },
+    "independent_review": "no blocker"
+  },
+  "same_binary_single_kernel_benchmark": {
+    "environment_variable": "Q3X_RUN_SM87_NVFP4_M32_TABLE_FREE_PERF=1",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "bccb_rounds_per_distribution": 4,
+    "independent_final_binary_processes": 2,
+    "order": ["baseline", "candidate", "candidate", "baseline"],
+    "distributions": ["checkpoint_like", "same_bank_stress"],
+    "profile_call_weights": {"gate_up": 128, "down": 64},
+    "runs": [
+      {
+        "run": 1,
+        "cells": [
+          {"shape_n_by_k": [17408, 5120], "distribution": "checkpoint_like", "baseline_ms": 0.755944, "candidate_ms": 0.711801, "speedup": 1.06202},
+          {"shape_n_by_k": [17408, 5120], "distribution": "same_bank_stress", "baseline_ms": 0.758642, "candidate_ms": 0.711920, "speedup": 1.06563},
+          {"shape_n_by_k": [5120, 17408], "distribution": "checkpoint_like", "baseline_ms": 0.912612, "candidate_ms": 0.893667, "speedup": 1.02120},
+          {"shape_n_by_k": [5120, 17408], "distribution": "same_bank_stress", "baseline_ms": 0.915286, "candidate_ms": 0.893931, "speedup": 1.02389}
+        ],
+        "weighted_baseline_ms": 310.853,
+        "weighted_candidate_ms": 296.642,
+        "weighted_speedup": 1.04790
+      },
+      {
+        "run": 2,
+        "cells": [
+          {"shape_n_by_k": [17408, 5120], "distribution": "checkpoint_like", "baseline_ms": 0.755026, "candidate_ms": 0.710250, "speedup": 1.06304},
+          {"shape_n_by_k": [17408, 5120], "distribution": "same_bank_stress", "baseline_ms": 0.757496, "candidate_ms": 0.710120, "speedup": 1.06671},
+          {"shape_n_by_k": [5120, 17408], "distribution": "checkpoint_like", "baseline_ms": 0.912932, "candidate_ms": 0.894349, "speedup": 1.02078},
+          {"shape_n_by_k": [5120, 17408], "distribution": "same_bank_stress", "baseline_ms": 0.915103, "candidate_ms": 0.893896, "speedup": 1.02372}
+        ],
+        "weighted_baseline_ms": 310.597,
+        "weighted_candidate_ms": 296.255,
+        "weighted_speedup": 1.04841
+      }
+    ],
+    "gate": {
+      "required_each_cell_speedup": 1.0,
+      "required_weighted_speedup": 1.02,
+      "minimum_observed_cell_speedup": 1.02078,
+      "minimum_observed_weighted_speedup": 1.04790,
+      "status": "pass"
+    }
+  },
+  "same_binary_gate_up_pair_benchmark": {
+    "comparison": "preserved factorized-vector concurrent pair versus table-free concurrent pair in the same cubin and identical two-stream event topology",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "bccb_rounds_per_distribution": 4,
+    "independent_final_binary_processes": 2,
+    "runs": [
+      {
+        "run": 1,
+        "cells": [
+          {"distribution": "checkpoint_like", "baseline_pair_ms": 1.64562, "candidate_pair_ms": 1.37174, "speedup": 1.19966, "minimum_round_speedup": 1.18629},
+          {"distribution": "same_bank_stress", "baseline_pair_ms": 1.65134, "candidate_pair_ms": 1.36654, "speedup": 1.20841, "minimum_round_speedup": 1.20503}
+        ],
+        "aggregate_baseline_ms": 3.29696,
+        "aggregate_candidate_ms": 2.73828,
+        "aggregate_speedup": 1.20403
+      },
+      {
+        "run": 2,
+        "cells": [
+          {"distribution": "checkpoint_like", "baseline_pair_ms": 1.64634, "candidate_pair_ms": 1.35249, "speedup": 1.21726, "minimum_round_speedup": 1.20634},
+          {"distribution": "same_bank_stress", "baseline_pair_ms": 1.65121, "candidate_pair_ms": 1.35200, "speedup": 1.22131, "minimum_round_speedup": 1.21666}
+        ],
+        "aggregate_baseline_ms": 3.29755,
+        "aggregate_candidate_ms": 2.70448,
+        "aggregate_speedup": 1.21929
+      }
+    ],
+    "gate": {
+      "required_each_cell_speedup": 1.0,
+      "required_each_round_speedup": 1.0,
+      "required_aggregate_speedup": 1.02,
+      "minimum_observed_cell_speedup": 1.19966,
+      "minimum_observed_round_speedup": 1.18629,
+      "minimum_observed_aggregate_speedup": 1.20403,
+      "gate_and_up_bitwise_equal": true,
+      "status": "pass"
+    },
+    "schedule_retention_diagnostic": {
+      "comparison": "current table-free serial gate/up versus current table-free concurrent gate/up",
+      "runs": [
+        {
+          "run": 1,
+          "checkpoint_like": {"serial_ms": 1.42094, "concurrent_ms": 1.33788, "speedup": 1.06208, "minimum_round_speedup": 1.05861},
+          "same_bank_stress": {"serial_ms": 1.42100, "concurrent_ms": 1.33649, "speedup": 1.06323, "minimum_round_speedup": 1.06130},
+          "aggregate": {"serial_ms": 2.84193, "concurrent_ms": 2.67437, "speedup": 1.06266}
+        },
+        {
+          "run": 2,
+          "checkpoint_like": {"serial_ms": 1.42114, "concurrent_ms": 1.35860, "speedup": 1.04603, "minimum_round_speedup": 1.04325},
+          "same_bank_stress": {"serial_ms": 1.42110, "concurrent_ms": 1.36254, "speedup": 1.04298, "minimum_round_speedup": 1.03918},
+          "aggregate": {"serial_ms": 2.84224, "concurrent_ms": 2.72114, "speedup": 1.04450}
+        }
+      ],
+      "required_m32_retention_speedup": 1.01,
+      "minimum_observed_cell_speedup": 1.04298,
+      "minimum_observed_round_speedup": 1.03918,
+      "minimum_observed_aggregate_speedup": 1.04450,
+      "status": "pass",
+      "policy": "M32 is an existing production schedule and uses a 1.01 per-cell and aggregate retention gate plus an all-round non-reversal gate. The unpromoted M17-M31 generalization keeps its 1.03 gate and excludes M32 from its candidate aggregate while retaining M32 as a mandatory control.",
+      "hot_state_calibration": {
+        "aggregate_speedup": 1.01850,
+        "minimum_cell_speedup": 1.01737,
+        "minimum_round_speedup": 1.01413,
+        "winning_rounds": "8/8",
+        "interpretation": "A deliberately retained consecutive hot-state diagnostic remained positive in every round but missed the provisional 1.02 retention threshold. This motivated the 1.01 existing-schedule retention gate; it did not change the 1.02 old-concurrent to new-concurrent promotion gate or the 1.03 M17-M31 candidate gate.",
+        "artifact": {"local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/dual-retention-final.log", "bytes": 57825, "sha256": "4f530bb188c4f8ee29befe9a8d600c1822b1f3a082f1d8cc08fb8a4ec78e9a25", "checked_in": false}
+      }
+    }
+  },
+  "sass_and_symbol_audit": {
+    "binary_sha256": "ac62d9fe350807b30d601dccfb73268f8021d8fef6fe2a630db87b82af6c9a50",
+    "canonicalization": "cuobjdump function section; each final 64-bit encoding word normalized to one lowercase 0x-prefixed line; 1424 words and 712 instructions per specialization",
+    "canonical_encoding_sha256": {
+      "17408x5120_baseline": "339ea7d2b0b28fd8499edc1667e9af4022270830c688b9438860a4cedba9c20a",
+      "17408x5120_candidate": "039c3da6bec2f69a6f43717c719c628c3637125bcf60ddd2d0917599050b257e",
+      "5120x17408_baseline": "cc95a72223d66396fc7adb1038b3e4610129c2a238ad6c47d40b4efb6d459fde",
+      "5120x17408_candidate": "c5611978724fdcc307988ff6ca445541db509031c43eea7ee4f250e82bd64234"
+    },
+    "baseline_encoding_matches_pre_change_binary": true,
+    "both_shapes_have_identical_delta": true,
+    "instruction_counts_baseline_to_candidate": {
+      "static_instructions": [712, 712],
+      "LDS": [35, 19],
+      "PRMT": [16, 56],
+      "HFMA2_BF16_V2": [16, 16],
+      "HFMA2_BF16_V2_with_RZ_H0_H0": [16, 16],
+      "STS_total": [20, 19],
+      "STS_128": [4, 4],
+      "HMMA": [4, 4],
+      "LDG": [7, 7],
+      "BAR": [5, 5],
+      "LDL": [0, 0],
+      "STL": [0, 0]
+    },
+    "interpretation": "The candidate removes exactly sixteen static shared-memory E2M1 lookup loads and replaces them with register PRMT work without adding instructions overall, spill, barriers, global loads, or WMMA operations."
+  },
+  "end_to_end_bccb": {
+    "protocol": {
+      "order": ["baseline", "candidate", "candidate", "baseline"],
+      "warmup_rounds_per_prompt": 1,
+      "max1_prompts_per_process": 2,
+      "max1_measured_rounds_per_prompt": 5,
+      "max1_measured_generations_per_process": 10,
+      "max8_prompts_per_process": 1,
+      "max8_measured_rounds_per_prompt": 3,
+      "max8_measured_generations_per_process": 3,
+      "max_sequence_length": 544,
+      "prefill_chunk_size": 32,
+      "projection_backend_argument": "sm87",
+      "effective_projection_backend": "sm87_weight_only",
+      "clocks_locked": false
+    },
+    "max1_process_medians": {
+      "P33": {
+        "b1_ttft_ms": 422.912,
+        "c1_ttft_ms": 402.192,
+        "c2_ttft_ms": 401.024,
+        "b2_ttft_ms": 422.386,
+        "baseline_average_ms": 422.649,
+        "candidate_average_ms": 401.608,
+        "saved_ms": 21.041,
+        "speedup": 1.052391885,
+        "reduction_percent": 4.978363,
+        "minimum_mirror_speedup": 1.051517683
+      },
+      "P513": {
+        "b1_ttft_ms": 5299.025,
+        "c1_ttft_ms": 4966.662,
+        "c2_ttft_ms": 4949.983,
+        "b2_ttft_ms": 5294.504,
+        "baseline_average_ms": 5296.7645,
+        "candidate_average_ms": 4958.3225,
+        "saved_ms": 338.442,
+        "speedup": 1.068257359,
+        "reduction_percent": 6.389599,
+        "minimum_mirror_speedup": 1.066918788,
+        "baseline_prefix_average_ms": 5184.781,
+        "candidate_prefix_average_ms": 4846.3925,
+        "baseline_finish_prefill_average_ms": 111.894,
+        "candidate_finish_prefill_average_ms": 111.8965
+      }
+    },
+    "max1_pooled_samples": {
+      "samples_per_version_per_prompt": 10,
+      "P33": {"baseline_mean_ms": 422.8919, "candidate_mean_ms": 401.5266, "speedup": 1.053210, "reduction_percent": 5.05219},
+      "P513": {"baseline_mean_ms": 5297.0096, "candidate_mean_ms": 4958.0844, "speedup": 1.068358, "reduction_percent": 6.39843}
+    },
+    "P513_max8_process_medians": {
+      "generated_ids": [9419, 0, 59720, 233, 1049, 5686, 1040, 488],
+      "generated_text": "Hello! 👋 It looks like you",
+      "outputs_exact_across_all_processes": true,
+      "arms": [
+        {"arm": "b1", "prompt_prefix_ms": 5187.449, "finish_prefill_ms": 111.806, "ttft_ms": 5299.241, "decode_after_first_ms": 782.636, "subsequent_token_ms": 111.806, "total_ms": 6081.878},
+        {"arm": "c1", "prompt_prefix_ms": 5027.714, "finish_prefill_ms": 111.781, "ttft_ms": 5139.495, "decode_after_first_ms": 782.436, "subsequent_token_ms": 111.778, "total_ms": 5921.896},
+        {"arm": "c2", "prompt_prefix_ms": 4845.406, "finish_prefill_ms": 111.884, "ttft_ms": 4957.298, "decode_after_first_ms": 783.190, "subsequent_token_ms": 111.877, "total_ms": 5740.460},
+        {"arm": "b2", "prompt_prefix_ms": 5185.914, "finish_prefill_ms": 111.694, "ttft_ms": 5297.607, "decode_after_first_ms": 782.147, "subsequent_token_ms": 111.736, "total_ms": 6079.619}
+      ],
+      "baseline_ttft_average_ms": 5298.424,
+      "candidate_ttft_average_ms": 5048.3965,
+      "ttft_speedup": 1.049526122,
+      "baseline_decode_after_first_average_ms": 782.3915,
+      "candidate_decode_after_first_average_ms": 782.8130,
+      "decode_after_first_regression_percent": 0.053873,
+      "baseline_subsequent_token_average_ms": 111.7710,
+      "candidate_subsequent_token_average_ms": 111.8275,
+      "subsequent_token_regression_percent": 0.050550,
+      "baseline_total_average_ms": 6080.7485,
+      "candidate_total_average_ms": 5831.1780,
+      "total_saved_ms": 249.5705,
+      "total_speedup": 1.042799328,
+      "minimum_mirror_total_speedup": 1.027015334,
+      "decode_neutrality_limit_percent": 0.5,
+      "decode_neutrality_gate": "pass"
+    },
+    "correctness": {
+      "all_process_status_ok": true,
+      "all_generated_ids_and_text_exact": true,
+      "all_stop_reasons_and_step_counts_exact": true,
+      "persistent_drop_detected": 0,
+      "primary_ttft_or_total_reversed_mirrors": 0
+    }
+  },
+  "matched_nsys": {
+    "workload": "P513-C32-max1",
+    "trace": "cuda,nvtx",
+    "generation_nvtx_ms": {"baseline": 5355.389728, "candidate": 5079.708704, "saved": 275.681024, "speedup": 1.054271},
+    "all_kernels": {
+      "launches_baseline": 42709,
+      "launches_candidate": 42709,
+      "raw_ms": {"baseline": 5724.779392, "candidate": 5398.666720},
+      "union_ms": {"baseline": 5258.089248, "candidate": 4978.907136, "saved": 279.182112},
+      "span_ms": {"baseline": 5354.261472, "candidate": 5078.552672},
+      "raw_minus_union_overlap_ms": {"baseline": 466.690144, "candidate": 419.759584}
+    },
+    "exact_m32_gate_up": {
+      "launches": 2048,
+      "connected_two_launch_pairs": 1024,
+      "raw_ms": {"baseline": 2055.246336, "candidate": 1830.108704},
+      "pair_envelope_union_marginal_ms": {"baseline": 1588.556192, "candidate": 1410.349120, "saved": 178.207072, "speedup": 1.126357},
+      "average_pair_envelope_ms": {"baseline": 1.551324406, "candidate": 1.377294063},
+      "median_pair_envelope_ms": {"baseline": 1.550976, "candidate": 1.372480}
+    },
+    "exact_m32_down": {
+      "launches": 1024,
+      "raw_union_marginal_ms": {"baseline": 1036.605824, "candidate": 932.155840, "saved": 104.449984, "speedup": 1.112052}
+    },
+    "exact_m32_total": {
+      "raw_ms": {"baseline": 3091.852160, "candidate": 2762.264544},
+      "union_marginal_ms": {"baseline": 2625.162016, "candidate": 2342.504960, "saved": 282.657056, "speedup": 1.120664}
+    },
+    "attribution_closure": {
+      "other_kernel_union_delta_ms": 3.474944,
+      "generation_minus_kernel_union_delta_ms": 3.501088,
+      "total_non_target_payback_ms": 6.976032,
+      "identity": "282.657056 target critical-path savings - 6.976032 payback = 275.681024 generation savings",
+      "status": "closed"
+    },
+    "interpretation": "End-to-end acceptance uses repeated B-C-C-B. Nsys is a matched causal attribution: profiling perturbs candidate tile timing more than baseline, but launch counts, pair topology, direction, and exact target savings remain decisive."
+  },
+  "ncu_attempt": {
+    "status": "blocked_by_platform_permission",
+    "tool_exit_code": 9,
+    "error": "The user does not have permission to access NVIDIA GPU Performance Counters on the target vGPU device 0.",
+    "interpretation": "No candidate-specific Nsight Compute counter claim is made. The blocked run is not a pass or a kernel failure; compiler resources, canonical SASS, same-cubin timing, and Nsys provide the available mechanism evidence."
+  },
+  "measurement_protocol": {
+    "primary_performance_decision": "same-cubin repeated single-kernel and absolute concurrent-pair B-C-C-B, followed by detached-base whole-model B-C-C-B",
+    "baseline_integrity": "detached clean worktree built from exact commit 41f1c5f; baseline and candidate runners copied and hashed before B-C-C-B",
+    "pair_timing_boundary": "primary-stream start event, per-pair ready event, auxiliary-stream wait, gate on primary, up on auxiliary, auxiliary done event, primary wait, primary-stream stop event",
+    "why_old_serial_to_concurrent_1_03_is_not_the_candidate_gate": "That ratio measures scheduling marginal benefit and naturally changes when individual kernels become faster. The table-free promotion gate compares old-concurrent against new-concurrent absolute pair envelopes."
+  },
+  "decision": {
+    "outcome": "promote table-free E2M1 for both exact aligned NVFP4 M32 MLP shapes",
+    "reasons": [
+      "262144 exhaustive combinations and all production-shaped outputs are bit-exact, including negative zero and NaN scale encodings.",
+      "The two final-binary single-kernel weighted repeats improve by 1.04790x and 1.04841x; every cell is non-regressing.",
+      "The two final-binary absolute concurrent-pair repeats improve by 1.20403x and 1.21929x; every round and distribution wins.",
+      "P33 and P513 max1 B-C-C-B improve by 1.05239x and 1.06826x using process-median averages with no mirror reversal.",
+      "Nsys attributes 282.657056 ms of exact-M32 critical-path savings and closes the 275.681024 ms generation delta after non-target payback.",
+      "Static shared memory falls by 1024 bytes, zero spill and five active CTAs per SM are preserved, and the two final existing-schedule retention processes remain positive by at least 1.04450x."
+    ],
+    "rollback_when": [
+      "any exhaustive, production-shape, pair, graph, guard, replay, or model bit mismatch",
+      "any repeated single-kernel or absolute-pair cell regression",
+      "single-kernel weighted or absolute-pair aggregate speedup below 1.02 in repeated measurements",
+      "repeated end-to-end max1 speedup below 1.01 or any mirrored reversal",
+      "Decode-after-first regression above 0.5 percent in repeated matched max8 runs",
+      "local-memory spill or active-block occupancy below five CTAs per SM"
+    ]
+  },
+  "limitations": [
+    "Clocks were not locked; ratios are promotion diagnostics rather than fixed-frequency release-latency guarantees.",
+    "Synthetic microbenchmarks cover checkpoint-like and same-bank-stress scale distributions; whole-model B-C-C-B and Nsys provide real-checkpoint evidence.",
+    "Gate/up raw kernel sums double-count cross-stream overlap; pair envelope and union/marginal values are the critical-path metrics.",
+    "Nsight Compute performance counters are unavailable to this user on the target vGPU, so no counter-derived bank-conflict reduction is claimed.",
+    "The optimization applies only to exact M32 Prefill MLP projections. Decode M1 and M17-M31/M18 routes are unchanged.",
+    "The runtime has logical Prefill/Decode plans and one layer-local M32 gate/up auxiliary stream, but no general double/triple buffering or Prefill/Decode overlap for a batch-one request."
+  ],
+  "artifacts": [
+    {"role": "final-binary same-cubin micro and pair run 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/micro-final1.log", "bytes": 62845, "sha256": "df70568da76bf7e0d051b0f34b49219fca6e453893974124e8e95a06698cd73a", "checked_in": false},
+    {"role": "final-binary same-cubin micro and pair run 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/micro-final2.log", "bytes": 62844, "sha256": "b53c2fe6165dc1c26880f8ae0ccf0a1c7b9073827b5316d668a193e72aba6e2f", "checked_in": false},
+    {"role": "final-binary M32 dual-stream retention run 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/dual-retention-final1.log", "bytes": 57479, "sha256": "c627370b51c87e1beaddb09ed94c92ab82778d11f3ce9aceedd5076d46dbeaf5", "checked_in": false},
+    {"role": "final-binary M32 dual-stream retention run 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/dual-retention-final2.log", "bytes": 57476, "sha256": "e8afda458f605cf168d348320cd75a2d61db3b5ae1af9d16f38d4bb63f2bfafa", "checked_in": false},
+    {"role": "M32 dual-stream hot-state threshold calibration", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/dual-retention-final.log", "bytes": 57825, "sha256": "4f530bb188c4f8ee29befe9a8d600c1822b1f3a082f1d8cc08fb8a4ec78e9a25", "checked_in": false},
+    {"role": "max1 B-C-C-B baseline arm 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/b1.log", "bytes": 22395, "sha256": "57fb77ab18ee1ebbb2262edd291075045ac7d8ca527d15de51a827fc8424e34e", "checked_in": false},
+    {"role": "max1 B-C-C-B candidate arm 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/c1.log", "bytes": 22388, "sha256": "ffa9f4b757549f3ec411df9086ecead115a8c03950a4accfabcc0f89a60da0e0", "checked_in": false},
+    {"role": "max1 B-C-C-B candidate arm 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/c2.log", "bytes": 22387, "sha256": "ded84e3d3cfa222c99bc9d267ec408a550b5cbce36423bb11f47aafd6539f012", "checked_in": false},
+    {"role": "max1 B-C-C-B baseline arm 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/b2.log", "bytes": 22387, "sha256": "d829015d0d73e6c564f65dd9d8e7226337b5d38eb5dc07a86432ff0d52daa275", "checked_in": false},
+    {"role": "max8 B-C-C-B baseline arm 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/max8-b1.log", "bytes": 18159, "sha256": "bf0d669f531e25dc8ad4383a1e4b298b5e8bc374c931dd3bb4227c67cb502a7b", "checked_in": false},
+    {"role": "max8 B-C-C-B candidate arm 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/max8-c1.log", "bytes": 18159, "sha256": "9315399f6e0e75c1e81c6d8f584b77bbbcb521b38c850366b0f19edcfd4f16e6", "checked_in": false},
+    {"role": "max8 B-C-C-B candidate arm 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/max8-c2.log", "bytes": 18159, "sha256": "c3b4c9e215aee727fbd311ad1e1d9a6ff7b37589100ca5674eb372f01e5c162a", "checked_in": false},
+    {"role": "max8 B-C-C-B baseline arm 2", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/max8-b2.log", "bytes": 18159, "sha256": "1a8ca64dce98bb76547c0a7e1b4920b162017b941e789f44abd267bb644d0199", "checked_in": false},
+    {"role": "matched baseline Nsys report", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/nsys-base-p513-max1.nsys-rep", "bytes": 3292381, "sha256": "f50bf71a652d83b8dd5932692c52cb65527e864b279d048a461e9ac44681af3c", "checked_in": false},
+    {"role": "matched candidate Nsys report", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/nsys-candidate-p513-max1.nsys-rep", "bytes": 3290984, "sha256": "8346bbb2b0b780cdcbe5dee99958a5a4ff202e8d00a327beaa1a0874ab8a53a3", "checked_in": false},
+    {"role": "matched baseline Nsys SQLite", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/nsys-base-p513-max1.sqlite", "bytes": 9023488, "sha256": "740fa3d546cdb3b646ae97d42a59af5e6f4b4235663787017917ecb9c657cd48", "checked_in": false},
+    {"role": "matched candidate Nsys SQLite", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/nsys-candidate-p513-max1.sqlite", "bytes": 9019392, "sha256": "165542e8323285bef0687dec4a573155279feff2f0fe2b3ef3222deb6f36f19a", "checked_in": false},
+    {"role": "Release CTest", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/ctest-release-final.log", "bytes": 7707, "sha256": "de594f993d7cb60cbb8fac5ee28d0803ca9e105d702c8a3549d1427b00d519ea", "checked_in": false},
+    {"role": "ASan UBSan CTest", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/ctest-sanitize-final.log", "bytes": 7594, "sha256": "b629ba87acae9ca803237ad1a30311d2ffc82e3f838dbc5b388ac0f60c74f297", "checked_in": false},
+    {"role": "chunk-1 exact model oracle", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/oracle-c1.log", "bytes": 242, "sha256": "441db8bcb99c83d266f9e44781c0b20bad35134793c9a53a2da2980ddf458c49", "checked_in": false},
+    {"role": "chunk-8 exact model oracle", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/oracle-c8.log", "bytes": 239, "sha256": "b194fa04ce2908f72ec51a323953df86c8b408e585d5ed06473e20a18cea42fe", "checked_in": false},
+    {"role": "chunk-16 exact model oracle", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/oracle-c16.log", "bytes": 240, "sha256": "3b28b433372f6380340dccce6135c64aa7272dd8698f3735b3f5b7e08bbae89b", "checked_in": false},
+    {"role": "chunk-32 exact model oracle", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/oracle-c32.log", "bytes": 240, "sha256": "bb975508c140c593b38602201a45f2cff8b18a3ebe76960185d3b99a4faa2344", "checked_in": false},
+    {"role": "canonical SASS method", "local_path": "/tmp/q3x-nvfp4-m32-table-free-sass-final.GmmAKt/METHOD.txt", "bytes": 2558, "sha256": "7311b846bef856bfd894ae004c7dd0d5526870f02cd5b8758b265de0e8805c44", "checked_in": false},
+    {"role": "canonical SASS summary", "local_path": "/tmp/q3x-nvfp4-m32-table-free-sass-final.GmmAKt/SUMMARY.json", "bytes": 5243, "sha256": "be4d4f201ca55af8692872f5d747a662f69af5e964e18855affebc64800d9906", "checked_in": false},
+    {"role": "blocked NCU attempt", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/ncu-gateup-old.log", "bytes": 41421, "sha256": "2e3ef066d810393cee7c95c86d64dc7c47be7ac1e0475a3566a44cd23d4c9fc2", "checked_in": false}
+  ],
+  "next_priority": "Use the refreshed profile to prototype an exact-M32 gate/up pair-fused CTA that reuses activations and table-free decode setup across both projections; retain the current dual-stream kernel as the same-cubin baseline. If that bounded gate fails, move to the 0.932 s M32 down path, then GDN. General double/triple buffering and multi-request Prefill/Decode overlap remain a separate scheduler milestone."
+}

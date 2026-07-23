@@ -3820,3 +3820,123 @@ overlap. Prefill and Decode remain logically separated plans, but one batch-one
 request is still causally dependency-serialized. Full hashes, per-process
 rows, SASS inventory, profiler artifacts, and limitations are in the
 [BF16 M16 projection-fused benchmark record](metadata/qwen36-27b-bf16-m16-projection-fused-benchmark.json).
+
+## Prefill NVFP4 M32 table-free E2M1 promotion
+
+The post-BF16 profile left exact-M32 NVFP4 MLP projections as the dominant
+bounded Prefill path: gate/up contributed 1,589.152 ms of marginal kernel
+union and down another 1,037.387 ms in P513/C32/max1. The retained factorized
+kernel decoded E2M1 through a 1,024-byte shared pair table plus a 512-byte E4M3
+scale table. Its E2M1 lookup generated sixteen static `LDS` operations in the
+stage loop, making shared lookup pressure a concrete mechanism candidate when
+gate and up ran on separate streams.
+
+The promoted specialization constructs each eight-value E2M1 BF16 vector with
+register `PRMT` operations and keeps only the 512-byte E4M3 scale table. The
+existing BF16x2 multiply, WMMA sequence, accumulation order, and vectorized
+decoded-weight stores are unchanged. Code 8 remains exact BF16 negative zero.
+Dispatch changes only aligned exact M32 for `17408x5120` and `5120x17408`;
+M18, M17-M31, Decode M1, and fallback routes remain on their prior kernels.
+
+Exhaustive validation covers `256 scale codes x 256 packed bytes x 4 byte
+positions = 262,144` combinations with zero word or half mismatch. Both
+production shapes then compare 720,896 BF16 outputs, poison replay,
+token-15/16 boundaries, guards, single-kernel Graph capture, and zero-node
+invalid calls. The two-stream A/B additionally compares gate and up
+independently under both checkpoint-like and same-bank-stress scales.
+
+Final `cuobjdump` and runtime resources are:
+
+| Metric | Factorized-vector predecessor | Table-free E2M1 |
+| --- | ---: | ---: |
+| Registers/thread | 46 | 48 |
+| Static shared | 24,576 B | 23,552 B |
+| Local/stack | 0 B | 0 B |
+| Active CTA/SM | 5 | 5 |
+| Static instructions | 712 | 712 |
+| `LDS` | 35 | 19 |
+| `PRMT` | 16 | 56 |
+| `HFMA2.BF16_V2` | 16 | 16 |
+| `BAR` | 5 | 5 |
+
+All sixteen BF16 multiply instructions retain `-RZ.H0_H0`; `HMMA`, `LDG`,
+`STS.128`, and barrier counts are unchanged, and there is no `LDL` or `STL`.
+The preserved bool-false specialization is encoding-identical to its
+pre-change function. Nsight Compute counters are unavailable because the
+target vGPU denies this user performance-counter access, so no counter-derived
+bank-conflict claim is made.
+
+Two independent final-binary processes use ten warmups, 24 logical launches
+per timed pass, and four B-C-C-B rounds for each scale distribution. One
+logical launch is one kernel for the single-kernel gate and one joined pair for
+the pair gate:
+
+| Same-cubin gate | Run 1 | Run 2 | Required |
+| --- | ---: | ---: | ---: |
+| Profile-weighted single-kernel speedup | 1.04790x | 1.04841x | 1.02x |
+| Absolute concurrent gate/up-pair speedup | 1.20403x | 1.21929x | 1.02x |
+| Minimum pair cell speedup | 1.19966x | 1.21726x | 1.00x |
+| Minimum pair round speedup | 1.18629x | 1.20634x | 1.00x |
+| Current serial-to-concurrent retention | 1.06266x | 1.04450x | 1.01x |
+
+The absolute pair gate compares the old and new kernels with the same cubin,
+inputs and workload, equivalent output buffers, streams, ready/done events,
+and complete joined envelope. It is the production promotion metric. The
+separate current-kernel serial-to-concurrent retention diagnostic remains
+positive in both final processes, so the M32 auxiliary stream stays enabled.
+A retained consecutive hot-state calibration reached 1.01850x aggregate,
+1.01737x minimum cell, and 1.01413x minimum round with all eight rounds
+positive. M32 therefore uses a 1.01 per-cell and aggregate threshold plus an
+all-round non-reversal gate;
+the unpromoted M17-M31 scheduling generalization keeps its 1.03 candidate
+threshold and excludes the M32 control from its aggregate.
+
+Detached-base whole-model B-C-C-B fixes the predecessor at `41f1c5f`, uses one
+warmup round and five measured rounds per prompt (two prompts, ten measured
+generations per max1 process), and preserves every token, text, stop, step, and
+persistent-memory contract:
+
+| Workload and metric | Predecessor average | Table-free average | Speedup |
+| --- | ---: | ---: | ---: |
+| P33/max1 TTFT | 422.6490 ms | 401.6080 ms | 1.052392x |
+| P513/max1 prefix | 5,184.7810 ms | 4,846.3925 ms | 1.069823x |
+| P513/max1 finish-prefill | 111.8940 ms | 111.8965 ms | 0.999978x |
+| P513/max1 TTFT | 5,296.7645 ms | 4,958.3225 ms | 1.068257x |
+| P513/max8 TTFT | 5,298.4240 ms | 5,048.3965 ms | 1.049526x |
+| P513/max8 Decode-after-first | 782.3915 ms | 782.8130 ms | 0.999462x |
+| P513/max8 subsequent token | 111.7710 ms | 111.8275 ms | 0.999495x |
+| P513/max8 total | 6,080.7485 ms | 5,831.1780 ms | 1.042799x |
+
+P33 and P513 max1 TTFT fall by 21.041 ms and 338.442 ms with no mirrored
+reversal. Max8 Decode-after-first moves by only +0.054%, inside the frozen 0.5%
+neutrality band, while the one-time Prefill saving remains. Chunk 1/8/16/32
+model oracles all reproduce 19 prompt IDs, 26 generated IDs, exact text,
+`im_end`, and 44 steps.
+
+The matched P513/C32/max1 Nsys timeline closes the causal attribution:
+
+| Profile metric | Predecessor | Table-free | Change |
+| --- | ---: | ---: | ---: |
+| Generation NVTX | 5,355.389728 ms | 5,079.708704 ms | -275.681024 ms |
+| All-kernel union | 5,258.089248 ms | 4,978.907136 ms | -279.182112 ms |
+| Gate/up pair envelope/marginal | 1,588.556192 ms | 1,410.349120 ms | -178.207072 ms, 1.126357x |
+| Down raw/union/marginal | 1,036.605824 ms | 932.155840 ms | -104.449984 ms, 1.112052x |
+| Exact-M32 total marginal | 2,625.162016 ms | 2,342.504960 ms | -282.657056 ms, 1.120664x |
+
+Both profiles contain 42,709 kernel launches. Gate/up remains exactly 1,024
+connected components with two launches each; its overlap structure does not
+degrade. Other-kernel union plus generation gaps pay back 6.976032 ms, so
+`282.657056 - 6.976032 = 275.681024 ms` exactly explains the generation delta.
+Repeated B-C-C-B remains the primary performance result because tracing
+perturbs the candidate more strongly than the predecessor.
+
+The Release suite discovers 56 tests and fails none; five configured external
+fixtures skip. The actually instrumented host ASan/UBSan build links
+`libasan.so.8` and `libubsan.so.1`, discovers 55 tests after excluding the
+package consumer, and fails none with five configured skips. This promotion
+does not introduce system double/triple buffering or Prefill/Decode overlap.
+The refreshed largest bounded target is the 1,410.349 ms gate/up pair envelope;
+the next prototype should test a pair-fused CTA that reuses activations and
+decode setup, while retaining this dual-stream implementation as its baseline.
+Full hashes, per-process rows, SASS identities, profiling summaries, and
+limitations are in the [table-free E2M1 benchmark record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).

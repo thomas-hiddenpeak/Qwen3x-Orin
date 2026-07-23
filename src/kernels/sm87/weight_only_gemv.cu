@@ -2720,6 +2720,105 @@ decode_nvfp4x8_to_bf16x8_factorized_vector(
   return output;
 }
 
+// Construct eight exact E2M1 BF16 values without a shared lookup. PRMT treats
+// the low 16 bits of its selector as four byte selectors. Values 0..7 select
+// one byte from the two lookup immediates; values 8..15 replicate the sign bit
+// of the selected source byte. Two four-nibble halves therefore need only
+// byte permutations and bitwise composition, including signed zero (code 8).
+__device__ __forceinline__ uint4 decode_e2m1x8_to_bf16x8_prmt(
+    const std::uint32_t packed) {
+  constexpr std::uint32_t kLowBytes0To3 = 0xc080'0000U;
+  constexpr std::uint32_t kLowBytes4To7 = 0xc080'4000U;
+  constexpr std::uint32_t kHighBytes0To3 = 0x3f3f'3f00U;
+  constexpr std::uint32_t kHighBytes4To7 = 0x4040'4040U;
+  constexpr std::uint32_t kMagnitudeSelectorMask = 0x7777U;
+  constexpr std::uint32_t kSignByteMask = 0x8080'8080U;
+  constexpr std::uint32_t kFirstFourSignSelector = 0xd9c8U;
+  constexpr std::uint32_t kSecondFourSignSelector = 0xfbeaU;
+  constexpr std::uint32_t kFirstPairInterleave = 0x5140U;
+  constexpr std::uint32_t kSecondPairInterleave = 0x7362U;
+
+  const std::uint32_t shifted_signs = packed << 4U;
+  const std::uint32_t first_selector =
+      packed & kMagnitudeSelectorMask;
+  const std::uint32_t second_selector =
+      (packed >> 16U) & kMagnitudeSelectorMask;
+  const std::uint32_t first_low = __byte_perm(
+      kLowBytes0To3, kLowBytes4To7, first_selector);
+  const std::uint32_t second_low = __byte_perm(
+      kLowBytes0To3, kLowBytes4To7, second_selector);
+  const std::uint32_t first_signs =
+      __byte_perm(shifted_signs, packed, kFirstFourSignSelector) &
+      kSignByteMask;
+  const std::uint32_t second_signs =
+      __byte_perm(shifted_signs, packed, kSecondFourSignSelector) &
+      kSignByteMask;
+  const std::uint32_t first_high =
+      __byte_perm(kHighBytes0To3, kHighBytes4To7, first_selector) |
+      first_signs;
+  const std::uint32_t second_high =
+      __byte_perm(kHighBytes0To3, kHighBytes4To7, second_selector) |
+      second_signs;
+
+  uint4 result{};
+  result.x = __byte_perm(first_low, first_high, kFirstPairInterleave);
+  result.y = __byte_perm(first_low, first_high, kSecondPairInterleave);
+  result.z = __byte_perm(second_low, second_high, kFirstPairInterleave);
+  result.w = __byte_perm(second_low, second_high, kSecondPairInterleave);
+  return result;
+}
+
+__device__ __forceinline__ uint4
+decode_nvfp4x8_to_bf16x8_table_free_vector(
+    const std::uint32_t packed, const std::uint16_t decoded_scale) {
+  uint4 result = decode_e2m1x8_to_bf16x8_prmt(packed);
+  result.x = multiply_bf16x2_bits(result.x, decoded_scale);
+  result.y = multiply_bf16x2_bits(result.y, decoded_scale);
+  result.z = multiply_bf16x2_bits(result.z, decoded_scale);
+  result.w = multiply_bf16x2_bits(result.w, decoded_scale);
+  return result;
+}
+
+// Exhaustive semantic gate for the table-free pair constructor. Each thread
+// covers one E4M3 scale code and one packed byte, including signed zero and
+// the E4M3FN NaN encodings, while retaining the production BF16x2 multiply.
+__global__ void nvfp4_table_free_e2m1_exhaustive_kernel(
+    std::uint32_t* const candidate, std::uint32_t* const reference) {
+  constexpr unsigned int kPackedByteCount = 256U;
+  constexpr unsigned int kPackedBytePositions = 4U;
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * kPackedByteCount * kPackedBytePositions;
+  const unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= kCombinationCount) {
+    return;
+  }
+  const unsigned int pair_index = index / kPackedBytePositions;
+  const unsigned int byte_position = index % kPackedBytePositions;
+  const std::uint8_t scale_code =
+      static_cast<std::uint8_t>(pair_index / kPackedByteCount);
+  const std::uint8_t packed =
+      static_cast<std::uint8_t>(pair_index % kPackedByteCount);
+  const std::uint16_t decoded_scale =
+      encode_bf16_rne(decode_e4m3fn(scale_code));
+  const uint4 decoded = decode_e2m1x8_to_bf16x8_prmt(
+      static_cast<std::uint32_t>(packed) << (byte_position * 8U));
+  const std::uint32_t decoded_pair =
+      byte_position == 0U   ? decoded.x
+      : byte_position == 1U ? decoded.y
+      : byte_position == 2U ? decoded.z
+                            : decoded.w;
+  candidate[index] = multiply_bf16x2_bits(decoded_pair, decoded_scale);
+
+  const std::uint16_t low =
+      encode_bf16_rne(decode_e2m1(packed & 0x0fU));
+  const std::uint16_t high =
+      encode_bf16_rne(decode_e2m1(packed >> 4U));
+  const std::uint32_t reference_pair =
+      static_cast<std::uint32_t>(low) |
+      (static_cast<std::uint32_t>(high) << 16U);
+  reference[index] = multiply_bf16x2_bits(reference_pair, decoded_scale);
+}
+
 // Test-only SM80+ raw-weight staging primitives. The candidate using these
 // helpers keeps one 16-byte cell per thread in shared memory. Each thread
 // waits for its own prior async copy, consumes that cell into registers, and
@@ -2751,23 +2850,32 @@ __device__ __forceinline__ void cp_async_wait_group_0() {
 #endif
 }
 
-template <bool kFactorized>
+template <bool kFactorized, bool kTableFreeE2M1 = false>
 struct NvFp4M32ProductLookupStorage;
 
 template <>
-struct alignas(32) NvFp4M32ProductLookupStorage<false> {
+struct alignas(32) NvFp4M32ProductLookupStorage<false, false> {
   std::uint32_t product_words[kFp8EncodedValueCount *
                               kNvFp4EncodedValueCount / 2U];
 };
 
 template <>
-struct alignas(32) NvFp4M32ProductLookupStorage<true> {
+struct alignas(32) NvFp4M32ProductLookupStorage<true, false> {
   std::uint32_t e2m1_byte_pairs[kFp8EncodedValueCount];
   std::uint16_t scale_values[kFp8EncodedValueCount];
 };
 
-static_assert(sizeof(NvFp4M32ProductLookupStorage<false>) == 8'192U);
-static_assert(sizeof(NvFp4M32ProductLookupStorage<true>) == 1'536U);
+// Table-free production specialization. The E4M3 scale codebook remains in
+// shared memory while exact E2M1 BF16 pairs are constructed with PRMT in the
+// stage loop, removing the conflict-prone 1 KiB pair table.
+template <>
+struct alignas(32) NvFp4M32ProductLookupStorage<true, true> {
+  std::uint16_t scale_values[kFp8EncodedValueCount];
+};
+
+static_assert(sizeof(NvFp4M32ProductLookupStorage<false, false>) == 8'192U);
+static_assert(sizeof(NvFp4M32ProductLookupStorage<true, false>) == 1'536U);
+static_assert(sizeof(NvFp4M32ProductLookupStorage<true, true>) == 512U);
 
 // Test-only exhaustive semantic gate for the factorized M32 lookup. Every
 // thread compares one E4M3FN scale code and one packed pair of E2M1 values.
@@ -3210,10 +3318,9 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_kernel(
   }
 }
 
-// K256 scale-window family of the fixed-M32 K64 kernel. Production also
-// factorizes the signed-product lookup into packed E2M1 pairs and E4M3 scales;
-// the full product-table specialization remains test-addressable as the
-// previous-production baseline.
+// K256 scale-window family of the fixed-M32 K64 kernel. It supports the full
+// product table, the preserved factorized E2M1-pair baseline, and the exact
+// table-free E2M1 production specialization while retaining E4M3 scales.
 // Eight adjacent U16 scale words for each output row are cooperatively loaded
 // into the otherwise-unused [64,72) padding of the K64 shared B tile. Four
 // consecutive K64 stages then reuse that window, turning the strided per-row
@@ -3223,7 +3330,8 @@ template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U,
           bool kFactorizedProductLookup = false,
           bool kVectorizedDecodedStore = false,
-          unsigned int kValidTokenCount = 32U>
+          unsigned int kValidTokenCount = 32U,
+          bool kTableFreeE2M1 = false>
 __global__ __launch_bounds__(kThreads, 5) void
 nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
@@ -3285,6 +3393,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   static_assert(kProductWordCount == 2'048U);
   static_assert(kProductInitializationPasses == 8U);
   static_assert(!kVectorizedDecodedStore || kFactorizedProductLookup);
+  static_assert(!kTableFreeE2M1 ||
+                (kFactorizedProductLookup && kVectorizedDecodedStore));
   static_assert(kValidTokenCount == 18U || kValidTokenCount == kTokenCount);
   static_assert((kSharedWeightWordsPerRow * sizeof(std::uint32_t)) %
                     alignof(uint4) ==
@@ -3298,7 +3408,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     std::uint32_t weights[kSharedWeightWordCount];
     float output[kSharedOutputCount];
   };
-  __shared__ NvFp4M32ProductLookupStorage<kFactorizedProductLookup>
+  __shared__ NvFp4M32ProductLookupStorage<kFactorizedProductLookup,
+                                          kTableFreeE2M1>
       product_lookup;
   __shared__ __align__(32) std::uint64_t
       shared_activations[kTokenCount * kSharedActivationWordsPerToken];
@@ -3310,13 +3421,15 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
 
   if constexpr (kFactorizedProductLookup) {
     const std::uint8_t encoded = static_cast<std::uint8_t>(thread);
-    const std::uint16_t low =
-        encode_bf16_rne(decode_e2m1(encoded & 0x0fU));
-    const std::uint16_t high =
-        encode_bf16_rne(decode_e2m1(encoded >> 4U));
-    product_lookup.e2m1_byte_pairs[thread] =
-        static_cast<std::uint32_t>(low) |
-        (static_cast<std::uint32_t>(high) << 16U);
+    if constexpr (!kTableFreeE2M1) {
+      const std::uint16_t low =
+          encode_bf16_rne(decode_e2m1(encoded & 0x0fU));
+      const std::uint16_t high =
+          encode_bf16_rne(decode_e2m1(encoded >> 4U));
+      product_lookup.e2m1_byte_pairs[thread] =
+          static_cast<std::uint32_t>(low) |
+          (static_cast<std::uint32_t>(high) << 16U);
+    }
     product_lookup.scale_values[thread] =
         encode_bf16_rne(decode_e4m3fn(encoded));
   } else {
@@ -3439,14 +3552,29 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
             product_lookup.scale_values[scale1];
         if constexpr (kVectorizedDecodedStore) {
           auto* const decoded_vectors = reinterpret_cast<uint4*>(decoded);
-          decoded_vectors[0] = decode_nvfp4x8_to_bf16x8_factorized_vector(
-              packed.x, product_lookup.e2m1_byte_pairs, decoded_scale0);
-          decoded_vectors[1] = decode_nvfp4x8_to_bf16x8_factorized_vector(
-              packed.y, product_lookup.e2m1_byte_pairs, decoded_scale0);
-          decoded_vectors[2] = decode_nvfp4x8_to_bf16x8_factorized_vector(
-              packed.z, product_lookup.e2m1_byte_pairs, decoded_scale1);
-          decoded_vectors[3] = decode_nvfp4x8_to_bf16x8_factorized_vector(
-              packed.w, product_lookup.e2m1_byte_pairs, decoded_scale1);
+          if constexpr (kTableFreeE2M1) {
+            decoded_vectors[0] =
+                decode_nvfp4x8_to_bf16x8_table_free_vector(packed.x,
+                                                            decoded_scale0);
+            decoded_vectors[1] =
+                decode_nvfp4x8_to_bf16x8_table_free_vector(packed.y,
+                                                            decoded_scale0);
+            decoded_vectors[2] =
+                decode_nvfp4x8_to_bf16x8_table_free_vector(packed.z,
+                                                            decoded_scale1);
+            decoded_vectors[3] =
+                decode_nvfp4x8_to_bf16x8_table_free_vector(packed.w,
+                                                            decoded_scale1);
+          } else {
+            decoded_vectors[0] = decode_nvfp4x8_to_bf16x8_factorized_vector(
+                packed.x, product_lookup.e2m1_byte_pairs, decoded_scale0);
+            decoded_vectors[1] = decode_nvfp4x8_to_bf16x8_factorized_vector(
+                packed.y, product_lookup.e2m1_byte_pairs, decoded_scale0);
+            decoded_vectors[2] = decode_nvfp4x8_to_bf16x8_factorized_vector(
+                packed.z, product_lookup.e2m1_byte_pairs, decoded_scale1);
+            decoded_vectors[3] = decode_nvfp4x8_to_bf16x8_factorized_vector(
+                packed.w, product_lookup.e2m1_byte_pairs, decoded_scale1);
+          }
         } else {
           decode_nvfp4x8_to_bf16x8_factorized(
               packed.x, product_lookup.e2m1_byte_pairs, decoded_scale0,
@@ -3542,9 +3670,9 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
 // design. The first 16-token panel is always valid; the second panel reads
 // only rows below valid_token_count and zero-fills the rest. The epilogue
 // likewise writes only the exact caller-owned [valid_token_count, rows] span.
-// Keeping this as a separate kernel leaves the validated fixed-M18 and M32
-// production specializations and their SASS unchanged while serving one
-// cubin instance per checkpoint shape for M=17 and M=19..31.
+// Keeping this as a separate kernel isolates the validated fixed-M18 and
+// exact-M32 production specializations while serving one cubin instance per
+// checkpoint shape for M=17 and M=19..31.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U>
 __global__ __launch_bounds__(kThreads, 5) void
@@ -8909,8 +9037,9 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_scale_window_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
-// Preserved scalar-store factorized specialization. Production uses the
-// vector-store specialization below; this remains the same-cubin baseline.
+// Preserved scalar-store factorized specialization. The prior-production
+// vector-store specialization below is the direct baseline for table-free
+// E2M1; this scalar form remains test-addressable for the earlier store gate.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U>
 void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked(
@@ -8927,8 +9056,9 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_lookup_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
-// Production factorized specialization that explicitly groups each four
-// decoded BF16x2 words into one aligned shared-memory uint4 store.
+// Preserved prior-production factorized specialization that explicitly
+// groups each four decoded BF16x2 words into one aligned shared-memory uint4
+// store. It remains the same-cubin performance and exactness baseline.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U,
           unsigned int kValidTokenCount = 32U>
@@ -8942,6 +9072,25 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked(
       static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
   nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
       kRows, kColumns, kSharedLeadingDimension, true, true, kValidTokenCount>
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+}
+
+// Exact M32 production specialization that retains the E4M3 scale codebook
+// and WMMA sequence but constructs E2M1 pairs with PRMT instead of loading the
+// shared pair table. Its direct launcher is also exposed to the test binary.
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 72U>
+void launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+      kRows, kColumns, kSharedLeadingDimension, true, true, 32U, true>
       <<<kBlocks, kThreads, 0U, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
@@ -9028,6 +9177,21 @@ int launch_sm87_nvfp4_factorized_product_lookup_exhaustive_test_cuda(
   (void)cudaGetLastError();
   nvfp4_factorized_product_lookup_exhaustive_kernel
       <<<kBlocks, kThreads, 0U, stream>>>(factorized, reference);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_table_free_e2m1_exhaustive_test_cuda(
+    std::uint32_t* const candidate, std::uint32_t* const reference,
+    void* const cuda_stream) noexcept {
+  if (candidate == nullptr || reference == nullptr ||
+      candidate == reference) {
+    return invalid_value();
+  }
+  constexpr unsigned int kBlocks = 1'024U;
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_table_free_e2m1_exhaustive_kernel<<<kBlocks, kThreads, 0U, stream>>>(
+      candidate, reference);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -12472,6 +12636,99 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_res
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_m32_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns)) {
+    return invalid_value();
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (rows == 17'408U) {
+    launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked<
+        17'408U, 5'120U>(packed_weights, block_scales, weight_scale_2,
+                         activations, output, stream);
+  } else {
+    launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
+                         activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda(
+    const std::size_t rows, const std::size_t columns,
+    int* const registers_per_thread, std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes, int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (!use_nvfp4_m16_wmma_fixed_shape(rows, columns) ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (rows == 17'408U) {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            17'408U, 5'120U, 72U, true, true, 32U, true>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              17'408U, 5'120U, 72U, true, true, 32U, true>,
+          static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 32U, true>);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks,
+          nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+              5'120U, 17'408U, 72U, true, true, 32U, true>,
+          static_cast<int>(kThreads), 0U);
+    }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
 // Test-only resource gate for the exact production M18 specialization.
 int query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda(
     const std::size_t rows, const std::size_t columns,
@@ -13369,12 +13626,12 @@ int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
     (void)cudaGetLastError();
     switch (plan.shape) {
       case registry::ProjectionShape::kNvFp4_17408x5120:
-        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked<
+        launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked<
             17'408U, 5'120U>(packed_weights, block_scales, weight_scale_2,
                              activations, output, stream);
         break;
       case registry::ProjectionShape::kNvFp4_5120x17408:
-        launch_nvfp4_small_m32_wmma_k64_dual_a_factorized_vector_store_unchecked<
+        launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked<
             5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
                              activations, output, stream);
         break;
