@@ -194,6 +194,11 @@ The diagnostic Phase 3 records are:
   same-cubin bitwise gates, unchanged resources, replay-scoped shared-wavefront
   reduction, verified Release/sanitizer/model suites, and matched P33/C32
   TTFT/Nsight attribution.
+- [`qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json`](qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json),
+  which records the exact C32 NVFP4 MLP gate/up auxiliary-stream schedule,
+  best-effort serial fallback and lifecycle contracts, production-dispatch
+  bitwise/performance gates, real cross-stream overlap, P33 promotion rounds,
+  P33/P65/P129/P513 scaling, and Release/sanitizer/model validation.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -2458,3 +2458,72 @@ overlap ceiling before any multi-stream policy is implemented. Full binary
 identities, protocols, hashes, raw profiler artifacts, rejected follow-ups,
 and diagnostic limits are in the
 [vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).
+
+## C32 NVFP4 MLP gate/up dual-stream overlap
+
+Commit `c58b797` is the first production execution-overlap milestone. It does
+not assign separate streams to Prefill and Decode. Instead, it exploits the
+one clean branch inside each exact 32-token MLP tile: after post-attention
+normalization, gate runs on the existing main stream while up runs on one
+owned nonblocking auxiliary stream. A reusable ready event publishes the
+normalized activation, a reusable done event joins the branches, and SiLU,
+down, residual, and the next layer remain ordered on the main stream.
+
+Eligibility is deliberately narrow: the SM87 backend, exactly 32 tokens, two
+aligned NVFP4 `[17408,5120]` projections, and distinct BF16 outputs. C1-C31,
+other dtypes or shapes, misaligned inputs, Decode, and every fallback remain
+serial. The auxiliary stream and two `cudaEventDisableTiming` events are
+created once as best-effort resources. A partial allocation is destroyed and
+its CUDA last-error is cleared, leaving a valid serial runner. Move, reset,
+failure, and release paths explicitly transfer or drain both streams. The
+request arena, production kernels, SASS, registers, and shared-memory
+footprints do not change; this is neither double/triple buffering nor
+Prefill/Decode overlap.
+
+The final same-binary performance gate now calls the production tile
+dispatcher rather than a test-only launcher. It includes the ready/wait/done/
+join envelope and remains bit-exact:
+
+| Scale distribution | Serial gate+up | Dual-stream envelope | Speedup |
+| --- | ---: | ---: | ---: |
+| Synthetic checkpoint-like | 1.77959 ms | 1.64649 ms | 1.08084x |
+| Same-bank stress | 1.78546 ms | 1.65180 ms | 1.08092x |
+| Two-distribution aggregate | 3.56504 ms | 3.29829 ms | 1.08088x |
+
+Both cells and the aggregate clear the 1.03x scheduling gate with zero gate
+or up mismatches. Two independent unprofiled P33/C32 B-C-C-B rounds also
+clear the separate broader 1.01x end-to-end gate without a reversed round: their
+combined mirrored mean moves from 474.06675 to 468.36000 ms (-5.70675 ms,
+-1.2038%, 1.01218x). A separate exact-commit binary confirmation records
+475.7985 to 466.3375 ms (-9.4610 ms, -1.9884%, 1.02029x), with every process
+generating token 9419 (`Hello`).
+
+The fixed prompt matrix shows that the absolute saving scales with complete
+C32 prefix tiles and never reverses:
+
+| Prompt | C32 prefix tiles | Serial TTFT | Dual-stream TTFT | Change |
+| --- | ---: | ---: | ---: | ---: |
+| P33 | 1 | 453.9335 ms | 446.8070 ms | -7.1265 ms (-1.5699%) |
+| P65 | 2 | 812.2235 ms | 797.7420 ms | -14.4815 ms (-1.7829%) |
+| P129 | 4 | 1,589.3165 ms | 1,562.1545 ms | -27.1620 ms (-1.7090%) |
+| P513 | 16 | 7,608.5265 ms | 7,503.6680 ms | -104.8585 ms (-1.3782%) |
+
+Matched P33 Nsight Systems evidence confirms real concurrency rather than two
+nominal stream handles. All 64 gate/up pairs overlap across streams 17 and 18.
+Their combined envelope falls from 107.754336 to 99.308160 ms (-8.446176 ms,
+1.08505x), with 29.192032 ms of actual interval intersection. Contention
+lengthens the raw target-kernel duration sum from 107.666976 to 128.500192 ms,
+but that sum double-counts concurrent time. The all-inference kernel span
+falls from 474.910176 to 471.603136 ms, while profiled TTFT moves from 476.042
+to 473.018 ms. Raw duration growth is therefore a contention signal, not a
+critical-path, power, or energy measurement.
+
+Release reports 49 passes and five environment skips from 54 tests. The
+verified ASan/UBSan suite reports 48 passes, five skips, and zero failures from
+53 tests. Separate final C1/C8/C16/C32 model processes preserve the pinned 19
+prompt IDs, 26 generated IDs, exact text/`im_end`, and all 44 logical steps.
+The next bounded scheduling candidate is the lower-footprint Linear-Attention
+A/B sidecar against QKV/Z; Decode and broad multi-stream scheduling remain
+lower priority until their own gates pass. Full hashes, protocols, trace
+definitions, limitations, and rollback thresholds are in the
+[gate/up dual-stream record](metadata/qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json).

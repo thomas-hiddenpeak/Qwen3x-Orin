@@ -348,6 +348,26 @@ changing the one-stream policy; the logical plan split already exists, but
 execution is still serial. See the
 [vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).
 
+The matched trace then justified one narrow policy change. Commit `c58b797`
+overlaps the exact aligned C32 NVFP4 MLP gate and up projections on two streams
+inside each layer, with ready/done events and a main-stream join before SiLU.
+All other Prefill routes and all Decode work remain single-stream; auxiliary
+resource allocation is best-effort and falls back to the prior serial path.
+The production-dispatch micro gate is 1.08088x, the exact-commit P33/C32
+confirmation is 1.02029x, and P33/P65/P129/P513 mirrored TTFT values improve by
+1.57%/1.78%/1.71%/1.38% with absolute savings growing from 7.13 to 104.86 ms.
+Nsight confirms all 64 target pairs actually overlap, rather than merely using
+two stream IDs. See the
+[gate/up dual-stream record](metadata/qwen36-27b-nvfp4-m32-gate-up-dual-stream-benchmark.json).
+
+The next scheduling priority is a bounded production-dispatch experiment for
+the lower-footprint Linear-Attention A/B sidecar against QKV/Z. It must begin
+test-only, retain bitwise outputs, and clear its own kernel-envelope and
+end-to-end gates before entering `ReferenceRunner`. Broad Prefill/Decode
+overlap remains invalid for one batch-one request because token and persistent
+state dependencies are causal; multi-request continuous batching is a later
+serving project, not an extension of this local branch overlap.
+
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
