@@ -2794,3 +2794,101 @@ rather than a concurrent-request or serving-throughput claim. Full protocols,
 binary/report hashes, raw profile attribution, correctness contracts, and
 limitations are in the
 [runtime-masked M17/M19-M31 record](metadata/qwen36-27b-nvfp4-m17-m31-runtime-masked-m32-benchmark.json).
+
+## Rejected M17-M32 NVFP4 MLP gate/up dual-stream generalization
+
+Commit `8902f0e` retains a test-only same-binary probe for extending the exact
+M32 gate/up auxiliary-stream topology across M17 through M32. The production
+baseline is the `d22663b1...3bfe` application binary from that exact source
+boundary: M17 through M31, including fixed M18, remain serial on the main
+stream, while exact M32 keeps its already-promoted auxiliary-stream path. The
+candidate was an uncommitted three-file selector-and-tests patch using the
+existing event topology on that boundary. Static review of the selector and
+ready/wait/done/join topology was clean, and its Release suite reported 49
+passes, five environment skips, and zero failures. The patch was nevertheless
+withdrawn after the performance gate.
+
+The isolated probe used two synthetic scale distributions, ten warmups, four
+serial-concurrent-concurrent-serial rounds, and 24 launches per pass. Every
+cell required at least 1.03x, all four rounds in the positive direction, and a
+minimum round speedup of 1.00x. All 32 correctness/cell gates, 128 rounds, and
+16 per-M gates passed:
+
+| M | Speedup | M | Speedup |
+| ---: | ---: | ---: | ---: |
+| 17 | 1.08188x | 25 | 1.08135x |
+| 18 | 1.08124x | 26 | 1.08148x |
+| 19 | 1.08152x | 27 | 1.08146x |
+| 20 | 1.08166x | 28 | 1.08157x |
+| 21 | 1.08157x | 29 | 1.08122x |
+| 22 | 1.08170x | 30 | 1.08136x |
+| 23 | 1.08148x | 31 | 1.08161x |
+| 24 | 1.08154x | 32 | 1.08078x |
+
+The observed round range is 1.08030x to 1.08240x, the cell range is 1.08074x
+to 1.08216x, and the two-distribution aggregate moves from 56.6910 to 52.4207
+ms (1.08146x). This is a synthetic scheduling ceiling, not a model result and
+not evidence that all-count dual-stream dispatch should enter production.
+
+The whole-model gate used four independent B-C-C-B processes, one warmup and
+five maximum-one-token samples per prompt, C32, and twelve representative
+prompts. It reused the ten-prompt tail manifest, then added the historical
+P19 fixed-M18 prompt and an unchanged P33 fixed-M32 control. The byte-identical
+non-timing contracts are 11,566 bytes each with SHA-256
+`b808fc56760a1d5d863608c9c4d94ce0b806b6511f90b50e2d2c137f69bddc61`.
+The matrix covers workload/schedule counts `17,18,19,24,25,31,32`; it is not
+direct whole-model coverage of every M. The exhaustive per-M evidence above is
+synthetic.
+
+| Prompt | C32 schedule | Baseline mean | Candidate mean | Speedup |
+| --- | --- | ---: | ---: | ---: |
+| P18 | `17` | 434.6480 ms | 429.5075 ms | 1.011968x |
+| P20 | `19` | 477.0205 ms | 471.8955 ms | 1.010860x |
+| P25 | `24` | 503.4070 ms | 498.2450 ms | 1.010360x |
+| P26 | `25` | 550.6840 ms | 545.9065 ms | 1.008751x |
+| P32 | `31` | 647.6460 ms | 642.6815 ms | 1.007725x |
+| P50 | `32+17` | 778.6705 ms | 773.2830 ms | 1.006967x |
+| P52 | `32+19` | 821.7205 ms | 816.6415 ms | 1.006219x |
+| P57 | `32+24` | 850.3060 ms | 845.2105 ms | 1.006029x |
+| P58 | `32+25` | 898.0900 ms | 893.0785 ms | 1.005611x |
+| P64 | `32+31` | 997.6640 ms | 992.6135 ms | 1.005088x |
+| P19 | `18` | 439.5300 ms | 435.3570 ms | 1.009585x |
+| P33 control | `32` | 446.9155 ms | 446.8830 ms | 1.000073x |
+
+All eleven affected rows improve in both mirrored pairs. The unchanged P33
+control improves by 0.0073% in mean; its second pair reverses by only 0.241 ms,
+well inside the existing 0.5% non-trigger regression limit. At aggregate level,
+the first and second mirrored pairs remain positive at 1.008136x and 1.005983x.
+However, the combined mean moves only from 7,846.302 to 7,791.303 ms, saving
+54.999 ms (0.7010%, 1.007059x). The affected-only result is 1.007484x. Both are
+below the required 1.01x whole-model threshold, so the production candidate is
+rejected despite its clean correctness result and positive microbenchmark.
+
+No Nsight Systems profile was collected for the withdrawn candidate after this
+hard gate failed. Stopping there avoids selectively appending candidate
+attribution evidence after a negative promotion decision. Production therefore
+retains serial M17-M31/M18 gate-up execution and the existing M32-only overlap.
+
+After that decision, an independent Nsight Compute diagnostic profiled the
+retained production runtime-mask kernel at its first representative M17
+gate/up launch. The `<17408,5120,72>` kernel measured 751.552 us, 34.95% DRAM
+read throughput, 45.03% SM throughput, 44.85% issue active, 19.11% tensor-pipe
+active, 70.51% active warps, and 5.26 long-scoreboard stalled warps per active
+issue. It used 48 registers per thread and 24,576 static shared bytes with five
+active blocks per SM. These unlocked-clock counters do not prove a speedup, but
+they show that the kernel is not saturating DRAM and justify one bounded
+test-only experiment: prefetch one 4 KiB packed-weight stage while WMMA consumes
+the already-decoded stage. This baseline diagnostic is not evidence for the
+rejected dual-stream candidate. Its local report is 1,595,682 bytes with
+SHA-256 `e99a80aa071a33d16dc200900faaae22b245f2a4c691b8f2bece467cc6bc26b2`;
+the 44,011-byte log has SHA-256
+`836a7237184a213dbfb0e97adb4c989d1bfe2b3e8f7c269fd88bc6a42d9986fd`.
+
+The next bounded step is therefore a test-only single-buffer raw-weight
+`cp.async` prefetch prototype. Three buffers and Prefill/Decode overlap remain
+deferred. All timings and counters use unlocked clocks. The whole-model runs
+are batch-one and maximum-one-generated-token; neither the synthetic
+microbenchmark nor the single-kernel NCU diagnostic is a serving-throughput
+result. Full identities, hashes, per-process medians, decision thresholds, and
+limits are in the
+[M17-M32 dual-stream rejection record](metadata/qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json).

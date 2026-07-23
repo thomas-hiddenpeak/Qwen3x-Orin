@@ -219,6 +219,18 @@ The diagnostic Phase 3 records are:
   Prefill and Decode remain logically separate plans; only exact M32 gate/up
   has the existing layer-local dual-stream path, with no general double/triple
   buffering or Prefill/Decode overlap.
+- [`qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json`](qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json),
+  which records the rejected attempt to generalize that M32 gate/up schedule
+  across M17-M32: all 32 synthetic correctness/cell gates, all 16 per-M gates,
+  and the 1.08146x micro aggregate pass, but the twelve-prompt whole-model
+  result reaches only 1.007059x against the required 1.01x. It freezes the
+  baseline/candidate/withdrawn-patch identities, representative prompt and
+  output contracts, the deliberate absence of a post-failure Nsight Systems
+  profile for that candidate, and the decision to retain serial M17-M31/M18
+  plus the existing M32-only auxiliary stream. It also separates a later
+  Nsight Compute diagnostic of the retained production M17 kernel from the
+  rejected candidate and records the evidence basis for a test-only 4 KiB
+  raw-weight prefetch experiment.
 - [`qwen36-27b-nvfp4-m1-factorized-rejection.json`](qwen36-27b-nvfp4-m1-factorized-rejection.json),
   which records the rejected test-only Decode M1 BF16 pair/scale factorization:
   exhaustive and full-path bitwise gates, compiler resources, unchanged

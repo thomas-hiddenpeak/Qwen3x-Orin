@@ -180,10 +180,11 @@ Deliverables:
   projections for exact M17 and M19-M31 `[17408,5120]` and `[5120,17408]`,
   with exact external M-row capacity and ordered M16-plus-at-most-M8 fallback
   elsewhere.
-- [next, test-only gate] Measure gate/up dual-stream scheduling independently
-  at every exact M17-M32 count, including the fixed M18 specialization; promote
-  only new counts that clear their own correctness, resource, micro, and
-  end-to-end gates.
+- [measured and rejected] Generalize gate/up dual-stream scheduling across exact
+  M17-M32, including fixed M18 and the existing M32 control. All 16 per-M
+  synthetic gates passed, but the representative whole-model result reached
+  only 1.007059x against the required 1.01x, so production retains serial
+  M17-M31/M18 scheduling and the existing M32-only auxiliary stream.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -419,13 +420,31 @@ from 193.332160 to 193.260160 ms. C1/C8/C16/C32 exact-model gates pass. See the
 and
 [pinned prompt manifest](../benchmarks/qwen36-27b-sm87-prefill-tail-prompts-v1.json).
 
-The next priority is a test-only gate/up dual-stream matrix for every exact
-M17-M32 count, explicitly including the fixed M18 route and retaining the
-existing M32 result as the control. Each token count must independently clear
-bitwise, exact-span, graph/lifecycle, per-M microbenchmark, and end-to-end gates
-before any new scheduling policy enters production. General double/triple
-buffering or Prefill/Decode phase overlap remains deferred until those narrow
-per-M gates establish a repeatable critical-path envelope.
+The M17-M32 gate/up dual-stream generalization was then measured and rejected.
+The committed test-only probe clears all 32 correctness/cell gates and all 16
+per-M synthetic performance gates, with a 1.08146x aggregate. A clean
+three-file production selector candidate also passes the Release suite. Its
+twelve-prompt B-C-C-B result, however, improves only from 7,846.302 to
+7,791.303 ms (0.7010%, 1.007059x), below the required 1.01x whole-model gate.
+Both aggregate mirrored pairs and all eleven affected prompt rows remain
+positive; the unchanged P33 control is neutral. The selector patch was
+withdrawn without a production-dispatch change, and no post-failure Nsight
+Systems profile was added. See the
+[dual-stream rejection record](metadata/qwen36-27b-nvfp4-m17-m32-gate-up-dual-stream-rejection.json).
+
+An initial Nsight Compute diagnostic is now complete on the retained production
+M17 gate/up runtime-mask kernel. It reports 34.95% DRAM read throughput, 45.03%
+SM throughput, 44.85% issue active, 19.11% tensor-pipe active, 70.51% active
+warps, and 5.26 long-scoreboard stalled warps per active issue. With 48
+registers per thread and 24,576 static shared bytes, the kernel retains five
+active blocks per SM. This is unlocked-clock diagnostic evidence, not a causal
+speedup claim and not post-hoc evidence for the rejected dual-stream candidate.
+
+The next priority is a bounded test-only single-buffer raw-weight `cp.async`
+prefetch prototype: add one 4 KiB packed-weight stage, preserve the decoded
+weight buffer and arithmetic order, and first require exact output/canary,
+resource, and same-binary microbenchmark gates. General three-buffer
+scheduling, Prefill/Decode overlap, and continuous batching remain deferred.
 
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
