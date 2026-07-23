@@ -48,6 +48,26 @@ __device__ __forceinline__ std::uint16_t encode_bf16_device(
   return __bfloat16_as_ushort(__float2bfloat16_rn(value));
 }
 
+__device__ __forceinline__ std::uint32_t encode_bf16_pair_device(
+    const float first,
+    const float second) {
+  const unsigned int first_bits = __float_as_uint(first);
+  const unsigned int second_bits = __float_as_uint(second);
+  const __nv_bfloat162_raw converted = static_cast<__nv_bfloat162_raw>(
+      __floats2bfloat162_rn(first, second));
+  std::uint32_t packed = static_cast<std::uint32_t>(converted.x) |
+                         (static_cast<std::uint32_t>(converted.y) << 16U);
+  if ((first_bits & 0x7fffffffU) > 0x7f800000U) {
+    const std::uint32_t nan_bits = (first_bits >> 16U) | 0x0040U;
+    packed = (packed & 0xffff0000U) | nan_bits;
+  }
+  if ((second_bits & 0x7fffffffU) > 0x7f800000U) {
+    const std::uint32_t nan_bits = (second_bits >> 16U) | 0x0040U;
+    packed = (packed & 0x0000ffffU) | (nan_bits << 16U);
+  }
+  return packed;
+}
+
 __device__ __forceinline__ float stable_softplus_device(const float value) {
   return value > 20.0F ? value : log1pf(expf(value));
 }
@@ -61,10 +81,11 @@ __device__ __forceinline__ float stable_sigmoid_device(const float value) {
 }
 
 // Exact-M16 experiment: each lane owns four keys from the same eight rows in
-// both row batches assigned to its warp. The low/high BF16 halves of each word
-// hold matching (row,key) elements from the lower/upper batch respectively.
-// State is loaded once, rounded back into these words at every token boundary,
-// and written to global memory only after token 15.
+// both row batches assigned to its warp. Each word packs two adjacent lane-
+// striped key items from the same row and batch, enabling one native BF16x2
+// conversion after each pair of independent state-update FMAs. State is loaded
+// once, rounded back into these words at every token boundary, and written to
+// global memory only after token 15.
 __launch_bounds__(kRegisterStateThreads, 4)
 __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
     const std::uint16_t* const conv_qkv,
@@ -107,24 +128,37 @@ __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
   constexpr std::size_t kKOffset = kGdnQElements;
   constexpr std::size_t kVOffset = kGdnQElements + kGdnKElements;
 
-  std::uint32_t state_words[kRowsPerWarpBatch][kKeysPerLane];
+  constexpr std::size_t kKeyPairsPerLane = kKeysPerLane / 2U;
+  static_assert(kKeyPairsPerLane == 2U);
+  std::uint32_t lower_state_words[kRowsPerWarpBatch][kKeyPairsPerLane];
+  std::uint32_t upper_state_words[kRowsPerWarpBatch][kKeyPairsPerLane];
 #pragma unroll
   for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
 #pragma unroll
-    for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
-      const std::size_t key_dimension =
-          lane + item * static_cast<std::size_t>(kWarpSize);
-      const std::size_t lower_offset =
+    for (std::size_t pair = 0U; pair < kKeyPairsPerLane; ++pair) {
+      const std::size_t first_item = pair * 2U;
+      const std::size_t first_key =
+          lane + first_item * static_cast<std::size_t>(kWarpSize);
+      const std::size_t second_key = first_key + kWarpSize;
+      const std::size_t lower_row_offset =
           head_state_offset +
           (warp_first_row + static_cast<std::size_t>(row)) *
-              kGdnHeadDimension +
-          key_dimension;
-      const std::size_t upper_offset =
-          lower_offset +
+              kGdnHeadDimension;
+      const std::size_t upper_row_offset =
+          lower_row_offset +
           static_cast<std::size_t>(kBatchRowOffset) * kGdnHeadDimension;
-      const std::uint32_t lower = state_input[lower_offset];
-      const std::uint32_t upper = state_input[upper_offset];
-      state_words[row][item] = lower | (upper << 16U);
+      const std::uint32_t lower_first =
+          state_input[lower_row_offset + first_key];
+      const std::uint32_t lower_second =
+          state_input[lower_row_offset + second_key];
+      const std::uint32_t upper_first =
+          state_input[upper_row_offset + first_key];
+      const std::uint32_t upper_second =
+          state_input[upper_row_offset + second_key];
+      lower_state_words[row][pair] =
+          lower_first | (lower_second << 16U);
+      upper_state_words[row][pair] =
+          upper_first | (upper_second << 16U);
     }
   }
 
@@ -234,19 +268,24 @@ __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
           static_cast<std::size_t>(batch * kBatchRowOffset);
 
 #pragma unroll
-      for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
-        const std::size_t key_dimension =
-            lane + item * static_cast<std::size_t>(kWarpSize);
+      for (std::size_t pair = 0U; pair < kKeyPairsPerLane; ++pair) {
+        const std::size_t first_item = pair * 2U;
+        const std::size_t first_key =
+            lane + first_item * static_cast<std::size_t>(kWarpSize);
+        const std::size_t second_key = first_key + kWarpSize;
 #pragma unroll
         for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
-          const std::uint32_t word = state_words[row][item];
-          const std::uint16_t state_bits = static_cast<std::uint16_t>(
-              batch == 0U ? word : (word >> 16U));
-          const std::size_t scratch_offset =
-              static_cast<std::size_t>(row) * kScratchRowStride +
-              key_dimension;
-          warp_scratch[scratch_offset] =
-              alpha * decode_bf16_device(state_bits);
+          const std::uint32_t word =
+              batch == 0U ? lower_state_words[row][pair]
+                          : upper_state_words[row][pair];
+          const std::size_t scratch_row_offset =
+              static_cast<std::size_t>(row) * kScratchRowStride;
+          warp_scratch[scratch_row_offset + first_key] =
+              alpha * decode_bf16_device(
+                          static_cast<std::uint16_t>(word));
+          warp_scratch[scratch_row_offset + second_key] =
+              alpha * decode_bf16_device(
+                          static_cast<std::uint16_t>(word >> 16U));
         }
       }
       __syncwarp(kFullWarpMask);
@@ -281,23 +320,34 @@ __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
       }
 
 #pragma unroll
-      for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
-        const std::size_t key_dimension =
-            lane + item * static_cast<std::size_t>(kWarpSize);
+      for (std::size_t pair = 0U; pair < kKeyPairsPerLane; ++pair) {
+        const std::size_t first_item = pair * 2U;
+        const std::size_t first_key =
+            lane + first_item * static_cast<std::size_t>(kWarpSize);
+        const std::size_t second_key = first_key + kWarpSize;
 #pragma unroll
         for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
-          const std::size_t scratch_offset =
-              static_cast<std::size_t>(row) * kScratchRowStride +
-              key_dimension;
-          const float updated =
-              fmaf(deltas[row], normalized_k[key_dimension],
-                   warp_scratch[scratch_offset]);
-          const std::uint32_t rounded = encode_bf16_device(updated);
-          const std::uint32_t old_word = state_words[row][item];
-          state_words[row][item] =
-              batch == 0U ? (old_word & 0xffff0000U) | rounded
-                          : (old_word & 0x0000ffffU) | (rounded << 16U);
-          warp_scratch[scratch_offset] = updated;
+          const std::size_t scratch_row_offset =
+              static_cast<std::size_t>(row) * kScratchRowStride;
+          const std::size_t first_scratch_offset =
+              scratch_row_offset + first_key;
+          const std::size_t second_scratch_offset =
+              scratch_row_offset + second_key;
+          const float first_updated =
+              fmaf(deltas[row], normalized_k[first_key],
+                   warp_scratch[first_scratch_offset]);
+          const float second_updated =
+              fmaf(deltas[row], normalized_k[second_key],
+                   warp_scratch[second_scratch_offset]);
+          const std::uint32_t rounded =
+              encode_bf16_pair_device(first_updated, second_updated);
+          if (batch == 0U) {
+            lower_state_words[row][pair] = rounded;
+          } else {
+            upper_state_words[row][pair] = rounded;
+          }
+          warp_scratch[first_scratch_offset] = first_updated;
+          warp_scratch[second_scratch_offset] = second_updated;
         }
       }
       __syncwarp(kFullWarpMask);
@@ -326,21 +376,28 @@ __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
 #pragma unroll
   for (unsigned int row = 0U; row < kRowsPerWarpBatch; ++row) {
 #pragma unroll
-    for (std::size_t item = 0U; item < kKeysPerLane; ++item) {
-      const std::size_t key_dimension =
-          lane + item * static_cast<std::size_t>(kWarpSize);
-      const std::size_t lower_offset =
+    for (std::size_t pair = 0U; pair < kKeyPairsPerLane; ++pair) {
+      const std::size_t first_item = pair * 2U;
+      const std::size_t first_key =
+          lane + first_item * static_cast<std::size_t>(kWarpSize);
+      const std::size_t second_key = first_key + kWarpSize;
+      const std::size_t lower_row_offset =
           head_state_offset +
           (warp_first_row + static_cast<std::size_t>(row)) *
-              kGdnHeadDimension +
-          key_dimension;
-      const std::size_t upper_offset =
-          lower_offset +
+              kGdnHeadDimension;
+      const std::size_t upper_row_offset =
+          lower_row_offset +
           static_cast<std::size_t>(kBatchRowOffset) * kGdnHeadDimension;
-      const std::uint32_t word = state_words[row][item];
-      state_output[lower_offset] = static_cast<std::uint16_t>(word);
-      state_output[upper_offset] =
-          static_cast<std::uint16_t>(word >> 16U);
+      const std::uint32_t lower_word = lower_state_words[row][pair];
+      const std::uint32_t upper_word = upper_state_words[row][pair];
+      state_output[lower_row_offset + first_key] =
+          static_cast<std::uint16_t>(lower_word);
+      state_output[lower_row_offset + second_key] =
+          static_cast<std::uint16_t>(lower_word >> 16U);
+      state_output[upper_row_offset + first_key] =
+          static_cast<std::uint16_t>(upper_word);
+      state_output[upper_row_offset + second_key] =
+          static_cast<std::uint16_t>(upper_word >> 16U);
     }
   }
 }
