@@ -179,6 +179,16 @@ The diagnostic Phase 3 records are:
   K128/LD136 same-cubin selection gate, two-shape bitwise/resource/graph and
   fallback contracts, exact C1/C8/C16/C32 model replay, the tokenizer-pinned
   P33/C32 B-C-C-B result, and matched baseline/candidate Nsight attribution.
+- [`qwen36-27b-nvfp4-m32-scale-window-benchmark.json`](qwen36-27b-nvfp4-m32-scale-window-benchmark.json),
+  which records the K256 coalesced block-scale window, same-cubin and NCU
+  evidence, exact model replay, P33/C32 attribution, rejected swizzle/tile
+  probes, and the later correction that its historical `build/orin-asan`
+  directory was not actually sanitizer-instrumented.
+- [`qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json`](qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json),
+  which records the production factorized E2M1/E4M3 lookup, exhaustive bitwise
+  gate, resource/SASS changes, same-cubin timing, exact-template NCU tradeoff,
+  verified ASan/UBSan and model suites, and matched P33/C32 TTFT/Nsight
+  attribution.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

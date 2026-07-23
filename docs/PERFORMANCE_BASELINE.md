@@ -2237,10 +2237,13 @@ local/stack memory, 256 threads/block, and five active blocks/SM.
 The direct gate is bit-exact to both the previous M32 production kernel and two
 public M16 launches across 720,896 BF16 outputs. Replay, token-15/16 boundary,
 finite-output, guard, two-byte-aligned-scale, and single-node CUDA Graph checks
-all pass. Release reports 49 passes and five environment skips from 54 tests;
-the selected ASan/UBSan run reports 48 passes and five skips from 53. Separate
-C1/C8/C16/C32 model processes preserve the pinned 19 prompt IDs, 26 generated
-IDs, exact text/`im_end`, and all 44 logical steps.
+all pass. Release reports 49 passes and five environment skips from 54 tests.
+A later configuration audit found that the historical `build/orin-asan` run
+reported in this section had no sanitizer compile or link flags, so it is only
+additional non-sanitized evidence. The following factorized milestone reruns
+the same 53-test selection with a verified ASan/UBSan build. Separate C1/C8/
+C16/C32 model processes preserve the pinned 19 prompt IDs, 26 generated IDs,
+exact text/`im_end`, and all 44 logical steps.
 
 The same-cubin four-round B-C-C-B gate records:
 
@@ -2285,3 +2288,83 @@ or multi-stream overlap. The next kernel-local gate should reduce decoded-
 product shared traffic or pipeline stages while preserving B reuse and dual-
 accumulator ILP. Full artifacts and limitations are in the
 [NVFP4 M32 scale-window record](metadata/qwen36-27b-nvfp4-m32-scale-window-benchmark.json).
+
+## NVFP4 M32 factorized product lookup
+
+Commit `51ca634` keeps the production N128, K64/LD72, dual-resident-A K256
+scale-window kernel and changes only decoded-product construction. The previous
+8,192-byte table materialized every `E4M3 scale x signed E2M1 value` BF16
+product. The selected path stores 256 packed E2M1 byte pairs in 1,024 bytes,
+stores all E4M3 scales in 512 bytes, and uses exact BF16x2 multiply after each
+packed lookup. An exhaustive 256-scale x 256-packed-byte device gate compares
+65,536 words and 131,072 BF16 halves, including signed zero and 1,024 NaN
+halves per path, with zero mismatches.
+
+Both exact shapes use 46 registers/thread, 24,576 bytes static shared memory,
+zero local/stack memory, 256 threads/block, and five active blocks/SM. Relative
+to the full table, static shared memory falls 6,656 bytes (21.31%). SASS falls
+from 784 to 728 static instructions and from 49 to 35 LDS instructions; the
+new path adds 16 `HFMA2.BF16_V2` instructions, leaves LDG/HMMA/barrier counts
+unchanged, and introduces no local loads or stores. The default direct suite,
+two exact-shape smoke tests, replay, token boundary, guards, invalid routes,
+and one-node CUDA Graph contracts all pass. Release reports 49 passes and five
+environment skips from 54 tests. A genuinely instrumented `build-sanitize`
+(`-fsanitize=address,undefined`, linked to libasan/libubsan) reports 48 passes,
+five skips, and zero failures from the selected 53 tests. C1/C8/C16/C32 model
+processes preserve the exact 19 prompt IDs, 26 generated IDs, text, `im_end`,
+and 44 logical steps.
+
+The persisted same-cubin four-round B-C-C-B gate records:
+
+| Shape | Scale distribution | K256 full table | Factorized | Speedup |
+| --- | --- | ---: | ---: | ---: |
+| `[17408,5120]` gate/up | checkpoint-like | 1.02615 ms | 0.924178 ms | 1.11033x |
+| `[17408,5120]` gate/up | same-bank stress | 0.996987 ms | 0.926639 ms | 1.07592x |
+| `[5120,17408]` down | checkpoint-like | 1.18354 ms | 1.08811 ms | 1.08770x |
+| `[5120,17408]` down | same-bank stress | 1.14503 ms | 1.09019 ms | 1.05030x |
+
+Applying the 128:64 P33 gate/up-to-down call mix across both distributions
+reduces the weighted aggregate from 407.989648 to 376.316384 ms, or 1.08417x.
+Exact shape-and-template-filtered NCU explains both the win and the remaining
+gap:
+
+| NCU fixture | Full-table duration | Factorized duration | Executed instructions | Excess shared wavefronts |
+| --- | ---: | ---: | ---: | ---: |
+| Gate/up checkpoint-like | 1.042176 ms | 0.930656 ms (1.11983x) | 32,916,432 -> 27,831,936 | 3,670,912 -> 5,709,824 |
+| Down same-bank stress | 1.163552 ms | 1.100448 ms (1.05734x) | 32,385,552 -> 27,510,912 | 2,887,680 -> 5,730,880 |
+
+Global-access counters are unchanged and achieved occupancy rises slightly.
+The speedup comes from roughly 15% fewer executed instructions, fewer LDS
+instructions, and the smaller footprint—not from fewer bank conflicts. Total
+and excessive shared wavefronts increase, so bank-aware E2M1-pair layout and
+recovering the former four `STS.128` decoded-tile stores are the next bounded
+kernel-local targets. The down NCU row is explicitly same-bank stress; it is
+not presented as checkpoint-like evidence.
+
+An alignment audit also resolves an apparent cross-milestone global-sector
+increase. The two rows above deliberately pass `cudaMalloc + 2` scales to
+stress the public two-byte alignment contract, so alternating K256 windows
+touch four/eight sectors and both specializations report 348,160 excess
+sectors. Frozen scale-window and current `bool=false` SASS are identical. A
+dedicated checkpoint-like gate/up replay with the cudaMalloc-aligned scale
+buffer—matching the production resident arena's mandatory 256-byte tensor
+alignment—reports 174,080 excess sectors for both `bool=false` and `bool=true`,
+while the candidate remains 1.10576x faster (1.027168 to 0.928928 ms). Thus
+there is no factorization-induced global-load regression; the two alignment
+fixtures are retained as separate production and public-contract evidence.
+
+The detached scale-window baseline and factorized candidate P33/C32 B-C-C-B
+diagnostic records 499.087, 486.068, 486.056, and 499.070 ms. The mirrored
+averages are 499.0785 and 486.0620 ms, a -13.0165 ms change (-2.6081%,
+1.02678x), with all runs generating token 9419 (`Hello`). Matched Nsight
+Systems profiles retain 2,166 launches and reduce target gate/up plus down time
+from 217.672096 to 204.422208 ms (-13.249888 ms, 1.06482x). Summed kernel time
+falls 11.457632 ms and kernel span falls 11.666848 ms; the small difference is
+unlocked-clock non-target noise.
+
+Prefill and Decode remain logically separate execution plans on one serial
+CUDA stream. This milestone adds no double/triple buffering or multi-stream
+overlap. Packed-weight prefetch variants regressed to 0.9817x and 0.93859x
+weighted speedup and were removed. Protocols, hashes, NCU/Nsys artifacts,
+limitations, and the sanitizer evidence correction are in the
+[NVFP4 M32 factorized lookup record](metadata/qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json).

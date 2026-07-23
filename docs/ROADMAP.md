@@ -311,6 +311,21 @@ product shared traffic or a stage pipeline that preserves B reuse and dual-
 accumulator ILP. One-stream serial scheduling remains in place until a trace
 shows independent work worth overlapping. See the
 [NVFP4 M32 scale-window record](metadata/qwen36-27b-nvfp4-m32-scale-window-benchmark.json).
+
+The next factorized-lookup milestone (`51ca634`) completes that decoded-product
+construction gate. It replaces the 8,192-byte signed-product table with a
+1,024-byte packed-E2M1-pair table plus 512 bytes of E4M3 scales and exact
+BF16x2 multiply.
+Both exact shapes remain at 46 registers, zero local memory, and five CTAs/SM,
+while static shared memory falls from 31,232 to 24,576 bytes. The same-cubin
+weighted gate is 1.08417x, P33/C32 mirrored TTFT moves from 499.0785 to
+486.0620 ms (-2.6081%), and matched target-kernel time falls from 217.672096 to
+204.422208 ms (1.06482x). NCU also exposes the next limit: dynamic instructions
+fall about 15%, but excessive shared wavefronts rise because the factorized
+table layout is bank-unfriendly. Bank-aware lookup layout and vectorized decoded
+stores therefore outrank broad double/triple buffering or multi-stream work.
+See the [factorized lookup record](metadata/qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json).
+
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape

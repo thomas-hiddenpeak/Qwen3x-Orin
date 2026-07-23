@@ -231,10 +231,13 @@ the smaller FP8 shape may regress by at most 2%. It is enabled with
 `Q3X_RUN_SM87_FP8_M16_WMMA_PERF=1` and
 `Q3X_RUN_SM87_NVFP4_M16_WMMA_PERF=1`; their final production-call-weighted
 speedups over two M8 launches are 2.41756x and 1.56406x, respectively.
-The fixed-M32 NVFP4 dual-candidate gate is enabled with
-`Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1`; it compares the K64/LD72 and K128/LD136
-kernels with two public M16 launches on both checkpoint-like and
-same-bank-stress fixtures. Production selects K64/LD72.
+The fixed-M32 NVFP4 multi-candidate gate is enabled with
+`Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1`; it compares preserved K64/LD72 and
+K128/LD136 baselines, the K256 scale-window specialization, and its factorized
+E2M1/E4M3 product lookup on both checkpoint-like and same-bank-stress fixtures.
+Production selects factorized K64/LD72; the final same-cubin gate requires no
+individual regression and at least 1.02x production-call-weighted speedup over
+the full-table K256 scale-window predecessor.
 The FP8 M1 K/V pair correctness segment runs by default and covers all 254
 finite E4M3FN codes in each packed byte position, isolated `0x7f`/`0xff` NaNs,
 bitwise comparison, and output canaries. Its optional mirrored timing gate is

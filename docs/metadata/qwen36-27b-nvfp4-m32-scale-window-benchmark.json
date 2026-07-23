@@ -79,7 +79,10 @@
       "skipped": 5,
       "failed": 0
     },
-    "asan_ubsan_selected_suite": {
+    "historically_mislabeled_asan_ubsan_selected_suite": {
+      "build_directory": "build/orin-asan",
+      "instrumentation_verified": false,
+      "correction": "A later audit found no -fsanitize compile/link flags and no libasan/libubsan dependency. Treat these results as an additional non-sanitized selected suite, not sanitizer evidence.",
       "discovered": 53,
       "passed": 48,
       "skipped": 5,
@@ -156,6 +159,9 @@
   "ncu_attribution": {
     "baseline_kernel": "K64/LD72 dual-A",
     "candidate_kernel": "K64/LD72 dual-A K256 scale-window",
+    "block_scale_pointer_alignment_bytes": 256,
+    "production_resident_tensor_alignment_bytes": 256,
+    "fixture_note": "These reports were captured at 06:24/06:25 before the final commit added the +2-byte legal-alignment smoke stress at 06:33. The cudaMalloc base was sector aligned, matching the production resident-tensor contract rather than the later +2-byte smoke fixture.",
     "gate_up": {
       "shape_n_by_k": [17408, 5120],
       "baseline_duration_ms": 1.25,
@@ -206,7 +212,7 @@
         "candidate_excessive": 2887680
       }
     },
-    "interpretation": "The K256 window removes 1,044,480 excessive global sectors from each exact shape without reducing occupancy. Remaining source-counter pressure is dominated by shared lookup/WMMA access rather than block-scale global loads."
+    "interpretation": "For the 256-byte-aligned production fixture, the K256 window removes 1,044,480 excessive global sectors from each exact shape without reducing occupancy. Remaining source-counter pressure is dominated by shared lookup/WMMA access rather than block-scale global loads. A later +2-byte public-contract stress fixture raises the window kernel to 348,160 excessive sectors; that result is intentionally unaligned stress evidence and is not a production regression."
   },
   "p33_c32_bccb": {
     "prompt_manifest_id": "P33",
@@ -319,7 +325,7 @@
     {"role": "baseline down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-down.ncu-rep", "bytes": 1791362, "sha256": "59f6ba32a50296fe81b96a4e6a87a20581ab91f4e041433b54f5ad34a3022d02", "checked_in": false},
     {"role": "candidate down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-scale-window-down.ncu-rep", "bytes": 1883569, "sha256": "bcde14fc9187bf09eef8d270f5ee808599f203cf7ca7dded48dbdff7c2ed2fe8", "checked_in": false},
     {"role": "release suite log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-ctest-release.log", "bytes": 7398, "sha256": "b92d7e9f3f91de1f5c7e48db4050fef1c2d880645c814a9c9f612d1d0bec5b0e", "checked_in": false},
-    {"role": "ASan UBSan selected suite log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-ctest-asan.log", "bytes": 7273, "sha256": "1585e09253b170a309b89b3fe07e98e70db570207afbbd1254c34bc2914717e3", "checked_in": false},
+    {"role": "historically mislabeled non-sanitized selected suite log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-ctest-asan.log", "bytes": 7273, "sha256": "1585e09253b170a309b89b3fe07e98e70db570207afbbd1254c34bc2914717e3", "checked_in": false},
     {"role": "C1 C8 C16 C32 model-oracle log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-e2e.log", "bytes": 968, "sha256": "edfd5372cc363f26b679d8a427dae2fbbacdb7a1d0647a8b2cb3e5f795c4bef3", "checked_in": false},
     {"role": "default promoted smoke log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-default-promoted.log", "bytes": 32653, "sha256": "f2098bed6f7f65c6db5ae1204d26f7341b01c7341a16333ac71021a5ce499e88", "checked_in": false},
     {"role": "P33 baseline B1 log", "local_path": "/tmp/q3x-nvfp4-m32-scale-window-p033-c32-b1.log", "bytes": 4315, "sha256": "305079516809b57f4b7173c75cd8b0ee3b0ce108bfde14423bd7fa943de48f75", "checked_in": false},
@@ -335,6 +341,7 @@
   ],
   "limitations": [
     "GPU and memory clocks were not locked, so timings remain diagnostic.",
+    "The historical build/orin-asan suite was not sanitizer-instrumented; the first independently verified ASan/UBSan follow-up attached to this scale-window record is the later factorized-lookup milestone's build-sanitize run.",
     "The end-to-end result covers the tokenizer-pinned P33 case with one 32-token prefix tile.",
     "Only the two aligned NVFP4 MLP shapes use the direct M32 kernel.",
     "Prefill and decode remain logically separated but execute serially on one CUDA stream; this milestone adds no double or triple buffering.",

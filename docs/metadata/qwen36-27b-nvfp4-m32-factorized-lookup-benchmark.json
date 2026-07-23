@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-factorized-lookup-benchmark",
+  "status": "production-nvfp4-m32-factorized-lookup-benchmark",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "51ca6348ced831ae454325e2b9122ad4b36ba554",
+    "candidate_subject": "kernels: factorize NVFP4 M32 product lookup",
+    "baseline_commit": "969012993e125ef4c4ff5654b7279a092f01b316",
+    "baseline_subject": "kernels: coalesce NVFP4 M32 scale windows",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3565784,
+      "sha256": "9effa650b73cb1daec63ade276abbb0e3dee263f8fcc9d62b4c6159a068c32b3",
+      "checked_in": false
+    },
+    "same_cubin_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 3727216,
+      "sha256": "110a4d38c9f4701692bdc2ba1a31ef1e307542417d4f5c3899e7ab470e7eea36",
+      "checked_in": false
+    },
+    "baseline_binary": {
+      "local_path": "build/qwen3x-orin",
+      "bytes": 3496864,
+      "sha256": "00ddbfbb705852a912cdb80906eb805a7fa3d5132a0626b984546d631d4b0196",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "ncu_version": "2026.2.0.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root; B-C-C-B timings are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda",
+    "direct_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+    "selected_kernel": "K64/LD72 dual-resident-A fixed-M32 WMMA with K256 scale windows and factorized E2M1/E4M3 lookup",
+    "previous_product_lookup": {
+      "layout": "256 E4M3 scale codes x 16 signed E2M1 codes x BF16",
+      "bytes": 8192,
+      "steady_state_lookup": "32 shared LDS.U16 product loads per K64 stage"
+    },
+    "factorized_product_lookup": {
+      "e2m1_byte_pair_table_bytes": 1024,
+      "e4m3_scale_table_bytes": 512,
+      "total_bytes": 1536,
+      "steady_state_lookup": "16 shared LDS packed-pair loads plus two shared LDS.U16 scale loads per K64 stage",
+      "arithmetic": "16 HFMA2.BF16_V2 instructions implement 32 exact BF16 products",
+      "lookup_bytes_reduction": 6656,
+      "lookup_bytes_reduction_percent": 81.25
+    },
+    "resource_usage": {
+      "registers_per_thread": 46,
+      "static_shared_bytes": 24576,
+      "previous_static_shared_bytes": 31232,
+      "static_shared_reduction_bytes": 6656,
+      "static_shared_reduction_percent": 21.311475,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5
+    },
+    "sass": {
+      "both_exact_shapes_opcode_identical": true,
+      "previous_specialization_matches_frozen_scale_window_sass": true,
+      "previous_static_instructions": 784,
+      "factorized_static_instructions": 728,
+      "static_instruction_reduction_percent": 7.142857,
+      "previous_lds_instructions": 49,
+      "factorized_lds_instructions": 35,
+      "lds_instruction_reduction_percent": 28.571429,
+      "previous_decoded_tile_stores": "4 x STS.128",
+      "factorized_decoded_tile_stores": "16 x STS",
+      "global_load_instructions_changed": false,
+      "hmma_instructions_changed": false,
+      "barrier_instructions_changed": false,
+      "local_load_store_instructions": 0
+    },
+    "wmma_accumulation_order_changed": false,
+    "public_abi_change": "none",
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false
+  },
+  "validation": {
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "build_directory": "build-sanitize",
+      "build_type": "RelWithDebInfo",
+      "compile_flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "link_flags": "-fsanitize=address,undefined",
+      "linked_libraries": ["libasan.so.8", "libubsan.so.1"],
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "excluded": "package_consumer"
+    },
+    "sanitizer_evidence_correction": "The earlier build/orin-asan directory was later verified to have no sanitizer compile or link flags. This milestone uses the independently verified build-sanitize directory; earlier scale-window wording is corrected separately.",
+    "factorized_lookup_exhaustive_gate": {
+      "e4m3_scale_codes": 256,
+      "packed_e2m1_bytes": 256,
+      "combinations": 65536,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "reference_nan_halves": 1024,
+      "factorized_nan_halves": 1024,
+      "signed_zero_covered": true
+    },
+    "direct_shape_gate": {
+      "shapes": 2,
+      "total_bf16_outputs_checked": 720896,
+      "candidate_vs_two_public_m16_mismatches": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary_exact": true,
+      "outputs_finite": true,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1,
+      "invalid_graph_zero_node_contract": true
+    },
+    "same_cubin_distribution_gate": {
+      "candidate_vs_previous_production_outputs_checked": 1441792,
+      "mismatches": 0
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only"
+    },
+    "independent_review": "no blocker"
+  },
+  "same_cubin_microbenchmark": {
+    "protocol_per_candidate_and_round": "baseline-candidate-candidate-baseline",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "checkpoint_like",
+        "scale_window_ms": 1.026145,
+        "factorized_ms": 0.9241785,
+        "speedup": 1.11033
+      },
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "same_bank_stress",
+        "scale_window_ms": 0.99698725,
+        "factorized_ms": 0.926638875,
+        "speedup": 1.07592
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "checkpoint_like",
+        "scale_window_ms": 1.18354375,
+        "factorized_ms": 1.08811375,
+        "speedup": 1.08770
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "same_bank_stress",
+        "scale_window_ms": 1.145030,
+        "factorized_ms": 1.090195,
+        "speedup": 1.05030
+      }
+    ],
+    "profile_call_weights_gate_up_down": [128, 64],
+    "weighted_scale_window_ms": 407.989648,
+    "weighted_factorized_ms": 376.316384,
+    "weighted_speedup": 1.0841666,
+    "weighted_reduction_percent": 7.76325,
+    "required_each_cell_speedup": 1.0,
+    "required_weighted_speedup": 1.02,
+    "gate": "pass"
+  },
+  "same_cubin_ncu": {
+    "clock_control": "base",
+    "replay_mode": "kernel",
+    "baseline_specialization": "scale-window template bool=false",
+    "candidate_specialization": "scale-window template bool=true",
+    "global_memory_access_pattern_changed": false,
+    "block_scale_pointer_mode": "cudaMalloc base plus 2 bytes, a legal 2-byte-alignment stress fixture",
+    "production_resident_tensor_alignment_bytes": 256,
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "fixture": "checkpoint_like",
+        "duration_ms": {"baseline": 1.042176, "candidate": 0.930656},
+        "speedup": 1.119829,
+        "duration_reduction_percent": 10.700688,
+        "executed_instructions": {"baseline": 32916432, "candidate": 27831936},
+        "executed_instruction_reduction_percent": 15.44668,
+        "shared_wavefronts": {"baseline": 12592512, "candidate": 13406336},
+        "ideal_shared_wavefronts": {"baseline": 8921600, "candidate": 7696512},
+        "excessive_shared_wavefronts": {"baseline": 3670912, "candidate": 5709824},
+        "excessive_shared_increase_percent": 55.542383,
+        "theoretical_global_sectors": {"baseline": 3342336, "candidate": 3342336},
+        "ideal_global_sectors": {"baseline": 2994176, "candidate": 2994176},
+        "excessive_global_sectors": {"baseline": 348160, "candidate": 348160},
+        "achieved_occupancy_percent": {"baseline": 70.749870, "candidate": 71.988872},
+        "compute_throughput_percent": {"baseline": 38.351293, "candidate": 42.080080},
+        "memory_throughput_percent": {"baseline": 70.017696, "candidate": 83.156420}
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "fixture": "same_bank_stress",
+        "duration_ms": {"baseline": 1.163552, "candidate": 1.100448},
+        "speedup": 1.057344,
+        "duration_reduction_percent": 5.423393,
+        "executed_instructions": {"baseline": 32385552, "candidate": 27510912},
+        "executed_instruction_reduction_percent": 15.05190,
+        "shared_wavefronts": {"baseline": 11778560, "candidate": 13401280},
+        "ideal_shared_wavefronts": {"baseline": 8890880, "candidate": 7670400},
+        "excessive_shared_wavefronts": {"baseline": 2887680, "candidate": 5730880},
+        "excessive_shared_increase_percent": 98.459663,
+        "theoretical_global_sectors": {"baseline": 3317760, "candidate": 3317760},
+        "ideal_global_sectors": {"baseline": 2969600, "candidate": 2969600},
+        "excessive_global_sectors": {"baseline": 348160, "candidate": 348160},
+        "achieved_occupancy_percent": {"baseline": 39.894143, "candidate": 41.428019},
+        "compute_throughput_percent": {"baseline": 34.535895, "candidate": 35.752107},
+        "memory_throughput_percent": {"baseline": 59.444371, "candidate": 69.989047}
+      }
+    ],
+    "production_aligned_gate_up_audit": {
+      "shape_n_by_k": [17408, 5120],
+      "fixture": "checkpoint_like performance buffer with cudaMalloc base alignment",
+      "baseline_launch_skip": 2,
+      "candidate_launch_skip": 4,
+      "duration_ms": {"baseline": 1.027168, "candidate": 0.928928},
+      "speedup": 1.105756,
+      "executed_instructions": {"baseline": 32916432, "candidate": 27831936},
+      "shared_wavefronts": {"baseline": 12592512, "candidate": 13406336},
+      "ideal_shared_wavefronts": {"baseline": 8921600, "candidate": 7696512},
+      "excessive_shared_wavefronts": {"baseline": 3670912, "candidate": 5709824},
+      "theoretical_global_sectors": {"baseline": 3168256, "candidate": 3168256},
+      "ideal_global_sectors": {"baseline": 2994176, "candidate": 2994176},
+      "excessive_global_sectors": {"baseline": 174080, "candidate": 174080},
+      "achieved_occupancy_percent": {"baseline": 71.033975, "candidate": 72.020899}
+    },
+    "alignment_audit": "The frozen scale-window and current bool=false kernels have identical full SASS for both exact shapes; bool=false and bool=true each retain four LDG.E.U16 scale loads, two LDG.E.64 activation loads, and one LDG.E.128 weight load. The +2-byte smoke alternates four/eight sectors per K256 window and therefore reports 348,160 excessive sectors. Production resident tensors are 256-byte aligned and the dedicated aligned audit reports 174,080 for both specializations.",
+    "interpretation": "The candidate is faster because it executes about 15% fewer dynamic instructions, 28.57% fewer static LDS instructions, and retains five CTAs/SM with a 21.31% smaller shared footprint. It does not reduce bank conflicts: total and excessive shared wavefronts increase. That negative counter result makes factorized-table bank layout and decoded-store vectorization the next optimization target. The down report uses same_bank_stress rather than checkpoint-like data and is labeled accordingly. Both the +2-byte stress reports and the production-aligned audit show unchanged global access between baseline and candidate."
+  },
+  "p33_c32_bccb": {
+    "prompt_manifest_id": "P33",
+    "rendered_prompt_tokens": 33,
+    "prefix_tokens": 32,
+    "max_tokens": 1,
+    "warmup_iterations": 1,
+    "measured_iterations": 5,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "baseline_1": 499.087,
+      "candidate_1": 486.068,
+      "candidate_2": 486.056,
+      "baseline_2": 499.070
+    },
+    "average_of_pair_medians_ms": {
+      "baseline": 499.0785,
+      "candidate": 486.0620
+    },
+    "candidate_minus_baseline_ms": -13.0165,
+    "candidate_minus_baseline_percent": -2.608107,
+    "speedup": 1.026780,
+    "first_generated_token_id": 9419,
+    "first_generated_text": "Hello",
+    "prompt_and_first_generated_token_exact": true
+  },
+  "p33_c32_nsys": {
+    "kernel_launches_each": 2166,
+    "baseline_summed_kernel_time_ms": 511.935040,
+    "candidate_summed_kernel_time_ms": 500.477408,
+    "baseline_kernel_span_ms": 521.328224,
+    "candidate_kernel_span_ms": 509.661376,
+    "gate_up_ms": {
+      "baseline": 137.364000,
+      "candidate": 129.121120,
+      "delta": -8.242880,
+      "speedup": 1.063838
+    },
+    "down_ms": {
+      "baseline": 80.308096,
+      "candidate": 75.301088,
+      "delta": -5.007008,
+      "speedup": 1.066493
+    },
+    "target_total_ms": {
+      "baseline": 217.672096,
+      "candidate": 204.422208,
+      "delta": -13.249888,
+      "delta_percent": -6.087086,
+      "speedup": 1.064816
+    },
+    "summed_kernel_time_delta_ms": -11.457632,
+    "summed_kernel_time_delta_percent": -2.238103,
+    "kernel_span_delta_ms": -11.666848,
+    "kernel_span_delta_percent": -2.237908,
+    "attribution": "Target gate/up plus down kernels save 13.249888 ms, closely matching the 13.0165 ms B-C-C-B TTFT reduction. Non-target timing noise offsets about 1.79 ms in the single unlocked-clock profile, so the target reduction is larger than the summed-kernel reduction."
+  },
+  "rejected_followups": [
+    {
+      "candidate": "cross-window packed uint4 weight prefetch",
+      "resources": {"registers_per_thread": 47, "static_shared_bytes": 31232, "local_bytes": 0, "active_blocks_per_sm": 5},
+      "approximate_gate_up_speedup": 0.9756,
+      "approximate_down_speedup": 0.9926,
+      "weighted_speedup": 0.9817,
+      "decision": "reject and remove"
+    },
+    {
+      "candidate": "within-window packed uint4 weight prefetch",
+      "resources": {"registers_per_thread": 46, "static_shared_bytes": 31232, "local_bytes": 0, "active_blocks_per_sm": 5},
+      "approximate_gate_up_speedup": 0.933,
+      "approximate_down_speedup": 0.948,
+      "weighted_speedup": 0.93859,
+      "decision": "reject and remove"
+    },
+    {
+      "candidate": "explicit parent-word LDS.32 replacement",
+      "decision": "do not implement; lane-level modeling and SASS inspection show SM87 already merges adjacent LDS.U16 accesses by their 32-bit parent word"
+    }
+  ],
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "p33_user_text": "hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+    "microbenchmark_order": "B-C-C-B for every candidate and round",
+    "end_to_end_order": "detached scale-window baseline, factorized candidate, factorized candidate, detached scale-window baseline",
+    "ncu_kernel_filter": "exact demangled shape plus template bool false/true",
+    "production_aligned_ncu_gate_up": "enable Q3X_RUN_SM87_NVFP4_M32_WMMA_PERF=1, use the aligned performance buffer, skip the two bool=false or four bool=true exact-shape smoke launches, collect one replay, then terminate the target",
+    "rejected_code_retained": false
+  },
+  "artifacts": [
+    {"role": "same-cubin performance log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-perf.log", "bytes": 55119, "sha256": "b1995881be01c3c135d991241fd25ff1be387ed7cc1dd4915dc5df6504202222", "checked_in": false},
+    {"role": "Release suite log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-ctest-release.log", "bytes": 7398, "sha256": "eb43463117fee22ec96a53a29fb6196f10acd89f1533b77784614cd2221ff3b2", "checked_in": false},
+    {"role": "verified ASan UBSan suite log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-ctest-sanitize.log", "bytes": 7271, "sha256": "c7c2f3875c48bc8b1f741ecd69ae614159543881d3d2cdff84f3fe9d3a6b2abd", "checked_in": false},
+    {"role": "C1 C8 C16 C32 model-oracle log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-e2e-c1-c8-c16-c32.log", "bytes": 968, "sha256": "125ba81720d7bfe99e48beb2c0a576165b1f60b42e5ddc6a47add70119f27125", "checked_in": false},
+    {"role": "P33 baseline B1 log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-p033-c32-b1.log", "bytes": 4303, "sha256": "bdfb4415c9f6e254c691201d052e613a143b22a7e0030f2b6b0744b840dfbbe5", "checked_in": false},
+    {"role": "P33 candidate C1 log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-p033-c32-c1.log", "bytes": 4308, "sha256": "045ca332ecd1c9e17dd35be385fe6329be32df268d93ac879022fa488edfbb97", "checked_in": false},
+    {"role": "P33 candidate C2 log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-p033-c32-c2.log", "bytes": 4303, "sha256": "c527d7d4b55f928f936c5b455cbd6b385c66f70a78998359ac1e558638bd9d25", "checked_in": false},
+    {"role": "P33 baseline B2 log", "local_path": "/tmp/q3x-nvfp4-m32-factorized-p033-c32-b2.log", "bytes": 4303, "sha256": "e8fde884626c726a1403ced0bca460531c509e82e0adebc0e2eb62b9ee0c7dfa", "checked_in": false},
+    {"role": "baseline gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-baseline-gateup.ncu-rep", "bytes": 1935453, "sha256": "b708e4a2a72d1ead9c2b1b3880a164df8df3f4bf1bfcc4145b81a3604e4e0a1a", "checked_in": false},
+    {"role": "candidate gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-candidate-gateup.ncu-rep", "bytes": 1899332, "sha256": "4f4125ac3e00608357e7f1426ea5fa85bd60088b15f29119ef768027bb1eca23", "checked_in": false},
+    {"role": "baseline down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-baseline-down.ncu-rep", "bytes": 1922633, "sha256": "e446f36082c5319750393a0010c68c3a67239b31041c0edb6568306bc2367d3c", "checked_in": false},
+    {"role": "candidate down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-candidate-down.ncu-rep", "bytes": 1878143, "sha256": "d3cc09b3f71ff34d0cd56b972cf8f6ab0e2c4dbdb883c32f895d4c58ec87ff5b", "checked_in": false},
+    {"role": "production-aligned baseline gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-aligned-baseline-gateup.ncu-rep", "bytes": 1941867, "sha256": "829e611cd91c0b63dc1b44c02dc8e036f89e998a4c576d88d31bf2c4c5187796", "checked_in": false},
+    {"role": "production-aligned candidate gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-factorized-aligned-candidate-gateup.ncu-rep", "bytes": 1904204, "sha256": "1f6e03059d8e9c45fcaa9a62dfab008ac0f83a44c71ee5e2a74b173f5040b31d", "checked_in": false},
+    {"role": "baseline P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-factorized-profile-baseline-p033-c32.nsys-rep", "bytes": 353330, "sha256": "3fadd535e09515ac38a07dedf0b4def613d0e43141b09056c981d084c36b3ba6", "checked_in": false},
+    {"role": "candidate P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-factorized-profile-candidate-p033-c32.nsys-rep", "bytes": 352375, "sha256": "743a969a0dc867e6c30c79718da9f8c05ca73abb71ae6c25e306fd794aa7e7b1", "checked_in": false}
+  ],
+  "limitations": [
+    "The timing evidence is unlocked-clock, batch-one, one-token diagnostic data rather than a serving-throughput claim.",
+    "The down NCU report profiles the default same-bank-stress smoke fixture; it is not checkpoint-like down evidence.",
+    "The default direct-smoke NCU reports use a legal +2-byte block-scale offset to stress the public 2-byte alignment contract; the separately recorded aligned gate/up audit matches the 256-byte production resident-tensor contract.",
+    "The candidate raises shared-memory conflict pressure even though it is faster overall; a bank-aware table layout still needs an independent performance gate.",
+    "Prefill and Decode remain logically separate plans but execute serially on one CUDA stream.",
+    "No double buffering, triple buffering, or multi-stream overlap is present."
+  ],
+  "next_priority": "Keep the factorized K256 N128 production route. First reduce the factorized E2M1 table's shared-bank conflicts and recover vectorized decoded-tile stores, preserving 46-or-fewer registers, zero local memory, five CTAs/SM, B-fragment reuse, dual-accumulator ILP, and bit-exact BF16 results. Reconsider stage buffering or scheduling overlap only after this kernel-local gate and an end-to-end trace expose remaining independent work."
+}

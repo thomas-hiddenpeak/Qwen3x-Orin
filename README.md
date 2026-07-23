@@ -31,6 +31,15 @@ measures the same 19-token prompt at 2,031.901, 1,366.633, 831.525, and
 554.386 ms TTFT for C1/C2/C8/C16; matched Nsight profiles reduce launch count
 from 8,249 to 2,633 while projection still accounts for 91.348% of C16 kernel
 time. These remain unlocked-clock batch-one diagnostics.
+
+The fixed-M32 NVFP4 path now also factorizes its shared product lookup. Against
+the preceding K256 scale-window binary, the tokenizer-pinned P33/C32 B-C-C-B
+diagnostic moves TTFT from 499.0785 to 486.0620 ms (-2.6081%), while matched
+Nsight Systems traces reduce gate/up plus down work from 217.672096 to
+204.422208 ms (1.06482x) with the same 2,166 launches. C1/C8/C16/C32 continue
+to pass the exact 27B model oracle. These measurements remain unlocked-clock,
+batch-one evidence rather than a serving-throughput claim.
+
 The defaults remain `C=1` and the `reference` backend, and the result is not a
 serving-throughput claim. Comparisons with the earlier 1,144.108 ms reference
 decode are historical rather than randomized same-binary trials. The
@@ -194,13 +203,14 @@ shape-gated Tensor Core path above or safely falls back to two M8 launches.
 M17 through M31 use M16-first composition, so M18 is M16+M2. At M32, the four
 exact aligned FP8 production shapes and the exact aligned NVFP4
 `[17408,5120]` gate/up and `[5120,17408]` down shapes use one fixed-M32 Tensor
-Core kernel. The NVFP4 route is the K64/LD72 kernel: it keeps two 16-token
-activation panels resident and reuses each decoded weight tile across their
-independent WMMA accumulator chains. Other valid FP8 and NVFP4 M32 cases use
-two ordered M16 launches. Conv/GDN and Q/K+RoPE retain ordered subtiles of at
-most 16 rows; the reference backend and BF16 weights retain ordered M1
-launches. Trace
-capture deliberately reports and uses an effective chunk size of 1 so existing
+Core kernel. The NVFP4 route is the factorized K64/LD72 kernel: it keeps two
+16-token activation panels resident, coalesces scales in K256 windows, and
+constructs BF16 products from compact E2M1-pair and E4M3 lookup tables before
+reusing each decoded weight tile across independent WMMA accumulator chains.
+Other valid FP8 and NVFP4 M32 cases use two ordered M16 launches. Conv/GDN and
+Q/K+RoPE retain ordered subtiles of at most 16 rows; the reference backend and
+BF16 weights retain ordered M1 launches. Trace capture deliberately reports
+and uses an effective chunk size of 1 so existing
 per-token boundary hashes retain their ordering contract.
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
