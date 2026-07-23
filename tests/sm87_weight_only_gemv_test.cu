@@ -5287,9 +5287,24 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
          !(value[0] == '0' && value[1] == '\0');
 }
 
-[[nodiscard]] bool nvfp4_m32_dual_stream_performance_enabled() noexcept {
+[[nodiscard]] bool
+nvfp4_m17_m32_dual_stream_performance_enabled() noexcept {
   const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M17_M32_DUAL_STREAM_PERF");
+  if (value != nullptr && value[0] != '\0' &&
+      !(value[0] == '0' && value[1] == '\0')) {
+    return true;
+  }
+  const char* const legacy_value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M32_DUAL_STREAM_PERF");
+  return legacy_value != nullptr && legacy_value[0] != '\0' &&
+         !(legacy_value[0] == '0' && legacy_value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_m17_m32_dual_stream_full_sweep_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M17_M32_DUAL_STREAM_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -17222,25 +17237,75 @@ void run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(
   }
 }
 
-void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
-                                                      cudaStream_t stream) {
-  if (!nvfp4_m32_dual_stream_performance_enabled()) {
-    std::cout << "SKIP: NVFP4 M32 gate/up dual-stream segment; set "
-                 "Q3X_RUN_SM87_NVFP4_M32_DUAL_STREAM_PERF=1 to enable\n";
+void run_optional_nvfp4_m17_m32_dual_stream_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m17_m32_dual_stream_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 M17-M32 gate/up dual-stream segment; set "
+           "Q3X_RUN_SM87_NVFP4_M17_M32_DUAL_STREAM_PERF=1 to enable the "
+           "full sweep (legacy activation alias, M32-only: "
+           "Q3X_RUN_SM87_NVFP4_M32_DUAL_STREAM_PERF=1)\n";
     return;
   }
 
   constexpr std::size_t kRows = 17'408U;
   constexpr std::size_t kColumns = 5'120U;
-  constexpr std::size_t kTokens = 32U;
+  constexpr std::size_t kMaximumTokens = 32U;
   constexpr std::size_t kPackedColumns = kColumns / 2U;
   constexpr std::size_t kScaleColumns = kColumns / 16U;
-  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr std::size_t kMaximumOutputElements = kMaximumTokens * kRows;
+  constexpr std::size_t kGuardElements = 64U;
+  constexpr std::size_t kGuardedOutputElements =
+      kMaximumOutputElements + 2U * kGuardElements;
+  constexpr std::uint8_t kSequentialGateSentinelByte = 0xa5U;
+  constexpr std::uint8_t kSequentialUpSentinelByte = 0x5aU;
+  constexpr std::uint8_t kConcurrentGateSentinelByte = 0x3cU;
+  constexpr std::uint8_t kConcurrentUpSentinelByte = 0xc3U;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 4;
-  constexpr double kRequiredSpeedup = 1.03;
+  constexpr double kRequiredCellSpeedup = 1.03;
+  constexpr double kMinimumRoundSpeedup = 1.0;
+  constexpr double kRequiredPerMSpeedup = 1.03;
+  constexpr double kRequiredAggregateSpeedup = 1.03;
+  constexpr std::array<std::size_t, 16U> kTokenCounts{{
+      17U, 18U, 19U, 20U, 21U, 22U, 23U, 24U,
+      25U, 26U, 27U, 28U, 29U, 30U, 31U, 32U,
+  }};
+
+  struct CellMeasurement {
+    double sequential_milliseconds =
+        std::numeric_limits<double>::quiet_NaN();
+    double concurrent_milliseconds =
+        std::numeric_limits<double>::quiet_NaN();
+    double minimum_round_speedup =
+        std::numeric_limits<double>::quiet_NaN();
+    double maximum_round_speedup =
+        std::numeric_limits<double>::quiet_NaN();
+    std::size_t gate_mismatches = 0U;
+    std::size_t up_mismatches = 0U;
+    std::size_t head_canary_mismatches = 0U;
+    std::size_t unused_extent_mismatches = 0U;
+    std::size_t tail_canary_mismatches = 0U;
+    std::size_t nonfinite_outputs = 0U;
+    int winning_rounds = 0;
+    bool correctness = false;
+    bool timings_finite = false;
+    bool promotion_gate = false;
+  };
+  std::array<std::array<CellMeasurement,
+                        kNvFp4M16K128ScaleDistributions.size()>,
+             kTokenCounts.size()>
+      measurements{};
+
+  const bool full_sweep =
+      nvfp4_m17_m32_dual_stream_full_sweep_enabled();
+  const std::size_t first_token_index = full_sweep ? 0U : 15U;
+  if (!full_sweep) {
+    std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_MODE: "
+                 "legacy_m32_only=true full_sweep=false\n";
+  }
 
   std::vector<std::uint8_t> host_gate_packed(kRows * kPackedColumns);
   std::vector<std::uint8_t> host_up_packed(host_gate_packed.size());
@@ -17257,8 +17322,8 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
   }
   std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
   std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
-  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
-  for (std::size_t token = 0U; token < kTokens; ++token) {
+  std::vector<std::uint16_t> host_activations(kMaximumTokens * kColumns);
+  for (std::size_t token = 0U; token < kMaximumTokens; ++token) {
     for (std::size_t column = 0U; column < kColumns; ++column) {
       const int centered =
           static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
@@ -17272,10 +17337,10 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
   DeviceBuffer<std::uint8_t> gate_scales;
   DeviceBuffer<std::uint8_t> up_scales;
   DeviceBuffer<std::uint16_t> activations;
-  DeviceBuffer<std::uint16_t> sequential_gate_output;
-  DeviceBuffer<std::uint16_t> sequential_up_output;
-  DeviceBuffer<std::uint16_t> concurrent_gate_output;
-  DeviceBuffer<std::uint16_t> concurrent_up_output;
+  DeviceBuffer<std::uint16_t> sequential_gate_guarded;
+  DeviceBuffer<std::uint16_t> sequential_up_guarded;
+  DeviceBuffer<std::uint16_t> concurrent_gate_guarded;
+  DeviceBuffer<std::uint16_t> concurrent_up_guarded;
   DeviceBuffer<float> scalar_scales;
   bool ready = test.cuda_ok(gate_packed.allocate(host_gate_packed.size()),
                             "dual stream allocate gate packed weights");
@@ -17292,17 +17357,19 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
                        activations.allocate(host_activations.size()),
                        "dual stream allocate activations");
   ready = ready && test.cuda_ok(
-                       sequential_gate_output.allocate(kOutputElements),
-                       "dual stream allocate sequential gate output");
+                       sequential_gate_guarded.allocate(
+                           kGuardedOutputElements),
+                       "dual stream allocate guarded sequential gate output");
   ready = ready && test.cuda_ok(
-                       sequential_up_output.allocate(kOutputElements),
-                       "dual stream allocate sequential up output");
+                       sequential_up_guarded.allocate(kGuardedOutputElements),
+                       "dual stream allocate guarded sequential up output");
   ready = ready && test.cuda_ok(
-                       concurrent_gate_output.allocate(kOutputElements),
-                       "dual stream allocate concurrent gate output");
+                       concurrent_gate_guarded.allocate(
+                           kGuardedOutputElements),
+                       "dual stream allocate guarded concurrent gate output");
   ready = ready && test.cuda_ok(
-                       concurrent_up_output.allocate(kOutputElements),
-                       "dual stream allocate concurrent up output");
+                       concurrent_up_guarded.allocate(kGuardedOutputElements),
+                       "dual stream allocate guarded concurrent up output");
   ready = ready && test.cuda_ok(
                        scalar_scales.allocate(2U),
                        "dual stream allocate scalar scales");
@@ -17362,6 +17429,14 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
     return;
   }
 
+  std::uint16_t* const sequential_gate_output =
+      sequential_gate_guarded.get() + kGuardElements;
+  std::uint16_t* const sequential_up_output =
+      sequential_up_guarded.get() + kGuardElements;
+  std::uint16_t* const concurrent_gate_output =
+      concurrent_gate_guarded.get() + kGuardElements;
+  std::uint16_t* const concurrent_up_output =
+      concurrent_up_guarded.get() + kGuardElements;
   const q3x::runtime::LinearWeight gate_weight =
       q3x::runtime::NvFp4LinearWeight{
           gate_packed.get(), gate_scales.get(), scalar_scales.get(),
@@ -17371,59 +17446,59 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
           up_packed.get(), up_scales.get(), scalar_scales.get(),
           scalar_scales.get() + 1U, kWeightScale2, 1.0F, kRows, kColumns};
   const auto launch_one = [&](const q3x::runtime::LinearWeight& weight,
+                              const std::size_t token_count,
                               std::uint16_t* const output,
                               cudaStream_t const launch_stream) noexcept {
     return q3x::runtime::launch_projection_tile_to_bf16_cuda(
         q3x::runtime::ProjectionBackend::kSm87WeightOnly, weight,
-        activations.get(), kTokens, nullptr, 0U, output,
+        activations.get(), token_count, nullptr, 0U, output,
         static_cast<void*>(launch_stream));
   };
-  const auto launch_sequential = [&]() noexcept -> int {
-    int status = launch_one(gate_weight, sequential_gate_output.get(),
-                            stream);
-    if (status != static_cast<int>(cudaSuccess)) {
-      return status;
-    }
-    return launch_one(up_weight, sequential_up_output.get(), stream);
-  };
-  const auto launch_concurrent = [&]() noexcept -> int {
-    cudaError_t status = cudaEventRecord(inputs_ready, stream);
-    if (status != cudaSuccess) {
-      return static_cast<int>(status);
-    }
-    status = cudaStreamWaitEvent(auxiliary_stream, inputs_ready, 0U);
-    if (status != cudaSuccess) {
-      return static_cast<int>(status);
-    }
-    int launch_status =
-        launch_one(gate_weight, concurrent_gate_output.get(), stream);
-    if (launch_status != static_cast<int>(cudaSuccess)) {
-      return launch_status;
-    }
-    launch_status = launch_one(up_weight, concurrent_up_output.get(),
-                               auxiliary_stream);
-    if (launch_status != static_cast<int>(cudaSuccess)) {
-      return launch_status;
-    }
-    status = cudaEventRecord(auxiliary_done, auxiliary_stream);
-    if (status != cudaSuccess) {
-      return static_cast<int>(status);
-    }
-    return static_cast<int>(
-        cudaStreamWaitEvent(stream, auxiliary_done, 0U));
+  const auto poison_output = [&](DeviceBuffer<std::uint16_t>& output,
+                                 const std::uint8_t sentinel,
+                                 const std::string& label) {
+    return test.cuda_ok(
+        cudaMemsetAsync(output.get(), sentinel,
+                        kGuardedOutputElements * sizeof(std::uint16_t),
+                        stream),
+        label);
   };
 
-  std::vector<std::uint16_t> sequential_gate(kOutputElements);
-  std::vector<std::uint16_t> sequential_up(kOutputElements);
-  std::vector<std::uint16_t> concurrent_gate(kOutputElements);
-  std::vector<std::uint16_t> concurrent_up(kOutputElements);
-  double aggregate_sequential = 0.0;
-  double aggregate_concurrent = 0.0;
-  bool all_cells_pass = true;
-  for (const NvFp4M1ScaleDistribution distribution :
-       kNvFp4M16K128ScaleDistributions) {
-    const std::string distribution_label =
-        std::string("NVFP4 M32 gate/up dual stream ") +
+  std::vector<std::uint16_t> sequential_gate(kGuardedOutputElements);
+  std::vector<std::uint16_t> sequential_up(kGuardedOutputElements);
+  std::vector<std::uint16_t> concurrent_gate(kGuardedOutputElements);
+  std::vector<std::uint16_t> concurrent_up(kGuardedOutputElements);
+  const auto count_extent_mismatches =
+      [&](const std::vector<std::uint16_t>& output,
+          const std::uint8_t sentinel_byte,
+          const std::size_t valid_output_elements) {
+        const std::uint16_t sentinel = static_cast<std::uint16_t>(
+            sentinel_byte |
+            (static_cast<std::uint16_t>(sentinel_byte) << 8U));
+        std::array<std::size_t, 3U> mismatches{};
+        for (std::size_t index = 0U; index < kGuardElements; ++index) {
+          mismatches[0] += output[index] != sentinel ? 1U : 0U;
+        }
+        const std::size_t unused_begin =
+            kGuardElements + valid_output_elements;
+        const std::size_t unused_end =
+            kGuardElements + kMaximumOutputElements;
+        for (std::size_t index = unused_begin; index < unused_end; ++index) {
+          mismatches[1] += output[index] != sentinel ? 1U : 0U;
+        }
+        for (std::size_t index = unused_end;
+             index < kGuardedOutputElements; ++index) {
+          mismatches[2] += output[index] != sentinel ? 1U : 0U;
+        }
+        return mismatches;
+      };
+
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_name =
         nvfp4_m1_scale_distribution_name(distribution);
     fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
                                      distribution);
@@ -17432,151 +17507,392 @@ void run_optional_nvfp4_m32_dual_stream_performance(TestContext& test,
         cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
                         host_gate_scales.size(), cudaMemcpyHostToDevice,
                         stream),
-        distribution_label + " initialize gate scales");
+        "dual stream " + distribution_name + " initialize gate scales");
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              up_scales.get(), host_up_scales.data(),
                              host_up_scales.size(), cudaMemcpyHostToDevice,
                              stream),
-                         distribution_label + " initialize up scales");
-    ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(launch_sequential()),
-                         distribution_label + " correctness sequential");
-    ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(launch_concurrent()),
-                         distribution_label + " correctness concurrent");
-    ready = ready && test.cuda_ok(
-                         cudaMemcpyAsync(
-                             sequential_gate.data(),
-                             sequential_gate_output.get(),
-                             sequential_gate.size() * sizeof(std::uint16_t),
-                             cudaMemcpyDeviceToHost, stream),
-                         distribution_label + " copy sequential gate");
-    ready = ready && test.cuda_ok(
-                         cudaMemcpyAsync(
-                             sequential_up.data(), sequential_up_output.get(),
-                             sequential_up.size() * sizeof(std::uint16_t),
-                             cudaMemcpyDeviceToHost, stream),
-                         distribution_label + " copy sequential up");
-    ready = ready && test.cuda_ok(
-                         cudaMemcpyAsync(
-                             concurrent_gate.data(),
-                             concurrent_gate_output.get(),
-                             concurrent_gate.size() * sizeof(std::uint16_t),
-                             cudaMemcpyDeviceToHost, stream),
-                         distribution_label + " copy concurrent gate");
-    ready = ready && test.cuda_ok(
-                         cudaMemcpyAsync(
-                             concurrent_up.data(), concurrent_up_output.get(),
-                             concurrent_up.size() * sizeof(std::uint16_t),
-                             cudaMemcpyDeviceToHost, stream),
-                         distribution_label + " copy concurrent up");
-    ready = ready && test.cuda_ok(
-                         cudaStreamSynchronize(stream),
-                         distribution_label + " correctness synchronize");
+                         "dual stream " + distribution_name +
+                             " initialize up scales");
     if (!ready) {
       break;
     }
-    std::size_t gate_mismatches = 0U;
-    std::size_t up_mismatches = 0U;
-    for (std::size_t index = 0U; index < kOutputElements; ++index) {
-      gate_mismatches +=
-          sequential_gate[index] != concurrent_gate[index] ? 1U : 0U;
-      up_mismatches +=
-          sequential_up[index] != concurrent_up[index] ? 1U : 0U;
-    }
-    const bool bitwise_equal =
-        gate_mismatches == 0U && up_mismatches == 0U;
-    test.expect(bitwise_equal,
-                distribution_label + " outputs are bit-exact");
 
-    for (int iteration = 0; iteration < kWarmupIterations && ready;
-         ++iteration) {
-      ready = test.cuda_ok(static_cast<cudaError_t>(launch_sequential()),
-                           distribution_label + " sequential warmup");
+    for (std::size_t token_index = first_token_index;
+         token_index < kTokenCounts.size(); ++token_index) {
+      const std::size_t token_count = kTokenCounts[token_index];
+      const std::size_t valid_output_elements = token_count * kRows;
+      const std::string cell_label =
+          "NVFP4 M" + std::to_string(token_count) +
+          " gate/up dual stream " + distribution_name;
+      const auto launch_sequential = [&]() noexcept -> int {
+        int status = launch_one(gate_weight, token_count,
+                                sequential_gate_output, stream);
+        if (status != static_cast<int>(cudaSuccess)) {
+          return status;
+        }
+        return launch_one(up_weight, token_count, sequential_up_output,
+                          stream);
+      };
+      const auto launch_concurrent = [&]() noexcept -> int {
+        cudaError_t status = cudaEventRecord(inputs_ready, stream);
+        if (status != cudaSuccess) {
+          return static_cast<int>(status);
+        }
+        status = cudaStreamWaitEvent(auxiliary_stream, inputs_ready, 0U);
+        if (status != cudaSuccess) {
+          return static_cast<int>(status);
+        }
+        int launch_status = launch_one(gate_weight, token_count,
+                                       concurrent_gate_output, stream);
+        if (launch_status != static_cast<int>(cudaSuccess)) {
+          return launch_status;
+        }
+        launch_status = launch_one(up_weight, token_count,
+                                   concurrent_up_output, auxiliary_stream);
+        if (launch_status != static_cast<int>(cudaSuccess)) {
+          return launch_status;
+        }
+        status = cudaEventRecord(auxiliary_done, auxiliary_stream);
+        if (status != cudaSuccess) {
+          return static_cast<int>(status);
+        }
+        return static_cast<int>(
+            cudaStreamWaitEvent(stream, auxiliary_done, 0U));
+      };
+
+      ready = poison_output(sequential_gate_guarded,
+                            kSequentialGateSentinelByte,
+                            cell_label + " poison sequential gate");
+      ready = ready && poison_output(sequential_up_guarded,
+                                     kSequentialUpSentinelByte,
+                                     cell_label + " poison sequential up");
+      ready = ready && poison_output(concurrent_gate_guarded,
+                                     kConcurrentGateSentinelByte,
+                                     cell_label + " poison concurrent gate");
+      ready = ready && poison_output(concurrent_up_guarded,
+                                     kConcurrentUpSentinelByte,
+                                     cell_label + " poison concurrent up");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_sequential()),
+                           cell_label + " correctness sequential");
       ready = ready && test.cuda_ok(
                            static_cast<cudaError_t>(launch_concurrent()),
-                           distribution_label + " concurrent warmup");
+                           cell_label + " correctness concurrent");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               sequential_gate.data(),
+                               sequential_gate_guarded.get(),
+                               kGuardedOutputElements *
+                                   sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy guarded sequential gate");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               sequential_up.data(),
+                               sequential_up_guarded.get(),
+                               kGuardedOutputElements *
+                                   sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy guarded sequential up");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               concurrent_gate.data(),
+                               concurrent_gate_guarded.get(),
+                               kGuardedOutputElements *
+                                   sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy guarded concurrent gate");
+      ready = ready && test.cuda_ok(
+                           cudaMemcpyAsync(
+                               concurrent_up.data(),
+                               concurrent_up_guarded.get(),
+                               kGuardedOutputElements *
+                                   sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           cell_label + " copy guarded concurrent up");
+      ready = ready && test.cuda_ok(
+                           cudaStreamSynchronize(stream),
+                           cell_label + " correctness synchronize");
+      if (!ready) {
+        break;
+      }
+
+      CellMeasurement& measurement =
+          measurements[token_index][distribution_index];
+      for (std::size_t index = 0U; index < valid_output_elements; ++index) {
+        const std::size_t guarded_index = kGuardElements + index;
+        measurement.gate_mismatches +=
+            sequential_gate[guarded_index] !=
+                    concurrent_gate[guarded_index]
+                ? 1U
+                : 0U;
+        measurement.up_mismatches +=
+            sequential_up[guarded_index] != concurrent_up[guarded_index]
+                ? 1U
+                : 0U;
+        measurement.nonfinite_outputs +=
+            std::isfinite(decode_bf16(sequential_gate[guarded_index]))
+                ? 0U
+                : 1U;
+        measurement.nonfinite_outputs +=
+            std::isfinite(decode_bf16(sequential_up[guarded_index])) ? 0U
+                                                                    : 1U;
+      }
+      const std::array<std::array<std::size_t, 3U>, 4U>
+          extent_mismatches{{
+              count_extent_mismatches(
+                  sequential_gate, kSequentialGateSentinelByte,
+                  valid_output_elements),
+              count_extent_mismatches(sequential_up,
+                                      kSequentialUpSentinelByte,
+                                      valid_output_elements),
+              count_extent_mismatches(
+                  concurrent_gate, kConcurrentGateSentinelByte,
+                  valid_output_elements),
+              count_extent_mismatches(concurrent_up,
+                                      kConcurrentUpSentinelByte,
+                                      valid_output_elements),
+          }};
+      for (const std::array<std::size_t, 3U>& mismatches :
+           extent_mismatches) {
+        measurement.head_canary_mismatches += mismatches[0];
+        measurement.unused_extent_mismatches += mismatches[1];
+        measurement.tail_canary_mismatches += mismatches[2];
+      }
+      measurement.correctness =
+          measurement.gate_mismatches == 0U &&
+          measurement.up_mismatches == 0U &&
+          measurement.head_canary_mismatches == 0U &&
+          measurement.unused_extent_mismatches == 0U &&
+          measurement.tail_canary_mismatches == 0U &&
+          measurement.nonfinite_outputs == 0U;
+      std::cout << "NVFP4_M17_M32_DUAL_STREAM_DIFF: M=" << token_count
+                << " distribution=" << distribution_name
+                << " gate_mismatches=" << measurement.gate_mismatches << '/'
+                << valid_output_elements
+                << " up_mismatches=" << measurement.up_mismatches << '/'
+                << valid_output_elements
+                << " head_canary_mismatches="
+                << measurement.head_canary_mismatches
+                << " unused_extent_mismatches="
+                << measurement.unused_extent_mismatches
+                << " tail_canary_mismatches="
+                << measurement.tail_canary_mismatches
+                << " nonfinite_outputs=" << measurement.nonfinite_outputs
+                << " gate="
+                << (measurement.correctness ? "PASS" : "FAIL") << '\n';
+      test.expect(
+          measurement.correctness,
+          cell_label +
+              " is bit-exact, finite, and preserves its exact write extent "
+              "and all output canaries");
+
+      for (int iteration = 0; iteration < kWarmupIterations && ready;
+           ++iteration) {
+        ready = test.cuda_ok(static_cast<cudaError_t>(launch_sequential()),
+                             cell_label + " sequential warmup");
+        ready = ready && test.cuda_ok(
+                             static_cast<cudaError_t>(launch_concurrent()),
+                             cell_label + " concurrent warmup");
+      }
+      ready = ready && test.cuda_ok(
+                           cudaStreamSynchronize(stream),
+                           cell_label + " warmup synchronize");
+      if (!ready) {
+        break;
+      }
+
+      double sequential_total = 0.0;
+      double concurrent_total = 0.0;
+      double minimum_round_speedup =
+          std::numeric_limits<double>::infinity();
+      double maximum_round_speedup = 0.0;
+      bool timings_finite = true;
+      int winning_rounds = 0;
+      for (int round = 0; round < kMeasurementRounds; ++round) {
+        const std::string round_label =
+            cell_label + " round=" + std::to_string(round + 1);
+        const float sequential_first = measure_small_m_tile(
+            test, stream, launch_sequential, kMeasuredIterations,
+            round_label + " sequential pass 1");
+        const float concurrent_first = measure_small_m_tile(
+            test, stream, launch_concurrent, kMeasuredIterations,
+            round_label + " concurrent pass 1");
+        const float concurrent_second = measure_small_m_tile(
+            test, stream, launch_concurrent, kMeasuredIterations,
+            round_label + " concurrent pass 2");
+        const float sequential_second = measure_small_m_tile(
+            test, stream, launch_sequential, kMeasuredIterations,
+            round_label + " sequential pass 2");
+        const bool round_finite =
+            std::isfinite(sequential_first) &&
+            std::isfinite(concurrent_first) &&
+            std::isfinite(concurrent_second) &&
+            std::isfinite(sequential_second) &&
+            sequential_first > 0.0F && concurrent_first > 0.0F &&
+            concurrent_second > 0.0F && sequential_second > 0.0F;
+        double round_speedup =
+            std::numeric_limits<double>::quiet_NaN();
+        timings_finite = timings_finite && round_finite;
+        if (round_finite) {
+          const double sequential_round =
+              static_cast<double>(sequential_first) + sequential_second;
+          const double concurrent_round =
+              static_cast<double>(concurrent_first) + concurrent_second;
+          round_speedup = sequential_round / concurrent_round;
+          sequential_total += sequential_round;
+          concurrent_total += concurrent_round;
+          minimum_round_speedup =
+              std::min(minimum_round_speedup, round_speedup);
+          maximum_round_speedup =
+              std::max(maximum_round_speedup, round_speedup);
+          winning_rounds += round_speedup >= 1.0 ? 1 : 0;
+        }
+        std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_ROUND: M="
+                  << token_count << " distribution=" << distribution_name
+                  << " round=" << round + 1
+                  << " sequential_pass1_ms=" << sequential_first
+                  << " concurrent_pass1_ms=" << concurrent_first
+                  << " concurrent_pass2_ms=" << concurrent_second
+                  << " sequential_pass2_ms=" << sequential_second
+                  << " round_speedup=" << round_speedup << '\n';
+      }
+      constexpr double kTimedPasses =
+          2.0 * static_cast<double>(kMeasurementRounds);
+      if (timings_finite) {
+        measurement.sequential_milliseconds =
+            sequential_total / kTimedPasses;
+        measurement.concurrent_milliseconds =
+            concurrent_total / kTimedPasses;
+        measurement.minimum_round_speedup = minimum_round_speedup;
+        measurement.maximum_round_speedup = maximum_round_speedup;
+      }
+      measurement.timings_finite = timings_finite;
+      measurement.winning_rounds = winning_rounds;
+      const double speedup = measurement.sequential_milliseconds /
+                             measurement.concurrent_milliseconds;
+      const bool cell_gate =
+          measurement.correctness && measurement.timings_finite &&
+          std::isfinite(speedup) && speedup >= kRequiredCellSpeedup &&
+          measurement.winning_rounds == kMeasurementRounds &&
+          measurement.minimum_round_speedup >= kMinimumRoundSpeedup;
+      measurement.promotion_gate = cell_gate;
+      std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_CELL: M="
+                << token_count << " distribution=" << distribution_name
+                << " sequential_ms="
+                << measurement.sequential_milliseconds
+                << " concurrent_ms="
+                << measurement.concurrent_milliseconds
+                << " speedup=" << speedup
+                << " required_cell_speedup=" << kRequiredCellSpeedup
+                << " winning_rounds=" << measurement.winning_rounds << '/'
+                << kMeasurementRounds
+                << " required_winning_rounds=" << kMeasurementRounds
+                << " minimum_round_speedup="
+                << measurement.minimum_round_speedup
+                << " required_minimum_round_speedup="
+                << kMinimumRoundSpeedup
+                << " maximum_round_speedup="
+                << measurement.maximum_round_speedup
+                << " promotion_gate=" << (cell_gate ? "PASS" : "FAIL")
+                << '\n';
+      test.expect(measurement.timings_finite,
+                  cell_label + " produces finite positive ABBA timings");
+      test.expect(cell_gate,
+                  cell_label +
+                      " clears its speedup and all-round promotion gate");
     }
-    ready = ready && test.cuda_ok(
-                         cudaStreamSynchronize(stream),
-                         distribution_label + " warmup synchronize");
     if (!ready) {
       break;
     }
-
-    double sequential_total = 0.0;
-    double concurrent_total = 0.0;
-    bool timings_finite = true;
-    for (int round = 0; round < kMeasurementRounds; ++round) {
-      const float sequential_first = measure_small_m_tile(
-          test, stream, launch_sequential, kMeasuredIterations,
-          distribution_label + " sequential pass 1");
-      const float concurrent_first = measure_small_m_tile(
-          test, stream, launch_concurrent, kMeasuredIterations,
-          distribution_label + " concurrent pass 1");
-      const float concurrent_second = measure_small_m_tile(
-          test, stream, launch_concurrent, kMeasuredIterations,
-          distribution_label + " concurrent pass 2");
-      const float sequential_second = measure_small_m_tile(
-          test, stream, launch_sequential, kMeasuredIterations,
-          distribution_label + " sequential pass 2");
-      const bool round_finite =
-          std::isfinite(sequential_first) &&
-          std::isfinite(concurrent_first) &&
-          std::isfinite(concurrent_second) &&
-          std::isfinite(sequential_second);
-      timings_finite = timings_finite && round_finite;
-      if (round_finite) {
-        sequential_total += sequential_first + sequential_second;
-        concurrent_total += concurrent_first + concurrent_second;
-      }
-      std::cout << "PERF_NVFP4_M32_DUAL_STREAM_ROUND: distribution="
-                << nvfp4_m1_scale_distribution_name(distribution)
-                << " round=" << round + 1
-                << " sequential_pass1_ms=" << sequential_first
-                << " concurrent_pass1_ms=" << concurrent_first
-                << " concurrent_pass2_ms=" << concurrent_second
-                << " sequential_pass2_ms=" << sequential_second << '\n';
-    }
-    const double timed_passes =
-        2.0 * static_cast<double>(kMeasurementRounds);
-    const double sequential_ms = sequential_total / timed_passes;
-    const double concurrent_ms = concurrent_total / timed_passes;
-    const double speedup = sequential_ms / concurrent_ms;
-    const bool cell_gate =
-        bitwise_equal && timings_finite && std::isfinite(speedup) &&
-        speedup >= kRequiredSpeedup;
-    all_cells_pass = all_cells_pass && cell_gate;
-    aggregate_sequential += sequential_ms;
-    aggregate_concurrent += concurrent_ms;
-    std::cout << "PERF_NVFP4_M32_DUAL_STREAM_CELL: distribution="
-              << nvfp4_m1_scale_distribution_name(distribution)
-              << " sequential_ms=" << sequential_ms
-              << " concurrent_ms=" << concurrent_ms
-              << " speedup=" << speedup
-              << " required_speedup=" << kRequiredSpeedup
-              << " gate=" << (cell_gate ? "PASS" : "FAIL")
-              << " gate_mismatches=" << gate_mismatches
-              << " up_mismatches=" << up_mismatches << '\n';
   }
 
+  double aggregate_sequential = 0.0;
+  double aggregate_concurrent = 0.0;
+  bool all_per_m_gates_pass = ready;
+  std::size_t passed_m_count = 0U;
+  for (std::size_t token_index = first_token_index;
+       token_index < kTokenCounts.size(); ++token_index) {
+    const std::size_t token_count = kTokenCounts[token_index];
+    double per_m_sequential = 0.0;
+    double per_m_concurrent = 0.0;
+    double minimum_cell_speedup =
+        std::numeric_limits<double>::infinity();
+    bool all_cells_valid = true;
+    bool all_cell_gates_pass = true;
+    for (std::size_t distribution_index = 0U;
+         distribution_index < kNvFp4M16K128ScaleDistributions.size();
+         ++distribution_index) {
+      const CellMeasurement& measurement =
+          measurements[token_index][distribution_index];
+      const double cell_speedup = measurement.sequential_milliseconds /
+                                  measurement.concurrent_milliseconds;
+      const bool cell_valid =
+          measurement.correctness && measurement.timings_finite &&
+          std::isfinite(cell_speedup) &&
+          measurement.sequential_milliseconds > 0.0 &&
+          measurement.concurrent_milliseconds > 0.0;
+      all_cells_valid = all_cells_valid && cell_valid;
+      all_cell_gates_pass =
+          all_cell_gates_pass && measurement.promotion_gate;
+      if (cell_valid) {
+        per_m_sequential += measurement.sequential_milliseconds;
+        per_m_concurrent += measurement.concurrent_milliseconds;
+        minimum_cell_speedup =
+            std::min(minimum_cell_speedup, cell_speedup);
+      }
+    }
+    const double per_m_speedup = per_m_sequential / per_m_concurrent;
+    const bool per_m_gate =
+        all_cells_valid && all_cell_gates_pass &&
+        std::isfinite(per_m_speedup) &&
+        per_m_speedup >= kRequiredPerMSpeedup;
+    all_per_m_gates_pass = all_per_m_gates_pass && per_m_gate;
+    passed_m_count += per_m_gate ? 1U : 0U;
+    aggregate_sequential += per_m_sequential;
+    aggregate_concurrent += per_m_concurrent;
+    std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_PER_M: M="
+              << token_count << " sequential_ms=" << per_m_sequential
+              << " concurrent_ms=" << per_m_concurrent
+              << " speedup=" << per_m_speedup
+              << " required_speedup=" << kRequiredPerMSpeedup
+              << " minimum_cell_speedup=" << minimum_cell_speedup
+              << " required_cell_speedup=" << kRequiredCellSpeedup
+              << " all_cell_gates="
+              << (all_cell_gates_pass ? "PASS" : "FAIL")
+              << " distributions=checkpoint_like:same_bank_stress"
+              << " promotion_gate=" << (per_m_gate ? "PASS" : "FAIL")
+              << '\n';
+    test.expect(per_m_gate,
+                "NVFP4 M" + std::to_string(token_count) +
+                    " gate/up dual stream clears its per-M promotion gate");
+  }
+
+  const std::size_t tested_m_count = kTokenCounts.size() - first_token_index;
   const double aggregate_speedup =
       aggregate_sequential / aggregate_concurrent;
   const bool aggregate_gate =
-      ready && all_cells_pass && std::isfinite(aggregate_speedup) &&
-      aggregate_speedup >= kRequiredSpeedup;
-  std::cout << "PERF_NVFP4_M32_DUAL_STREAM_AGGREGATE: sequential_ms="
+      all_per_m_gates_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_speedup >= kRequiredAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M17_M32_DUAL_STREAM_AGGREGATE: sequential_ms="
             << aggregate_sequential
             << " concurrent_ms=" << aggregate_concurrent
             << " speedup=" << aggregate_speedup
-            << " required_speedup=" << kRequiredSpeedup
-            << " cells=checkpoint_like:same_bank_stress"
-            << " gate=" << (aggregate_gate ? "PASS" : "FAIL") << '\n';
+            << " required_speedup=" << kRequiredAggregateSpeedup
+            << " passed_m=" << passed_m_count << '/' << tested_m_count
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " promotion_gate=" << (aggregate_gate ? "PASS" : "FAIL")
+            << '\n';
   test.expect(aggregate_gate,
-              "NVFP4 M32 gate/up dual stream clears both cells and the "
-              "three-percent scheduling gate");
+              "NVFP4 M17-M32 gate/up dual stream clears every per-M and "
+              "aggregate promotion gate");
 
+  (void)test.cuda_ok(cudaStreamSynchronize(stream),
+                     "dual stream final primary synchronize");
+  (void)test.cuda_ok(cudaStreamSynchronize(auxiliary_stream),
+                     "dual stream final auxiliary synchronize");
   (void)test.cuda_ok(cudaEventDestroy(inputs_ready),
                      "dual stream destroy input-ready event");
   (void)test.cuda_ok(cudaEventDestroy(auxiliary_done),
@@ -29022,7 +29338,7 @@ int main() {
   run_optional_nvfp4_m32_wmma_performance(test, stream);
   run_optional_nvfp4_m18_masked_m32_performance(test, stream);
   run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(test, stream);
-  run_optional_nvfp4_m32_dual_stream_performance(test, stream);
+  run_optional_nvfp4_m17_m32_dual_stream_performance(test, stream);
   run_optional_fp8_row_pair_performance(test, stream);
   run_optional_nvfp4_m1_scale_codebook_performance(test, stream);
   run_optional_nvfp4_m2_scale_codebook_performance(test, stream);
