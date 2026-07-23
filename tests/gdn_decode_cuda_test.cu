@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace q3x::runtime {
@@ -59,6 +60,21 @@ launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
     const std::uint16_t* state_input, std::uint16_t* state_output,
     float l2_epsilon, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
 launch_gated_delta_net_update_plain_rms_norm_silu_gate_shared_tree_test_cuda(
@@ -2371,6 +2387,732 @@ void test_gdn_tile_bitwise(TestContext& test, cudaStream_t stream) {
   }
 }
 
+void test_gdn_register_state_m16_candidate(TestContext& test,
+                                           cudaStream_t stream) {
+  constexpr std::size_t kTokenCount =
+      q3x::runtime::kGdnMaximumTileTokenCount;
+  constexpr std::size_t kOutputElements =
+      kTokenCount * q3x::runtime::kGdnVElements;
+  constexpr std::size_t kGuardElements = 17U;
+  constexpr float kL2Epsilon = 1.0e-6F;
+  constexpr std::uint16_t kPoison = 0x7fc1U;
+  constexpr std::uint16_t kPrefixCanary = 0xa55aU;
+  constexpr std::uint16_t kSuffixCanary = 0x5aa5U;
+
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> production_state;
+  ManagedBuffer<std::uint16_t> candidate_inplace_state;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_input_state;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_output_state;
+  ManagedBuffer<std::uint16_t> candidate_replay_state;
+  ManagedBuffer<std::uint16_t> production_output;
+  ManagedBuffer<std::uint16_t> candidate_inplace_output;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_output;
+  ManagedBuffer<std::uint16_t> candidate_replay_output;
+  ManagedBuffer<std::uint16_t> guarded_candidate_inplace_state;
+  ManagedBuffer<std::uint16_t> guarded_candidate_inplace_output;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kTokenCount * q3x::runtime::kGdnQkvChannels),
+      "GDN register-state M16 allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state M16 allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state M16 allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state M16 allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state M16 allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       production_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN register-state M16 allocate production state");
+  ready = ready && test.cuda_ok(
+                       candidate_inplace_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN register-state M16 allocate in-place state");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_input_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN register-state M16 allocate disjoint input");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_output_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN register-state M16 allocate disjoint state");
+  ready = ready && test.cuda_ok(
+                       candidate_replay_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN register-state M16 allocate replay state");
+  ready = ready && test.cuda_ok(
+                       production_output.allocate(kOutputElements),
+                       "GDN register-state M16 allocate production output");
+  ready = ready && test.cuda_ok(
+                       candidate_inplace_output.allocate(kOutputElements),
+                       "GDN register-state M16 allocate in-place output");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_output.allocate(kOutputElements),
+                       "GDN register-state M16 allocate disjoint output");
+  ready = ready && test.cuda_ok(
+                       candidate_replay_output.allocate(kOutputElements),
+                       "GDN register-state M16 allocate replay output");
+  ready = ready && test.cuda_ok(
+                       guarded_candidate_inplace_state.allocate(
+                           q3x::runtime::kGdnStateElements +
+                           2U * kGuardElements),
+                       "GDN register-state M16 allocate guarded state");
+  ready = ready && test.cuda_ok(
+                       guarded_candidate_inplace_output.allocate(
+                           kOutputElements + 2U * kGuardElements),
+                       "GDN register-state M16 allocate guarded output");
+  if (!ready) {
+    return;
+  }
+
+  fill_gdn_tile_inputs(conv_qkv, a, b, A_log, dt_bias);
+  const std::vector<std::uint16_t> initial_conv_qkv(
+      conv_qkv.data(), conv_qkv.data() + conv_qkv.size());
+  const std::vector<std::uint16_t> initial_a(a.data(), a.data() + a.size());
+  const std::vector<std::uint16_t> initial_b(b.data(), b.data() + b.size());
+  const std::vector<std::uint16_t> initial_A_log(
+      A_log.data(), A_log.data() + A_log.size());
+  const std::vector<std::uint16_t> initial_dt_bias(
+      dt_bias.data(), dt_bias.data() + dt_bias.size());
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  std::copy(initial_state.begin(), initial_state.end(),
+            production_state.data());
+  std::copy(initial_state.begin(), initial_state.end(),
+            candidate_inplace_state.data());
+  std::copy(initial_state.begin(), initial_state.end(),
+            candidate_disjoint_input_state.data());
+  std::fill_n(candidate_disjoint_output_state.data(),
+              candidate_disjoint_output_state.size(), kPoison);
+  std::fill_n(candidate_replay_state.data(), candidate_replay_state.size(),
+              kPoison);
+  std::fill_n(production_output.data(), production_output.size(), kPoison);
+  std::fill_n(candidate_inplace_output.data(),
+              candidate_inplace_output.size(), kPoison);
+  std::fill_n(candidate_disjoint_output.data(),
+              candidate_disjoint_output.size(), kPoison);
+  std::fill_n(candidate_replay_output.data(), candidate_replay_output.size(),
+              kPoison);
+  std::uint16_t* const guarded_state =
+      guarded_candidate_inplace_state.data() + kGuardElements;
+  std::uint16_t* const guarded_output =
+      guarded_candidate_inplace_output.data() + kGuardElements;
+  std::fill_n(guarded_candidate_inplace_state.data(), kGuardElements,
+              kPrefixCanary);
+  std::copy(initial_state.begin(), initial_state.end(), guarded_state);
+  std::fill_n(guarded_state + q3x::runtime::kGdnStateElements,
+              kGuardElements, kSuffixCanary);
+  std::fill_n(guarded_candidate_inplace_output.data(), kGuardElements,
+              kPrefixCanary);
+  std::fill_n(guarded_output, kOutputElements, kPoison);
+  std::fill_n(guarded_output + kOutputElements, kGuardElements,
+              kSuffixCanary);
+
+  ready = launch_after_stale(
+      test, stream, "GDN production row8 M16 oracle", [&]() {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(), production_state.data(),
+                production_state.data(), kL2Epsilon,
+                production_output.data(), {}, static_cast<void*>(stream));
+      });
+  ready = ready && launch_after_stale(
+                       test, stream,
+                       "GDN register-state M16 guarded in-place", [&]() {
+                         return q3x::runtime::
+                             launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                                 conv_qkv.data(), kTokenCount, a.data(),
+                                 b.data(), A_log.data(), dt_bias.data(),
+                                 guarded_state, guarded_state, kL2Epsilon,
+                                 guarded_output,
+                                 static_cast<void*>(stream));
+                       });
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                               conv_qkv.data(), kTokenCount, a.data(),
+                               b.data(), A_log.data(), dt_bias.data(),
+                               candidate_inplace_state.data(),
+                               candidate_inplace_state.data(), kL2Epsilon,
+                               candidate_inplace_output.data(),
+                               static_cast<void*>(stream))),
+                       "GDN register-state M16 in-place launch");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                               conv_qkv.data(), kTokenCount, a.data(),
+                               b.data(), A_log.data(), dt_bias.data(),
+                               candidate_disjoint_input_state.data(),
+                               candidate_disjoint_output_state.data(),
+                               kL2Epsilon,
+                               candidate_disjoint_output.data(),
+                               static_cast<void*>(stream))),
+                       "GDN register-state M16 disjoint launch");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                               conv_qkv.data(), kTokenCount, a.data(),
+                               b.data(), A_log.data(), dt_bias.data(),
+                               candidate_disjoint_input_state.data(),
+                               candidate_replay_state.data(), kL2Epsilon,
+                               candidate_replay_output.data(),
+                               static_cast<void*>(stream))),
+                       "GDN register-state M16 replay launch");
+  ready = ready && test.cuda_ok(
+                       cudaStreamSynchronize(stream),
+                       "GDN register-state M16 correctness synchronize");
+  if (!ready) {
+    return;
+  }
+
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_inplace_output.data(), production_output.data(),
+      kOutputElements,
+      "GDN register-state M16 in-place output equals production");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_inplace_state.data(), production_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "GDN register-state M16 in-place state equals production");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_disjoint_output.data(), production_output.data(),
+      kOutputElements,
+      "GDN register-state M16 disjoint output equals production");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_disjoint_output_state.data(), production_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "GDN register-state M16 disjoint state equals production");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_disjoint_input_state.data(), initial_state.data(),
+      initial_state.size(),
+      "GDN register-state M16 preserves disjoint input");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_replay_output.data(), candidate_disjoint_output.data(),
+      kOutputElements, "GDN register-state M16 replay output is bitwise");
+  expect_bf16_buffer_bitwise_equal(
+      test, candidate_replay_state.data(),
+      candidate_disjoint_output_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "GDN register-state M16 replay state is bitwise");
+  expect_bf16_buffer_bitwise_equal(
+      test, guarded_output, production_output.data(), kOutputElements,
+      "GDN register-state M16 guarded output equals production");
+  expect_bf16_buffer_bitwise_equal(
+      test, guarded_state, production_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "GDN register-state M16 guarded state equals production");
+
+  const auto expect_guards = [&](const ManagedBuffer<std::uint16_t>& storage,
+                                 const std::size_t active_elements,
+                                 const std::string& label) {
+    const bool prefix_intact = std::all_of(
+        storage.data(), storage.data() + kGuardElements,
+        [](const std::uint16_t value) { return value == kPrefixCanary; });
+    const std::uint16_t* const suffix =
+        storage.data() + kGuardElements + active_elements;
+    const bool suffix_intact =
+        std::all_of(suffix, suffix + kGuardElements,
+                    [](const std::uint16_t value) {
+                      return value == kSuffixCanary;
+                    });
+    test.expect(prefix_intact && suffix_intact,
+                label + " prefix/suffix canaries remain intact");
+  };
+  expect_guards(guarded_candidate_inplace_state,
+                q3x::runtime::kGdnStateElements,
+                "GDN register-state M16 guarded state");
+  expect_guards(guarded_candidate_inplace_output, kOutputElements,
+                "GDN register-state M16 guarded output");
+
+  const auto expect_finite_and_overwritten =
+      [&](const std::uint16_t* const values, const std::size_t count,
+          const std::string& label) {
+        std::size_t poison_count = 0U;
+        std::size_t nonfinite_count = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+          poison_count += values[index] == kPoison ? 1U : 0U;
+          nonfinite_count += std::isfinite(decode_bf16(values[index]))
+                                 ? 0U
+                                 : 1U;
+        }
+        test.expect(poison_count == 0U && nonfinite_count == 0U,
+                    label + " poison=" + std::to_string(poison_count) +
+                        ", nonfinite=" +
+                        std::to_string(nonfinite_count));
+      };
+  expect_finite_and_overwritten(
+      candidate_disjoint_output.data(), kOutputElements,
+      "GDN register-state M16 overwrites finite output");
+  expect_finite_and_overwritten(
+      candidate_disjoint_output_state.data(),
+      q3x::runtime::kGdnStateElements,
+      "GDN register-state M16 overwrites finite state");
+
+  int registers_per_thread = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = 0;
+  int active_blocks_per_sm = 0;
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm)),
+      "GDN register-state M16 query resources");
+  if (!ready) {
+    return;
+  }
+  constexpr int kMaximumRegistersPerThread = 85;
+  constexpr std::size_t kExpectedStaticSharedBytes = 34056U;
+  const bool resource_gate =
+      registers_per_thread <= kMaximumRegistersPerThread &&
+      static_shared_bytes == kExpectedStaticSharedBytes && local_bytes == 0U &&
+      maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  std::cout << "GDN_REGISTER_STATE_M16_RESOURCES: registers="
+            << registers_per_thread
+            << " static_shared_bytes=" << static_shared_bytes
+            << " local_bytes=" << local_bytes
+            << " maximum_threads_per_block=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(resource_gate,
+              "GDN register-state M16 clears resource hard gate");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cuda(
+              nullptr, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm)) ==
+          cudaErrorInvalidValue,
+      "GDN register-state M16 resource query rejects null output");
+
+  const CapturedTopology valid_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN register-state M16 valid topology");
+  const CapturedTopology production_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(), {},
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN production row8 M16 topology oracle");
+  test.expect(valid_topology.total_nodes == 1U &&
+                  valid_topology.kernel_nodes == 1U &&
+                  valid_topology.edges == 0U &&
+                  valid_topology.kernel_launches.size() == 1U,
+              "GDN register-state M16 captures exactly one kernel");
+  test.expect(production_topology.total_nodes == 1U &&
+                  production_topology.kernel_nodes == 1U &&
+                  production_topology.edges == 0U &&
+                  production_topology.kernel_launches.size() == 1U,
+              "GDN production row8 M16 captures exactly one kernel");
+  if (valid_topology.kernel_launches.size() == 1U) {
+    const auto& launch = valid_topology.kernel_launches.front();
+    test.expect(launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                    launch.grid.y == 1U && launch.grid.z == 1U &&
+                    launch.block.x == 256U && launch.block.y == 1U &&
+                    launch.block.z == 1U &&
+                    launch.dynamic_shared_bytes == 0U,
+                "GDN register-state M16 locks 48x256 topology");
+  }
+  if (production_topology.kernel_launches.size() == 1U) {
+    const auto& launch = production_topology.kernel_launches.front();
+    test.expect(launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                    launch.grid.y == 1U && launch.grid.z == 1U &&
+                    launch.block.x == 256U && launch.block.y == 1U &&
+                    launch.block.z == 1U &&
+                    launch.dynamic_shared_bytes == 0U,
+                "GDN production row8 M16 locks 48x256 topology");
+  }
+  if (valid_topology.kernel_launches.size() == 1U &&
+      production_topology.kernel_launches.size() == 1U) {
+    void* const candidate_function =
+        valid_topology.kernel_launches.front().function;
+    void* const production_function =
+        production_topology.kernel_launches.front().function;
+    test.expect(candidate_function != nullptr &&
+                    production_function != nullptr &&
+                    candidate_function != production_function,
+                "GDN register-state and production kernel identities are "
+                "non-null and distinct");
+  }
+
+  const auto expect_invalid_empty_capture =
+      [&](auto&& launch, const std::string& label) {
+        const CapturedTopology topology = capture_topology(
+            test, std::forward<decltype(launch)>(launch),
+            cudaErrorInvalidValue, label);
+        test.expect(topology.total_nodes == 0U &&
+                        topology.kernel_nodes == 0U &&
+                        topology.edges == 0U &&
+                        topology.kernel_launches.empty(),
+                    label + " captures no nodes");
+      };
+  expect_invalid_empty_capture(
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                conv_qkv.data(), kTokenCount - 1U, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      "GDN register-state rejects non-M16 topology");
+  expect_invalid_empty_capture(
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                nullptr, kTokenCount, a.data(), b.data(), A_log.data(),
+                dt_bias.data(), candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      "GDN register-state rejects null topology");
+  expect_invalid_empty_capture(
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                conv_qkv.data(), static_cast<void*>(capture_stream));
+      },
+      "GDN register-state rejects alias topology");
+  expect_invalid_empty_capture(
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(),
+                std::numeric_limits<float>::quiet_NaN(),
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      "GDN register-state rejects epsilon topology");
+
+  expect_bf16_buffer_bitwise_equal(
+      test, conv_qkv.data(), initial_conv_qkv.data(), initial_conv_qkv.size(),
+      "GDN register-state M16 preserves conv QKV");
+  expect_bf16_buffer_bitwise_equal(test, a.data(), initial_a.data(),
+                                   initial_a.size(),
+                                   "GDN register-state M16 preserves a");
+  expect_bf16_buffer_bitwise_equal(test, b.data(), initial_b.data(),
+                                   initial_b.size(),
+                                   "GDN register-state M16 preserves b");
+  expect_bf16_buffer_bitwise_equal(
+      test, A_log.data(), initial_A_log.data(), initial_A_log.size(),
+      "GDN register-state M16 preserves A_log");
+  expect_bf16_buffer_bitwise_equal(
+      test, dt_bias.data(), initial_dt_bias.data(), initial_dt_bias.size(),
+      "GDN register-state M16 preserves dt_bias");
+}
+
+void run_optional_gdn_register_state_m16_performance(TestContext& test,
+                                                     cudaStream_t stream) {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_REGISTER_STATE_M16_PERF");
+  const bool enabled = value != nullptr && value[0] != '\0' &&
+                       !(value[0] == '0' && value[1] == '\0');
+  if (!enabled) {
+    std::cout
+        << "SKIP: GDN register-state M16 performance segment; set "
+           "Q3X_RUN_GDN_REGISTER_STATE_M16_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kTokenCount =
+      q3x::runtime::kGdnMaximumTileTokenCount;
+  constexpr std::size_t kBankCount = 24U;
+  constexpr std::size_t kWarmupLaunches = 48U;
+  constexpr std::size_t kMeasuredLaunches = 480U;
+  constexpr std::size_t kRoundCount = 5U;
+  constexpr std::size_t kPassesPerVariant = 2U * kRoundCount;
+  constexpr std::size_t kOutputElementsPerBank =
+      kTokenCount * q3x::runtime::kGdnVElements;
+  constexpr std::size_t kStatePoolElements =
+      kBankCount * q3x::runtime::kGdnStateElements;
+  constexpr std::size_t kOutputPoolElements =
+      kBankCount * kOutputElementsPerBank;
+  constexpr float kL2Epsilon = 1.0e-6F;
+  constexpr float kRequiredSpeedup = 1.20F;
+  static_assert(kWarmupLaunches % kBankCount == 0U);
+  static_assert(kMeasuredLaunches % kBankCount == 0U);
+  static_assert(kStatePoolElements * sizeof(std::uint16_t) ==
+                36U * 1024U * 1024U);
+
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> immutable_states;
+  ManagedBuffer<std::uint16_t> production_states;
+  ManagedBuffer<std::uint16_t> candidate_states;
+  ManagedBuffer<std::uint16_t> production_outputs;
+  ManagedBuffer<std::uint16_t> candidate_outputs;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kTokenCount * q3x::runtime::kGdnQkvChannels),
+      "GDN register-state perf allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state perf allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state perf allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state perf allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN register-state perf allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       immutable_states.allocate(kStatePoolElements),
+                       "GDN register-state perf allocate immutable banks");
+  ready = ready && test.cuda_ok(
+                       production_states.allocate(kStatePoolElements),
+                       "GDN register-state perf allocate production banks");
+  ready = ready && test.cuda_ok(
+                       candidate_states.allocate(kStatePoolElements),
+                       "GDN register-state perf allocate candidate banks");
+  ready = ready && test.cuda_ok(
+                       production_outputs.allocate(kOutputPoolElements),
+                       "GDN register-state perf allocate production outputs");
+  ready = ready && test.cuda_ok(
+                       candidate_outputs.allocate(kOutputPoolElements),
+                       "GDN register-state perf allocate candidate outputs");
+  if (!ready) {
+    return;
+  }
+
+  fill_gdn_tile_inputs(conv_qkv, a, b, A_log, dt_bias);
+  const std::vector<std::uint16_t> initial_conv_qkv(
+      conv_qkv.data(), conv_qkv.data() + conv_qkv.size());
+  const std::vector<std::uint16_t> initial_a(a.data(), a.data() + a.size());
+  const std::vector<std::uint16_t> initial_b(b.data(), b.data() + b.size());
+  const std::vector<std::uint16_t> initial_A_log(
+      A_log.data(), A_log.data() + A_log.size());
+  const std::vector<std::uint16_t> initial_dt_bias(
+      dt_bias.data(), dt_bias.data() + dt_bias.size());
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  for (std::size_t bank = 0U; bank < kBankCount; ++bank) {
+    std::copy(initial_state.begin(), initial_state.end(),
+              immutable_states.data() +
+                  bank * q3x::runtime::kGdnStateElements);
+  }
+
+  const auto reset_variant = [&](ManagedBuffer<std::uint16_t>& states,
+                                 ManagedBuffer<std::uint16_t>& outputs,
+                                 const std::string& label) -> bool {
+    bool reset_ready = test.cuda_ok(
+        cudaMemcpyAsync(states.data(), immutable_states.data(),
+                        kStatePoolElements * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToDevice, stream),
+        label + " reset 24 state banks");
+    reset_ready = reset_ready && test.cuda_ok(
+                                     cudaMemsetAsync(
+                                         outputs.data(), 0xff,
+                                         kOutputPoolElements *
+                                             sizeof(std::uint16_t),
+                                         stream),
+                                     label + " poison output banks");
+    reset_ready = reset_ready && test.cuda_ok(
+                                     cudaStreamSynchronize(stream),
+                                     label + " reset synchronize");
+    return reset_ready;
+  };
+
+  const auto measure_variant =
+      [&](const bool candidate, const std::string& label) -> float {
+    ManagedBuffer<std::uint16_t>& states =
+        candidate ? candidate_states : production_states;
+    ManagedBuffer<std::uint16_t>& outputs =
+        candidate ? candidate_outputs : production_outputs;
+    if (!reset_variant(states, outputs, label)) {
+      return std::numeric_limits<float>::quiet_NaN();
+    }
+    std::size_t launch_index = 0U;
+    const float milliseconds = measure_average_cuda_milliseconds(
+        test, stream, kWarmupLaunches, kMeasuredLaunches, label, [&]() {
+          const std::size_t bank = launch_index % kBankCount;
+          ++launch_index;
+          std::uint16_t* const state =
+              states.data() + bank * q3x::runtime::kGdnStateElements;
+          std::uint16_t* const output =
+              outputs.data() + bank * kOutputElementsPerBank;
+          if (candidate) {
+            return q3x::runtime::
+                launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                    conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
+                    output, static_cast<void*>(stream));
+          }
+          return q3x::runtime::
+              launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                  conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                  A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
+                  output, {}, static_cast<void*>(stream));
+        });
+    test.expect(launch_index == kWarmupLaunches + kMeasuredLaunches,
+                label + " rotates every requested state bank launch");
+    return milliseconds;
+  };
+
+  bool timing_bitwise = true;
+  const auto compare_timing_results = [&](const std::string& label) {
+    const int failures_before = test.failures();
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_states.data(), production_states.data(),
+        kStatePoolElements, label + " final 24-bank states");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_outputs.data(), production_outputs.data(),
+        kOutputPoolElements, label + " last outputs");
+    timing_bitwise =
+        timing_bitwise && test.failures() == failures_before;
+  };
+
+  std::array<float, kPassesPerVariant> production_passes{};
+  std::array<float, kPassesPerVariant> candidate_passes{};
+  bool all_rounds_faster = true;
+  bool all_finite = true;
+  for (std::size_t round = 0U; round < kRoundCount; ++round) {
+    const std::string round_label =
+        "GDN register-state M16 round=" + std::to_string(round + 1U);
+    const float production_first =
+        measure_variant(false, round_label + " B1");
+    const float candidate_first =
+        measure_variant(true, round_label + " C1");
+    compare_timing_results(round_label + " B1/C1");
+    const float candidate_second =
+        measure_variant(true, round_label + " C2");
+    const float production_second =
+        measure_variant(false, round_label + " B2");
+    compare_timing_results(round_label + " C2/B2");
+
+    production_passes[2U * round] = production_first;
+    production_passes[2U * round + 1U] = production_second;
+    candidate_passes[2U * round] = candidate_first;
+    candidate_passes[2U * round + 1U] = candidate_second;
+    const bool round_finite =
+        std::isfinite(production_first) &&
+        std::isfinite(production_second) &&
+        std::isfinite(candidate_first) && std::isfinite(candidate_second) &&
+        production_first > 0.0F && production_second > 0.0F &&
+        candidate_first > 0.0F && candidate_second > 0.0F;
+    const float production_mean =
+        (production_first + production_second) * 0.5F;
+    const float candidate_mean =
+        (candidate_first + candidate_second) * 0.5F;
+    const bool round_faster = round_finite && candidate_mean < production_mean;
+    all_finite = all_finite && round_finite;
+    all_rounds_faster = all_rounds_faster && round_faster;
+    std::cout << "PERF_GDN_REGISTER_STATE_M16_ROUND: round="
+              << round + 1U << " production_pass1_ms=" << production_first
+              << " candidate_pass1_ms=" << candidate_first
+              << " candidate_pass2_ms=" << candidate_second
+              << " production_pass2_ms=" << production_second
+              << " production_mean_ms=" << production_mean
+              << " candidate_mean_ms=" << candidate_mean
+              << " speedup=" << production_mean / candidate_mean
+              << " no_reversal=" << (round_faster ? "true" : "false")
+              << '\n';
+  }
+
+  const int input_failures_before = test.failures();
+  expect_bf16_buffer_bitwise_equal(
+      test, conv_qkv.data(), initial_conv_qkv.data(), initial_conv_qkv.size(),
+      "GDN register-state M16 perf preserves conv QKV");
+  expect_bf16_buffer_bitwise_equal(
+      test, a.data(), initial_a.data(), initial_a.size(),
+      "GDN register-state M16 perf preserves a");
+  expect_bf16_buffer_bitwise_equal(
+      test, b.data(), initial_b.data(), initial_b.size(),
+      "GDN register-state M16 perf preserves b");
+  expect_bf16_buffer_bitwise_equal(
+      test, A_log.data(), initial_A_log.data(), initial_A_log.size(),
+      "GDN register-state M16 perf preserves A_log");
+  expect_bf16_buffer_bitwise_equal(
+      test, dt_bias.data(), initial_dt_bias.data(), initial_dt_bias.size(),
+      "GDN register-state M16 perf preserves dt_bias");
+  timing_bitwise =
+      timing_bitwise && test.failures() == input_failures_before;
+
+  const auto median = [](std::array<float, kPassesPerVariant> values) {
+    std::sort(values.begin(), values.end());
+    return (values[kPassesPerVariant / 2U - 1U] +
+            values[kPassesPerVariant / 2U]) *
+           0.5F;
+  };
+  const float production_milliseconds = median(production_passes);
+  const float candidate_milliseconds = median(candidate_passes);
+  const float speedup = production_milliseconds / candidate_milliseconds;
+  const bool performance_gate =
+      all_finite && timing_bitwise && all_rounds_faster &&
+      std::isfinite(speedup) && speedup >= kRequiredSpeedup;
+  std::cout << "PERF_GDN_REGISTER_STATE_M16_AGGREGATE: production_ms="
+            << production_milliseconds
+            << " candidate_ms=" << candidate_milliseconds
+            << " speedup=" << speedup
+            << " required_speedup=" << kRequiredSpeedup
+            << " state_banks=" << kBankCount
+            << " state_working_set_bytes="
+            << kStatePoolElements * sizeof(std::uint16_t)
+            << " warmup_launches_per_pass=" << kWarmupLaunches
+            << " measured_launches_per_pass=" << kMeasuredLaunches
+            << " variant_samples=" << kPassesPerVariant
+            << " bitwise=" << (timing_bitwise ? "true" : "false")
+            << " all_rounds_faster="
+            << (all_rounds_faster ? "true" : "false")
+            << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(performance_gate,
+              "GDN register-state M16 clears 1.20x cold-bank gate");
+}
+
 // This mirrored harness covers three successive promotions: row-pair versus
 // four-row, four-row versus lane-striped, and four-row lane-striped versus the
 // production eight-row lane-striped path.
@@ -3087,6 +3829,8 @@ int main() {
   test_gdn_multistep(test, stream);
   test_gdn_plain_norm_silu_gate_production_identity(test, stream);
   test_gdn_tile_bitwise(test, stream);
+  test_gdn_register_state_m16_candidate(test, stream);
+  run_optional_gdn_register_state_m16_performance(test, stream);
   run_optional_gdn_row_pipeline_performance(
       test, stream, GdnRowPipelineCandidate::kFourRow);
   run_optional_gdn_row_pipeline_performance(
