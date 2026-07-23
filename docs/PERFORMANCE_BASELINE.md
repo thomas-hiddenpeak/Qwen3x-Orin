@@ -65,6 +65,9 @@ recorded in
 The reduction-only warp-tail follow-up inside that fused GDN kernel is recorded
 in
 [`qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json`](metadata/qwen36-27b-gdn-rmsnorm-silu-gate-warp-tail-benchmark.json).
+The promoted long-context GQA attention-score kernel and its separate Prefill
+and Decode evidence are recorded in
+[`qwen36-27b-prefill-attention-score-warp-positions-benchmark.json`](metadata/qwen36-27b-prefill-attention-score-warp-positions-benchmark.json).
 
 ## Method
 
@@ -3111,3 +3114,75 @@ SHA-256
 Exact per-cap latencies, checkpoint offsets and independently verified payload
 hashes, artifact identities, hardening omissions, and claim limits are in the
 [QKV/Z activation-staging rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json).
+
+## Long-context GQA attention-score warp-position promotion
+
+Commit `87573f3` promotes an exact Q24/KV4/D256 attention-score kernel for
+sequence lengths at least 65. Eight warps per CTA independently own eight
+positions, preserving the reference reduction order while replacing repeated
+block-wide shared-memory trees with warp shuffles. The public GQA ABI,
+probability scratch, softmax, value kernel, streams, and buffers are unchanged;
+S64 and all non-matching shapes keep the prior route. This is a phase-local
+kernel change, not a double/triple-buffer or scheduler implementation.
+
+The same public selector serves both phases. P513 max1 is the direct Prefill
+promotion workload, while P64 max26 is the direct long-context Decode workload:
+its first token completes at S64 and subsequent tokens use S>=65. P19 max26
+never reaches S65 and therefore proves only short-context fallback stability,
+not measured long-context Decode throughput.
+
+The same-binary five-round B-C-C-B microbenchmark computes each row from the
+arithmetic means of ten timed passes. It measures 9.065x at S65, 12.0287x at
+S128, 14.4892x at S257, 16.3467x at S513, and 16.511x at S544. The full
+S65-S513 chain improves 14.6162x. Exact finite-boundary, raw-BF16 special,
+replay, graph, S64/S65 dispatch, resource, and downstream-identity gates pass.
+
+Matched S513 NCU uses the pre-promotion test symbol; after normalizing only the
+function name, its SASS is byte-identical to the final production kernel.
+It preserves 12,607,488 global-load bytes, 196,992 global-load instructions,
+and 3,151,872 FFMA thread instructions. Duration falls from
+690.624 to 34.688 us; shared load/store instructions fall from
+1,588,248/886,464 to zero, barrier stalls fall from 3.55 to zero warps per
+active issue, and issue activity rises from 17.02% to 64.89%. Both reports
+use an earlier same-source test cubin rather than the final gate binary; after
+normalizing the function name, its candidate SASS is byte-identical to the
+committed production kernel. Both reports warn that clocks were not fixed, so
+these counters establish the mechanism, not release-grade absolute latency.
+
+The same-workload P513 Nsight comparison uses the frozen phase-observer
+precursor as baseline and the committed production runner as candidate; it is
+cross-process structural attribution, while the B-C-C-B result below is the
+promotion timing gate. It retains 7,184 score launches and all 42,709
+generation kernels. Score time falls from 1,886.442 to 126.063 ms
+(14.9643x), reducing its raw-kernel share from 23.80% to 2.05%. The independent
+B-C-C-B whole-model gate moves the ten-sample P513 median from 7,504.189 to
+5,732.909 ms: 1.308967x, or 23.60% lower TTFT. P64/P33/P19 max1 controls stay
+within 0.06% pair regression.
+
+The direct P64-max26 Decode gate moves the ten-sample total-generation median
+from 3,371.574 to 3,334.155 ms (1.011223x). Pooling 210 subsequent-token
+samples per binary moves the median from 112.779 to 111.204 ms (1.014163x);
+the mean of the two process medians improves 1.015401x for Decode-after-first.
+The combined total-generation and pooled subsequent-token results both clear
+the 1.01 decision gate; the first total-generation pair alone is 1.009637x and
+is not claimed as an independent 1.01x pass.
+All four contracts are byte-identical and all four processes report zero
+persistent memory drop. The P19-max26 fallback control stays within 0.056% and
+also preserves its exact four-process contract.
+
+One of the twelve B-C-C-B processes, main C2, reports a 105,021,440-byte
+device-wide `cudaMemGetInfo` persistent-drop warning; the other eleven do not,
+and the process returns `status=ok`. An independent production Nsys candidate
+process reports 125,648,896 bytes, while the independent baseline phase
+profile reports 18,292,736 bytes and stays below threshold. These observations
+are retained as separate caveats and are not causally attributed to the
+implementation. All 51 runnable tests in the 56-test suite pass, with five
+dependency/model/tokenizer skips.
+
+The production selector is retained. Since attention score is no longer the
+leading P513 hotspot, the next priority is separately gated Prefill
+projection/GDN work and Decode M1/long-context work. General buffering or
+multi-request phase scheduling remains later architecture work with explicit
+KV-memory, fairness, TTFT, inter-token, and tail-latency gates. Exact binaries,
+raw rows, report hashes, contracts, warnings, and claim limits are in the
+[warp-position benchmark record](metadata/qwen36-27b-prefill-attention-score-warp-positions-benchmark.json).

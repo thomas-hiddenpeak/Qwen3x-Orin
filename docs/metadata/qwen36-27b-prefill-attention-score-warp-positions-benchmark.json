@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-attention-score-warp-positions-benchmark",
+  "status": "promoted-production-long-context-gqa-attention-score-kernel",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "baseline_git_commit": "931aa08d62770c21d2751b0fab08dae4d10d2d8e",
+    "baseline_git_subject": "docs: record rejected FP8 QKV/Z activation staging",
+    "production_git_commit": "87573f34ca276dfc121b0effdd15eecb92cbcd73",
+    "production_git_subject": "runtime: parallelize long-context attention scores",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "binaries": {
+      "detached_baseline_runner": {
+        "local_path": "/tmp/q3x-attention-score-baseline-931aa08/qwen3x-orin",
+        "bytes": 3782576,
+        "sha256": "bc829dd428c5257d049bbaa2f0706ba4e0994f653da5c1b0fb8743dc46c6e703",
+        "elf_build_id": "d76d5d42fcd771a6487887cdbce84da1856e7a50",
+        "source_commit": "931aa08d62770c21d2751b0fab08dae4d10d2d8e",
+        "checked_in": false
+      },
+      "production_candidate_runner": {
+        "local_path": "/tmp/q3x-attention-score-production-candidate/qwen3x-orin",
+        "bytes": 3784312,
+        "sha256": "5cee3226e593d27f7e96cc573d9f6c16aa0275d118956badf3beb5ec1ad5e22f",
+        "elf_build_id": "4b6bb40bb65c0b3d64fd99073a76cb03b51691d6",
+        "source_commit": "87573f34ca276dfc121b0effdd15eecb92cbcd73",
+        "checked_in": false
+      },
+      "production_candidate_device_test": {
+        "local_path": "/tmp/q3x-attention-score-production-candidate/q3x_decode_ops_cuda_test",
+        "bytes": 506640,
+        "sha256": "29163b67aab4f422ef7b229c315654dc54685dad913f6454f3f4af2958e9ee68",
+        "elf_build_id": "507bbb68e5d0132331318c8551924b5b3147f240",
+        "source_commit": "87573f34ca276dfc121b0effdd15eecb92cbcd73",
+        "checked_in": false,
+        "note": "This is the final production-gate device-test binary. The matched NCU reports came from an earlier same-source test cubin, not this exact binary; normalized candidate SASS/resources agree with the final production kernel."
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "ncu_version": "2026.2.0.0 build 37790515",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "Clock locking requires root in this environment. Symmetric B-C-C-B ratios are diagnostic; NCU explicitly warned that data collection occurred without fixed GPU frequencies."
+  },
+  "implementation": {
+    "public_entry_point": "launch_gqa_attention_reference_cuda",
+    "phase_scope": {
+      "prefill": "The same public GQA launcher is called during long-prompt Prefill; P513 max1 is the direct whole-model promotion and Nsight attribution workload.",
+      "decode": "The same selector is reached by Decode once the live context length is at least 65; P64 max26 is the direct long-context Decode timing workload.",
+      "short_context_decode_control": "P19 max26 never reaches S=65 and therefore validates only the unchanged S<65 path, not long-context Decode throughput."
+    },
+    "selector": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "minimum_sequence_length_inclusive": 65,
+      "maximum_sequence_length_inclusive": 524280,
+      "maximum_formula": "65535 grid-y blocks * 8 positions per block",
+      "near_boundary": {
+        "S64": "reference attention_scores_kernel",
+        "S65": "attention_scores_warp_positions_24_4_256_kernel"
+      },
+      "all_other_shapes": "reference attention_scores_kernel"
+    },
+    "candidate_kernel": {
+      "name": "attention_scores_warp_positions_24_4_256_kernel",
+      "grid": "(24, ceil(S / 8), 1)",
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "work_mapping": "Eight warps per CTA; one warp owns one sequence position for one query head.",
+      "arithmetic_contract": "The scalar construction reproduces the reference shared-tree order 128,64,32,16,8,4,2,1 exactly, with the final 16..1 levels expressed as guarded warp shuffles.",
+      "observable_score_type": "FP32",
+      "new_streams": 0,
+      "new_persistent_buffers": 0
+    },
+    "unchanged_boundary": {
+      "public_header_and_abi_unchanged": true,
+      "unadvertised_test_hook_symbols_added_to_static_archive": 5,
+      "probability_scratch_contract": true,
+      "softmax_kernel": true,
+      "attention_values_kernel": true,
+      "S64_and_shorter_score_dispatch": true,
+      "fused_GQA_sigmoid_route": true,
+      "general_double_buffer": false,
+      "general_triple_buffer": false,
+      "prefill_decode_scheduler_changed": false
+    }
+  },
+  "correctness_and_dispatch_gates": {
+    "device": "Orin (sm_87)",
+    "binary_identity": {
+      "finite_boundary_sequence_lengths": 29,
+      "finite_comparison": "raw FP32 bitwise identity against an independent host implementation of the reference shared-memory reduction tree",
+      "broad_exponent_fixture_differs_from_linear_fma_reduction": true,
+      "raw_bf16_special_cases": 12,
+      "reference_tree_slots": 8,
+      "shuffle_boundary_lanes": 4,
+      "isolated_operand_cases": 768,
+      "candidate_replay": "enabled",
+      "status": "pass"
+    },
+    "invalid_calls": {
+      "cases_per_forced_launcher": 13,
+      "launchers": 2,
+      "captured_graph_nodes_for_every_invalid_call": 0,
+      "status": "pass"
+    },
+    "graph_topology": {
+      "baseline_S513_grid": [24, 1, 1],
+      "candidate_S513_grid": [24, 65, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "distinct_kernel_identities": true,
+      "status": "pass"
+    },
+    "production_boundary": {
+      "S64_grid": [24, 1, 1],
+      "S64_uses_baseline_kernel": true,
+      "S65_grid": [24, 9, 1],
+      "S65_uses_candidate_kernel": true,
+      "downstream_kernel_identities_unchanged": true,
+      "status": "pass"
+    },
+    "resources": {
+      "baseline": {
+        "registers_per_thread": 28,
+        "static_shared_bytes": 1024,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 6
+      },
+      "candidate": {
+        "registers_per_thread": 34,
+        "static_shared_bytes": 0,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 6
+      },
+      "occupancy_gate": "pass"
+    },
+    "default_device_test": "pass"
+  },
+  "direct_microbenchmark": {
+    "protocol": {
+      "same_binary": true,
+      "warmup_iterations": 10,
+      "timed_iterations_per_individual_sequence_and_pass": 80,
+      "order": "B-C-C-B",
+      "mirrored_rounds": 5,
+      "aggregate_definition": "For each row, baseline_ms and candidate_ms are arithmetic means over the ten timed passes (five mirrored rounds times two passes per side); speedup is their ratio.",
+      "individual_sequence_lengths": [65, 128, 257, 513, 544],
+      "chain_first_sequence_length": 65,
+      "chain_last_sequence_length": 513,
+      "kernels_per_chain": 449,
+      "S513_required_speedup": 1.2,
+      "other_individual_required_speedup": 1.05,
+      "chain_required_speedup": 1.2
+    },
+    "aggregate_rows": [
+      {"sequence_length": 65, "baseline_ms": 0.0619756, "candidate_ms": 0.0068368, "speedup": 9.065, "gate": "pass"},
+      {"sequence_length": 128, "baseline_ms": 0.118016, "candidate_ms": 0.00981124, "speedup": 12.0287, "gate": "pass"},
+      {"sequence_length": 257, "baseline_ms": 0.232711, "candidate_ms": 0.016061, "speedup": 14.4892, "gate": "pass"},
+      {"sequence_length": 513, "baseline_ms": 0.460167, "candidate_ms": 0.0281505, "speedup": 16.3467, "gate": "pass"},
+      {"sequence_length": 544, "baseline_ms": 0.487718, "candidate_ms": 0.029539, "speedup": 16.511, "gate": "pass"}
+    ],
+    "chain": {
+      "first_sequence_length": 65,
+      "last_sequence_length": 513,
+      "kernels": 449,
+      "baseline_ms": 116.551,
+      "candidate_ms": 7.97412,
+      "speedup": 14.6162,
+      "gate": "pass"
+    },
+    "raw_mirrored_rounds_retained_in_log": true,
+    "status": "pass"
+  },
+  "matched_S513_ncu": {
+    "purpose": "Structural mechanism attribution from an earlier same-source test cubin. It is not the final 29163b... device-test binary; normalized candidate SASS/resources agree with the final production kernel, and unlocked-clock durations are not serving latency.",
+    "binary_identity_limit": "Do not interpret these reports as an exact-binary match to the final production-gate device test.",
+    "cross_build_candidate_identity": {
+      "comparison": "pre-promotion candidate SASS versus the committed final production-kernel SASS from the 29163b... binary, after normalizing the Function name",
+      "normalized_sha256_both": "db339b0eef9b7a32d54c72cf2465db64e2569bffa820aa3f2a8c72e07212283a",
+      "normalized_bytes_identical": true,
+      "resources_both": {"registers_per_thread": 34, "static_shared_bytes": 0, "local_bytes": 0}
+    },
+    "protocol": {
+      "fixture_sequence_length": 513,
+      "executable_path_recorded_by_profiler": "/home/rm01/Qwen3x-Orin/build/q3x_decode_ops_cuda_test",
+      "context": 1,
+      "stream": 13,
+      "profiler_replay_passes": 13,
+      "baseline_kernel_filter_result": "attention_scores_kernel",
+      "candidate_kernel_filter_result": "attention_scores_warp_positions_24_4_256_test_kernel",
+      "launch_count_per_report": 1,
+      "clocks_fixed": false
+    },
+    "baseline_filter": "attention_scores_kernel",
+    "candidate_filter": "attention_scores_warp_positions_24_4_256_test_kernel",
+    "baseline_grid": [24, 1, 1],
+    "candidate_grid": [24, 65, 1],
+    "block": [256, 1, 1],
+    "metrics": {
+      "duration_ns": {"baseline": 690624, "candidate": 34688, "saved": 655936, "speedup": 19.909594096, "reduction_percent": 94.977296},
+      "global_load_bytes": {"baseline": 12607488, "candidate": 12607488},
+      "global_load_instructions": {"baseline": 196992, "candidate": 196992},
+      "global_store_instructions": {"baseline": 12312, "candidate": 12312},
+      "ffma_thread_instructions": {"baseline": 3151872, "candidate": 3151872},
+      "shared_load_instructions": {"baseline": 1588248, "candidate": 0},
+      "shared_store_instructions": {"baseline": 886464, "candidate": 0},
+      "shared_load_wavefronts": {"baseline": 307811, "candidate": 0},
+      "shared_store_wavefronts": {"baseline": 247833, "candidate": 0},
+      "inter_thread_communication_thread_instructions": {"baseline": 0, "candidate": 1969920},
+      "memory_thread_instructions": {"baseline": 18898920, "candidate": 6316056},
+      "l1_throughput_percent": {"baseline": 21.47, "candidate": 48.09},
+      "l2_throughput_percent": {"baseline": 1.47, "candidate": 37.74},
+      "dram_read_throughput_percent": {"baseline": 0.79, "candidate": 15.14},
+      "sm_throughput_percent": {"baseline": 18.87, "candidate": 59.84},
+      "smsp_issue_active_percent": {"baseline": 17.02, "candidate": 64.89},
+      "sm_warps_active_percent": {"baseline": 25.0, "candidate": 89.83},
+      "smsp_warps_active_percent": {"baseline": 25.0, "candidate": 86.62},
+      "barrier_stall_warps_per_issue_active": {"baseline": 3.55, "candidate": 0.0},
+      "long_scoreboard_stall_warps_per_issue_active": {"baseline": 7.61, "candidate": 5.12},
+      "short_scoreboard_stall_warps_per_issue_active": {"baseline": 2.27, "candidate": 1.07},
+      "local_load_instructions": {"baseline": 0, "candidate": 0},
+      "local_store_instructions": {"baseline": 0, "candidate": 0}
+    },
+    "sass_inventory": {
+      "baseline_static_BAR_instances": 10,
+      "candidate_static_BAR_instances": 0,
+      "candidate_static_SHFL_instances": 5
+    },
+    "interpretation": "The candidate preserves global bytes and FFMA work while replacing the repeated block-wide shared-memory reduction/barrier sequence with independent position warps and shuffles.",
+    "measurement_warning": "Both NCU reports state that data collection happened without fixed GPU frequencies and may be inconsistent."
+  },
+  "P513_prefill_nsys_attribution": {
+    "phase": "Prefill",
+    "workload": "P513-C32-max1",
+    "cross_process_identity_limit": {
+      "baseline_runner": "frozen phase-observer precursor 05e1a8a2...",
+      "candidate_runner": "committed production candidate 5cee3226...",
+      "note": "This is a same-workload cross-process structural attribution, not a same-binary or same-process latency gate. The independent B-C-C-B whole-model result is the promotion timing gate."
+    },
+    "protocol": {
+      "prompt_tokens": 513,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 1,
+      "warmup_rounds": 0,
+      "measured_rounds": 1,
+      "nvtx_phase_ranges": true,
+      "trace": "CUDA plus NVTX capture range",
+      "unlocked_clocks": true
+    },
+    "kernel_count": {"baseline": 42709, "candidate": 42709},
+    "generation_raw_kernel_ns": {"baseline": 7927874976, "candidate": 6162493792, "speedup": 1.28647188, "reduction_percent": 22.268025},
+    "attention_score": {
+      "baseline_kernel": "attention_scores_kernel",
+      "candidate_kernel": "attention_scores_warp_positions_24_4_256_kernel",
+      "instances": {"baseline": 7184, "candidate": 7184},
+      "raw_kernel_ns": {"baseline": 1886441920, "candidate": 126062976},
+      "speedup": 14.964281979,
+      "saved_ns": 1760378944,
+      "reduction_percent": 93.317421,
+      "share_of_generation_raw_percent": {"baseline": 23.795051, "candidate": 2.045649}
+    },
+    "unchanged_downstream_checks": {
+      "softmax": {"instances": 7184, "baseline_ns": 29946176, "candidate_ns": 29762368},
+      "attention_values": {"instances": 7184, "baseline_ns": 206930208, "candidate_ns": 206604160},
+      "fused_GQA_sigmoid": {"instances": 1024, "baseline_ns": 33989824, "candidate_ns": 34001696},
+      "standalone_sigmoid_gate": {"instances": 240, "baseline_ns": 2643552, "candidate_ns": 2578304}
+    },
+    "application_wall_ms": {
+      "generation": {"baseline": 7562.237, "candidate": 5796.407, "speedup": 1.304642169, "reduction_percent": 23.35063},
+      "prefix": {"baseline": 7422.041, "candidate": 5665.686, "speedup": 1.309998648},
+      "finish": {"baseline": 140.196, "candidate": 130.722, "speedup": 1.072474411}
+    },
+    "leaf_raw_kernel_ns": {
+      "prefix_all": {"baseline": 7789256544, "candidate": 6033203296},
+      "prefix_attention_score": {"baseline": 1875403360, "candidate": 125519584},
+      "finish_all": {"baseline": 138618432, "candidate": 129290496},
+      "finish_attention_score": {"baseline": 11038560, "candidate": 543392},
+      "attention_score_share_of_all_raw_kernel_savings_percent": 99.716648,
+      "wall_savings_minus_all_raw_kernel_savings_ms": 0.448816
+    },
+    "baseline_profile_memory_watermark": {
+      "persistent_drop_bytes": 18292736,
+      "tolerance_bytes": 67108864,
+      "detected": false,
+      "note": "This is the device-wide cudaMemGetInfo watermark from the independent baseline phase-profile process."
+    },
+    "candidate_memory_warning": {
+      "persistent_drop_bytes": 125648896,
+      "tolerance_bytes": 67108864,
+      "detected": true,
+      "note": "This is the device-wide cudaMemGetInfo watermark from the independent production Nsys candidate process; the process still returned status=ok.",
+      "claim_limit": "Profiler overhead and unlocked clocks make this process's generation time and memory watermark non-normative; it is not used as the promotion timing gate or attributed causally to the implementation."
+    },
+    "baseline_evidence_note": "The original baseline .nsys-rep is immutable. nsys stats re-exported its CSV and modified the old derived SQLite in place, so no SQLite identity is cited here."
+  },
+  "whole_model_prefill_promotion": {
+    "phase": "Prefill",
+    "protocol": {
+      "order": "B1-C1-C2-B2",
+      "independent_processes": 4,
+      "model_load_per_process": true,
+      "prompts_per_process": 4,
+      "prompt_tokens": [513, 64, 33, 19],
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_sequence_length": 544,
+      "max_new_tokens": 1,
+      "warmup_rounds": 1,
+      "measured_rounds_per_prompt_process": 5,
+      "projection_backend": "sm87_weight_only"
+    },
+    "P513_process_medians_ms": {
+      "B1": 7504.485,
+      "C1": 5732.302,
+      "C2": 5733.476,
+      "B2": 7501.238
+    },
+    "P513_combined_ten_sample_median": {
+      "baseline_ms": 7504.189,
+      "candidate_ms": 5732.9085,
+      "saved_ms": 1771.2805,
+      "reduction_percent": 23.60389,
+      "speedup": 1.308967
+    },
+    "P513_pair_speedups": [1.309157298, 1.308322909],
+    "unchanged_path_controls": [
+      {
+        "workload": "P64-max1",
+        "process_medians_ms": {"B1": 997.765, "C1": 997.435, "C2": 997.412, "B2": 997.514},
+        "pair_changes_percent_candidate_minus_baseline": [-0.033074, -0.010225],
+        "maximum_pair_regression_percent": 0.0,
+        "mean_of_two_process_medians_speedup": 1.000216558
+      },
+      {
+        "workload": "P33-max1",
+        "process_medians_ms": {"B1": 446.767, "C1": 446.501, "C2": 446.5, "B2": 446.479},
+        "pair_changes_percent_candidate_minus_baseline": [-0.059539, 0.004703],
+        "maximum_pair_regression_percent": 0.004703,
+        "mean_of_two_process_medians_speedup": 1.000274356
+      },
+      {
+        "workload": "P19-max1",
+        "process_medians_ms": {"B1": 439.404, "C1": 439.266, "C2": 439.314, "B2": 439.284},
+        "pair_changes_percent_candidate_minus_baseline": [-0.031406, 0.006829],
+        "maximum_pair_regression_percent": 0.006829,
+        "mean_of_two_process_medians_speedup": 1.000122926
+      }
+    ],
+    "semantic_contract": {
+      "all_four_process_contracts_byte_identical": true,
+      "bytes": 15374,
+      "sha256": "a1e489eace21bee4265e4ac081ef8050ef669186630c48af19a535b81a0db01c",
+      "P513_generated_ids": [9419],
+      "P513_generated_text": "Hello",
+      "P513_stop_reason": "max_new_tokens"
+    },
+    "memory": {
+      "B1_persistent_drop_bytes": 0,
+      "C1_persistent_drop_bytes": 0,
+      "C2_persistent_drop_bytes": 105021440,
+      "B2_persistent_drop_bytes": 0,
+      "tolerance_bytes": 67108864,
+      "C2_maximum_observed_drop_bytes": 105029632,
+      "interpretation": "Within the twelve B-C-C-B end-to-end processes in this record, only the main C2 process emitted a persistent-drop warning; it still returned status=ok. C1 and all direct P64/P19 candidate processes report zero persistent drop, contracts and timing remain stable, and the device-wide cudaMemGetInfo watermark plus process isolation do not establish causal attribution to the implementation."
+    },
+    "status": "pass"
+  },
+  "whole_model_long_context_decode": {
+    "phase": "Decode after first token",
+    "workload": "P64-C32-max26",
+    "why_direct": "The first token completes at S=64; every measured subsequent token advances through S>=65 and therefore selects the production warp-position score kernel.",
+    "protocol": {
+      "order": "B1-C1-C2-B2",
+      "independent_processes": 4,
+      "model_load_per_process": true,
+      "prompt_tokens": 64,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_sequence_length": 544,
+      "max_new_tokens": 26,
+      "warmup_rounds": 1,
+      "measured_rounds_per_process": 5,
+      "actual_generated_ids_per_sample": 22,
+      "subsequent_token_samples_per_process": 105,
+      "pooled_subsequent_token_samples_per_binary": 210,
+      "pooled_subsequent_token_records_both_binaries": 420
+    },
+    "process_medians_ms": {
+      "B1": {"TTFT": 998.15, "total_generation": 3367.333, "subsequent_token": 112.744},
+      "C1": {"TTFT": 998.353, "total_generation": 3335.193, "subsequent_token": 111.211},
+      "C2": {"TTFT": 997.871, "total_generation": 3333.5, "subsequent_token": 111.196},
+      "B2": {"TTFT": 998.833, "total_generation": 3373.301, "subsequent_token": 112.798}
+    },
+    "pair_speedups": {
+      "total_generation": [1.009636624, 1.011939703],
+      "subsequent_token": [1.013784608, 1.014406993]
+    },
+    "promotion_gates": {
+      "combined_total_generation_required_speedup": 1.01,
+      "combined_total_generation_observed_speedup": 1.011222935,
+      "combined_total_generation_gate": "pass",
+      "pooled_subsequent_token_required_speedup": 1.01,
+      "pooled_subsequent_token_observed_speedup": 1.01416316,
+      "pooled_subsequent_token_gate": "pass",
+      "maximum_TTFT_pair_regression_percent": 0.020338,
+      "claim_limit": "The combined total-generation gate passes; the B1/C1 total-generation pair is 1.009636624x and is not claimed to pass 1.01 independently."
+    },
+    "combined": {
+      "ten_sample_TTFT_median_ms": {"baseline": 998.3585, "candidate": 998.156, "speedup": 1.000203},
+      "ten_sample_total_generation_median_ms": {"baseline": 3371.5735, "candidate": 3334.1545, "saved": 37.419, "speedup": 1.011223},
+      "pooled_210_samples_per_binary_subsequent_token_median_ms": {"baseline": 112.779, "candidate": 111.204, "saved": 1.575, "speedup": 1.014163},
+      "mean_of_two_process_medians_ms": {
+        "total_generation": {"baseline": 3370.317, "candidate": 3334.3465, "speedup": 1.010788},
+        "decode_after_first": {"baseline": 2371.7025, "candidate": 2335.729, "speedup": 1.015401},
+        "subsequent_token": {"baseline": 112.771, "candidate": 111.2035, "speedup": 1.014096}
+      }
+    },
+    "semantic_contract": {
+      "all_four_process_contracts_byte_identical": true,
+      "bytes": 2144,
+      "sha256": "9143007468d8d2803dbcad168272cff304f134d41dc994f570aaf5a7ca8b4402",
+      "generated_ids": [9419, 0, 59720, 233, 1049, 5686, 1040, 488, 599, 264, 2609, 314, 4649, 3242, 0, 2500, 628, 353, 1438, 488, 30, 248046],
+      "generated_text": "Hello! 👋 It looks like you have a lot of energy today! How can I help you?",
+      "stop_reason": "im_end"
+    },
+    "memory_watermarks": {
+      "persistent_drop_bytes": {"B1": 0, "C1": 0, "C2": 0, "B2": 0},
+      "maximum_observed_drop_bytes": {"B1": 19918848, "C1": 0, "C2": 0, "B2": 2789376},
+      "persistent_drop_detected": {"B1": false, "C1": false, "C2": false, "B2": false},
+      "note": "maximum_observed_drop is a transient device-wide cudaMemGetInfo watermark and is distinct from persistent_drop."
+    },
+    "status": "pass"
+  },
+  "short_context_decode_fallback": {
+    "phase": "Decode after first token",
+    "workload": "P19-C32-max26",
+    "scope_limit": "All attention-score sequence lengths remain below 65. This proves zero material regression on the unchanged fallback only and is not a long-context Decode speed claim.",
+    "process_medians_ms": {
+      "B1": {"TTFT": 439.416, "decode_after_first": 2781.274, "total_generation": 3220.706},
+      "C1": {"TTFT": 439.306, "decode_after_first": 2782.028, "total_generation": 3221.334},
+      "C2": {"TTFT": 439.313, "decode_after_first": 2781.165, "total_generation": 3220.454},
+      "B2": {"TTFT": 439.353, "decode_after_first": 2781.778, "total_generation": 3221.037}
+    },
+    "maximum_pair_regression_percent": {
+      "TTFT": 0.0,
+      "decode_after_first": 0.02711,
+      "total_generation": 0.019499
+    },
+    "maximum_pair_absolute_change_percent": {
+      "subsequent_token": 0.05571
+    },
+    "pooled_medians_ms": {
+      "TTFT": {"baseline": 439.3665, "candidate": 439.3095},
+      "decode_after_first": {"baseline": 2781.338, "candidate": 2781.365, "candidate_change_percent": 0.000971},
+      "total_generation": {"baseline": 3220.7985, "candidate": 3220.734},
+      "subsequent_token": {"baseline": 111.26, "candidate": 111.2575}
+    },
+    "semantic_contract": {
+      "all_four_process_contracts_byte_identical": true,
+      "bytes": 1350,
+      "sha256": "8d739f208d5b0acaa2a2a61c253a94abed27fb683d956734ee51530a3221b540",
+      "generated_id_count": 26,
+      "logical_step_count": 44,
+      "stop_reason": "im_end"
+    },
+    "persistent_memory_drop_bytes": {"B1": 0, "C1": 0, "C2": 0, "B2": 0},
+    "status": "pass"
+  },
+  "test_suites": {
+    "targeted_ctest": {
+      "discovered": 9,
+      "passed": 5,
+      "skipped_dependency_model_tests": 4,
+      "failed": 0,
+      "status": "pass"
+    },
+    "full_ctest": {
+      "discovered": 56,
+      "passed": 51,
+      "skipped_dependency_model_tokenizer_tests": 5,
+      "failed": 0,
+      "elapsed_seconds": 4.52,
+      "status": "pass"
+    }
+  },
+  "artifacts": {
+    "build_and_tests": [
+      {"role": "production build log", "local_path": "/tmp/q3x-attention-score-production-build.log", "bytes": 600, "sha256": "65d0ab201d678b525d2e8fae92f3ec06b8e954b9ed59157ab21294ac3a6a5bba", "checked_in": false},
+      {"role": "default device test", "local_path": "/tmp/q3x-attention-score-production-default.log", "bytes": 1287, "sha256": "f134eff5507ddd312f4d71b648366af5c092393bdabb5a912ba327336be8a53a", "checked_in": false},
+      {"role": "performance device test", "local_path": "/tmp/q3x-attention-score-production-perf.log", "bytes": 6932, "sha256": "68407c765c81279cbeedcfa5e85bbc4e9b186761674710048b61722232925a9f", "checked_in": false},
+      {"role": "targeted CTest log", "local_path": "/tmp/q3x-attention-score-production-ctest.log", "bytes": 1466, "sha256": "fe7b80e718e7ef309e1ac07b0c2520acb9c9c1cda5b832cc180546c3f06d96a5", "checked_in": false},
+      {"role": "full CTest log", "local_path": "/tmp/q3x-attention-score-production-full-ctest.log", "bytes": 7651, "sha256": "4c0371144174c2f853ebce839082343798e9bc0bb91386d1a957fe6691b6e300", "checked_in": false},
+      {"role": "tokenizer-pinned prompt manifest", "local_path": "/tmp/q3x-attention-score-prompts.tsv", "bytes": 3467, "sha256": "2679f8dc3a0e4ebc16f8b570c946a6b7cea59d02cf86a0cbf6790d00bd4e5723", "checked_in": false}
+    ],
+    "matched_ncu": [
+      {"role": "baseline report", "local_path": "/tmp/q3x-attention-score-s513-matched-baseline.ncu-rep", "bytes": 193943, "sha256": "8c651522af8eaf7fa6883770c1a6856fe3f705587cf07c8d966f4d3eb03407d7", "checked_in": false},
+      {"role": "candidate report", "local_path": "/tmp/q3x-attention-score-s513-matched-candidate.ncu-rep", "bytes": 194044, "sha256": "7f3a26f1c4ee1a069aa9274e97d6ff16e84ef86617eb9400498ece63b760c87c", "checked_in": false},
+      {"role": "baseline profiler command output", "local_path": "/tmp/q3x-attention-score-s513-matched-baseline.log", "bytes": 289, "sha256": "0c1570d4c682b2f9ee5e0cc28605167c69bf560039ab8915c25d1d1d54338f76", "checked_in": false},
+      {"role": "candidate profiler command output", "local_path": "/tmp/q3x-attention-score-s513-matched-candidate.log", "bytes": 319, "sha256": "9d29dfe579c804120d15ac03df14da1160d1b94986427073ba1d105965c87e78", "checked_in": false},
+      {"role": "baseline details", "local_path": "/tmp/q3x-attention-score-s513-matched-baseline-details.txt", "bytes": 3748, "sha256": "0ff5be19ab0af08b55f67b0a627078cd15beb40c36bda49328826242b0dc802b", "checked_in": false},
+      {"role": "candidate details", "local_path": "/tmp/q3x-attention-score-s513-matched-candidate-details.txt", "bytes": 3732, "sha256": "baaaa879cb025da7c36c31a216c6eeb03ca3375ba4b594067a92a461848c196b", "checked_in": false},
+      {"role": "baseline raw CSV", "local_path": "/tmp/q3x-attention-score-s513-matched-baseline-raw.csv", "bytes": 19255, "sha256": "30770edc22b7035825a60eb92735cf5f35c81c8960ba32cf5c69f98b9361177c", "checked_in": false},
+      {"role": "candidate raw CSV", "local_path": "/tmp/q3x-attention-score-s513-matched-candidate-raw.csv", "bytes": 19184, "sha256": "b82a185660b5fbd5ed97a341e03a55967281a30e00dce784bbf87cbd1f5f116b", "checked_in": false},
+      {"role": "baseline SASS", "local_path": "/tmp/q3x-attention-score-s513-matched-baseline-sass.txt", "bytes": 73010, "sha256": "2d9c46c4ad898a75c374dee74d5c93faa595552b9b0979b32feb59ffa075da44", "checked_in": false},
+      {"role": "candidate SASS", "local_path": "/tmp/q3x-attention-score-s513-matched-candidate-sass.txt", "bytes": 37612, "sha256": "09564698daf76ca3ce2bcda9377eff84896669bb433e0571cdbfbb8bc46681cd", "checked_in": false},
+      {"role": "resource inventory", "local_path": "/tmp/q3x-attention-score-s513-matched-resources.txt", "bytes": 417, "sha256": "05e984d8f61ef2dce3876b08b9e51e0d8bcd3150c4a9c3592b1e8a129c987c27", "checked_in": false}
+    ],
+    "P513_nsys": {
+      "baseline": [
+        {"role": "frozen phase-observer precursor runner", "local_path": "/tmp/q3x-phase-observer-candidate/qwen3x-orin", "bytes": 3781936, "sha256": "05e1a8a297e2ec1f1bb19db40868dce3980ee57121e277b221d2526b8c44415b", "elf_build_id": "d50e13e8515e31317859a5450992bd67705ef3e2", "checked_in": false},
+        {"role": "immutable original phase-trace report", "local_path": "/tmp/q3x-phase-trace-20260723/p513-c32-max1.nsys-rep", "bytes": 3117798, "sha256": "8cb08ebc29957696af93a95e29f5d7453d38dac38171f173f75388f83cfa524f", "checked_in": false},
+        {"role": "immutable original phase-trace application log", "local_path": "/tmp/q3x-phase-trace-20260723/p513-c32-max1.log", "bytes": 23994, "sha256": "7a8e767d6a2f363bc156b148f16a1a9efdd86ca7b743517def79fc66c51b7edf", "checked_in": false},
+        {"role": "re-exported kernel summary CSV", "local_path": "/tmp/q3x-attention-score-phase-baseline-p513_cuda_gpu_kern_sum.csv", "bytes": 8436, "sha256": "525802097598d6c204f75aade22bd374dd08429a527bd2a54bae6658ab0a537c", "checked_in": false},
+        {"role": "re-export stats log", "local_path": "/tmp/q3x-attention-score-phase-baseline-p513-stats.log", "bytes": 378, "sha256": "e3a47e852626f02a8f777bc6b33ca3ad8e5713ecb78d399d6579049e944adde0", "checked_in": false}
+      ],
+      "candidate": [
+        {"role": "production candidate report", "local_path": "/tmp/q3x-attention-score-production-p513.nsys-rep", "bytes": 3115405, "sha256": "846bb97d0d3c95ec400326500cbe1840622601e8a53a8b453ea89b22e85b6a54", "checked_in": false},
+        {"role": "production candidate log", "local_path": "/tmp/q3x-attention-score-production-p513.log", "bytes": 18405, "sha256": "c9f44cf24fd22165f3cf8b383c11e166b0386a2bdfc3ad333f28fcca2b52b5a9", "checked_in": false},
+        {"role": "production candidate kernel summary CSV", "local_path": "/tmp/q3x-attention-score-production-p513_cuda_gpu_kern_sum.csv", "bytes": 8406, "sha256": "5979b0298389b3e4a793dd37f1fd0dada7904430fddc1e4028a37ae7bc8a45df", "checked_in": false},
+        {"role": "production candidate stats log", "local_path": "/tmp/q3x-attention-score-production-p513-stats.log", "bytes": 365, "sha256": "1e9947782454cce03ce609d273370d5cf34ca008271290af167cb7bd6ea8144c", "checked_in": false}
+      ],
+      "derived_sqlite_cited": false
+    },
+    "whole_model_logs": {
+      "P513_prefill_and_controls": [
+        {"run": "B1", "out": {"path": "/tmp/q3x-attention-score-e2e-b1.out", "bytes": 29945, "sha256": "f04e0280ff51751cb5a69d3e33e5a87db1c54758366f305510f5939158310c18"}, "err": {"path": "/tmp/q3x-attention-score-e2e-b1.err", "bytes": 389, "sha256": "f0acbeb97194954779951faecb6dba3a7061dbd0718e4900017259656f69c638"}},
+        {"run": "C1", "out": {"path": "/tmp/q3x-attention-score-e2e-c1.out", "bytes": 29945, "sha256": "5e8e6ff92d4fcfe9f3fcf0cd461ee2c42658f2a597908b4550370f7b9a01e61b"}, "err": {"path": "/tmp/q3x-attention-score-e2e-c1.err", "bytes": 389, "sha256": "f0acbeb97194954779951faecb6dba3a7061dbd0718e4900017259656f69c638"}},
+        {"run": "C2", "out": {"path": "/tmp/q3x-attention-score-e2e-c2.out", "bytes": 29961, "sha256": "af57ce1e72d70e4a5da1b3f5103b856d3477928e56422ae617c0d069b33f266c"}, "err": {"path": "/tmp/q3x-attention-score-e2e-c2.err", "bytes": 462, "sha256": "6d198c2af5b57a0b23a5042fae524b9bcffcc4d926db416e928d3d71a931522b"}},
+        {"run": "B2", "out": {"path": "/tmp/q3x-attention-score-e2e-b2.out", "bytes": 29945, "sha256": "7916be8a75ebccb3cbf41082cdc08132bdd84d4345445dc93715cb5dcf2f27bb"}, "err": {"path": "/tmp/q3x-attention-score-e2e-b2.err", "bytes": 389, "sha256": "f0acbeb97194954779951faecb6dba3a7061dbd0718e4900017259656f69c638"}}
+      ],
+      "P64_long_context_decode": [
+        {"run": "B1", "out": {"path": "/tmp/q3x-attention-score-p64max26-e2e-b1.out", "bytes": 8235, "sha256": "97acbc9970c27d19756ff1bc035fb98b326f246ac827b8cc20aeab7a13da3a92"}, "err": {"path": "/tmp/q3x-attention-score-p64max26-e2e-b1.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "C1", "out": {"path": "/tmp/q3x-attention-score-p64max26-e2e-c1.out", "bytes": 8228, "sha256": "9bd107d84eb629b1e77ecac885d1a5becbb41e8909eb2296cec1fd995b25fd0b"}, "err": {"path": "/tmp/q3x-attention-score-p64max26-e2e-c1.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "C2", "out": {"path": "/tmp/q3x-attention-score-p64max26-e2e-c2.out", "bytes": 8228, "sha256": "5fda1b726c8c57bb3d2db717dd6c2882301448e89d0bf33b85f05317f31a2d51"}, "err": {"path": "/tmp/q3x-attention-score-p64max26-e2e-c2.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "B2", "out": {"path": "/tmp/q3x-attention-score-p64max26-e2e-b2.out", "bytes": 8234, "sha256": "7306b6242b9211e6b1e41d2145431817ec72be6f2e875b3ee8392e651a1a603b"}, "err": {"path": "/tmp/q3x-attention-score-p64max26-e2e-b2.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}}
+      ],
+      "P19_short_context_decode_fallback": [
+        {"run": "B1", "out": {"path": "/tmp/q3x-attention-score-p19max26-e2e-b1.out", "bytes": 7554, "sha256": "dde7f453c4b3497b213efd24b0167780c231601f4606b04cc8cc04bfa1c8c758"}, "err": {"path": "/tmp/q3x-attention-score-p19max26-e2e-b1.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "C1", "out": {"path": "/tmp/q3x-attention-score-p19max26-e2e-c1.out", "bytes": 7554, "sha256": "1b96cb6e0ea3fc7c4c2689cd9547506569c7f551bc8e4372f6cec97851547eb1"}, "err": {"path": "/tmp/q3x-attention-score-p19max26-e2e-c1.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "C2", "out": {"path": "/tmp/q3x-attention-score-p19max26-e2e-c2.out", "bytes": 7554, "sha256": "9f81d4b460b32ef9753a99eee12b51cf616df27841e945387aa45e85c2b857c0"}, "err": {"path": "/tmp/q3x-attention-score-p19max26-e2e-c2.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}},
+        {"run": "B2", "out": {"path": "/tmp/q3x-attention-score-p19max26-e2e-b2.out", "bytes": 7554, "sha256": "7d831739d212e2b3b7127866e1bfb95522e4a4d7a7aa3f4e84d5ab9118609da6"}, "err": {"path": "/tmp/q3x-attention-score-p19max26-e2e-b2.err", "bytes": 390, "sha256": "6b9fe5d67bf91994c259bd0793859dd1bdffe8764a3d193626f539775fe0ab5f"}}
+      ],
+      "contracts": [
+        {"workload": "P513 prefill plus max1 controls", "path_pattern": "/tmp/q3x-attention-score-e2e-{b1,c1,c2,b2}.contract", "files": 4, "bytes_each": 15374, "sha256_each": "a1e489eace21bee4265e4ac081ef8050ef669186630c48af19a535b81a0db01c", "checked_in": false},
+        {"workload": "P64 long-context Decode", "path_pattern": "/tmp/q3x-attention-score-p64max26-e2e-{b1,c1,c2,b2}.contract", "files": 4, "bytes_each": 2144, "sha256_each": "9143007468d8d2803dbcad168272cff304f134d41dc994f570aaf5a7ca8b4402", "checked_in": false},
+        {"workload": "P19 short-context Decode fallback", "path_pattern": "/tmp/q3x-attention-score-p19max26-e2e-{b1,c1,c2,b2}.contract", "files": 4, "bytes_each": 1350, "sha256_each": "8d739f208d5b0acaa2a2a61c253a94abed27fb683d956734ee51530a3221b540", "checked_in": false}
+      ]
+    }
+  },
+  "decision": {
+    "production_action": "retain the committed exact Q24/KV4/D256 warp-position selector for S>=65",
+    "promotion_basis": [
+      "bitwise score identity and exact S64/S65 production boundary",
+      "9.065x-16.511x direct individual kernel speedups and 14.6162x S65-S513 chain speedup",
+      "matched NCU mechanism attribution with identical global bytes and FFMA count",
+      "P513 Prefill ten-sample median speedup 1.308967x with 14.964282x Nsight score-kernel attribution",
+      "P64 long-context Decode total-generation speedup 1.011223x and pooled subsequent-token speedup 1.014163x",
+      "unchanged P64/P33/P19 max1 and P19-max26 short-context controls",
+      "complete Release test suites and byte-identical model contracts"
+    ],
+    "priority_after_promotion": "Attention scores fall from 23.80% to 2.05% of the P513 profiled raw kernel time. Continue phase-local Prefill projection/GDN work and separately gated Decode M1/long-context work before any general double/triple-buffer or multi-request scheduling rewrite.",
+    "claim_limits": [
+      "All timings use unlocked clocks on one AGX Orin and batch one.",
+      "P513 max1 is a Prefill/TTFT result, not a Decode-throughput result.",
+      "P64 max26 is the direct long-context Decode result; P19 max26 only validates the short-context fallback.",
+      "No continuous batching, serving scheduler, general double/triple buffering, or Prefill/Decode overlap was added.",
+      "The NCU and Nsys captures are structural diagnostics, not release-grade absolute latency.",
+      "The isolated P513 C2 and profiled-process persistent-memory warnings are retained and are not causally attributed to the implementation."
+    ]
+  }
+}
