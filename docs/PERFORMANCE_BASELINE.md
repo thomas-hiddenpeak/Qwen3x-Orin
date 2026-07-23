@@ -1949,9 +1949,9 @@ prompt-prefix projection reuse and fixed-shape Tensor Core dispatch:
 13. use CTA activation staging for aligned M1 down `[5120,17408]`, gate/up
     `[17408,5120]`, and lm-head `[248320,5120]`, retaining the direct down XOR
     test baseline and all other fallbacks;
-14. use the eight-row lane-striped GDN update for M1 and bounded C2 through C16,
-    retaining the four-row lane-striped predecessor as a same-binary test
-    baseline;
+14. use the eight-row lane-striped GDN update for M1 and bounded C2 through
+    C15, select the exact register-resident state kernel for C16, and retain
+    row8 as the same-binary C16 test predecessor plus the bounded fallback;
 15. fuse the canonical M1 GDN update with its 48x128 headwise plain-RMSNorm
     and SiLU gate in one 48-CTA kernel, retaining the ordered two-launch path
     for other valid norm partitions and multi-token prefill;
@@ -3319,7 +3319,10 @@ All candidate implementation, ABI, tests, and build wiring were removed.
 base HEAD `8e85584` byte-for-byte. Production keeps its eight-row lane-striped
 path. This closes direct row-major BF16 shared-resident state; GDN residency
 should reopen only with a materially different bank-friendly packed layout or
-new measured evidence. The independently passed Decode FP8 QKV/Z
+new measured evidence. That condition was later met by the exact-M16 packed
+register-state promotion recorded at the end of this document and in the
+[register-resident benchmark record](metadata/qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json).
+The independently passed Decode FP8 QKV/Z
 reduction-scratch ping-pong candidate was subsequently productionized and
 validated below. The retained candidate binary is 983,976
 bytes with SHA-256
@@ -3977,11 +3980,142 @@ candidate and its harness were removed, the rebuilt default test passes, and
 no NCU, Nsys, or end-to-end work is claimed after this mandatory gate failure.
 
 The production table-free kernels and existing M32 gate/up dual stream
-therefore remain selected. The next bounded mechanism is Prefill GDN M16 state
-held in a static per-thread BF16 register partition across the complete C16
-chain, with zero local spill, at least three CTAs/SM, exact per-token BF16 state
-boundaries, and a 1.20x early micro gate. These remain intra-kernel experiments,
-not general system double/triple buffering or multi-request Prefill/Decode
-overlap.
+therefore remained selected at that point. The next bounded mechanism selected
+for measurement was Prefill GDN M16 state held in a static per-thread BF16
+register partition across the complete C16 chain, with zero local spill, at
+least three CTAs/SM, exact per-token BF16 state boundaries, and a 1.20x early
+micro gate. That mechanism subsequently passed and is recorded below. These
+remain intra-kernel experiments, not general system double/triple buffering or
+multi-request Prefill/Decode overlap.
 Full hashes, per-process rows, SASS identities, profiling summaries, and
 limitations are in the [table-free E2M1 benchmark record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).
+
+## Prefill GDN exact-M16 register-resident BF16 state promotion
+
+The materially different follow-up to the rejected shared-resident layout now
+owns one complete C16 recurrence per value-head CTA. Each of 256 threads loads
+64 BF16 state elements into 32 packed U32 words, rounds every token update back
+to BF16x2, and writes the state only after token 15. Warp 0 and warp 1 retain the
+exact Q and K normalization trees, while thread 64 produces the recurrence
+scalars. The public selector uses this `48x256` kernel only for C16; M1 and
+C2-C15 retain their existing routes. No stream, event, persistent workspace, or
+public API changes.
+
+One complete 48-head state is 1,572,864 bytes. Production row8 previously read
+and wrote that state at all 16 token boundaries, or 48 MiB per C16 call. The new
+kernel performs one initial read and one final write, or 3 MiB, removing 45 MiB
+(93.75%) without removing any per-token BF16 rounding boundary.
+
+The default device test passes exact output and final state in both in-place and
+disjoint modes, disjoint-input preservation, replay/poison, guarded canaries,
+C8+C8 versus C16 recurrence, stale-last-error isolation, and valid/invalid Graph
+contracts. Public C16 captures the exact function as one `48x256` node; public
+C15 remains the row8 function. Null, aliasing, and invalid-epsilon calls capture
+zero nodes. The C1/C8/C16/C32 full-model oracle also retains exact IDs, text,
+stop, and step contracts.
+
+| C16 GDN route | Registers/thread | Static shared | Stack/local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Row8 predecessor | 40 | 34,568 B | 0 / 0 B | 4 |
+| Register-resident production | 64 | 34,056 B | 0 / 0 B | 4 |
+
+The extra 24 registers do not reduce the occupancy-API active-block ceiling,
+and the packed route uses 512 fewer shared bytes. Final `cuobjdump` sections
+contain 1,680 row8 and 2,160 exact static instructions. After removing
+addresses/encodings and
+normalizing opcode-plus-operand rows, their hashes are
+`60b9f6f66ee7d77874c19f1f46304591353b74da37a6b501d2af297f79a24a95`
+and
+`b363d6dabc33196435399837433f89619423d696883576d03fd4b685edd48386`.
+A second canonical-text method strips address prefixes and encoding comments,
+collapses whitespace, and yields
+`6aba6bcee9b958292338f96ed932515068cfce1d200c97b8bec6b14ce55c41f0`
+and
+`50f7d26942ccb48d492d12e07d264f7bee59185f8e2fa9c9a78573007dc6add8`.
+The exact section contains three static `BAR.SYNC`, 32
+`F2FP.BF16.PACK_AB`, 84 `PRMT`, and 288 `LOP3` instructions. These counts
+establish the compiled mechanism and zero-spill identity, not dynamic stall
+causality.
+
+An incremental-build hazard was found before formal promotion. Three early
+runs reported both labels near 0.321 ms, and the diagnostic profile contained
+10,567 exact launches but only 136 row8 launches. The test executable still
+contained an older test object in which both timing labels reached the public
+launcher; after the public C16 selector changed, both therefore ran exact. A
+forced rebuild of `gdn_decode_cuda_test.cu.o` and relink restored the explicit
+row8 B route. An orphan earlier candidate object remains in the build directory
+but is absent from the final link command and was not the root cause. All
+pre-rebuild approximately-1.0x logs and their profile are explicitly excluded.
+
+The formal screen uses the corrected same binary at fixed 1,300,500,000 Hz GPU
+and 3,200,000,000 Hz EMC clocks. Each pass rotates through 24 state banks (36
+MiB, nine times the 4 MiB L2), with 48 warmup and 480 measured launches. Five
+independent processes each run five B-C-C-B rounds; the per-process statistic is
+the median of ten pass means on each side. Every one of the 25 rounds favors the
+candidate and every process clears the frozen 1.20x gate:
+
+| Process | Row8 median | Exact median | Speedup |
+| --- | ---: | ---: | ---: |
+| 1 | 0.391646 ms | 0.321668 ms | 1.21755x |
+| 2 | 0.391354 ms | 0.321536 ms | 1.21714x |
+| 3 | 0.391427 ms | 0.321604 ms | 1.21711x |
+| 4 | 0.391274 ms | 0.321612 ms | 1.21660x |
+| 5 | 0.391298 ms | 0.321273 ms | 1.21796x |
+
+The speedup min/median/mean/max is
+1.21660x/1.21714x/1.217272x/1.21796x. The aggregate rows and clock readback were
+retained only in the controlling console, so this record deliberately does not
+invent per-process log hashes.
+
+The fixed-frequency P33/max1 end-to-end screen uses an independent `ec9ac1a`
+row8 runner and the `b09614c` exact runner in B-C-C-B order, with one warmup and
+five measured samples per process:
+
+| P33 median | B1 | C1 | C2 | B2 | Mirrored B | Mirrored C | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prompt prefix | 599.586 ms | 593.332 ms | 593.411 ms | 599.634 ms | 599.610 ms | 593.3715 ms | 1.010514x |
+| Finish-prefill | 110.764 ms | 110.530 ms | 110.620 ms | 110.666 ms | 110.715 ms | 110.575 ms | 1.001266x |
+| Prompt prefill / TTFT | 710.349 ms | 703.843 ms | 704.065 ms | 710.325 ms | 710.337 ms | 703.954 ms | 1.009067x |
+
+All four runs produce the same 33 prompt IDs, generated ID `9419`, text
+`Hello`, `max_new_tokens` stop, and 33-step trace; all report
+`persistent_drop_detected=0`. Prompt-prefix latency falls by 6.2385 ms and TTFT
+falls by 6.383 ms.
+
+The longer fixed-frequency P513/C32/max1 screen uses the same independent
+runners and B-C-C-B order, with one warmup and three measured samples per
+process:
+
+| P513 median | B1 | C1 | C2 | B2 | Mirrored B | Mirrored C | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prompt prefix | 4,858.838 ms | 4,750.071 ms | 4,759.712 ms | 4,850.911 ms | 4,854.8745 ms | 4,754.8915 ms | 1.0210274x |
+| Prompt prefill / TTFT | 4,970.824 ms | 4,861.946 ms | 4,871.458 ms | 4,962.815 ms | 4,966.8195 ms | 4,866.7020 ms | 1.02057194x |
+
+All four runs retain the identical 513 prompt IDs and steps, generated ID
+`9419`, text `Hello`, and `max_new_tokens` stop. Prompt-prefix and TTFT fall by
+99.9830 and 100.1175 ms (2.0594% and 2.0157%). Persistent-drop bytes are
+0/15,355,904/0/22,716,416 in B1/C1/C2/B2 order, all below the 64 MiB tolerance;
+all four report `persistent_drop_detected=0`.
+
+Matched P33 profiles preserve exactly 96 target launches, corresponding to two
+C16 prefix tiles across 48 value heads:
+
+| Nsys target | Launches | Total | Per launch | Change |
+| --- | ---: | ---: | ---: | ---: |
+| Row8 predecessor | 96 | 37.047840 ms | 0.385915 ms | baseline |
+| Register-resident exact | 96 | 30.724128 ms | 0.320043 ms | -6.323712 ms, 1.205822x |
+
+The generation NVTX range falls from 737.890112 to 731.369344 ms, a 6.520768 ms
+saving, while all CUDA kernel time falls from 725.422496 to 718.581056 ms. The
+target accounts for 96.9780% of the generation-range saving. That traced saving
+closely matches the untraced P33 prefix result, but the separate traced
+processes do not justify an exact causal subtraction. Full
+artifact hashes, binary/build identities, stale-object exclusion, five-process
+rows, and limitations are in the
+[register-resident benchmark record](metadata/qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json).
+The clean-first Release build and all 56 discovered CTest entries complete
+with 51 passes, five configured skips, and zero failures. The closeout does not
+claim a fresh host-sanitizer suite, candidate NCU, device racecheck, Decode
+improvement, system double/triple buffering, or multi-request overlap. Prefill
+and Decode remain logically separated and the batch-one request remains
+dependency-serialized.

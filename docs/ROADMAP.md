@@ -130,9 +130,13 @@ Deliverables:
   while retaining the public engine contract and existing runner/device
   schedule.
 - [done, production-gated] Eight-row lane-striped GDN state updates for
-  batch-one M1 and bounded C2 through C16 tiles, retaining the four-row
+  batch-one M1 and bounded C2 through C15 tiles, retaining the four-row
   lane-striped predecessor as a same-binary test baseline and preserving
   validation, aliasing, per-row arithmetic, and token-recurrence contracts.
+- [done, exact-shape production promotion] Register-resident BF16 GDN state for
+  exact C16. Each thread keeps 64 BF16 state elements in 32 packed U32 words
+  across the full recurrence, preserves every token's BF16 boundary, and
+  retains row8 as the explicit same-binary predecessor and C2-C15 fallback.
 - [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
   independent fallbacks for other shapes.
 - [done, exact-shape gated] Compile-time NVFP4 M=8 specializations for
@@ -488,6 +492,9 @@ pass is slower. The candidates and build/test wiring were removed, production
 row8 remains selected, and no candidate NCU or end-to-end run was warranted.
 See the
 [GDN shared-resident rejection record](metadata/qwen36-27b-gdn-m16-shared-resident-bf16-state-rejection.json).
+That rejection remains scoped to direct row-major shared state; the later
+packed register-resident mechanism satisfies its materially-different-layout
+reopen condition and is promoted below.
 
 The independently passed Decode FP8 QKV/Z reduction-scratch ping-pong is now
 productionized. Its frozen actual-checkpoint and stress cells reach 1.02407x
@@ -579,16 +586,35 @@ the aggregate is 0.872556x against the frozen 1.03x gate. The candidate was
 removed without a production change. See the
 [table-free E2M1 record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).
 
+The selected exact-C16 Prefill GDN register-state mechanism is now
+productionized. It reduces recurrent state traffic from 48 MiB to 3 MiB per
+C16 call while preserving per-token BF16 rounding, exact output/final state,
+in-place/disjoint, replay, guard, Graph, and C1/C8/C16/C32 model contracts. The
+final route uses 64 registers, 34,056 shared bytes, zero stack/local bytes, and
+retains four CTAs/SM versus row8's 40 registers, 34,568 shared bytes, and four
+CTAs/SM. Five fixed-frequency same-binary processes reach 1.21660x through
+1.21796x and every mirrored round improves. P33 B-C-C-B prompt-prefix latency
+falls from a mirrored 599.610 to 593.3715 ms; matched Nsys target time falls
+from 37.047840 to 30.724128 ms across the same 96 launches. A stale test-object
+exact-versus-exact measurement was found, excluded, and corrected by a forced
+test-object rebuild before the formal measurements. A longer P513/C32 B-C-C-B
+screen reduces prompt-prefix latency from 4,854.8745 to 4,754.8915 ms and TTFT
+from 4,966.8195 to 4,866.7020 ms while retaining all 513 IDs/steps and zero
+persistent-drop detections. See the
+[GDN exact-M16 register-state record](metadata/qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json).
+
 None of these exact-kernel or shared-residency promotions introduces a runtime
 double/triple buffer. Prefill and Decode are logically separated by the
 completed plan seam, but batch-one execution remains causally dependency-
-serialized. The refreshed profile ranks NVFP4 M32 gate/up and down first by
-marginal critical-path exposure, followed by GDN and FP8 M32. Gate/up pair CTA
-fusion and down shared A/B ping-pong are now evidence-closed. The next
-main-line action is a bounded register-resident Prefill GDN M16 state candidate
-that keeps each thread's static BF16 state partition across the C16 chain. It
-must keep zero local memory, at least three CTAs/SM, exact per-token BF16 state
-boundaries, and clear a 1.20x early micro gate. Rejected product-table,
+serialized. The pre-promotion refreshed profile ranked NVFP4 M32 gate/up and
+down first by marginal critical-path exposure, followed by GDN and FP8 M32.
+Gate/up pair CTA fusion and down shared A/B ping-pong are now evidence-closed,
+and the bounded
+register-resident Prefill GDN M16 candidate has cleared its zero-spill,
+four-CTA, exact-boundary, and 1.20x gates. The next main-line action is a fresh
+production phase profile after this promotion, followed by a bounded mechanism
+chosen from marginal critical-path exposure rather than raw overlapped time.
+Rejected product-table,
 pair-fused CTA, shared A/B pipeline, scale-window ping-pong, activation-only
 `cp.async`, generalized dual-stream, and GDN shared-resident variants stay
 closed without a new mechanism.

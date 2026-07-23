@@ -1,0 +1,796 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark",
+  "status": "production-promoted-exact-m16-register-resident-bf16-state",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "selection_base_head": "562f69705df15d38930c7f713417212eb8ff92c7",
+    "selection_base_subject": "docs: record rejected M32 down pipeline",
+    "test_gate_commit": "571777781184324dbee721ffb1dc568c8b6a9b07",
+    "bf16x2_packing_commit": "b6f945965d09b8f83ed31bbe12a98cf349d1e501",
+    "staged_kernel_commit": "ec9ac1abe867d7e94f90895c07f5a5948755c4bf",
+    "production_commit": "b09614c6c0ff3897f99434650de36893d5c06ac0",
+    "production_subject": "kernels: dispatch exact GDN M16 register state",
+    "tree_state_at_measurement": "clean production tree at b09614c before documentation",
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "source_files": {
+      "CMakeLists.txt": {
+        "git_blob_sha1": "fd274c92eaa068c55c150336b0c2b9f8d209f85f",
+        "sha256": "15c74d843996fda2188127622a7a618a52e82798c2383ef8c20df57adc9d42ed"
+      },
+      "src/kernels/reference/gdn_decode.cu": {
+        "git_blob_sha1": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+        "sha256": "04a966ef6268c6792c04320ca887a0455c13eea10be57bcc59c939dfcdcc6505"
+      },
+      "src/kernels/reference/gdn_m16_register_state.cu": {
+        "git_blob_sha1": "1f0b8479db2ee3467f1efd148967695558914664",
+        "sha256": "2b7cb5acbc2601c0cfdfce2cc2f843cf173d29aea18252b69fb54806cefbdddb"
+      },
+      "src/kernels/reference/gdn_m16_register_state.h": {
+        "git_blob_sha1": "9b2bb0bfea1b4410ea3a79df72fa9e78d495022a",
+        "sha256": "a9c6151113ed969ef40081f53e1b6e1850db347f6f5e9ea598d84648746bb3d9"
+      },
+      "tests/gdn_decode_cuda_test.cu": {
+        "git_blob_sha1": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+        "sha256": "2d7504208a5b7f39783184c24dc4fa26f6cf9c9c3c378ee6bae3bd42ca9d03ca"
+      }
+    },
+    "binaries": {
+      "same_binary_device_test": {
+        "local_path": "build/q3x_gdn_decode_cuda_test",
+        "source_commit": "b09614c6c0ff3897f99434650de36893d5c06ac0",
+        "bytes": 985280,
+        "sha256": "b6dd80256f395a1c8dcf5586b5571f014011b1d8cd3545089b31e5ffe03c4f87",
+        "gnu_build_id": "bc31cf576041eb56dc21aa2a0f3d3476a870d57d",
+        "checked_in": false
+      },
+      "production_runner": {
+        "local_path": "build/qwen3x-orin",
+        "source_commit": "b09614c6c0ff3897f99434650de36893d5c06ac0",
+        "bytes": 4128456,
+        "sha256": "d41904c7d40d171c5870479cd7fbcfd8f2072577a33d0a5eadf2e592d17cb1a7",
+        "gnu_build_id": "1995be1f538fd7a90183bd5df370c05055084c38",
+        "dispatch": "exact M16 register-resident GDN state",
+        "checked_in": false
+      },
+      "independent_predecessor_runner": {
+        "local_path": "/tmp/q3x-gdn-m16-baseline-j7dxKg/build/orin-release/qwen3x-orin",
+        "source_commit": "ec9ac1abe867d7e94f90895c07f5a5948755c4bf",
+        "bytes": 4060640,
+        "sha256": "8d414951d1a43f9966c50967c6087f408e14615268d82647a07549a7ee7a1f4f",
+        "gnu_build_id": "4c945c2eb0de168ad325d367642eb6764353fac0",
+        "dispatch": "eight-row lane-striped GDN for M16",
+        "checked_in": false
+      },
+      "production_kernel_archive": {
+        "local_path": "build/libq3x_kernels.a",
+        "bytes": 3566790,
+        "sha256": "82de917a5ea2ce9d25585cfd7836a9d05f4695ca70b1dd80358632373391b4c9",
+        "checked_in": false,
+        "relevant_members": {
+          "gdn_decode.cu.o": "da7e61b02430f22463ddb1d45b496b333812c89a450dd3788ec88d363cf939e3",
+          "gdn_m16_register_state.cu.o": "812365affa1ca2b18e73dde6def0ff368ed2619aca008bedc822f93a20f7e035"
+        }
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "unified_memory_gib": 61.40,
+    "l2_cache_mib": 4.00,
+    "shared_memory_per_sm_kib": 164.00,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t": "R39.2.0",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Cuda compilation tools, release 13.3, V13.3.33; Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "fixed_frequency": {
+      "nvpmodel": "MAXN",
+      "gpu_hz": 1300500000,
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_cur_hz_readback": 1300500000,
+      "emc_hz": 3200000000,
+      "clocks_locked": true,
+      "applied_to": [
+        "five-process same-binary microbenchmark",
+        "P33 B-C-C-B full-model benchmark",
+        "P513/C32 B-C-C-B full-model benchmark",
+        "matched P33 Nsight Systems profiles"
+      ],
+      "evidence": "GPU and EMC lock values were printed and checked in the controlling console; a later read-only GPU devfreq check again showed min=max=cur=1300500000.",
+      "retained_clock_log": false,
+      "claim_boundary": "The fixed-frequency results are named-device promotion evidence, not a cross-device latency SLO. The console clock transcript was not retained as a hashed artifact."
+    }
+  },
+  "implementation": {
+    "phase": "Prefill",
+    "operation": "Gated DeltaNet recurrent state update",
+    "exact_shape": {
+      "tokens": 16,
+      "value_heads": 48,
+      "qk_heads": 16,
+      "head_dimension": 128,
+      "state_shape_per_value_head": [128, 128],
+      "activation_state_and_output_dtype": "BF16"
+    },
+    "production_kernel": "gated_delta_net_update_warp_eight_row_register_state_m16_kernel",
+    "preserved_predecessor_kernel": "gated_delta_net_update_warp_eight_row_lane_striped_kernel",
+    "launch": {
+      "grid": [48, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "work_mapping": "one CTA owns one value head and its complete C16 recurrence"
+    },
+    "register_state_layout": {
+      "bf16_state_values_per_thread": 64,
+      "u32_words_per_thread": 32,
+      "arrays": "lower_state_words[8][2] and upper_state_words[8][2]",
+      "packing": "each U32 packs two adjacent lane-striped keys from the same row and row batch",
+      "load_store_lifetime": "load global state once before token 0, keep the static partition through all 16 tokens, store once after token 15",
+      "token_boundary_contract": "every state update is rounded back to BF16x2 before the next token"
+    },
+    "normalization_and_recurrence": {
+      "q_norm_owner": "warp 0",
+      "k_norm_owner": "warp 1",
+      "recurrence_scalar_owner": "thread 64",
+      "reduction_contract": "the original four-item add tree followed by warp shuffle-down strides 16/8/4/2/1 is retained",
+      "bf16x2_conversion": "native __floats2bfloat162_rn plus independent per-half NaN sign/payload/quiet-bit override"
+    },
+    "state_traffic": {
+      "bytes_per_complete_state": 1572864,
+      "predecessor_c16_read_write_bytes": 50331648,
+      "exact_c16_read_write_bytes": 3145728,
+      "bytes_removed": 47185920,
+      "traffic_reduction_percent": 93.75,
+      "calculation": "48 heads * 128 * 128 * 2 B = 1.5 MiB; predecessor performs read+write at 16 token boundaries, exact performs one initial read and one final write"
+    },
+    "selector": {
+      "M1": "existing single-token route",
+      "M2_through_M15": "eight-row lane-striped tile predecessor",
+      "M16": "exact register-resident kernel",
+      "other_dimensions_or_invalid_inputs": "existing validation/fallback behavior",
+      "state_input_equals_state_output": "supported",
+      "disjoint_state_input_output": "supported"
+    },
+    "new_cuda_streams": 0,
+    "new_cuda_events": 0,
+    "new_persistent_buffers": 0,
+    "whole_system_double_buffered": false,
+    "whole_system_triple_buffered": false,
+    "prefill_decode_scheduler_changed": false,
+    "scope_boundary": "Prefill and Decode remain logically separate plans. This is one phase-local exact kernel; batch-one execution remains causally dependency-serialized."
+  },
+  "correctness_resource_graph_and_dispatch_gates": {
+    "status": "pass",
+    "default_device_test": {
+      "command": "./build/q3x_gdn_decode_cuda_test",
+      "result": "CUDA GDN reference tests passed",
+      "rerun_after_production_promotion": true,
+      "retained_log": false
+    },
+    "bitwise_and_memory_contract": {
+      "public_exact_m16_output_equals_predecessor": true,
+      "public_exact_m16_final_state_equals_predecessor": true,
+      "in_place_state": "pass",
+      "disjoint_state": "pass",
+      "disjoint_state_input_preserved": true,
+      "poison_replay": "pass",
+      "guarded_output_canaries": "intact",
+      "guarded_state_canaries": "intact",
+      "conv_qkv_a_b_A_log_dt_bias_preserved": true,
+      "finite_output_and_state_overwrite": "pass",
+      "stale_cuda_last_error_isolation": "pass"
+    },
+    "ordered_recurrence": {
+      "C8_plus_C8_equals_C16_output_and_state": true,
+      "per_token_bf16_state_boundary_preserved": true
+    },
+    "independent_bf16x2_semantic_audit": {
+      "status": "pass",
+      "high_half_values": 65536,
+      "tail_patterns_per_high_half": 8,
+      "directed_pairs": 32,
+      "random_pairs": 1000000,
+      "total_pairs": 1524320,
+      "covers": [
+        "finite",
+        "positive and negative zero",
+        "subnormal",
+        "rounding ties",
+        "positive and negative infinity",
+        "signaling and quiet NaN"
+      ],
+      "mismatches": 0,
+      "retained_log": false,
+      "note": "This was an independent one-off semantic audit, not a persisted default-suite artifact."
+    },
+    "graph_and_selector": {
+      "public_M16": "one exact kernel node, grid 48x1x1, block 256x1x1",
+      "direct_exact_M16": "same CUDA function as public M16",
+      "direct_predecessor_M16": "one distinct row8 kernel node",
+      "public_M15": "same CUDA function as direct row8 M15 predecessor",
+      "invalid_null_alias_or_epsilon": "cudaErrorInvalidValue and zero captured nodes",
+      "functions_non_null_and_expected_identity": true
+    },
+    "resources": {
+      "predecessor_row8": {
+        "registers_per_thread": 40,
+        "static_shared_bytes": 34568,
+        "stack_bytes": 0,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 1024,
+        "active_blocks_per_sm_at_256_threads": 4
+      },
+      "exact_register_state": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "stack_bytes": 0,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm_at_256_threads": 4,
+        "launch_bounds": [256, 4]
+      },
+      "delta": {
+        "registers_per_thread": 24,
+        "static_shared_bytes": -512,
+        "active_blocks_per_sm": 0
+      },
+      "cuda_func_attributes_and_cuobjdump_agree": true,
+      "resource_gate": "pass"
+    }
+  },
+  "sass_and_final_symbol_audit": {
+    "status": "pass",
+    "methods": {
+      "opcode_operand_normalized_sha256": "Select the exact cuobjdump Function section, discard addresses and encoding comments, normalize each opcode-plus-operand instruction row and whitespace, then SHA-256 the ordered rows.",
+      "canonical_text_sha256": "Select address-bearing instruction rows from the exact Function section, strip each address prefix and encoding comment, collapse whitespace, and SHA-256 the ordered canonical text rows.",
+      "instruction_count": "Count address-bearing static instruction rows, including prologue, EXIT, and NOP."
+    },
+    "predecessor_row8": {
+      "opcode_operand_normalized_sha256": "60b9f6f66ee7d77874c19f1f46304591353b74da37a6b501d2af297f79a24a95",
+      "canonical_text_sha256": "6aba6bcee9b958292338f96ed932515068cfce1d200c97b8bec6b14ce55c41f0",
+      "instruction_count": 1680,
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "selected_instruction_counts": {
+        "BAR.SYNC": 19,
+        "CALL.REL.NOINC": 15,
+        "LOP3": 132
+      },
+      "independent_ec9ac1a_runner_matches_production_binary": true
+    },
+    "exact_register_state": {
+      "opcode_operand_normalized_sha256": "b363d6dabc33196435399837433f89619423d696883576d03fd4b685edd48386",
+      "canonical_text_sha256": "50f7d26942ccb48d492d12e07d264f7bee59185f8e2fa9c9a78573007dc6add8",
+      "instruction_count": 2160,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 34056,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "selected_instruction_counts": {
+        "BAR.SYNC": 3,
+        "F2FP.BF16.PACK_AB": 32,
+        "PRMT": 84,
+        "LOP3": 288,
+        "CALL.REL.NOINC": 16
+      },
+      "production_runner_and_same_binary_device_test_match": true
+    },
+    "per_binary_symbol_count": {
+      "exact_sass_function_headers": 1,
+      "predecessor_sass_function_headers": 1,
+      "exact_resource_entries": 1,
+      "predecessor_resource_entries": 1
+    },
+    "interpretation": "The final binary proves BF16x2 packing, three static CTA barriers, zero stack/local spill, and unchanged four-CTA residency. Static SASS is mechanism evidence, not a measurement of dynamic instruction count or stall causality."
+  },
+  "five_process_same_binary_microbenchmark": {
+    "status": "pass",
+    "binary": "same_binary_device_test",
+    "same_binary": true,
+    "environment_variable": "Q3X_RUN_GDN_REGISTER_STATE_M16_PERF=1",
+    "comparison": "explicit test-only row8 predecessor launcher versus public production M16 exact dispatch on identical buffers",
+    "state_banks": 24,
+    "bytes_per_state_bank": 1572864,
+    "working_set_bytes": 37748736,
+    "working_set_mib": 36,
+    "working_set_over_l2": 9,
+    "warmup_launches_per_pass": 48,
+    "measured_launches_per_pass": 480,
+    "warmups_per_bank": 2,
+    "measured_launches_per_bank": 20,
+    "measurement_rounds_per_process": 5,
+    "timed_order_per_round": [
+      "predecessor",
+      "candidate",
+      "candidate",
+      "predecessor"
+    ],
+    "variant_samples_per_process": 10,
+    "independent_process_repeats": 5,
+    "statistic_per_process": "median of ten predecessor timed-pass means divided by median of ten candidate timed-pass means",
+    "minimum_required_speedup": 1.20,
+    "repeats": [
+      {
+        "run": 1,
+        "predecessor_median_ms": 0.391646,
+        "exact_production_median_ms": 0.321668,
+        "speedup": 1.21755,
+        "bitwise": true,
+        "all_rounds_faster": true,
+        "gate": "pass"
+      },
+      {
+        "run": 2,
+        "predecessor_median_ms": 0.391354,
+        "exact_production_median_ms": 0.321536,
+        "speedup": 1.21714,
+        "bitwise": true,
+        "all_rounds_faster": true,
+        "gate": "pass"
+      },
+      {
+        "run": 3,
+        "predecessor_median_ms": 0.391427,
+        "exact_production_median_ms": 0.321604,
+        "speedup": 1.21711,
+        "bitwise": true,
+        "all_rounds_faster": true,
+        "gate": "pass"
+      },
+      {
+        "run": 4,
+        "predecessor_median_ms": 0.391274,
+        "exact_production_median_ms": 0.321612,
+        "speedup": 1.21660,
+        "bitwise": true,
+        "all_rounds_faster": true,
+        "gate": "pass"
+      },
+      {
+        "run": 5,
+        "predecessor_median_ms": 0.391298,
+        "exact_production_median_ms": 0.321273,
+        "speedup": 1.21796,
+        "bitwise": true,
+        "all_rounds_faster": true,
+        "gate": "pass"
+      }
+    ],
+    "summary": {
+      "predecessor_ms_min_median_mean_max": [
+        0.391274,
+        0.391354,
+        0.3913998,
+        0.391646
+      ],
+      "exact_production_ms_min_median_mean_max": [
+        0.321273,
+        0.321604,
+        0.3215386,
+        0.321668
+      ],
+      "speedup_min_median_mean_max": [
+        1.21660,
+        1.21714,
+        1.217272,
+        1.21796
+      ],
+      "all_five_processes_passed": true,
+      "all_twenty_five_rounds_exact_production_mean_faster": true,
+      "selection_gate": "pass"
+    },
+    "artifact_retention": {
+      "retained_process_logs": false,
+      "evidence": "The five aggregate rows and fixed-frequency readback were retained in the controlling console only.",
+      "limitation": "Per-round raw rows cannot be independently re-hashed; no log artifact is invented for this record."
+    }
+  },
+  "fixed_frequency_P33_end_to_end_BCCB": {
+    "status": "pass",
+    "comparison": "independent ec9ac1a row8 runner versus b09614c exact-M16 runner",
+    "prompt_tokens": 33,
+    "prefill_chunk_size": 16,
+    "max_new_tokens": 1,
+    "warmup_rounds_per_process": 1,
+    "measured_rounds_per_process": 5,
+    "process_order": [
+      "baseline_1",
+      "candidate_1",
+      "candidate_2",
+      "baseline_2"
+    ],
+    "rows": [
+      {
+        "run": "baseline_1",
+        "prompt_prefix_median_ms": 599.586,
+        "finish_prefill_median_ms": 110.764,
+        "prompt_prefill_and_ttft_median_ms": 710.349
+      },
+      {
+        "run": "candidate_1",
+        "prompt_prefix_median_ms": 593.332,
+        "finish_prefill_median_ms": 110.530,
+        "prompt_prefill_and_ttft_median_ms": 703.843
+      },
+      {
+        "run": "candidate_2",
+        "prompt_prefix_median_ms": 593.411,
+        "finish_prefill_median_ms": 110.620,
+        "prompt_prefill_and_ttft_median_ms": 704.065
+      },
+      {
+        "run": "baseline_2",
+        "prompt_prefix_median_ms": 599.634,
+        "finish_prefill_median_ms": 110.666,
+        "prompt_prefill_and_ttft_median_ms": 710.325
+      }
+    ],
+    "mirrored_average": {
+      "baseline_prompt_prefix_ms": 599.610,
+      "candidate_prompt_prefix_ms": 593.3715,
+      "prompt_prefix_saved_ms": 6.2385,
+      "prompt_prefix_speedup": 1.010514,
+      "baseline_finish_prefill_ms": 110.715,
+      "candidate_finish_prefill_ms": 110.575,
+      "finish_prefill_saved_ms": 0.140,
+      "baseline_prompt_prefill_and_ttft_ms": 710.337,
+      "candidate_prompt_prefill_and_ttft_ms": 703.954,
+      "prompt_prefill_and_ttft_saved_ms": 6.383,
+      "prompt_prefill_and_ttft_speedup": 1.009067
+    },
+    "strict_oracle": {
+      "all_four_status_ok": true,
+      "prompt_ids_identical": true,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 33,
+      "steps_identical": true,
+      "persistent_drop_detected": 0
+    },
+    "artifacts": {
+      "baseline_1": {
+        "local_path": "/tmp/q3x-gdn-m16-fullmodel-b1.log",
+        "bytes": 6211,
+        "lines": 156,
+        "sha256": "65750747903a82f98ae3749dd4c4b40cabb4d16c6c1f443a83c0b5bbb27068bb",
+        "checked_in": false
+      },
+      "candidate_1": {
+        "local_path": "/tmp/q3x-gdn-m16-fullmodel-c1.log",
+        "bytes": 6204,
+        "lines": 156,
+        "sha256": "e65442bed3e0d16ce6e31de5c8fd1e32be6ae1027eccd172afc49e09c02103d5",
+        "checked_in": false
+      },
+      "candidate_2": {
+        "local_path": "/tmp/q3x-gdn-m16-fullmodel-c2.log",
+        "bytes": 6209,
+        "lines": 156,
+        "sha256": "89283c5b53abb2470a6c4d3d0166e90c4359aca92c601689464f59b25ccb2974",
+        "checked_in": false
+      },
+      "baseline_2": {
+        "local_path": "/tmp/q3x-gdn-m16-fullmodel-b2.log",
+        "bytes": 6204,
+        "lines": 156,
+        "sha256": "e51f7d41e222d591b9e55bf297e8443be69055a33bf10b5f79ea2f58c729f1e9",
+        "checked_in": false
+      }
+    }
+  },
+  "fixed_frequency_P513_C32_end_to_end_BCCB": {
+    "status": "pass",
+    "comparison": "independent ec9ac1a row8 runner versus b09614c exact-M16 runner",
+    "prompt_tokens": 513,
+    "prefill_chunk_size": 32,
+    "max_new_tokens": 1,
+    "warmup_rounds_per_process": 1,
+    "measured_rounds_per_process": 3,
+    "process_order": [
+      "baseline_1",
+      "candidate_1",
+      "candidate_2",
+      "baseline_2"
+    ],
+    "rows": [
+      {
+        "run": "baseline_1",
+        "prompt_prefix_median_ms": 4858.838,
+        "finish_prefill_median_ms": 111.865,
+        "prompt_prefill_and_ttft_median_ms": 4970.824,
+        "persistent_drop_bytes": 0,
+        "persistent_drop_detected": 0
+      },
+      {
+        "run": "candidate_1",
+        "prompt_prefix_median_ms": 4750.071,
+        "finish_prefill_median_ms": 111.904,
+        "prompt_prefill_and_ttft_median_ms": 4861.946,
+        "persistent_drop_bytes": 15355904,
+        "persistent_drop_detected": 0
+      },
+      {
+        "run": "candidate_2",
+        "prompt_prefix_median_ms": 4759.712,
+        "finish_prefill_median_ms": 111.746,
+        "prompt_prefill_and_ttft_median_ms": 4871.458,
+        "persistent_drop_bytes": 0,
+        "persistent_drop_detected": 0
+      },
+      {
+        "run": "baseline_2",
+        "prompt_prefix_median_ms": 4850.911,
+        "finish_prefill_median_ms": 111.904,
+        "prompt_prefill_and_ttft_median_ms": 4962.815,
+        "persistent_drop_bytes": 22716416,
+        "persistent_drop_detected": 0
+      }
+    ],
+    "mirrored_average": {
+      "baseline_prompt_prefix_ms": 4854.8745,
+      "candidate_prompt_prefix_ms": 4754.8915,
+      "prompt_prefix_saved_ms": 99.9830,
+      "prompt_prefix_speedup": 1.0210274,
+      "prompt_prefix_reduction_percent": 2.0594,
+      "baseline_finish_prefill_ms": 111.8845,
+      "candidate_finish_prefill_ms": 111.825,
+      "finish_prefill_saved_ms": 0.0595,
+      "baseline_prompt_prefill_and_ttft_ms": 4966.8195,
+      "candidate_prompt_prefill_and_ttft_ms": 4866.7020,
+      "prompt_prefill_and_ttft_saved_ms": 100.1175,
+      "prompt_prefill_and_ttft_speedup": 1.02057194,
+      "prompt_prefill_and_ttft_reduction_percent": 2.0157
+    },
+    "strict_oracle": {
+      "all_four_status_ok": true,
+      "prompt_id_count": 513,
+      "prompt_ids_identical": true,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 513,
+      "steps_identical": true,
+      "all_persistent_drop_detected_zero": true,
+      "drop_tolerance_bytes": 67108864
+    },
+    "artifacts": {
+      "baseline_1": {
+        "local_path": "/tmp/q3x-gdn-m16-p513-b1.log",
+        "bytes": 17808,
+        "lines": 140,
+        "sha256": "2f43d5a1981c83ab0074937b6a0ac5a6bd9479f62173c8eb70cff9973bf35224",
+        "checked_in": false
+      },
+      "candidate_1": {
+        "local_path": "/tmp/q3x-gdn-m16-p513-c1.log",
+        "bytes": 17822,
+        "lines": 140,
+        "sha256": "8e608b8e49600423851c72dcab359f1dccaaf98d8e07110c9ad385ad8f1b3f75",
+        "checked_in": false
+      },
+      "candidate_2": {
+        "local_path": "/tmp/q3x-gdn-m16-p513-c2.log",
+        "bytes": 17814,
+        "lines": 140,
+        "sha256": "a1c541a2e6110cb7923c871864b31dc65adc8b19a3f71e7c9e2859bf51aa6b6d",
+        "checked_in": false
+      },
+      "baseline_2": {
+        "local_path": "/tmp/q3x-gdn-m16-p513-b2.log",
+        "bytes": 17822,
+        "lines": 140,
+        "sha256": "c4f34080e91780179457f1f258b8c6b503c7b12703f9534a3c535208ea789e7b",
+        "checked_in": false
+      }
+    }
+  },
+  "matched_P33_nsys_attribution": {
+    "status": "pass",
+    "protocol": "one fixed-frequency P33/max1 run per independently built runner with CUDA and NVTX tracing; --sample=none --cpuctxsw=none",
+    "baseline_target": {
+      "kernel": "gated_delta_net_update_warp_eight_row_lane_striped_kernel",
+      "instances": 96,
+      "total_ms": 37.047840,
+      "average_us": 385.915,
+      "median_us": 385.664
+    },
+    "candidate_target": {
+      "kernel": "gated_delta_net_update_warp_eight_row_register_state_m16_kernel",
+      "instances": 96,
+      "total_ms": 30.724128,
+      "average_us": 320.043,
+      "median_us": 319.920
+    },
+    "target_saved_ms": 6.323712,
+    "target_speedup": 1.205822,
+    "target_time_reduction_percent": 17.069044,
+    "generation_nvtx": {
+      "baseline_ms": 737.890112,
+      "candidate_ms": 731.369344,
+      "saved_ms": 6.520768,
+      "target_kernel_share_of_saved_time_percent": 96.9780
+    },
+    "all_cuda_kernel_time": {
+      "baseline_ms": 725.422496,
+      "candidate_ms": 718.581056,
+      "saved_ms": 6.841440
+    },
+    "topology_interpretation": "P33 has two complete C16 prefix tiles across 48 GDN value heads, so both reports contain exactly 96 target launches.",
+    "artifacts": {
+      "baseline": {
+        "local_path": "/tmp/q3x-gdn-m16-nsys-baseline.nsys-rep",
+        "bytes": 395925,
+        "sha256": "712813bbd48fa515e78a8d518148474519a783f6a47f9806161aee2def9af672",
+        "checked_in": false
+      },
+      "candidate": {
+        "local_path": "/tmp/q3x-gdn-m16-nsys-candidate.nsys-rep",
+        "bytes": 395472,
+        "sha256": "6e87295edd2b00057667fecd6fb89a58cccfc9a9b8cd6de9c40a446cfc623d1e",
+        "checked_in": false
+      }
+    },
+    "causality_limit": "The target-kernel saving closely matches the untraced prefix saving, but tracing and separate process runs prevent exact subtraction from being treated as a causal identity."
+  },
+  "build_and_stale_object_audit": {
+    "status": "pass-after-forced-test-object-recompile",
+    "root_cause": "After public M16 dispatch changed to the exact kernel, an older gdn_decode_cuda_test.cu object/executable still encoded the former harness path in which both timing labels called the public launcher. Consequently both B and C resolved to the new exact production kernel. Recompiling tests/gdn_decode_cuda_test.cu.o and relinking the test executable made B call the explicit row8 predecessor and C call public exact M16.",
+    "contamination_signature": {
+      "reported_B_and_C_latency_ms": "both approximately 0.321-0.322",
+      "nsys_exact_instances": 10567,
+      "nsys_row8_instances": 136,
+      "interpretation": "The expected 10 * (48 warmup + 480 measured) = 5280 launches per timed route were both charged to exact, while row8 appeared only in correctness work."
+    },
+    "excluded_contaminated_artifacts": [
+      {
+        "local_path": "/tmp/q3x_diag_m16_perf.log",
+        "bytes": 2810,
+        "lines": 19,
+        "sha256": "03f7c0277c7a0204268f54b68ef1db6d10bf49c6b86259f396b6a110f41080f9",
+        "aggregate_speedup": 0.999712,
+        "reason": "predates the forced test-object rebuild and compares exact against exact"
+      },
+      {
+        "local_path": "/tmp/q3x_m16_stage2_perf.stdout",
+        "bytes": 3289,
+        "lines": 22,
+        "sha256": "0e5e55db04533e08b87edbd702a73a7857d7bc11bdcca84e569d3ceb08f75617",
+        "aggregate_speedup": 0.999431,
+        "reason": "predates the forced test-object rebuild and compares exact against exact"
+      },
+      {
+        "local_path": "/tmp/q3x_m16_diag_0724a.stdout",
+        "bytes": 3327,
+        "lines": 23,
+        "sha256": "e48dc5bfacf296cdaeee82f8d077fe8f43f7d14fab59e5a479cbaf541f5b5592",
+        "aggregate_speedup": 0.999012,
+        "reason": "captured before the corrected test executable was linked"
+      },
+      {
+        "local_path": "/tmp/q3x_m16_diag_0724a.stats.csv",
+        "bytes": 9905,
+        "lines": 58,
+        "sha256": "d29f8c5f2ad2a86e6f09d439bd90b3651d5b799269c6a106c29413cf70dd7ee8",
+        "reason": "profiles the contaminated exact-versus-exact executable"
+      }
+    ],
+    "orphan_object": {
+      "local_path": "build/CMakeFiles/q3x_gdn_decode_cuda_test.dir/tests/gdn_register_state_candidate.cu.o",
+      "bytes": 67048,
+      "sha256": "07a2e77ed6757e8a5a54d65c18016b80c39c42f9078d9fe9b8f6a1ed230c9e90",
+      "linked_into_final_test": false,
+      "root_cause": false,
+      "note": "This is unlinked build-directory residue from the earlier test-only translation unit. The final link command names only gdn_decode_cuda_test.cu.o and libq3x_kernels.a."
+    },
+    "corrected_test_object": {
+      "local_path": "build/CMakeFiles/q3x_gdn_decode_cuda_test.dir/tests/gdn_decode_cuda_test.cu.o",
+      "bytes": 461512,
+      "sha256": "3aa0b5866cfe72ed120361fee59233d04789fef9d3f6422833076bdaa3a0164b",
+      "built_after_source": true
+    },
+    "final_link_command": {
+      "local_path": "build/CMakeFiles/q3x_gdn_decode_cuda_test.dir/link.txt",
+      "bytes": 424,
+      "sha256": "7714fe3be3201a297ff733a0b334fbdffb32fd8a3bf1c15ba731760657196cae",
+      "contains_orphan_candidate_object": false
+    },
+    "final_acceptance": {
+      "test_executable_rebuilt_after_kernel_and_test_sources": true,
+      "exact_and_row8_sass_function_headers": "one each",
+      "exact_and_row8_cuda_functions_distinct": true,
+      "public_M16_function_equals_exact": true,
+      "public_M15_function_equals_row8": true,
+      "formal_five_process_measurement_ran_after_rebuild": true,
+      "excluded_artifacts_used_for_promotion": false
+    }
+  },
+  "production_validation_suites": {
+    "status": "pass-with-explicit-suite-boundary",
+    "gdn_device_test": "pass",
+    "full_model_oracle": {
+      "materialized_model_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+      "runner": {
+        "local_path": "build/qwen3x-orin",
+        "sha256": "d41904c7d40d171c5870479cd7fbcfd8f2072577a33d0a5eadf2e592d17cb1a7",
+        "build_state": "post-relink root binary"
+      },
+      "prefill_chunk_sizes": [1, 8, 16, 32],
+      "all_passed": true,
+      "prompt_id_count": 19,
+      "generated_id_count": 26,
+      "exact_generated_text": true,
+      "stop_reason": "im_end",
+      "step_count": 44,
+      "strict_ids_text_stop_and_steps": true,
+      "retained_combined_log": false
+    },
+    "clean_first_release_model_oracle": {
+      "runner": {
+        "local_path": "build/orin-release/qwen3x-orin",
+        "bytes": 4128456,
+        "sha256": "298e603e133069dbc65dcc6d7eb71d266eebedf5ea917c6b381fa8e020bd46ec",
+        "gnu_build_id": "1995be1f538fd7a90183bd5df370c05055084c38"
+      },
+      "prefill_chunk_size": 16,
+      "prompt_id_count": 19,
+      "generated_id_count": 26,
+      "exact_generated_text": true,
+      "stop_reason": "im_end",
+      "step_count": 44,
+      "status": "pass",
+      "retained_log": false
+    },
+    "P33_BCCB": "pass with four retained logs",
+    "P513_C32_BCCB": "pass with four retained logs",
+    "matched_nsys": "pass with two retained reports",
+    "release_build": "clean-first Release rebuild completed successfully; the controlling console was not retained as a separate log",
+    "ctest": {
+      "command": "ctest --test-dir build/orin-release --output-on-failure",
+      "discovered": 56,
+      "passed": 51,
+      "configured_skips": 5,
+      "failed": 0,
+      "last_test_log": {
+        "local_path": "build/orin-release/Testing/Temporary/LastTest.log",
+        "bytes": 112490,
+        "sha256": "68d41405a5449510af1d88ea2b53c863f3f45feab4ac2f99c33ae28231fd5963",
+        "checked_in": false
+      }
+    },
+    "host_sanitizers": "not rerun as a distinct closeout suite for this promotion",
+    "device_memcheck_or_racecheck": "not run"
+  },
+  "decision": {
+    "selected": "exact C16 register-resident BF16 GDN state kernel",
+    "production_promotion": "keep",
+    "predecessor_policy": "retain row8 for M1 and M2 through M15 and as the explicit same-binary M16 test predecessor",
+    "reason": "bitwise output/state, recurrence, memory, Graph, selector, resource, fixed-frequency five-process micro, strict P33 and P513/C32 B-C-C-B, and matched Nsys gates pass. Every process clears 1.20x, the five-process speedup range is 1.21660x-1.21796x, P33 prefix falls by 6.2385 ms, P513/C32 prefix falls by 99.9830 ms, and the matched 96-launch target falls by 6.323712 ms.",
+    "release_latency_claim": false
+  },
+  "limitations": [
+    "one fixed-frequency Jetson AGX Orin and one CUDA software stack",
+    "the five formal micro process logs and clock transcript were not persisted, so their aggregate console rows are recorded without invented hashes",
+    "the synthetic 24-bank micro state is deterministic and exceeds L2 but is not a checkpoint-derived recurrent-state trajectory",
+    "P33/C16 and P513/C32 max1 are the retained end-to-end performance screens; C1/C8/C16/C32 otherwise denote strict oracle coverage, not four separate performance claims",
+    "no candidate-specific Nsight Compute, device racecheck, or memcheck result is attached",
+    "the static SASS delta establishes mechanism and binary identity, not dynamic stall causality",
+    "the clean Release CTest suite passed, but a host sanitizer suite was not rerun for this promotion",
+    "the optimization adds no runtime double/triple buffering, cross-kernel stream overlap, multi-request continuous batching, Decode speedup, or serving-throughput claim"
+  ]
+}

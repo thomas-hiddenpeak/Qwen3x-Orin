@@ -356,6 +356,16 @@ The diagnostic Phase 3 records are:
   retains one baseline-only global-memory warning and its clean audit, and
   makes clear that no system double/triple buffer or Prefill/Decode overlap
   was introduced.
+- [`qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json`](qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json),
+  which records the promoted exact-C16 GDN register-state route. It freezes the
+  packed per-thread BF16 state and 45-MiB traffic-removal mechanism, exact
+  output/state/replay/guard/Graph/selector gates, final SASS and resources,
+  five fixed-frequency same-binary processes at 1.21660x-1.21796x, strict P33
+  and P513/C32 B-C-C-B gains, and matched 96-launch Nsys attribution. It also
+  records and excludes the stale-test-object exact-versus-exact runs, proves
+  the orphan candidate object was not linked, and preserves the boundary
+  between this intra-kernel optimization and system buffering or
+  Prefill/Decode overlap.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

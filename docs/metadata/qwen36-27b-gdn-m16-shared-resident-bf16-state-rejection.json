@@ -298,6 +298,12 @@
     "reopen_condition": "only reopen GDN state residency with a materially different bank-friendly packed layout or new measured evidence that changes the ceiling",
     "next_mainline": "productionize the independently gated Decode FP8 QKV/Z reduction-scratch ping-pong candidate and run whole-model validation"
   },
+  "subsequent_materially_different_promotion": {
+    "artifact": "qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark",
+    "local_path": "qwen36-27b-gdn-m16-register-resident-bf16-state-benchmark.json",
+    "production_commit": "b09614c6c0ff3897f99434650de36893d5c06ac0",
+    "relationship": "The later exact-M16 kernel satisfies this rejection's reopen condition by using a packed per-thread register partition rather than direct row-major shared-resident state. This rejection remains authoritative for the slower shared-memory family."
+  },
   "interpretation": {
     "bounded_conclusion": "Removing token-to-token global state traffic is insufficient when the direct row-major shared-state access pattern and lower residency make both resident branches slower.",
     "causality_limit": "No candidate NCU report was collected after the hard micro gate failed, so bank conflicts and occupancy are design-level hypotheses rather than measured stall attribution.",
