@@ -77,6 +77,12 @@ query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cu
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+query_gated_delta_net_update_warp_eight_row_lane_striped_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_gated_delta_net_update_plain_rms_norm_silu_gate_shared_tree_test_cuda(
     const std::uint16_t* conv_qkv, const std::uint16_t* a,
     const std::uint16_t* b, const std::uint16_t* A_log,
@@ -2526,54 +2532,54 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
               kSuffixCanary);
 
   ready = launch_after_stale(
-      test, stream, "GDN production row8 M16 oracle", [&]() {
+      test, stream, "GDN predecessor row8 M16 oracle", [&]() {
         return q3x::runtime::
-            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+            launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
                 conv_qkv.data(), kTokenCount, a.data(), b.data(),
                 A_log.data(), dt_bias.data(), production_state.data(),
                 production_state.data(), kL2Epsilon,
-                production_output.data(), {}, static_cast<void*>(stream));
+                production_output.data(), static_cast<void*>(stream));
       });
   ready = ready && launch_after_stale(
                        test, stream,
                        "GDN register-state M16 guarded in-place", [&]() {
                          return q3x::runtime::
-                             launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                             launch_gated_delta_net_update_tile_warp_parallel_cuda(
                                  conv_qkv.data(), kTokenCount, a.data(),
                                  b.data(), A_log.data(), dt_bias.data(),
                                  guarded_state, guarded_state, kL2Epsilon,
-                                 guarded_output,
+                                 guarded_output, {},
                                  static_cast<void*>(stream));
                        });
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(q3x::runtime::
-                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                           launch_gated_delta_net_update_tile_warp_parallel_cuda(
                                conv_qkv.data(), kTokenCount, a.data(),
                                b.data(), A_log.data(), dt_bias.data(),
                                candidate_inplace_state.data(),
                                candidate_inplace_state.data(), kL2Epsilon,
-                               candidate_inplace_output.data(),
+                               candidate_inplace_output.data(), {},
                                static_cast<void*>(stream))),
                        "GDN register-state M16 in-place launch");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(q3x::runtime::
-                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                           launch_gated_delta_net_update_tile_warp_parallel_cuda(
                                conv_qkv.data(), kTokenCount, a.data(),
                                b.data(), A_log.data(), dt_bias.data(),
                                candidate_disjoint_input_state.data(),
                                candidate_disjoint_output_state.data(),
                                kL2Epsilon,
-                               candidate_disjoint_output.data(),
+                               candidate_disjoint_output.data(), {},
                                static_cast<void*>(stream))),
                        "GDN register-state M16 disjoint launch");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(q3x::runtime::
-                           launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                           launch_gated_delta_net_update_tile_warp_parallel_cuda(
                                conv_qkv.data(), kTokenCount, a.data(),
                                b.data(), A_log.data(), dt_bias.data(),
                                candidate_disjoint_input_state.data(),
                                candidate_replay_state.data(), kL2Epsilon,
-                               candidate_replay_output.data(),
+                               candidate_replay_output.data(), {},
                                static_cast<void*>(stream))),
                        "GDN register-state M16 replay launch");
   ready = ready && test.cuda_ok(
@@ -2670,12 +2676,26 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
   std::size_t local_bytes = 0U;
   int maximum_threads_per_block = 0;
   int active_blocks_per_sm = 0;
+  int predecessor_registers_per_thread = 0;
+  std::size_t predecessor_static_shared_bytes = 0U;
+  std::size_t predecessor_local_bytes = 0U;
+  int predecessor_maximum_threads_per_block = 0;
+  int predecessor_active_blocks_per_sm = 0;
   ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::runtime::
           query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cuda(
               &registers_per_thread, &static_shared_bytes, &local_bytes,
               &maximum_threads_per_block, &active_blocks_per_sm)),
       "GDN register-state M16 query resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           query_gated_delta_net_update_warp_eight_row_lane_striped_resources_test_cuda(
+                               &predecessor_registers_per_thread,
+                               &predecessor_static_shared_bytes,
+                               &predecessor_local_bytes,
+                               &predecessor_maximum_threads_per_block,
+                               &predecessor_active_blocks_per_sm)),
+                       "GDN predecessor row8 query resources");
   if (!ready) {
     return;
   }
@@ -2685,6 +2705,12 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
       registers_per_thread <= kMaximumRegistersPerThread &&
       static_shared_bytes == kExpectedStaticSharedBytes && local_bytes == 0U &&
       maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  const bool predecessor_resource_gate =
+      predecessor_registers_per_thread == 40 &&
+      predecessor_static_shared_bytes == 34568U &&
+      predecessor_local_bytes == 0U &&
+      predecessor_maximum_threads_per_block >= 256 &&
+      predecessor_active_blocks_per_sm == 4;
   std::cout << "GDN_REGISTER_STATE_M16_RESOURCES: registers="
             << registers_per_thread
             << " static_shared_bytes=" << static_shared_bytes
@@ -2694,6 +2720,17 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
   test.expect(resource_gate,
               "GDN register-state M16 clears resource hard gate");
+  std::cout << "GDN_PREDECESSOR_ROW8_RESOURCES: registers="
+            << predecessor_registers_per_thread
+            << " static_shared_bytes=" << predecessor_static_shared_bytes
+            << " local_bytes=" << predecessor_local_bytes
+            << " maximum_threads_per_block="
+            << predecessor_maximum_threads_per_block
+            << " active_blocks_per_sm=" << predecessor_active_blocks_per_sm
+            << " gate=" << (predecessor_resource_gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(predecessor_resource_gate,
+              "GDN predecessor row8 preserves frozen resources");
   test.expect(
       static_cast<cudaError_t>(q3x::runtime::
           query_gated_delta_net_update_warp_eight_row_register_state_m16_resources_test_cuda(
@@ -2702,20 +2739,7 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
           cudaErrorInvalidValue,
       "GDN register-state M16 resource query rejects null output");
 
-  const CapturedTopology valid_topology = capture_topology(
-      test,
-      [&](cudaStream_t capture_stream) {
-        return q3x::runtime::
-            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
-                conv_qkv.data(), kTokenCount, a.data(), b.data(),
-                A_log.data(), dt_bias.data(),
-                candidate_disjoint_input_state.data(),
-                candidate_disjoint_output_state.data(), kL2Epsilon,
-                candidate_disjoint_output.data(),
-                static_cast<void*>(capture_stream));
-      },
-      cudaSuccess, "GDN register-state M16 valid topology");
-  const CapturedTopology production_topology = capture_topology(
+  const CapturedTopology public_m16_topology = capture_topology(
       test,
       [&](cudaStream_t capture_stream) {
         return q3x::runtime::
@@ -2727,46 +2751,109 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
                 candidate_disjoint_output.data(), {},
                 static_cast<void*>(capture_stream));
       },
-      cudaSuccess, "GDN production row8 M16 topology oracle");
-  test.expect(valid_topology.total_nodes == 1U &&
-                  valid_topology.kernel_nodes == 1U &&
-                  valid_topology.edges == 0U &&
-                  valid_topology.kernel_launches.size() == 1U,
-              "GDN register-state M16 captures exactly one kernel");
-  test.expect(production_topology.total_nodes == 1U &&
-                  production_topology.kernel_nodes == 1U &&
-                  production_topology.edges == 0U &&
-                  production_topology.kernel_launches.size() == 1U,
-              "GDN production row8 M16 captures exactly one kernel");
-  if (valid_topology.kernel_launches.size() == 1U) {
-    const auto& launch = valid_topology.kernel_launches.front();
-    test.expect(launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
-                    launch.grid.y == 1U && launch.grid.z == 1U &&
-                    launch.block.x == 256U && launch.block.y == 1U &&
-                    launch.block.z == 1U &&
-                    launch.dynamic_shared_bytes == 0U,
-                "GDN register-state M16 locks 48x256 topology");
+      cudaSuccess, "GDN public M16 topology");
+  const CapturedTopology exact_m16_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN direct exact M16 topology");
+  const CapturedTopology predecessor_m16_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
+                conv_qkv.data(), kTokenCount, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN direct predecessor M16 topology");
+  const CapturedTopology public_m15_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                conv_qkv.data(), kTokenCount - 1U, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(), {},
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN public M15 fallback topology");
+  const CapturedTopology predecessor_m15_topology = capture_topology(
+      test,
+      [&](cudaStream_t capture_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
+                conv_qkv.data(), kTokenCount - 1U, a.data(), b.data(),
+                A_log.data(), dt_bias.data(),
+                candidate_disjoint_input_state.data(),
+                candidate_disjoint_output_state.data(), kL2Epsilon,
+                candidate_disjoint_output.data(),
+                static_cast<void*>(capture_stream));
+      },
+      cudaSuccess, "GDN direct predecessor M15 topology");
+
+  const auto expect_single_48x256 = [&](const CapturedTopology& topology,
+                                        const std::string& label) {
+    test.expect(topology.total_nodes == 1U && topology.kernel_nodes == 1U &&
+                    topology.edges == 0U &&
+                    topology.kernel_launches.size() == 1U,
+                label + " captures exactly one kernel");
+    if (topology.kernel_launches.size() == 1U) {
+      const auto& launch = topology.kernel_launches.front();
+      test.expect(launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                      launch.grid.y == 1U && launch.grid.z == 1U &&
+                      launch.block.x == 256U && launch.block.y == 1U &&
+                      launch.block.z == 1U &&
+                      launch.dynamic_shared_bytes == 0U,
+                  label + " locks 48x256 topology");
+    }
+  };
+  expect_single_48x256(public_m16_topology, "GDN public M16");
+  expect_single_48x256(exact_m16_topology, "GDN direct exact M16");
+  expect_single_48x256(predecessor_m16_topology,
+                       "GDN direct predecessor M16");
+  expect_single_48x256(public_m15_topology, "GDN public M15 fallback");
+  expect_single_48x256(predecessor_m15_topology,
+                       "GDN direct predecessor M15");
+
+  if (public_m16_topology.kernel_launches.size() == 1U &&
+      exact_m16_topology.kernel_launches.size() == 1U &&
+      predecessor_m16_topology.kernel_launches.size() == 1U) {
+    void* const public_function =
+        public_m16_topology.kernel_launches.front().function;
+    void* const exact_function =
+        exact_m16_topology.kernel_launches.front().function;
+    void* const predecessor_function =
+        predecessor_m16_topology.kernel_launches.front().function;
+    test.expect(public_function != nullptr && exact_function != nullptr &&
+                    predecessor_function != nullptr &&
+                    public_function == exact_function &&
+                    public_function != predecessor_function,
+                "GDN public M16 selects exact register-state kernel instead "
+                "of predecessor");
   }
-  if (production_topology.kernel_launches.size() == 1U) {
-    const auto& launch = production_topology.kernel_launches.front();
-    test.expect(launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
-                    launch.grid.y == 1U && launch.grid.z == 1U &&
-                    launch.block.x == 256U && launch.block.y == 1U &&
-                    launch.block.z == 1U &&
-                    launch.dynamic_shared_bytes == 0U,
-                "GDN production row8 M16 locks 48x256 topology");
-  }
-  if (valid_topology.kernel_launches.size() == 1U &&
-      production_topology.kernel_launches.size() == 1U) {
-    void* const candidate_function =
-        valid_topology.kernel_launches.front().function;
-    void* const production_function =
-        production_topology.kernel_launches.front().function;
-    test.expect(candidate_function != nullptr &&
-                    production_function != nullptr &&
-                    candidate_function != production_function,
-                "GDN register-state and production kernel identities are "
-                "non-null and distinct");
+  if (public_m15_topology.kernel_launches.size() == 1U &&
+      predecessor_m15_topology.kernel_launches.size() == 1U) {
+    void* const public_function =
+        public_m15_topology.kernel_launches.front().function;
+    void* const predecessor_function =
+        predecessor_m15_topology.kernel_launches.front().function;
+    test.expect(public_function != nullptr && predecessor_function != nullptr &&
+                    public_function == predecessor_function,
+                "GDN public M15 preserves predecessor fallback kernel");
   }
 
   const auto expect_invalid_empty_capture =
@@ -2795,38 +2882,38 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
   expect_invalid_empty_capture(
       [&](cudaStream_t capture_stream) {
         return q3x::runtime::
-            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
                 nullptr, kTokenCount, a.data(), b.data(), A_log.data(),
                 dt_bias.data(), candidate_disjoint_input_state.data(),
                 candidate_disjoint_output_state.data(), kL2Epsilon,
-                candidate_disjoint_output.data(),
+                candidate_disjoint_output.data(), {},
                 static_cast<void*>(capture_stream));
       },
-      "GDN register-state rejects null topology");
+      "GDN public M16 rejects null topology");
   expect_invalid_empty_capture(
       [&](cudaStream_t capture_stream) {
         return q3x::runtime::
-            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
                 conv_qkv.data(), kTokenCount, a.data(), b.data(),
                 A_log.data(), dt_bias.data(),
                 candidate_disjoint_input_state.data(),
                 candidate_disjoint_output_state.data(), kL2Epsilon,
-                conv_qkv.data(), static_cast<void*>(capture_stream));
+                conv_qkv.data(), {}, static_cast<void*>(capture_stream));
       },
-      "GDN register-state rejects alias topology");
+      "GDN public M16 rejects alias topology");
   expect_invalid_empty_capture(
       [&](cudaStream_t capture_stream) {
         return q3x::runtime::
-            launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+            launch_gated_delta_net_update_tile_warp_parallel_cuda(
                 conv_qkv.data(), kTokenCount, a.data(), b.data(),
                 A_log.data(), dt_bias.data(),
                 candidate_disjoint_input_state.data(),
                 candidate_disjoint_output_state.data(),
                 std::numeric_limits<float>::quiet_NaN(),
-                candidate_disjoint_output.data(),
+                candidate_disjoint_output.data(), {},
                 static_cast<void*>(capture_stream));
       },
-      "GDN register-state rejects epsilon topology");
+      "GDN public M16 rejects epsilon topology");
 
   expect_bf16_buffer_bitwise_equal(
       test, conv_qkv.data(), initial_conv_qkv.data(), initial_conv_qkv.size(),
@@ -2987,16 +3074,16 @@ void run_optional_gdn_register_state_m16_performance(TestContext& test,
               outputs.data() + bank * kOutputElementsPerBank;
           if (candidate) {
             return q3x::runtime::
-                launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
+                launch_gated_delta_net_update_tile_warp_parallel_cuda(
                     conv_qkv.data(), kTokenCount, a.data(), b.data(),
                     A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
-                    output, static_cast<void*>(stream));
+                    output, {}, static_cast<void*>(stream));
           }
           return q3x::runtime::
-              launch_gated_delta_net_update_tile_warp_parallel_cuda(
+              launch_gated_delta_net_update_tile_warp_eight_row_lane_striped_test_cuda(
                   conv_qkv.data(), kTokenCount, a.data(), b.data(),
                   A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
-                  output, {}, static_cast<void*>(stream));
+                  output, static_cast<void*>(stream));
         });
     test.expect(launch_index == kWarmupLaunches + kMeasuredLaunches,
                 label + " rotates every requested state bank launch");

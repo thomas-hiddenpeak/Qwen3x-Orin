@@ -1,6 +1,8 @@
 #include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/decode_ops.h"
 
+#include "gdn_m16_register_state.h"
+
 #include <cuda_runtime.h>
 
 #include <cmath>
@@ -2070,6 +2072,12 @@ int launch_gated_delta_net_update_tile_warp_parallel_cuda(
                         state_output, output)) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
+  if (token_count == kGdnMaximumTileTokenCount) {
+    return gdn_decode_detail::
+        launch_gated_delta_net_update_m16_register_state_exact_cuda(
+            conv_qkv, a, b, A_log, dt_bias, state_input, state_output,
+            l2_epsilon, output, cuda_stream);
+  }
   constexpr unsigned int kWarpParallelThreads = 256U;
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
@@ -2358,6 +2366,41 @@ int launch_gated_delta_net_update_plain_rms_norm_silu_gate_cuda(
       output, norm_weight, silu_gate, norm_head_count, norm_head_dimension,
       norm_epsilon, output, cuda_stream);
   return status;
+}
+
+int query_gated_delta_net_update_warp_eight_row_lane_striped_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      gated_delta_net_update_warp_eight_row_lane_striped_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  constexpr int kWarpParallelThreads = 256;
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      gated_delta_net_update_warp_eight_row_lane_striped_kernel,
+      kWarpParallelThreads, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 int query_gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_resources_test_cuda(

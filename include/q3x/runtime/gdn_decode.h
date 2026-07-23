@@ -118,7 +118,10 @@ enum class GdnStatus : std::uint8_t {
 // lanes keep each row's 128 BF16 elements coalesced during state updates.
 // The FP32 dot products retain the reference kernel's left-to-right FMA order,
 // so outputs and persisted state are bitwise equivalent to the reference
-// entry points. These calls otherwise share their validation and aliasing
+// entry points. The exact M=16 tile route loads state once into per-thread
+// registers and writes it back after the final token while preserving a BF16
+// rounding boundary after every recurrence step; M=2..15 retain the row-eight
+// global-state path. These calls otherwise share their validation and aliasing
 // contract, including in-place state updates.
 [[nodiscard]] int launch_gated_delta_net_update_warp_parallel_cuda(
     const std::uint16_t* conv_qkv, const std::uint16_t* a,
