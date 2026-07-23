@@ -189,6 +189,11 @@ The diagnostic Phase 3 records are:
   gate, resource/SASS changes, same-cubin timing, exact-template NCU tradeoff,
   verified ASan/UBSan and model suites, and matched P33/C32 TTFT/Nsight
   attribution.
+- [`qwen36-27b-nvfp4-m32-vector-store-benchmark.json`](qwen36-27b-nvfp4-m32-vector-store-benchmark.json),
+  which records the production vectorized decoded-tile stores, direct and
+  same-cubin bitwise gates, unchanged resources, replay-scoped shared-wavefront
+  reduction, verified Release/sanitizer/model suites, and matched P33/C32
+  TTFT/Nsight attribution.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

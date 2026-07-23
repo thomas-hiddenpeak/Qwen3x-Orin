@@ -2368,3 +2368,70 @@ overlap. Packed-weight prefetch variants regressed to 0.9817x and 0.93859x
 weighted speedup and were removed. Protocols, hashes, NCU/Nsys artifacts,
 limitations, and the sanitizer evidence correction are in the
 [NVFP4 M32 factorized lookup record](metadata/qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json).
+
+## NVFP4 M32 vectorized decoded stores
+
+Commit `9280474` keeps the selected factorized K64/LD72 M32 kernel and changes
+only how each thread writes its 32 decoded BF16 values into the shared WMMA
+tile. Four groups of eight BF16 values are now packed as `uint4` and emitted
+as four aligned `STS.128` instructions instead of sixteen scalar `STS`
+instructions. Static SASS falls from 728 to 712 instructions. Both exact shapes
+remain at 46 registers/thread, 24,576 bytes static shared memory, zero
+local/stack memory, and five active blocks/SM; the 35 `LDS`, 16
+`HFMA2.BF16_V2`, global-load, HMMA, and barrier instruction counts are
+unchanged.
+
+The default executable passes the exhaustive 65,536-word factorized-lookup
+gate and compares 720,896 direct-shape BF16 outputs against two public M16
+launches with zero candidate or replay mismatches. Token-15/16, finite-output,
+guard, invalid-route, resource, and one-node CUDA Graph contracts pass, and the
+public exact-shape route resolves to the vector-store specialization. Release
+reports 49 passes and five environment skips from 54 tests. The verified
+ASan/UBSan selection reports 48 passes, five skips, and zero failures from 53
+tests. Separate C1/C8/C16/C32 model processes preserve the pinned 19 prompt
+IDs, 26 generated IDs, exact text/`im_end`, and all 44 logical steps.
+
+The same-cubin four-round B-C-C-B gate records:
+
+| Shape | Scale distribution | Scalar stores | Vector stores | Speedup |
+| --- | --- | ---: | ---: | ---: |
+| `[17408,5120]` gate/up | checkpoint-like | 0.924128 ms | 0.754692 ms | 1.22451x |
+| `[17408,5120]` gate/up | same-bank stress | 0.926465 ms | 0.757198 ms | 1.22354x |
+| `[5120,17408]` down | checkpoint-like | 1.09238 ms | 0.913389 ms | 1.19597x |
+| `[5120,17408]` down | same-bank stress | 1.09503 ms | 0.915340 ms | 1.19631x |
+
+Applying the 128:64 P33 gate/up-to-down call mix across both distributions
+reduces the weighted aggregate from 376.870 to 310.561 ms, or 1.21352x.
+Exact-template replay-scoped NCU confirms the shared-store mechanism:
+
+| NCU fixture | Duration | Executed instructions | Excess shared wavefronts |
+| --- | ---: | ---: | ---: |
+| Gate/up checkpoint-like | 0.932416 -> 0.763968 ms (1.22049x) | 27,831,936 -> 26,787,456 | 5,709,824 -> 1,531,904 |
+| Down same-bank stress | 1.100224 -> 0.929728 ms (1.18338x) | 27,505,440 -> 26,460,960 | 5,730,880 -> 1,552,960 |
+
+Each shape removes exactly 4,177,920 excessive shared wavefronts while ideal
+shared wavefronts, global sectors, resources, and CTA residency remain
+unchanged. These NCU rows retain the legal `cudaMalloc + 2` block-scale stress
+fixture from the factorized milestone; the down row is deliberately
+same-bank-stress rather than checkpoint-like evidence.
+
+The detached factorized baseline and vector-store candidate P33/C32 B-C-C-B
+diagnostic records 485.913, 454.215, 454.080, and 486.327 ms. Mirrored TTFT
+averages fall from 486.1200 to 454.1475 ms (-31.9725 ms, -6.5771%, 1.07040x),
+with all runs generating token 9419 (`Hello`). Matched Nsight Systems profiles
+retain 2,166 launches and reduce target gate/up plus down time from 204.363040
+to 172.409120 ms (-31.953920 ms, 1.18534x). Summed kernel time falls from
+500.473024 to 468.811104 ms and kernel span from 509.762336 to 478.095424 ms,
+so the target rows explain essentially the complete TTFT improvement.
+
+Two bounded follow-ups widened the shared E4M3 scale table to U32 entries.
+Direct indexing regressed the four-cell weighted aggregate to 0.99676x;
+high-bit XOR bank indexing recovered the stress cells but reached only
+1.00126x overall, below the 1.005x gate, with both checkpoint-like cells at or
+below parity. Both candidates were removed. This exhausts the cheap U32
+scale-table subpath, not every possible E2M1-pair layout. Prefill and Decode
+remain logically separate plans on one serial CUDA stream. Explicit stage
+buffering is the next gate; execution overlap remains conditional on a matched
+trace demonstrating independent work. Full binary identities, protocols,
+hashes, raw profiler artifacts, rejected follow-ups, and diagnostic limits are
+in the [vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).

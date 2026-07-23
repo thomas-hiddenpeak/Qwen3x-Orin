@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-vector-store-benchmark",
+  "status": "production-nvfp4-m32-vectorized-decoded-store-benchmark",
+  "recorded_at": "2026-07-23",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "928047499aa91f03ae160e119b6a5bdd71f94609",
+    "candidate_subject": "kernels: vectorize NVFP4 M32 decoded stores",
+    "baseline_commit": "51ca6348ced831ae454325e2b9122ad4b36ba554",
+    "baseline_subject": "kernels: factorize NVFP4 M32 product lookup",
+    "project_version": "0.2.0",
+    "abi_version": "0.2.0",
+    "candidate_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 3567656,
+      "sha256": "a7e80cb38437d00a9061e25bb04c5cef484c37321b931a73a8f896eca1017bd8",
+      "checked_in": false
+    },
+    "same_cubin_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 3795960,
+      "sha256": "8c60d5f20ed25a25f9fdb5dd1b564f062139186bfa681a30173ad6fe4ede59e2",
+      "checked_in": false,
+      "identity_note": "Captured at same-cubin measurement time. A later same-source local relink overwrote this ephemeral path, so the historical hash is not claimed to match the current file."
+    },
+    "detached_factorized_baseline_binary": {
+      "local_path": "/tmp/q3x-factor-baseline-build/qwen3x-orin",
+      "bytes": 3565784,
+      "sha256": "fa94ea5d4577922a9fba824b3162cb5a2037bda5e85b05c8b47ff6dcc1c36cb3",
+      "checked_in": false
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "ncu_version": "2026.2.0.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": false,
+    "clock_note": "jetson_clocks --show requires root; B-C-C-B timings are diagnostic rather than locked-clock release claims"
+  },
+  "implementation": {
+    "public_entry": "launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda",
+    "direct_shapes_n_by_k": [[17408, 5120], [5120, 17408]],
+    "selected_kernel": "K64/LD72 dual-resident-A fixed-M32 WMMA with K256 scale windows, factorized E2M1/E4M3 lookup, and vectorized decoded stores",
+    "previous_decoded_store": {
+      "decoded_bf16_values_per_thread_and_stage": 32,
+      "static_store_instructions": 16,
+      "opcode": "STS",
+      "store_width_bytes": 4
+    },
+    "vectorized_decoded_store": {
+      "packing_type": "uint4",
+      "decoded_bf16_values_per_store": 8,
+      "static_store_instructions": 4,
+      "opcode": "STS.128",
+      "store_width_bytes": 16,
+      "store_instruction_reduction_percent": 75.0,
+      "shared_row_stride_alignment_bytes": 16,
+      "vector_offset_alignment_bytes": 16
+    },
+    "resource_usage": {
+      "registers_per_thread": 46,
+      "static_shared_bytes": 24576,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 5,
+      "changed_from_factorized_baseline": false
+    },
+    "sass": {
+      "both_exact_shapes_opcode_identical": true,
+      "factorized_static_instructions": 728,
+      "vector_store_static_instructions": 712,
+      "static_instruction_reduction_percent": 2.197802,
+      "factorized_decoded_tile_stores": "16 x STS",
+      "vectorized_decoded_tile_stores": "4 x STS.128",
+      "lds_instructions_each": 35,
+      "hfma2_bf16_v2_instructions_each": 16,
+      "global_load_instructions_changed": false,
+      "hmma_instructions_changed": false,
+      "barrier_instructions_changed": false,
+      "local_load_store_instructions": 0
+    },
+    "wmma_accumulation_order_changed": false,
+    "public_abi_change": "none",
+    "prefill_decode_plan_split_preserved": true,
+    "cuda_stream_count": 1,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "multi_stream_overlap": false
+  },
+  "validation": {
+    "default_test_executable": "pass",
+    "release_suite": {
+      "discovered": 54,
+      "passed": 49,
+      "skipped": 5,
+      "failed": 0
+    },
+    "asan_ubsan_selected_suite": {
+      "build_directory": "build-sanitize",
+      "build_type": "RelWithDebInfo",
+      "compile_flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "link_flags": "-fsanitize=address,undefined",
+      "runtime_options": {
+        "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "linked_libraries": ["libasan.so.8", "libubsan.so.1"],
+      "discovered": 53,
+      "passed": 48,
+      "skipped": 5,
+      "failed": 0,
+      "excluded": "package_consumer"
+    },
+    "factorized_lookup_exhaustive_gate": {
+      "e4m3_scale_codes": 256,
+      "packed_e2m1_bytes": 256,
+      "combinations": 65536,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "reference_nan_halves": 1024,
+      "factorized_nan_halves": 1024,
+      "signed_zero_covered": true
+    },
+    "direct_shape_gate": {
+      "shapes": 2,
+      "total_bf16_outputs_checked": 720896,
+      "candidate_vs_two_public_m16_mismatches": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary_exact": true,
+      "outputs_finite": true,
+      "head_and_tail_guards_intact": true,
+      "cuda_graph_kernel_nodes_each": 1,
+      "invalid_graph_zero_node_contract": true,
+      "public_route_uses_vector_store_specialization": true
+    },
+    "same_cubin_distribution_gate": {
+      "candidate_vs_scalar_factorized_outputs_checked": 1441792,
+      "mismatches": 0
+    },
+    "real_model_oracle": {
+      "status": "pass",
+      "requested_chunks": [1, 8, 16, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "logical_steps": 44,
+      "exact_text": true,
+      "exact_im_end": true,
+      "projection_backend": "sm87_weight_only"
+    },
+    "independent_review": "no blocker"
+  },
+  "same_cubin_microbenchmark": {
+    "protocol_per_candidate_and_round": "baseline-candidate-candidate-baseline",
+    "warmup_iterations": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 4,
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "checkpoint_like",
+        "factorized_scalar_store_ms": 0.924128,
+        "vector_store_ms": 0.754692,
+        "speedup": 1.22451
+      },
+      {
+        "shape_n_by_k": [17408, 5120],
+        "distribution": "same_bank_stress",
+        "factorized_scalar_store_ms": 0.926465,
+        "vector_store_ms": 0.757198,
+        "speedup": 1.22354
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "checkpoint_like",
+        "factorized_scalar_store_ms": 1.09238,
+        "vector_store_ms": 0.913389,
+        "speedup": 1.19597
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "distribution": "same_bank_stress",
+        "factorized_scalar_store_ms": 1.09503,
+        "vector_store_ms": 0.915340,
+        "speedup": 1.19631
+      }
+    ],
+    "profile_call_weights_gate_up_down": [128, 64],
+    "weighted_factorized_scalar_store_ms": 376.870,
+    "weighted_vector_store_ms": 310.561,
+    "weighted_speedup": 1.21352,
+    "weighted_reduction_percent": 17.594661,
+    "required_each_cell_speedup": 1.0,
+    "required_weighted_speedup": 1.02,
+    "gate": "pass"
+  },
+  "same_cubin_ncu": {
+    "clock_control": "base",
+    "replay_mode": "kernel",
+    "baseline_specialization": "factorized lookup template bools=true,false",
+    "candidate_specialization": "factorized lookup plus vector store template bools=true,true",
+    "block_scale_pointer_mode": "cudaMalloc base plus 2 bytes, a legal 2-byte-alignment stress fixture",
+    "production_resident_tensor_alignment_bytes": 256,
+    "rows": [
+      {
+        "shape_n_by_k": [17408, 5120],
+        "fixture": "checkpoint_like",
+        "duration_ms": {"baseline": 0.932416, "candidate": 0.763968},
+        "speedup": 1.220491,
+        "duration_reduction_percent": 18.065756,
+        "executed_instructions": {"baseline": 27831936, "candidate": 26787456},
+        "executed_instruction_reduction_percent": 3.752811,
+        "shared_wavefronts": {"baseline": 13406336, "candidate": 9228416},
+        "ideal_shared_wavefronts": {"baseline": 7696512, "candidate": 7696512},
+        "excessive_shared_wavefronts": {"baseline": 5709824, "candidate": 1531904},
+        "excessive_shared_wavefront_reduction": 4177920,
+        "excessive_shared_wavefront_reduction_percent": 73.170732,
+        "theoretical_global_sectors": {"baseline": 3342336, "candidate": 3342336},
+        "ideal_global_sectors": {"baseline": 2994176, "candidate": 2994176},
+        "excessive_global_sectors": {"baseline": 348160, "candidate": 348160},
+        "achieved_occupancy_percent": {"baseline": 71.976119, "candidate": 71.177513},
+        "compute_throughput_percent": {"baseline": 42.226016, "candidate": 44.715999},
+        "memory_throughput_percent": {"baseline": 83.389188, "candidate": 74.349046}
+      },
+      {
+        "shape_n_by_k": [5120, 17408],
+        "fixture": "same_bank_stress",
+        "duration_ms": {"baseline": 1.100224, "candidate": 0.929728},
+        "speedup": 1.183383,
+        "duration_reduction_percent": 15.496481,
+        "executed_instructions": {"baseline": 27505440, "candidate": 26460960},
+        "executed_instruction_reduction_percent": 3.797358,
+        "shared_wavefronts": {"baseline": 13401280, "candidate": 9223360},
+        "ideal_shared_wavefronts": {"baseline": 7670400, "candidate": 7670400},
+        "excessive_shared_wavefronts": {"baseline": 5730880, "candidate": 1552960},
+        "excessive_shared_wavefront_reduction": 4177920,
+        "excessive_shared_wavefront_reduction_percent": 72.901893,
+        "theoretical_global_sectors": {"baseline": 3317760, "candidate": 3317760},
+        "ideal_global_sectors": {"baseline": 2969600, "candidate": 2969600},
+        "excessive_global_sectors": {"baseline": 348160, "candidate": 348160},
+        "achieved_occupancy_percent": {"baseline": 41.422040, "candidate": 40.266651},
+        "compute_throughput_percent": {"baseline": 35.747162, "candidate": 36.863983},
+        "memory_throughput_percent": {"baseline": 69.975502, "candidate": 61.033823}
+      }
+    ],
+    "interpretation": "Replacing sixteen scalar decoded-tile stores with four aligned STS.128 stores removes exactly 4,177,920 excessive shared wavefronts in each exact-shape replay. It also removes about 3.8% of executed instructions while preserving register, shared-memory, CTA-residency, global-sector, LDS, HFMA2, HMMA, and barrier counts. The remaining 1.53-1.55 million excessive shared wavefronts keep factorized-table lookup layout as the next bounded kernel-local target. The down row is deliberately same_bank_stress rather than checkpoint-like data."
+  },
+  "p33_c32_bccb": {
+    "prompt_manifest_id": "P33",
+    "rendered_prompt_tokens": 33,
+    "prefix_tokens": 32,
+    "max_tokens": 1,
+    "warmup_iterations": 1,
+    "measured_iterations": 5,
+    "metric": "TTFT_ms",
+    "medians_ms": {
+      "baseline_1": 485.913,
+      "candidate_1": 454.215,
+      "candidate_2": 454.080,
+      "baseline_2": 486.327
+    },
+    "average_of_pair_medians_ms": {
+      "baseline": 486.1200,
+      "candidate": 454.1475
+    },
+    "candidate_minus_baseline_ms": -31.9725,
+    "candidate_minus_baseline_percent": -6.577080,
+    "speedup": 1.070401,
+    "first_generated_token_id": 9419,
+    "first_generated_text": "Hello",
+    "prompt_and_first_generated_token_exact": true
+  },
+  "p33_c32_nsys": {
+    "kernel_launches_each": 2166,
+    "baseline_summed_kernel_time_ms": 500.473024,
+    "candidate_summed_kernel_time_ms": 468.811104,
+    "baseline_kernel_span_ms": 509.762336,
+    "candidate_kernel_span_ms": 478.095424,
+    "profile_ttft_ms": {"baseline": 511.139, "candidate": 479.425},
+    "gate_up_ms": {
+      "baseline": 129.105600,
+      "candidate": 107.662784,
+      "delta": -21.442816,
+      "speedup": 1.199166
+    },
+    "down_ms": {
+      "baseline": 75.257440,
+      "candidate": 64.746336,
+      "delta": -10.511104,
+      "speedup": 1.162343
+    },
+    "target_total_ms": {
+      "baseline": 204.363040,
+      "candidate": 172.409120,
+      "delta": -31.953920,
+      "delta_percent": -15.635861,
+      "speedup": 1.185338
+    },
+    "summed_kernel_time_delta_ms": -31.661920,
+    "summed_kernel_time_delta_percent": -6.326399,
+    "kernel_span_delta_ms": -31.666912,
+    "kernel_span_delta_percent": -6.212093,
+    "attribution": "The 31.953920 ms target-kernel reduction differs from the mirrored B-C-C-B TTFT reduction by only 0.018580 ms. Unlocked-clock non-target noise offsets 0.292000 ms in summed kernel time, so the target rows explain essentially the complete end-to-end improvement."
+  },
+  "rejected_followups": [
+    {
+      "candidate": "256-entry shared E4M3 scale table widened from U16 to U32 with direct code indexing",
+      "resources": {
+        "registers_per_thread": 46,
+        "static_shared_bytes": 25088,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 5
+      },
+      "cell_speedups_gate_checkpoint_gate_stress_down_checkpoint_down_stress": [0.999958, 0.993333, 1.00026, 0.993715],
+      "weighted_speedup": 0.996757,
+      "required_each_cell_speedup": 1.0,
+      "required_weighted_speedup": 1.005,
+      "decision": "reject and remove; checkpoint-like cells are at parity while same-bank stress regresses"
+    },
+    {
+      "candidate": "U32 shared E4M3 scale table indexed by code XOR code-shift-right-5",
+      "resources": {
+        "registers_per_thread": 46,
+        "static_shared_bytes": 25088,
+        "local_bytes": 0,
+        "active_blocks_per_sm": 5
+      },
+      "cell_speedups_gate_checkpoint_gate_stress_down_checkpoint_down_stress": [0.999884, 1.00286, 0.999273, 1.00288],
+      "weighted_speedup": 1.00126,
+      "required_each_cell_speedup": 1.0,
+      "required_weighted_speedup": 1.005,
+      "decision": "reject and remove; stress recovers but both checkpoint-like cells miss parity and the weighted gain is below threshold"
+    }
+  ],
+  "measurement_protocol": {
+    "binary_identity_required": true,
+    "p33_user_text": "hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+    "microbenchmark_order": "B-C-C-B for every candidate and round",
+    "end_to_end_order": "detached factorized baseline, vector-store candidate, vector-store candidate, detached factorized baseline",
+    "ncu_kernel_filter": "exact demangled shape plus template bool pairs true,false and true,true",
+    "ncu_fixture_note": "The +2-byte scale fixture stresses the public two-byte-alignment contract; production resident tensors remain 256-byte aligned.",
+    "sanitizer_command_environment": "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1",
+    "rejected_code_retained": false
+  },
+  "limitations": [
+    "All timing evidence was collected in MAXN without confirmed locked clocks and is diagnostic rather than a release throughput claim.",
+    "The production promotion is limited to the two exact aligned M32 NVFP4 shapes; existing fallbacks remain in place elsewhere.",
+    "Prefill and Decode are logically separate plans but execute on one serial CUDA stream; this milestone adds no double/triple buffering or multi-stream overlap.",
+    "The NCU down row uses the synthetic same-bank-stress scale distribution and is labeled separately from checkpoint-like evidence."
+  ],
+  "artifacts": [
+    {"role": "default direct and contract test log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-default.log", "bytes": 35751, "sha256": "cf953465f7329337bf4d8f7d3e03d67c1a13c42b8c09dbcbca9fd24044f9e8fb", "checked_in": false},
+    {"role": "same-cubin performance log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-perf.log", "bytes": 61977, "sha256": "678c73cb1e95f3e86f46f6dae4170baea1588309bd763412a9761a829304a23a", "checked_in": false},
+    {"role": "Release suite log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-ctest-release.log", "bytes": 7398, "sha256": "01c3c74fba7c0571c277d473339af4bfd1ca5b04808797b327576138dc454034", "checked_in": false},
+    {"role": "verified ASan UBSan suite log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-ctest-sanitize.log", "bytes": 7271, "sha256": "0781e34edbb074b9daef4afd537919f42d4c6ec92f9c3a8c12c55a5b211aceef", "checked_in": false},
+    {"role": "C1 C8 C16 C32 model-oracle log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-e2e-c1-c8-c16-c32.log", "bytes": 962, "sha256": "3555019970ce4c55c79c5b1df10f3a3f0dc7f56d2b88ab098fd8de41526b618b", "checked_in": false},
+    {"role": "P33 C32 B-C-C-B log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-p33-c32-bccb.log", "bytes": 17438, "sha256": "e57ca4930485a7ce8de0e3c7c8f7b812e77d5e1903e75918a128040ac7f346be", "checked_in": false},
+    {"role": "baseline gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-vector-store-baseline-gateup.ncu-rep", "bytes": 1928311, "sha256": "e490761b8758c448d590c31afcbfbb674b40369ef445cec5267551a74d7a6325", "checked_in": false},
+    {"role": "candidate gate/up NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-vector-store-candidate-gateup.ncu-rep", "bytes": 1909343, "sha256": "083e3d452c00241436e444a08b492f19bd142db336239f5cfb58731c6f7561b6", "checked_in": false},
+    {"role": "baseline down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-vector-store-baseline-down.ncu-rep", "bytes": 1906826, "sha256": "d8e3fad394ff7ad23bb52bcf892f35c781f99201b43f5df0bd54b3d51d66157a", "checked_in": false},
+    {"role": "candidate down NCU report", "local_path": "/tmp/q3x-ncu-nvfp4-m32-vector-store-candidate-down.ncu-rep", "bytes": 1902353, "sha256": "5df8ee9252bd66b21e29dfde6a7d49287990f28a4ba98f6ca26809161036417a", "checked_in": false},
+    {"role": "baseline P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-baseline-p033-c32.nsys-rep", "bytes": 350624, "sha256": "2e6a5bf4dd2c10ebc71a982d372b14c5f5057c934aa6ca3507c7aee7f5948461", "checked_in": false},
+    {"role": "candidate P33 Nsight Systems report", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-candidate-p033-c32.nsys-rep", "bytes": 352693, "sha256": "596b5b8ccfe866b2d099353725a8d48e7b0883220a2775e15b3eda66730ca8a1", "checked_in": false},
+    {"role": "baseline P33 Nsight run log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-baseline-p033-c32.log", "bytes": 2932, "sha256": "21bcce0afc0152556e75077f2651801195a5b62de5c973588f0d1ae8a3a2db91", "checked_in": false},
+    {"role": "candidate P33 Nsight run log", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-candidate-p033-c32.log", "bytes": 2941, "sha256": "efc6e9d4d14815e52b2fb0d779b04ca9ab0410bc997f7c72fd89dc346039582b", "checked_in": false},
+    {"role": "baseline P33 Nsight kernel summary CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-baseline-p033-c32-kernel_cuda_gpu_kern_sum.csv", "bytes": 7560, "sha256": "dfa9709fc7f9feef9dbb95f379ccb168f0c41835433aafb08493b0d0628591ba", "checked_in": false},
+    {"role": "candidate P33 Nsight kernel summary CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-candidate-p033-c32-kernel_cuda_gpu_kern_sum.csv", "bytes": 7577, "sha256": "dd3cd57c27491e229287aedea47211e882c0318b3ddb61de997a1c04cc084b43", "checked_in": false},
+    {"role": "baseline P33 Nsight kernel trace CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-baseline-p033-c32-kernel_cuda_gpu_trace.csv", "bytes": 927660, "sha256": "c9ce7db70bbbf7354e58cfe042076ebe80540a665f8e0765a3e2246f8b61c79e", "checked_in": false},
+    {"role": "candidate P33 Nsight kernel trace CSV", "local_path": "/tmp/q3x-nvfp4-m32-vector-store-profile-candidate-p033-c32-kernel_cuda_gpu_trace.csv", "bytes": 929554, "sha256": "113827bf03c487766cabaaf385b1aebcc5d65af49e20b000304b65cbb814e5c4", "checked_in": false},
+    {"role": "rejected direct-U32 scale-table performance log", "local_path": "/tmp/q3x-nvfp4-m32-wide-scale-perf.log", "bytes": 69161, "sha256": "960181efbbe16c4847e7250d5d21fb25d7ab9f27def773dba0fa3fba1f36e605", "checked_in": false},
+    {"role": "rejected XOR-indexed U32 scale-table performance log", "local_path": "/tmp/q3x-nvfp4-m32-wide-swizzled-scale-perf.log", "bytes": 69377, "sha256": "b546eb5a4f72a538480dc5735cd518ae49b264d9a7f8c33ec6f4e4d2ff9581eb", "checked_in": false}
+  ],
+  "next_priority": "Keep the vector-store K64/LD72 M32 production route. The bounded direct and XOR-indexed U32 scale-table probes did not clear the distribution gate and were removed. Next isolate stage buffering or software pipelining inside the M32 kernel while preserving 46-or-fewer registers, zero local memory, five CTAs/SM, exact BF16 output, and the four STS.128 stores; then use a matched trace to decide whether the existing logical Prefill/Decode plan split has enough independent work to justify multi-stream overlap."
+}

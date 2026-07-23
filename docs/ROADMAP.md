@@ -326,6 +326,23 @@ table layout is bank-unfriendly. Bank-aware lookup layout and vectorized decoded
 stores therefore outrank broad double/triple buffering or multi-stream work.
 See the [factorized lookup record](metadata/qwen36-27b-nvfp4-m32-factorized-lookup-benchmark.json).
 
+The vector-store milestone (`9280474`) completes the first of those shared-
+traffic targets. It replaces sixteen scalar decoded-tile stores with four
+aligned `STS.128` stores without changing registers, shared footprint, or
+five-CTA/SM residency. The same-cubin weighted gate is 1.21352x, and NCU
+removes exactly 4,177,920 excessive shared wavefronts for each exact shape.
+P33/C32 mirrored TTFT moves from 486.1200 to 454.1475 ms (-6.5771%), while
+matched target-kernel time falls from 204.363040 to 172.409120 ms (1.18534x).
+Two immediate scale-table probes did not clear promotion: direct U32 indexing
+measured 0.99676x weighted, while high-bit-XOR U32 indexing reached only
+1.00126x against a 1.005x gate and left checkpoint-like cells at or below
+parity. Both were removed. This exhausts the cheap U32 scale-table subpath,
+not every possible E2M1-pair layout. The next priority is an isolated stage-
+buffering/pipeline gate, followed by prefill/decode execution overlap only if
+a trace demonstrates independent work; the logical plan split already exists,
+but execution is still serial on one stream. See the
+[vector-store record](metadata/qwen36-27b-nvfp4-m32-vector-store-benchmark.json).
+
 Separately, default AF_ALG authentication
 reduced the resident-load phase by 89.45% in a diagnostic historical
 comparison. The projection backend remains default-off while prompt and shape
