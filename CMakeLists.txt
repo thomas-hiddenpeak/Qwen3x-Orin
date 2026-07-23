@@ -107,6 +107,7 @@ add_library(q3x_kernels STATIC
   src/runtime/reference_runner.cpp
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/gdn_decode.cu
+  src/kernels/reference/gdn_m16_register_state.cu
   src/kernels/reference/layout_ops.cu
   src/kernels/reference/fp8_reference.cu
   src/kernels/reference/gemv_reference.cu
@@ -280,7 +281,6 @@ if(BUILD_TESTING)
 
   add_executable(q3x_gdn_decode_cuda_test
     tests/gdn_decode_cuda_test.cu
-    tests/gdn_register_state_candidate.cu
   )
   target_link_libraries(q3x_gdn_decode_cuda_test
     PRIVATE q3x::core q3x::kernels

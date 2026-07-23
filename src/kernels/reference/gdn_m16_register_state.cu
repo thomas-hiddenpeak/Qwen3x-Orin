@@ -1,5 +1,7 @@
 #include "q3x/runtime/gdn_decode.h"
 
+#include "gdn_m16_register_state.h"
+
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
@@ -403,6 +405,30 @@ __global__ void gated_delta_net_update_warp_eight_row_register_state_m16_kernel(
 }
 
 }  // namespace
+
+namespace gdn_decode_detail {
+
+int launch_gated_delta_net_update_m16_register_state_exact_cuda(
+    const std::uint16_t* const conv_qkv,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gated_delta_net_update_warp_eight_row_register_state_m16_kernel<<<
+      static_cast<unsigned int>(kGdnValueHeadCount), kRegisterStateThreads,
+      0U, stream>>>(conv_qkv, a, b, A_log, dt_bias, state_input,
+                    state_output, l2_epsilon, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace gdn_decode_detail
 
 int launch_gated_delta_net_update_tile_warp_eight_row_register_state_m16_test_cuda(
     const std::uint16_t* const conv_qkv,
