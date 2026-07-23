@@ -3935,8 +3935,34 @@ fixtures skip. The actually instrumented host ASan/UBSan build links
 `libasan.so.8` and `libubsan.so.1`, discovers 55 tests after excluding the
 package consumer, and fails none with five configured skips. This promotion
 does not introduce system double/triple buffering or Prefill/Decode overlap.
-The refreshed largest bounded target is the 1,410.349 ms gate/up pair envelope;
-the next prototype should test a pair-fused CTA that reuses activations and
-decode setup, while retaining this dual-stream implementation as its baseline.
+
+The bounded exact-M32 pair-fused CTA follow-up is now measured and closed. All
+three variants were test-only, used the promoted dual-stream pair as their
+same-cubin joined-envelope baseline, and left the production selector, public
+ABI, stream/event topology, and output contracts unchanged:
+
+| Pair-fused variant | Registers / shared / local | Residency | Result | Decision |
+| --- | ---: | ---: | ---: | --- |
+| 256-thread, one decoded-B slot | 64 / 25,600 B / 0 B | 4 CTA/SM | 1.01383x aggregate; 1.00310x minimum round | Rejected below the 1.02x aggregate gate |
+| 256-thread, two decoded-B slots | 64 / 41,984 B / 0 B | 3 CTA/SM | Performance not run | Rejected below the required 4 CTA/SM resource gate |
+| 512-thread, two decoded-B slots | 56 / 41,984 B / 0 B | 2 CTA/SM, 32 warps/SM | 0.899017x aggregate; 0.894528x minimum round | Rejected; both cells and all eight rounds regress |
+
+The single-B result is directionally positive but only one unlocked-clock
+process and remains below its predeclared threshold, so the gate was not
+lowered after measurement. The 512-thread route is bit-exact for both 557,056-
+element outputs under both synthetic distributions, but its larger CTA loses
+about 10% against the existing two-stream envelope. The two-slot 256-thread
+route stops before timing because its 41,984-byte footprint admits only three
+CTAs/SM. All candidate and harness code was removed, and the rebuilt default
+SM87 weight-only test passes with no pair-fused symbols remaining. No NCU,
+Nsys, or end-to-end run is claimed after the mandatory micro gate failed.
+
+The production table-free dual-stream path therefore remains selected. The
+next bounded target is the 932.156 ms exact-M32 down projection, using a
+materially different CTA-local dual-A/dual-decoded-B synchronization pipeline;
+it must retain zero spill, at least three CTAs/SM, and clear a 1.03x early
+kernel gate before broader integration. Register-resident GDN state follows if
+that down gate fails. This remains an intra-kernel experiment, not general
+system double/triple buffering or multi-request Prefill/Decode overlap.
 Full hashes, per-process rows, SASS identities, profiling summaries, and
 limitations are in the [table-free E2M1 benchmark record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).

@@ -559,16 +559,30 @@ target from 229.592608 to 66.677600 ms (3.44332x) and the full generation NVTX
 range by 161.549920 ms. See the
 [BF16 M16 projection-fused promotion record](metadata/qwen36-27b-bf16-m16-projection-fused-benchmark.json).
 
+The next exact-M32 gate/up pair-fused CTA screen is now measured and rejected.
+The 256-thread single-B version is exact and directionally positive, but its
+1.01383x aggregate misses the frozen 1.02x gate. A 256-thread dual-B version
+falls from the required four to three CTAs/SM before timing, while the
+512-thread dual-B version is exact but reaches only 0.899017x and loses all
+eight mirrored rounds. All candidates and their test harness were removed;
+the existing table-free two-stream path remains selected. This closes
+activation/codebook reuse through these pair-CTA topologies without changing
+the runtime scheduler. See the
+[table-free E2M1 record](metadata/qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json).
+
 None of these exact-kernel or shared-residency promotions introduces a runtime
 double/triple buffer. Prefill and Decode are logically separated by the
 completed plan seam, but batch-one execution remains causally dependency-
 serialized. The refreshed profile ranks NVFP4 M32 gate/up and down first by
-marginal critical-path exposure, followed by GDN and FP8 M32. Because the
-cheap NVFP4 M32 buffering paths already failed their frozen gates, the next
-main-line action is a mechanism audit: revisit NVFP4 only for materially new
-evidence, otherwise advance a bounded GDN candidate. Rejected product-table,
-scale-window ping-pong, activation-only `cp.async`, generalized dual-stream,
-and GDN shared-resident variants stay closed without a new mechanism.
+marginal critical-path exposure, followed by GDN and FP8 M32. Gate/up pair CTA
+fusion is now evidence-closed; the next main-line action is a bounded exact-M32
+down dual-A/dual-decoded-B pipeline, whose combined synchronization mechanism
+has not been covered by the rejected scale-only or activation-only probes. It
+must keep zero local memory, at least three CTAs/SM, and clear a 1.03x early
+kernel gate. If it fails, advance a bounded register-resident GDN-state
+candidate. Rejected product-table, pair-fused CTA, scale-window ping-pong,
+activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
+variants stay closed without a new mechanism.
 Independent executors and queues remain a future multi-request continuous-
 batching item after request/KV/workspace ownership, handoff, fairness, TTFT,
 inter-token, tail-latency, cancellation, and memory gates are explicit.

@@ -468,13 +468,74 @@
       "local-memory spill or active-block occupancy below five CTAs per SM"
     ]
   },
+  "rejected_followups": {
+    "exact_m32_gate_up_pair_fused_cta": {
+      "status": "rejected_and_removed",
+      "base_commit": "03b114eee623543030c0b041b2da3cd24a1a99ad",
+      "scope": "test-only exact-M32 [17408,5120] gate/up pair candidates; production dispatch, public ABI, dual-stream event topology, and output contracts were never changed",
+      "baseline": "the promoted table-free E2M1 gate and up kernels launched on the existing two-stream ready/done/join path, timed as one joined pair envelope",
+      "protocol": {
+        "scale_distributions": ["synthetic_checkpoint_like", "synthetic_same_bank_stress"],
+        "warmup_iterations": 10,
+        "logical_launches_per_pass": 24,
+        "rounds": 4,
+        "round_order": "baseline-candidate-candidate-baseline",
+        "required_minimum_cell_speedup": 1.0,
+        "required_minimum_round_speedup": 1.0,
+        "required_aggregate_speedup": 1.02,
+        "clocks_locked": false
+      },
+      "variants": [
+        {
+          "name": "256-thread single-decoded-B-slot",
+          "mechanism": "share the activation tile and scale codebook, retain four accumulator fragments, serialize gate/up decoded-B production through one slot",
+          "resources": {"registers_per_thread": 64, "static_shared_bytes": 25600, "local_bytes": 0, "threads_per_cta": 256, "active_ctas_per_sm": 4, "resource_gate": "pass"},
+          "correctness": {"gate_mismatches": 0, "up_mismatches": 0, "outputs_per_projection_per_distribution": 557056, "status": "pass"},
+          "cells": [
+            {"distribution": "synthetic_checkpoint_like", "baseline_pair_ms": 1.38470, "candidate_pair_ms": 1.36951, "speedup": 1.01109, "minimum_round_speedup": 1.00310},
+            {"distribution": "synthetic_same_bank_stress", "baseline_pair_ms": 1.38822, "candidate_pair_ms": 1.36557, "speedup": 1.01658, "minimum_round_speedup": 1.01265}
+          ],
+          "aggregate": {"baseline_pair_ms": 2.77292, "candidate_pair_ms": 2.73508, "speedup": 1.01383, "required_speedup": 1.02, "gate": "fail"},
+          "decision": "reject: bitwise, resource, cell, and round gates pass, but the predeclared aggregate gate does not"
+        },
+        {
+          "name": "256-thread dual-decoded-B-slot",
+          "mechanism": "retain four accumulator fragments and decode gate/up into independent B slots to reduce each K-stage from four CTA barriers to two",
+          "resources": {"registers_per_thread": 64, "static_shared_bytes": 41984, "local_bytes": 0, "threads_per_cta": 256, "active_ctas_per_sm": 3, "required_active_ctas_per_sm": 4, "resource_gate": "fail"},
+          "performance_not_run_after_resource_failure": true,
+          "decision": "reject at the mandatory occupancy gate; no timing claim is made"
+        },
+        {
+          "name": "512-thread dual-decoded-B-slot",
+          "mechanism": "assign eight warps to gate and eight to up, retain only two accumulator fragments per thread, and decode both B slots in parallel",
+          "resources": {"registers_per_thread": 56, "static_shared_bytes": 41984, "local_bytes": 0, "threads_per_cta": 512, "active_ctas_per_sm": 2, "active_warps_per_sm": 32, "resource_gate": "pass"},
+          "correctness": {"gate_mismatches": 0, "up_mismatches": 0, "outputs_per_projection_per_distribution": 557056, "status": "pass"},
+          "cells": [
+            {"distribution": "synthetic_checkpoint_like", "baseline_pair_ms": 1.36593, "candidate_pair_ms": 1.52113, "speedup": 0.897969, "minimum_round_speedup": 0.894528},
+            {"distribution": "synthetic_same_bank_stress", "baseline_pair_ms": 1.36932, "candidate_pair_ms": 1.52135, "speedup": 0.900066, "minimum_round_speedup": 0.898591}
+          ],
+          "aggregate": {"baseline_pair_ms": 2.73524, "candidate_pair_ms": 3.04248, "speedup": 0.899017, "required_speedup": 1.02, "positive_rounds": 0, "rounds": 8, "gate": "fail"},
+          "decision": "reject: exact output and the resource gate pass, but both cells and all eight rounds regress"
+        }
+      ],
+      "final_decision": "remove all pair-fused candidate and test-harness code; retain the production table-free dual-stream route; do not run NCU, Nsys, or end-to-end gates after the mandatory same-cubin screen failed",
+      "post_removal_validation": {
+        "target": "q3x_sm87_weight_only_gemv_test",
+        "status": "pass",
+        "candidate_symbols_remaining": 0
+      },
+      "reopen_when": "a materially different topology or profiler evidence changes the synchronization/occupancy mechanism"
+    }
+  },
   "limitations": [
     "Clocks were not locked; ratios are promotion diagnostics rather than fixed-frequency release-latency guarantees.",
     "Synthetic microbenchmarks cover checkpoint-like and same-bank-stress scale distributions; whole-model B-C-C-B and Nsys provide real-checkpoint evidence.",
     "Gate/up raw kernel sums double-count cross-stream overlap; pair envelope and union/marginal values are the critical-path metrics.",
     "Nsight Compute performance counters are unavailable to this user on the target vGPU, so no counter-derived bank-conflict reduction is claimed.",
     "The optimization applies only to exact M32 Prefill MLP projections. Decode M1 and M17-M31/M18 routes are unchanged.",
-    "The runtime has logical Prefill/Decode plans and one layer-local M32 gate/up auxiliary stream, but no general double/triple buffering or Prefill/Decode overlap for a batch-one request."
+    "The runtime has logical Prefill/Decode plans and one layer-local M32 gate/up auxiliary stream, but no general double/triple buffering or Prefill/Decode overlap for a batch-one request.",
+    "The rejected pair-fused follow-up used one unlocked-clock process and two synthetic scale distributions. It did not use actual checkpoint tensor payloads; the mandatory micro gate failed before NCU, Nsys, or end-to-end work was warranted.",
+    "The three pair-fused variants were sequential uncommitted test-only probes. Their logs freeze results, but the first two source/binary states were not retained as release-reproducible artifacts."
   ],
   "artifacts": [
     {"role": "final-binary same-cubin micro and pair run 1", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/micro-final1.log", "bytes": 62845, "sha256": "df70568da76bf7e0d051b0f34b49219fca6e453893974124e8e95a06698cd73a", "checked_in": false},
@@ -502,7 +563,12 @@
     {"role": "chunk-32 exact model oracle", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/oracle-c32.log", "bytes": 240, "sha256": "bb975508c140c593b38602201a45f2cff8b18a3ebe76960185d3b99a4faa2344", "checked_in": false},
     {"role": "canonical SASS method", "local_path": "/tmp/q3x-nvfp4-m32-table-free-sass-final.GmmAKt/METHOD.txt", "bytes": 2558, "sha256": "7311b846bef856bfd894ae004c7dd0d5526870f02cd5b8758b265de0e8805c44", "checked_in": false},
     {"role": "canonical SASS summary", "local_path": "/tmp/q3x-nvfp4-m32-table-free-sass-final.GmmAKt/SUMMARY.json", "bytes": 5243, "sha256": "be4d4f201ca55af8692872f5d747a662f69af5e964e18855affebc64800d9906", "checked_in": false},
-    {"role": "blocked NCU attempt", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/ncu-gateup-old.log", "bytes": 41421, "sha256": "2e3ef066d810393cee7c95c86d64dc7c47be7ac1e0475a3566a44cd23d4c9fc2", "checked_in": false}
+    {"role": "blocked NCU attempt", "local_path": "/tmp/q3x-tablefree-evidence.YC9hYm/ncu-gateup-old.log", "bytes": 41421, "sha256": "2e3ef066d810393cee7c95c86d64dc7c47be7ac1e0475a3566a44cd23d4c9fc2", "checked_in": false},
+    {"role": "rejected 256-thread single-B pair-fused performance screen", "local_path": "/tmp/q3x-m32-pair-fused-single-b-run1.log", "bytes": 65665, "sha256": "ca8f0db370e87d41f53bc66d90a353979af8c9530673196fc99b6a7b93589459", "checked_in": false},
+    {"role": "rejected 256-thread dual-B pair-fused resource screen", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-default.log", "bytes": 54610, "sha256": "c9bf16b45ab00bd894a6fd9742c508149e84e7f999a7e841f1967d335da3c866", "checked_in": false},
+    {"role": "512-thread dual-B pair-fused default resource smoke", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-512-default.log", "bytes": 54582, "sha256": "f37ad772cf7cc991ec8193cceb80344a99159520a89b46ba62b0ddea7509bcec", "checked_in": false},
+    {"role": "rejected 512-thread dual-B pair-fused performance screen", "local_path": "/tmp/q3x-m32-pair-fused-dual-b-512-run1.log", "bytes": 65917, "sha256": "2a8e95f9f574483294512c8130dd9ea1ec46842fef47223cd4b1ad294c816274", "checked_in": false},
+    {"role": "post-rejection candidate-removal default smoke", "local_path": "/tmp/q3x-m32-pair-fused-reverted-default.log", "bytes": 54298, "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4", "checked_in": false}
   ],
-  "next_priority": "Use the refreshed profile to prototype an exact-M32 gate/up pair-fused CTA that reuses activations and table-free decode setup across both projections; retain the current dual-stream kernel as the same-cubin baseline. If that bounded gate fails, move to the 0.932 s M32 down path, then GDN. General double/triple buffering and multi-request Prefill/Decode overlap remain a separate scheduler milestone."
+  "next_priority": "The exact-M32 pair-fused CTA gate is evidence-closed. Keep the production table-free dual-stream route and next prototype the 0.932 s exact-M32 down projection with a materially different dual-A/dual-decoded-B CTA-local pipeline; require zero spill, at least three CTAs per SM, and at least 1.03x kernel speedup before broader integration. If that gate fails, advance the bounded register-resident GDN state candidate. General double/triple buffering and multi-request Prefill/Decode overlap remain a separate scheduler milestone."
 }
