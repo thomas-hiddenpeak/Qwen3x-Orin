@@ -14018,8 +14018,13 @@ void run_nvfp4_m17_m31_runtime_masked_m32_default_matrix(
     }
 
     const auto launch = [&](std::uint16_t* const output) noexcept {
+      if (valid_tokens == 18U) {
+        return q3x::kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+            packed.get(), scales, weight_scale_2, exact_activations.get(),
+            rows, columns, output, static_cast<void*>(stream));
+      }
       return q3x::kernels::
-          launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
+          launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda(
               packed.get(), scales, weight_scale_2, exact_activations.get(),
               valid_tokens, rows, columns, output,
               static_cast<void*>(stream));
@@ -14067,7 +14072,8 @@ void run_nvfp4_m17_m31_runtime_masked_m32_default_matrix(
         });
     const bool gate = baseline_mismatches == 0U && replay_mismatches == 0U &&
                       output_finite && replay_tail_intact;
-    std::cout << "NVFP4_M17_M31_RUNTIME_MASKED_M32_DEFAULT: " << cell_label
+    std::cout << "NVFP4_M17_M31_PUBLIC_MASKED_M32_DEFAULT: "
+              << cell_label
               << " candidate_vs_two_m16_mismatches=" << baseline_mismatches
               << '/' << output_elements
               << " replay_mismatches=" << replay_mismatches << '/'
@@ -14750,6 +14756,153 @@ void run_nvfp4_m17_m31_runtime_masked_m32_invalid_capture_contract(
   test.expect(gate, label +
                         " rejects boundaries, pointers, aliases, alignment, "
                         "and overflow before enqueue");
+}
+
+void run_nvfp4_m17_m31_public_invalid_capture_contract(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kValidTokens = 31U;
+  constexpr std::size_t kMaximum =
+      std::numeric_limits<std::size_t>::max();
+  constexpr std::size_t kFirstAlignedInputOverflowColumns =
+      ((kMaximum / kValidTokens) / 16U + 1U) * 16U;
+  constexpr std::size_t kFirstOutputElementOverflowRows =
+      kMaximum / kValidTokens + 1U;
+  constexpr std::size_t kFirstOutputByteOverflowRows =
+      kMaximum / (kValidTokens * sizeof(std::uint16_t)) + 1U;
+  auto* const packed =
+      reinterpret_cast<const std::uint8_t*>(0x15'0000'0000ULL);
+  auto* const scales =
+      reinterpret_cast<const std::uint8_t*>(0x25'0000'0000ULL);
+  auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(0x35'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x45'0000'0000ULL);
+  const auto launch = [&](const std::uint8_t* const candidate_packed,
+                          const std::uint8_t* const candidate_scales,
+                          const float scale_2,
+                          const std::uint16_t* const candidate_activations,
+                          const std::size_t valid_tokens,
+                          const std::size_t rows, const std::size_t columns,
+                          std::uint16_t* const candidate_output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda(
+            candidate_packed, candidate_scales, scale_2,
+            candidate_activations, valid_tokens, rows, columns,
+            candidate_output, static_cast<void*>(stream));
+  };
+
+  const std::string label =
+      "NVFP4 public M17/M19-M31 invalid capture";
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin");
+  bool all_expected = ready;
+  const auto expect_invalid = [&](const int status) {
+    all_expected = all_expected &&
+                   static_cast<cudaError_t>(status) == cudaErrorInvalidValue;
+  };
+  const auto expect_success = [&](const int status) {
+    all_expected = all_expected &&
+                   static_cast<cudaError_t>(status) == cudaSuccess;
+  };
+  if (ready) {
+    expect_invalid(launch(packed, scales, 1.0F, activations, 16U, kRows,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, 18U, kRows,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, 32U, kRows,
+                          kColumns, output));
+    expect_success(launch(nullptr, nullptr, 1.0F, nullptr, 17U, 0U,
+                          kColumns, nullptr));
+    expect_success(launch(nullptr, nullptr, 1.0F, nullptr, 31U, kRows, 0U,
+                          nullptr));
+    expect_invalid(launch(nullptr, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, nullptr, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, nullptr, kValidTokens, kRows,
+                          kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns, nullptr));
+    expect_invalid(launch(packed, scales,
+                          std::numeric_limits<float>::quiet_NaN(),
+                          activations, kValidTokens, kRows, kColumns,
+                          output));
+    expect_invalid(launch(packed, scales, -1.0F, activations, kValidTokens,
+                          kRows, kColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns - 1U, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F,
+        reinterpret_cast<const std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(activations) + 1U),
+        kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(output) + 1U)));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kRows, kColumns,
+                          const_cast<std::uint16_t*>(activations)));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(activations) +
+            (kValidTokens - 1U) * kColumns * sizeof(std::uint16_t))));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kMaximum, 16U, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens, 1U,
+                          kFirstAlignedInputOverflowColumns, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kFirstOutputElementOverflowRows, 16U, output));
+    expect_invalid(launch(packed, scales, 1.0F, activations, kValidTokens,
+                          kFirstOutputByteOverflowRows, 16U, output));
+    expect_invalid(launch(
+        reinterpret_cast<const std::uint8_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 15U),
+        scales, 1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed,
+        reinterpret_cast<const std::uint8_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 1U),
+        1.0F, activations, kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F,
+        reinterpret_cast<const std::uint16_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 7U),
+        kValidTokens, kRows, kColumns, output));
+    expect_invalid(launch(
+        packed, scales, 1.0F, activations, kValidTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            std::numeric_limits<std::uintptr_t>::max() - 1U)));
+    expect_invalid(
+        q3x::kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+            packed, scales, 1.0F, activations, kRows, kColumns,
+            reinterpret_cast<std::uint16_t*>(
+                reinterpret_cast<std::uintptr_t>(output) + 1U),
+            static_cast<void*>(stream)));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph), label + " end") &&
+            ready;
+  }
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " query nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") && ready;
+  }
+  const bool gate = ready && all_expected && node_count == 0U;
+  std::cout << "NVFP4_M17_M31_PUBLIC_INVALID_CAPTURE: all_expected="
+            << (all_expected ? "true" : "false")
+            << " graph_nodes=" << node_count
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              label + " rejects invalid exact spans before any enqueue");
 }
 
 void run_nvfp4_m32_public_fallback_graph_contract(TestContext& test,
@@ -28740,6 +28893,7 @@ int main() {
   run_nvfp4_m32_wmma_invalid_capture_contract(test, stream);
   run_nvfp4_m17_m31_runtime_masked_m32_invalid_capture_contract(test,
                                                                  stream);
+  run_nvfp4_m17_m31_public_invalid_capture_contract(test, stream);
   run_nvfp4_m32_public_fallback_graph_contract(test, stream);
   run_nvfp4_factorized_product_lookup_exhaustive(test, stream);
   run_nvfp4_m32_wmma_resource_gates(test);

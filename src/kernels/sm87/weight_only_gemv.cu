@@ -3138,13 +3138,13 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   }
 }
 
-// Test-only runtime-valid-count form of the production factorized/vector-store
-// M32 kernel.  The first 16-token panel is always valid; the second panel reads
-// only rows below valid_token_count and zero-fills the rest.  The epilogue
+// Production runtime-valid-count form of the factorized/vector-store M32
+// design. The first 16-token panel is always valid; the second panel reads
+// only rows below valid_token_count and zero-fills the rest. The epilogue
 // likewise writes only the exact caller-owned [valid_token_count, rows] span.
 // Keeping this as a separate kernel leaves the validated fixed-M18 and M32
-// production specializations and their SASS unchanged while evaluating one
-// cubin instance per checkpoint shape for every M in [17, 31].
+// production specializations and their SASS unchanged while serving one
+// cubin instance per checkpoint shape for M=17 and M=19..31.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U>
 __global__ __launch_bounds__(kThreads, 5) void
@@ -7673,7 +7673,9 @@ void launch_nvfp4_lm_head_activation_staged_test_unchecked(
   if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
       multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
       packed_weights == nullptr || block_scales == nullptr ||
-      activations == nullptr || output == nullptr) {
+      activations == nullptr || output == nullptr ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(activations) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(output)) {
     return invalid_value();
   }
 
@@ -7692,7 +7694,7 @@ void launch_nvfp4_lm_head_activation_staged_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
-[[nodiscard]] int validate_nvfp4_m17_m31_runtime_mask_test_launch(
+[[nodiscard]] int validate_nvfp4_m17_m31_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations,
@@ -7716,7 +7718,9 @@ void launch_nvfp4_lm_head_activation_staged_test_unchecked(
   if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
       multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
       packed_weights == nullptr || block_scales == nullptr ||
-      activations == nullptr || output == nullptr) {
+      activations == nullptr || output == nullptr ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(activations) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(output)) {
     return invalid_value();
   }
 
@@ -11333,7 +11337,7 @@ int launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
     const std::size_t valid_token_count, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  const int validation = validate_nvfp4_m17_m31_runtime_mask_test_launch(
+  const int validation = validate_nvfp4_m17_m31_launch(
       packed_weights, block_scales, weight_scale_2, activations,
       valid_token_count, rows, columns, output);
   if (validation != static_cast<int>(cudaSuccess)) {
@@ -11965,6 +11969,81 @@ int launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
       packed_weights, block_scales, weight_scale_2,
       activations + kPrefixTokens * columns, kTailTokens, rows, columns,
       output + kPrefixTokens * rows, cuda_stream);
+}
+
+int launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kPrefixTokens = 16U;
+  constexpr std::size_t kMaximumTailTokens = 8U;
+  if (token_count == 18U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m17_m31_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess) || rows == 0U ||
+      columns == 0U) {
+    return validation;
+  }
+
+  const registry::ProjectionPlan plan = registry::select_projection_plan(
+      make_nvfp4_projection_query(token_count, packed_weights, block_scales,
+                                  activations, rows, columns));
+  if (plan.route ==
+      registry::ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma) {
+    const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+    (void)cudaGetLastError();
+    switch (plan.shape) {
+      case registry::ProjectionShape::kNvFp4_17408x5120:
+        launch_nvfp4_small_m17_m31_wmma_k64_dual_a_runtime_mask_unchecked<
+            17'408U, 5'120U>(packed_weights, block_scales, weight_scale_2,
+                             activations,
+                             static_cast<unsigned int>(token_count), output,
+                             stream);
+        break;
+      case registry::ProjectionShape::kNvFp4_5120x17408:
+        launch_nvfp4_small_m17_m31_wmma_k64_dual_a_runtime_mask_unchecked<
+            5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
+                             activations,
+                             static_cast<unsigned int>(token_count), output,
+                             stream);
+        break;
+      default:
+        return invalid_value();
+    }
+    return static_cast<int>(cudaGetLastError());
+  }
+  if (plan.route !=
+      registry::ProjectionRoute::kSplitM17M31IntoM16AndSmallM) {
+    return invalid_value();
+  }
+
+  int status = launch_sm87_nvfp4_w4a16_m16_gemm_bf16_cuda(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output, cuda_stream);
+  if (status != static_cast<int>(cudaSuccess)) {
+    return status;
+  }
+
+  std::size_t token_offset = kPrefixTokens;
+  while (token_offset < token_count) {
+    const std::size_t launch_tokens =
+        std::min(kMaximumTailTokens, token_count - token_offset);
+    status = launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
+        packed_weights, block_scales, weight_scale_2,
+        activations + token_offset * columns, launch_tokens, rows, columns,
+        output + token_offset * rows, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    token_offset += launch_tokens;
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(

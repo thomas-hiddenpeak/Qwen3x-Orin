@@ -33,7 +33,7 @@ enum class ProjectionShape : std::uint8_t {
   kNvFp4_248320x5120,
 };
 
-// Every value names a production control-flow leaf, except for the four
+// Every value names a production control-flow leaf, except for the five
 // explicit recursive fallbacks. Those fallbacks deliberately re-enter the
 // complete M1/M8/M16 dispatchers so offset-pointer eligibility and
 // launch-error ordering remain unchanged.
@@ -68,6 +68,8 @@ enum class ProjectionRoute : std::uint8_t {
   kSplitM16IntoM8,
   kNvFp4M18MaskedM32Wmma,
   kSplitM18IntoM16M2,
+  kNvFp4M17M31RuntimeMaskedM32Wmma,
+  kSplitM17M31IntoM16AndSmallM,
   kFp8M32Wmma,
   kNvFp4M32Wmma,
   kSplitM32IntoM16,
@@ -101,6 +103,19 @@ inline constexpr std::size_t kNvFp4M1ScaleCodebookMinimumColumns = 5'120U;
 inline constexpr unsigned int kNvFp4M1ScaleCodebookMaximumBlocks = 96U;
 inline constexpr std::size_t kNvFp4M8ScaleCodebookMinimumRows = 16U;
 inline constexpr unsigned int kNvFp4M2RowQuadMaximumBlocks = 64U;
+
+[[nodiscard]] static Q3X_SM87_ROUTE_INLINE constexpr bool
+is_nvfp4_runtime_masked_m32_token_count(
+    const std::size_t token_count) noexcept {
+  return token_count == 17U ||
+         (token_count >= 19U && token_count <= 31U);
+}
+
+[[nodiscard]] static Q3X_SM87_ROUTE_INLINE constexpr std::size_t
+nvfp4_m17_m31_fallback_launch_count(
+    const std::size_t token_count) noexcept {
+  return 1U + (token_count - 16U + 7U) / 8U;
+}
 
 [[nodiscard]] static Q3X_SM87_ROUTE_INLINE constexpr ProjectionShape
 classify_projection_shape(
@@ -309,6 +324,17 @@ select_nvfp4_projection_plan(
       (query.columns % kNvFp4VectorColumns) == 0U &&
       query.weight_aligned_4 && query.activation_aligned_8;
 
+  if (is_nvfp4_runtime_masked_m32_token_count(query.token_count)) {
+    if (is_nvfp4_mlp_shape(shape) && query.weight_aligned_16 &&
+        query.activation_aligned_8 && query.block_scales_aligned_2) {
+      return make_projection_plan(
+          shape, ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma);
+    }
+    return make_projection_plan(
+        shape, ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+        nvfp4_m17_m31_fallback_launch_count(query.token_count));
+  }
+
   if (query.token_count == 18U) {
     if (is_nvfp4_mlp_shape(shape) && query.weight_aligned_16 &&
         query.activation_aligned_8 && query.block_scales_aligned_2) {
@@ -395,9 +421,13 @@ select_nvfp4_projection_plan(
 [[nodiscard]] static Q3X_SM87_ROUTE_INLINE constexpr ProjectionPlan
 select_projection_plan(
     const ProjectionQuery& query) noexcept {
+  const bool supported_nvfp4_runtime_mask =
+      query.encoding == WeightEncoding::kNvFp4 &&
+      is_nvfp4_runtime_masked_m32_token_count(query.token_count);
   if (query.token_count == 0U || query.token_count > 32U ||
       (query.token_count > 8U && query.token_count != 16U &&
-       query.token_count != 18U && query.token_count != 32U)) {
+       query.token_count != 18U && query.token_count != 32U &&
+       !supported_nvfp4_runtime_mask)) {
     return make_projection_plan(ProjectionShape::kUnknown,
                                 ProjectionRoute::kInvalid, 0U, 0U);
   }

@@ -84,7 +84,9 @@ struct ProjectionTileSpans {
   if (!is_valid_projection_backend(backend) ||
       weight.valueless_by_exception() || token_count == 0U ||
       token_count > kMaximumProjectionTileTokenCount || input == nullptr ||
-      output == nullptr || spans == nullptr) {
+      output == nullptr || spans == nullptr ||
+      !pointer_is_aligned(input, alignof(std::uint16_t)) ||
+      !pointer_is_aligned(output, alignof(std::uint16_t))) {
     return invalid_value();
   }
 
@@ -779,6 +781,13 @@ int launch_projection_tile_to_bf16_cuda(
     }
     if (const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
         selected != nullptr) {
+      if (token_count == 17U ||
+          (token_count >= 19U && token_count <= 31U)) {
+        return kernels::launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, token_count, spans.rows,
+            spans.columns, output, cuda_stream);
+      }
       if (token_count == 18U) {
         return kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
             selected->packed_weight, selected->block_scale,
@@ -877,8 +886,12 @@ int launch_projection_pair_tile_to_bf16_cuda(
     return (weight.output_size == 17'408U && weight.input_size == 5'120U) ||
            (weight.output_size == 5'120U && weight.input_size == 17'408U);
   };
-  const bool eligible_nvfp4_m18_pair =
-      backend == ProjectionBackend::kSm87WeightOnly && token_count == 18U &&
+  const bool nvfp4_masked_token_count =
+      token_count == 18U || token_count == 17U ||
+      (token_count >= 19U && token_count <= 31U);
+  const bool eligible_nvfp4_masked_pair =
+      backend == ProjectionBackend::kSm87WeightOnly &&
+      nvfp4_masked_token_count &&
       first_nvfp4 != nullptr && second_nvfp4 != nullptr &&
       is_exact_nvfp4_mlp_shape(*first_nvfp4) &&
       is_exact_nvfp4_mlp_shape(*second_nvfp4) &&
@@ -886,7 +899,9 @@ int launch_projection_pair_tile_to_bf16_cuda(
       pointer_is_aligned(second_nvfp4->packed_weight, 16U) &&
       pointer_is_aligned(first_nvfp4->block_scale, 2U) &&
       pointer_is_aligned(second_nvfp4->block_scale, 2U) &&
-      pointer_is_aligned(input, 8U);
+      pointer_is_aligned(input, 8U) &&
+      pointer_is_aligned(first_output, alignof(std::uint16_t)) &&
+      pointer_is_aligned(second_output, alignof(std::uint16_t));
   bool aligned_fp8_pair = false;
   if (eligible_fp8_kv_pair || eligible_fp8_qkv_z_pair) {
     const auto& first = std::get<Fp8LinearWeight>(first_weight);
@@ -923,19 +938,30 @@ int launch_projection_pair_tile_to_bf16_cuda(
 
   // Preserve full-operation validation above, then keep the established
   // first-projection-before-second launch order while allowing each exact
-  // M18 NVFP4 projection to reach its single masked-M32 kernel.
-  if (eligible_nvfp4_m18_pair) {
-    int status = kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
-        first_nvfp4->packed_weight, first_nvfp4->block_scale,
-        first_nvfp4->weight_scale_2, input, first_spans.rows,
-        first_spans.columns, first_output, cuda_stream);
+  // masked-M32 NVFP4 projection to reach one kernel. Eligibility includes
+  // every alignment used by either public launcher; therefore, after both
+  // tiles and all cross-ranges pass above, the second call cannot fail a
+  // deterministic host-side validation after the first call is enqueued.
+  if (eligible_nvfp4_masked_pair) {
+    const auto launch = [&](const NvFp4LinearWeight& selected,
+                            const ProjectionTileSpans& spans,
+                            std::uint16_t* const selected_output) noexcept {
+      if (token_count == 18U) {
+        return kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
+            selected.packed_weight, selected.block_scale,
+            selected.weight_scale_2, input, spans.rows, spans.columns,
+            selected_output, cuda_stream);
+      }
+      return kernels::launch_sm87_nvfp4_w4a16_m17_m31_gemm_bf16_cuda(
+          selected.packed_weight, selected.block_scale,
+          selected.weight_scale_2, input, token_count, spans.rows,
+          spans.columns, selected_output, cuda_stream);
+    };
+    int status = launch(*first_nvfp4, first_spans, first_output);
     if (status != static_cast<int>(cudaSuccess)) {
       return status;
     }
-    return kernels::launch_sm87_nvfp4_w4a16_m18_gemm_bf16_cuda(
-        second_nvfp4->packed_weight, second_nvfp4->block_scale,
-        second_nvfp4->weight_scale_2, input, second_spans.rows,
-        second_spans.columns, second_output, cuda_stream);
+    return launch(*second_nvfp4, second_spans, second_output);
   }
 
   if (token_count > 16U) {

@@ -76,6 +76,16 @@ static_assert(matches(
     ProjectionShape::kNvFp4_17408x5120,
     ProjectionRoute::kNvFp4M18MaskedM32Wmma));
 static_assert(matches(
+    select_projection_plan(
+        query(WeightEncoding::kNvFp4, 17U, 17'408U, 5'120U)),
+    ProjectionShape::kNvFp4_17408x5120,
+    ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma));
+static_assert(matches(
+    select_projection_plan(
+        query(WeightEncoding::kNvFp4, 31U, 5'120U, 17'408U)),
+    ProjectionShape::kNvFp4_5120x17408,
+    ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma));
+static_assert(matches(
     select_projection_plan(query(WeightEncoding::kFp8, 18U, 10'240U,
                                  5'120U)),
     ProjectionShape::kFp8_10240x5120,
@@ -212,6 +222,34 @@ void test_exact_shape_matrix() {
   }
 }
 
+void test_runtime_masked_m17_m31_exact_routes() {
+  constexpr std::array<std::size_t, 14U> kTokenCounts{
+      17U, 19U, 20U, 21U, 22U, 23U, 24U,
+      25U, 26U, 27U, 28U, 29U, 30U, 31U};
+  struct Shape {
+    std::size_t rows;
+    std::size_t columns;
+    ProjectionShape shape;
+  };
+  constexpr std::array<Shape, 2U> kShapes{{
+      {17'408U, 5'120U, ProjectionShape::kNvFp4_17408x5120},
+      {5'120U, 17'408U, ProjectionShape::kNvFp4_5120x17408},
+  }};
+  for (const Shape& shape : kShapes) {
+    for (const std::size_t token_count : kTokenCounts) {
+      expect(query(WeightEncoding::kNvFp4, token_count, shape.rows,
+                   shape.columns),
+             shape.shape,
+             ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma, 0U, 1U);
+    }
+  }
+
+  expect(query(WeightEncoding::kNvFp4, 17U, 0U, 5'120U),
+         ProjectionShape::kUnknown, ProjectionRoute::kNoOp, 0U, 0U);
+  expect(query(WeightEncoding::kNvFp4, 17U, 17'408U, 0U),
+         ProjectionShape::kUnknown, ProjectionRoute::kNoOp, 0U, 0U);
+}
+
 void test_alignment_matrix() {
   for (const ExactShapeRoutes& exact : kExactShapes) {
     for (unsigned int bits = 0U; bits < 16U; ++bits) {
@@ -280,6 +318,24 @@ void test_alignment_matrix() {
       } else {
         expect(m18_query, exact.shape,
                ProjectionRoute::kSplitM18IntoM16M2, 0U, 2U);
+      }
+
+      if (exact.encoding == WeightEncoding::kNvFp4) {
+        for (const std::size_t token_count : {17U, 19U, 24U, 25U, 31U}) {
+          const ProjectionQuery runtime_query = query(
+              exact.encoding, token_count, exact.rows, exact.columns,
+              weight_aligned_4, weight_aligned_16, activation_aligned_8,
+              block_scales_aligned_2);
+          if (tensor_eligible &&
+              exact.routes[3U].route == ProjectionRoute::kNvFp4M16Wmma) {
+            expect(runtime_query, exact.shape,
+                   ProjectionRoute::kNvFp4M17M31RuntimeMaskedM32Wmma);
+          } else {
+            expect(runtime_query, exact.shape,
+                   ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+                   token_count <= 24U ? 2U : 3U);
+          }
+        }
       }
 
       const ProjectionQuery m32_query = query(
@@ -401,6 +457,22 @@ void test_near_misses_and_invalid_queries() {
     expect(query(exact.encoding, 18U, exact.rows + 1U, exact.columns),
            ProjectionShape::kUnknown, ProjectionRoute::kSplitM18IntoM16M2,
            0U, 2U);
+    if (exact.encoding == WeightEncoding::kNvFp4) {
+      for (const std::size_t token_count : {17U, 25U, 31U}) {
+        const std::size_t fallback_launch_count =
+            token_count <= 24U ? 2U : 3U;
+        expect(query(exact.encoding, token_count, exact.rows - 1U,
+                     exact.columns),
+               ProjectionShape::kUnknown,
+               ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+               fallback_launch_count);
+        expect(query(exact.encoding, token_count, exact.rows + 1U,
+                     exact.columns),
+               ProjectionShape::kUnknown,
+               ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+               fallback_launch_count);
+      }
+    }
     expect(query(exact.encoding, 32U, exact.rows - 1U, exact.columns),
            ProjectionShape::kUnknown, ProjectionRoute::kSplitM32IntoM16, 0U,
            2U);
@@ -425,6 +497,22 @@ void test_near_misses_and_invalid_queries() {
                  exact.columns + column_delta),
            ProjectionShape::kUnknown, ProjectionRoute::kSplitM18IntoM16M2,
            0U, 2U);
+    if (exact.encoding == WeightEncoding::kNvFp4) {
+      for (const std::size_t token_count : {17U, 25U, 31U}) {
+        const std::size_t fallback_launch_count =
+            token_count <= 24U ? 2U : 3U;
+        expect(query(exact.encoding, token_count, exact.rows,
+                     exact.columns - column_delta),
+               ProjectionShape::kUnknown,
+               ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+               fallback_launch_count);
+        expect(query(exact.encoding, token_count, exact.rows,
+                     exact.columns + column_delta),
+               ProjectionShape::kUnknown,
+               ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+               fallback_launch_count);
+      }
+    }
     expect(query(exact.encoding, 32U, exact.rows,
                  exact.columns - column_delta),
            ProjectionShape::kUnknown, ProjectionRoute::kSplitM32IntoM16, 0U,
@@ -447,12 +535,19 @@ void test_near_misses_and_invalid_queries() {
            ProjectionShape::kUnknown, ProjectionRoute::kSerialM1, 0U, 8U);
   }
 
-  for (const std::size_t token_count :
-       {0U, 9U, 15U, 17U, 19U, 31U, 33U}) {
+  for (const std::size_t token_count : {0U, 9U, 15U, 33U}) {
     expect(query(WeightEncoding::kFp8, token_count, 64U, 1'024U),
            ProjectionShape::kUnknown, ProjectionRoute::kInvalid, 0U, 0U);
     expect(query(WeightEncoding::kNvFp4, token_count, 64U, 1'024U),
            ProjectionShape::kUnknown, ProjectionRoute::kInvalid, 0U, 0U);
+  }
+  for (const std::size_t token_count : {17U, 19U, 31U}) {
+    expect(query(WeightEncoding::kFp8, token_count, 64U, 1'024U),
+           ProjectionShape::kUnknown, ProjectionRoute::kInvalid, 0U, 0U);
+    expect(query(WeightEncoding::kNvFp4, token_count, 64U, 1'024U),
+           ProjectionShape::kUnknown,
+           ProjectionRoute::kSplitM17M31IntoM16AndSmallM, 0U,
+           token_count <= 24U ? 2U : 3U);
   }
   expect(query(static_cast<WeightEncoding>(0xffU), 1U, 64U, 1'024U),
          ProjectionShape::kUnknown, ProjectionRoute::kInvalid, 0U, 0U);
@@ -476,6 +571,7 @@ void test_near_misses_and_invalid_queries() {
 
 int main() {
   test_exact_shape_matrix();
+  test_runtime_masked_m17_m31_exact_routes();
   test_alignment_matrix();
   test_generic_thresholds_and_fallbacks();
   test_near_misses_and_invalid_queries();
