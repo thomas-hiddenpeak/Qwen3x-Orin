@@ -18,6 +18,11 @@ constexpr unsigned int kResidualRmsBlocks =
     kResidualRmsHiddenSize / kThreads;
 constexpr std::size_t kResidualRmsBytes =
     kResidualRmsHiddenSize * sizeof(std::uint16_t);
+constexpr std::size_t kResidualRmsM32TokenCount = 32U;
+constexpr std::size_t kResidualRmsM32ElementCount =
+    kResidualRmsM32TokenCount * kResidualRmsHiddenSize;
+constexpr std::size_t kResidualRmsM32Bytes =
+    kResidualRmsM32ElementCount * sizeof(std::uint16_t);
 constexpr std::size_t kFusedGqaQueryHeads = 24U;
 constexpr std::size_t kFusedGqaKvHeads = 4U;
 constexpr std::size_t kFusedGqaHeadDimension = 256U;
@@ -56,6 +61,10 @@ static_assert((kThreads & (kThreads - 1U)) == 0U);
 static_assert(kBf16GreedyArgmaxBlocks != 0U &&
               kBf16GreedyArgmaxBlocks <= 32U);
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
+static_assert(kResidualRmsM32TokenCount <= kMaximumBlocks);
+static_assert(kResidualRmsM32TokenCount <=
+              std::numeric_limits<std::size_t>::max() /
+                  kResidualRmsHiddenSize);
 static_assert(kFusedGqaHeadDimension == kThreads);
 static_assert(kWarpPositionAttentionScoreHeadDimension == kThreads);
 static_assert(kWarpPositionAttentionScoreWarpsPerBlock * 32U == kThreads);
@@ -518,6 +527,56 @@ __global__ void residual_add_centered_rms_norm_5120_kernel(
   for (std::size_t index = threadIdx.x; index < kResidualRmsHiddenSize;
        index += blockDim.x) {
     const float gamma = decode_bf16_device(weight[index]) + 1.0F;
+    normalized_output[index] = encode_bf16_device(
+        decode_bf16_device(residual_output[index]) * inverse_rms * gamma);
+  }
+}
+
+// Exact-M32 Prefill path. One CTA owns one token, preserving the exact
+// residual BF16 boundary and per-token reduction tree of the two-kernel
+// reference path. The block-wide barriers also make normalized_output ==
+// right safe: every right operand is consumed before any normalized value is
+// written.
+__global__ __launch_bounds__(kThreads)
+void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output) {
+  __shared__ float partial[kThreads];
+  const std::size_t token = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token_offset = token * kResidualRmsHiddenSize;
+
+  float sum = 0.0F;
+  for (std::size_t dimension = threadIdx.x;
+       dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
+    const std::size_t index = token_offset + dimension;
+    // Keep the production operand order: residual-left + projection-right.
+    const std::uint16_t residual_bits =
+        encode_bf16_device(decode_bf16_device(left[index]) +
+                           decode_bf16_device(right[index]));
+    residual_output[index] = residual_bits;
+    const float residual = decode_bf16_device(residual_bits);
+    sum = fmaf(residual, residual, sum);
+  }
+
+  partial[threadIdx.x] = sum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float inverse_rms =
+      rsqrtf(partial[0] / static_cast<float>(kResidualRmsHiddenSize) +
+             epsilon);
+  for (std::size_t dimension = threadIdx.x;
+       dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
+    const std::size_t index = token_offset + dimension;
+    const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
     normalized_output[index] = encode_bf16_device(
         decode_bf16_device(residual_output[index]) * inverse_rms * gamma);
   }
@@ -1086,6 +1145,46 @@ void launch_attention_scores_unchecked(
       head_dimension, attention_scale, scores);
 }
 
+[[nodiscard]] bool valid_residual_rms_m32_5120_arguments(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const std::size_t token_count,
+    const std::size_t hidden_size,
+    const float epsilon,
+    const std::uint16_t* const residual_output,
+    const std::uint16_t* const normalized_output) noexcept {
+  if (token_count != kResidualRmsM32TokenCount ||
+      hidden_size != kResidualRmsHiddenSize || !valid_epsilon(epsilon) ||
+      left == nullptr || right == nullptr || weight == nullptr ||
+      residual_output == nullptr || normalized_output == nullptr ||
+      byte_range_overflows(left, kResidualRmsM32Bytes) ||
+      byte_range_overflows(right, kResidualRmsM32Bytes) ||
+      byte_range_overflows(weight, kResidualRmsBytes) ||
+      byte_range_overflows(residual_output, kResidualRmsM32Bytes) ||
+      byte_range_overflows(normalized_output, kResidualRmsM32Bytes)) {
+    return false;
+  }
+
+  // residual_output is always independent. normalized_output may exactly
+  // alias projection-right for the production layout, but no partial or
+  // other writable overlap is legal.
+  return !ranges_overlap(residual_output, kResidualRmsM32Bytes, left,
+                         kResidualRmsM32Bytes) &&
+         !ranges_overlap(residual_output, kResidualRmsM32Bytes, right,
+                         kResidualRmsM32Bytes) &&
+         !ranges_overlap(residual_output, kResidualRmsM32Bytes, weight,
+                         kResidualRmsBytes) &&
+         !ranges_overlap(residual_output, kResidualRmsM32Bytes,
+                         normalized_output, kResidualRmsM32Bytes) &&
+         !ranges_overlap(normalized_output, kResidualRmsM32Bytes, left,
+                         kResidualRmsM32Bytes) &&
+         !partially_overlaps(normalized_output, kResidualRmsM32Bytes, right,
+                             kResidualRmsM32Bytes) &&
+         !ranges_overlap(normalized_output, kResidualRmsM32Bytes, weight,
+                         kResidualRmsBytes);
+}
+
 [[nodiscard]] bool valid_attention_score_test_arguments(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -1183,6 +1282,63 @@ template <bool kCentered, bool kApplySiluGate>
 }
 
 }  // namespace
+
+int launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    const std::size_t token_count,
+    const std::size_t hidden_size,
+    const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  if (!valid_residual_rms_m32_5120_arguments(
+          left, right, weight, token_count, hidden_size, epsilon,
+          residual_output, normalized_output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  residual_add_headwise_centered_rms_norm_m32_5120_kernel
+      <<<static_cast<unsigned int>(kResidualRmsM32TokenCount), kThreads, 0U,
+         stream>>>(left, right, weight, epsilon, residual_output,
+                   normalized_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, residual_add_headwise_centered_rms_norm_m32_5120_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, residual_add_headwise_centered_rms_norm_m32_5120_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
 
 int launch_attention_scores_baseline_24_4_256_test_cuda(
     const std::uint16_t* const query,

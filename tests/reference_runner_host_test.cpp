@@ -507,6 +507,18 @@ void test_schedule_and_workspace(TestContext& test) {
       "fused full-attention preprocess selector accepts M=1..16 and rejects "
       "M=0, M=17, and position/table byte-offset overflow");
 
+  test.expect(
+      detail::use_m32_prefill_residual_rms_fusion(
+          32U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(
+              31U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(
+              33U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(32U, 5'119U) &&
+          !detail::use_m32_prefill_residual_rms_fusion(32U, 5'121U),
+      "Prefill residual/RMS schedule selects only exact M32 hidden-5120 and "
+      "preserves every other tile fallback");
+
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();
   test.expect(built.ok(), "default request plan builds for runner validation");

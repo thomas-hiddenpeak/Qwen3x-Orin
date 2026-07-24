@@ -236,6 +236,13 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Selects the exact-M32 residual-add plus centered-RMSNorm schedule. When
+// selected, layer 0 retains its standalone input norm; each MLP residual
+// produces the normalized input for the next layer (or the final norm after
+// the final layer), so no subsequent standalone input/final norm is scheduled.
+[[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
+    std::size_t token_count, std::size_t hidden_size) noexcept;
+
 // Pure-host selector for the narrow C32 NVFP4 MLP scheduling optimization.
 // It accepts only the two exact aligned direct-output projections, so every
 // route that could touch the shared FP32 fallback scratch remains serial.

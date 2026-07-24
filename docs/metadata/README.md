@@ -411,6 +411,15 @@ The diagnostic Phase 3 records are:
   performance evidence remains valid, while the test's 4/4 NaN bit match is
   explicitly not treated as a full runtime semantics proof. The candidate was
   removed before stress, independent-repeat, Nsys, NCU, or end-to-end work.
+- [`qwen36-27b-m32-residual-centered-rmsnorm-fusion-benchmark.json`](qwen36-27b-m32-residual-centered-rmsnorm-fusion-benchmark.json),
+  which records the promoted exact-M32 residual-add plus centered-RMSNorm
+  boundary fusion. It freezes the rounded-BF16 bitwise and NaN-order contract,
+  alias/guard/replay/Graph and selector gates, actual checkpoint norm fixtures,
+  final resources and SASS, P33/P64/P513 model oracles, exact launch-topology
+  reduction, and two independent P513 B-C-C-B groups. Hot repeated chains reach
+  about 1.497x, production raw target kernels reach 1.0703x, and the measured
+  whole P513 prefix improves by 0.278%; the record explicitly confines each
+  claim and retains the cross-capture Nsight drift warning.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

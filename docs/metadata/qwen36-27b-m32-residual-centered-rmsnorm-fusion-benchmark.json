@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-m32-residual-centered-rmsnorm-fusion-benchmark",
+  "status": "promoted-production-prefill-exact-m32-residual-centered-rmsnorm-fusion",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "Promote the exact-M32, hidden-5120 residual-add plus centered-RMSNorm kernel and its layer-boundary Prefill schedule.",
+    "The selected kernel is bitwise-equivalent to the two-kernel baseline, including the rounded BF16 residual boundary, and reduces each selected CUDA Graph chain from two nodes to one.",
+    "Hot same-binary microbenchmarks reach about 1.497x, but production attribution reaches only 1.07029482x for the replaced GPU-kernel chain; the whole P513 prefix improves by 0.278109% in two independent B-C-C-B groups.",
+    "The optimization is deliberately limited to exact M32. Decode, M1, M2..M31, and Prefill tail tiles retain the prior schedule."
+  ],
+  "source": {
+    "base_head": "8b2ec349cf723b9055a64f160f9e98849d334751",
+    "base_subject": "docs: clarify Prefill residual fusion savings",
+    "base_tree": "4bf395e35160cb9a77ba97469236d5f2994f0129",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted production kernel, launcher, exact-M32 runner schedule, and tests on base_head",
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "candidate_binary": {
+      "path_during_measurement": "build/orin-release/qwen3x-orin",
+      "retained_local_path": "/tmp/q3x-m32-residual-rms.obfg16/candidate-production",
+      "bytes": 4130032,
+      "sha256": "dd2457dd13600bb40300fb8da5a98385c63b0dda338f7f22384212760ba4ff1c",
+      "elf_build_id": "19468f254c51ff7f097eb5718cf5713e1de71935",
+      "checked_in": false
+    },
+    "rebuilt_baseline_binary": {
+      "local_path": "/home/rm01/q3x-prefill-resnorm-baseline-8b2ec34/build/orin-release/qwen3x-orin",
+      "bytes": 4128456,
+      "sha256": "e06f45e22fff086557f078abfb7ed4bf687e4d485164651536a624081e9f1f41",
+      "elf_build_id": "1b6c8e1839916436d84a6e744a3708ec857887b6",
+      "source_note": "The runtime source is identical to b09614c because b09614c..8b2ec34 changes documentation only."
+    },
+    "historical_baseline_install_copy": {
+      "path_during_measurement": "build/orin-release/package-consumer-prefix/bin/qwen3x-orin",
+      "bytes": 4128456,
+      "sha256_during_measurement": "b4114f7b5dd65678887cc50a04eee2c710a5304181b6dcc7cf0531573b6487b4",
+      "elf_build_id": "1995be1f538fd7a90183bd5df370c05055084c38",
+      "original_build_target_sha256": "298e603e133069dbc65dcc6d7eb71d266eebedf5ea917c6b381fa8e020bd46ec",
+      "relationship": "The install copy preserved the original ELF Build ID and differed from the original target only because installation removed RUNPATH.",
+      "retained_at_recording": false,
+      "retention_note": "The final package-consumer CTest subsequently overwrote this path with the candidate install; the exact baseline B-C-C-B logs remain retained and hashed."
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "fixed_frequency": {
+      "nvpmodel": "MAXN",
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_mrq_rate_locked": true,
+      "claim_boundary": "Named-device latency evidence only; no cross-device, throughput, power, energy, or multi-request claim."
+    }
+  },
+  "implementation": {
+    "phase": "Prefill exact M32",
+    "token_count": 32,
+    "hidden_size": 5120,
+    "grid": [32, 1, 1],
+    "block": [256, 1, 1],
+    "mechanism": "One CTA owns one token. It computes residual-left plus projection-right, rounds and stores the public BF16 residual, accumulates squares from that rounded value with the original 256-lane tree, applies centered RMSNorm, and writes BF16 normalized output.",
+    "schedule": {
+      "layer0_input_norm": "retained as a standalone kernel",
+      "attention_boundaries": 64,
+      "mlp_boundaries": 64,
+      "next_layer_input_norm": "folded into the preceding MLP residual boundary",
+      "final_norm": "folded into the final-layer MLP residual boundary",
+      "selected_tiles_in_P513_C32": 16,
+      "fused_launches_in_P513_C32": 2048
+    },
+    "fallbacks_unchanged": [
+      "Decode and ReferenceRunner::step M1",
+      "Prefill M2..M31",
+      "M32-disabled or non-5120 shapes",
+      "tail tiles such as the M31 tail in P64/C32"
+    ],
+    "general_double_buffer_added": false,
+    "general_triple_buffer_added": false,
+    "prefill_decode_executor_split_changed": false
+  },
+  "correctness_and_contract": {
+    "finite_bitwise": "0 mismatches across 163840 residual values and 163840 normalized values for out-of-place, exact-right-alias, replay, and Graph replay cases",
+    "nan_operand_order": {
+      "pairs": 64516,
+      "candidate_matches_runtime_order": 64516,
+      "reversed_order_bit_differences": 0,
+      "interpretation": "The source and SASS preserve residual-left plus projection-right. On SM87 FADD canonicalizes these NaNs, so value-level operand-order observability is not claimed."
+    },
+    "guards": "pass",
+    "inputs_preserved": true,
+    "exact_right_alias": "pass",
+    "cuda_graph": {
+      "baseline_kernel_nodes": 2,
+      "candidate_kernel_nodes": 1,
+      "baseline_dependency": "residual root -> centered RMSNorm",
+      "invalid_cases_nodes": 0,
+      "replay": "pass"
+    },
+    "selector": "Only M32 and hidden-5120 selects the fused production schedule; M31, M33, H5119, and H5121 reject it.",
+    "actual_model_oracles": {
+      "P33_C32": "33 prompt tokens; ID 9419; text Hello; 33 steps",
+      "P64_C32": "64 prompt tokens; M32+M31 schedule; ID 9419; text Hello; 64 steps",
+      "P513_C32": "513 prompt tokens; sixteen M32 prefix tiles; ID 9419; text Hello; 513 steps",
+      "P513_C16_fallback": "513 prompt tokens; ID 9419; text Hello; 513 steps",
+      "P19_chunks_1_8_16_32": "Each matched 19 prompt IDs, 26 generated IDs, exact Chinese text, im_end, and 44 steps."
+    },
+    "overall_gate": "pass"
+  },
+  "checkpoint_fixtures": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "actual_fields": "Only the norm weights are checkpoint payloads; activation and residual inputs are deterministic fixtures.",
+    "layer0_post_attention_norm": {
+      "absolute_offset": 2544000192,
+      "bytes": 10240,
+      "sha256": "8a672b9c5681d05057f2318e2a4ed48764fff341cd99afd660011766a8356359"
+    },
+    "layer1_input_norm": {
+      "absolute_offset": 2544010432,
+      "bytes": 10240,
+      "sha256": "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d"
+    },
+    "third_fixture": "deterministic cancellation stress"
+  },
+  "sass_and_resources": {
+    "registers_per_thread": 20,
+    "static_shared_bytes": 1024,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 6,
+    "actual_grid_residency": "The 32-CTA grid places two CTAs per each of 16 SMs; the resource ceiling is six CTAs per SM.",
+    "instructions": 264,
+    "function_block_bytes": 65172,
+    "function_block_sha256": "8c9ecf970f1a406b51344c57da5eeca2f7817ceca5c3741898251e6c46235f57",
+    "full_sass_sha256": "e514903c486280b72b6f5b86e27f616ea1594fb00b53ac45d282bbe083c4dd3f",
+    "resource_dump_sha256": "a8c062269d5176410c891ba63b628ce2be5a216b46b96c09425c966459137180"
+  },
+  "hot_same_binary_performance": {
+    "protocol": "128 alternating warmups, six rounds, 512 recursive chains per pass, B-C-C-B order, actual layer-0 and layer-1 norm weights plus cancellation stress",
+    "required_median_speedup": 1.15,
+    "required_minimum_round_speedup": 1.0,
+    "fixtures": [
+      {"name": "actual_layer0_post_attention_norm", "median_speedup": 1.49684, "minimum_round_speedup": 1.49644, "gate": "pass"},
+      {"name": "actual_layer1_input_norm", "median_speedup": 1.49690, "minimum_round_speedup": 1.49576, "gate": "pass"},
+      {"name": "deterministic_cancellation_stress", "median_speedup": 1.49702, "minimum_round_speedup": 1.49629, "gate": "pass"}
+    ],
+    "claim_boundary": "This is a hot repeated-chain microbenchmark and is not the whole-Prefill speedup."
+  },
+  "production_performance": {
+    "workload": "P513/C32/max1: 513 rendered prompt tokens, 512 prefix tokens, sixteen exact-M32 prefix tiles",
+    "nsys_topology": {
+      "prefix_kernel_instances_before": 42224,
+      "prefix_kernel_instances_after": 40176,
+      "generation_kernel_instances_before": 42709,
+      "generation_kernel_instances_after": 40661,
+      "finish_prefill_kernel_instances_before": 485,
+      "finish_prefill_kernel_instances_after": 485,
+      "fused_kernel_instances_after": 2048,
+      "standalone_residual_instances_before": 2048,
+      "standalone_residual_instances_after": 0,
+      "centered_norm_instances_before": 2064,
+      "centered_norm_instances_after": 16
+    },
+    "target_chain_gpu_raw_ms": {
+      "baseline_residual": 23.985344,
+      "baseline_centered_norm": 42.854208,
+      "baseline_total": 66.839552,
+      "candidate_fused": 62.449664,
+      "saving": 4.389888,
+      "speedup": 1.07029482
+    },
+    "launch_and_span_note": "CUDA Runtime attribution falls from 4096 launches/86.270048 ms to 2048 launches/44.537024 ms. Those API totals include profiler, enqueue, and GPU back-pressure and are not added to raw kernel time; observed prefix span idle falls by 8.526560 ms.",
+    "B_C_C_B_groups": [
+      {
+        "baseline_identity": "independent runtime-identical rebuild",
+        "baseline_process_medians_ms": [4760.092, 4769.635],
+        "candidate_process_medians_ms": [4758.278, 4743.087],
+        "baseline_bracket_mean_ms": 4764.8635,
+        "candidate_bracket_mean_ms": 4750.6825,
+        "saving_ms": 14.181,
+        "speedup": 1.002985045,
+        "reduction_percent": 0.297616
+      },
+      {
+        "baseline_identity": "historical installed binary with the original post-GDN ELF Build ID",
+        "baseline_process_medians_ms": [4761.611, 4782.808],
+        "candidate_process_medians_ms": [4761.761, 4757.973],
+        "baseline_bracket_mean_ms": 4772.2095,
+        "candidate_bracket_mean_ms": 4759.867,
+        "saving_ms": 12.3425,
+        "speedup": 1.002593035,
+        "reduction_percent": 0.258633
+      }
+    ],
+    "combined_B_C_C_B": {
+      "baseline_mean_of_process_medians_ms": 4768.5365,
+      "candidate_mean_of_process_medians_ms": 4755.27475,
+      "saving_ms": 13.26175,
+      "speedup": 1.002788850,
+      "reduction_percent": 0.278109,
+      "gate": "pass"
+    },
+    "profile_drift_boundary": "The baseline and candidate Nsys captures were not paired. Common prefix kernels are 4.2976% slower in the candidate capture, dominated by a 9.6755% gate/up marginal-union shift, while identical finish-prefill work is 7.3398% faster. Cross-capture whole-phase time is therefore diagnostic only; unprofiled B-C-C-B is the promotion result."
+  },
+  "validation": {
+    "release_ctest": "56/56 completed without failure: 51 passed and 5 were configured skips; the four model-backed engine cases were run directly below",
+    "direct_model_e2e_chunks": [1, 8, 16, 32],
+    "direct_model_e2e": "all passed",
+    "git_diff_check": "pass",
+    "independent_static_audit": "GO; no correctness, API, scheduling, Graph, or warning blocker"
+  },
+  "artifacts": {
+    "root": "/tmp/q3x-m32-residual-rms.obfg16",
+    "formal_log": {"path": "formal-production.log", "bytes": 13421, "sha256": "156fffc93b052e7d7bc96b6a86e61445b85210c827a44a8a8b7a13c26610749a"},
+    "formal_sass": {"path": "formal-production.sass", "bytes": 1527453, "sha256": "e514903c486280b72b6f5b86e27f616ea1594fb00b53ac45d282bbe083c4dd3f"},
+    "formal_kernel_sass": {"path": "formal-production.kernel.sass", "bytes": 65172, "sha256": "8c9ecf970f1a406b51344c57da5eeca2f7817ceca5c3741898251e6c46235f57"},
+    "formal_resources": {"path": "formal-production.resources", "bytes": 5886, "sha256": "a8c062269d5176410c891ba63b628ce2be5a216b46b96c09425c966459137180"},
+    "production_nsys": {"path": "p513-production.nsys-rep", "bytes": 3129495, "sha256": "e5587d73a45bdcb4e0b3e8ca667d94c60235b10baaf4e4ad246dc6beb2b4b80a"},
+    "production_log": {"path": "p513-production.log", "bytes": 8974, "sha256": "f03ed0273185acc0cd24315b90bce916fb6a9daa4df5e6d38f4bcdf465e3e0ad"},
+    "production_csv": {"path": "p513-production-kernel-by-nvtx.csv", "bytes": 11038, "sha256": "f81f274641d4fb0e2191ff621c231ac04fe14591f8b8f2b24b77665a11b36dea"},
+    "B_C_C_B_logs": [
+      {"path": "e2e-p513-b1.log", "sha256": "113ba8ad1029bd4c168d8dd3adf9b42f6d016d035125cccdf7873bb4962ea1b2"},
+      {"path": "e2e-p513-c1.log", "sha256": "ae6b77abad55a8e1c28b15ed84f97e5584e6ae9a7f05a14e04912458f8baaa07"},
+      {"path": "e2e-p513-c2.log", "sha256": "5df15835235b466f9bddf053926f75ef5f62e3f59e6424d5a21591ca112c405e"},
+      {"path": "e2e-p513-b2.log", "sha256": "58d371acc94e972d166502107ee8b1ea004b4d380387e9f073ba050ae584da2c"},
+      {"path": "e2e-p513-exact-b1.log", "sha256": "e3e687e0e15beab2f01279711e98a20118d520522032ee9b58fe46347a0a4f3a"},
+      {"path": "e2e-p513-exact-c1.log", "sha256": "ac7c00b41f2364f2e3e8f7569fdccf705884bee2cbc2d1d214fb6cd8eef262d1"},
+      {"path": "e2e-p513-exact-c2.log", "sha256": "8626cafb44c39024efafa964a641206e8ba865c7df47ad53552f2793c5cc3487"},
+      {"path": "e2e-p513-exact-b2.log", "sha256": "7228511467bdbd0c17fcf5df98ad159ca9f1bcaee3e4ca61f8efa5f997b590cd"}
+    ]
+  },
+  "promotion": {
+    "decision": "promote",
+    "reason": "The exact-M32 route passes bitwise, special-value, alias, guard, replay, Graph, selector, resource, actual-model, hot micro, production topology, and two independent end-to-end B-C-C-B gates.",
+    "measured_scope": "The whole-prefix improvement is about 0.28% on P513/C32, not 1.497x. The larger value applies only to a hot repeated two-kernel chain.",
+    "next_work": "Use the promoted 256-thread kernel as C0, then screen packed-register residual caching and 512/768-thread shared-staging variants. Require at least 1.05x production-context improvement over C0 before changing the public launcher again."
+  }
+}

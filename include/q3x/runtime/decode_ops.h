@@ -183,6 +183,20 @@ inline constexpr std::size_t kBf16GreedyArgmaxWorkspaceResults = 33U;
     std::uint16_t* residual_output, std::uint16_t* normalized_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fixed exact-M32 Prefill residual boundary. token_count must be 32 and
+// hidden_size must be 5120. This is bitwise-equivalent to residual-left plus
+// projection-right, rounded to BF16, followed by per-token centered RMSNorm
+// of that rounded residual. residual_output must be disjoint from every input
+// and normalized_output. normalized_output may alias right exactly, but must
+// otherwise be disjoint from all inputs.
+[[nodiscard]] int
+launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+    const std::uint16_t* left, const std::uint16_t* right,
+    const std::uint16_t* weight, std::size_t token_count,
+    std::size_t hidden_size, float epsilon,
+    std::uint16_t* residual_output, std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_fp32_to_bf16_reference_cuda(
     const float* input, std::size_t element_count, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;

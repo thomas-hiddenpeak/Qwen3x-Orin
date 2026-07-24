@@ -1,3 +1,4 @@
+#include "q3x/core/sha256.h"
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/layout_ops.h"
 
@@ -10,13 +11,20 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace q3x::runtime {
+
+int query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
 
 int launch_attention_scores_baseline_24_4_256_test_cuda(
     const std::uint16_t* query, const std::uint16_t* key_cache,
@@ -767,6 +775,152 @@ void test_launch_validation(TestContext& test) {
               "overlap");
 }
 
+void test_residual_rms_m32_launch_validation(TestContext& test) {
+  constexpr std::size_t kTokenCount = 32U;
+  constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr std::size_t kElementCount = kTokenCount * kHiddenSize;
+  static std::array<std::uint16_t, 4U * kElementCount + kHiddenSize>
+      storage{};
+  const std::uint16_t* const left = storage.data();
+  const std::uint16_t* const right = left + kElementCount;
+  const std::uint16_t* const weight = right + kElementCount;
+  std::uint16_t* const residual =
+      storage.data() + 2U * kElementCount + kHiddenSize;
+  std::uint16_t* const normalized = residual + kElementCount;
+  const auto launch = [&](const std::uint16_t* const launch_left,
+                          const std::uint16_t* const launch_right,
+                          const std::uint16_t* const launch_weight,
+                          const std::size_t token_count,
+                          const std::size_t hidden_size,
+                          const float epsilon,
+                          std::uint16_t* const launch_residual,
+                          std::uint16_t* const launch_normalized) {
+    return static_cast<cudaError_t>(q3x::runtime::
+        launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+            launch_left, launch_right, launch_weight, token_count,
+            hidden_size, epsilon, launch_residual, launch_normalized,
+            nullptr));
+  };
+
+  test.expect(launch(nullptr, right, weight, kTokenCount, kHiddenSize,
+                     1.0e-6F, residual, normalized) ==
+                  cudaErrorInvalidValue &&
+                  launch(left, nullptr, weight, kTokenCount, kHiddenSize,
+                         1.0e-6F, residual, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, nullptr, kTokenCount, kHiddenSize,
+                         1.0e-6F, residual, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, weight, kTokenCount, kHiddenSize,
+                         1.0e-6F, nullptr, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, weight, kTokenCount, kHiddenSize,
+                         1.0e-6F, residual, nullptr) ==
+                      cudaErrorInvalidValue,
+              "M32 residual RMSNorm rejects each null storage argument");
+  constexpr std::array<std::pair<std::size_t, std::size_t>, 6U>
+      kInvalidShapes{{{31U, kHiddenSize},
+                      {33U, kHiddenSize},
+                      {kTokenCount, 5'119U},
+                      {kTokenCount, 5'121U},
+                      {0U, kHiddenSize},
+                      {kTokenCount, 0U}}};
+  for (const std::pair<std::size_t, std::size_t>& invalid_shape :
+       kInvalidShapes) {
+    test.expect(launch(left, right, weight, invalid_shape.first,
+                       invalid_shape.second, 1.0e-6F, residual,
+                       normalized) == cudaErrorInvalidValue,
+                "M32 residual RMSNorm rejects non-fixed shape");
+  }
+  for (const float invalid_epsilon :
+       {0.0F, -1.0e-6F, std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN()}) {
+    test.expect(launch(left, right, weight, kTokenCount, kHiddenSize,
+                       invalid_epsilon, residual, normalized) ==
+                    cudaErrorInvalidValue,
+                "M32 residual RMSNorm rejects invalid epsilon");
+  }
+
+  const std::uintptr_t near_max_address =
+      std::numeric_limits<std::uintptr_t>::max() - 1U;
+  const auto* const near_max_input =
+      reinterpret_cast<const std::uint16_t*>(near_max_address);
+  auto* const near_max_output =
+      reinterpret_cast<std::uint16_t*>(near_max_address);
+  test.expect(launch(near_max_input, right, weight, kTokenCount, kHiddenSize,
+                     1.0e-6F, residual, normalized) ==
+                  cudaErrorInvalidValue &&
+                  launch(left, near_max_input, weight, kTokenCount,
+                         kHiddenSize, 1.0e-6F, residual, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, near_max_input, kTokenCount,
+                         kHiddenSize, 1.0e-6F, residual, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, weight, kTokenCount, kHiddenSize,
+                         1.0e-6F, near_max_output, normalized) ==
+                      cudaErrorInvalidValue &&
+                  launch(left, right, weight, kTokenCount, kHiddenSize,
+                         1.0e-6F, residual, near_max_output) ==
+                      cudaErrorInvalidValue,
+              "M32 residual RMSNorm rejects overflowing byte ranges");
+
+  test.expect(
+      launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+             const_cast<std::uint16_t*>(left), normalized) ==
+              cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 const_cast<std::uint16_t*>(right), normalized) ==
+              cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 const_cast<std::uint16_t*>(weight), normalized) ==
+              cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 residual, residual) == cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 residual, residual + 1U) == cudaErrorInvalidValue,
+      "M32 residual RMSNorm keeps residual output independent");
+  test.expect(
+      launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+             residual, const_cast<std::uint16_t*>(left)) ==
+              cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 residual, const_cast<std::uint16_t*>(weight)) ==
+              cudaErrorInvalidValue &&
+          launch(left, right, weight, kTokenCount, kHiddenSize, 1.0e-6F,
+                 residual, const_cast<std::uint16_t*>(right) + 1U) ==
+              cudaErrorInvalidValue,
+      "M32 residual RMSNorm rejects normalized input overlap except exact "
+      "right alias");
+
+  int registers = 0;
+  std::size_t shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+              nullptr, &shared_bytes, &local_bytes, &maximum_threads,
+              &active_blocks)) == cudaErrorInvalidValue &&
+          static_cast<cudaError_t>(q3x::runtime::
+              query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+                  &registers, nullptr, &local_bytes, &maximum_threads,
+                  &active_blocks)) == cudaErrorInvalidValue &&
+          static_cast<cudaError_t>(q3x::runtime::
+              query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+                  &registers, &shared_bytes, nullptr, &maximum_threads,
+                  &active_blocks)) == cudaErrorInvalidValue &&
+          static_cast<cudaError_t>(q3x::runtime::
+              query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+                  &registers, &shared_bytes, &local_bytes, nullptr,
+                  &active_blocks)) == cudaErrorInvalidValue &&
+          static_cast<cudaError_t>(q3x::runtime::
+              query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+                  &registers, &shared_bytes, &local_bytes, &maximum_threads,
+                  nullptr)) == cudaErrorInvalidValue,
+      "M32 residual RMSNorm resource query rejects null outputs");
+}
+
 void test_embedding(TestContext& test, cudaStream_t stream) {
   constexpr std::size_t kVocabulary = 7U;
   constexpr std::size_t kHidden = 259U;
@@ -1240,6 +1394,1124 @@ void test_residual_rms_fused_perf(TestContext& test, cudaStream_t stream) {
   expect_bf16_bits_equal(test, candidate_residual.data(),
                          baseline_residual.data(), kHiddenSize,
                          label + " repeated production-layout residual");
+}
+
+constexpr std::size_t kResidualRmsM32TokenCount = 32U;
+constexpr std::size_t kResidualRmsM32HiddenSize = 5'120U;
+constexpr std::size_t kResidualRmsM32ElementCount =
+    kResidualRmsM32TokenCount * kResidualRmsM32HiddenSize;
+constexpr float kResidualRmsM32Epsilon = 1.0e-6F;
+
+void fill_residual_rms_m32_fixture(const bool stress,
+                                   std::uint16_t* const left,
+                                   std::uint16_t* const right,
+                                   std::uint16_t* const weight) {
+  std::uint32_t left_state = stress ? 0x31415926U : 0x9e3779b9U;
+  std::uint32_t right_state = stress ? 0x27182818U : 0x243f6a88U;
+  for (std::size_t index = 0U; index < kResidualRmsM32ElementCount;
+       ++index) {
+    const std::size_t token = index / kResidualRmsM32HiddenSize;
+    const std::size_t dimension = index - token * kResidualRmsM32HiddenSize;
+    const int left_code = static_cast<int>(
+                              next_deterministic_random(left_state) % 2049U) -
+                          1024;
+    const int right_code = static_cast<int>(
+                               next_deterministic_random(right_state) %
+                               2049U) -
+                           1024;
+    if (stress) {
+      const float scale = (dimension & 1U) == 0U ? 16.0F : 0.0625F;
+      const float left_value = static_cast<float>(left_code) * scale / 256.0F;
+      const float cancellation =
+          static_cast<float>(static_cast<int>((token + dimension) % 9U) - 4) /
+          128.0F;
+      left[index] = encode_bf16(left_value);
+      right[index] = encode_bf16(-left_value + cancellation);
+    } else {
+      left[index] = encode_bf16(static_cast<float>(left_code) / 192.0F);
+      right[index] = encode_bf16(static_cast<float>(right_code) / 256.0F);
+    }
+  }
+  for (std::size_t dimension = 0U;
+       dimension < kResidualRmsM32HiddenSize; ++dimension) {
+    const int code = static_cast<int>((dimension * 37U + 11U) % 257U) - 128;
+    weight[dimension] = encode_bf16(
+        static_cast<float>(code) / (stress ? 160.0F : 256.0F));
+  }
+}
+
+int launch_residual_rms_m32_baseline(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    std::uint16_t* const residual,
+    std::uint16_t* const normalized,
+    cudaStream_t stream) {
+  const int residual_status = q3x::runtime::launch_residual_add_reference_cuda(
+      left, right, kResidualRmsM32ElementCount, residual,
+      static_cast<void*>(stream));
+  if (residual_status != static_cast<int>(cudaSuccess)) {
+    return residual_status;
+  }
+  return q3x::runtime::launch_headwise_centered_rms_norm_reference_cuda(
+      residual, weight, kResidualRmsM32TokenCount,
+      kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon, normalized,
+      static_cast<void*>(stream));
+}
+
+int launch_residual_rms_m32_candidate(
+    const std::uint16_t* const left,
+    const std::uint16_t* const right,
+    const std::uint16_t* const weight,
+    std::uint16_t* const residual,
+    std::uint16_t* const normalized,
+    cudaStream_t stream) {
+  return q3x::runtime::
+      launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+          left, right, weight, kResidualRmsM32TokenCount,
+          kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon, residual,
+          normalized, static_cast<void*>(stream));
+}
+
+void test_residual_rms_m32_fused_exact(TestContext& test,
+                                       cudaStream_t stream) {
+  const std::string label = "M32 residual-add/headwise RMSNorm fusion";
+  int registers = 0;
+  std::size_t shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
+              &registers, &shared_bytes, &local_bytes, &maximum_threads,
+              &active_blocks)),
+      label + " query resources");
+  if (!ready) {
+    return;
+  }
+  std::cout << "RESIDUAL_RMS_M32_5120_RESOURCES: registers=" << registers
+            << " static_shared=" << shared_bytes
+            << " local=" << local_bytes
+            << " maximum_threads=" << maximum_threads
+            << " active_blocks_per_sm=" << active_blocks << '\n';
+  test.expect(shared_bytes == 256U * sizeof(float),
+              label + " retains the exact 256-float reduction tree");
+  test.expect(local_bytes == 0U, label + " has no local-memory spills");
+  test.expect(registers <= 64, label + " stays below register hard cap");
+  test.expect(maximum_threads >= 256,
+              label + " supports the fixed 256-thread block");
+  test.expect(active_blocks >= 4, label + " retains occupancy floor");
+
+  GuardedBf16Buffer left;
+  GuardedBf16Buffer right;
+  GuardedBf16Buffer weight;
+  GuardedBf16Buffer baseline_residual;
+  GuardedBf16Buffer baseline_normalized;
+  GuardedBf16Buffer candidate_residual;
+  GuardedBf16Buffer candidate_normalized;
+  GuardedBf16Buffer replay_residual;
+  GuardedBf16Buffer replay_normalized;
+  GuardedBf16Buffer alias_right;
+  GuardedBf16Buffer alias_residual;
+  GuardedBf16Buffer graph_residual;
+  GuardedBf16Buffer graph_normalized;
+  ready = left.allocate(test, kResidualRmsM32ElementCount, label + " left");
+  ready = ready &&
+          right.allocate(test, kResidualRmsM32ElementCount, label + " right");
+  ready = ready &&
+          weight.allocate(test, kResidualRmsM32HiddenSize, label + " weight");
+  ready = ready && baseline_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " baseline residual");
+  ready = ready && baseline_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " baseline normalized");
+  ready = ready && candidate_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " candidate residual");
+  ready = ready && candidate_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " candidate normalized");
+  ready = ready && replay_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " replay residual");
+  ready = ready && replay_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " replay normalized");
+  ready = ready && alias_right.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " alias right/normalized");
+  ready = ready && alias_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " alias residual");
+  ready = ready && graph_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " graph residual");
+  ready = ready && graph_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " graph normalized");
+  if (!ready) {
+    return;
+  }
+
+  left.initialize(0U, 0x1011U, 0x1012U);
+  right.initialize(0U, 0x2021U, 0x2022U);
+  weight.initialize(0U, 0x3031U, 0x3032U);
+  baseline_residual.initialize(0xa1a1U, 0x4011U, 0x4012U);
+  baseline_normalized.initialize(0xb2b2U, 0x5021U, 0x5022U);
+  candidate_residual.initialize(0xc3c3U, 0x6031U, 0x6032U);
+  candidate_normalized.initialize(0xd4d4U, 0x7041U, 0x7042U);
+  replay_residual.initialize(0xe5e5U, 0x8051U, 0x8052U);
+  replay_normalized.initialize(0xf6f6U, 0x9061U, 0x9062U);
+  alias_right.initialize(0U, 0xa071U, 0xa072U);
+  alias_residual.initialize(0x1717U, 0xb081U, 0xb082U);
+  graph_residual.initialize(0x2828U, 0xc091U, 0xc092U);
+  graph_normalized.initialize(0x3939U, 0xd0a1U, 0xd0a2U);
+  fill_residual_rms_m32_fixture(false, left.data(), right.data(),
+                                weight.data());
+  std::copy_n(right.data(), kResidualRmsM32ElementCount, alias_right.data());
+  const std::vector<std::uint16_t> left_before = left.snapshot();
+  const std::vector<std::uint16_t> right_before = right.snapshot();
+  const std::vector<std::uint16_t> weight_before = weight.snapshot();
+
+  ready = launch_after_stale(test, stream, label + " baseline", [&]() {
+    return launch_residual_rms_m32_baseline(
+        left.data(), right.data(), weight.data(), baseline_residual.data(),
+        baseline_normalized.data(), stream);
+  });
+  ready = ready &&
+          launch_after_stale(test, stream, label + " candidate", [&]() {
+            return launch_residual_rms_m32_candidate(
+                left.data(), right.data(), weight.data(),
+                candidate_residual.data(), candidate_normalized.data(),
+                stream);
+          });
+  ready = ready &&
+          launch_after_stale(test, stream, label + " direct replay", [&]() {
+            return launch_residual_rms_m32_candidate(
+                left.data(), right.data(), weight.data(),
+                replay_residual.data(), replay_normalized.data(), stream);
+          });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, candidate_residual.data(),
+                         baseline_residual.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " finite residual");
+  expect_bf16_bits_equal(test, candidate_normalized.data(),
+                         baseline_normalized.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " finite normalized");
+  expect_bf16_bits_equal(test, replay_residual.data(),
+                         baseline_residual.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " direct replay residual");
+  expect_bf16_bits_equal(test, replay_normalized.data(),
+                         baseline_normalized.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " direct replay normalized");
+
+  ready = launch_after_stale(test, stream, label + " exact right alias", [&]() {
+    return launch_residual_rms_m32_candidate(
+        left.data(), alias_right.data(), weight.data(), alias_residual.data(),
+        alias_right.data(), stream);
+  });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, alias_residual.data(), baseline_residual.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " alias-right residual");
+  expect_bf16_bits_equal(test, alias_right.data(), baseline_normalized.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " alias-right normalized");
+
+  cudaGraph_t baseline_graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " baseline graph begin capture");
+  if (ready) {
+    const cudaError_t baseline_capture_status =
+        static_cast<cudaError_t>(launch_residual_rms_m32_baseline(
+            left.data(), right.data(), weight.data(), graph_residual.data(),
+            graph_normalized.data(), stream));
+    test.expect(baseline_capture_status == cudaSuccess,
+                label + " baseline graph launch succeeds");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &baseline_graph),
+                         label + " baseline graph end capture");
+  }
+  cudaGraphExec_t baseline_graph_exec = nullptr;
+  if (ready) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(
+        cudaGraphGetNodes(baseline_graph, nullptr, &node_count),
+        label + " baseline graph count nodes");
+    test.expect(node_count == 2U,
+                label + " baseline graph captures two kernel nodes");
+    std::size_t root_count = 0U;
+    ready = ready && test.cuda_ok(
+                         cudaGraphGetRootNodes(baseline_graph, nullptr,
+                                               &root_count),
+                         label + " baseline graph count roots");
+    test.expect(root_count == 1U,
+                label + " baseline graph has one residual root");
+    if (ready && root_count == 1U) {
+      cudaGraphNode_t root = nullptr;
+      std::size_t root_capacity = 1U;
+      ready = test.cuda_ok(
+          cudaGraphGetRootNodes(baseline_graph, &root, &root_capacity),
+          label + " baseline graph fetch root");
+      cudaGraphNodeType root_type = cudaGraphNodeTypeEmpty;
+      ready = ready && test.cuda_ok(cudaGraphNodeGetType(root, &root_type),
+                                    label + " baseline graph root type");
+      test.expect(root_type == cudaGraphNodeTypeKernel,
+                  label + " baseline root is residual kernel");
+      std::array<cudaGraphNode_t, 2U> nodes{};
+      std::size_t node_capacity = nodes.size();
+      ready = ready && test.cuda_ok(
+                           cudaGraphGetNodes(baseline_graph, nodes.data(),
+                                             &node_capacity),
+                           label + " baseline graph fetch both nodes");
+      test.expect(node_capacity == nodes.size(),
+                  label + " baseline graph returns both nodes");
+      cudaGraphNode_t dependent = nullptr;
+      if (ready && node_capacity == nodes.size()) {
+        dependent = nodes[0U] == root ? nodes[1U] : nodes[0U];
+        test.expect(dependent != nullptr && dependent != root,
+                    label + " baseline graph has one non-root node");
+      }
+      // A two-node DAG with exactly one root necessarily has the non-root as
+      // that root's dependent. Checking both launch shapes identifies the
+      // residual -> norm edge without relying on CUDA 13's extended
+      // cudaGraphNodeGetDependentNodes signature.
+      if (ready && dependent != nullptr && dependent != root) {
+        cudaGraphNodeType dependent_type = cudaGraphNodeTypeEmpty;
+        ready = ready && test.cuda_ok(
+                             cudaGraphNodeGetType(dependent, &dependent_type),
+                             label + " baseline graph dependent type");
+        test.expect(dependent_type == cudaGraphNodeTypeKernel,
+                    label + " baseline dependent is norm kernel");
+        cudaKernelNodeParams root_parameters{};
+        cudaKernelNodeParams dependent_parameters{};
+        ready = ready && test.cuda_ok(
+                             cudaGraphKernelNodeGetParams(
+                                 root, &root_parameters),
+                             label + " baseline graph root parameters");
+        ready = ready && test.cuda_ok(
+                             cudaGraphKernelNodeGetParams(
+                                 dependent, &dependent_parameters),
+                             label + " baseline graph dependent parameters");
+        if (ready) {
+          test.expect(root_parameters.gridDim.x == 640U &&
+                          root_parameters.gridDim.y == 1U &&
+                          root_parameters.gridDim.z == 1U &&
+                          root_parameters.blockDim.x == 256U &&
+                          root_parameters.blockDim.y == 1U &&
+                          root_parameters.blockDim.z == 1U &&
+                          root_parameters.sharedMemBytes == 0U,
+                      label + " baseline root is the 640-CTA residual add");
+          test.expect(dependent_parameters.gridDim.x == 32U &&
+                          dependent_parameters.gridDim.y == 1U &&
+                          dependent_parameters.gridDim.z == 1U &&
+                          dependent_parameters.blockDim.x == 256U &&
+                          dependent_parameters.blockDim.y == 1U &&
+                          dependent_parameters.blockDim.z == 1U &&
+                          dependent_parameters.sharedMemBytes == 0U,
+                      label + " baseline dependent is the 32-CTA norm");
+        }
+      } else {
+        ready = false;
+      }
+    } else {
+      ready = false;
+    }
+  }
+  if (ready) {
+    ready = test.cuda_ok(
+        cudaGraphInstantiate(&baseline_graph_exec, baseline_graph, nullptr,
+                             nullptr, 0U),
+        label + " baseline graph instantiate");
+  }
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphLaunch(baseline_graph_exec, stream),
+                         label + " baseline graph replay");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " baseline graph synchronize");
+  }
+  if (baseline_graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(baseline_graph_exec),
+                       label + " baseline graph exec destroy");
+  }
+  if (baseline_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(baseline_graph),
+                       label + " baseline graph destroy");
+  }
+  if (ready) {
+    expect_bf16_bits_equal(test, graph_residual.data(),
+                           baseline_residual.data(),
+                           kResidualRmsM32ElementCount,
+                           label + " baseline graph residual");
+    expect_bf16_bits_equal(test, graph_normalized.data(),
+                           baseline_normalized.data(),
+                           kResidualRmsM32ElementCount,
+                           label + " baseline graph normalized");
+  }
+
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " graph begin capture");
+  cudaError_t capture_launch = cudaErrorInvalidValue;
+  if (ready) {
+    capture_launch = static_cast<cudaError_t>(launch_residual_rms_m32_candidate(
+        left.data(), right.data(), weight.data(), graph_residual.data(),
+        graph_normalized.data(), stream));
+    test.expect(capture_launch == cudaSuccess,
+                label + " graph candidate launch succeeds");
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         label + " graph end capture");
+  }
+  cudaGraphExec_t graph_exec = nullptr;
+  if (ready) {
+    std::size_t node_count = 0U;
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " graph count nodes");
+    test.expect(node_count == 1U, label + " graph captures one node");
+    std::size_t root_count = 0U;
+    ready = ready && test.cuda_ok(
+                         cudaGraphGetRootNodes(graph, nullptr, &root_count),
+                         label + " graph count roots");
+    test.expect(root_count == 1U,
+                label + " candidate graph has one kernel root");
+    if (ready && node_count == 1U && root_count == 1U) {
+      cudaGraphNode_t node = nullptr;
+      std::size_t capacity = 1U;
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                           label + " graph fetch node");
+      cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+      ready = ready && test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                    label + " graph read node type");
+      test.expect(node_type == cudaGraphNodeTypeKernel,
+                  label + " graph node is a kernel");
+      cudaKernelNodeParams parameters{};
+      ready = ready && test.cuda_ok(
+                           cudaGraphKernelNodeGetParams(node, &parameters),
+                           label + " graph read kernel parameters");
+      if (ready) {
+        test.expect(parameters.gridDim.x == 32U &&
+                        parameters.gridDim.y == 1U &&
+                        parameters.gridDim.z == 1U,
+                    label + " graph grid is exactly 32x1x1");
+        test.expect(parameters.blockDim.x == 256U &&
+                        parameters.blockDim.y == 1U &&
+                        parameters.blockDim.z == 1U,
+                    label + " graph block is exactly 256x1x1");
+        test.expect(parameters.sharedMemBytes == 0U,
+                    label + " graph uses no dynamic shared memory");
+      }
+    } else {
+      ready = false;
+    }
+  }
+  if (ready) {
+    ready = test.cuda_ok(
+        cudaGraphInstantiate(&graph_exec, graph, nullptr, nullptr, 0U),
+        label + " graph instantiate");
+  }
+  bool graph_launch_queued = false;
+  for (int replay = 0; ready && replay < 2; ++replay) {
+    const cudaError_t replay_status = cudaGraphLaunch(graph_exec, stream);
+    graph_launch_queued = graph_launch_queued || replay_status == cudaSuccess;
+    ready = test.cuda_ok(replay_status, label + " graph replay " +
+                                            std::to_string(replay + 1));
+  }
+  if (graph_launch_queued) {
+    const bool synchronize_ok = test.cuda_ok(
+        cudaStreamSynchronize(stream), label + " graph replay synchronize");
+    ready = synchronize_ok && ready;
+  }
+  if (graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(graph_exec),
+                       label + " graph exec destroy");
+  }
+  if (graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(graph), label + " graph destroy");
+  }
+  if (ready) {
+    expect_bf16_bits_equal(test, graph_residual.data(),
+                           baseline_residual.data(),
+                           kResidualRmsM32ElementCount,
+                           label + " graph replay residual");
+    expect_bf16_bits_equal(test, graph_normalized.data(),
+                           baseline_normalized.data(),
+                           kResidualRmsM32ElementCount,
+                           label + " graph replay normalized");
+  }
+
+  struct InvalidGraphCase {
+    const char* name;
+    const std::uint16_t* left;
+    const std::uint16_t* right;
+    const std::uint16_t* weight;
+    std::size_t token_count;
+    std::size_t hidden_size;
+    float epsilon;
+    std::uint16_t* residual;
+    std::uint16_t* normalized;
+  };
+  const std::uintptr_t near_max_address =
+      std::numeric_limits<std::uintptr_t>::max() - 1U;
+  const auto* const overflowing_left =
+      reinterpret_cast<const std::uint16_t*>(near_max_address);
+  const std::array<InvalidGraphCase, 7U> invalid_cases{{
+      {"null-left", nullptr, right.data(), weight.data(),
+       kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, graph_residual.data(), graph_normalized.data()},
+      {"M31", left.data(), right.data(), weight.data(), 31U,
+       kResidualRmsM32HiddenSize, kResidualRmsM32Epsilon,
+       graph_residual.data(), graph_normalized.data()},
+      {"hidden-5119", left.data(), right.data(), weight.data(),
+       kResidualRmsM32TokenCount, 5'119U, kResidualRmsM32Epsilon,
+       graph_residual.data(), graph_normalized.data()},
+      {"epsilon-zero", left.data(), right.data(), weight.data(),
+       kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize, 0.0F,
+       graph_residual.data(), graph_normalized.data()},
+      {"overflow-left", overflowing_left, right.data(), weight.data(),
+       kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, graph_residual.data(), graph_normalized.data()},
+      {"residual-alias-left", left.data(), right.data(), weight.data(),
+       kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, const_cast<std::uint16_t*>(left.data()),
+       graph_normalized.data()},
+      {"normalized-partial-alias-right", left.data(), right.data(),
+       weight.data(), kResidualRmsM32TokenCount, kResidualRmsM32HiddenSize,
+       kResidualRmsM32Epsilon, graph_residual.data(), right.data() + 1U},
+  }};
+  const auto expect_invalid_graph = [&](const InvalidGraphCase& invalid_case) {
+    const std::string case_label =
+        label + " invalid graph " + invalid_case.name;
+    if (!test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            case_label + " begin capture")) {
+      return;
+    }
+    const cudaError_t invalid_status = static_cast<cudaError_t>(q3x::runtime::
+        launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+            invalid_case.left, invalid_case.right, invalid_case.weight,
+            invalid_case.token_count, invalid_case.hidden_size,
+            invalid_case.epsilon, invalid_case.residual,
+            invalid_case.normalized, static_cast<void*>(stream)));
+    test.expect(invalid_status == cudaErrorInvalidValue,
+                case_label + " returns cudaErrorInvalidValue");
+    cudaGraph_t invalid_graph = nullptr;
+    const bool invalid_ready = test.cuda_ok(
+        cudaStreamEndCapture(stream, &invalid_graph),
+        case_label + " end capture");
+    if (invalid_ready) {
+      std::size_t invalid_nodes = 0U;
+      if (test.cuda_ok(
+              cudaGraphGetNodes(invalid_graph, nullptr, &invalid_nodes),
+              case_label + " count nodes")) {
+        test.expect(invalid_nodes == 0U,
+                    case_label + " captures zero graph nodes");
+      }
+    }
+    if (invalid_graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(invalid_graph),
+                         case_label + " destroy graph");
+    }
+  };
+  for (const InvalidGraphCase& invalid_case : invalid_cases) {
+    expect_invalid_graph(invalid_case);
+  }
+
+  left.expect_snapshot(test, left_before, label + " preserves left input");
+  right.expect_snapshot(test, right_before, label + " preserves right input");
+  weight.expect_snapshot(test, weight_before,
+                         label + " preserves shared weight");
+  baseline_residual.expect_guards(test, label + " baseline residual");
+  baseline_normalized.expect_guards(test, label + " baseline normalized");
+  candidate_residual.expect_guards(test, label + " candidate residual");
+  candidate_normalized.expect_guards(test, label + " candidate normalized");
+  replay_residual.expect_guards(test, label + " replay residual");
+  replay_normalized.expect_guards(test, label + " replay normalized");
+  alias_residual.expect_guards(test, label + " alias residual");
+  alias_right.expect_guards(test, label + " alias right/normalized");
+  graph_residual.expect_guards(test, label + " graph residual");
+  graph_normalized.expect_guards(test, label + " graph normalized");
+}
+
+void test_residual_rms_m32_nan_operand_order(TestContext& test,
+                                              cudaStream_t stream) {
+  const std::string label = "M32 residual RMSNorm NaN operand order";
+  GuardedBf16Buffer left;
+  GuardedBf16Buffer right;
+  GuardedBf16Buffer weight;
+  GuardedBf16Buffer baseline_residual;
+  GuardedBf16Buffer baseline_normalized;
+  GuardedBf16Buffer candidate_residual;
+  GuardedBf16Buffer candidate_normalized;
+  GuardedBf16Buffer swapped_residual;
+  bool ready = left.allocate(test, kResidualRmsM32ElementCount,
+                             label + " left");
+  ready = ready && right.allocate(test, kResidualRmsM32ElementCount,
+                                  label + " right");
+  ready = ready &&
+          weight.allocate(test, kResidualRmsM32HiddenSize, label + " weight");
+  ready = ready && baseline_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " baseline residual");
+  ready = ready && baseline_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " baseline normalized");
+  ready = ready && candidate_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " candidate residual");
+  ready = ready && candidate_normalized.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " candidate normalized");
+  ready = ready && swapped_residual.allocate(
+                       test, kResidualRmsM32ElementCount,
+                       label + " swapped-order residual");
+  if (!ready) {
+    return;
+  }
+  left.initialize(0U, 0x1211U, 0x1212U);
+  right.initialize(0U, 0x2321U, 0x2322U);
+  weight.initialize(0U, 0x3431U, 0x3432U);
+  baseline_residual.initialize(0x4545U, 0x4541U, 0x4542U);
+  baseline_normalized.initialize(0x5656U, 0x5651U, 0x5652U);
+  candidate_residual.initialize(0x6767U, 0x6761U, 0x6762U);
+  candidate_normalized.initialize(0x7878U, 0x7871U, 0x7872U);
+  swapped_residual.initialize(0x8989U, 0x8981U, 0x8982U);
+  fill_residual_rms_m32_fixture(false, left.data(), right.data(),
+                                weight.data());
+  constexpr std::size_t kBf16NanCount = 2U * 127U;
+  constexpr std::size_t kNanPairCount = kBf16NanCount * kBf16NanCount;
+  static_assert(kNanPairCount <= kResidualRmsM32ElementCount);
+  // Exhaust the complete signed BF16 signaling/quiet NaN payload cross
+  // product. This is stronger than selecting a few payloads: candidate bits
+  // must match the runtime residual-left + projection-right baseline for
+  // every pair. The reverse-order launch records whether operand order is
+  // observable on this compiled SM87 path; it is not itself the oracle.
+  std::size_t nan_pair = 0U;
+  for (unsigned int left_sign = 0U; left_sign < 2U; ++left_sign) {
+    for (unsigned int left_payload = 1U; left_payload < 128U;
+         ++left_payload) {
+      const std::uint16_t left_bits = static_cast<std::uint16_t>(
+          (left_sign << 15U) | 0x7f80U | left_payload);
+      for (unsigned int right_sign = 0U; right_sign < 2U; ++right_sign) {
+        for (unsigned int right_payload = 1U; right_payload < 128U;
+             ++right_payload) {
+          left.data()[nan_pair] = left_bits;
+          right.data()[nan_pair] = static_cast<std::uint16_t>(
+              (right_sign << 15U) | 0x7f80U | right_payload);
+          ++nan_pair;
+        }
+      }
+    }
+  }
+  test.expect(nan_pair == kNanPairCount,
+              label + " constructs the complete BF16 NaN cross product");
+  const std::vector<std::uint16_t> left_before = left.snapshot();
+  const std::vector<std::uint16_t> right_before = right.snapshot();
+  const std::vector<std::uint16_t> weight_before = weight.snapshot();
+
+  ready = launch_after_stale(test, stream, label + " runtime-order baseline",
+                             [&]() {
+                               return launch_residual_rms_m32_baseline(
+                                   left.data(), right.data(), weight.data(),
+                                   baseline_residual.data(),
+                                   baseline_normalized.data(), stream);
+                             });
+  ready = ready && launch_after_stale(
+                       test, stream, label + " runtime-order candidate", [&]() {
+                         return launch_residual_rms_m32_candidate(
+                             left.data(), right.data(), weight.data(),
+                             candidate_residual.data(),
+                             candidate_normalized.data(), stream);
+                       });
+  ready = ready && launch_after_stale(
+                       test, stream, label + " reversed-order diagnostic", [&]() {
+                         return q3x::runtime::launch_residual_add_reference_cuda(
+                             right.data(), left.data(),
+                             kResidualRmsM32ElementCount,
+                             swapped_residual.data(),
+                             static_cast<void*>(stream));
+                       });
+  if (!ready) {
+    return;
+  }
+  expect_bf16_bits_equal(test, candidate_residual.data(),
+                         baseline_residual.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " runtime-order residual");
+  expect_bf16_bits_equal(test, candidate_normalized.data(),
+                         baseline_normalized.data(),
+                         kResidualRmsM32ElementCount,
+                         label + " runtime-order normalized");
+  std::size_t exact_nan_matches = 0U;
+  std::size_t reversed_order_differences = 0U;
+  for (std::size_t index = 0U; index < kNanPairCount; ++index) {
+    const std::uint16_t baseline_bits = baseline_residual.data()[index];
+    const bool is_nan = (baseline_bits & 0x7f80U) == 0x7f80U &&
+                        (baseline_bits & 0x007fU) != 0U;
+    exact_nan_matches +=
+        is_nan && candidate_residual.data()[index] == baseline_bits ? 1U : 0U;
+    reversed_order_differences +=
+        swapped_residual.data()[index] != baseline_bits ? 1U : 0U;
+  }
+  test.expect(exact_nan_matches == kNanPairCount,
+              label + " matches every signed BF16 NaN-pair residual bit");
+  std::cout << "RESIDUAL_RMS_M32_5120_NAN_ORDER: runtime_order="
+               "residual_left_plus_projection_right exact_nan_matches="
+            << exact_nan_matches << '/' << kNanPairCount
+            << " reversed_order_bit_differences="
+            << reversed_order_differences << '/' << kNanPairCount
+            << " reversed_order_observable="
+            << (reversed_order_differences != 0U ? "yes" : "no")
+            << " gate="
+            << (exact_nan_matches == kNanPairCount ? "PASS" : "FAIL")
+            << '\n';
+  left.expect_snapshot(test, left_before, label + " preserves left input");
+  right.expect_snapshot(test, right_before, label + " preserves right input");
+  weight.expect_snapshot(test, weight_before, label + " preserves weight");
+  baseline_residual.expect_guards(test, label + " baseline residual");
+  baseline_normalized.expect_guards(test, label + " baseline normalized");
+  candidate_residual.expect_guards(test, label + " candidate residual");
+  candidate_normalized.expect_guards(test, label + " candidate normalized");
+  swapped_residual.expect_guards(test, label + " reversed-order residual");
+}
+
+struct PrefillM32ResidualRmsTiming {
+  std::array<double, 6U> round_speedups{};
+  double baseline_mean_milliseconds =
+      std::numeric_limits<double>::quiet_NaN();
+  double candidate_mean_milliseconds =
+      std::numeric_limits<double>::quiet_NaN();
+  double mean_speedup = std::numeric_limits<double>::quiet_NaN();
+  double median_speedup = std::numeric_limits<double>::quiet_NaN();
+  double minimum_speedup = std::numeric_limits<double>::quiet_NaN();
+  bool timings_finite = false;
+  bool every_round_nonregressing = false;
+  bool final_state_bitwise = false;
+  bool inputs_preserved = false;
+  bool gate = false;
+};
+
+PrefillM32ResidualRmsTiming benchmark_prefill_m32_residual_rms_fixture(
+    TestContext& test,
+    cudaStream_t stream,
+    const std::string& fixture_name,
+    ManagedBuffer<std::uint16_t>& left,
+    ManagedBuffer<std::uint16_t>& right_seed,
+    ManagedBuffer<std::uint16_t>& weight,
+    ManagedBuffer<std::uint16_t>& baseline_right,
+    ManagedBuffer<std::uint16_t>& candidate_right,
+    ManagedBuffer<std::uint16_t>& baseline_residual,
+    ManagedBuffer<std::uint16_t>& candidate_residual) {
+  constexpr int kWarmupChains = 128;
+  constexpr std::size_t kChainsPerPass = 512U;
+  constexpr int kRounds = 6;
+  constexpr double kRequiredMedianSpeedup = 1.15;
+  PrefillM32ResidualRmsTiming timing;
+  const std::string label =
+      "Prefill M32 residual RMS formal perf " + fixture_name;
+
+  std::copy_n(right_seed.data(), kResidualRmsM32ElementCount,
+              baseline_right.data());
+  std::copy_n(right_seed.data(), kResidualRmsM32ElementCount,
+              candidate_right.data());
+  const std::vector<std::uint16_t> left_before(
+      left.data(), left.data() + kResidualRmsM32ElementCount);
+  const std::vector<std::uint16_t> right_seed_before(
+      right_seed.data(), right_seed.data() + kResidualRmsM32ElementCount);
+  const std::vector<std::uint16_t> weight_before(
+      weight.data(), weight.data() + kResidualRmsM32HiddenSize);
+
+  const auto launch_baseline = [&]() {
+    return launch_residual_rms_m32_baseline(
+        left.data(), baseline_right.data(), weight.data(),
+        baseline_residual.data(), baseline_right.data(), stream);
+  };
+  const auto launch_candidate = [&]() {
+    return launch_residual_rms_m32_candidate(
+        left.data(), candidate_right.data(), weight.data(),
+        candidate_residual.data(), candidate_right.data(), stream);
+  };
+
+  bool warmup_ready = true;
+  for (int chain = 0; chain < kWarmupChains && warmup_ready; ++chain) {
+    warmup_ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_baseline()),
+        label + " alternating baseline warmup chain=" +
+            std::to_string(chain + 1));
+    if (warmup_ready) {
+      warmup_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_candidate()),
+          label + " alternating candidate warmup chain=" +
+              std::to_string(chain + 1));
+    }
+  }
+  const bool warmup_synchronize_ok = test.cuda_ok(
+      cudaStreamSynchronize(stream), label + " warmup synchronize");
+  warmup_ready = warmup_synchronize_ok && warmup_ready;
+  if (!warmup_ready) {
+    return timing;
+  }
+
+  std::array<float, kRounds> baseline_first{};
+  std::array<float, kRounds> candidate_first{};
+  std::array<float, kRounds> candidate_second{};
+  std::array<float, kRounds> baseline_second{};
+  bool all_passes_finite = true;
+  for (int round = 0; round < kRounds; ++round) {
+    const std::size_t index = static_cast<std::size_t>(round);
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    baseline_first[index] = measure_cuda_span_milliseconds(
+        test, stream, kChainsPerPass, round_label + " B1", launch_baseline);
+    candidate_first[index] = measure_cuda_span_milliseconds(
+        test, stream, kChainsPerPass, round_label + " C1", launch_candidate);
+    candidate_second[index] = measure_cuda_span_milliseconds(
+        test, stream, kChainsPerPass, round_label + " C2", launch_candidate);
+    baseline_second[index] = measure_cuda_span_milliseconds(
+        test, stream, kChainsPerPass, round_label + " B2", launch_baseline);
+    const bool round_passes_finite =
+        std::isfinite(baseline_first[index]) &&
+        baseline_first[index] > 0.0F &&
+        std::isfinite(candidate_first[index]) &&
+        candidate_first[index] > 0.0F &&
+        std::isfinite(candidate_second[index]) &&
+        candidate_second[index] > 0.0F &&
+        std::isfinite(baseline_second[index]) &&
+        baseline_second[index] > 0.0F;
+    all_passes_finite = all_passes_finite && round_passes_finite;
+    std::cout << "PREFILL_M32_RESIDUAL_RMS_PERF_PASS: fixture="
+              << fixture_name << " round=" << round + 1
+              << " order=B-C-C-B chains_per_pass=" << kChainsPerPass
+              << " B1_chain_ms=" << baseline_first[index]
+              << " B1_span_ms="
+              << baseline_first[index] * static_cast<float>(kChainsPerPass)
+              << " C1_chain_ms=" << candidate_first[index]
+              << " C1_span_ms="
+              << candidate_first[index] * static_cast<float>(kChainsPerPass)
+              << " C2_chain_ms=" << candidate_second[index]
+              << " C2_span_ms="
+              << candidate_second[index] * static_cast<float>(kChainsPerPass)
+              << " B2_chain_ms=" << baseline_second[index]
+              << " B2_span_ms="
+              << baseline_second[index] * static_cast<float>(kChainsPerPass)
+              << " finite_positive="
+              << (round_passes_finite ? "true" : "false") << '\n';
+  }
+  test.expect(all_passes_finite,
+              label + " records only finite positive B-C-C-B passes");
+  if (!all_passes_finite) {
+    std::cout << "PREFILL_M32_RESIDUAL_RMS_PERF_FIXTURE: fixture="
+              << fixture_name << " timings_finite=false gate=FAIL\n";
+    return timing;
+  }
+
+  timing.timings_finite = true;
+  timing.every_round_nonregressing = true;
+  double baseline_sum = 0.0;
+  double candidate_sum = 0.0;
+  double speedup_sum = 0.0;
+  for (int round = 0; round < kRounds; ++round) {
+    const std::size_t index = static_cast<std::size_t>(round);
+    const double baseline_pair =
+        (static_cast<double>(baseline_first[index]) +
+         static_cast<double>(baseline_second[index])) /
+        2.0;
+    const double candidate_pair =
+        (static_cast<double>(candidate_first[index]) +
+         static_cast<double>(candidate_second[index])) /
+        2.0;
+    timing.round_speedups[index] = baseline_pair / candidate_pair;
+    baseline_sum += baseline_pair;
+    candidate_sum += candidate_pair;
+    speedup_sum += timing.round_speedups[index];
+    timing.every_round_nonregressing =
+        timing.every_round_nonregressing &&
+        std::isfinite(timing.round_speedups[index]) &&
+        timing.round_speedups[index] >= 1.0;
+    std::cout << "PREFILL_M32_RESIDUAL_RMS_PERF_ROUND: fixture="
+              << fixture_name << " round=" << round + 1
+              << " baseline_pair_chain_ms=" << baseline_pair
+              << " candidate_pair_chain_ms=" << candidate_pair
+              << " speedup=" << timing.round_speedups[index]
+              << " nonregression="
+              << (timing.round_speedups[index] >= 1.0 ? "PASS" : "FAIL")
+              << '\n';
+  }
+  timing.baseline_mean_milliseconds =
+      baseline_sum / static_cast<double>(kRounds);
+  timing.candidate_mean_milliseconds =
+      candidate_sum / static_cast<double>(kRounds);
+  timing.mean_speedup = speedup_sum / static_cast<double>(kRounds);
+  std::array<double, kRounds> sorted_speedups = timing.round_speedups;
+  std::sort(sorted_speedups.begin(), sorted_speedups.end());
+  timing.minimum_speedup = sorted_speedups.front();
+  timing.median_speedup =
+      (sorted_speedups[2U] + sorted_speedups[3U]) / 2.0;
+
+  timing.final_state_bitwise =
+      std::equal(candidate_right.data(),
+                 candidate_right.data() + kResidualRmsM32ElementCount,
+                 baseline_right.data()) &&
+      std::equal(candidate_residual.data(),
+                 candidate_residual.data() + kResidualRmsM32ElementCount,
+                 baseline_residual.data());
+  timing.inputs_preserved =
+      std::equal(left.data(),
+                 left.data() + kResidualRmsM32ElementCount,
+                 left_before.data()) &&
+      std::equal(right_seed.data(),
+                 right_seed.data() + kResidualRmsM32ElementCount,
+                 right_seed_before.data()) &&
+      std::equal(weight.data(), weight.data() + kResidualRmsM32HiddenSize,
+                 weight_before.data());
+  test.expect(timing.final_state_bitwise,
+              label + " final residual and normalized states are bitwise");
+  test.expect(timing.inputs_preserved,
+              label + " preserves left/right seed/weight inputs");
+  const bool performance_gate =
+      timing.median_speedup >= kRequiredMedianSpeedup &&
+      timing.every_round_nonregressing;
+  timing.gate = performance_gate && timing.final_state_bitwise &&
+                timing.inputs_preserved;
+  test.expect(performance_gate,
+              label + " clears 1.15x median and every-round 1.0x floors");
+  std::cout << "PREFILL_M32_RESIDUAL_RMS_PERF_FIXTURE: fixture="
+            << fixture_name
+            << " baseline_mean_chain_ms="
+            << timing.baseline_mean_milliseconds
+            << " candidate_mean_chain_ms="
+            << timing.candidate_mean_milliseconds
+            << " speedup_mean=" << timing.mean_speedup
+            << " speedup_median=" << timing.median_speedup
+            << " speedup_min=" << timing.minimum_speedup
+            << " required_median=1.15 required_round_min=1.0"
+            << " final_state_bitwise="
+            << (timing.final_state_bitwise ? "true" : "false")
+            << " inputs_preserved="
+            << (timing.inputs_preserved ? "true" : "false")
+            << " gate=" << (timing.gate ? "PASS" : "FAIL") << '\n';
+  return timing;
+}
+
+void test_prefill_m32_residual_rms_formal_perf(TestContext& test,
+                                               cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_PREFILL_M32_RESIDUAL_RMS_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: formal Prefill M32 residual RMS performance gate; "
+                 "set Q3X_RUN_PREFILL_M32_RESIDUAL_RMS_PERF=1 and "
+                 "Q3X_PREFILL_M32_RESIDUAL_RMS_CHECKPOINT_FILE\n";
+    return;
+  }
+
+  constexpr std::uint64_t kExpectedCheckpointBytes = 9'965'652'512ULL;
+  constexpr std::size_t kWeightBytes =
+      kResidualRmsM32HiddenSize * sizeof(std::uint16_t);
+  struct ActualWeightPayload {
+    std::string_view fixture_name;
+    std::string_view tensor_name;
+    std::uint64_t absolute_offset;
+    std::string_view expected_sha256;
+  };
+  constexpr std::array<ActualWeightPayload, 2U> kActualPayloads{{
+      {"actual_layer0_post_attention_norm",
+       "model.language_model.layers.0.post_attention_layernorm.weight",
+       2'544'000'192ULL,
+       "8a672b9c5681d05057f2318e2a4ed48764fff341cd99afd660011766a8356359"},
+      {"actual_layer1_input_norm",
+       "model.language_model.layers.1.input_layernorm.weight",
+       2'544'010'432ULL,
+       "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d"},
+  }};
+  const std::string label = "formal Prefill M32 residual RMS performance";
+
+  const q3x::core::Sha256FileResult binary_identity =
+      q3x::core::sha256_file("/proc/self/exe");
+  test.expect(binary_identity.ok(), label + " hashes running test binary");
+  std::cout << "PREFILL_M32_RESIDUAL_RMS_BINARY: sha256="
+            << (binary_identity.ok() ? binary_identity.digest->hex()
+                                     : "unavailable")
+            << " error="
+            << (binary_identity.ok() ? "none" : binary_identity.error)
+            << " gate=" << (binary_identity.ok() ? "PASS" : "FAIL")
+            << '\n';
+  if (!binary_identity.ok()) {
+    return;
+  }
+
+  const char* const checkpoint_value =
+      std::getenv("Q3X_PREFILL_M32_RESIDUAL_RMS_CHECKPOINT_FILE");
+  const bool checkpoint_set =
+      checkpoint_value != nullptr && checkpoint_value[0] != '\0';
+  test.expect(checkpoint_set, label + " requires actual checkpoint file");
+  if (!checkpoint_set) {
+    std::cout << "PREFILL_M32_RESIDUAL_RMS_CHECKPOINT: source=missing"
+                 " required_env=Q3X_PREFILL_M32_RESIDUAL_RMS_CHECKPOINT_FILE"
+                 " gate=FAIL\n";
+    return;
+  }
+  const std::string checkpoint_path = checkpoint_value;
+  std::ifstream checkpoint(checkpoint_path, std::ios::binary);
+  test.expect(checkpoint.is_open(), label + " opens actual checkpoint");
+  if (!checkpoint.is_open()) {
+    return;
+  }
+  checkpoint.seekg(0, std::ios::end);
+  const std::streamoff checkpoint_size = checkpoint.tellg();
+  const bool checkpoint_size_gate =
+      checkpoint_size >= 0 &&
+      static_cast<std::uint64_t>(checkpoint_size) ==
+          kExpectedCheckpointBytes;
+  test.expect(checkpoint_size_gate, label + " pins checkpoint byte size");
+  std::cout << "PREFILL_M32_RESIDUAL_RMS_CHECKPOINT: path="
+            << checkpoint_path << " size=" << checkpoint_size
+            << " expected_size=" << kExpectedCheckpointBytes
+            << " gate=" << (checkpoint_size_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!checkpoint_size_gate) {
+    return;
+  }
+
+  ManagedBuffer<std::uint16_t> left;
+  ManagedBuffer<std::uint16_t> right_seed;
+  ManagedBuffer<std::uint16_t> weight;
+  ManagedBuffer<std::uint16_t> baseline_right;
+  ManagedBuffer<std::uint16_t> candidate_right;
+  ManagedBuffer<std::uint16_t> baseline_residual;
+  ManagedBuffer<std::uint16_t> candidate_residual;
+  bool ready = test.cuda_ok(left.allocate(kResidualRmsM32ElementCount),
+                            label + " allocate left");
+  ready = ready && test.cuda_ok(
+                       right_seed.allocate(kResidualRmsM32ElementCount),
+                       label + " allocate right seed");
+  ready = ready &&
+          test.cuda_ok(weight.allocate(kResidualRmsM32HiddenSize),
+                       label + " allocate weight");
+  ready = ready && test.cuda_ok(
+                       baseline_right.allocate(kResidualRmsM32ElementCount),
+                       label + " allocate baseline right/output");
+  ready = ready && test.cuda_ok(
+                       candidate_right.allocate(kResidualRmsM32ElementCount),
+                       label + " allocate candidate right/output");
+  ready = ready && test.cuda_ok(
+                       baseline_residual.allocate(kResidualRmsM32ElementCount),
+                       label + " allocate baseline residual");
+  ready = ready && test.cuda_ok(
+                       candidate_residual.allocate(kResidualRmsM32ElementCount),
+                       label + " allocate candidate residual");
+  if (!ready) {
+    return;
+  }
+
+  const auto read_and_verify_payload =
+      [&](const ActualWeightPayload& payload) {
+        const bool range_valid =
+            payload.absolute_offset <= kExpectedCheckpointBytes &&
+            kWeightBytes <=
+                kExpectedCheckpointBytes - payload.absolute_offset &&
+            payload.absolute_offset <= static_cast<std::uint64_t>(
+                                           std::numeric_limits<
+                                               std::streamoff>::max()) &&
+            kWeightBytes <= static_cast<std::size_t>(
+                                std::numeric_limits<std::streamsize>::max());
+        test.expect(range_valid,
+                    label + " contains " + std::string(payload.tensor_name));
+        if (!range_valid) {
+          return false;
+        }
+        checkpoint.clear();
+        checkpoint.seekg(static_cast<std::streamoff>(payload.absolute_offset),
+                         std::ios::beg);
+        const bool seek_ok = static_cast<bool>(checkpoint);
+        test.expect(seek_ok,
+                    label + " seeks " + std::string(payload.tensor_name));
+        if (!seek_ok) {
+          return false;
+        }
+        checkpoint.read(reinterpret_cast<char*>(weight.data()),
+                        static_cast<std::streamsize>(kWeightBytes));
+        const bool read_complete =
+            checkpoint.gcount() == static_cast<std::streamsize>(kWeightBytes);
+        test.expect(read_complete,
+                    label + " reads " + std::string(payload.tensor_name));
+        if (!read_complete) {
+          return false;
+        }
+        q3x::core::Sha256 hasher;
+        const bool hash_update = hasher.update(weight.data(), kWeightBytes);
+        const std::string actual_sha256 = hasher.finalize().hex();
+        const bool hash_gate =
+            hash_update &&
+            std::string_view(actual_sha256) == payload.expected_sha256;
+        test.expect(hash_gate,
+                    label + " pins " + std::string(payload.tensor_name) +
+                        " payload SHA-256");
+        std::cout << "PREFILL_M32_RESIDUAL_RMS_PAYLOAD: fixture="
+                  << payload.fixture_name << " tensor=" << payload.tensor_name
+                  << " weight_source=actual_checkpoint"
+                  << " only_actual_field=norm_weight"
+                  << " activation_source=deterministic"
+                  << " residual_source=deterministic"
+                  << " absolute_offset=" << payload.absolute_offset
+                  << " bytes=" << kWeightBytes
+                  << " sha256=" << actual_sha256
+                  << " expected_sha256=" << payload.expected_sha256
+                  << " gate=" << (hash_gate ? "PASS" : "FAIL") << '\n';
+        return hash_gate;
+      };
+
+  std::array<bool, kActualPayloads.size()> actual_gates{};
+  for (std::size_t fixture = 0U; fixture < kActualPayloads.size();
+       ++fixture) {
+    fill_residual_rms_m32_fixture(false, left.data(), right_seed.data(),
+                                  weight.data());
+    if (!read_and_verify_payload(kActualPayloads[fixture])) {
+      std::cout << "PREFILL_M32_RESIDUAL_RMS_STOP: fixture="
+                << kActualPayloads[fixture].fixture_name
+                << " reason=payload_validation gate=FAIL\n";
+      return;
+    }
+    const PrefillM32ResidualRmsTiming timing =
+        benchmark_prefill_m32_residual_rms_fixture(
+            test, stream, std::string(kActualPayloads[fixture].fixture_name),
+            left, right_seed, weight, baseline_right, candidate_right,
+            baseline_residual, candidate_residual);
+    actual_gates[fixture] = timing.gate;
+    if (!actual_gates[fixture]) {
+      std::cout << "PREFILL_M32_RESIDUAL_RMS_STOP: fixture="
+                << kActualPayloads[fixture].fixture_name
+                << " reason=actual_gate_failed stress=SKIP gate=FAIL\n";
+      return;
+    }
+  }
+
+  fill_residual_rms_m32_fixture(true, left.data(), right_seed.data(),
+                                weight.data());
+  const PrefillM32ResidualRmsTiming stress =
+      benchmark_prefill_m32_residual_rms_fixture(
+          test, stream, "deterministic_cancellation_stress", left,
+          right_seed, weight, baseline_right, candidate_right,
+          baseline_residual, candidate_residual);
+  const bool selected_gate = actual_gates[0U] && actual_gates[1U] &&
+                             stress.gate;
+  std::cout << "PREFILL_M32_RESIDUAL_RMS_SELECTED: actual_layer0="
+            << (actual_gates[0U] ? "PASS" : "FAIL")
+            << " actual_layer1="
+            << (actual_gates[1U] ? "PASS" : "FAIL")
+            << " stress=" << (stress.gate ? "PASS" : "FAIL")
+            << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(selected_gate,
+              label + " clears both actual weights and stress gates");
 }
 
 void run_outer_rms_tile_exact_case(TestContext& test, cudaStream_t stream,
@@ -5213,6 +6485,7 @@ void test_nonfinite(TestContext& test, cudaStream_t stream) {
 int main() {
   TestContext test;
   test_launch_validation(test);
+  test_residual_rms_m32_launch_validation(test);
 
   int device_count = 0;
   const cudaError_t device_status = cudaGetDeviceCount(&device_count);
@@ -5239,6 +6512,9 @@ int main() {
   test_vector_ops(test, stream);
   test_residual_rms_fused(test, stream);
   test_residual_rms_fused_perf(test, stream);
+  test_residual_rms_m32_fused_exact(test, stream);
+  test_residual_rms_m32_nan_operand_order(test, stream);
+  test_prefill_m32_residual_rms_formal_perf(test, stream);
   test_outer_rms_tile_exact(test, stream);
   test_fp32_conversion(test, stream);
   test_bf16_greedy_argmax(test, stream);

@@ -43,6 +43,8 @@ static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
+static_assert(kMaximumRequestPrefillChunkSize == 32U);
+static_assert(kReferenceHiddenSize == 5'120U);
 static_assert(kMaximumRequestPrefillChunkSize <=
               kMaximumProjectionTileTokenCount);
 
@@ -707,6 +709,13 @@ bool use_qk_rope_tile(
   return first_position + token_count <=
          std::numeric_limits<std::size_t>::max() /
              (kRopePairs * sizeof(float));
+}
+
+bool use_m32_prefill_residual_rms_fusion(
+    const std::size_t token_count,
+    const std::size_t hidden_size) noexcept {
+  return token_count == kMaximumRequestPrefillChunkSize &&
+         hidden_size == kReferenceHiddenSize;
 }
 
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
@@ -1605,6 +1614,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           views_.fp32_scratch_elements, output, stream_),
                       operation, layer);
   };
+  const bool use_m32_residual_rms_fusion =
+      reference_runner_detail::use_m32_prefill_residual_rms_fusion(
+          token_count, kReferenceHiddenSize);
 
   for (std::size_t token = 0U; token < token_count; ++token) {
     if (!check_cuda(launch_embedding_gather_reference_cuda(
@@ -1620,7 +1632,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
-    if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+    // The exact-M32 layer-(N-1) MLP boundary already produced layer N's
+    // normalized input. Layer 0 still normalizes the embedding explicitly.
+    if ((!use_m32_residual_rms_fusion || layer == 0U) &&
+        !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                         views_.hidden[0],
                         layer_weights.input_layernorm.data, token_count,
                         kReferenceHiddenSize, kRmsEpsilon, views_.hidden[1],
@@ -1886,20 +1901,32 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           "prefill_layer_schedule", layer));
     }
 
-    if (!check_cuda(launch_residual_add_reference_cuda(
-                        views_.hidden[0], views_.hidden[1],
-                        token_count * kReferenceHiddenSize,
-                        views_.hidden[2], stream_),
-                    "prefill_attention_residual", layer)) {
-      return fail_prefill_tile(launch_failure);
-    }
-    if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
-                        views_.hidden[2],
-                        layer_weights.post_attention_layernorm.data,
-                        token_count, kReferenceHiddenSize, kRmsEpsilon,
-                        views_.hidden[1], stream_),
-                    "prefill_post_attention_layernorm", layer)) {
-      return fail_prefill_tile(launch_failure);
+    if (use_m32_residual_rms_fusion) {
+      if (!check_cuda(
+              launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+                  views_.hidden[0], views_.hidden[1],
+                  layer_weights.post_attention_layernorm.data, token_count,
+                  kReferenceHiddenSize, kRmsEpsilon, views_.hidden[2],
+                  views_.hidden[1], stream_),
+              "prefill_attention_residual_post_attention_layernorm", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else {
+      if (!check_cuda(launch_residual_add_reference_cuda(
+                          views_.hidden[0], views_.hidden[1],
+                          token_count * kReferenceHiddenSize,
+                          views_.hidden[2], stream_),
+                      "prefill_attention_residual", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+      if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                          views_.hidden[2],
+                          layer_weights.post_attention_layernorm.data,
+                          token_count, kReferenceHiddenSize, kRmsEpsilon,
+                          views_.hidden[1], stream_),
+                      "prefill_post_attention_layernorm", layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
     }
     const bool use_gate_up_dual_stream =
         prefill_auxiliary_stream_ != nullptr &&
@@ -1955,19 +1982,41 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                         views_.projection[0], stream_),
                     "prefill_mlp_silu_mul", layer) ||
         !project(layer_weights.mlp.down_proj, views_.projection[0],
-                 views_.hidden[1], "prefill_mlp_down_projection", layer) ||
-        !check_cuda(launch_residual_add_reference_cuda(
-                        views_.hidden[2], views_.hidden[1],
-                        token_count * kReferenceHiddenSize,
-                        views_.hidden[0], stream_),
-                    "prefill_layer_residual", layer)) {
+                 views_.hidden[1], "prefill_mlp_down_projection", layer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+    if (use_m32_residual_rms_fusion) {
+      const bool is_final_layer =
+          layer + 1U == kReferenceDecoderLayerCount;
+      const std::uint16_t* const next_norm_weight =
+          is_final_layer
+              ? weights_->final_norm().data
+              : weights_->layer(layer + 1U).input_layernorm.data;
+      const char* const operation =
+          is_final_layer ? "prefill_layer_residual_final_norm"
+                         : "prefill_layer_residual_next_input_layernorm";
+      if (!check_cuda(
+              launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+                  views_.hidden[2], views_.hidden[1], next_norm_weight,
+                  token_count, kReferenceHiddenSize, kRmsEpsilon,
+                  views_.hidden[0], views_.hidden[1], stream_),
+              operation, layer)) {
+        return fail_prefill_tile(launch_failure);
+      }
+    } else if (!check_cuda(launch_residual_add_reference_cuda(
+                               views_.hidden[2], views_.hidden[1],
+                               token_count * kReferenceHiddenSize,
+                               views_.hidden[0], stream_),
+                           "prefill_layer_residual", layer)) {
       return fail_prefill_tile(launch_failure);
     }
   }
 
   // Match the non-logit step boundary even though this output is not consumed
   // by the following layer-major tile or by persistent state.
-  if (!check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+  // Exact M32 folded this norm into the final layer's MLP residual boundary.
+  if (!use_m32_residual_rms_fusion &&
+      !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                       views_.hidden[0], weights_->final_norm().data,
                       token_count, kReferenceHiddenSize, kRmsEpsilon,
                       views_.hidden[1], stream_),
