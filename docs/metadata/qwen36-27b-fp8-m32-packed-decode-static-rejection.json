@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-packed-decode-static-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-fp8-packed-decode-static",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "4a8647255d60737e12804ad4c368e6fedf34e6a8",
+    "base_tree": "ac3163c44475328978b6de720bc0cc5ed51c36a0",
+    "base_subject": "docs: record FP8 M32 half-tile async rejection",
+    "worktree": "/tmp/q3x-fp8-m32-packed-decode-4a86472",
+    "branch": "agent/fp8-m32-packed-decode-screen",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "gpu_programs_executed": false,
+    "clock_state_read_or_changed_by_this_screen": false
+  },
+  "profile_priority": {
+    "phase": "Prefill exact M32",
+    "shape_n_by_k": [10240, 5120],
+    "token_count": 32,
+    "weight_encoding": "FP8 E4M3FN",
+    "post_cp_async_c1_marginal_union_ms": 391.488128,
+    "post_cp_async_c1_prefix_kernel_union_percent": 8.568191,
+    "plan_position": "P1 first-stage static feasibility screen"
+  },
+  "prior_art_boundary": {
+    "existing_record": "qwen36-27b-fp8-packedx4-benchmark.json",
+    "existing_commit": "ad22fdda2925bc12d60c319296646e4449dc11a3",
+    "existing_scope": "early M1 scalar/vector GEMV with a four-byte weight load and per-code branchless FP32 decode using integer-to-float conversion and scaling",
+    "current_scope": "M32 dual-resident-A WMMA with packed four-code construction of exact BF16 bits before staging shared B",
+    "conclusion": "the two experiments are related FP8 decode work but are not the same kernel, representation, or optimization and must not be conflated"
+  },
+  "candidate": {
+    "scope": "test-only exact [10240,5120] launcher and resource query; unreachable from production dispatch",
+    "baseline": "production K64/LD72/N128 dual-resident-A M32 WMMA kernel",
+    "topology_preserved": {
+      "grid_blocks": 80,
+      "threads_per_cta": 256,
+      "warps_per_cta": 8,
+      "output_rows_per_cta": 128,
+      "columns_per_stage": 64,
+      "resident_activation_panels": 2,
+      "wmma_accumulator_order_changed": false,
+      "output_rounding_changed": false
+    },
+    "mechanism": {
+      "removed": "256-entry shared U16 E4M3FN-to-BF16 codebook, its initialization store, publication barrier, and 32 indexed LDS.U16 instructions",
+      "normal": "form packed low BF16 bytes from mantissa nibbles and packed high bytes with a mandatory per-byte-safe integer ADD of the 0x3c bias",
+      "subnormal": "PRMT selects the exact low/high BF16 bytes for magnitudes 0..7",
+      "nan": "patch magnitude 0x7f to signed canonical quiet BF16 NaN",
+      "final_interleave": "PRMT selectors 0x5140 and 0x7362 form two BF16x2 words",
+      "variants": [
+        "CUDA __vcmpeq4 byte comparison",
+        "inline no-cross-byte-borrow zero-mask arithmetic"
+      ]
+    },
+    "decoded_b_store_audit": {
+      "baseline_sts_128": 4,
+      "candidate_sts_128": 4,
+      "store_optimization_attempted": false,
+      "reason": "decoded B was already emitted as four STS.128 instructions"
+    }
+  },
+  "compile_time_exactness": {
+    "language": "C++17 constexpr static_assert in the CUDA translation unit",
+    "independent_reference": "construct the same exact FP32 bits as decode_e4m3fn, then apply encode_bf16_rne bit rounding",
+    "repeated_code_cases": 256,
+    "mixed_lane_cases": 1024,
+    "mixed_lane_definition": "each of 256 codes is placed in each of four byte positions while the other positions rotate through 0x00, 0x01, 0x7f, and 0xff",
+    "lane_outputs_checked_per_mixed_case": 4,
+    "semantic_cases": [
+      "positive and negative zero",
+      "all seven subnormal magnitudes for both signs",
+      "all normal finite encodings",
+      "finite exponent-15 encodings",
+      "positive and negative NaN"
+    ],
+    "expected_key_bf16_bits": {
+      "positive_zero": "0x0000",
+      "negative_zero": "0x8000",
+      "positive_nan": "0x7fc0",
+      "negative_nan": "0xffc0"
+    },
+    "cuda_vcmpeq4_variant": "compile pass",
+    "inline_zero_mask_variant": "compile pass",
+    "mismatches": 0
+  },
+  "environment": {
+    "device_target": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "test_policy": "CPU constexpr evaluation, CUDA compilation, cuobjdump resources, and SASS only",
+    "cuda_runtime_or_driver_entry_points_executed": false,
+    "model_payload_read": false
+  },
+  "static_stop_gates": {
+    "registers_per_thread_maximum": 50,
+    "static_shared_bytes_maximum": 23552,
+    "local_bytes_required": 0,
+    "threads_per_cta_required": 256,
+    "inferred_active_ctas_per_sm_minimum": 5,
+    "total_lds_maximum": 32,
+    "total_instructions_maximum": 648,
+    "k64_loop_body_instructions_maximum": 240,
+    "absolute_audit_stop_total_instructions": 680,
+    "policy": "any instruction stop failure removes the candidate before every GPU correctness or performance gate"
+  },
+  "resources": {
+    "baseline": {
+      "registers_per_thread": 47,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "launch_bounds_threads": 256,
+      "inferred_active_ctas_per_sm": 5
+    },
+    "both_candidates": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 23040,
+      "local_bytes": 0,
+      "launch_bounds_threads": 256,
+      "inferred_active_ctas_per_sm": 5
+    },
+    "gate": "pass"
+  },
+  "sass": {
+    "counting_method": "count every cuobjdump instruction address record, including lines prefixed by @P or @!P",
+    "baseline": {
+      "instructions": 632,
+      "k64_body_excluding_back_edge": 200,
+      "k64_static_slots_including_back_edge": 201,
+      "k64_loop_target_hex": "0x540",
+      "k64_back_edge_hex": "0x11c0",
+      "lds": 48,
+      "lds_u16_decode": 32,
+      "sts": 15,
+      "sts_128_decoded_b": 4,
+      "bar": 4,
+      "hmma": 4,
+      "call": 0
+    },
+    "cuda_vcmpeq4_variant": {
+      "instructions": 744,
+      "instruction_delta_from_baseline": 112,
+      "k64_body_excluding_back_edge": 360,
+      "k64_static_slots_including_back_edge": 361,
+      "k64_loop_target_hex": "0x230",
+      "k64_back_edge_hex": "0x18b0",
+      "lds": 16,
+      "lds_u16_decode": 0,
+      "sts": 14,
+      "sts_128_decoded_b": 4,
+      "bar": 3,
+      "hmma": 4,
+      "total_instruction_gate": "fail",
+      "loop_body_gate": "fail",
+      "absolute_stop_gate": "fail",
+      "artifact_retained": false,
+      "artifact_note": "reliable counts were captured before the variant was superseded; it was not rebuilt after cleanup"
+    },
+    "inline_zero_mask_variant": {
+      "instructions": 760,
+      "instruction_delta_from_baseline": 128,
+      "k64_body_excluding_back_edge": 379,
+      "k64_static_slots_including_back_edge": 380,
+      "k64_loop_target_hex": "0x230",
+      "k64_back_edge_hex": "0x19e0",
+      "lds": 16,
+      "lds_u16_decode": 0,
+      "sts": 14,
+      "sts_128_decoded_b": 4,
+      "bar": 3,
+      "hmma": 4,
+      "call_rel_noinc": 1,
+      "call_interpretation": "compiler-generated internal control-flow trampoline in the oversized function, not an unresolved external device callee",
+      "total_instruction_gate": "fail",
+      "loop_body_gate": "fail",
+      "absolute_stop_gate": "fail"
+    },
+    "count_correction": {
+      "discarded_nonformal_count": 725,
+      "omitted_predicated_instruction_lines": 35,
+      "corrected_formal_count": 760,
+      "status": "closed"
+    },
+    "mechanism_gate": "pass",
+    "interpretation": "the candidate removes the intended 512 bytes, 32 lookup loads, one store, and one barrier, but exact per-byte exceptional-case construction nearly doubles the static K64 body and exceeds both instruction stop limits"
+  },
+  "decision": {
+    "result": "reject",
+    "stage": "static feasibility",
+    "reason": "both exact packed constructors exceed the 680-instruction absolute stop and 240-instruction K64-body stop despite meeting every resource and shared-lookup-removal target",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "gpu_correctness_executed": false,
+    "gpu_performance_executed": false,
+    "nsys_executed": false,
+    "end_to_end_executed": false,
+    "reopen_when": "only a native or materially cheaper exact four-byte lane constructor can plausibly keep the complete function at or below 648 instructions and the K64 body at or below 240"
+  },
+  "next_priority": {
+    "name": "exact-M32 FP8 QKV/Z dual-N128-tile fusion",
+    "plan_position": "P2",
+    "scope": "phase-local single-kernel fusion, not a stream sidecar or scheduler change",
+    "test_only_first_screen": {
+      "grid_blocks": 64,
+      "threads_per_cta": 512,
+      "blocks_0_47": "QKV tile i plus Z tile i",
+      "blocks_48_63": "two QKV tail tiles",
+      "warp_groups": "two groups of eight warps",
+      "shared_once": "A[32,K64] and the FP8 codebook",
+      "wmma_order": "retain each warp's existing two 16-token accumulator/HMMA chains",
+      "expected_static_shared_bytes": 41984,
+      "registers_per_thread_maximum": 64,
+      "local_bytes_required": 0,
+      "active_ctas_per_sm_minimum": 2
+    }
+  },
+  "cleanup": {
+    "method": "complete reverse apply_patch of the source-only candidate and test hooks after the static stop",
+    "head": "4a8647255d60737e12804ad4c368e6fedf34e6a8",
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "base_source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "source_matches_base": true,
+    "tracked_status_before_documentation": "clean",
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "candidate_commit_created": false
+  },
+  "artifacts": [
+    {
+      "role": "complete recoverable inline-zero-mask candidate patch against 4a86472",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/zero-mask-candidate.patch",
+      "bytes": 20691,
+      "sha256": "469a324400d8c224b8a1fadc465f10f79da07d72d10cfad88fb61aa032d13903",
+      "diffstat": "1 file changed, 437 insertions",
+      "git_apply_check": "pass"
+    },
+    {
+      "role": "retained inline-zero-mask CUDA object containing baseline and candidate",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/zero-mask-candidate-weight_only_gemv.cu.o",
+      "bytes": 2565024,
+      "sha256": "1d1dbd887e3216a6672f252ed577b49e6c547d0832298a59c0594956ed94503b"
+    },
+    {
+      "role": "baseline production exact-M32 SASS",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/baseline-production-m32-10240x5120.sass",
+      "bytes": 144706,
+      "sha256": "a04e2a862d39ed6b09e6264da156f2471c06c402b92aeffd88160e80be8dbb49"
+    },
+    {
+      "role": "inline-zero-mask candidate exact-M32 SASS",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/zero-mask-candidate-m32-10240x5120.sass",
+      "bytes": 175406,
+      "sha256": "9e0c0d9ce1a48643f5e1a99ccade48e4c34e9b6548c2b781fa4588339467cc47"
+    },
+    {
+      "role": "baseline opcode census",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/baseline-production-m32-10240x5120-opcodes.txt",
+      "bytes": 214,
+      "sha256": "7d73ea0cb1f1a2342d0d7e714bf357fdf856dd5c22f2b4dd92c9b3f35938b0be"
+    },
+    {
+      "role": "inline-zero-mask candidate opcode census",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/zero-mask-candidate-m32-10240x5120-opcodes.txt",
+      "bytes": 200,
+      "sha256": "beb2940dc97b02824b604e96f88e90371bc5a0cfa323231484144a28cfe234b3"
+    },
+    {
+      "role": "complete CUDA object resource census",
+      "path": "/tmp/q3x-fp8-m32-packed-decode-static-artifacts/zero-mask-candidate-resource-usage.txt",
+      "bytes": 28741,
+      "sha256": "c72c1fb97b957400f4f0d6cb12f27d0147cfa2c4a84740372a5e296d484a1899"
+    }
+  ]
+}

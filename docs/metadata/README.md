@@ -470,6 +470,16 @@ The diagnostic Phase 3 records are:
   frozen 1.03x gate. Stop-loss therefore removes the candidate and skips
   stress, profiling, end-to-end work, and five-process replication while
   retaining a complete recovery patch for possible independent shape study.
+- [`qwen36-27b-fp8-m32-packed-decode-static-rejection.json`](qwen36-27b-fp8-m32-packed-decode-static-rejection.json),
+  which closes the CPU/compile/SASS-only exact-M32 FP8 packed-decode screen.
+  The exact four-code BF16-bit constructor removes all 32 codebook `LDS.U16`,
+  512 B of shared state, and one barrier while retaining four `STS.128` decoded-B
+  stores and five-CTA inferred residency, but grows the function from 632 to
+  760 instructions and the K64 body from 200 to 379 instructions. Both exceed
+  the frozen static stop, so no GPU program runs and production remains
+  unchanged. This M32 WMMA shared-B constructor is distinct from ad22fdd's
+  earlier M1 packed-load/FP32-decode GEMV. The next bounded priority is the
+  phase-local exact-M32 FP8 QKV/Z dual-N128-tile fusion.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
