@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-down-n160-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-nvfp4-down-balanced-n160",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "f1f17b2204d223836f3995a062c0f30764f56287",
+    "base_tree": "cf758fa21b96d28c59f6fc516c5a1128c1cca329",
+    "base_subject": "kernels: stage exact M32 gate weights asynchronously",
+    "fresh_worktree": "/tmp/q3x-nvfp4-down-n160-fresh-5vlsaj",
+    "old_backup_worktree": "/tmp/q3x-nvfp4-down-n160-7eGkpb",
+    "old_backup_base": "17b018f3281dce06e11b725d8110fd8f6662aa9d",
+    "migration": "candidate and its test hooks were migrated to the fresh post-cp.async baseline with apply_patch",
+    "candidate_commit": null,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false
+  },
+  "candidate": {
+    "phase": "Prefill exact M32",
+    "shape_n_by_k": [5120, 17408],
+    "token_count": 32,
+    "dtype": "NVFP4 packed E2M1 weights, E4M3FN block scales, BF16 activation/output",
+    "baseline": {
+      "rows_per_cta": 128,
+      "threads_per_cta": 256,
+      "warps_per_cta": 8,
+      "grid_x": 40
+    },
+    "n160": {
+      "rows_per_cta": 160,
+      "threads_per_cta": 320,
+      "warps_per_cta": 10,
+      "grid_x": 32
+    },
+    "mechanism": [
+      "threads 0..255 initialize the 256-entry E4M3 scale table",
+      "512 packed activation words use bounded index += 320 loading",
+      "160 x 8 U16 scale words are covered by 320 threads in four passes",
+      "the 32 x 160 epilogue has no tail",
+      "WMMA accumulation order is unchanged"
+    ],
+    "scope": "test-only launcher/resource query for [5120,17408]; production selector and public M32 dispatch were untouched"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "running_gpu_processes": 0,
+    "gpu_hz_current_min_max": [1300500000, 1300500000, 1300500000],
+    "emc_hz_current_max": [3200000000, 3200000000],
+    "emc_lock": 1,
+    "scope": "single named device at fixed clocks"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "tensor": "model.language_model.layers.0.mlp.down_proj.weight",
+    "shape_n_by_k": [5120, 17408],
+    "packed_weight": {
+      "offset": 6712445472,
+      "bytes": 44564480,
+      "sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+    },
+    "block_scales": {
+      "offset": 3600468512,
+      "bytes": 5570560,
+      "sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+    },
+    "secondary_scale": {
+      "offset": 126540,
+      "fp32_bits_hex": "39b61862",
+      "value": 0.000347319
+    },
+    "activation_sha256": "fa00466c87b6cfcaec1a7b7fbeba4728a0df2bc9ee4ae17d6a5bd2e3550186f6",
+    "identity_gate": "pass",
+    "activation_note": "deterministic finite BF16 test data, not captured runtime activations"
+  },
+  "static_and_correctness": {
+    "build": "pass",
+    "default_device_test": "pass",
+    "resources": {
+      "baseline": {
+        "registers_per_thread": 48,
+        "static_shared_bytes": 23552,
+        "local_bytes": 0,
+        "max_threads_per_block": 256,
+        "active_ctas_per_sm": 5
+      },
+      "candidate": {
+        "registers_per_thread": 48,
+        "static_shared_bytes": 28160,
+        "local_bytes": 0,
+        "max_threads_per_block": 320,
+        "active_ctas_per_sm": 4
+      },
+      "gate": "pass"
+    },
+    "candidate_sass": {
+      "function_bytes": 213937,
+      "sha256": "4973df50e31b2f11d1ab81bc31113add19800685b2f34534b2c3e5d6c96f4ac2",
+      "instructions": 848,
+      "barriers": 5,
+      "hmma": 4,
+      "ldl_or_stl": 0
+    },
+    "production_down_sass_isolation": {
+      "function_bytes": 179501,
+      "sha256_in_candidate_and_frozen_base": "1055482722513326700485c9504849743b05e1bae1bbbcb4bd1254a091ad89f2",
+      "instructions_each": 712,
+      "identical": true
+    },
+    "synthetic": {
+      "candidate_vs_two_public_m16_mismatches": "0/163840",
+      "replay_mismatches": "0/163840",
+      "token_15_16_boundary": "exact",
+      "finite": true,
+      "guards": "intact"
+    },
+    "actual_checkpoint": {
+      "candidate_vs_baseline_mismatches": "0/163840",
+      "nonfinite_across_both_outputs": "0/327680"
+    },
+    "cuda_graph": {
+      "nodes": 1,
+      "kernel_nodes": 1,
+      "grid": [32, 1, 1],
+      "block": [320, 1, 1]
+    },
+    "invalid_capture": {
+      "alias_nodes": 0,
+      "non_down_shape_nodes": 0
+    },
+    "overall_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process, same-binary N128 baseline versus test-only N160",
+    "warmups_per_implementation": 10,
+    "launches_per_pass": 24,
+    "rounds": 6,
+    "order": "B-C-C-B",
+    "minimum_each_round_speedup": 1.0,
+    "minimum_paired_median_speedup": 1.03,
+    "actual_checkpoint_first": true,
+    "stop_loss": "on actual-checkpoint failure, skip same-bank stress, Nsys, and end-to-end"
+  },
+  "performance": {
+    "rounds": [
+      {"round": 1, "baseline_1_ms": 0.894372, "candidate_1_ms": 1.05231, "candidate_2_ms": 1.05267, "baseline_2_ms": 0.894497, "speedup": 0.849830},
+      {"round": 2, "baseline_1_ms": 0.894687, "candidate_1_ms": 1.05173, "candidate_2_ms": 1.05246, "baseline_2_ms": 0.894923, "speedup": 0.850499},
+      {"round": 3, "baseline_1_ms": 0.894753, "candidate_1_ms": 1.05302, "candidate_2_ms": 1.05242, "baseline_2_ms": 0.894849, "speedup": 0.849988},
+      {"round": 4, "baseline_1_ms": 0.894345, "candidate_1_ms": 1.05286, "candidate_2_ms": 1.05244, "baseline_2_ms": 0.895461, "speedup": 0.850142},
+      {"round": 5, "baseline_1_ms": 0.895087, "candidate_1_ms": 1.05406, "candidate_2_ms": 1.05263, "baseline_2_ms": 0.895577, "speedup": 0.849989},
+      {"round": 6, "baseline_1_ms": 0.894664, "candidate_1_ms": 1.05299, "candidate_2_ms": 1.05264, "baseline_2_ms": 0.894901, "speedup": 0.849894}
+    ],
+    "summary": {
+      "baseline_pass_median_ms": 0.894801,
+      "candidate_pass_median_ms": 1.05264,
+      "diagnostic_pass_median_ratio": 0.850055,
+      "paired_round_median_speedup": 0.849988,
+      "minimum_round_speedup": 0.849830,
+      "maximum_round_speedup": 0.850499,
+      "rounds_at_or_above_1_0": 0,
+      "speed_ratio_regression_percent": 15.001200,
+      "candidate_latency_increase_percent": 17.639565,
+      "gate": "fail"
+    },
+    "stop_loss": {
+      "actual_checkpoint_failed": true,
+      "same_bank_stress_executed": false,
+      "nsys_executed": false,
+      "end_to_end_executed": false
+    }
+  },
+  "cleanup": {
+    "method": "complete reverse apply_patch after the hard-gate failure",
+    "fresh_worktree_head": "f1f17b2204d223836f3995a062c0f30764f56287",
+    "fresh_tracked_status": "clean",
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "old_worktree_retained_only_as_backup": true,
+    "commit_created": false,
+    "candidate_binary_note": "ignored stale build artifact retained only as evidence"
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "bitwise-correct candidate lost every actual-checkpoint round at approximately 0.85x, a 15.0012% speed-ratio regression and 17.639565% latency increase",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "same_bank_rescue_evaluated": false,
+    "same_bank_was_allowed_to_override_the_actual_gate": false
+  },
+  "next_priority": {
+    "direction": "reuse the existing matched post-cp.async C1 trace ranking, then screen FP8 M32",
+    "reason": "the N160 NVFP4 down mechanism is decisively negative and the matched C1 trace already ranks the post-cp.async phase costs; no fresh capture is required"
+  },
+  "limitations": [
+    "The timing evidence covers one fixed-clock Jetson AGX Orin and does not generalize to other GPUs or software stacks.",
+    "Weights and scales are from the actual layer-0 checkpoint; activations are deterministic finite BF16 test data.",
+    "Stop-loss intentionally omitted same-bank stress, Nsys, and end-to-end Prefill/TTFT measurements.",
+    "This rejects only the exact N160/320-thread balanced-grid mechanism, not all future exact-M32 NVFP4 down designs."
+  ],
+  "artifacts": [
+    {
+      "role": "default correctness/resource log",
+      "path": "/tmp/q3x-nvfp4-down-n160-fresh-default.log",
+      "bytes": 57915,
+      "sha256": "4e1e16ba71f86de2e718be1d66ebc31caec19b2391137ef551256f7fbf50e16d"
+    },
+    {
+      "role": "actual-checkpoint hard-gate log",
+      "path": "/tmp/q3x-nvfp4-down-n160-actual-hardgate.log",
+      "bytes": 60857,
+      "sha256": "b8f7c036fc1776f2b3b3c755008f195e991237e75134ca1e33a50bb4d8002ce0"
+    },
+    {
+      "role": "candidate test binary (stale evidence only)",
+      "path": "/tmp/q3x-nvfp4-down-n160-fresh-5vlsaj/build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5019880,
+      "sha256": "9755f762d50c248f89eb2dd8c53875f61d29ac1c90abe20d695aec3ed987e580"
+    },
+    {
+      "role": "frozen f1f17b2 test binary",
+      "path": "/home/rm01/Qwen3x-Orin/build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5017488,
+      "sha256": "9de2b0124f575b092eb019109d328bace4b56635a6930fed7fd54f2dd54d6334"
+    }
+  ]
+}

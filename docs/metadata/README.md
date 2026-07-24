@@ -455,6 +455,13 @@ The diagnostic Phase 3 records are:
   source- and selector-unchanged down kernel differs by 0.0140%. The 4 KiB
   CTA-local staging slot is explicitly not a runtime double buffer or
   Prefill/Decode scheduler.
+- [`qwen36-27b-nvfp4-m32-down-n160-rejection.json`](qwen36-27b-nvfp4-m32-down-n160-rejection.json),
+  which records the rejected exact-M32 down N160/320-thread balanced-grid
+  screen. It reduces the grid from 40 to 32 CTAs and passes bitwise, replay,
+  guard, Graph, resource, and compiled-code gates, but all six fixed-clock
+  actual-checkpoint rounds regress to 0.84983x-0.85050x. The stop-loss omits
+  same-bank, Nsys, and end-to-end work, removes the candidate and test hooks,
+  and leaves the promoted gate/up `cp.async` source unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
