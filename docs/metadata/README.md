@@ -437,6 +437,14 @@ The diagnostic Phase 3 records are:
   plus down retain 49.001% marginal exposure. It also freezes the next three
   test-only mechanism gates and keeps general scheduler buffering behind the
   much larger phase-local opportunities.
+- [`qwen36-27b-nvfp4-m32-table-free-e4m3-rejection.json`](qwen36-27b-nvfp4-m32-table-free-e4m3-rejection.json),
+  which records the first bounded post-C4 NVFP4 screen. The exact integer
+  E4M3FN-to-BF16 constructor removes 512 B of shared state, two static LDS,
+  and one barrier while preserving five-CTA residency and all bitwise/Graph
+  contracts, but every isolated cell regresses to 0.94947x-0.95670x. Its
+  dual-stream pair reaches only 1.01952x and includes a checkpoint-like round
+  reversal, so the candidate and all test hooks are removed before wider
+  profiling or end-to-end work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

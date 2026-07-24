@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-table-free-e4m3-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-table-free-e4m3",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "17b018f3281dce06e11b725d8110fd8f6662aa9d",
+    "base_subject": "kernels: stage exact M32 residual RMS state",
+    "worktree": "/tmp/q3x-m32-tablefree-e4m3",
+    "branch": "exp/m32-tablefree-e4m3",
+    "candidate_commit": null,
+    "production_dispatch_changed": false,
+    "candidate_code_retained": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "candidate": {
+    "phase": "Prefill",
+    "weight_encoding": "NVFP4",
+    "token_count": 32,
+    "shapes_n_by_k": [
+      [
+        17408,
+        5120
+      ],
+      [
+        5120,
+        17408
+      ]
+    ],
+    "baseline": "the production exact-M32 K64/LD72 dual-resident-A, K256 scale-window, vector-store, table-free-E2M1 specialization",
+    "mechanism": "Construct the exact BF16 bits for each E4M3FN scale code with integer operations in the K64 stage loop. Remove the remaining 256-entry U16 shared scale codebook, its initialization, its publication barrier, and two indexed U16 shared loads per static stage body.",
+    "semantic_cases": "The constructor explicitly preserves normal values, all seven subnormal magnitudes, positive and negative zero, and the signed E4M3FN NaN encodings.",
+    "scope_boundary": "The experiment changes neither the K256 encoded-scale window nor E2M1 decoding, WMMA order, output conversion, streams, runtime route selection, or Prefill/Decode scheduling."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_mrq_rate_locked": true
+    }
+  },
+  "correctness_and_contract": {
+    "e4m3fn_to_bf16_exhaustive": {
+      "codes": 256,
+      "mismatches": 0,
+      "positive_zero_bits": "0x0000",
+      "negative_zero_bits": "0x8000",
+      "positive_nan_bits": "0x7fc0",
+      "negative_nan_bits": "0xffc0"
+    },
+    "production_shapes": [
+      {
+        "shape_n_by_k": [
+          17408,
+          5120
+        ],
+        "outputs": 557056,
+        "mismatches_to_two_production_m16_calls": 0,
+        "replay_mismatches": 0
+      },
+      {
+        "shape_n_by_k": [
+          5120,
+          17408
+        ],
+        "outputs": 163840,
+        "mismatches_to_two_production_m16_calls": 0,
+        "replay_mismatches": 0
+      }
+    ],
+    "token_15_16_boundary": "exact",
+    "outputs_finite": true,
+    "head_and_tail_guards": "intact",
+    "valid_graph_kernel_nodes": 1,
+    "invalid_graph_kernel_nodes": 0,
+    "default_test_result": "pass"
+  },
+  "sass_and_resources": {
+    "same_for_both_shapes": true,
+    "baseline": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 712,
+      "LDS": 19,
+      "BAR": 5
+    },
+    "candidate": {
+      "registers_per_thread": 47,
+      "static_shared_bytes": 23040,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 720,
+      "LDS": 17,
+      "BAR": 4
+    },
+    "interpretation": "The intended 512-byte, two-LDS, and one-barrier removal is present, but the exact dynamic integer scale constructor grows the static body by eight instructions."
+  },
+  "performance_protocol": {
+    "processes": 1,
+    "scale_distributions": [
+      "synthetic_checkpoint_like",
+      "synthetic_same_bank_stress"
+    ],
+    "warmup_iterations_per_route": 10,
+    "logical_launches_per_timed_pass": 24,
+    "measurement_rounds": 4,
+    "round_order": "baseline-candidate-candidate-baseline",
+    "cell_statistic": "median of the eight baseline pass means divided by the median of the eight candidate pass means",
+    "isolated_cell_minimum_speedup": 1.0,
+    "isolated_weighted_minimum_speedup": 1.02,
+    "isolated_profile_call_weights_gate_up_down": [
+      128,
+      64
+    ],
+    "isolated_weighted_formula": "For both distributions, sum cell_median_ms times the shape's 128:64 production call count, then divide the baseline sum by the candidate sum.",
+    "dual_stream_pair_minimum_round_speedup": 1.0,
+    "dual_stream_pair_minimum_aggregate_speedup": 1.02
+  },
+  "isolated_shape_performance": {
+    "cells": [
+      {
+        "shape": "gate/up [17408,5120]",
+        "distribution": "synthetic_checkpoint_like",
+        "baseline_ms": 0.711817,
+        "candidate_ms": 0.744200,
+        "speedup": 0.956487,
+        "round_speedups": [
+          0.955936,
+          0.956626,
+          0.956963,
+          0.956421
+        ],
+        "gate": "fail"
+      },
+      {
+        "shape": "gate/up [17408,5120]",
+        "distribution": "synthetic_same_bank_stress",
+        "baseline_ms": 0.713017,
+        "candidate_ms": 0.745289,
+        "speedup": 0.956698,
+        "round_speedups": [
+          0.957420,
+          0.956512,
+          0.956845,
+          0.956014
+        ],
+        "gate": "fail"
+      },
+      {
+        "shape": "down [5120,17408]",
+        "distribution": "synthetic_checkpoint_like",
+        "baseline_ms": 0.894177,
+        "candidate_ms": 0.941764,
+        "speedup": 0.949470,
+        "round_speedups": [
+          0.948959,
+          0.949330,
+          0.950431,
+          0.949163
+        ],
+        "gate": "fail"
+      },
+      {
+        "shape": "down [5120,17408]",
+        "distribution": "synthetic_same_bank_stress",
+        "baseline_ms": 0.896645,
+        "candidate_ms": 0.943825,
+        "speedup": 0.950012,
+        "round_speedups": [
+          0.949584,
+          0.951214,
+          0.950226,
+          0.949027
+        ],
+        "gate": "fail"
+      }
+    ],
+    "aggregate": {
+      "weighted_baseline_ms": 296.991,
+      "weighted_candidate_ms": 311.332,
+      "speedup": 0.953937,
+      "required_speedup": 1.02,
+      "positive_cells": 0,
+      "cells": 4,
+      "gate": "fail"
+    }
+  },
+  "dual_stream_gate_up_pair_performance": {
+    "cells": [
+      {
+        "distribution": "synthetic_checkpoint_like",
+        "baseline_pair_ms": 1.38665,
+        "candidate_pair_ms": 1.36941,
+        "speedup": 1.01259,
+        "round_speedups": [
+          1.00512,
+          0.993259,
+          1.02502,
+          1.02713
+        ],
+        "minimum_round_speedup": 0.993259,
+        "gate": "fail"
+      },
+      {
+        "distribution": "synthetic_same_bank_stress",
+        "baseline_pair_ms": 1.40046,
+        "candidate_pair_ms": 1.36433,
+        "speedup": 1.02648,
+        "round_speedups": [
+          1.02739,
+          1.02511,
+          1.02769,
+          1.02575
+        ],
+        "minimum_round_speedup": 1.02511,
+        "gate": "pass"
+      }
+    ],
+    "aggregate": {
+      "baseline_pair_ms": 2.78711,
+      "candidate_pair_ms": 2.73374,
+      "speedup": 1.01952,
+      "required_speedup": 1.02,
+      "all_cells_pass": false,
+      "gate": "fail"
+    },
+    "interpretation": "Removing shared scale lookups can improve a contended concurrent schedule even while each isolated kernel slows down. The checkpoint-like reversal and sub-threshold aggregate make that effect too fragile for production."
+  },
+  "decision": {
+    "result": "reject",
+    "correctness_gate": "pass",
+    "resource_gate": "pass",
+    "sass_mechanism_gate": "pass",
+    "isolated_performance_gate": "fail",
+    "dual_stream_pair_gate": "fail",
+    "reason": "All four isolated cells and all sixteen isolated rounds regress by about 4.3% to 5.1%. The production-relevant pair reaches only 1.01952x against 1.02x and reverses in one checkpoint-like round. Correctness and lower resource use do not repay the added dynamic integer construction.",
+    "candidate_code_removed": true,
+    "test_hooks_removed": true,
+    "production_dispatch_changed": false,
+    "retained_route": "the production table-free-E2M1 specialization with its 512-byte shared E4M3FN scale codebook",
+    "stop_loss": "Do not run independent-process, actual-checkpoint, P33/P513, Nsys, NCU, power, or energy gates after both mandatory same-binary performance gates fail.",
+    "reopen_when": "Only a materially cheaper exact constructor or asymmetric concurrent topology with a new same-binary checkpoint-like pair gate should reopen this family."
+  },
+  "removal_validation": {
+    "worktree_status": "clean",
+    "candidate_symbols_remaining": 0,
+    "production_exact_m32_sass_matches_main": true,
+    "normalized_production_sass_sha256": {
+      "gate_up_17408x5120": "fa28802b755281827a639684d36f20c355d3bfb070f7b051131c9f9a98d7f993",
+      "down_5120x17408": "2da0e87061a1ef4fe21df1bd8c219cd6ee7d4291880e25d5fbd031698e3a1386"
+    },
+    "rebuilt_test_binary_sha256": "4f3144d45ac2a988d1fb7933df91368a9726442a07219283d384d17f3ee104f9",
+    "rebuilt_library_sha256": "7f257de4a21fa3c6ab3e1af82a0de626547629e0b35598fe54f7f1c87e6b76f0"
+  },
+  "supporting_artifacts": {
+    "candidate_test_binary_at_measurement": {
+      "local_path": "/tmp/q3x-m32-tablefree-e4m3/build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5018800,
+      "sha256": "2f0eee563148f48ce63c962a0cbdd7f8d0b220c746ed67ee1242f0f30f53275b",
+      "overwritten_by_post_removal_rebuild": true
+    },
+    "candidate_library_at_measurement": {
+      "bytes": 3641684,
+      "sha256": "0a16269339529fabf213d398dd3896a49dbc6b0e0941a69394ab0bb79b313e0d",
+      "overwritten_by_post_removal_rebuild": true
+    },
+    "correctness_log": {
+      "local_path": "/tmp/q3x-m32-tablefree-e4m3-correctness-final.log",
+      "bytes": 55867,
+      "sha256": "fda4f52178dc396ed88265b6e8d41328a03c1c096f3de5163fa01099059a7463"
+    },
+    "performance_log": {
+      "local_path": "/tmp/q3x-m32-tablefree-e4m3-perf.log",
+      "bytes": 64704,
+      "sha256": "50a0ec372575b3faa00dd45e3ba97132d3af9e221f2a6fbb8b504d9a16684f19",
+      "expected_nonzero_exit": "three test assertions encode the failed isolated-cell, weighted, and pair promotion gates"
+    }
+  },
+  "limitations": [
+    "The same-binary screen is one fixed-frequency process with synthetic checkpoint-like and same-bank-stress scales, not actual model intermediates or a repeated release distribution.",
+    "The candidate binary and library were overwritten by the clean post-removal rebuild; their byte sizes and hashes retain identity, but the candidate binaries are not checked in.",
+    "Static SASS counts establish the compiled mechanism and resource change; no Nsight Compute stall causality is claimed.",
+    "The concurrent pair result is schedule-specific and cannot override the failed checkpoint-like round, aggregate threshold, or four isolated-cell regressions.",
+    "No whole-model, serving, multi-request, power, energy, scheduler buffering, or Prefill/Decode overlap result is claimed."
+  ]
+}
