@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-half-tile-raw-weight-cp-async-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-fp8-half-tile-raw-weight-cp-async",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "d14ac2452ad7fc73b273731694cfe659d5854cfc",
+    "base_tree": "f9435a6b12c574782cc0d91dfd782e9235b1a21e",
+    "base_subject": "docs: record exact M32 gate async staging",
+    "base_role": "post-cp.async production baseline",
+    "fresh_worktree": "/tmp/q3x-fp8-m32-half-tile-d14ac24",
+    "branch": "agent/fp8-m32-half-tile-screen",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false
+  },
+  "profile_priority": {
+    "source": "existing matched post-cp.async C1 trace ranking",
+    "phase": "FP8 M32 [10240,5120] dual-resident-A",
+    "marginal_union_ms": 391.488128,
+    "kernel_union_percent": 8.568191,
+    "stale_value_not_used_ms": 391.339840
+  },
+  "candidate": {
+    "phase": "Prefill exact M32",
+    "shape_n_by_k": [10240, 5120],
+    "token_count": 32,
+    "weight_encoding": "FP8 E4M3FN",
+    "activation_and_output_dtype": "BF16",
+    "threads_per_cta": 256,
+    "output_rows_per_cta": 128,
+    "columns_per_stage": 64,
+    "raw_weight_bytes_per_stage": 8192,
+    "single_slot": {
+      "type": "uint4[256]",
+      "bytes": 4096,
+      "half_rows": 64,
+      "runtime_double_buffer": false
+    },
+    "pipeline": [
+      "prefetch current-stage half0, commit, then wait and load it to registers",
+      "prefetch current-stage half1 while decoding half0 and staging both activation panels",
+      "wait and load half1 to registers, then prefetch next-stage half0 while decoding half1",
+      "retain the production CTA barriers and dual-A WMMA order"
+    ],
+    "final_stage": "the guarded next-stage copy is omitted; half1 is already waited and loaded, so no async group remains outstanding",
+    "scope": "test-only exact [10240,5120] launcher/resource query; never reachable from production dispatch"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "preflight": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [3200000000, 3200000000, 3200000000],
+      "emc_mrq_rate_locked": 1,
+      "nvidia_smi_running_processes": 0,
+      "gate": "pass"
+    },
+    "claim_boundary": "single named fixed-clock device"
+  },
+  "static_and_default_gates": {
+    "build": "pass",
+    "resources": {
+      "registers_per_thread": 48,
+      "maximum_registers": 51,
+      "static_shared_bytes": 27648,
+      "expected_static_shared_bytes": 27648,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 5,
+      "minimum_active_ctas_per_sm": 5,
+      "gate": "pass"
+    },
+    "sass": {
+      "canonical_bytes_without_function_line": 165390,
+      "canonical_sha256": "0e6cd893945ccba95a5be4b0b9cd87fcc994053f7f62841bb705ab58cdd5a533",
+      "instructions": 656,
+      "ldgsts": 3,
+      "ldgdepbar": 3,
+      "depbar_le_sb0_0": 2,
+      "lds_128": 2,
+      "bar_sync_defer_blocking": 4,
+      "hmma": 4,
+      "ldl": 0,
+      "stl": 0,
+      "handoffs": [
+        "DEPBAR 0x590 -> LDS.128 0x6d0 -> overwrite LDGSTS 0x710",
+        "DEPBAR 0xba0 -> LDS.128 0xbb0 -> guarded next-half0 LDGSTS 0xcd0"
+      ],
+      "gate": "pass"
+    },
+    "exhaustive_e4m3fn": {
+      "codes_by_byte_positions": "256x4",
+      "candidate_vs_production_mismatches": "0/327680",
+      "candidate_replay_mismatches": "0/327680",
+      "token_15_16_mismatches": 0,
+      "classified_signed_nan_outputs": "256/256",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "full_k_finite_final_stage": {
+      "candidate_vs_production_mismatches": "0/327680",
+      "candidate_replay_mismatches": "0/327680",
+      "token_15_16_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "grid": [80, 1, 1],
+      "block": [256, 1, 1],
+      "production_candidate_function_distinct": true,
+      "gate": "pass"
+    },
+    "invalid_capture": {
+      "cases": ["non-target shape", "output/activation alias", "misaligned weight", "misaligned activation"],
+      "status_each": "cudaErrorInvalidValue",
+      "captured_nodes": 0,
+      "gate": "pass"
+    },
+    "complete_default_device_test": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "header_bytes": 126504,
+    "data_base": 126512,
+    "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+    "shape_n_by_k": [10240, 5120],
+    "weight": {
+      "absolute_offset": 3485125152,
+      "bytes": 52428800,
+      "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "weight_scale": {
+      "absolute_offset": 126516,
+      "fp32_bits_hex": "3a840000",
+      "value": 0.001007080078125,
+      "bytes": 4,
+      "sha256": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021"
+    },
+    "activation": {
+      "source": "deterministic finite BF16 test data",
+      "bytes": 327680,
+      "sha256": "35a1b0931408b4561216385fee1a0ccb8c3e0ff59c457ce47981ab3208f99868"
+    },
+    "identity_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary production dual-resident-A baseline versus test-only candidate",
+    "warmup_launches_per_implementation": 10,
+    "launches_per_timed_pass": 80,
+    "rounds": 6,
+    "order": "B-C-C-B",
+    "round_speedup": "(B1+B2)/(C1+C2)",
+    "minimum_each_round_speedup": 1.0,
+    "minimum_paired_round_median_speedup": 1.03,
+    "stop_loss": "actual-checkpoint failure skips stress, Nsys, end-to-end, and five-process retest"
+  },
+  "performance": {
+    "retained_formal_rerun": {
+      "provenance": "parent-authorized evidence-only repetition after tracked-source cleanup, using the retained bit-identical candidate binary and the same fixed-clock protocol",
+      "binary_sha256": "ae1f4a923248857f324bf7dc39f03eb271060f99315a75cf8b16b27d8bb048b0",
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.492657, "candidate_1_ms": 0.481880, "candidate_2_ms": 0.481895, "baseline_2_ms": 0.492884, "speedup": 1.02258},
+        {"round": 2, "baseline_1_ms": 0.492684, "candidate_1_ms": 0.482099, "candidate_2_ms": 0.481930, "baseline_2_ms": 0.492559, "speedup": 1.02201},
+        {"round": 3, "baseline_1_ms": 0.492676, "candidate_1_ms": 0.481969, "candidate_2_ms": 0.481902, "baseline_2_ms": 0.492347, "speedup": 1.02195},
+        {"round": 4, "baseline_1_ms": 0.492952, "candidate_1_ms": 0.481900, "candidate_2_ms": 0.481901, "baseline_2_ms": 0.492626, "speedup": 1.02259},
+        {"round": 5, "baseline_1_ms": 0.492986, "candidate_1_ms": 0.482150, "candidate_2_ms": 0.482078, "baseline_2_ms": 0.492677, "speedup": 1.02223},
+        {"round": 6, "baseline_1_ms": 0.493136, "candidate_1_ms": 0.482189, "candidate_2_ms": 0.481879, "baseline_2_ms": 0.492393, "speedup": 1.02226}
+      ],
+      "summary": {
+        "baseline_pass_median_ms": 0.492677,
+        "candidate_pass_median_ms": 0.481916,
+        "diagnostic_pass_median_ratio": 1.02233,
+        "paired_round_median_speedup": 1.02225,
+        "minimum_round_speedup": 1.02195,
+        "maximum_round_speedup": 1.02259,
+        "rounds_at_or_above_1_0": 6,
+        "rounds": 6,
+        "latency_reduction_percent": 2.184190,
+        "paired_median_gate": "fail"
+      }
+    },
+    "pre_cleanup_confirmation": {
+      "provenance": "complete tool transcript, not retained as a standalone log",
+      "paired_round_median_speedup": 1.02365,
+      "minimum_round_speedup": 1.02186,
+      "maximum_round_speedup": 1.02384,
+      "gate": "fail"
+    },
+    "correctness_each_round": {
+      "candidate_first_mismatches": "0/327680",
+      "candidate_second_mismatches": "0/327680",
+      "nonfinite": 0,
+      "guards": "intact"
+    },
+    "stop_loss": {
+      "actual_checkpoint_failed": true,
+      "same_bank_stress_executed": false,
+      "nsys_executed": false,
+      "end_to_end_executed": false,
+      "five_process_retest_executed": false
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "all six rounds are non-regressing and bitwise exact, but the retained paired median is 1.02225, below the frozen 1.03 promotion gate",
+    "gate_shortfall_speedup_points": 0.007750,
+    "diagnostic_speedup_uplift_percent": 2.225000,
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "same_bank_rescue_evaluated": false,
+    "same_bank_was_allowed_to_override_the_actual_gate": false,
+    "estimated_translation_not_a_measured_claim": {
+      "c1_phase_saved_ms": 8.521018,
+      "whole_prefix_kernel_union_percent": 0.186493
+    }
+  },
+  "cleanup": {
+    "method": "complete reverse apply_patch of source and test additions immediately after the first actual hard-gate failure",
+    "fresh_worktree_head": "d14ac2452ad7fc73b273731694cfe659d5854cfc",
+    "tracked_status_before_documentation": "clean",
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "candidate_commit_created": false
+  },
+  "artifacts": [
+    {
+      "role": "complete recoverable source and test candidate patch against d14ac24",
+      "path": "/tmp/q3x-fp8-m32-half-tile-d14ac24-candidate.patch",
+      "bytes": 61964,
+      "sha256": "057b77effce85d37d605d141793768240a37dd373ab8a7df1972fd47d05c9a2f",
+      "diffstat": "2 files changed, 1197 insertions"
+    },
+    {
+      "role": "retained candidate test binary",
+      "path": "/tmp/q3x-fp8-m32-half-tile-candidate-test-binary",
+      "bytes": 5019768,
+      "sha256": "ae1f4a923248857f324bf7dc39f03eb271060f99315a75cf8b16b27d8bb048b0"
+    },
+    {
+      "role": "canonical candidate SASS without Function line",
+      "path": "/tmp/q3x-fp8-m32-half-tile-candidate.sass",
+      "bytes": 165390,
+      "sha256": "0e6cd893945ccba95a5be4b0b9cd87fcc994053f7f62841bb705ab58cdd5a533"
+    },
+    {
+      "role": "retained formal actual-checkpoint hard-gate stdout and stderr",
+      "path": "/tmp/q3x-fp8-m32-half-tile-actual-hardgate.log",
+      "bytes": 60223,
+      "sha256": "eddf2e7b6d1f54c5f549ef418ecce338fc9fb26d6b6e5b30d360f626704fa872",
+      "expected_exit_code": 1
+    }
+  ],
+  "follow_up": {
+    "candidate_conclusion": "closed for exact [10240,5120] under the frozen 1.03 gate",
+    "recovery_patch_use": "may inform a separate fresh-worktree exact [5120,6144] screen because K is longer; it does not change this rejection and must not be restored into production",
+    "next_priority": "use the existing matched post-cp.async C1 trace ranking rather than capturing a fresh profile"
+  },
+  "limitations": [
+    "Performance evidence is from one fixed-clock Jetson AGX Orin and is not a cross-device claim.",
+    "The weight and scalar are actual layer-0 checkpoint payloads; activations are deterministic finite BF16 test data.",
+    "The retained formal log was reproduced with the same saved binary after tracked source cleanup; its binary SHA matches the pre-cleanup run.",
+    "Stop-loss intentionally omitted same-bank stress, Nsys, end-to-end Prefill/TTFT, and five-process replication.",
+    "The rejection applies only to the exact [10240,5120] half-tile single-slot mechanism under the frozen 1.03 gate."
+  ]
+}

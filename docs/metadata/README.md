@@ -462,6 +462,14 @@ The diagnostic Phase 3 records are:
   actual-checkpoint rounds regress to 0.84983x-0.85050x. The stop-loss omits
   same-bank, Nsys, and end-to-end work, removes the candidate and test hooks,
   and leaves the promoted gate/up `cp.async` source unchanged.
+- [`qwen36-27b-fp8-m32-half-tile-raw-weight-cp-async-rejection.json`](qwen36-27b-fp8-m32-half-tile-raw-weight-cp-async-rejection.json),
+  which records the bounded exact-M32 FP8 `[10240,5120]` half-tile raw-weight
+  `cp.async` screen. Its 4 KiB single slot preserves five-CTA residency,
+  bit-exact output, final-stage draining, and every-round non-regression, but
+  the retained actual-checkpoint paired median is only 1.02225x against the
+  frozen 1.03x gate. Stop-loss therefore removes the candidate and skips
+  stress, profiling, end-to-end work, and five-process replication while
+  retaining a complete recovery patch for possible independent shape study.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
