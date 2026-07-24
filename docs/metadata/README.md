@@ -445,6 +445,16 @@ The diagnostic Phase 3 records are:
   dual-stream pair reaches only 1.01952x and includes a checkpoint-like round
   reversal, so the candidate and all test hooks are removed before wider
   profiling or end-to-end work.
+- [`qwen36-27b-nvfp4-m32-gate-up-raw-weight-cp-async-benchmark.json`](qwen36-27b-nvfp4-m32-gate-up-raw-weight-cp-async-benchmark.json),
+  which records the promoted exact-M32 gate/up single-slot raw-weight
+  `cp.async` pipeline. It preserves five-CTA residency and bit-exact output,
+  improves the isolated kernel by at least 1.0799x across five processes, and
+  improves the production dual-stream pair by at least 1.0732x. Matched
+  P513/C32 profiling reduces gate/up marginal exposure by 126.236 ms
+  (1.1001x) and whole-prefix kernel union by 123.220 ms (1.0270x), while the
+  source- and selector-unchanged down kernel differs by 0.0140%. The 4 KiB
+  CTA-local staging slot is explicitly not a runtime double buffer or
+  Prefill/Decode scheduler.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

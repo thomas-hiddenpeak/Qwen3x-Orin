@@ -1,0 +1,560 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-gate-up-raw-weight-cp-async-benchmark",
+  "status": "accepted-production-prefill-exact-m32-gate-up-single-slot-raw-weight-cp-async",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "Promote the exact-M32 NVFP4 gate/up [17408,5120] single-slot raw-weight cp.async specialization. It preserves the existing K64/LD72 dual-resident-A, K256 scale-window, table-free-E2M1 computation and changes only how each K64 packed-weight stage reaches registers.",
+    "Across five independent fixed-clock processes, the isolated two-distribution aggregate speedup is 1.07986x to 1.08897x with median 1.08128x; the existing dual-stream gate/up pair aggregate is 1.07323x to 1.16135x with median 1.12402x. All 40 isolated rounds and all 40 pair rounds are positive.",
+    "Unprofiled production binaries improve the P33 prefix bracket by 6.315 ms, or 1.022810x, and two independent P513 B-C-C-B groups improve their prefix brackets by 1.022640x and 1.038431x. Every run generates token ID 9419 and text Hello.",
+    "Matched P513/C32/max1 Nsys B-C-B reduces the exact gate/up marginal critical path from a 1,387.450576 ms baseline bracket mean to 1,261.214976 ms, or 1.100090x, and reduces prefix kernel union by 123.219520 ms, or 1.026968x. The source- and selector-unchanged exact-M32 down group differs by 0.0140% in this bracket.",
+    "This is one 4 KiB shared raw-weight slot inside each kernel CTA, with the consumed uint4 held in registers before the next transfer starts. It is not a system-level double or triple buffer and does not alter the gate/up dual-stream scheduler, Prefill/Decode separation, request scheduling, or Decode."
+  ],
+  "source": {
+    "base_head": "17b018f3281dce06e11b725d8110fd8f6662aa9d",
+    "base_subject": "kernels: stage exact M32 residual RMS state",
+    "base_tree": "1cccd528e0c819c4cea7bd484b7a993c6e882888",
+    "candidate_commit": "413af2b4f6955089db8dbfea474bf7113e7d6867",
+    "candidate_subject": "kernels: stage exact M32 gate weights asynchronously",
+    "candidate_tree": "3db293aa82a29facdd21c7c45c66b27f86746256",
+    "promoted_main_commit": "f1f17b2204d223836f3995a062c0f30764f56287",
+    "promoted_main_tree": "cf758fa21b96d28c59f6fc516c5a1128c1cca329",
+    "promotion_note": "The candidate source/test commit was cherry-picked onto main after two documentation-only commits. The promoted files are identical to candidate_commit; the differing tree records the already-present evidence documents.",
+    "measurement_branch": "codex/m32-gate-raw-cpasync",
+    "measurement_worktree": "/tmp/q3x-m32-gate-raw-cpasync",
+    "measurement_worktree_status": "clean",
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "binary_note": "The frozen baseline and candidate production binaries are selector-matched builds from the candidate source: both contain the old and new exact-M32 diagnostic symbols, while the baseline public gate/up selector launches the retained table-free-E2M1 kernel and the candidate selector launches the new cp.async kernel.",
+    "frozen_baseline_binary": {
+      "local_path": "/tmp/q3x-m32-gate-raw-cpasync-production-baseline/qwen3x-orin",
+      "bytes": 4131136,
+      "sha256": "6b8599347737162e9fc9cc856eacc6d581421c953f11af3de4abf534b59afa79",
+      "elf_build_id": "ad974bb2762a9c2b82e8e8a82f2eb3196de8549b",
+      "checked_in": false
+    },
+    "frozen_candidate_binary": {
+      "local_path": "/tmp/q3x-m32-gate-raw-cpasync-production-candidate/qwen3x-orin",
+      "bytes": 4131232,
+      "sha256": "a6284eb52589af87071f94e478030318c1dc530ff2b7954fe91ae4cfa0abdc35",
+      "elf_build_id": "9a8559954060e5d8ab80fdbff17778661fd8da59",
+      "checked_in": false
+    },
+    "final_release_binary_identity": "The final Release qwen3x-orin in the clean candidate worktree is byte-identical to frozen_candidate_binary."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_mrq_rate_locked": true,
+      "claim_boundary": "Fixed-frequency named-device batch-one latency evidence only."
+    }
+  },
+  "implementation": {
+    "phase": "Prefill",
+    "projection_backend": "sm87_weight_only",
+    "weight_encoding": "NVFP4",
+    "token_count": 32,
+    "shape_n_by_k": [17408, 5120],
+    "grid": [136, 1, 1],
+    "block": [256, 1, 1],
+    "baseline": "Exact-M32 K64/LD72 dual-resident-A, K256 encoded-scale window, vector-store, table-free-E2M1 production specialization using synchronous packed-weight loads.",
+    "mechanism": [
+      "Allocate exactly one aligned uint4 shared raw-weight cell per one of the 256 CTA threads, for 4096 bytes total.",
+      "Issue the initial 16-byte cp.async.cg transfer and commit it.",
+      "For each K64 stage, wait for the committed transfer, load that thread's uint4 from shared memory into registers, decode its E2M1 values with the unchanged E4M3FN scale codebook, then issue and commit the following stage's transfer only after the current uint4 is register-owned.",
+      "The following transfer remains in flight across the existing decoded-B/A publication barrier and WMMA work. There is no second shared raw-weight slot, no additional decoded-B slot, and no additional A panel."
+    ],
+    "shared_raw_weight_staging_bytes": 4096,
+    "shared_raw_weight_slots": 1,
+    "register_handoff_before_slot_reuse": true,
+    "system_double_buffered": false,
+    "system_triple_buffered": false,
+    "kernel_local_software_pipeline_only": true,
+    "production_dispatch": "Only the aligned public exact-M32 [17408,5120] gate/up route selects the new kernel.",
+    "unchanged_boundaries": {
+      "exact_m32_down_5120x17408": "Retains the prior table-free-E2M1 specialization.",
+      "m17_m31": "Production dispatch is unchanged; the pre-existing raw-weight cp.async path remains a test-only probe.",
+      "fallbacks": "Non-exact shapes, alignment fallbacks, scalar/small-M routes, and invalid launches retain their prior behavior.",
+      "gate_up_dual_stream_policy": "Unchanged; the existing layer-local gate/up auxiliary stream still provides the only relevant cross-stream overlap.",
+      "prefill_decode_scheduler": "Unchanged; no Prefill/Decode overlap, independent phase executors, continuous batching, or request-level buffering is introduced.",
+      "decode": "Unchanged."
+    }
+  },
+  "correctness_and_contract": {
+    "table_free_e2m1_exhaustive": {
+      "combinations": 262144,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "signed_zero_all_positions": true
+    },
+    "direct_gate_up_candidate": {
+      "outputs": 557056,
+      "mismatches_to_two_public_m16_calls": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary": "exact",
+      "outputs_finite": true,
+      "head_and_tail_guards": "intact",
+      "valid_graph_kernel_nodes": 1
+    },
+    "production_gate_up": {
+      "outputs": 557056,
+      "mismatches_to_two_public_m16_calls": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary": "exact",
+      "outputs_finite": true,
+      "head_and_tail_guards": "intact",
+      "valid_graph_kernel_nodes": 1,
+      "public_function_equals_candidate": true,
+      "public_function_differs_from_baseline": true
+    },
+    "production_down": {
+      "outputs": 163840,
+      "mismatches_to_two_public_m16_calls": 0,
+      "replay_mismatches": 0,
+      "token_15_16_boundary": "exact",
+      "outputs_finite": true,
+      "head_and_tail_guards": "intact",
+      "valid_graph_kernel_nodes": 1,
+      "public_function_equals_retained_baseline": true
+    },
+    "invalid_candidate_graph": {
+      "alias_status": "cudaErrorInvalidValue",
+      "near_miss_shape_status": "cudaErrorInvalidValue",
+      "kernel_nodes": 0
+    },
+    "fallback_graph_kernel_nodes_unchanged": [
+      {"case": "generic 13x48", "kernel_nodes": 32},
+      {"case": "near-miss rows 17407x5120", "kernel_nodes": 4},
+      {"case": "4-byte-only packed-weight alignment", "kernel_nodes": 4},
+      {"case": "misaligned packed weights", "kernel_nodes": 32},
+      {"case": "misaligned block scales", "kernel_nodes": 4},
+      {"case": "BF16-only activation alignment", "kernel_nodes": 32}
+    ],
+    "nan_weight_scale_rejected": true,
+    "down_shape_rejected_by_candidate_direct_entry": true,
+    "default_test_result": "pass",
+    "production_selector_identity_gate": "pass"
+  },
+  "sass_and_resources": {
+    "baseline": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 712,
+      "LDS": 19,
+      "BAR_SYNC": 5
+    },
+    "candidate": {
+      "registers_per_thread": 48,
+      "maximum_allowed_registers_per_thread": 51,
+      "static_shared_bytes": 27648,
+      "raw_weight_staging_delta_bytes": 4096,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 736,
+      "LDGSTS_E_BYPASS_128_static_instances": 2,
+      "LDGDEPBAR_static_instances": 2,
+      "DEPBAR_LE_static_instances": 1,
+      "LDS_128_raw_weight_static_instances": 1,
+      "BAR_SYNC": 5
+    },
+    "compiled_mechanism": "The complete candidate function contains LDGSTS.E.BYPASS.128, LDGDEPBAR, and DEPBAR.LE. Its first waited LDS.128 of the raw uint4 precedes the static next-stage LDGSTS, matching wait -> register handoff -> single-slot reuse; no LDL or STL is introduced.",
+    "retained_baseline_function_identity": "The extracted old production table-free-E2M1 function is byte-identical in the baseline-selector and candidate-selector binaries, so the comparison changes dispatch to a new symbol rather than silently changing the control kernel.",
+    "audit_note": "Instruction counts and compiled-mechanism claims use the complete candidate-only SASS dump. The earlier candidate-kernel.sass scratch extraction ended before the full function and is not evidence for this record."
+  },
+  "same_binary_microbenchmark": {
+    "binary": "/tmp/q3x-m32-gate-raw-cpasync-candidate-test",
+    "protocol": {
+      "independent_processes": 5,
+      "distributions": ["synthetic_checkpoint_like", "synthetic_same_bank_stress"],
+      "warmup_iterations_per_route": 10,
+      "logical_launches_per_timed_pass": 24,
+      "rounds_per_process_and_distribution": 4,
+      "round_order": "baseline-candidate-candidate-baseline",
+      "isolated_cell_required_speedup": 1.03,
+      "isolated_minimum_round_speedup": 1.0,
+      "dual_stream_pair_required_speedup": 1.02,
+      "dual_stream_pair_minimum_round_speedup": 1.0
+    },
+    "isolated": {
+      "checkpoint_like": {
+        "process_speedups": [1.08099, 1.08876, 1.08101, 1.08233, 1.07958],
+        "minimum": 1.07958,
+        "median": 1.08101,
+        "maximum": 1.08876,
+        "minimum_of_20_round_speedups": 1.07875
+      },
+      "same_bank_stress": {
+        "process_speedups": [1.08075, 1.08919, 1.08155, 1.08301, 1.08014],
+        "minimum": 1.08014,
+        "median": 1.08155,
+        "maximum": 1.08919,
+        "minimum_of_20_round_speedups": 1.07912
+      },
+      "two_distribution_aggregate": {
+        "process_speedups": [1.08087, 1.08897, 1.08128, 1.08267, 1.07986],
+        "minimum": 1.07986,
+        "median": 1.08128,
+        "maximum": 1.08897,
+        "gate": "pass"
+      }
+    },
+    "existing_dual_stream_gate_up_pair": {
+      "topology": "One gate and one up projection launch concurrently through the already-promoted main/auxiliary stream policy; only both exact-M32 kernel implementations change.",
+      "checkpoint_like": {
+        "process_speedups": [1.12574, 1.16109, 1.10992, 1.07262, 1.12579],
+        "minimum": 1.07262,
+        "median": 1.12574,
+        "maximum": 1.16109,
+        "minimum_of_20_round_speedups": 1.07245
+      },
+      "same_bank_stress": {
+        "process_speedups": [1.12945, 1.16162, 1.11393, 1.07384, 1.12226],
+        "minimum": 1.07384,
+        "median": 1.12226,
+        "maximum": 1.16162,
+        "minimum_of_20_round_speedups": 1.07212
+      },
+      "two_distribution_aggregate": {
+        "process_speedups": [1.12760, 1.16135, 1.11193, 1.07323, 1.12402],
+        "minimum": 1.07323,
+        "median": 1.12402,
+        "maximum": 1.16135,
+        "gate": "pass"
+      }
+    },
+    "initial_same_binary_confirmation": {
+      "isolated_aggregate_speedup": 1.07731,
+      "dual_stream_pair_aggregate_speedup": 1.12248,
+      "gate": "pass"
+    },
+    "correctness": "All isolated outputs and both gate/up pair outputs are bitwise equal to their baseline routes and finite in every process."
+  },
+  "unprofiled_real_model": {
+    "protocol": {
+      "projection_backend": "sm87_weight_only",
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 1,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "order": "baseline-candidate-candidate-baseline",
+      "oracle": {
+        "status": "ok in all 12 processes",
+        "generated_ids": [9419],
+        "generated_text": "Hello"
+      }
+    },
+    "P33": {
+      "prompt_sha256": "50862e6a9d087a2225192e3daabe976f91ef05ca566d0b62d8509a938b609542",
+      "prompt_tokens": 33,
+      "prefix_c32_tiles": 1,
+      "order_prefix_median_ms": [283.896, 276.942, 276.761, 282.437],
+      "order_finish_prefill_median_ms": [110.484, 110.456, 110.416, 110.421],
+      "order_ttft_median_ms": [394.372, 387.398, 387.178, 393.008],
+      "mirrored_prefix_speedups": [1.025109950820, 1.020508669935],
+      "mirrored_ttft_speedups": [1.018002157987, 1.015057673731],
+      "bracket": {
+        "baseline_prefix_ms": 283.166500,
+        "candidate_prefix_ms": 276.851500,
+        "prefix_saving_ms": 6.315000,
+        "prefix_speedup": 1.022810062434,
+        "prefix_reduction_percent": 2.230136686,
+        "baseline_ttft_ms": 393.690000,
+        "candidate_ttft_ms": 387.288000,
+        "ttft_saving_ms": 6.402000,
+        "ttft_speedup": 1.016530334015,
+        "finish_prefill_ratio_baseline_over_candidate": 1.000149407802
+      },
+      "gate": "pass"
+    },
+    "P513": {
+      "prompt_sha256": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2",
+      "prompt_tokens": 513,
+      "prefix_c32_tiles": 16,
+      "groups": [
+        {
+          "id": 1,
+          "order_prefix_median_ms": [4725.784, 4621.048, 4620.904, 4725.406],
+          "order_finish_prefill_median_ms": [111.779, 111.795, 111.848, 111.742],
+          "order_ttft_median_ms": [4837.564, 4732.836, 4732.767, 4837.148],
+          "mirrored_prefix_speedups": [1.022664988548, 1.022615055409],
+          "mirrored_ttft_speedups": [1.022127958797, 1.022054962773],
+          "baseline_prefix_ms": 4725.595000,
+          "candidate_prefix_ms": 4620.976000,
+          "prefix_saving_ms": 104.619000,
+          "prefix_speedup": 1.022640022368,
+          "baseline_ttft_ms": 4837.356000,
+          "candidate_ttft_ms": 4732.801500,
+          "ttft_saving_ms": 104.554500,
+          "ttft_speedup": 1.022091461051,
+          "finish_prefill_ratio_baseline_over_candidate": 0.999454487733,
+          "gate": "pass"
+        },
+        {
+          "id": 2,
+          "order_prefix_median_ms": [4901.036, 4646.690, 4619.930, 4721.710],
+          "order_finish_prefill_median_ms": [111.710, 111.712, 111.813, 111.646],
+          "order_ttft_median_ms": [5012.796, 4758.446, 4731.725, 4833.380],
+          "mirrored_prefix_speedups": [1.054737027863, 1.022030636828],
+          "mirrored_ttft_speedups": [1.053452324561, 1.021483708373],
+          "baseline_prefix_ms": 4811.373000,
+          "candidate_prefix_ms": 4633.310000,
+          "prefix_saving_ms": 178.063000,
+          "prefix_speedup": 1.038431056847,
+          "baseline_ttft_ms": 4923.088000,
+          "candidate_ttft_ms": 4745.085500,
+          "ttft_saving_ms": 178.002500,
+          "ttft_speedup": 1.037513022684,
+          "finish_prefill_ratio_baseline_over_candidate": 0.999243932446,
+          "gate": "pass"
+        }
+      ],
+      "two_group_mean": {
+        "baseline_prefix_ms": 4768.484000,
+        "candidate_prefix_ms": 4627.143000,
+        "prefix_saving_ms": 141.341000,
+        "prefix_speedup": 1.030546062657,
+        "prefix_reduction_percent": 2.964065728,
+        "baseline_ttft_ms": 4880.222000,
+        "candidate_ttft_ms": 4738.943500,
+        "ttft_saving_ms": 141.278500,
+        "ttft_speedup": 1.029812235575,
+        "finish_prefill_ratio_baseline_over_candidate": 0.999349237870,
+        "reversed_groups": 0,
+        "reversed_mirrors": 0,
+        "gate": "pass"
+      }
+    }
+  },
+  "matched_nsys_P513_C32_max1": {
+    "protocol": {
+      "order": "baseline-candidate-baseline",
+      "processes": 3,
+      "warmup_rounds": 0,
+      "measured_rounds": 1,
+      "prompt_construction": "501 space-separated copies of the ASCII word hello",
+      "prompt_tokens": 513,
+      "prefix_c32_tiles": 16,
+      "projection_backend": "sm87_weight_only",
+      "max_new_tokens": 1,
+      "nsys_options": "--trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true",
+      "phase_ranges_enabled": true,
+      "oracle": "All three processes report status ok, generated ID 9419, text Hello, and 513 steps."
+    },
+    "method": {
+      "nvtx_selection": "Completed q3x.prefill.prefix_tile push/pop ranges, resolving registered strings through coalesce(NVTX_EVENTS.text, StringIds.value via textId).",
+      "runtime_selection": "CUDA Runtime API calls whose host start and end are contained in the completed phase range on the same globalTid.",
+      "runtime_to_kernel_join": "correlationId plus k.globalPid = (r.globalTid & 0xFFFFFFFFFF000000).",
+      "raw_ns": "Sum of kernel end minus start; cross-stream overlap is counted more than once.",
+      "union_ns": "Length of the merged GPU kernel interval union.",
+      "span_ns": "Last associated kernel end minus first associated kernel start.",
+      "idle_ns": "span_ns minus union_ns.",
+      "overlap_ns": "raw_ns minus union_ns.",
+      "marginal_critical_path_ns": "Full prefix kernel union minus the union after removing every interval for one exact demangled kernel name.",
+      "method_cross_check": "The analysis exactly reproduces the recorded post-C4 prefix raw, union, span, idle, overlap, stream, and kernel-instance counts from /tmp/q3x-m32-resrms-prod-c4.sqlite."
+    },
+    "captures": [
+      {
+        "id": "B1",
+        "binary": "baseline",
+        "runner_ttft_ms": 4938.694,
+        "prefix": {"kernel_instances": 40176, "raw_ns": 5147988288, "union_ns": 4720926624, "span_ns": 4810290016, "idle_ns": 89363392, "overlap_ns": 427061664},
+        "gate_up": {"kernel_instances": 2048, "raw_ns": 1845296544, "own_pair_union_ns": 1418234880, "marginal_critical_path_ns": 1418234880, "raw_pair_overlap_ns": 427061664},
+        "down": {"kernel_instances": 1024, "raw_ns": 932679424, "marginal_critical_path_ns": 932679424}
+      },
+      {
+        "id": "C1",
+        "binary": "candidate",
+        "runner_ttft_ms": 4792.119,
+        "prefix": {"kernel_instances": 40176, "raw_ns": 4929959808, "union_ns": 4569087424, "span_ns": 4660570592, "idle_ns": 91483168, "overlap_ns": 360872384},
+        "gate_up": {"kernel_instances": 2048, "raw_ns": 1622087360, "own_pair_union_ns": 1261214976, "marginal_critical_path_ns": 1261214976, "raw_pair_overlap_ns": 360872384},
+        "down": {"kernel_instances": 1024, "raw_ns": 932826880, "marginal_critical_path_ns": 932826880}
+      },
+      {
+        "id": "B2",
+        "binary": "baseline",
+        "runner_ttft_ms": 4885.624,
+        "prefix": {"kernel_instances": 40176, "raw_ns": 5059217952, "union_ns": 4663687264, "span_ns": 4753897344, "idle_ns": 90210080, "overlap_ns": 395530688},
+        "gate_up": {"kernel_instances": 2048, "raw_ns": 1752196960, "own_pair_union_ns": 1356666272, "marginal_critical_path_ns": 1356666272, "raw_pair_overlap_ns": 395530688},
+        "down": {"kernel_instances": 1024, "raw_ns": 932712768, "marginal_critical_path_ns": 932712768}
+      }
+    ],
+    "baseline_bracket_vs_candidate": {
+      "gate_up": {
+        "baseline_raw_ns": 1798746752,
+        "candidate_raw_ns": 1622087360,
+        "raw_saving_ns": 176659392,
+        "raw_speedup": 1.1089086792464742,
+        "baseline_marginal_critical_path_ns": 1387450576,
+        "candidate_marginal_critical_path_ns": 1261214976,
+        "marginal_saving_ns": 126235600,
+        "marginal_speedup": 1.1000904702228973,
+        "marginal_reduction_percent": 9.098385354,
+        "gate": "pass"
+      },
+      "prefix": {
+        "baseline_raw_ns": 5103603120,
+        "candidate_raw_ns": 4929959808,
+        "raw_speedup": 1.0352220542890074,
+        "baseline_union_ns": 4692306944,
+        "candidate_union_ns": 4569087424,
+        "union_saving_ns": 123219520,
+        "union_speedup": 1.0269680810554787,
+        "union_reduction_percent": 2.625990189,
+        "baseline_span_ns": 4782093680,
+        "candidate_span_ns": 4660570592,
+        "span_saving_ns": 121523088,
+        "span_speedup": 1.026074723169862,
+        "baseline_idle_ns": 89786736,
+        "candidate_idle_ns": 91483168,
+        "baseline_overlap_ns": 411296176,
+        "candidate_overlap_ns": 360872384
+      },
+      "down_control": {
+        "baseline_marginal_critical_path_ns": 932696096,
+        "candidate_marginal_critical_path_ns": 932826880,
+        "baseline_over_candidate": 0.9998597982082162,
+        "interpretation": "The selector does not change down; this matched B-C-B records a 0.0140% difference for the unchanged control."
+      },
+      "topology": {
+        "prefix_kernel_instances_all_captures": 40176,
+        "gate_up_kernel_instances_all_captures": 2048,
+        "gate_up_main_stream_instances": 1024,
+        "gate_up_auxiliary_stream_instances": 1024,
+        "down_kernel_instances_all_captures": 1024
+      },
+      "candidate_remaining_share_of_prefix_union_percent": {
+        "gate_up": 27.603213923534,
+        "down": 20.416043586738,
+        "combined": 48.019257510272
+      }
+    },
+    "interpretation": "The target group improves in raw work and in the overlap-aware marginal critical path, while the unchanged down control and total topology remain stable. The overlap sum shrinks because each concurrent gate/up kernel is shorter; raw duration must still not be interpreted as energy."
+  },
+  "validation": {
+    "candidate_default_cuda_test": "pass",
+    "production_selector_default_cuda_test": "pass",
+    "release_build": "pass",
+    "release_ctest": {
+      "discovered": 56,
+      "passed": 51,
+      "skipped": 5,
+      "failed": 0,
+      "status": "pass"
+    },
+    "post_cherry_pick_main": {
+      "release_build": "pass",
+      "ctest": {"discovered": 56, "passed": 51, "skipped": 5, "failed": 0, "status": "pass"},
+      "P513_C32_max1_smoke": {"status": "ok", "prompt_tokens": 513, "generated_ids": [9419], "generated_text": "Hello", "step_count": 513},
+      "latency_claim": false
+    },
+    "real_model_P33": "pass",
+    "real_model_P513_two_groups": "pass",
+    "matched_nsys_B_C_B": "pass",
+    "independent_code_and_evidence_audit": "GO; the single-slot ordering, synchronization, alignment, selector scope, unchanged down/fallback routes, correctness, resources, and performance gates were accepted."
+  },
+  "artifacts": {
+    "compiled_evidence": [
+      {"role": "complete retained baseline production function SASS", "path": "/tmp/q3x-m32-gate-raw-cpasync-baseline-production.sass", "bytes": 163726, "sha256": "c1035501cec94dba531f756a76c9b9c23e52f2b7769b4a1f493cda2c02b8a0a9"},
+      {"role": "same retained baseline function extracted from candidate selector binary", "path": "/tmp/q3x-m32-gate-raw-cpasync-candidate-production.sass", "bytes": 163726, "sha256": "c1035501cec94dba531f756a76c9b9c23e52f2b7769b4a1f493cda2c02b8a0a9"},
+      {"role": "complete new candidate function SASS", "path": "/tmp/q3x-m32-gate-raw-cpasync-candidate-only.sass", "bytes": 169199, "sha256": "b1f4adfbd981577f91740b2ee4fe9d9388139142a1e808b6a14175709a7b174b"},
+      {"role": "candidate CUDA resource dump", "path": "/tmp/q3x-m32-gate-raw-cpasync-candidate.resources", "bytes": 35931, "sha256": "1b358b7edb88e306e484b17f8e5a259f929ab33548548fef546d5420969b4d48"},
+      {"role": "five-process same-binary microbenchmark executable", "path": "/tmp/q3x-m32-gate-raw-cpasync-candidate-test", "bytes": 5016296, "sha256": "e953e39547edac943a08242d061a84834589366443b95daa2fcf683e88611df7"},
+      {"role": "final clean-worktree Release CUDA test executable", "path": "/tmp/q3x-m32-gate-raw-cpasync/build/orin-release/q3x_sm87_weight_only_gemv_test", "bytes": 5017488, "sha256": "40838b83a3fe67309a537b901201514bdafe9e03ebfebff2c476bea14f90505a"}
+    ],
+    "post_cherry_pick_main_binaries": [
+      {"role": "promoted main Release runner", "path": "build/orin-release/qwen3x-orin", "bytes": 4131232, "sha256": "144c408ec994e9c519742abcd5ea0322560c1d20b94bbe303ab9dc5f220ecca6", "elf_build_id": "2d25f75ea5fcd77fd1ad491b4e11d712425e1d30", "checked_in": false},
+      {"role": "promoted main Release CUDA test", "path": "build/orin-release/q3x_sm87_weight_only_gemv_test", "bytes": 5017488, "sha256": "9de2b0124f575b092eb019109d328bace4b56635a6930fed7fd54f2dd54d6334", "elf_build_id": "2855e856dd1525cb076f1f686555666f14955d9c", "checked_in": false}
+    ],
+    "correctness_and_build_logs": [
+      {"role": "candidate default CUDA test", "path": "/tmp/q3x-m32-gate-raw-cpasync-default.log", "bytes": 55189, "sha256": "84012394c3e7b9ab7802e4cf0f21a2fa0cb1aa1e41ece66b5c9bb9c30ad701cb"},
+      {"role": "production-selector default CUDA test", "path": "/tmp/q3x-m32-gate-raw-cpasync-production-default.log", "bytes": 55646, "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698"},
+      {"role": "final Release build", "path": "/tmp/q3x-m32-gate-raw-cpasync-release-build-final.log", "bytes": 6706, "sha256": "d3e77ba3400d72697349a64d99af35065ff126df1a8c254f73be69b6715e0883"},
+      {"role": "final Release CTest", "path": "/tmp/q3x-m32-gate-raw-cpasync-release-ctest-final.log", "bytes": 7691, "sha256": "a1ea84d4ae744918e84aa50a8606d139e48448ed9da24d0e299bb8f140b9c04c"}
+    ],
+    "microbenchmark_logs": [
+      {"role": "initial same-binary confirmation", "path": "/tmp/q3x-m32-gate-raw-cpasync-timed.log", "bytes": 61454, "sha256": "3004e26dc2eab8da87648f3d35c284741d625b5eb0e6446c92de26ddcd1a666a"},
+      {"role": "independent process 1", "path": "/tmp/q3x-m32-gate-raw-cpasync-rep1.log", "bytes": 61457, "sha256": "491f0e3a71c9ade44739f3730f62358bdbc6659329dd21d4a628cbb0cb159037"},
+      {"role": "independent process 2", "path": "/tmp/q3x-m32-gate-raw-cpasync-rep2.log", "bytes": 61455, "sha256": "69c9fcd582d34df5e459d5144c75e2cb3e9c513cfb1d9ed781acfa1d26cf643f"},
+      {"role": "independent process 3", "path": "/tmp/q3x-m32-gate-raw-cpasync-rep3.log", "bytes": 61456, "sha256": "9e62959c588a22a0e9abd9e801251e17d4d4f8aa056138cf86a358186a4f5813"},
+      {"role": "independent process 4", "path": "/tmp/q3x-m32-gate-raw-cpasync-rep4.log", "bytes": 61460, "sha256": "9a24f3aa7d92a0d7813e7f288fcc347a9668813f1865dab827f2b0752d3c7f0a"},
+      {"role": "independent process 5", "path": "/tmp/q3x-m32-gate-raw-cpasync-rep5.log", "bytes": 61456, "sha256": "bb1b1614075b39468ffede4ed329ecc7847decfa0fd0a05b61af442fa25f8fb7"}
+    ],
+    "P33_B_C_C_B_logs": [
+      {"id": "B1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p33-b1.log", "bytes": 7131, "sha256": "a50878a63fa9c9fa209ed6234eea8544c545ec806717515d2e878e5733582939"},
+      {"id": "C1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p33-c1.log", "bytes": 7133, "sha256": "8cc18f06d5d77f90e044fc7f57cabcf816bd9962a8ee29b48517f28dec7c312b"},
+      {"id": "C2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p33-c2.log", "bytes": 7133, "sha256": "0201f7589a1a9ac8c806306a90b2799e7b553f24c34e773312720e57fd0e0f68"},
+      {"id": "B2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p33-b2.log", "bytes": 7144, "sha256": "0fba20f0887011e73682a89c7eb7368fbd138d3a7b4992b885f0ba346d56031a"}
+    ],
+    "P513_B_C_C_B_logs": [
+      {"id": "G1-B1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g1-b1.log", "bytes": 21226, "sha256": "0615c9509ae5bd6d0b576a0e8191cbea63665a172a9b0f53db7ccfd5f2218934"},
+      {"id": "G1-C1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g1-c1.log", "bytes": 21227, "sha256": "85ff7a5844b959de19b7afd55f9315f1ea1db08a1b58683e78975d7c24389f4a"},
+      {"id": "G1-C2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g1-c2.log", "bytes": 21221, "sha256": "f56d6cea17ce42bf18621e8c16c27758d6307c0949e31ffdc8f6ffc95f4bef99"},
+      {"id": "G1-B2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g1-b2.log", "bytes": 21220, "sha256": "1dfd6868d6c4420a07d29f3634dbe3a1ccdbcac4acd75870d69e5b515b23a1ba"},
+      {"id": "G2-B1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g2-b1.log", "bytes": 21220, "sha256": "04e74cad3950c88d1e1c970ebae60069cfd52a2e612c7c608f9d2f2fd9800f17"},
+      {"id": "G2-C1", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g2-c1.log", "bytes": 21221, "sha256": "1a7e718b0618ae462f681f140e61bfd3f5e3c04cbab269e1a56bd587135abf8e"},
+      {"id": "G2-C2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g2-c2.log", "bytes": 21221, "sha256": "4210826cbbe6c2191a0a2e0656905139bc2f04717ab11ebe1681b55dff34d780"},
+      {"id": "G2-B2", "path": "/tmp/q3x-m32-gate-raw-cpasync-p513-g2-b2.log", "bytes": 21220, "sha256": "bdcc03dcf2f2deff6606c51df5781271a0131b80c97c6119a5ccf006781191f9"}
+    ],
+    "nsys": {
+      "B1": {
+        "console_log": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b1.log", "bytes": 11748, "sha256": "a373100ceb5b59e7d3a99cd38bafe3a80cc7b9d6660fbfd4be6ca99f695eb847"},
+        "report": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b1.nsys-rep", "bytes": 3130903, "sha256": "671def5b86b2c8fd801138952fe4614a69a3ff6532fb536e35ee4fa98123d58b"},
+        "sqlite": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b1.sqlite", "bytes": 8581120, "sha256": "2838bf473fc946f69b26c0b091b2212791963ddfd42cbc68f387f8f29a9a824a"}
+      },
+      "C1": {
+        "console_log": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-c1.log", "bytes": 11749, "sha256": "c648b57851c3cfe997d59e68dde7db3038abdfc3bfbd3e9567a1ea9cc46347f1"},
+        "report": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-c1.nsys-rep", "bytes": 3129887, "sha256": "3b906941bd92582f67b9481cf5fa8178081ec3089537131585b9f501f6f19d4d"},
+        "sqlite": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-c1.sqlite", "bytes": 8577024, "sha256": "90456c99c22302c2ac8e78cfe5cadb6456ccfee2153aad23cd895fca7981c1d3"}
+      },
+      "B2": {
+        "console_log": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b2.log", "bytes": 11748, "sha256": "6c9220f3fe0e4777eb1be99a1de3e2bbb3d7bdb95512f56a4cfd2cadc56c4c97"},
+        "report": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b2.nsys-rep", "bytes": 3128339, "sha256": "9980ea8ffca60e72eb1dd9cb42add2f3e6e6a9dd8d4dcd7f9c549132fd917d47"},
+        "sqlite": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-p513-b2.sqlite", "bytes": 8577024, "sha256": "70eb7ffe242e70e29a58ff5c75268772ad055619c34a886e5d14772513891ec7"}
+      },
+      "analysis": {"path": "/tmp/q3x-m32-gate-raw-cpasync-nsys-analysis.json", "bytes": 17262, "sha256": "636748554f1a76dae9fee3e085b1220b3c7588904e21a1c9e73a7b274374cc0b"}
+    }
+  },
+  "limitations": [
+    "This is fixed-frequency Jetson AGX Orin batch-one latency evidence, not multi-request throughput, continuous batching, power, thermal, or energy evidence.",
+    "The unprofiled P33 evidence contains one B-C-C-B group and P513 contains two. The second P513 group's first baseline is visibly slower than its closing baseline; symmetric bracketing and a matched Nsys control reduce but do not eliminate process-level drift.",
+    "The Nsys result is one candidate trace bracketed by two baseline traces. Profiling perturbs execution, so unprofiled B-C-C-B remains the end-to-end promotion gate and Nsys establishes mechanism and attribution.",
+    "Raw kernel duration double-counts gate/up cross-stream overlap and is not an energy estimate. The overlap-aware marginal and prefix-union values are the critical-path claims.",
+    "Only exact aligned C32 NVFP4 gate/up [17408,5120] changes. Exact-M32 down, M17-M31 production, every fallback, finish-prefill, Decode, and the Prefill/Decode scheduler remain unchanged.",
+    "The 4 KiB raw-weight staging area is one CTA-local shared slot whose payload is handed to registers. Calling this a general double buffer, triple buffer, or independent Prefill/Decode executor would be incorrect."
+  ],
+  "promotion": {
+    "decision": "promote exact-M32 gate/up single-slot raw-weight cp.async",
+    "correctness_gate": "pass",
+    "resource_gate": "pass",
+    "compiled_mechanism_gate": "pass",
+    "five_process_isolated_gate": "pass",
+    "five_process_dual_stream_pair_gate": "pass",
+    "P33_gate": "pass",
+    "P513_gate": "pass",
+    "matched_nsys_gate": "pass",
+    "full_regression_gate": "pass",
+    "reason": "The candidate is bitwise exact, preserves five CTAs per SM and zero local memory, produces the intended cp.async single-slot ordering in SASS, clears every same-binary round, improves every unprofiled mirror, and converts the exact target's Nsys gain into a 123.219520 ms prefix-union saving without moving the unchanged down control.",
+    "next_priority": "Resume the bounded exact-M32 down [5120,17408] N160/320-thread balanced-grid screen. Down remains 20.416044% of the candidate prefix union, while a general scheduler double/triple buffer remains lower priority than phase-local kernels at the measured batch-one prefix idle level.",
+    "refresh_point": "Refresh the P513/C32 phase profile after the next accepted down or other top-three Prefill optimization, or immediately if selector integration changes launch topology."
+  }
+}
