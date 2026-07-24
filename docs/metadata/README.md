@@ -486,6 +486,13 @@ The diagnostic Phase 3 records are:
   rounds to 0.957097x and 0.956026x paired medians. The actual-first stop-loss
   removes the candidate and skips stress, profiling, end-to-end, and
   replication without changing production.
+- [`qwen36-27b-gdn-m32-register-resident-bf16-state-rejection.json`](qwen36-27b-gdn-m32-register-resident-bf16-state-rejection.json),
+  which closes the test-only exact-C32 extension of the production M16
+  register-state lifetime. Output, final state, replay, input, Graph, and
+  resource gates pass, and every fixed-clock round improves, but the 1.02474x
+  paired median misses the frozen 1.03x early gate. Stop-loss removes the
+  candidate before runner/model/profiler work and keeps production unchanged;
+  the next selection requires a fresh current-HEAD phase profile.
 - [`qwen36-27b-fp8-m32-packed-decode-static-rejection.json`](qwen36-27b-fp8-m32-packed-decode-static-rejection.json),
   which closes the CPU/compile/SASS-only exact-M32 FP8 packed-decode screen.
   The exact four-code BF16-bit constructor removes all 32 codebook `LDS.U16`,

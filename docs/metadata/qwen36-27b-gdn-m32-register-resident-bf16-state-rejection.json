@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-gdn-m32-register-resident-bf16-state-rejection",
+  "status": "rejected-test-only-prefill-exact-c32-gdn-register-resident-bf16-state",
+  "recorded_at": "2026-07-24T18:05:52+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "4c0aaa154b3de3508d9a7cb4147ebe99c937f18e",
+    "base_tree": "fe46a277a8ab84a27ec1352278b411e788433394",
+    "base_subject": "docs: record NVFP4 M32 asymmetric E4M3 rejection",
+    "fresh_worktree": "/tmp/q3x-gdn-c32-register-state-4c0aaa1",
+    "branch": "agent/gdn-c32-register-state",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false
+  },
+  "profile_priority": {
+    "historical_post_gdn_m16_prefill_group": "exact GDN M16 register-state",
+    "historical_marginal_ns": 487589952,
+    "historical_share_of_prefix_union_percent": 10.371751,
+    "caveat": "the b09614c profile predates later production changes including exact-M32 gate/up raw-weight cp.async; it establishes that GDN was material but is not a current-HEAD ranking",
+    "selection_reason": "exact-C32 extends the already successful register-state lifetime across the existing two-M16 C32 boundary and is materially different from the rejected shared-resident, table-free, half-tile, pair-CTA, and shared-pipeline mechanisms"
+  },
+  "candidate": {
+    "scope": "test-only exact C32 GDN recurrence",
+    "baseline": "two ordered production-equivalent exact-M16 register-state launches",
+    "candidate": "one exact-M32 register-state launch",
+    "implementation": [
+      "template the private register-state arithmetic body on a compile-time token count of 16 or 32",
+      "retain per-token BF16x2 encoding and decoding of every recurrent-state word",
+      "load state once before token 0 and write it once after token 31",
+      "leave the public kGdnMaximumTileTokenCount=16 contract, production dispatcher, runner, and every non-C32 path unchanged"
+    ],
+    "dependency_audit": "for a future production C32 route, conv16(first) then conv16(second) may precede GDN32 because causal-convolution history and output do not depend on GDN state; the candidate still requires direct runner-level proof before promotion",
+    "semantic_boundary": "the removed token-15 global store and token-16 global load carry the same already-rounded BF16 bits held in packed register words; no token-boundary rounding was removed"
+  },
+  "frozen_gates": {
+    "correctness": [
+      "all 32-token BF16 outputs bitwise equal to two ordered exact-M16 launches",
+      "final BF16 recurrent state bitwise equal",
+      "replay bitwise equal",
+      "disjoint input state and all five non-state inputs preserved",
+      "single 48x256 CUDA Graph kernel for the candidate and zero nodes for invalid non-M32 capture"
+    ],
+    "resources": "same envelope as M16: 64 registers/thread, 34056 static shared bytes, zero local bytes, and four active CTAs/SM",
+    "performance": {
+      "paired_median_speedup_minimum": 1.03,
+      "minimum_round_speedup": 1.0,
+      "rounds": 6,
+      "order": "B-C-C-B",
+      "stop_loss": "failure skips runner integration, model oracle, NCU, Nsys, end-to-end, and replication"
+    }
+  },
+  "static_and_default_gates": {
+    "build": "pass",
+    "complete_default_device_test": "pass",
+    "output_bitwise": "pass",
+    "final_state_bitwise": "pass",
+    "replay": "pass",
+    "input_preservation": "pass",
+    "cuda_graph": "pass",
+    "invalid_capture": "pass",
+    "resources": {
+      "m16": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "m32": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "gate": "pass"
+    },
+    "sass": {
+      "m16_instruction_lines": 2160,
+      "m32_instruction_lines": 2160,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "interpretation": "the compile-time M32 loop bound does not expand the loop body or change the resource envelope"
+    }
+  },
+  "performance_protocol": {
+    "device": "Jetson AGX Orin sm_87",
+    "gpu_frequency_hz": 1300500000,
+    "emc_frequency_hz": 3200000000,
+    "state_banks": 24,
+    "state_working_set_bytes": 37748736,
+    "warmup_logical_c32_operations_per_pass": 48,
+    "measured_logical_c32_operations_per_pass": 240,
+    "rounds": 6,
+    "order": "B-C-C-B",
+    "baseline_kernels_per_logical_operation": 2,
+    "candidate_kernels_per_logical_operation": 1,
+    "correctness_after_each_mirrored_pair": true,
+    "fixture": "deterministic finite BF16 GDN inputs and a 36 MiB rotating recurrent-state pool"
+  },
+  "performance": {
+    "rounds": [
+      {
+        "round": 1,
+        "baseline_1_ms": 0.644123,
+        "candidate_1_ms": 0.628562,
+        "candidate_2_ms": 0.630015,
+        "baseline_2_ms": 0.645529,
+        "speedup": 1.02469
+      },
+      {
+        "round": 2,
+        "baseline_1_ms": 0.645573,
+        "candidate_1_ms": 0.630011,
+        "candidate_2_ms": 0.630003,
+        "baseline_2_ms": 0.645544,
+        "speedup": 1.02468
+      },
+      {
+        "round": 3,
+        "baseline_1_ms": 0.645590,
+        "candidate_1_ms": 0.630020,
+        "candidate_2_ms": 0.630099,
+        "baseline_2_ms": 0.645662,
+        "speedup": 1.02471
+      },
+      {
+        "round": 4,
+        "baseline_1_ms": 0.645592,
+        "candidate_1_ms": 0.629999,
+        "candidate_2_ms": 0.629952,
+        "baseline_2_ms": 0.645518,
+        "speedup": 1.02473
+      },
+      {
+        "round": 5,
+        "baseline_1_ms": 0.645622,
+        "candidate_1_ms": 0.630048,
+        "candidate_2_ms": 0.629891,
+        "baseline_2_ms": 0.645655,
+        "speedup": 1.02487
+      },
+      {
+        "round": 6,
+        "baseline_1_ms": 0.645663,
+        "candidate_1_ms": 0.630071,
+        "candidate_2_ms": 0.629913,
+        "baseline_2_ms": 0.645603,
+        "speedup": 1.02483
+      }
+    ],
+    "summary": {
+      "baseline_pass_median_ms": 0.645591,
+      "candidate_pass_median_ms": 0.630007,
+      "paired_median_speedup": 1.02474,
+      "minimum_round_speedup": 1.02468,
+      "maximum_round_speedup": 1.02487,
+      "rounds_at_or_above_1_0": 6,
+      "candidate_latency_reduction_percent": 2.413912,
+      "gate_shortfall_speedup_points": 0.00526,
+      "bitwise": true,
+      "gate": "fail"
+    },
+    "stop_loss": {
+      "early_micro_gate_failed": true,
+      "runner_integration_executed": false,
+      "model_oracle_executed": false,
+      "ncu_executed": false,
+      "nsys_executed": false,
+      "end_to_end_executed": false,
+      "multi_process_replication_executed": false
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the candidate is bitwise exact, preserves the M16 resource envelope, and improves all six fixed-clock rounds, but its 1.02474x paired median misses the frozen 1.03x early gate",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "gate_changed_after_measurement": false,
+    "profiler_attribution_claimed": false,
+    "restoration_rule": "reconsider only with a materially different mechanism or a revised system-level objective established before measurement; do not restore by lowering this frozen gate after the result"
+  },
+  "cleanup": {
+    "method": "save the complete candidate patch and binary evidence, then reverse the candidate through apply_patch",
+    "source_blob_sha1": "1f0b8479db2ee3467f1efd148967695558914664",
+    "test_blob_sha1": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+    "source_and_test_match_base": true,
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "candidate_symbol_count_in_clean_binary": 0,
+    "forced_clean_rebuild": "pass",
+    "complete_clean_default_device_test": "pass",
+    "candidate_commit_created": false
+  },
+  "artifacts": [
+    {
+      "role": "complete recoverable candidate patch against 4c0aaa1",
+      "path": "/tmp/q3x-gdn-c32-register-state-candidate.patch",
+      "bytes": 37169,
+      "lines": 725,
+      "sha256": "c76e812f569338e8e960b4ce7f1723278c57a10b657466095293f260dc412ef7",
+      "diffstat": "2 files changed, 611 insertions, 12 deletions"
+    },
+    {
+      "role": "candidate fixed-clock correctness and performance log",
+      "path": "/tmp/q3x-gdn-c32-register-state-early-screen.log",
+      "bytes": 3471,
+      "lines": 25,
+      "sha256": "09dbc4487430081c50b82ad1b77e88a0f07d85ccda22156b5f39744f5dd9f2bb",
+      "expected_exit_code": 1
+    },
+    {
+      "role": "retained candidate test binary",
+      "path": "/tmp/q3x-gdn-c32-register-state-candidate-test-binary",
+      "bytes": 1053032,
+      "sha256": "eb57153d32c602e88786a80aacb6dc8193d444efbac231ea0423cf40d5da0b1d"
+    },
+    {
+      "role": "candidate exact-M32 SASS",
+      "path": "/tmp/q3x-gdn-c32-register-state-candidate.sass",
+      "bytes": 541368,
+      "lines": 4398,
+      "sha256": "d6b6e5ac17d9bde14e76b5d77d08cee9f283304bb8be2f510bc768cbcd1fc480"
+    },
+    {
+      "role": "same-binary exact-M16 SASS",
+      "path": "/tmp/q3x-gdn-c32-register-state-baseline-m16.sass",
+      "bytes": 541368,
+      "lines": 4398,
+      "sha256": "c9d4eca9acabe7839a2bca02bb0bd7b7d90a7004df6e166765b4542f1051a4fd"
+    },
+    {
+      "role": "post-removal forced clean rebuild log",
+      "path": "/tmp/q3x-gdn-c32-register-state-cleanup-build.log",
+      "bytes": 691,
+      "lines": 10,
+      "sha256": "7b6016842c7927bea7a0b6fad9f37ecf2e096c4b5b264fe7c8f6b45e1514290d",
+      "exit_code": 0
+    },
+    {
+      "role": "post-removal complete default device-test log",
+      "path": "/tmp/q3x-gdn-c32-register-state-cleanup-default.log",
+      "bytes": 1535,
+      "lines": 16,
+      "sha256": "4a60de17c7edd5e12922f85bfd158b1907246c8bf73654a3a3edb2b7e63e306b",
+      "exit_code": 0
+    },
+    {
+      "role": "post-removal clean test binary",
+      "path": "/tmp/q3x-gdn-c32-register-state-4c0aaa1/build/orin-release/q3x_gdn_decode_cuda_test",
+      "bytes": 986624,
+      "sha256": "1c7ce4606c2874b36104177cad42df0d564da42020ced27a084d126a0d8bf4c9",
+      "candidate_symbol_count": 0
+    }
+  ],
+  "limitations": [
+    "Performance evidence is from one fixed-clock Jetson AGX Orin and one retained process.",
+    "The fixture uses deterministic finite BF16 GDN inputs and rotating synthetic recurrent states rather than checkpoint-derived hidden trajectories.",
+    "The candidate was screened as a direct GDN logical C32 operation; the runner-level two-conv16 then GDN32 ordering was not implemented after the early gate failed.",
+    "The historical post-GDN-M16 profile predates later production optimizations and must be refreshed before selecting another hotspot from its ordering.",
+    "Stop-loss intentionally omitted NCU, Nsys, model-oracle, end-to-end, and multi-process evidence, so no whole-model or dynamic-stall claim is made.",
+    "The rejection applies only to exact-C32 lifetime extension of the existing register-state body under the frozen 1.03x/1.00x gates."
+  ],
+  "next_priority": {
+    "main_line": "refresh the current-HEAD P513/C32/max1 Prefill and P19/C32/max26 Decode phase profiles before selecting another bounded kernel experiment",
+    "ranking_rule": "use Prefill marginal union exposure and Decode raw/union time, not stale raw gate/up sums",
+    "generic_double_or_triple_buffering": "still deferred because the last measured Decode span idle was only 0.733879 percent and the existing narrow Prefill gate/up overlap already consumes the proven independent work"
+  }
+}

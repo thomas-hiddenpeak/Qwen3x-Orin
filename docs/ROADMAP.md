@@ -724,6 +724,20 @@ The actual-first stop-loss skips stress, profiling, end-to-end, and
 replication, removes the candidate, and leaves production unchanged. See the
 [asymmetric E4M3 rejection record](metadata/qwen36-27b-nvfp4-m32-asymmetric-table-free-e4m3-bgu-rejection.json).
 
+The independent exact-C32 GDN register-state lifetime-extension screen is now
+closed as well. Its test-only compile-time M32 body keeps the recurrent state
+in the same packed BF16 register words across all 32 tokens, replacing two
+ordered exact-M16 launches without removing any per-token BF16 rounding. Full
+32-token output/final-state/replay bit checks, input preservation, Graph, and
+resource gates pass; M32 retains the M16 envelope of 64 registers, 34,056 B
+shared, zero local memory, and four active CTAs/SM. All six fixed-clock
+`B-C-C-B` rounds improve, but only to a 1.02474x paired median and
+1.02468x-1.02487x range, below the frozen 1.03x early gate. The threshold was
+not lowered after measurement. Stop-loss removes the candidate and skips
+runner integration, model-oracle, NCU/Nsys, end-to-end, and replication work.
+See the
+[GDN exact-C32 rejection record](metadata/qwen36-27b-gdn-m32-register-resident-bf16-state-rejection.json).
+
 The next bounded kernel experiment now requires a fresh post-C1 marginal
 profile and a materially different phase-local mechanism; closed table-free,
 half-tile, pair-fused, and shared-pipeline variants are not candidates for
