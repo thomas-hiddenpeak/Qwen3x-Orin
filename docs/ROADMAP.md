@@ -667,11 +667,24 @@ P19, Nsys, and NCU work; the candidate was removed and the forced clean
 rollback passes. See the
 [attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
 
-The next bounded kernel mechanism must therefore start from marginal
-critical-path exposure and pass an early same-binary gate. This rejection does
-not preselect a speculative mechanism, and the measured sub-1% Decode
-scheduling hole still leaves general batch-one double/triple buffering behind
-phase-local work. Rejected
+The first bounded Prefill follow-up is also closed. An exact-M32 NVFP4
+`[5120,17408]` down/residual epilogue fusion preserves five-CTA residency and
+passes its finite/replay/guard/Graph/resource checks, but its six fixed-clock
+actual-payload rounds reach only a 1.00050x paired median against 1.005x
+technical and 1.02x promotion gates. Independent audit also found that the
+candidate/test add raw-down-left plus residual-right while the real Prefill
+chain is residual-left plus raw-down-right. The finite performance rejection
+remains valid, but the 4/4 test-defined NaN bit match is not a runtime bitwise
+semantics claim. The candidate was removed without stress, NCU, Nsys, or
+end-to-end work. See the
+[M32 down/residual rejection record](metadata/qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection.json).
+
+The next bounded kernel mechanism is a standalone per-token residual-add plus
+centered-RMSNorm fusion shared by attention and MLP boundaries. It must preserve
+residual-left plus projection-right operand order and reach at least 1.15x on
+both actual-like and stress fixtures before wider validation. The measured
+sub-1% Decode scheduling hole still leaves general batch-one double/triple
+buffering behind phase-local work. Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
 variants stay closed without a materially different mechanism. The existing

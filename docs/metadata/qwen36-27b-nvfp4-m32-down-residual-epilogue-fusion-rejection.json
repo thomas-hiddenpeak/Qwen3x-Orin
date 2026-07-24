@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-nvfp4-down-residual-epilogue-fusion",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "1de2e200815922e07d9e3ae70c1ad730376dd112",
+    "base_subject": "docs: record Decode FP8 no-tail rejection",
+    "base_tree": "dbc167d0a6483b621fb6222da0692ee35c67d259",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted test-only kernel, launcher, resource query, and device-test screen on base_head",
+    "candidate_retained": false,
+    "test_only_hooks_retained": false,
+    "candidate_code_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "candidate_test_binary": {
+      "path_during_measurement": "build/q3x_sm87_weight_only_gemv_test",
+      "retained_local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate-test",
+      "bytes": 5018248,
+      "sha256": "e3dd6914ddde14c0da1f1cf3fbcdf8fa743796bb52208183c4d795483254ddc7",
+      "checked_in": false
+    },
+    "frozen_production_binary": {
+      "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/base-test",
+      "bytes": 4947936,
+      "sha256": "744d4bb92355baa27bbeae174309c95fa3a4c9b1126d8485fb87b5340acbc9e5",
+      "checked_in": false
+    },
+    "post_removal_test_binary": {
+      "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/rollback-test",
+      "bytes": 4947936,
+      "sha256": "2da1e417511f94898c2e20d91248f363cc8e183f304ad681a91f546c80d818f4",
+      "checked_in": false,
+      "identity_note": "The forced rebuild relinked an unchanged source tree; ELF byte identity with base-test is not claimed."
+    },
+    "restored_files": {
+      "src/kernels/sm87/weight_only_gemv.cu": {
+        "bytes": 609554,
+        "sha256": "5ce03542dc253e90c4996ea4deb20379288b9d672002a7fe24499cce56064318",
+        "git_blob_sha1": "0c9596a777a7a43976c21c859b7ae56d6db4f48e",
+        "matches_base_head": true
+      },
+      "tests/sm87_weight_only_gemv_test.cu": {
+        "bytes": 1665533,
+        "sha256": "d20e67a7af67e8446004c61065e0903c068b84bc7a4b410cc10df533528e9319",
+        "git_blob_sha1": "aff1154fd7b6e9ddeb14adba583c931c0c2f3856",
+        "matches_base_head": true
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t": "R39.2.0",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Cuda compilation tools, release 13.3, V13.3.33; Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "fixed_frequency": {
+      "nvpmodel": "MAXN",
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "applied_to": "the one-process formal same-binary performance screen",
+      "claim_boundary": "This is named-device rejection evidence, not a cross-device latency, throughput, power, energy, or thermal-stability claim."
+    }
+  },
+  "candidate": {
+    "phase": "Prefill exact M32",
+    "scope": "only the aligned NVFP4 down projection [5120,17408] followed by its BF16 residual add",
+    "shape_n_by_k": [5120, 17408],
+    "token_count": 32,
+    "weight_encoding": "NVFP4 packed E2M1 with E4M3FN block scales and one FP32 secondary scale",
+    "activation_and_output_dtype": "BF16",
+    "production_projection_route": "nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<5120,17408,72,true,true,32,true>",
+    "production_chain": "one exact-M32 table-free down-projection kernel followed by one standalone BF16 residual-add kernel",
+    "test_only_route": "nvfp4_w4a16_m32_down_residual_bf16_wmma_k64_dual_a_table_free_test_kernel",
+    "mechanism": "Keep the production Tensor Core body, round each down result to BF16 at the existing epilogue boundary, decode that rounded value, load the BF16 residual, add in FP32, round again to BF16, and write the residual result from the same kernel.",
+    "intended_savings": "remove one standalone residual-add launch and its raw-down read/final-residual store pair without changing projection occupancy",
+    "production_public_launcher_ever_selected_candidate": false
+  },
+  "checkpoint_fixture": {
+    "source": "one exact actual checkpoint layer-0 NVFP4 down-projection tensor plus deterministic finite BF16 activation and residual fixtures",
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_header_bytes": 126504,
+    "shard_git_lfs_oid_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "tensor": "model.language_model.layers.0.mlp.down_proj.weight",
+    "logical_shape_n_by_k": [5120, 17408],
+    "packed_weight": {
+      "absolute_payload_offset": 6712445472,
+      "payload_bytes": 44564480,
+      "payload_sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+    },
+    "block_scale": {
+      "absolute_payload_offset": 3600468512,
+      "payload_bytes": 5570560,
+      "payload_sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+    },
+    "secondary_scale": {
+      "absolute_payload_offset": 126540,
+      "fp32_bits_hex": "39b61862",
+      "value": 0.000347319
+    },
+    "pinned_identity_gate": "pass",
+    "scope_boundary": "Weights and scales are actual checkpoint payloads. Activation and residual values are deterministic test fixtures, not captured runtime activations."
+  },
+  "correctness_and_contract": {
+    "candidate_build": "pass",
+    "default_device_test": "pass",
+    "default_terminal_line": "SM87 weight-only GEMV tests passed",
+    "finite_smoke": {
+      "baseline_mismatches": "0/163840",
+      "replay_mismatches": "0/163840",
+      "graph_replay_mismatches": "0/163840",
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass for the test fixture and test-defined operand order"
+    },
+    "test_defined_nonfinite": {
+      "nan_bitwise_matches": "4/4",
+      "qualification": "This compares the candidate with a test baseline that uses the same raw-down-left plus residual-right operand order. It is not evidence for the real Prefill special-value contract."
+    },
+    "cuda_graph": {
+      "candidate_nodes": 1,
+      "candidate_kernel_nodes": 1,
+      "gate": "pass"
+    },
+    "invalid_graph": {
+      "all_invalid": true,
+      "captured_nodes": 0,
+      "gate": "pass"
+    },
+    "actual_checkpoint_finite": {
+      "baseline_mismatches": "0/163840",
+      "replay_mismatches": "0/163840",
+      "gate": "pass for the measured finite fixture"
+    },
+    "independent_operand_order_audit": {
+      "real_prefill_order": "residual-left + rounded-raw-down-right",
+      "candidate_and_test_order": "rounded-raw-down-left + residual-right",
+      "finding": "The candidate and its test baseline reverse the real runtime's left/right add operands.",
+      "finite_performance_interpretation": "The measured finite fixture and timing workload remain valid for rejecting performance: they execute the intended residual loads, add, rounding, and store at the same cost and have zero observed finite mismatches.",
+      "special_value_interpretation": "NaN payload/sign propagation can depend on operand order, so the 4/4 test-defined NaN bit match does not establish bitwise runtime semantics.",
+      "full_runtime_bitwise_semantics_established": false,
+      "follow_up": "The performance gate already fails by a wide margin relative to promotion; the candidate was rejected rather than patched and rerun."
+    },
+    "overall_contract_gate": "qualified: finite fixture, graph, guard, replay, and resource checks pass; real-runtime special-value bitwise semantics are not established"
+  },
+  "sass_and_resources": {
+    "canonicalization": "Each complete cuobjdump Function section is retained verbatim. Ordered 64-bit encoding/control words are also emitted one lowercase 0x-prefixed word per line before SHA-256.",
+    "production_projection": {
+      "mangled_symbol": "_ZN3q3x7kernels52_GLOBAL__N__cabd56ea_19_weight_only_gemv_cu_a558074267nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernelILm5120ELm17408ELj72ELb1ELb1ELj32ELb1EEEvPKhS4_fPKtPt",
+      "registers_per_thread": 48,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 712,
+      "instruction_words": 1424,
+      "raw_function_block_bytes": 179707,
+      "raw_function_block_sha256": "6325ac810338d768668ecb72d7ff1f8ffbb8c1a69701b703469f549b69cc69c2",
+      "normalized_word_text_sha256": "c5611978724fdcc307988ff6ca445541db509031c43eea7ee4f250e82bd64234",
+      "instruction_counts": {
+        "BAR.SYNC.DEFER_BLOCKING": 5,
+        "HMMA": 4,
+        "PRMT": 56,
+        "HFMA2": 16,
+        "LDG_total": 7,
+        "LDS": 19,
+        "STS": 19,
+        "STG": 16,
+        "FADD": 0,
+        "CALL.REL.NOINC": 1
+      }
+    },
+    "test_only_fused_candidate": {
+      "mangled_symbol": "_ZN3q3x7kernels52_GLOBAL__N__cabd56ea_19_weight_only_gemv_cu_a558074273nvfp4_w4a16_m32_down_residual_bf16_wmma_k64_dual_a_table_free_test_kernelEPKhS3_fPKtS5_Pt",
+      "registers_per_thread": 47,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 5,
+      "instructions": 960,
+      "instruction_words": 1920,
+      "raw_function_block_bytes": 242172,
+      "raw_function_block_sha256": "b589e4de15b79f5615f12278f6cf3eacf07ea1f972e9ba2140737d2530334899",
+      "normalized_word_text_sha256": "4e3518f21af12915c3f74850dfa37c630fc647930ef8c6bee1e06511635d4f1e",
+      "instruction_counts": {
+        "BAR.SYNC.DEFER_BLOCKING": 5,
+        "HMMA": 4,
+        "PRMT": 56,
+        "HFMA2": 16,
+        "LDG_total": 23,
+        "LDS": 19,
+        "STS": 19,
+        "STG": 16,
+        "FADD": 16,
+        "CALL.REL.NOINC": 1
+      },
+      "compiled_mechanism_gate": "pass"
+    },
+    "mechanism_delta": {
+      "instructions": 248,
+      "instruction_words": 496,
+      "BAR.SYNC.DEFER_BLOCKING": 0,
+      "HMMA": 0,
+      "PRMT": 0,
+      "HFMA2": 0,
+      "LDG_total": 16,
+      "LDS": 0,
+      "STS": 0,
+      "STG": 0,
+      "FADD": 16,
+      "registers_per_thread": -1,
+      "static_shared_bytes": 0,
+      "active_ctas_per_sm": 0,
+      "interpretation": "The fused epilogue compiles without occupancy loss, but the residual loads and adds add 248 static instructions to each projection CTA. Counts compare only the projection and fused Function sections, not the separate baseline residual kernel."
+    },
+    "production_isolation": {
+      "base_block_path": "/tmp/q3x-m32-down-residual.YhHjZe/base.production.sass",
+      "candidate_binary_production_block_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate.production.sass",
+      "block_bytes_each": 179707,
+      "block_sha256_each": "6325ac810338d768668ecb72d7ff1f8ffbb8c1a69701b703469f549b69cc69c2",
+      "normalized_word_text_sha256_each": "c5611978724fdcc307988ff6ca445541db509031c43eea7ee4f250e82bd64234",
+      "byte_for_byte_equal": true,
+      "gate": "pass"
+    }
+  },
+  "performance_protocol": {
+    "command": "Q3X_RUN_SM87_NVFP4_M32_DOWN_RESIDUAL_PERF=1 Q3X_NVFP4_M32_DOWN_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test",
+    "comparison": "production exact-M32 down plus standalone residual-add baseline versus the test-only fused kernel in one binary and stream",
+    "independent_processes": 1,
+    "warmup_launches_per_route": 10,
+    "measurement_rounds": 6,
+    "logical_launches_per_timed_pass": 80,
+    "round_order": "B-C-C-B",
+    "round_statistic": "mean of the two baseline pass means divided by the mean of the two candidate pass means",
+    "aggregate_statistic": "median of the six paired per-round speedups",
+    "required_technical_speedup": 1.005,
+    "required_promotion_speedup": 1.02,
+    "required_minimum_round_speedup": 1.0,
+    "early_stop": "Do not run stress, independent repeats, NCU, Nsys, or end-to-end work when the actual-payload promotion gate fails."
+  },
+  "performance": {
+    "actual_checkpoint_rounds": [
+      {"round": 1, "baseline_pass1_ms": 0.904121, "candidate_pass1_ms": 0.903837, "candidate_pass2_ms": 0.903944, "baseline_pass2_ms": 0.904318, "speedup": 1.00036, "minimum_round_gate": "pass"},
+      {"round": 2, "baseline_pass1_ms": 0.904807, "candidate_pass1_ms": 0.903664, "candidate_pass2_ms": 0.903924, "baseline_pass2_ms": 0.904726, "speedup": 1.00108, "minimum_round_gate": "pass"},
+      {"round": 3, "baseline_pass1_ms": 0.904685, "candidate_pass1_ms": 0.904495, "candidate_pass2_ms": 0.903627, "baseline_pass2_ms": 0.904263, "speedup": 1.00046, "minimum_round_gate": "pass"},
+      {"round": 4, "baseline_pass1_ms": 0.904330, "candidate_pass1_ms": 0.903366, "candidate_pass2_ms": 0.903882, "baseline_pass2_ms": 0.903902, "speedup": 1.00055, "minimum_round_gate": "pass"},
+      {"round": 5, "baseline_pass1_ms": 0.904318, "candidate_pass1_ms": 0.903800, "candidate_pass2_ms": 0.904358, "baseline_pass2_ms": 0.904327, "speedup": 1.00027, "minimum_round_gate": "pass"},
+      {"round": 6, "baseline_pass1_ms": 0.904569, "candidate_pass1_ms": 0.903802, "candidate_pass2_ms": 0.903899, "baseline_pass2_ms": 0.904365, "speedup": 1.00068, "minimum_round_gate": "pass"}
+    ],
+    "actual_checkpoint_summary": {
+      "baseline_mean_ms": 0.904394,
+      "candidate_mean_ms": 0.903883,
+      "diagnostic_ratio": 1.00057,
+      "paired_round_median_speedup": 1.00050,
+      "minimum_round_speedup": 1.00027,
+      "improving_rounds": 6,
+      "rounds": 6,
+      "required_technical_speedup": 1.005,
+      "required_promotion_speedup": 1.02,
+      "required_minimum_round_speedup": 1.0,
+      "technical_gate": "fail",
+      "promotion_gate": "fail",
+      "minimum_round_gate": "pass",
+      "gate": "fail"
+    },
+    "same_bank_stress_run": false,
+    "independent_repeat_run": false,
+    "end_to_end_run": false,
+    "candidate_nsys_run": false,
+    "candidate_ncu_run": false,
+    "early_stop_applied": true
+  },
+  "decision": {
+    "result": "reject",
+    "finite_fixture_gate": "pass",
+    "resource_gate": "pass",
+    "sass_mechanism_gate": "pass",
+    "runtime_special_value_bitwise_gate": "not established because the candidate and test reverse the real residual-add operand order",
+    "technical_performance_gate": "fail",
+    "promotion_performance_gate": "fail",
+    "reason": "The candidate retains five-CTA residency and improves every round, but the paired median is only 1.00050x: below both the 1.005x technical threshold and 1.02x promotion threshold. The independently found operand-order error further prevents a full runtime bitwise-semantics claim, but does not weaken the finite-workload performance rejection.",
+    "candidate_code_removed": true,
+    "test_only_probe_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "retained_route": "the exact-M32 table-free down projection followed by the standalone residual-add kernel",
+    "semantic_repair_stop_loss_reason": "Performance already misses promotion by about 1.95 percentage points and technical acceptance by about 0.45 percentage points, so correcting operand order and rerunning cannot justify retaining this mechanism.",
+    "stress_stop_loss_reason": "The authoritative actual-payload gate failed before stress qualification.",
+    "profiling_stop_loss_reason": "NCU and Nsys cannot promote a candidate that failed the selection threshold.",
+    "end_to_end_stop_loss_reason": "The same-binary kernel-chain gate failed before model-load work.",
+    "next_priority": "Screen a standalone per-token residual-add plus centered-RMSNorm fusion used at attention and MLP boundaries. Preserve residual-left plus projection-right operand order and require at least 1.15x on both actual-like and stress fixtures before wider validation."
+  },
+  "removal_validation": {
+    "candidate_source_diff_after_removal": "empty for both candidate-modified files",
+    "source_and_test_sha256_match_base_head": true,
+    "test_only_candidate_code_fully_removed": true,
+    "test_only_probe_retained": false,
+    "production_runtime_restored_to_base_head": true,
+    "forced_clean_rebuild": "pass",
+    "post_removal_default_device_test": "pass",
+    "post_removal_terminal_line": "SM87 weight-only GEMV tests passed",
+    "rollback_full_sass_matches_base_byte_for_byte": true,
+    "rollback_full_sass_sha256": "b4dd5efd1691ed71731ac321fb6213fe81ee47ec7e87e09dec26eb59eb9447fc",
+    "rollback_binary_byte_identity_with_base_claimed": false
+  },
+  "supporting_artifacts": [
+    {"role": "frozen base binary", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/base-test", "bytes": 4947936, "sha256": "744d4bb92355baa27bbeae174309c95fa3a4c9b1126d8485fb87b5340acbc9e5", "checked_in": false},
+    {"role": "candidate measurement binary", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate-test", "bytes": 5018248, "sha256": "e3dd6914ddde14c0da1f1cf3fbcdf8fa743796bb52208183c4d795483254ddc7", "checked_in": false},
+    {"role": "candidate default device-test log", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/default.log", "bytes": 55008, "lines": 326, "sha256": "3bc49460ca3e6ff0d242ac15bb0352d0ab28d5da2f1dbdf1f6f50c597ad4c802", "result": "pass", "checked_in": false},
+    {"role": "fixed-clock actual-payload rejection log", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/perf.log", "bytes": 57653, "lines": 337, "sha256": "e382fb54d261e5f8c176f3fff40d413273c0c91fa124a195d46d0aa3fa8fb169", "terminal_line": "1 SM87 weight-only GEMV assertion(s) failed", "result": "expected aggregate performance-gate rejection", "checked_in": false},
+    {"role": "candidate SASS dump", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate.sass", "bytes": 23329320, "sha256": "33b25189f456da11056bfa775bb8bd26a10c6c6d551124783d6f02ce04f5e405", "checked_in": false},
+    {"role": "candidate resource dump", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate.resources", "bytes": 35667, "sha256": "1a6293a3d488136ca6d7be6acbc2e81bb5de1d2e5611da2d2d3043522f1781cc", "checked_in": false},
+    {"role": "base production Function block", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/base.production.sass", "bytes": 179707, "sha256": "6325ac810338d768668ecb72d7ff1f8ffbb8c1a69701b703469f549b69cc69c2", "checked_in": false},
+    {"role": "candidate-binary production Function block", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate.production.sass", "bytes": 179707, "sha256": "6325ac810338d768668ecb72d7ff1f8ffbb8c1a69701b703469f549b69cc69c2", "checked_in": false},
+    {"role": "candidate fused Function block", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/candidate.fused.sass", "bytes": 242172, "sha256": "b589e4de15b79f5615f12278f6cf3eacf07ea1f972e9ba2140737d2530334899", "checked_in": false},
+    {"role": "post-removal forced rebuild log", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/rollback-build.log", "bytes": 430, "lines": 7, "sha256": "ce65ac650b18c28682708b8e8a9f3ca84c644b463a39f823ac741694b5f446af", "result": "pass", "checked_in": false},
+    {"role": "post-removal default device-test log", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/rollback-default.log", "bytes": 54298, "lines": 322, "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4", "result": "pass", "checked_in": false},
+    {"role": "post-removal SASS dump", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/rollback.sass", "bytes": 23087148, "sha256": "b4dd5efd1691ed71731ac321fb6213fe81ee47ec7e87e09dec26eb59eb9447fc", "result": "byte-identical to base.sass", "checked_in": false},
+    {"role": "post-removal binary", "local_path": "/tmp/q3x-m32-down-residual.YhHjZe/rollback-test", "bytes": 4947936, "sha256": "2da1e417511f94898c2e20d91248f363cc8e183f304ad681a91f546c80d818f4", "checked_in": false, "claim_boundary": "Source, tests, default result, and full SASS are restored; relinked ELF byte identity is not claimed."}
+  ],
+  "limitations": [
+    "The real Prefill residual add is residual-left plus raw-down-right, while both the candidate and its test baseline use raw-down-left plus residual-right. The finite timing rejection stands, but the 4/4 NaN bit match is not a runtime special-value proof.",
+    "The authoritative actual payload supplies weights and scales only; deterministic activation and residual fixtures are not captured model intermediates.",
+    "The formal screen used one fixed-frequency process. All rounds improve slightly, but the aggregate misses both technical and promotion thresholds.",
+    "Static SASS proves the added residual-load/add epilogue and unchanged occupancy; it is not dynamic stall attribution.",
+    "No stress, independent-process, NCU, Nsys, end-to-end, serving-throughput, power, or energy result is claimed.",
+    "The candidate never entered production dispatch and all candidate source/test hooks were removed."
+  ]
+}

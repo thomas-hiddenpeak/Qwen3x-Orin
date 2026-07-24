@@ -3697,6 +3697,71 @@ remains frozen in the
 and the later Decode result is recorded in the
 [attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
 
+## Prefill exact-M32 NVFP4 down/residual epilogue-fusion rejection
+
+The next bounded Prefill screen targeted the exact-M32 NVFP4 down projection
+`[5120,17408]`, whose 1,024 launches expose 931.620448 ms, or 19.816929% of
+the post-GDN-M16 prefix kernel union. Production rounds the down result to BF16
+and then launches a standalone BF16 residual add. The test-only candidate kept
+the production table-free Tensor Core body, decoded its rounded BF16 result in
+the epilogue, loaded the residual, added in FP32, rounded again to BF16, and
+wrote the residual output directly.
+
+The finite smoke, replay, and Graph comparisons report 0/163,840 mismatches,
+with intact guards, preserved inputs, one candidate Graph node, and zero nodes
+for invalid calls. Production and candidate both use 23,552 bytes of static
+shared memory, zero local memory, 256 threads, and five active CTAs/SM; the
+candidate uses 47 registers/thread versus 48. Its projection body retains all
+five barriers, four `HMMA`, 56 `PRMT`, 16 `HFMA2`, 19 shared loads/stores, and
+16 global stores while adding 16 global residual loads and 16 `FADD`:
+
+| Exact-M32 down SASS | Production projection | Fused candidate |
+| --- | ---: | ---: |
+| Instructions / ordered words | 712 / 1,424 | 960 / 1,920 |
+| `LDG` / `FADD` | 7 / 0 | 23 / 16 |
+| Registers/thread | 48 | 47 |
+| Static shared / local | 23,552 B / 0 B | 23,552 B / 0 B |
+| Active CTA/SM | 5 | 5 |
+
+The authoritative screen uses the hash-pinned actual layer-0 `mlp.down_proj`
+packed weights and scales with deterministic finite BF16 activation/residual
+fixtures. At fixed 1.3005 GHz GPU and 3.2 GHz EMC, one process ran ten warmups
+and six `B-C-C-B` rounds of 80 logical launches per timed pass:
+
+| Round | Paired speedup | Per-round non-regression |
+| ---: | ---: | --- |
+| 1 | 1.00036x | pass |
+| 2 | 1.00108x | pass |
+| 3 | 1.00046x | pass |
+| 4 | 1.00055x | pass |
+| 5 | 1.00027x | pass |
+| 6 | 1.00068x | pass |
+
+The paired-round median is 1.00050x and the minimum is 1.00027x. Thus every
+round is non-regressing, but the aggregate misses both the 1.005x technical
+threshold and the 1.02x promotion threshold. Separately printed baseline and
+candidate means are 0.904394 and 0.903883 ms (diagnostic ratio 1.00057x).
+
+An independent audit then found that the candidate and its test baseline add
+rounded raw-down on the left and residual on the right, whereas the real
+Prefill call chain adds residual-left plus raw-down-right. The measured finite
+fixture and performance workload remain valid for rejection, but NaN payload
+propagation can depend on operand order. The test's 4/4 NaN bit match therefore
+does not establish full runtime bitwise semantics. Because performance already
+fails decisively relative to promotion, the candidate was removed rather than
+patched and rerun. Stress, independent repeats, NCU, Nsys, and end-to-end work
+were not run. Source and tests match `1de2e20`; a forced clean build/default
+test passes and rollback SASS is byte-identical to the frozen base. The
+relinked rollback ELF differs, so binary byte identity is not claimed.
+
+The next bounded priority is a standalone per-token residual-add plus centered-
+RMSNorm fusion shared by attention and MLP boundaries. It must preserve the
+runtime's residual-left plus projection-right order and clear 1.15x on both
+actual-like and stress fixtures before wider validation. Full commands,
+payload offsets and hashes, per-pass timings, SASS/resource identities,
+rollback proof, and claim boundaries are in the
+[M32 down/residual rejection record](metadata/qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection.json).
+
 ## Exact Q24/KV4/D256 attention-values promotion
 
 The refreshed post-M32 P513 profile attributes 7,184 `attention_values`

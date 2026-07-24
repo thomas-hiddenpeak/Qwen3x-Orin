@@ -401,6 +401,16 @@ The diagnostic Phase 3 records are:
   production-isolation manifest, retained candidate artifacts, complete
   source/test removal, forced clean rollback, and the deliberate absence of
   synthetic, five-process, P19, Nsys, or NCU work.
+- [`qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection.json`](qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection.json),
+  which records the rejected exact-M32 Prefill down/residual epilogue fusion.
+  The test-only kernel preserves five-CTA residency and passes its finite,
+  replay, guard, Graph, and resource checks, but reaches only 1.00050x across
+  six fixed-clock actual-payload rounds, below the 1.005x technical and 1.02x
+  promotion gates. It also records the independent audit finding that the
+  candidate and test reverse the real residual-add operand order: finite
+  performance evidence remains valid, while the test's 4/4 NaN bit match is
+  explicitly not treated as a full runtime semantics proof. The candidate was
+  removed before stress, independent-repeat, Nsys, NCU, or end-to-end work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
