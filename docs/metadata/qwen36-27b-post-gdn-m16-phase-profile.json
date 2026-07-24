@@ -1,0 +1,583 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-post-gdn-m16-phase-profile",
+  "status": "diagnostic-production-phase-profile",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "The production runtime already has a logical Prefill/Decode control-plan split, but a batch-one request still uses one dependency-ordered executor and has no general double or triple buffer.",
+    "The P19 Decode trace has zero kernel overlap and only 0.733879% kernel-span idle time, so a generic single-request buffer cannot outrank phase-local kernel work.",
+    "The P513 Prefill trace retains only the deliberate exact-M32 gate/up auxiliary-stream overlap. Its 399.120896 ms raw overlap must be removed before ranking candidate critical-path exposure.",
+    "After that correction, Prefill is led by the NVFP4 M32 gate/up pair and down projection; Decode is led by NVFP4 gate/up, FP8 QKV/Z, and NVFP4 down."
+  ],
+  "source": {
+    "profiled_source_commit": "b09614c6c0ff3897f99434650de36893d5c06ac0",
+    "profiled_source_subject": "kernels: dispatch exact GDN M16 register state",
+    "documentation_commit_at_recording": "d9e40d95a6702a6c1ddf5916c8ca6d2ed9358646",
+    "documentation_commit_subject": "docs: record exact GDN M16 promotion",
+    "documentation_commit_changes_runtime": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 4128456,
+      "sha256": "298e603e133069dbc65dcc6d7eb71d266eebedf5ea917c6b381fa8e020bd46ec",
+      "elf_build_id": "1995be1f538fd7a90183bd5df370c05055084c38",
+      "mtime": "2026-07-24T07:14:27.274169865+08:00",
+      "build_type": "Release",
+      "effective_cuda_generate_code": "arch=compute_87,code=[compute_87,sm_87]",
+      "freshness_evidence": "A qwen3x-orin build dry-run after the Prefill capture and before the Decode capture emitted no compile or link action. The later d9e40d9 commit changes documentation only."
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t_core": "39.2.0-20260601141651",
+    "nvidia_kernel_driver": "595.78",
+    "cuda_driver": "13.2",
+    "cuda_runtime": "13.3",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_cur_hz_readback": 1300500000,
+      "emc_min_hz": 3200000000,
+      "emc_max_hz": 3200000000,
+      "emc_cur_hz_readback": 3200000000,
+      "evidence": "The controlling console verified the fixed GPU and EMC values. The Decode capture had read-only checks before and after profiling; no standalone clock log was retained."
+    },
+    "gpu_exclusivity": "The Decode capture had explicit read-only process, device-owner, and tegrastats checks showing no other GPU workload before profiling and zero GPU utilization afterward. Capture orchestration did not intentionally overlap the preceding Prefill run, but no separate Prefill exclusivity log was retained."
+  },
+  "implementation_boundary": {
+    "logical_phase_ranges": [
+      "q3x.generation",
+      "q3x.prefill.prefix_tile",
+      "q3x.prefill.finish",
+      "q3x.decode.step"
+    ],
+    "nvtx_ranges_default_enabled": false,
+    "enable_option": "--nvtx-phase-ranges",
+    "cli_trace_option_used": false,
+    "prefill_decode_logically_separate": true,
+    "separate_device_executors": false,
+    "general_double_buffer": false,
+    "general_triple_buffer": false,
+    "prefill_decode_overlap_within_one_request": false,
+    "continuous_batching": false,
+    "existing_narrow_overlap": "Only exact-M32 NVFP4 gate/up uses the auxiliary stream and event handshake. The remainder of Prefill and every Decode kernel in this capture stay on the main stream."
+  },
+  "protocol": {
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "warmup_rounds": 0,
+    "measured_rounds": 1,
+    "trace_domains": [
+      "cuda",
+      "nvtx"
+    ],
+    "nsys_common_options": "--trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true",
+    "prefill_capture": {
+      "id": "P513-C32-max1",
+      "prompt_construction": "501 space-separated copies of the ASCII word hello",
+      "rendered_prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "prefix_schedule": [
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32,
+        32
+      ],
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 1,
+      "normalized_command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o /tmp/q3x-phase-prefill-p513-c32-b09614c build/orin-release/qwen3x-orin generate /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt \"${P513_USER_TEXT}\" --max-tokens 1 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+      "oracle": {
+        "status": "ok",
+        "prompt_token_count": 513,
+        "generated_token_count": 1,
+        "generated_ids": [
+          9419
+        ],
+        "generated_text": "Hello",
+        "stop_reason": "max_new_tokens",
+        "step_count": 513,
+        "evidence": "Observed in the controlling console; the raw Prefill console log was not retained."
+      }
+    },
+    "decode_capture": {
+      "id": "P19-C32-max26",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "prefix_tokens": 18,
+      "prefix_schedule": [
+        18
+      ],
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o /tmp/q3x-phase-decode-p19-c32-b09614c build/orin-release/qwen3x-orin generate /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+      "oracle": {
+        "status": "ok",
+        "prompt_token_count": 19,
+        "prompt_ids": [
+          248045,
+          846,
+          198,
+          95826,
+          110827,
+          98682,
+          52965,
+          220,
+          98661,
+          1710,
+          248046,
+          198,
+          248045,
+          74455,
+          198,
+          248068,
+          271,
+          248069,
+          271
+        ],
+        "generated_token_count": 26,
+        "generated_ids": [
+          77517,
+          220,
+          95761,
+          32449,
+          220,
+          97039,
+          101692,
+          119548,
+          97792,
+          125574,
+          102027,
+          103725,
+          3709,
+          109238,
+          97327,
+          21966,
+          220,
+          127361,
+          130111,
+          95860,
+          103806,
+          108751,
+          97792,
+          97995,
+          1710,
+          248046
+        ],
+        "generated_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+        "stop_reason": "im_end",
+        "step_count": 44,
+        "trace_count": 0
+      },
+      "runner_timing_ms": {
+        "prefix_execution": 325.071,
+        "finish_prefill": 129.004,
+        "prompt_prefill": 454.074,
+        "time_to_first_token": 454.074,
+        "decode_after_first": 2786.014,
+        "total_generation": 3240.088
+      }
+    }
+  },
+  "attribution_method": {
+    "nvtx_selection": "Completed q3x.* push/pop ranges, resolving registered strings through coalesce(NVTX_EVENTS.text, StringIds.value via textId).",
+    "runtime_selection": "CUDA Runtime API calls whose host start and end lie inside a phase range on the same globalTid.",
+    "runtime_to_kernel_join": "correlationId plus k.globalPid = (r.globalTid & 0xFFFFFFFFFF000000).",
+    "raw_kernel_ns": "Sum of kernel end minus start; overlapping streams are counted more than once.",
+    "union_kernel_ns": "Length of the merged GPU kernel interval union.",
+    "span_kernel_ns": "Last associated kernel end minus first associated kernel start.",
+    "idle_ns": "span_kernel_ns minus union_kernel_ns.",
+    "overlap_ns": "raw_kernel_ns minus union_kernel_ns.",
+    "marginal_critical_path_ns": "Full prefix kernel union minus the union after removing every interval in one kernel-name group. This is current-timeline unique coverage, not a counterfactual speedup prediction."
+  },
+  "prefill_profile": {
+    "nvtx_ranges": {
+      "generation": {
+        "instances": 1,
+        "host_ns": 4939968672,
+        "gpu_projected_ns": 4938810720,
+        "gpu_ops": 42710
+      },
+      "prefix_tile": {
+        "instances": 16,
+        "host_ns": 4800798240,
+        "average_host_ns": 300049890,
+        "median_host_ns": 300611312,
+        "minimum_host_ns": 288712448,
+        "maximum_host_ns": 312469696,
+        "gpu_projected_ns": 4797268256,
+        "gpu_ops": 42224
+      },
+      "finish_prefill": {
+        "instances": 1,
+        "host_ns": 138998816,
+        "gpu_projected_ns": 138889792,
+        "gpu_ops": 486
+      }
+    },
+    "kernel_timeline": {
+      "generation": {
+        "kernel_instances": 42709,
+        "raw_ns": 5237841408,
+        "union_ns": 4838720512,
+        "span_ns": 4938802432,
+        "idle_ns": 100081920,
+        "overlap_ns": 399120896,
+        "idle_percent_of_span": 2.026441
+      },
+      "prefix_tile": {
+        "kernel_instances": 42224,
+        "main_stream_instances": 41200,
+        "auxiliary_stream_instances": 1024,
+        "raw_ns": 5100255264,
+        "union_ns": 4701134368,
+        "span_ns": 4799785312,
+        "idle_ns": 98650944,
+        "overlap_ns": 399120896,
+        "idle_percent_of_span": 2.05532
+      },
+      "finish_prefill": {
+        "kernel_instances": 485,
+        "raw_ns": 137586144,
+        "union_ns": 137586144,
+        "span_ns": 138881504,
+        "idle_ns": 1295360,
+        "overlap_ns": 0,
+        "idle_percent_of_span": 0.932709
+      },
+      "closure": {
+        "generation_kernel_instances": 42709,
+        "leaf_kernel_instances": 42709,
+        "missing": 0,
+        "extra": 0,
+        "duplicate_leaf_assignment": 0
+      }
+    },
+    "prefix_marginal_hotspots": [
+      {
+        "rank": 1,
+        "group": "NVFP4 M32 gate/up [17408,5120] dual-stream pair",
+        "kernel_instances": 2048,
+        "main_stream_instances": 1024,
+        "auxiliary_stream_instances": 1024,
+        "raw_ns": 1766932000,
+        "own_union_ns": 1367811104,
+        "raw_overlap_ns": 399120896,
+        "marginal_critical_path_ns": 1367811104,
+        "marginal_share_of_prefix_union_percent": 29.095342
+      },
+      {
+        "rank": 2,
+        "group": "NVFP4 M32 down [5120,17408]",
+        "kernel_instances": 1024,
+        "raw_ns": 931620448,
+        "marginal_critical_path_ns": 931620448,
+        "marginal_share_of_prefix_union_percent": 19.816929
+      },
+      {
+        "rank": 3,
+        "group": "exact GDN M16 register-state",
+        "kernel_instances": 1536,
+        "raw_ns": 487589952,
+        "marginal_critical_path_ns": 487589952,
+        "marginal_share_of_prefix_union_percent": 10.371751
+      },
+      {
+        "rank": 4,
+        "group": "FP8 M32 [10240,5120] dual-resident-A",
+        "kernel_instances": 768,
+        "raw_ns": 390644896,
+        "marginal_critical_path_ns": 390644896,
+        "marginal_share_of_prefix_union_percent": 8.309588
+      },
+      {
+        "rank": 5,
+        "group": "FP8 M32 [5120,6144] dual-resident-A",
+        "kernel_instances": 1024,
+        "raw_ns": 382405664,
+        "marginal_critical_path_ns": 382405664,
+        "marginal_share_of_prefix_union_percent": 8.134327
+      },
+      {
+        "rank": 6,
+        "group": "FP8 M32 [6144,5120] dual-resident-A",
+        "kernel_instances": 768,
+        "raw_ns": 247019840,
+        "marginal_critical_path_ns": 247019840,
+        "marginal_share_of_prefix_union_percent": 5.254473
+      },
+      {
+        "rank": 7,
+        "group": "FP8 M8 [1024,5120] fixed-shape",
+        "kernel_instances": 2048,
+        "raw_ns": 166238944,
+        "marginal_critical_path_ns": 166238944,
+        "marginal_share_of_prefix_union_percent": 3.536145
+      },
+      {
+        "rank": 8,
+        "group": "FP8 M32 [12288,5120] dual-resident-A",
+        "kernel_instances": 256,
+        "raw_ns": 154451840,
+        "marginal_critical_path_ns": 154451840,
+        "marginal_share_of_prefix_union_percent": 3.285416
+      }
+    ],
+    "ranking_summary": {
+      "top_two_nvfp4_marginal_ns": 2299431552,
+      "top_two_nvfp4_share_of_prefix_union_percent": 48.91227,
+      "top_three_share_of_prefix_union_percent": 59.284021,
+      "top_six_share_of_prefix_union_percent": 80.98241,
+      "gate_up_raw_share_is_not_critical_share": "The built-in raw summary reports 1766.932000 ms, but 399.120896 ms overlaps across the main and auxiliary streams. The current-timeline marginal exposure is 1367.811104 ms."
+    },
+    "artifacts": {
+      "primary_nsys_report": {
+        "local_path": "/tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+        "bytes": 3286423,
+        "sha256": "32a9fbae00d93714c4328ce99b4d1be591dff2513f50e4dc8615f6c8effe35c7",
+        "checked_in": false
+      },
+      "derived_post_analysis_sqlite": {
+        "local_path": "/tmp/q3x-phase-prefill-p513-c32-b09614c.sqlite",
+        "bytes": 8986624,
+        "sha256": "ada7f69e064a50ae391dd4f692b7355371efb7c67553f82f5853cd3d877944e4",
+        "checked_in": false
+      },
+      "console_log": {
+        "retained": false
+      }
+    }
+  },
+  "decode_profile": {
+    "nvtx_ranges": {
+      "generation": {
+        "instances": 1,
+        "host_ns": 3240605760,
+        "gpu_projected_ns": 3239557024,
+        "gpu_ops": 13023
+      },
+      "prefix_tile": {
+        "instances": 1,
+        "host_ns": 325081600,
+        "gpu_projected_ns": 324054368,
+        "gpu_ops": 1635
+      },
+      "finish_prefill": {
+        "instances": 1,
+        "host_ns": 129013440,
+        "gpu_projected_ns": 128860064,
+        "gpu_ops": 438
+      },
+      "decode_step": {
+        "instances": 25,
+        "host_ns": 2786236192,
+        "average_host_ns": 111449447.7,
+        "median_host_ns": 111245440,
+        "minimum_host_ns": 110799488,
+        "maximum_host_ns": 114882336,
+        "gpu_projected_ns": 2781943296,
+        "gpu_ops": 10950
+      }
+    },
+    "kernel_timeline": {
+      "decode_step": {
+        "kernel_instances": 10925,
+        "kernels_per_step": 437,
+        "stream_ids": [
+          17
+        ],
+        "raw_ns": 2765851648,
+        "union_ns": 2765851648,
+        "span_ns": 2786299712,
+        "idle_ns": 20448064,
+        "overlap_ns": 0,
+        "idle_percent_of_span": 0.733879,
+        "raw_per_step_ns": 110634065.92
+      },
+      "generation": {
+        "kernel_instances": 12997,
+        "raw_ns": 3212799264,
+        "union_ns": 3212799264,
+        "span_ns": 3239548032,
+        "idle_ns": 26748768,
+        "overlap_ns": 0,
+        "idle_percent_of_span": 0.825694
+      },
+      "closure": {
+        "generation_kernel_instances": 12997,
+        "prefix_kernel_instances": 1635,
+        "finish_prefill_kernel_instances": 437,
+        "decode_kernel_instances": 10925,
+        "missing": 0,
+        "extra": 0,
+        "duplicate_leaf_assignment": 0
+      }
+    },
+    "decode_hotspots": [
+      {
+        "rank": 1,
+        "group": "NVFP4 fused residual/norm/gate/up/SiLU [17408,5120]",
+        "kernel_instances": 1600,
+        "total_ns": 995135872,
+        "average_ns": 621959.9,
+        "per_step_ns": 39805434.88,
+        "share_of_decode_raw_percent": 35.979365
+      },
+      {
+        "rank": 2,
+        "group": "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+        "kernel_instances": 1200,
+        "total_ns": 575893568,
+        "average_ns": 479911.3,
+        "per_step_ns": 23035742.72,
+        "share_of_decode_raw_percent": 20.821564
+      },
+      {
+        "rank": 3,
+        "group": "NVFP4 fused down/residual/norm [5120,17408]",
+        "kernel_instances": 1600,
+        "total_ns": 522837632,
+        "average_ns": 326773.5,
+        "per_step_ns": 20913505.28,
+        "share_of_decode_raw_percent": 18.903314
+      },
+      {
+        "rank": 4,
+        "group": "FP8 row-quad output projection",
+        "kernel_instances": 1600,
+        "total_ns": 299047168,
+        "average_ns": 186904.5,
+        "per_step_ns": 11961886.72,
+        "share_of_decode_raw_percent": 10.812119
+      },
+      {
+        "rank": 5,
+        "group": "FP8 full-attention Q+K/V reduction-scratch ping-pong",
+        "kernel_instances": 400,
+        "total_ns": 172002016,
+        "average_ns": 430005,
+        "per_step_ns": 6880080.64,
+        "share_of_decode_raw_percent": 6.218772
+      },
+      {
+        "rank": 6,
+        "group": "NVFP4 language head [248320,5120]",
+        "kernel_instances": 25,
+        "total_ns": 109969568,
+        "average_ns": 4398782.7,
+        "per_step_ns": 4398782.72,
+        "share_of_decode_raw_percent": 3.975975
+      },
+      {
+        "rank": 7,
+        "group": "fused Decode GDN/plain-RMSNorm/SiLU gate",
+        "kernel_instances": 1200,
+        "total_ns": 38401568,
+        "average_ns": 32001.3,
+        "per_step_ns": 1536062.72,
+        "share_of_decode_raw_percent": 1.388417
+      }
+    ],
+    "ranking_summary": {
+      "top_three_share_of_decode_raw_percent": 75.704244,
+      "top_six_share_of_decode_raw_percent": 96.71111,
+      "nvfp4_mlp_total_ns": 1517973504,
+      "nvfp4_mlp_share_percent": 54.88268,
+      "fp8_attention_projection_total_ns": 1046942752,
+      "fp8_attention_projection_share_percent": 37.852455,
+      "decode_share_of_generation_kernel_raw_percent": 86.08853
+    },
+    "artifacts": {
+      "primary_nsys_report": {
+        "local_path": "/tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep",
+        "bytes": 1021755,
+        "sha256": "7bdf228c74c93a31906ff25261b19a08395db505dcf83da002bcc6b556531f57",
+        "checked_in": false
+      },
+      "console_log": {
+        "local_path": "/tmp/q3x-phase-decode-p19-c32-b09614c.log",
+        "bytes": 3061,
+        "sha256": "5cec6c4d71b4210fac78d02f15cfb0a456d807e63696b38dec0f15f0831305a9",
+        "checked_in": false
+      },
+      "derived_post_analysis_sqlite": {
+        "local_path": "/tmp/q3x-phase-decode-p19-c32-b09614c.sqlite",
+        "bytes": 2859008,
+        "sha256": "44142f9bef90ddd6f633708de8e25391bb230ff77e620b8b8558e131cab23351",
+        "checked_in": false
+      }
+    }
+  },
+  "priority_decision": {
+    "phase_local_kernel_work_before_general_buffering": true,
+    "generic_single_request_buffering_priority": "deferred",
+    "reasons": [
+      "Decode has no measured kernel overlap and only 0.733879% idle inside the associated kernel span.",
+      "Prefill prefix-tile kernel-span idle is 2.055320% and already contains the only proven narrow overlap: exact-M32 NVFP4 gate/up on one auxiliary stream.",
+      "Prefill and Decode are causally ordered for one request; cross-request overlap requires request, KV/state, workspace, fairness, cancellation, and admission ownership rather than merely adding a second scratch slot.",
+      "The phase-local top rows expose substantially larger bounded opportunity than the measured scheduling gaps."
+    ],
+    "prefill_priority": [
+      "NVFP4 M32 gate/up by 1367.811104 ms marginal exposure, not its 1766.932000 ms raw sum.",
+      "NVFP4 M32 down at 931.620448 ms marginal exposure.",
+      "Exact GDN M16 remains third at 487.589952 ms after promotion, followed by the FP8 M32 production shapes.",
+      "The previously rejected pair-fused gate/up CTA and dual-A/dual-decoded-B down pipeline remain closed; another screen requires a materially different mechanism and fresh early gates."
+    ],
+    "decode_priority": [
+      "NVFP4 fused gate/up at 35.979365% of Decode kernel time.",
+      "FP8 QKV/Z at 20.821564%.",
+      "NVFP4 down at 18.903314%.",
+      "FP8 output projection, FP8 Q+K/V, and the language head follow at 10.812119%, 6.218772%, and 3.975975%."
+    ],
+    "next_measurement_rule": "Use NCU or an isolated same-binary mechanism screen to establish the next bottleneck mechanism, then require whole-model and phase-NVTX confirmation. Do not select a Prefill candidate from raw overlapped gate/up time or claim a buffering speedup from this trace."
+  },
+  "reproduction": {
+    "built_in_reports": [
+      "nsys stats --report nvtx_sum /tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+      "nsys stats --report nvtx_gpu_proj_sum /tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+      "nsys stats --report cuda_gpu_kern_sum /tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+      "nsys stats --report cuda_gpu_kern_sum:nvtx-name /tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+      "nsys stats --report nvtx_kern_sum /tmp/q3x-phase-prefill-p513-c32-b09614c.nsys-rep",
+      "nsys stats --report nvtx_sum /tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep",
+      "nsys stats --report nvtx_gpu_proj_sum /tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep",
+      "nsys stats --report cuda_gpu_kern_sum /tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep",
+      "nsys stats --report cuda_gpu_kern_sum:nvtx-name /tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep",
+      "nsys stats --report nvtx_kern_sum /tmp/q3x-phase-decode-p19-c32-b09614c.nsys-rep"
+    ],
+    "custom_timeline_note": "The union, closure, stream, and marginal rows require the documented NVTX-to-runtime-to-kernel correlation join against the exported SQLite database; the built-in raw kernel summary alone is insufficient for the two-stream Prefill pair."
+  },
+  "limitations": [
+    "Each workload is one profiled process with no warmup and one measured generation; this is hotspot-selection evidence, not a repeated latency distribution or release SLA.",
+    "Nsight Systems perturbs absolute timing. No pre/post performance delta is inferred from these two post-promotion captures.",
+    "The P513 Prefill console log was not retained. Its oracle and clock readback were observed in the controlling console, while the Decode console log is hashed and retained locally.",
+    "The raw reports and derived SQLite files live under /tmp and are not checked into the repository; hashes and byte sizes are the durable identity.",
+    "No Nsight Compute counters were collected, so the trace does not identify cache, bandwidth, instruction, or scoreboard causality.",
+    "Marginal critical-path exposure is a removal calculation on the current timeline. It ranks opportunity but does not predict that a candidate can eliminate the full interval or preserve neighboring overlap.",
+    "The Decode result is the short P19 context and the Prefill result is P513/C32/max1. Neither is multi-request throughput, continuous batching, tail-latency, cancellation, or memory-admission evidence.",
+    "No general double/triple buffer, independent Prefill/Decode executor, cross-request scheduler, or Prefill/Decode overlap was implemented or benchmarked."
+  ]
+}

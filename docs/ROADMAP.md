@@ -137,6 +137,10 @@ Deliverables:
   exact C16. Each thread keeps 64 BF16 state elements in 32 packed U32 words
   across the full recurrence, preserves every token's BF16 boundary, and
   retains row8 as the explicit same-binary predecessor and C2-C15 fallback.
+- [done, post-promotion diagnostic] Fixed-frequency P513/C32 Prefill and
+  P19/C32/max26 Decode phase profiles with exact NVTX-to-kernel closure,
+  two-stream-aware Prefill marginal exposure, Decode idle/overlap bounds, and
+  a phase-local-before-general-buffering priority decision.
 - [done, shape-gated] Aligned canonical NVFP4 M=8 output-row pairing with
   independent fallbacks for other shapes.
 - [done, exact-shape gated] Compile-time NVFP4 M=8 specializations for
@@ -606,18 +610,33 @@ persistent-drop detections. See the
 None of these exact-kernel or shared-residency promotions introduces a runtime
 double/triple buffer. Prefill and Decode are logically separated by the
 completed plan seam, but batch-one execution remains causally dependency-
-serialized. The pre-promotion refreshed profile ranked NVFP4 M32 gate/up and
-down first by marginal critical-path exposure, followed by GDN and FP8 M32.
-Gate/up pair CTA fusion and down shared A/B ping-pong are now evidence-closed,
-and the bounded
-register-resident Prefill GDN M16 candidate has cleared its zero-spill,
-four-CTA, exact-boundary, and 1.20x gates. The next main-line action is a fresh
-production phase profile after this promotion, followed by a bounded mechanism
-chosen from marginal critical-path exposure rather than raw overlapped time.
-Rejected product-table,
-pair-fused CTA, shared A/B pipeline, scale-window ping-pong, activation-only
-`cp.async`, generalized dual-stream, and GDN shared-resident variants stay
-closed without a new mechanism.
+serialized. The post-promotion production profile is now complete. Its
+P513/C32 prefix contains 42,224 kernels and a 4,701.134368 ms kernel union.
+Exact-M32 gate/up contributes 1,766.932000 ms raw but only 1,367.811104 ms
+marginal exposure because 399.120896 ms overlaps across the existing main and
+auxiliary streams. NVFP4 down follows at 931.620448 ms marginal exposure, then
+the promoted GDN M16 route at 487.589952 ms and the leading FP8 M32 shapes at
+390.644896 and 382.405664 ms. Gate/up plus down represent 48.912270% of the
+prefix kernel union; raw overlapped time is no longer accepted as the Prefill
+selection metric.
+
+The corresponding P19/C32/max26 Decode profile contains 25 Decode ranges and
+10,925 kernels, all on one stream. Its 2,765.851648 ms raw time equals its
+union, while only 20.448064 ms (0.733879%) of the 2,786.299712 ms span is idle.
+NVFP4 gate/up, FP8 QKV/Z, and NVFP4 down account for 35.979365%, 20.821564%,
+and 18.903314% of Decode kernel time, or 75.704244% together. This evidence
+keeps phase-local kernels ahead of general buffering: there is no useful
+batch-one Decode overlap hole large enough to preempt those rows, and Prefill
+already uses the one proven narrow dual-stream path. See the
+[post-GDN-M16 phase-profile record](metadata/qwen36-27b-post-gdn-m16-phase-profile.json).
+
+The next bounded kernel mechanism must therefore start from marginal
+critical-path exposure and pass an early same-binary gate. Rejected
+product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
+activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
+variants stay closed without a materially different mechanism. The existing
+logical plan split is sufficient for independent phase tuning; it is not an
+independent executor or queue.
 Independent executors and queues remain a future multi-request continuous-
 batching item after request/KV/workspace ownership, handoff, fairness, TTFT,
 inter-token, tail-latency, cancellation, and memory gates are explicit.

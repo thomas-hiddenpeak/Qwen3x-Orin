@@ -4119,3 +4119,122 @@ claim a fresh host-sanitizer suite, candidate NCU, device racecheck, Decode
 improvement, system double/triple buffering, or multi-request overlap. Prefill
 and Decode remain logically separated and the batch-one request remains
 dependency-serialized.
+
+## Post-GDN-M16 production phase profile
+
+The fresh production profile after the exact-C16 GDN promotion uses source
+commit `b09614c6c0ff3897f99434650de36893d5c06ac0`. The later `d9e40d9`
+commit changes documentation only. Both captures use the same Release binary:
+4,128,456 bytes, SHA-256
+`298e603e133069dbc65dcc6d7eb71d266eebedf5ea917c6b381fa8e020bd46ec`,
+ELF build ID `1995be1f538fd7a90183bd5df370c05055084c38`, and effective
+`compute_87,sm_87` CUDA code generation. A target dry-run between the captures
+requested no compile or link action.
+
+The GPU and EMC min/max/current readbacks were fixed at 1,300,500,000 and
+3,200,000,000 Hz. The runs use `--nvtx-phase-ranges` and do not use the CLI
+`--trace` option, so the requested C32 schedule remains effective. The
+normalized commands are:
+
+```bash
+nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none \
+  --stats=false --force-overwrite=true \
+  -o /tmp/q3x-phase-prefill-p513-c32-b09614c \
+  build/orin-release/qwen3x-orin generate MODEL_DIR \
+  --prompt "${P513_USER_TEXT}" --max-tokens 1 \
+  --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges
+
+nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none \
+  --stats=false --force-overwrite=true \
+  -o /tmp/q3x-phase-decode-p19-c32-b09614c \
+  build/orin-release/qwen3x-orin generate MODEL_DIR \
+  --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 \
+  --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges
+```
+
+`P513_USER_TEXT` is exactly 501 space-separated copies of `hello`, producing
+513 rendered tokens and sixteen C32 prefix tiles. Its observed oracle is
+generated ID `9419`, text `Hello`, `max_new_tokens`, and 513 steps. The raw
+Prefill console log was not retained. The independently retained Decode log
+contains all 19 prompt IDs, all 26 expected output IDs, the exact Chinese
+text, `im_end`, 44 steps, and `status=ok`.
+
+The P513 phase and kernel closure is:
+
+| P513 phase | NVTX ranges | NVTX host | GPU projection | Kernels | Kernel raw | Kernel union |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Complete generation | 1 | 4,939.968672 ms | 4,938.810720 ms | 42,709 | 5,237.841408 ms | 4,838.720512 ms |
+| Prefix tiles | 16 | 4,800.798240 ms | 4,797.268256 ms | 42,224 | 5,100.255264 ms | 4,701.134368 ms |
+| Finish-prefill | 1 | 138.998816 ms | 138.889792 ms | 485 | 137.586144 ms | 137.586144 ms |
+
+The 42,224 prefix kernels plus 485 finish-prefill kernels close exactly to the
+42,709 generation kernels. Prefix raw time exceeds its union by 399.120896 ms,
+all from the intentional M32 gate/up main/auxiliary-stream overlap. Its kernel
+span is 4,799.785312 ms, leaving 98.650944 ms, or 2.055320%, outside the
+kernel union. Consequently the built-in raw kernel summary is not a valid
+critical-path ranking for the gate/up pair.
+
+For each row below, marginal exposure is the complete prefix kernel union
+minus the union after removing every interval in that kernel-name group. It is
+a current-timeline opportunity ranking, not a prediction that a candidate can
+eliminate the whole interval:
+
+| Prefill group | Instances | Raw time | Marginal exposure | Prefix-union share |
+| --- | ---: | ---: | ---: | ---: |
+| NVFP4 M32 gate/up `[17408,5120]` pair | 2,048 | 1,766.932000 ms | 1,367.811104 ms | 29.095342% |
+| NVFP4 M32 down `[5120,17408]` | 1,024 | 931.620448 ms | 931.620448 ms | 19.816929% |
+| Exact GDN M16 register state | 1,536 | 487.589952 ms | 487.589952 ms | 10.371751% |
+| FP8 M32 `[10240,5120]` | 768 | 390.644896 ms | 390.644896 ms | 8.309588% |
+| FP8 M32 `[5120,6144]` | 1,024 | 382.405664 ms | 382.405664 ms | 8.134327% |
+| FP8 M32 `[6144,5120]` | 768 | 247.019840 ms | 247.019840 ms | 5.254473% |
+
+The first gate/up row contains 1,024 main-stream and 1,024 auxiliary-stream
+launches. Its raw-to-marginal difference is exactly the 399.120896 ms prefix
+overlap. Gate/up plus down therefore expose 2,299.431552 ms, or 48.912270% of
+the prefix kernel union; including the newly promoted GDN route raises the top
+three to 59.284021%.
+
+The P19/max26 capture reports 454.074 ms TTFT, 2,786.014 ms Decode after the
+first token, and 3,240.088 ms total generation. Its 25 Decode NVTX ranges total
+2,786.236192 ms and average 111.449448 ms. All 10,925 associated Decode
+kernels run on the same stream. Their raw and union times are identical at
+2,765.851648 ms, or 110.634066 ms per step; the 2,786.299712 ms kernel span
+contains 20.448064 ms idle (0.733879%) and zero overlap.
+
+| Decode group | Instances | GPU time | Per Decode step | Decode-kernel share |
+| --- | ---: | ---: | ---: | ---: |
+| NVFP4 fused residual/norm/gate/up/SiLU | 1,600 | 995.135872 ms | 39.805435 ms | 35.979365% |
+| FP8 linear-attention QKV/Z scratch ping-pong | 1,200 | 575.893568 ms | 23.035743 ms | 20.821564% |
+| NVFP4 fused down/residual/norm | 1,600 | 522.837632 ms | 20.913505 ms | 18.903314% |
+| FP8 row-quad output projection | 1,600 | 299.047168 ms | 11.961887 ms | 10.812119% |
+| FP8 full-attention Q+K/V scratch ping-pong | 400 | 172.002016 ms | 6.880081 ms | 6.218772% |
+| NVFP4 language head | 25 | 109.969568 ms | 4.398783 ms | 3.975975% |
+| Fused Decode GDN/plain-RMSNorm/SiLU gate | 1,200 | 38.401568 ms | 1.536063 ms | 1.388417% |
+
+The first three rows account for 75.704244% of Decode kernel time and the
+first six account for 96.711110%. NVFP4 MLP gate/up plus down alone account for
+54.882680%; the three FP8 attention-projection rows account for 37.852455%.
+
+This closes the immediate scheduling-priority question. Prefill and Decode are
+already logically separated plans, but batch-one execution remains causally
+ordered and has no general double/triple buffer. The measured Decode scheduling
+hole is below 1%, and Prefill already uses its one proven narrow two-stream
+overlap. Phase-local kernel mechanisms therefore remain ahead of general
+buffering. Prefill candidates must be screened against marginal exposure, not
+the overlapped raw gate/up sum. The rejected pair-fused gate/up CTA and
+dual-A/dual-decoded-B down pipeline remain closed unless a materially different
+mechanism is proposed. Independent queues and buffering belong to the later
+multi-request scheduler work with explicit request, KV/state, workspace,
+fairness, cancellation, latency, and memory gates.
+
+The Prefill report is 3,286,423 bytes with SHA-256
+`32a9fbae00d93714c4328ce99b4d1be591dff2513f50e4dc8615f6c8effe35c7`.
+The Decode report is 1,021,755 bytes with SHA-256
+`7bdf228c74c93a31906ff25261b19a08395db505dcf83da002bcc6b556531f57`;
+its 3,061-byte console log hashes to
+`5cec6c4d71b4210fac78d02f15cfb0a456d807e63696b38dec0f15f0831305a9`.
+These are one-process Nsight diagnostic captures, not repeated latency
+distributions, an NCU causality study, a before/after promotion comparison, or
+a serving-throughput claim. Full commands, SQLite attribution, oracle,
+binary/environment identities, and limitations are in the
+[post-GDN-M16 phase-profile record](metadata/qwen36-27b-post-gdn-m16-phase-profile.json).

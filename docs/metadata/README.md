@@ -366,6 +366,16 @@ The diagnostic Phase 3 records are:
   the orphan candidate object was not linked, and preserves the boundary
   between this intra-kernel optimization and system buffering or
   Prefill/Decode overlap.
+- [`qwen36-27b-post-gdn-m16-phase-profile.json`](qwen36-27b-post-gdn-m16-phase-profile.json),
+  which records the fixed-frequency production phase profile after that
+  promotion. It freezes the P513/C32 Prefill and P19/C32/max26 Decode commands,
+  binary/report identities, the retained Decode log, observed exact oracles,
+  and NVTX-to-kernel closure; corrects the M32 gate/up raw sum to its two-stream
+  marginal exposure; and ranks the resulting Prefill and Decode hotspots. It
+  also records the current scheduling boundary: logical phase plans exist, but
+  batch-one has no general double/triple buffer; Decode has zero overlap and
+  only 0.733879% kernel-span idle, so phase-local work remains ahead of
+  multi-request scheduler work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
