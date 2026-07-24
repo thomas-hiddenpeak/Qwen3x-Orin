@@ -86,7 +86,7 @@
     "production_chain": "one exact-M32 table-free down-projection kernel followed by one standalone BF16 residual-add kernel",
     "test_only_route": "nvfp4_w4a16_m32_down_residual_bf16_wmma_k64_dual_a_table_free_test_kernel",
     "mechanism": "Keep the production Tensor Core body, round each down result to BF16 at the existing epilogue boundary, decode that rounded value, load the BF16 residual, add in FP32, round again to BF16, and write the residual result from the same kernel.",
-    "intended_savings": "remove one standalone residual-add launch and its raw-down read/final-residual store pair without changing projection occupancy",
+    "intended_savings": "remove one standalone residual-add launch and the intermediate raw-down global write/read pair while retaining one final residual store, without changing projection occupancy",
     "production_public_launcher_ever_selected_candidate": false
   },
   "checkpoint_fixture": {
