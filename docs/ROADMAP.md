@@ -695,12 +695,16 @@ files.
 See the
 [QKV/Z dual-N128 rejection record](metadata/qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection.json).
 
-The next bounded kernel mechanism is a standalone per-token residual-add plus
-centered-RMSNorm fusion shared by attention and MLP boundaries. It must preserve
-residual-left plus projection-right operand order and reach at least 1.15x on
-both actual-like and stress fixtures before wider validation. The measured
-sub-1% Decode scheduling hole still leaves general batch-one double/triple
-buffering behind phase-local work. Rejected
+The next bounded kernel screen is an independent exact-M32 FP8
+`[5120,6144]` K6144 half-tile single-slot raw-weight `cp.async` study. Its
+post-C1 marginal exposure is 382.219296 ms (8.3653% of the prefix kernel
+union), and the longer K is outside the closed `[10240,5120]` half-tile
+result. The new screen may use that recovery patch as design evidence but may
+not restore the rejected shape; it must retain 256-thread/five-CTA residency,
+clear every actual-payload round, and reach the frozen 1.03x paired-median
+gate before wider validation. The measured sub-1% Decode scheduling hole still
+leaves general batch-one double/triple buffering behind phase-local work.
+Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
 variants stay closed without a materially different mechanism. The existing
