@@ -679,6 +679,22 @@ semantics claim. The candidate was removed without stress, NCU, Nsys, or
 end-to-end work. See the
 [M32 down/residual rejection record](metadata/qwen36-27b-nvfp4-m32-down-residual-epilogue-fusion-rejection.json).
 
+The subsequent exact-M32 FP8 QKV/Z dual-N128 fusion is closed as well. Its
+single grid64/block512 kernel replaces the public grid80 plus grid48 pair and
+shares one decoded codebook and activation tile across two eight-warp N128
+groups. Static mapping/SASS/resource audit, exhaustive E4M3FN, full-K,
+replay, guard, input-preservation, Graph, and real-payload correctness all
+pass. Fixed-clock timing reverses decisively, however: all six `B-C-C-B`
+rounds regress, with a 0.908776x paired median and a
+0.908670x-0.909103x range. The 512-thread/two-CTA topology exposes 32 resident
+warps per SM versus 40 for the two 256-thread/five-CTA production kernels;
+the stable result is consistent with that lost scheduling headroom outweighing
+activation-traffic reuse. Actual-first stop-loss skips stress, NCU/Nsys,
+end-to-end, and five-process work and restores the tracked source/test
+files.
+See the
+[QKV/Z dual-N128 rejection record](metadata/qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection.json).
+
 The next bounded kernel mechanism is a standalone per-token residual-add plus
 centered-RMSNorm fusion shared by attention and MLP boundaries. It must preserve
 residual-left plus projection-right operand order and reach at least 1.15x on

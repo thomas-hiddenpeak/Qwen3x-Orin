@@ -478,8 +478,20 @@ The diagnostic Phase 3 records are:
   760 instructions and the K64 body from 200 to 379 instructions. Both exceed
   the frozen static stop, so no GPU program runs and production remains
   unchanged. This M32 WMMA shared-B constructor is distinct from ad22fdd's
-  earlier M1 packed-load/FP32-decode GEMV. The next bounded priority is the
-  phase-local exact-M32 FP8 QKV/Z dual-N128-tile fusion.
+  earlier M1 packed-load/FP32-decode GEMV. The next bounded priority at that
+  snapshot was the phase-local exact-M32 FP8 QKV/Z dual-N128-tile fusion,
+  now closed below.
+- [`qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection.json`](qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection.json),
+  which closes that phase-local exact-M32 QKV/Z screen. One 512-thread CTA
+  maps two independent eight-warp N128 groups, halves the baseline 128 CTAs
+  to 64, and shares the decoded codebook and `[32,5120]` activation traffic.
+  Static, exhaustive-codebook, full-K, replay, guard, input-preservation,
+  Graph, and actual-payload correctness gates all pass. The fixed-clock real
+  QKV/Z payload result nevertheless regresses in all six `B-C-C-B` rounds:
+  paired median 0.908776x, range 0.908670x-0.909103x. Stop-loss skips stress,
+  NCU/Nsys, end-to-end work, and five-process replication, restores the two
+  tracked source/test files exactly to `ce98625`, and retains the complete
+  recovery patch.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

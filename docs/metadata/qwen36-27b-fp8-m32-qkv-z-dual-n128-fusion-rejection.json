@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection",
+  "status": "rejected-test-only-prefill-exact-m32-fp8-qkv-z-dual-n128-fusion",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "priority": "P2",
+  "source": {
+    "base_head": "ce98625e7133ab0742e4db333550300c2d42b160",
+    "base_tree": "d41389022f61fc034583924dd6c20bd84b962277",
+    "base_subject": "docs: record FP8 M32 packed decode static rejection",
+    "fresh_worktree": "/tmp/q3x-fp8-m32-qkv-z-pair-ce98625",
+    "branch": "agent/fp8-m32-qkv-z-pair-screen",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "profile_priority": {
+    "source": "existing matched post-cp.async C1 Prefill trace ranking",
+    "qkv_marginal_union_ms": 391.488128,
+    "z_marginal_union_ms": 247.190080,
+    "aggregate_marginal_union_ms": 638.678208,
+    "aggregate_prefix_kernel_union_percent": 13.978,
+    "reason_selected": "large phase-local exposure with a bounded same-K activation-reuse mechanism; general scheduler buffering remained lower priority"
+  },
+  "candidate": {
+    "phase": "Prefill exact M32",
+    "weight_encoding": "FP8 E4M3FN",
+    "activation_and_output_dtype": "BF16",
+    "qkv_shape_n_by_k": [10240, 5120],
+    "z_shape_n_by_k": [6144, 5120],
+    "token_count": 32,
+    "launch": {
+      "grid": [64, 1, 1],
+      "block": [512, 1, 1],
+      "launch_bounds_min_blocks": 2
+    },
+    "mapping": {
+      "blocks_0_47": "QKV tile i plus Z tile i",
+      "blocks_48_63": "QKV tiles 48+2j and 49+2j",
+      "qkv_tiles_covered_exactly_once": 80,
+      "z_tiles_covered_exactly_once": 48,
+      "warps_per_n128_group": 8,
+      "groups_per_cta": 2
+    },
+    "shared_reuse": {
+      "decoded_codebook_bytes": 512,
+      "activation_32x72_bytes": 4608,
+      "weight_or_output_union_bytes": 36864,
+      "total_static_shared_bytes": 41984,
+      "runtime_double_or_triple_buffer": false
+    },
+    "baseline_logical_pair": "two public production M32 launches, QKV grid80/block256 then Z grid48/block256",
+    "candidate_logical_pair": "one test-only grid64/block512 launch",
+    "scope": "test-only launcher and resource query; never reachable from production dispatch"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "preflight": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [204000000, 3200000000, 3200000000],
+      "emc_mrq_rate_locked": 1,
+      "nvidia_smi_running_compute_processes": 0,
+      "gate": "pass"
+    },
+    "claim_boundary": "single named fixed-clock device"
+  },
+  "static_gate": {
+    "build": "pass",
+    "resources": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 41984,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32,
+      "gate": "pass"
+    },
+    "production_predecessor_resources": {
+      "registers_per_thread": 47,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 5,
+      "resident_warps_per_sm": 40
+    },
+    "sass": {
+      "static_instructions": 624,
+      "raw_weight_ldg_e_128_sites": 2,
+      "decode_lds_u16_sites": 32,
+      "wmma_lds_sites": 16,
+      "hmma_sites": 4,
+      "barrier_sites": 4,
+      "call_sites": 0,
+      "ldl_sites": 0,
+      "stl_sites": 0,
+      "div_sites": 0,
+      "rem_sites": 0,
+      "production_qkv_sass_identity": "pass",
+      "production_z_sass_identity": "pass",
+      "candidate_kernel_sha256": "f5128af43bc4b861fd0b9ddf9831736b5a040bbb0ed8341c689880c5e3426739",
+      "gate": "pass"
+    },
+    "mapping_and_alias_audit": "independent GO",
+    "static_audit_sha256": "5abb27d314f292deb48ff0c02ab9c7560f4a449ed8ab37d70d85b1772c4f2b0f"
+  },
+  "default_device_gate": {
+    "resources": "48 registers/thread, 41984 static shared bytes, 0 local bytes, 512 threads, 2 active CTAs/SM",
+    "invalid_capture": {
+      "cases": [
+        "near-miss QKV shape",
+        "overlapping QKV/Z weights",
+        "overlapping QKV/Z outputs",
+        "misaligned QKV weight",
+        "misaligned activation",
+        "QKV output overlapping Z weight"
+      ],
+      "status_each": "cudaErrorInvalidValue",
+      "captured_nodes": 0,
+      "gate": "pass"
+    },
+    "exhaustive_e4m3fn": {
+      "coverage": "256 codes x 4 packed byte positions in both QKV and Z",
+      "candidate_vs_baseline_mismatches": "0/524288",
+      "poison_replay_mismatches": "0/524288",
+      "token_15_16_mismatches": 0,
+      "classified_signed_nan_outputs": "512/512",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "finite_full_k": {
+      "candidate_vs_baseline_mismatches": "0/524288",
+      "poison_replay_mismatches": "0/524288",
+      "token_15_16_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "baseline_kernel_nodes": 2,
+      "candidate_kernel_nodes": 1,
+      "baseline_topology": ["grid80/block256", "grid48/block256"],
+      "candidate_topology": "grid64/block512",
+      "dynamic_shared_bytes": 0,
+      "distinct_functions": true,
+      "gate": "pass"
+    },
+    "independent_final_harness_audit": "GO",
+    "gate": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "header_bytes": 126504,
+    "data_base": 126512,
+    "full_shard_sha256_recomputed_in_this_run": false,
+    "qkv_weight": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "shape": [10240, 5120],
+      "absolute_offset": 3485125152,
+      "bytes": 52428800,
+      "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "z_weight": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+      "shape": [6144, 5120],
+      "absolute_offset": 3537553952,
+      "bytes": 31457280,
+      "sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae"
+    },
+    "qkv_weight_scale": {
+      "absolute_offset": 126516,
+      "fp32_bits_hex": "3a840000",
+      "value": 0.001007080078125,
+      "sha256": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021"
+    },
+    "z_weight_scale": {
+      "absolute_offset": 126524,
+      "fp32_bits_hex": "3a092493",
+      "value": 0.0005231585237197578,
+      "sha256": "861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9"
+    },
+    "activation": {
+      "source": "deterministic finite BF16 test data",
+      "bytes": 327680,
+      "sha256": "7a1b7403313dfe43932e84f70a5b9c5446f4ce54a6cb871cd7b1f30cabe3fe3c"
+    },
+    "consumed_slice_identity_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary two-public-launch baseline versus one test-only paired launch",
+    "running_binary_sha256": "95f7f1a15a74fa1877f29eb73b6b0f7642fc3580442a9652853c1b5da971d668",
+    "warmup_logical_pairs_per_implementation": 10,
+    "logical_pairs_per_timed_pass": 80,
+    "baseline_physical_kernel_launches_per_pass": 160,
+    "candidate_physical_kernel_launches_per_pass": 80,
+    "rounds": 6,
+    "order": "B-C-C-B",
+    "round_speedup": "(B1+B2)/(C1+C2)",
+    "minimum_each_round_speedup": 1.0,
+    "minimum_paired_round_median_speedup": 1.03,
+    "stop_loss": "actual-checkpoint failure skips stress, Nsys, end-to-end, and five-process retest"
+  },
+  "performance": {
+    "rounds": [
+      {"round": 1, "baseline_1_ms": 0.802676, "candidate_1_ms": 0.883369, "candidate_2_ms": 0.882740, "baseline_2_ms": 0.802251, "speedup": 0.908736},
+      {"round": 2, "baseline_1_ms": 0.802321, "candidate_1_ms": 0.882868, "candidate_2_ms": 0.882823, "baseline_2_ms": 0.802817, "speedup": 0.909071},
+      {"round": 3, "baseline_1_ms": 0.802694, "candidate_1_ms": 0.882960, "candidate_2_ms": 0.883187, "baseline_2_ms": 0.802916, "speedup": 0.909103},
+      {"round": 4, "baseline_1_ms": 0.802581, "candidate_1_ms": 0.883406, "candidate_2_ms": 0.883140, "baseline_2_ms": 0.802885, "speedup": 0.908817},
+      {"round": 5, "baseline_1_ms": 0.802486, "candidate_1_ms": 0.883050, "candidate_2_ms": 0.883439, "baseline_2_ms": 0.802670, "speedup": 0.908670},
+      {"round": 6, "baseline_1_ms": 0.802443, "candidate_1_ms": 0.883524, "candidate_2_ms": 0.883124, "baseline_2_ms": 0.802917, "speedup": 0.908704}
+    ],
+    "summary": {
+      "baseline_12_pass_median_ms": 0.802673,
+      "candidate_12_pass_median_ms": 0.883132,
+      "diagnostic_pass_median_ratio": 0.908893,
+      "paired_round_median_speedup": 0.908776,
+      "minimum_round_speedup": 0.908670,
+      "maximum_round_speedup": 0.909103,
+      "rounds_at_or_above_1_0": 0,
+      "rounds": 6,
+      "candidate_latency_increase_percent_from_pass_medians": 10.023883,
+      "paired_median_gate": "fail"
+    },
+    "correctness_each_round": {
+      "candidate_first_mismatches": "0/524288",
+      "candidate_second_mismatches": "0/524288",
+      "token_15_16_mismatches": 0,
+      "baseline_nonfinite": 0,
+      "candidate_first_nonfinite": 0,
+      "candidate_second_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "stop_loss": {
+      "actual_checkpoint_failed": true,
+      "same_bank_stress_executed": false,
+      "ncu_executed": false,
+      "nsys_executed": false,
+      "end_to_end_executed": false,
+      "five_process_retest_executed": false
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the candidate is bit-exact but all six fixed-clock actual-payload rounds regress; the 0.908776 paired median fails both the 1.00 non-regression gate and the 1.03 promotion gate",
+    "gate_shortfall_speedup_points": 0.121224,
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "mechanism_interpretation": "The candidate halves CTA count and reuses one activation tile, but 512-thread/two-CTA residency exposes only 32 resident warps per SM versus 40 for the 256-thread/five-CTA production kernels. The stable regression is consistent with the lost scheduling headroom outweighing reduced activation traffic; no Nsys claim is made because stop-loss skipped profiling.",
+    "closed_scope": "this exact grid64/block512 two-N128-group QKV/Z fusion topology"
+  },
+  "cleanup": {
+    "method": "saved a complete binary patch and retained the test binary before restoring the two tracked candidate files",
+    "fresh_worktree_head": "ce98625e7133ab0742e4db333550300c2d42b160",
+    "tracked_status_before_documentation": "clean",
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "candidate_commit_created": false,
+    "clean_release_rebuild": "pass",
+    "clean_default_device_test": "pass",
+    "clean_binary_sha256": "f15d5012a161022ae90cd3e76a709cba93111c7252af976b363cb6e98b5b3710"
+  },
+  "artifacts": [
+    {
+      "role": "complete recoverable source and test candidate patch against ce98625",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-ce98625-candidate.patch",
+      "bytes": 101700,
+      "lines": 2073,
+      "sha256": "85cf5801396bce5c7e0e32351a4925d73040a2b8679a6cb4ebdc1b43e2aa822f",
+      "diffstat": "2 files changed, 2011 insertions(+)"
+    },
+    {
+      "role": "standalone candidate default-device gate log",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-default-gpu.log",
+      "bytes": 56784,
+      "lines": 334,
+      "sha256": "c6b10f74705941c98841ad668cb8558c9b68efaf8d124817f178cb807bd1cbcb",
+      "expected_exit_code": 0
+    },
+    {
+      "role": "retained final candidate test binary",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-candidate-test-binary",
+      "bytes": 5085520,
+      "sha256": "95f7f1a15a74fa1877f29eb73b6b0f7642fc3580442a9652853c1b5da971d668"
+    },
+    {
+      "role": "retained full actual-checkpoint hard-gate stdout and stderr",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-actual-hardgate.log",
+      "bytes": 62346,
+      "lines": 352,
+      "sha256": "ade403effe43a2b59a85ab7d00121629975d8b9558db21ff091c1ce6a0fea1d8",
+      "expected_exit_code": 1
+    },
+    {
+      "role": "candidate-specific summary extracted from the full hard-gate log",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-actual-summary.log",
+      "bytes": 5940,
+      "lines": 18,
+      "sha256": "1229b5ba3e612a7bb0bc11f21e3340be54b6361043041f137f3039869e66d77e"
+    },
+    {
+      "role": "frozen static audit and associated object/SASS bundle",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-ce98625-static-artifacts/STATIC_AUDIT.txt",
+      "bytes": 2433,
+      "sha256": "5abb27d314f292deb48ff0c02ab9c7560f4a449ed8ab37d70d85b1772c4f2b0f"
+    },
+    {
+      "role": "post-restore clean default device-test log",
+      "path": "/tmp/q3x-fp8-m32-qkv-z-pair-cleanup-default.log",
+      "bytes": 55646,
+      "lines": 328,
+      "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698",
+      "expected_exit_code": 0
+    }
+  ],
+  "follow_up": {
+    "candidate_conclusion": "closed for exact M32 QKV/Z under the frozen grid64/block512 dual-N128 topology",
+    "recovery_patch_use": "retained for audit only; do not restore into production without a materially different occupancy topology",
+    "next_priority": "return to the measured phase ranking and select a bounded kernel-local mechanism; do not promote general double/triple buffering ahead of the remaining hotspots"
+  },
+  "limitations": [
+    "Performance evidence is from one fixed-clock Jetson AGX Orin and is not a cross-device claim.",
+    "Weights and weight scales are exact layer-0 checkpoint slices; activations are deterministic finite BF16 test data rather than captured runtime activations.",
+    "The run pinned shard size/header/data base and every consumed weight/scale slice SHA-256, but did not recompute the full 9.96 GB shard SHA-256.",
+    "The fixed-clock preflight was observed in the execution transcript but was not retained as a standalone clock log.",
+    "Stop-loss intentionally omitted synthetic stress, Nsys, end-to-end Prefill/TTFT, and five-process replication.",
+    "The rejection applies to the 512-thread two-N128-group topology, not to every possible QKV/Z phase-local fusion."
+  ]
+}
