@@ -341,9 +341,10 @@ The diagnostic Phase 3 records are:
   The record separates the non-representative 1.55792x/1.52486x synthetic
   stress result from the failed 1.00308x/0.988108x actual weighted gates and
   includes the full 5,570,560-instruction static bank-wavefront audit, its
-  non-NCU limits, the complete source/test removal, and the in-progress Decode
-  FP8 M1 `[5120,6144]` single-body/no-tail-barrier candidate as the next bounded
-  screen without claiming a performance result.
+  non-NCU limits, and the complete source/test removal. Its then-next Decode
+  FP8 M1 `[5120,6144]` single-body/no-tail-barrier screen is resolved by the
+  separate rejection record below rather than retroactively claimed as part of
+  the M32 evidence.
 - [`qwen36-27b-attention-values-exact-benchmark.json`](qwen36-27b-attention-values-exact-benchmark.json),
   which records the production exact Q24/KV4/D256 attention-values route, its
   40-to-26 register and 376-to-112 `cuobjdump` function-block reductions,
@@ -387,6 +388,19 @@ The diagnostic Phase 3 records are:
   batch-one has no general double/triple buffer; Decode has zero overlap and
   only 0.733879% kernel-span idle, so phase-local work remains ahead of
   multi-request scheduler work.
+- [`qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json`](qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json),
+  which records the rejected first bounded follow-up to that Decode ranking.
+  The exact `[5120,6144]` single-body candidate passes exhaustive E4M3FN,
+  replay, NaN, guard, input, invalid Graph, topology, resource, and compiled
+  mechanism gates; complete SASS removes 192 instructions and the third static
+  barrier while preserving 64-register/four-CTA residency, 128 FFMA, and all
+  key global/shared/output-store counts. All six fixed-clock actual layer-0
+  payload rounds regress, however, producing a 0.994914x paired median and
+  0.994295x minimum round against required 1.01x/1.00x gates. The record freezes
+  the actual-first stop-loss, two older same-family failures, 142-function
+  production-isolation manifest, retained candidate artifacts, complete
+  source/test removal, forced clean rollback, and the deliberate absence of
+  synthetic, five-process, P19, Nsys, or NCU work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

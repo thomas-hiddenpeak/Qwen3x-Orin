@@ -3686,12 +3686,16 @@ Both candidates are rejected and all source/test hooks are removed; production
 remains the original dual-resident-A mode 0. The hard gate failed before a
 five-process screen, P513 end-to-end run, or candidate NCU study. The next
 forced rebuild and default device test pass, and all four rollback mode-0 SASS
-word streams again match the frozen comparator. The next bounded item is the
-in-progress Decode FP8 M1 `[5120,6144]` exact single-body/no-tail-barrier
-candidate screen; it has no performance result yet. Raw log, measurement-time
-binary identity, retained candidate SASS, payload, static audit, rollback
-evidence, and claim boundaries are frozen in the
-[FP8 M32 codebook-swizzle rejection record](metadata/qwen36-27b-fp8-m32-codebook-swizzle-rejection.json).
+word streams again match the frozen comparator. The subsequent bounded Decode
+FP8 M1 `[5120,6144]` exact single-body/no-tail-barrier screen is now closed as
+well. Its compiled SASS removes the generic control and third barrier without
+changing resources, but all six fixed-clock actual-checkpoint rounds regress
+and the paired median is 0.994914x. The candidate was removed before
+synthetic, repeated-process, end-to-end, or profiling work. Codebook evidence
+remains frozen in the
+[FP8 M32 codebook-swizzle rejection record](metadata/qwen36-27b-fp8-m32-codebook-swizzle-rejection.json),
+and the later Decode result is recorded in the
+[attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
 
 ## Exact Q24/KV4/D256 attention-values promotion
 
@@ -4313,3 +4317,112 @@ distributions, an NCU causality study, a before/after promotion comparison, or
 a serving-throughput claim. Full commands, SQLite attribution, oracle,
 binary/environment identities, and limitations are in the
 [post-GDN-M16 phase-profile record](metadata/qwen36-27b-post-gdn-m16-phase-profile.json).
+
+## Decode FP8 M1 attention O-projection single-body/no-tail rejection
+
+The first bounded follow-up to the refreshed Decode ranking targeted the FP8
+row-quad output projection `[5120,6144]`, which accounts for 1,600 launches and
+299.047168 ms, or 10.812119% of P19 Decode kernel time. Production launches
+1,280 CTAs with 256 threads. Because 5,120 rows are exactly 1,280 complete row
+quads and the registry cap is also 1,280, every CTA executes the generic
+row-grid-stride loop exactly once.
+
+The test-only candidate specialized that topology to one body per CTA. It
+removed runtime rows/columns and the outer row loop, kept the decoded-codebook
+producer barrier and the eight-warp reduction producer barrier, and removed
+the trailing reduction-scratch lifetime barrier because no second body can
+reuse the scratch. The public launcher continued to select the production
+`fp8_w8a16_gemv_bf16_row_quad_kernel<true>` throughout the experiment.
+
+The default device test passes 1,024/1,024 FP8 code/packed-position coverage,
+0/5,120 candidate and replay BF16 mismatches, 8/8 NaN classifications for
+signed `0x7f`/`0xff` codes,
+zero unexpected nonfinite outputs, intact canaries, and preserved inputs.
+Public, direct predecessor, and candidate CUDA Graph captures each contain one
+`1280x256` kernel node; public and predecessor functions are identical and the
+candidate is distinct. Four invalid shape, alias, and alignment calls return
+`cudaErrorInvalidValue` and capture zero nodes.
+
+Resources do not change:
+
+| FP8 M1 `[5120,6144]` route | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production row-quad predecessor | 64 | 1,152 B | 0 B | 4 |
+| Test-only single-body/no-tail | 64 | 1,152 B | 0 B | 4 |
+
+The complete production Function section contains 1,152 instructions and
+2,304 ordered 64-bit encoding/control words. Its normalized word-text SHA-256
+is `59d3521f9f64d81ee03d16503cef4096eef63e754fc9331c736765680cd85e40`
+in the independent frozen binary, the candidate binary, the forced clean
+rollback, and an older pre-exact SASS dump. The candidate section contains 960
+instructions and 1,920 words with SHA-256
+`80b703273a00a551d77bd5eb71e945625c7a33f352f5839259ce453b25cdacba`:
+
+| Static SASS count | Production | Candidate |
+| --- | ---: | ---: |
+| `BAR.SYNC.DEFER_BLOCKING` | 3 | 2 |
+| `FFMA` | 128 | 128 |
+| `FADD` | 70 | 52 |
+| `FMUL` | 7 | 4 |
+| `SHFL.DOWN` | 41 | 40 |
+| `BRA` + `BRA.DIV` | 19 | 12 |
+| `CALL.REL.NOINC` | 22 | 1 |
+| `RET.REL.NODEC` | 1 | 0 |
+| `LDG.E` + `LDG.E.64` | 40 | 40 |
+| `LDS` / `STS` / `STG.E.U16` | 132 / 5 / 4 | 132 / 5 / 4 |
+| `LDL` / `STL` | 0 / 0 | 0 / 0 |
+
+The candidate's lone predicated `CALL.REL.NOINC` at `0x2110` targets `0x2130`
+inside the same Function section, has no `RET`, and allocates no stack or local
+memory. It is a ptxas intra-section control transfer, not evidence of an
+out-of-line source call; a textual zero-`CALL` gate would also reject the
+production predecessor incorrectly. All 142 pre-existing Function sections
+match between the frozen and candidate dumps by symbol, raw-block size, line
+count, and SHA-256. The candidate adds exactly one Function section. This is a
+per-function isolation result, not a claim that the whole SASS file is an
+append-only byte stream.
+
+The authoritative performance screen used the hash-pinned layer-0
+`linear_attn.out_proj.weight` payload at absolute shard offset 3,569,011,232,
+31,457,280 bytes, SHA-256
+`e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9`.
+GPU and EMC sysfs readbacks were fixed at 1,300,500,000 and 3,200,000,000 Hz
+before and after the run. These readbacks prove the requested frequency lock,
+not thermal or power stability. One same-binary process ran ten warmups and six
+`B-C-C-B` rounds of 80 logical launches per timed pass:
+
+| Round | Paired speedup | BF16 mismatches | Guards | Non-regression |
+| ---: | ---: | ---: | --- | --- |
+| 1 | 0.994295x | 0/5,120 | intact | fail |
+| 2 | 0.995110x | 0/5,120 | intact | fail |
+| 3 | 0.994488x | 0/5,120 | intact | fail |
+| 4 | 0.995209x | 0/5,120 | intact | fail |
+| 5 | 0.994857x | 0/5,120 | intact | fail |
+| 6 | 0.994971x | 0/5,120 | intact | fail |
+
+The selection statistic is the median of the six paired per-round
+`Bmean/Cmean` speedups: 0.994914x, versus the required 1.01x. The minimum round
+is 0.994295x versus the required 1.00x. Separately printed predecessor and
+candidate medians are 0.189387 and 0.190360 ms; they are diagnostic values, not
+the ratio used for selection. All seven reported failures are exactly the six
+round non-regression failures plus the actual-checkpoint aggregate failure;
+no correctness, resource, Graph, or fixture-identity gate failed.
+
+The actual-checkpoint-first stop-loss therefore fired. The synthetic same-bank
+fixture, five-process confirmation, P19 end-to-end run, Nsys, and NCU were not
+run. This is consistent with two older same-family screens: conditional final
+barrier skipping reached only 1.00207x/1.00109x on checkpoint-like/stress data,
+and the older broad exact-shape candidate reached only 0.913770x/0.915366x for
+this shape despite using 56 registers. Those historical runs are directional
+context, not substitutes for the fixed-clock real-payload result.
+
+The candidate and its test hooks were removed. A forced clean rebuild and
+default device test pass; source and test blobs match `1c930d7`, and the
+rollback production block remains byte-identical to both frozen comparators.
+Production dispatch, runtime behavior, and public ABI never changed. The next
+step is to re-rank the remaining phase-local opportunities from the post-M16
+profile before proposing a materially different bounded mechanism; this
+rejection does not preselect one. The performance command, symbols, word hashes,
+per-pass timings, artifact identities, historical log hashes, rollback proof,
+and limitations are in the
+[attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).

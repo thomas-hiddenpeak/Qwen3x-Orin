@@ -556,10 +556,10 @@ candidate advances to five-process, P513, or NCU work, and production remains
 the original dual-resident-A layout. See the
 [FP8 M32 codebook-swizzle rejection record](metadata/qwen36-27b-fp8-m32-codebook-swizzle-rejection.json).
 
-The next bounded screen is the in-progress Decode FP8 M1 `[5120,6144]` exact
-single-body/no-tail-barrier candidate. It has no performance result yet, must
-retain an early same-binary real-payload gate, and remains separate from the
-rejected Prefill M32 codebook family.
+The Decode FP8 M1 `[5120,6144]` single-body/no-tail item named as the next
+screen in that snapshot was deferred while the following profile-selected
+promotions completed. Its eventual result is recorded below against the
+refreshed post-GDN-M16 production ranking.
 
 The subsequent exact Q24/KV4/D256 attention-values route is now productionized.
 It reduces registers from 40 to 26 and the `cuobjdump` function-block count
@@ -655,8 +655,23 @@ batch-one Decode overlap hole large enough to preempt those rows, and Prefill
 already uses the one proven narrow dual-stream path. See the
 [post-GDN-M16 phase-profile record](metadata/qwen36-27b-post-gdn-m16-phase-profile.json).
 
+The deferred Decode FP8 M1 `[5120,6144]` exact
+single-body/no-tail-barrier screen is now closed. Exhaustive/replay/NaN/guard/
+Graph/resource gates pass, and SASS proves the intended 960-instruction,
+two-barrier body against the 1,152-instruction, three-barrier production
+predecessor without changing 64-register/four-CTA residency. The authoritative
+fixed-clock layer-0 payload screen nevertheless regresses in all six
+`B-C-C-B` rounds: paired median 0.994914x, minimum 0.994295x, versus required
+1.01x/1.00x gates. The actual-first stop-loss skipped synthetic, five-process,
+P19, Nsys, and NCU work; the candidate was removed and the forced clean
+rollback passes. See the
+[attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
+
 The next bounded kernel mechanism must therefore start from marginal
-critical-path exposure and pass an early same-binary gate. Rejected
+critical-path exposure and pass an early same-binary gate. This rejection does
+not preselect a speculative mechanism, and the measured sub-1% Decode
+scheduling hole still leaves general batch-one double/triple buffering behind
+phase-local work. Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
 variants stay closed without a materially different mechanism. The existing
