@@ -710,12 +710,25 @@ profiler-attribution claim. Both exact FP8 half-tile shapes are therefore
 closed under their frozen gates. See the
 [K6144 half-tile rejection record](metadata/qwen36-27b-fp8-m32-k6144-half-tile-raw-weight-cp-async-rejection.json).
 
-The provisional next bounded kernel screen is the higher-risk asymmetric
-table-free-E4M3 concurrent topology on the current production baseline. It
-must begin test-only, freeze a fresh resource/SASS feasibility gate, and clear
-actual payloads first before stress, profiling, end-to-end, or replication.
-The measured sub-1% Decode scheduling hole still leaves general batch-one
-double/triple buffering behind phase-local work.
+The higher-risk exact-M32 NVFP4 asymmetric table-free-E4M3 concurrent screen
+is now closed. Its packed E4M3x2 constructor is exact over all 65,536 ordered
+byte pairs, and the corrected test-only kernel passes resource/SASS, full
+557,056-element B/G/U and replay bit checks, guards, input preservation,
+Graph, and pinned actual-payload gates. The final candidate retains 48
+registers and five-CTA capacity, uses 29,184 shared bytes, and reduces the
+static body from 736 to 688 instructions, but both one-sided concurrent routes
+regress in every fixed-clock round. Gate/main reaches a 0.957097x paired
+median (0.955298x-0.958556x); up/aux reaches 0.956026x
+(0.953316x-0.957179x), with 0/6 rounds at or above 1.0 for either direction.
+The actual-first stop-loss skips stress, profiling, end-to-end, and
+replication, removes the candidate, and leaves production unchanged. See the
+[asymmetric E4M3 rejection record](metadata/qwen36-27b-nvfp4-m32-asymmetric-table-free-e4m3-bgu-rejection.json).
+
+The next bounded kernel experiment now requires a fresh post-C1 marginal
+profile and a materially different phase-local mechanism; closed table-free,
+half-tile, pair-fused, and shared-pipeline variants are not candidates for
+restoration. The measured sub-1% Decode scheduling hole still leaves general
+batch-one double/triple buffering behind phase-local work.
 Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident

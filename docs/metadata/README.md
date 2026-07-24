@@ -478,6 +478,14 @@ The diagnostic Phase 3 records are:
   0.947361x-0.948105x and the paired median is 0.947746x. The actual-first
   stop-loss removes the candidate and skips stress, NCU/Nsys, end-to-end, and
   five-process work, closing this longer-K shape without changing production.
+- [`qwen36-27b-nvfp4-m32-asymmetric-table-free-e4m3-bgu-rejection.json`](qwen36-27b-nvfp4-m32-asymmetric-table-free-e4m3-bgu-rejection.json),
+  which closes the exact-M32 NVFP4 one-sided table-free-E4M3 gate/up screen.
+  The corrected packed-x2 candidate passes 65,536-pair exhaustive, static,
+  full B/G/U, replay, guard, input-preservation, Graph, and actual-payload
+  correctness gates, but gate/main and up/aux regress in all six fixed-clock
+  rounds to 0.957097x and 0.956026x paired medians. The actual-first stop-loss
+  removes the candidate and skips stress, profiling, end-to-end, and
+  replication without changing production.
 - [`qwen36-27b-fp8-m32-packed-decode-static-rejection.json`](qwen36-27b-fp8-m32-packed-decode-static-rejection.json),
   which closes the CPU/compile/SASS-only exact-M32 FP8 packed-decode screen.
   The exact four-code BF16-bit constructor removes all 32 codebook `LDS.U16`,
