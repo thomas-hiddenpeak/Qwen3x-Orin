@@ -685,6 +685,19 @@ query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -4386,6 +4399,23 @@ void test_launch_validation(TestContext& test) {
           cudaErrorInvalidValue,
       "NVFP4 test-only M32 rejects NaN scale");
   test.expect(
+      q3x::kernels::
+              launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
+                  nvfp4_m32_packed, nvfp4_m32_scales,
+                  std::numeric_limits<float>::quiet_NaN(),
+                  nvfp4_m32_activations, kNvFp4M32Rows,
+                  kNvFp4M32Columns, nvfp4_m32_output) ==
+          static_cast<int>(cudaErrorInvalidValue),
+      "NVFP4 test-only M32 table-free raw-weight cp.async rejects NaN scale");
+  test.expect(
+      q3x::kernels::
+              launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
+                  nvfp4_m32_packed, nvfp4_m32_scales, 1.0F,
+                  nvfp4_m32_activations, 5'120U, 17'408U,
+                  nvfp4_m32_output) ==
+          static_cast<int>(cudaErrorInvalidValue),
+      "NVFP4 test-only M32 table-free raw-weight cp.async remains gate/up-only");
+  test.expect(
       launch_nvfp4_m32(nvfp4_m32_packed, nvfp4_m32_scales, -1.0F,
                        nvfp4_m32_activations, kNvFp4M32Rows,
                        kNvFp4M32Columns, nvfp4_m32_output) ==
@@ -5393,6 +5423,14 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m32_table_free_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M32_TABLE_FREE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_m32_raw_weight_cp_async_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -17517,6 +17555,75 @@ using NvFp4M32ResourceQuery = int (*)(
     std::size_t, std::size_t, int*, std::size_t*, std::size_t*, int*,
     int*) noexcept;
 
+struct NvFp4M32CapturedKernel {
+  bool valid = false;
+  void* function = nullptr;
+  dim3 grid{0U, 0U, 0U};
+  dim3 block{0U, 0U, 0U};
+  unsigned int dynamic_shared_bytes = 0U;
+  std::size_t total_nodes = 0U;
+  std::size_t kernel_nodes = 0U;
+};
+
+[[nodiscard]] NvFp4M32CapturedKernel capture_nvfp4_m32_kernel(
+    TestContext& test, cudaStream_t stream, const NvFp4M32TestLaunch launch,
+    const std::uint8_t* const packed, const std::uint8_t* const scales,
+    const float weight_scale_2, const std::uint16_t* const activations,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const output, const std::string& label) {
+  NvFp4M32CapturedKernel result{};
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin capture");
+  int launch_status = static_cast<int>(cudaErrorUnknown);
+  if (ready) {
+    launch_status = launch(packed, scales, weight_scale_2, activations, rows,
+                           columns, output, static_cast<void*>(stream));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         label + " end capture") &&
+            ready;
+  }
+  if (ready) {
+    ready = test.cuda_ok(
+                cudaGraphGetNodes(graph, nullptr, &result.total_nodes),
+                label + " query nodes") &&
+            ready;
+  }
+  if (ready && result.total_nodes != 0U) {
+    std::vector<cudaGraphNode_t> nodes(result.total_nodes);
+    std::size_t capacity = nodes.size();
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(), &capacity),
+                         label + " get nodes") &&
+            ready;
+    for (std::size_t index = 0U; index < capacity && ready; ++index) {
+      cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+      ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                           label + " get node type") &&
+              ready;
+      if (type == cudaGraphNodeTypeKernel) {
+        ++result.kernel_nodes;
+        cudaKernelNodeParams params{};
+        ready = test.cuda_ok(
+                    cudaGraphKernelNodeGetParams(nodes[index], &params),
+                    label + " get kernel params") &&
+                ready;
+        result.function = params.func;
+        result.grid = params.gridDim;
+        result.block = params.blockDim;
+        result.dynamic_shared_bytes = params.sharedMemBytes;
+      }
+    }
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+            ready;
+  }
+  result.valid = ready && launch_status == static_cast<int>(cudaSuccess) &&
+                 result.total_nodes == 1U && result.kernel_nodes == 1U;
+  return result;
+}
+
 void run_nvfp4_factorized_product_lookup_exhaustive(TestContext& test,
                                                      cudaStream_t stream) {
   constexpr std::size_t kScaleCodes = 256U;
@@ -18252,6 +18359,16 @@ void run_nvfp4_m32_wmma_smoke_case(
           launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda,
       0x6dU, 0xd6U,
       distribution_label + " K64/LD72 table-free E2M1");
+  if (rows == 17'408U && columns == 5'120U) {
+    run_nvfp4_m32_candidate_smoke(
+        test, stream, packed, scales, activations, baseline, rows, columns,
+        kWeightScale2,
+        q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda,
+        0x39U, 0x93U,
+        distribution_label +
+            " K64/LD72 table-free single-slot raw-weight cp.async");
+  }
   run_nvfp4_m32_candidate_smoke(
       test, stream, packed, scales, activations, baseline, rows, columns,
       kWeightScale2,
@@ -18295,8 +18412,9 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
     int maximum_registers;
     std::size_t expected_static_shared_bytes;
     int minimum_active_blocks;
+    bool gate_up_only = false;
   };
-  constexpr std::array<Candidate, 9U> kCandidates{{
+  constexpr std::array<Candidate, 10U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_resources_test_cuda,
@@ -18317,6 +18435,10 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda,
        51, 23'552U, 5},
+      {"K64/LD72 table-free single-slot raw-weight cp.async",
+       q3x::kernels::
+           query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_resources_test_cuda,
+       51, 27'648U, 5, true},
       {"M18 masked-M32 factorized vector store",
        q3x::kernels::
            query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda,
@@ -18345,6 +18467,9 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
   }};
   for (const Candidate& candidate : kCandidates) {
     for (const Shape& shape : kShapes) {
+      if (candidate.gate_up_only && shape.rows != 17'408U) {
+        continue;
+      }
       int registers_per_thread = -1;
       std::size_t static_shared_bytes =
           std::numeric_limits<std::size_t>::max();
@@ -18403,7 +18528,7 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
     const char* label;
     NvFp4M32TestLaunch launch;
   };
-  constexpr std::array<Candidate, 6U> kCandidates{{
+  constexpr std::array<Candidate, 7U> kCandidates{{
       {"K64/LD72 dual-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_test_cuda},
@@ -18419,6 +18544,9 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
       {"K64/LD72 table-free E2M1",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda},
+      {"K64/LD72 table-free single-slot raw-weight cp.async",
+       q3x::kernels::
+           launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda},
       {"K128/LD136 single-A",
        q3x::kernels::
            launch_sm87_nvfp4_w4a16_small_m32_wmma_k128_single_a_test_cuda},
@@ -18829,6 +18957,110 @@ void run_nvfp4_m17_m31_public_invalid_capture_contract(
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
               label + " rejects invalid exact spans before any enqueue");
+}
+
+void run_nvfp4_m32_raw_weight_cp_async_production_identity(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::uintptr_t kPackedAddress = 0x10'0000'0000ULL;
+  constexpr std::uintptr_t kScaleAddress = 0x20'0000'0000ULL;
+  constexpr std::uintptr_t kActivationAddress = 0x30'0000'0000ULL;
+  constexpr std::uintptr_t kOutputAddress = 0x40'0000'0000ULL;
+  constexpr std::size_t kGateRows = 17'408U;
+  constexpr std::size_t kGateColumns = 5'120U;
+  constexpr std::size_t kDownRows = 5'120U;
+  constexpr std::size_t kDownColumns = 17'408U;
+  const auto* const packed =
+      reinterpret_cast<const std::uint8_t*>(kPackedAddress);
+  const auto* const scales =
+      reinterpret_cast<const std::uint8_t*>(kScaleAddress);
+  const auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(kActivationAddress);
+  auto* const output = reinterpret_cast<std::uint16_t*>(kOutputAddress);
+
+  const NvFp4M32CapturedKernel gate_baseline = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda,
+      packed, scales, 1.0F, activations, kGateRows, kGateColumns, output,
+      "NVFP4 M32 gate table-free baseline graph");
+  const NvFp4M32CapturedKernel gate_candidate = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda,
+      packed, scales, 1.0F, activations, kGateRows, kGateColumns, output,
+      "NVFP4 M32 gate raw-weight cp.async graph");
+  const NvFp4M32CapturedKernel gate_public = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda, packed,
+      scales, 1.0F, activations, kGateRows, kGateColumns, output,
+      "NVFP4 M32 gate public production graph");
+  const NvFp4M32CapturedKernel down_baseline = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda,
+      packed, scales, 1.0F, activations, kDownRows, kDownColumns, output,
+      "NVFP4 M32 down table-free baseline graph");
+  const NvFp4M32CapturedKernel down_public = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda, packed,
+      scales, 1.0F, activations, kDownRows, kDownColumns, output,
+      "NVFP4 M32 down public production graph");
+
+  const auto topology_matches = [](const NvFp4M32CapturedKernel& capture,
+                                   const std::size_t rows) noexcept {
+    return capture.valid && capture.grid.x == rows / 128U &&
+           capture.grid.y == 1U && capture.grid.z == 1U &&
+           capture.block.x == 256U && capture.block.y == 1U &&
+           capture.block.z == 1U && capture.dynamic_shared_bytes == 0U;
+  };
+  int registers_per_thread = -1;
+  std::size_t static_shared_bytes = std::numeric_limits<std::size_t>::max();
+  std::size_t local_bytes = std::numeric_limits<std::size_t>::max();
+  int maximum_threads_per_block = -1;
+  int active_blocks_per_sm = -1;
+  const int resource_status =
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_resources_test_cuda(
+              kGateRows, kGateColumns, &registers_per_thread,
+              &static_shared_bytes, &local_bytes, &maximum_threads_per_block,
+              &active_blocks_per_sm);
+  const bool resource_gate =
+      resource_status == static_cast<int>(cudaSuccess) &&
+      registers_per_thread <= 51 && static_shared_bytes == 27'648U &&
+      local_bytes == 0U && maximum_threads_per_block == 256 &&
+      active_blocks_per_sm >= 5;
+  const bool identity_gate =
+      topology_matches(gate_baseline, kGateRows) &&
+      topology_matches(gate_candidate, kGateRows) &&
+      topology_matches(gate_public, kGateRows) &&
+      topology_matches(down_baseline, kDownRows) &&
+      topology_matches(down_public, kDownRows) &&
+      gate_public.function == gate_candidate.function &&
+      gate_public.function != gate_baseline.function &&
+      down_public.function == down_baseline.function &&
+      down_public.function != gate_candidate.function && resource_gate;
+  std::cout << "NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PRODUCTION_IDENTITY: "
+            << "gate_baseline_nodes=" << gate_baseline.kernel_nodes
+            << " gate_candidate_nodes=" << gate_candidate.kernel_nodes
+            << " gate_public_nodes=" << gate_public.kernel_nodes
+            << " gate_public_candidate_same_func="
+            << (gate_public.function == gate_candidate.function ? "true"
+                                                                 : "false")
+            << " gate_public_baseline_distinct="
+            << (gate_public.function != gate_baseline.function ? "true"
+                                                                : "false")
+            << " down_public_nodes=" << down_public.kernel_nodes
+            << " down_public_baseline_same_func="
+            << (down_public.function == down_baseline.function ? "true"
+                                                                : "false")
+            << " registers=" << registers_per_thread
+            << " static_shared_bytes=" << static_shared_bytes
+            << " local_bytes=" << local_bytes
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " gate=" << (identity_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(identity_gate,
+              "NVFP4 exact-M32 gate/up selects raw-weight cp.async while "
+              "down retains table-free baseline identity and resources");
 }
 
 void run_nvfp4_m32_public_fallback_graph_contract(TestContext& test,
@@ -20191,6 +20423,8 @@ void run_optional_nvfp4_m32_wmma_performance(TestContext& test,
 struct NvFp4M32TableFreeCellMeasurement {
   double production_milliseconds = std::numeric_limits<double>::quiet_NaN();
   double candidate_milliseconds = std::numeric_limits<double>::quiet_NaN();
+  double minimum_round_speedup =
+      std::numeric_limits<double>::quiet_NaN();
   bool bitwise_equal = false;
   bool output_finite = false;
 };
@@ -20204,7 +20438,8 @@ struct NvFp4M32TableFreeShapeMeasurement {
 [[nodiscard]] NvFp4M32TableFreeShapeMeasurement
 benchmark_nvfp4_m32_table_free_shape(
     TestContext& test, cudaStream_t stream,
-    const NvFp4M32WmmaShape& shape) {
+    const NvFp4M32WmmaShape& shape,
+    const bool raw_weight_cp_async_probe = false) {
   constexpr std::size_t kTokens = 32U;
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
@@ -20287,6 +20522,13 @@ benchmark_nvfp4_m32_table_free_shape(
   }
 
   const auto launch_production = [&]() noexcept -> int {
+    if (raw_weight_cp_async_probe) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              shape.rows, shape.columns, production_output.get(),
+              static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_factorized_vector_store_test_cuda(
             packed.get(), scales.get(), kWeightScale2, activations.get(),
@@ -20294,6 +20536,13 @@ benchmark_nvfp4_m32_table_free_shape(
             static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept -> int {
+    if (raw_weight_cp_async_probe) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              shape.rows, shape.columns, candidate_output.get(),
+              static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
             packed.get(), scales.get(), kWeightScale2, activations.get(),
@@ -20381,6 +20630,8 @@ benchmark_nvfp4_m32_table_free_shape(
 
     double production_total = 0.0;
     double candidate_total = 0.0;
+    double minimum_round_speedup =
+        std::numeric_limits<double>::infinity();
     bool finite = true;
     for (int round = 0; round < kMeasurementRounds; ++round) {
       const std::string suffix =
@@ -20401,26 +20652,42 @@ benchmark_nvfp4_m32_table_free_shape(
           std::isfinite(production_first) &&
           std::isfinite(candidate_first) &&
           std::isfinite(candidate_second) &&
-          std::isfinite(production_second);
+          std::isfinite(production_second) && production_first > 0.0F &&
+          candidate_first > 0.0F && candidate_second > 0.0F &&
+          production_second > 0.0F;
       finite = finite && round_finite;
+      double round_speedup = std::numeric_limits<double>::quiet_NaN();
       if (round_finite) {
-        production_total += production_first + production_second;
-        candidate_total += candidate_first + candidate_second;
+        const double production_round =
+            static_cast<double>(production_first) + production_second;
+        const double candidate_round =
+            static_cast<double>(candidate_first) + candidate_second;
+        round_speedup = production_round / candidate_round;
+        production_total += production_round;
+        candidate_total += candidate_round;
+        minimum_round_speedup =
+            std::min(minimum_round_speedup, round_speedup);
       }
-      std::cout << "PERF_NVFP4_M32_TABLE_FREE_ROUND: " << label
+      std::cout
+          << (raw_weight_cp_async_probe
+                  ? "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_ROUND: "
+                  : "PERF_NVFP4_M32_TABLE_FREE_ROUND: ")
+          << label
                 << " distribution="
                 << nvfp4_m1_scale_distribution_name(distribution)
                 << " round=" << round + 1
                 << " production_pass1_ms=" << production_first
                 << " candidate_pass1_ms=" << candidate_first
                 << " candidate_pass2_ms=" << candidate_second
-                << " production_pass2_ms=" << production_second << '\n';
+                << " production_pass2_ms=" << production_second
+                << " round_speedup=" << round_speedup << '\n';
     }
     constexpr double kTimedPasses =
         2.0 * static_cast<double>(kMeasurementRounds);
     if (finite) {
       measurement.production_milliseconds = production_total / kTimedPasses;
       measurement.candidate_milliseconds = candidate_total / kTimedPasses;
+      measurement.minimum_round_speedup = minimum_round_speedup;
     }
   }
   return shape_measurement;
@@ -20436,7 +20703,9 @@ struct NvFp4M32TableFreePairMeasurement {
 };
 
 void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
-                                                cudaStream_t stream) {
+                                                cudaStream_t stream,
+                                                const bool raw_weight_probe =
+                                                    false) {
   constexpr std::size_t kRows = 17'408U;
   constexpr std::size_t kColumns = 5'120U;
   constexpr std::size_t kTokens = 32U;
@@ -20447,7 +20716,7 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 24;
   constexpr int kMeasurementRounds = 4;
-  constexpr double kMinimumCellSpeedup = 1.0;
+  const double kMinimumCellSpeedup = raw_weight_probe ? 1.02 : 1.0;
   constexpr double kMinimumRoundSpeedup = 1.0;
   constexpr double kMinimumAggregateSpeedup = 1.02;
 
@@ -20574,12 +20843,18 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
     return;
   }
 
-  const auto launch_one = [&](const bool table_free,
+  const auto launch_one = [&](const bool candidate_path,
                               const std::uint8_t* const packed,
                               const std::uint8_t* const scales,
                               std::uint16_t* const output,
                               cudaStream_t const launch_stream) noexcept {
-    if (table_free) {
+    if (raw_weight_probe && candidate_path) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
+              packed, scales, kWeightScale2, activations.get(), kRows,
+              kColumns, output, static_cast<void*>(launch_stream));
+    }
+    if (raw_weight_probe || candidate_path) {
       return q3x::kernels::
           launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_test_cuda(
               packed, scales, kWeightScale2, activations.get(), kRows,
@@ -20590,12 +20865,13 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
             packed, scales, kWeightScale2, activations.get(), kRows,
             kColumns, output, static_cast<void*>(launch_stream));
   };
-  const auto launch_pair = [&](const bool table_free) noexcept -> int {
+  const auto launch_pair = [&](const bool candidate_path) noexcept -> int {
     std::uint16_t* const gate_output =
-        table_free ? candidate_gate_output.get()
-                   : production_gate_output.get();
+        candidate_path ? candidate_gate_output.get()
+                       : production_gate_output.get();
     std::uint16_t* const up_output =
-        table_free ? candidate_up_output.get() : production_up_output.get();
+        candidate_path ? candidate_up_output.get()
+                       : production_up_output.get();
     cudaError_t status = cudaEventRecord(inputs_ready, stream);
     if (status != cudaSuccess) {
       return static_cast<int>(status);
@@ -20604,13 +20880,13 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
     if (status != cudaSuccess) {
       return static_cast<int>(status);
     }
-    int launch_status = launch_one(table_free, gate_packed.get(),
+    int launch_status = launch_one(candidate_path, gate_packed.get(),
                                    gate_scales.get(), gate_output, stream);
     if (launch_status != static_cast<int>(cudaSuccess)) {
       return launch_status;
     }
-    launch_status = launch_one(table_free, up_packed.get(), up_scales.get(),
-                               up_output, auxiliary_stream);
+    launch_status = launch_one(candidate_path, up_packed.get(),
+                               up_scales.get(), up_output, auxiliary_stream);
     if (launch_status != static_cast<int>(cudaSuccess)) {
       return launch_status;
     }
@@ -20643,7 +20919,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
     const std::string distribution_name =
         nvfp4_m1_scale_distribution_name(distribution);
     const std::string cell_label =
-        "NVFP4 M32 table-free gate/up pair " + distribution_name;
+        std::string(raw_weight_probe
+                        ? "NVFP4 M32 raw-weight cp.async gate/up pair "
+                        : "NVFP4 M32 table-free gate/up pair ") +
+        distribution_name;
     fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
                                      distribution);
     host_up_scales = host_gate_scales;
@@ -20718,7 +20997,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
     measurement.bitwise_equal =
         gate_mismatches == 0U && up_mismatches == 0U;
     measurement.output_finite = output_finite;
-    std::cout << "NVFP4_M32_TABLE_FREE_PAIR_DIFF: distribution="
+    std::cout
+        << (raw_weight_probe
+                ? "NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PAIR_DIFF: distribution="
+                : "NVFP4_M32_TABLE_FREE_PAIR_DIFF: distribution=")
               << distribution_name << " gate_mismatches=" << gate_mismatches
               << '/' << kOutputElements
               << " up_mismatches=" << up_mismatches << '/'
@@ -20786,7 +21068,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
         minimum_round_speedup =
             std::min(minimum_round_speedup, round_speedup);
       }
-      std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_ROUND: distribution="
+      std::cout
+          << (raw_weight_probe
+                  ? "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PAIR_ROUND: distribution="
+                  : "PERF_NVFP4_M32_TABLE_FREE_PAIR_ROUND: distribution=")
                 << distribution_name << " round=" << round + 1
                 << " order=B-C-C-B"
                 << " production_pass1_ms=" << production_first
@@ -20829,7 +21114,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
     all_cells_pass = all_cells_pass && cell_gate;
     aggregate_production += measurement.production_milliseconds;
     aggregate_candidate += measurement.candidate_milliseconds;
-    std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_CELL: distribution="
+    std::cout
+        << (raw_weight_probe
+                ? "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PAIR_CELL: distribution="
+                : "PERF_NVFP4_M32_TABLE_FREE_PAIR_CELL: distribution=")
               << nvfp4_m1_scale_distribution_name(
                      kNvFp4M16K128ScaleDistributions[distribution_index])
               << " production_pair_ms="
@@ -20843,7 +21131,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
               << kMinimumRoundSpeedup
               << " required_speedup=" << kMinimumCellSpeedup
               << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
-    test.expect(cell_gate, "NVFP4 M32 table-free gate/up pair " +
+    test.expect(cell_gate,
+                std::string(raw_weight_probe
+                                ? "NVFP4 M32 raw-weight cp.async gate/up pair "
+                                : "NVFP4 M32 table-free gate/up pair ") +
                                std::string(nvfp4_m1_scale_distribution_name(
                                    kNvFp4M16K128ScaleDistributions[
                                        distribution_index])) +
@@ -20856,7 +21147,10 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
       all_cells_pass && std::isfinite(aggregate_speedup) &&
       aggregate_production > 0.0 && aggregate_candidate > 0.0 &&
       aggregate_speedup >= kMinimumAggregateSpeedup;
-  std::cout << "PERF_NVFP4_M32_TABLE_FREE_PAIR_AGGREGATE: "
+  std::cout
+      << (raw_weight_probe
+              ? "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PAIR_AGGREGATE: "
+              : "PERF_NVFP4_M32_TABLE_FREE_PAIR_AGGREGATE: ")
             << "production_pair_ms=" << aggregate_production
             << " candidate_pair_ms=" << aggregate_candidate
             << " speedup=" << aggregate_speedup
@@ -20865,9 +21159,12 @@ void run_nvfp4_m32_table_free_pair_performance(TestContext& test,
             << " distributions=checkpoint_like:same_bank_stress"
             << " promotion_gate="
             << (promotion_gate ? "PASS" : "FAIL") << '\n';
-  test.expect(promotion_gate,
-              "NVFP4 M32 table-free gate/up pair clears the same-binary "
-              "absolute-envelope promotion gate");
+  test.expect(
+      promotion_gate,
+      std::string(raw_weight_probe
+                      ? "NVFP4 M32 raw-weight cp.async gate/up pair"
+                      : "NVFP4 M32 table-free gate/up pair") +
+          " clears the same-binary absolute-envelope promotion gate");
   cleanup();
 }
 
@@ -21016,6 +21313,142 @@ void run_optional_nvfp4_m32_table_free_performance(TestContext& test,
               "NVFP4 M32 table-free E2M1 clears the 1.02x weighted "
               "production promotion gate");
   run_nvfp4_m32_table_free_pair_performance(test, stream);
+}
+
+void run_optional_nvfp4_m32_raw_weight_cp_async_performance(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m32_raw_weight_cp_async_performance_enabled()) {
+    std::cout
+        << "SKIP: NVFP4 exact-M32 raw-weight cp.async performance segment; "
+           "set Q3X_RUN_SM87_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_PERF=1 to "
+           "enable\n";
+    return;
+  }
+
+  constexpr double kMinimumCellSpeedup = 1.03;
+  constexpr double kMinimumRoundSpeedup = 1.0;
+  constexpr double kMinimumAggregateSpeedup = 1.03;
+  constexpr NvFp4M32WmmaShape kShape{
+      17'408U, 5'120U, 1U,
+      "NVFP4 exact-M32 gate/up raw-weight cp.async 17408x5120"};
+
+  int production_registers = -1;
+  std::size_t production_shared = std::numeric_limits<std::size_t>::max();
+  std::size_t production_local = std::numeric_limits<std::size_t>::max();
+  int production_maximum_threads = -1;
+  int production_active_blocks = -1;
+  int candidate_registers = -1;
+  std::size_t candidate_shared = std::numeric_limits<std::size_t>::max();
+  std::size_t candidate_local = std::numeric_limits<std::size_t>::max();
+  int candidate_maximum_threads = -1;
+  int candidate_active_blocks = -1;
+  const cudaError_t production_status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_cuda(
+              kShape.rows, kShape.columns, &production_registers,
+              &production_shared, &production_local,
+              &production_maximum_threads, &production_active_blocks));
+  const cudaError_t candidate_status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_resources_test_cuda(
+              kShape.rows, kShape.columns, &candidate_registers,
+              &candidate_shared, &candidate_local,
+              &candidate_maximum_threads, &candidate_active_blocks));
+  const bool resource_gate =
+      production_status == cudaSuccess && candidate_status == cudaSuccess &&
+      production_registers <= 51 && production_shared == 23'552U &&
+      production_local == 0U && production_maximum_threads == 256 &&
+      production_active_blocks >= 5 && candidate_registers <= 51 &&
+      candidate_shared == 27'648U && candidate_local == 0U &&
+      candidate_maximum_threads == 256 && candidate_active_blocks >= 5;
+  std::cout << "NVFP4_M32_RAW_WEIGHT_CP_ASYNC_RESOURCES: "
+            << "production_status=" << static_cast<int>(production_status)
+            << " production_registers=" << production_registers
+            << " production_shared=" << production_shared
+            << " production_local=" << production_local
+            << " production_active_blocks=" << production_active_blocks
+            << " candidate_status=" << static_cast<int>(candidate_status)
+            << " candidate_registers=" << candidate_registers
+            << " candidate_shared=" << candidate_shared
+            << " candidate_local=" << candidate_local
+            << " candidate_active_blocks=" << candidate_active_blocks
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(resource_gate,
+              "NVFP4 exact-M32 raw-weight cp.async clears resource gate");
+  if (!resource_gate) {
+    return;
+  }
+
+  const NvFp4M32TableFreeShapeMeasurement measurement =
+      benchmark_nvfp4_m32_table_free_shape(test, stream, kShape, true);
+  bool all_cells_pass = true;
+  double aggregate_production = 0.0;
+  double aggregate_candidate = 0.0;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M32TableFreeCellMeasurement& cell =
+        measurement.distributions[distribution_index];
+    const double speedup =
+        cell.production_milliseconds / cell.candidate_milliseconds;
+    const bool finite =
+        std::isfinite(cell.production_milliseconds) &&
+        std::isfinite(cell.candidate_milliseconds) &&
+        std::isfinite(cell.minimum_round_speedup) &&
+        std::isfinite(speedup) && cell.production_milliseconds > 0.0 &&
+        cell.candidate_milliseconds > 0.0;
+    const bool cell_gate =
+        cell.bitwise_equal && cell.output_finite && finite &&
+        speedup >= kMinimumCellSpeedup &&
+        cell.minimum_round_speedup >= kMinimumRoundSpeedup;
+    all_cells_pass = all_cells_pass && cell_gate;
+    aggregate_production += cell.production_milliseconds;
+    aggregate_candidate += cell.candidate_milliseconds;
+    std::cout << "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_CELL: distribution="
+              << nvfp4_m1_scale_distribution_name(
+                     kNvFp4M16K128ScaleDistributions[distribution_index])
+              << " production_ms=" << cell.production_milliseconds
+              << " candidate_ms=" << cell.candidate_milliseconds
+              << " speedup=" << speedup
+              << " minimum_round_speedup=" << cell.minimum_round_speedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " required_minimum_round_speedup="
+              << kMinimumRoundSpeedup
+              << " bitwise=" << (cell.bitwise_equal ? "true" : "false")
+              << " output_finite="
+              << (cell.output_finite ? "true" : "false")
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(
+        cell_gate,
+        std::string("NVFP4 exact-M32 raw-weight cp.async ") +
+            nvfp4_m1_scale_distribution_name(
+                kNvFp4M16K128ScaleDistributions[distribution_index]) +
+            " clears isolated timing gate");
+  }
+
+  const double aggregate_speedup =
+      aggregate_production / aggregate_candidate;
+  const bool isolated_gate =
+      all_cells_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_production > 0.0 && aggregate_candidate > 0.0 &&
+      aggregate_speedup >= kMinimumAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M32_RAW_WEIGHT_CP_ASYNC_AGGREGATE: "
+            << "production_ms=" << aggregate_production
+            << " candidate_ms=" << aggregate_candidate
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " all_cells=" << (all_cells_pass ? "PASS" : "FAIL")
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " gate=" << (isolated_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(isolated_gate,
+              "NVFP4 exact-M32 raw-weight cp.async clears isolated gate");
+  if (!isolated_gate) {
+    std::cout << "STOP: NVFP4 exact-M32 raw-weight cp.async missed its "
+                 "isolated strong gate; dual-stream pair not measured\n";
+    return;
+  }
+
+  run_nvfp4_m32_table_free_pair_performance(test, stream, true);
 }
 
 struct NvFp4M18MaskedM32CellMeasurement {
@@ -34441,6 +34874,7 @@ int main() {
   run_nvfp4_m17_m31_runtime_masked_m32_invalid_capture_contract(test,
                                                                  stream);
   run_nvfp4_m17_m31_public_invalid_capture_contract(test, stream);
+  run_nvfp4_m32_raw_weight_cp_async_production_identity(test, stream);
   run_nvfp4_m32_public_fallback_graph_contract(test, stream);
   run_nvfp4_factorized_product_lookup_exhaustive(test, stream);
   run_nvfp4_table_free_e2m1_exhaustive(test, stream);
@@ -34579,6 +35013,7 @@ int main() {
   run_optional_nvfp4_m16_k128_performance(test, stream);
   run_optional_nvfp4_m32_wmma_performance(test, stream);
   run_optional_nvfp4_m32_table_free_performance(test, stream);
+  run_optional_nvfp4_m32_raw_weight_cp_async_performance(test, stream);
   run_optional_nvfp4_m18_masked_m32_performance(test, stream);
   run_optional_nvfp4_m17_m31_runtime_masked_m32_performance(test, stream);
   run_optional_nvfp4_m17_m31_raw_weight_cp_async_performance(test, stream);
