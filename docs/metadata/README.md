@@ -333,6 +333,17 @@ The diagnostic Phase 3 records are:
   same 149 CUDA functions with identical encodings, while P33 and P513 TTFT
   improve by 2.94% and 3.76% respectively without changing the serialized
   Prefill/Decode scheduler or adding system double/triple buffering.
+- [`qwen36-27b-fp8-m32-codebook-swizzle-rejection.json`](qwen36-27b-fp8-m32-codebook-swizzle-rejection.json),
+  which records the rejected test-only U16 codebook swizzles for the four exact
+  FP8 M32 dual-resident-A shapes. It freezes exhaustive byte-bijection,
+  256-code/four-position, signed-NaN, replay, guard, resource, Graph, mode-0
+  all-word SASS, four pinned real-payload, and alternating six-round evidence.
+  The record separates the non-representative 1.55792x/1.52486x synthetic
+  stress result from the failed 1.00308x/0.988108x actual weighted gates and
+  includes the full 5,570,560-instruction static bank-wavefront audit, its
+  non-NCU limits, the complete source/test removal, and the in-progress Decode
+  FP8 M1 `[5120,6144]` single-body/no-tail-barrier candidate as the next bounded
+  screen without claiming a performance result.
 - [`qwen36-27b-attention-values-exact-benchmark.json`](qwen36-27b-attention-values-exact-benchmark.json),
   which records the production exact Q24/KV4/D256 attention-values route, its
   40-to-26 register and 376-to-112 `cuobjdump` function-block reductions,

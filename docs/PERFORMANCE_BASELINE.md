@@ -3618,6 +3618,81 @@ ownership, fairness, latency, cancellation, and memory contracts. Full binary,
 SASS, micro, and end-to-end identities are in the
 [FP8 M32 dual-resident-A benchmark record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).
 
+## Prefill FP8 M32 U16 codebook-swizzle rejection
+
+A bounded follow-up tested two byte-bijective U16 codebook layouts inside the
+four exact FP8 M32 dual-resident-A kernels. Mode 1 maps an FP8 byte `x` to
+`x ^ (x >> 5)`; mode 2 maps it to `x ^ (x >> 5) ^ (x >> 6)`. Matching packed
+U32 masks keep all four byte transforms independent. Both candidates were
+test-only, and the production launcher continued to select the original
+unswizzled codebook.
+
+The Release device-test target build, default suite, resource, one-node Graph,
+bitwise/replay, guard, input-preservation, token-15/16, exhaustive 256-code by
+four-byte-position, and signed-NaN gates all pass. The first exhaustive shape
+reports 0/327,680 candidate mismatches for both modes and both replays,
+1,024/1,024 covered code positions, and 256/256 expected NaN outputs. Resources
+are shape-invariant:
+
+| Layout | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production mode 0 | 47 | 23,552 B | 0 B | 5 |
+| Test-only mode 1 | 48 | 23,552 B | 0 B | 5 |
+| Test-only mode 2 | 48 | 23,552 B | 0 B | 5 |
+
+Complete mode-0 instruction words match the frozen `115a068` comparator on
+all four shapes. For `[10240,5120]`, static SASS grows from 632 instructions in
+mode 0 to 648 in mode 1 and 672 in mode 2. `BAR`, `HMMA`, shared-load/store,
+and global-load counts remain `4/4/48/15/12`, while `LOP3` grows
+`115 -> 125 -> 134` and `SHF` grows `83 -> 92 -> 101`. This is compiled
+mechanism evidence, not a dynamic attribution.
+
+The formal fixed-frequency screen is one same-binary process with ten warmups,
+80 launches per timed pass, and six rounds. Baseline launches bracket each
+round; candidate order alternates `B-C2-C1-B` and `B-C1-C2-B`. Each shape uses
+one complete hash-pinned real shard-1 weight tensor with the same deterministic
+finite BF16 activation fixture, and the aggregate uses the `48:64:48:16` P33
+call weights:
+
+| Actual tensor shape N x K | Mode 1 speedup | Mode 1 minimum round | Mode 2 speedup | Mode 2 minimum round |
+| --- | ---: | ---: | ---: | ---: |
+| 10240 x 5120 | 1.01310x | 1.01280x | 0.992083x | 0.991781x |
+| 5120 x 6144 | 0.994624x | 0.994048x | 0.986594x | 0.986075x |
+| 6144 x 5120 | 0.994016x | 0.993277x | 0.982087x | 0.981719x |
+| 12288 x 5120 | 1.01410x | 1.01292x | 0.991548x | 0.990612x |
+| P33-weighted | 1.00308x | required 1.03x | 0.988108x | required 1.03x |
+
+Mode 1 reverses in all six rounds of two shapes; mode 2 reverses in all 24
+actual-tensor rounds. Both therefore fail the mandatory per-cell,
+no-round-reversal, and weighted actual-checkpoint selection path. A synthetic
+four-code same-bank stress fixture reaches 1.55792x and 1.52486x weighted, but
+that deliberately adversarial fixture proves only that swizzling can remove
+the constructed conflict. It is not representative production evidence and
+does not override the real-payload failures.
+
+A separate read-only source-level bank audit scans all 178,257,920 bytes of
+the four pinned payloads. It models every N128 CTA, K64 stage, thread/pass,
+four U32 words, and four byte lookups: 5,570,560 warp lookup instructions in
+total, with exact-slot repeats collapsed as broadcasts. Mode 0 needs
+18,301,967 total and 12,731,407 extra wavefronts. Mode 1 reduces those totals
+by only 1.985% and 2.853%; mode 2 reduces them by 2.224% and 3.197%. All three
+retain `p50=3`, `p90/p95/p99=4`, `p99.9=5`, and maximum 6. This static model
+excludes codebook construction, WMMA shared accesses, and candidate ALU and
+scheduling cost; it is not NCU. The weak unchanged-tail opportunity, together
+with mode 2's additional shift/mask/XOR instructions, explains why the large
+synthetic benefit does not transfer to the real tensors.
+
+Both candidates are rejected and all source/test hooks are removed; production
+remains the original dual-resident-A mode 0. The hard gate failed before a
+five-process screen, P513 end-to-end run, or candidate NCU study. The next
+forced rebuild and default device test pass, and all four rollback mode-0 SASS
+word streams again match the frozen comparator. The next bounded item is the
+in-progress Decode FP8 M1 `[5120,6144]` exact single-body/no-tail-barrier
+candidate screen; it has no performance result yet. Raw log, measurement-time
+binary identity, retained candidate SASS, payload, static audit, rollback
+evidence, and claim boundaries are frozen in the
+[FP8 M32 codebook-swizzle rejection record](metadata/qwen36-27b-fp8-m32-codebook-swizzle-rejection.json).
+
 ## Exact Q24/KV4/D256 attention-values promotion
 
 The refreshed post-M32 P513 profile attributes 7,184 `attention_values`

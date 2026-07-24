@@ -1,0 +1,595 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m32-codebook-swizzle-rejection",
+  "status": "rejected-test-only-prefill-fp8-m32-u16-codebook-swizzle-candidates",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "115a0681b3908e2de739d4a12f6c8883efd4cd9f",
+    "base_subject": "docs: refresh post-M16 phase profile",
+    "base_tree": "360c21b294e26b41826bf20628ff1f881f22bed1",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted test-only source and device-test additions on base_head",
+    "candidate_retained": false,
+    "test_only_hooks_retained": false,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "candidate_test_binary": {
+      "path_during_measurement": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5088728,
+      "sha256": "45cb5345b4143c54b2d769b0755d09a0a3093dd756a912360eca15225454cd28",
+      "checked_in": false,
+      "retained": false,
+      "path_was_overwritten_by_post_removal_build": true,
+      "source_tree": "uncommitted test-only candidate before source and test cleanup"
+    },
+    "restored_test_binary": {
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/q3x_sm87_weight_only_gemv_test.rollback",
+      "bytes": 4947936,
+      "sha256": "9b9b90218b0dc7bdbaa9116b126e6c2a64c09931ab1ab448718f4162c87987ce",
+      "checked_in": false,
+      "retained": true,
+      "source_tree": "restored base_head after candidate removal"
+    },
+    "restored_files": {
+      "validation_snapshot": "captured after the codebook candidate was removed and before the separate Decode FP8 M1 [5120,6144] candidate began editing source/test",
+      "current_whole_worktree_clean_claim": false,
+      "src/kernels/sm87/weight_only_gemv.cu": {
+        "git_blob_sha1": "0c9596a777a7a43976c21c859b7ae56d6db4f48e",
+        "matches_base_head": true
+      },
+      "tests/sm87_weight_only_gemv_test.cu": {
+        "git_blob_sha1": "aff1154fd7b6e9ddeb14adba583c931c0c2f3856",
+        "matches_base_head": true
+      },
+      "candidate_source_and_test_diff_after_cleanup_snapshot": "empty; this snapshot does not describe later unrelated Decode candidate edits"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "l4t": "R39.2.0",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Cuda compilation tools, release 13.3, V13.3.33; Build cuda_13.3.r13.3/compiler.37862127_0",
+    "cmake": "3.28.3",
+    "cxx_compiler": "GCC 13.3.0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "fixed_frequency": {
+      "nvpmodel": "MAXN",
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "clocks_locked": true,
+      "applied_to": "the one-process formal same-binary performance screen",
+      "clock_transcript_retained": false,
+      "claim_boundary": "The fixed-frequency result is named-device rejection evidence, not a cross-device latency, throughput, power, or energy claim."
+    }
+  },
+  "candidate": {
+    "phase": "Prefill",
+    "token_count": 32,
+    "weight_encoding": "FP8 E4M3FN",
+    "activation_and_output_dtype": "BF16",
+    "scope": "only the four exact aligned production FP8 M32 dual-resident-A WMMA projections",
+    "production_shapes_n_by_k": [
+      [10240, 5120],
+      [5120, 6144],
+      [6144, 5120],
+      [12288, 5120]
+    ],
+    "threads_per_cta": 256,
+    "output_rows_per_cta": 128,
+    "columns_per_stage": 64,
+    "decoded_codebook": {
+      "entries": 256,
+      "element": "uint16 BF16 bits",
+      "bytes": 512,
+      "production_slot": "x",
+      "mode1_slot": "x ^ (x >> 5)",
+      "mode2_slot": "x ^ (x >> 5) ^ (x >> 6)",
+      "mode1_packed_mask": "0x07070707",
+      "mode2_additional_packed_mask": "0x03030303",
+      "mathematical_contract": "Both candidate maps are involutive bijections over all 256 byte codes. The packed masks make each U32 transform exactly byte-local and prevent cross-byte carry."
+    },
+    "mechanism": "Fold FP8 high code bits into the 32-bank, four-byte-bank-width U16 codebook slot in an attempt to reduce shared-memory bank serialization during decode-to-BF16 lookups.",
+    "production_public_launcher_ever_selected_candidate": false
+  },
+  "checkpoint_fixture": {
+    "source": "one fixed actual checkpoint tensor per production shape",
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_git_lfs_oid_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "shard_identity_provenance": "Git LFS pointer OID plus exact file size; this rejection pass did not reread and SHA-256 the complete 9.96-GB shard",
+    "payloads": [
+      {
+        "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+        "shape_n_by_k": [10240, 5120],
+        "absolute_offset": 3485125152,
+        "bytes": 52428800,
+        "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7",
+        "calls_per_p33": 48
+      },
+      {
+        "tensor": "model.language_model.layers.0.linear_attn.out_proj.weight",
+        "shape_n_by_k": [5120, 6144],
+        "absolute_offset": 3569011232,
+        "bytes": 31457280,
+        "sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9",
+        "calls_per_p33": 64
+      },
+      {
+        "tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+        "shape_n_by_k": [6144, 5120],
+        "absolute_offset": 3537553952,
+        "bytes": 31457280,
+        "sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae",
+        "calls_per_p33": 48
+      },
+      {
+        "tensor": "model.language_model.layers.3.self_attn.q_proj.weight",
+        "shape_n_by_k": [12288, 5120],
+        "absolute_offset": 5862443552,
+        "bytes": 62914560,
+        "sha256": "6a688dbc61bfb33c1224c70b6c7b31e0429ad40d7d16d2107f5fa06dd1636d74",
+        "calls_per_p33": 16
+      }
+    ],
+    "payload_hashes_recomputed_by_formal_device_test": true,
+    "all_pinned_identity_gates": "pass",
+    "activation_fixture": "deterministic finite BF16 values shared by mode0, mode1, and mode2",
+    "scope_boundary": "This is one full real tensor for each shape, weighted by 48:64:48:16. It is not a traversal of every same-shaped tensor in the complete checkpoint.",
+    "same_bank_stress": {
+      "source": "synthetic four-code fixture",
+      "codes_hex": ["18", "58", "98", "d8"],
+      "purpose": "prove that the mechanism can remove a deliberately constructed same-bank conflict",
+      "representative_of_production": false
+    }
+  },
+  "correctness_and_contract": {
+    "release_device_test_target_build": "pass",
+    "default_device_test": "pass",
+    "resources": {
+      "query": "cudaFuncGetAttributes plus cudaOccupancyMaxActiveBlocksPerMultiprocessor",
+      "shape_invariant": true,
+      "mode0_production": {
+        "registers_per_thread": 47,
+        "static_shared_bytes": 23552,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_ctas_per_sm": 5
+      },
+      "mode1": {
+        "registers_per_thread": 48,
+        "static_shared_bytes": 23552,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_ctas_per_sm": 5
+      },
+      "mode2": {
+        "registers_per_thread": 48,
+        "static_shared_bytes": 23552,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_ctas_per_sm": 5
+      },
+      "gate": "pass"
+    },
+    "exhaustive_first_shape": {
+      "codes": 256,
+      "packed_byte_positions": 4,
+      "covered_code_positions": "1024/1024",
+      "mode1_exact_mismatches": "0/327680",
+      "mode1_replay_mismatches": "0/327680",
+      "mode2_exact_mismatches": "0/327680",
+      "mode2_replay_mismatches": "0/327680",
+      "token_15_16_mismatches": 0,
+      "signed_nan_codes_hex": ["7f", "ff"],
+      "classified_nan_outputs": "256/256",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "other_three_shapes": {
+      "fixture": "synthetic checkpoint-like correctness fixture",
+      "mode1_exact_and_replay_mismatches": 0,
+      "mode2_exact_and_replay_mismatches": 0,
+      "token_15_16_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "mode0_nodes_per_shape": 1,
+      "mode1_nodes_per_shape": 1,
+      "mode2_nodes_per_shape": 1,
+      "functions_pairwise_distinct": true,
+      "grid_x": "N/128",
+      "block_x": 256,
+      "dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "formal_performance_rounds": {
+      "all_candidate_outputs_bitwise_equal_to_mode0": true,
+      "all_guards_intact": true,
+      "all_outputs_finite": true,
+      "gate": "pass"
+    },
+    "overall_default_correctness_resource_graph_gate": "pass"
+  },
+  "sass_audit": {
+    "purpose": "prove that adding the test-only candidates did not perturb the production mode0 device code",
+    "comparison": "complete instruction words for each mode0 exact-shape kernel, frozen base versus candidate binary",
+    "words_file_bytes_per_shape": 24016,
+    "candidate_mechanism_10240x5120": {
+      "source": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/current-final-v2.sass",
+      "mode0": {
+        "instructions": 632,
+        "instruction_words": 1264,
+        "words_sha256": "f5095946441cf056a4d65fcc72cd74c413066ce79304ac750175cc9cd5fe4e93",
+        "lop3": 115,
+        "shf": 83
+      },
+      "mode1": {
+        "instructions": 648,
+        "instruction_words": 1296,
+        "words_sha256": "a55ec00d2d5ba104e26d583283fd68025bce4b1ea0d14cd088df456424212f66",
+        "lop3": 125,
+        "shf": 92
+      },
+      "mode2": {
+        "instructions": 672,
+        "instruction_words": 1344,
+        "words_sha256": "a5ec930ee388620e6dc4d58b441577d878777d5deb46631bfe6e0822b30f7463",
+        "lop3": 134,
+        "shf": 101
+      },
+      "common_counts": {
+        "bar": 4,
+        "hmma": 4,
+        "lds_any": 48,
+        "sts": 15,
+        "ld_e": 12
+      },
+      "interpretation": "The candidates retain the same barrier, HMMA, shared-load/store, and global-load counts while adding integer permutation work. This is static compiled-mechanism evidence, not dynamic causal attribution."
+    },
+    "shapes": [
+      {
+        "shape_n_by_k": [10240, 5120],
+        "frozen_and_candidate_mode0_words_sha256": "f5095946441cf056a4d65fcc72cd74c413066ce79304ac750175cc9cd5fe4e93",
+        "exact_words": true
+      },
+      {
+        "shape_n_by_k": [5120, 6144],
+        "frozen_and_candidate_mode0_words_sha256": "5385ca918551ad7665579f1d0b7fa04eb77373efaee1d237c05bff0a444b3c53",
+        "exact_words": true
+      },
+      {
+        "shape_n_by_k": [6144, 5120],
+        "frozen_and_candidate_mode0_words_sha256": "94e2bb6f950097127bc18b41c231f1be94e4fe3b7793f5e4b144c92f99db457c",
+        "exact_words": true
+      },
+      {
+        "shape_n_by_k": [12288, 5120],
+        "frozen_and_candidate_mode0_words_sha256": "b7c81dc80634f9b316eef2d1909f91ee63877310f1def9e09224e3d552346986",
+        "exact_words": true
+      }
+    ],
+    "gate": "pass"
+  },
+  "performance_protocol": {
+    "command": "Q3X_RUN_SM87_FP8_M32_CODEBOOK_SWIZZLE_PERF=1 Q3X_FP8_M32_CODEBOOK_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test",
+    "comparison": "frozen production mode0 versus both test-only codebook layouts in the same binary, stream, shape, activation, and weight buffers",
+    "independent_processes": 1,
+    "warmup_launches_per_route": 10,
+    "measurement_rounds": 6,
+    "launches_per_timed_pass": 80,
+    "baseline_bracketing": "B at both ends of every round",
+    "candidate_order": [
+      "odd rounds B-C2-C1-B",
+      "even rounds B-C1-C2-B"
+    ],
+    "candidate_position_balance": "each candidate appears first three times and second three times per cell",
+    "cell_statistic": "median of six per-round baseline means divided by the candidate median",
+    "actual_checkpoint_payload_per_shape": 1,
+    "also_runs_synthetic_same_bank_stress": true,
+    "profile_calls": [48, 64, 48, 16],
+    "minimum_each_cell_speedup": 1.0,
+    "minimum_each_round_speedup": 1.0,
+    "minimum_weighted_speedup_per_distribution": 1.03,
+    "hard_gate": "exactness, resources, Graph, every cell, no round reversal, and both actual/stress weighted gates must all pass"
+  },
+  "performance": {
+    "actual_checkpoint_cells": [
+      {
+        "shape_n_by_k": [10240, 5120],
+        "calls_per_p33": 48,
+        "mode0_median_ms": 0.492744,
+        "mode1_median_ms": 0.486374,
+        "mode1_speedup": 1.01310,
+        "mode1_minimum_round_speedup": 1.01280,
+        "mode1_round_reversals": 0,
+        "mode1_cell_gate": "pass",
+        "mode2_median_ms": 0.496676,
+        "mode2_speedup": 0.992083,
+        "mode2_minimum_round_speedup": 0.991781,
+        "mode2_round_reversals": 6,
+        "mode2_cell_gate": "fail"
+      },
+      {
+        "shape_n_by_k": [5120, 6144],
+        "calls_per_p33": 64,
+        "mode0_median_ms": 0.367022,
+        "mode1_median_ms": 0.369006,
+        "mode1_speedup": 0.994624,
+        "mode1_minimum_round_speedup": 0.994048,
+        "mode1_round_reversals": 6,
+        "mode1_cell_gate": "fail",
+        "mode2_median_ms": 0.372009,
+        "mode2_speedup": 0.986594,
+        "mode2_minimum_round_speedup": 0.986075,
+        "mode2_round_reversals": 6,
+        "mode2_cell_gate": "fail"
+      },
+      {
+        "shape_n_by_k": [6144, 5120],
+        "calls_per_p33": 48,
+        "mode0_median_ms": 0.309996,
+        "mode1_median_ms": 0.311862,
+        "mode1_speedup": 0.994016,
+        "mode1_minimum_round_speedup": 0.993277,
+        "mode1_round_reversals": 6,
+        "mode1_cell_gate": "fail",
+        "mode2_median_ms": 0.315650,
+        "mode2_speedup": 0.982087,
+        "mode2_minimum_round_speedup": 0.981719,
+        "mode2_round_reversals": 6,
+        "mode2_cell_gate": "fail"
+      },
+      {
+        "shape_n_by_k": [12288, 5120],
+        "calls_per_p33": 16,
+        "mode0_median_ms": 0.585371,
+        "mode1_median_ms": 0.577233,
+        "mode1_speedup": 1.01410,
+        "mode1_minimum_round_speedup": 1.01292,
+        "mode1_round_reversals": 0,
+        "mode1_cell_gate": "pass",
+        "mode2_median_ms": 0.590361,
+        "mode2_speedup": 0.991548,
+        "mode2_minimum_round_speedup": 0.990612,
+        "mode2_round_reversals": 6,
+        "mode2_cell_gate": "fail"
+      }
+    ],
+    "actual_checkpoint_weighted": {
+      "mode0_ms": 71.3869,
+      "mode1_ms": 71.1674,
+      "mode1_speedup": 1.00308,
+      "mode1_required_speedup": 1.03,
+      "mode1_all_cell_gates": false,
+      "mode1_gate": "fail",
+      "mode2_ms": 72.2460,
+      "mode2_speedup": 0.988108,
+      "mode2_required_speedup": 1.03,
+      "mode2_all_cell_gates": false,
+      "mode2_gate": "fail"
+    },
+    "same_bank_stress": {
+      "representative_of_production": false,
+      "mode1_cell_speedups": [1.54747, 1.58304, 1.54647, 1.54046],
+      "mode2_cell_speedups": [1.51260, 1.55627, 1.50975, 1.50272],
+      "mode1_weighted_speedup": 1.55792,
+      "mode2_weighted_speedup": 1.52486,
+      "all_cell_and_round_non_regression_gates": "pass",
+      "interpretation": "This proves that the layouts remove the constructed four-address same-bank conflict. It is not a production speedup claim and cannot override the actual-checkpoint failures."
+    },
+    "round_reversal_summary": {
+      "actual_rounds_per_candidate": 24,
+      "mode1_reversals": 12,
+      "mode2_reversals": 24,
+      "stress_reversals_mode1": 0,
+      "stress_reversals_mode2": 0
+    }
+  },
+  "static_bank_wavefront_audit": {
+    "input": "the same four complete pinned actual checkpoint payloads",
+    "sampling": "none; 100% of 178257920 weight bytes",
+    "source_level_kernel_model": "For every N128 CTA and K64 stage, model both thread passes, each thread's contiguous uint4, and all four U32 words times four byte-indexed U16 codebook lookups. Group lanes by warp and source lookup instruction.",
+    "bank_model": "32 banks, four bytes per bank, U16 slots; repeated access to the exact same slot is collapsed as broadcast",
+    "warp_lookup_instructions": 5570560,
+    "independent_scalar_validation_groups": 8192,
+    "mode0": {
+      "total_wavefronts": 18301967,
+      "extra_wavefronts": 12731407,
+      "mean_wavefronts_per_instruction": 3.285480634,
+      "conflicting_instructions": 5570560
+    },
+    "mode1": {
+      "total_wavefronts": 17938745,
+      "extra_wavefronts": 12368185,
+      "mean_wavefronts_per_instruction": 3.220276776,
+      "total_reduction_percent": 1.984606,
+      "extra_reduction_percent": 2.852960,
+      "instructions_improved_percent": 24.079051,
+      "instructions_unchanged_percent": 57.843413,
+      "instructions_worsened_percent": 18.077536
+    },
+    "mode2": {
+      "total_wavefronts": 17894939,
+      "extra_wavefronts": 12324379,
+      "mean_wavefronts_per_instruction": 3.212412935,
+      "total_reduction_percent": 2.223958,
+      "extra_reduction_percent": 3.197039,
+      "instructions_improved_percent": 24.501127,
+      "instructions_unchanged_percent": 57.693805,
+      "instructions_worsened_percent": 17.805068,
+      "conflict_free_instructions": 1
+    },
+    "p33_call_weighted": {
+      "weighted_lookup_instructions": 220200960,
+      "mode1_total_reduction_percent": 1.991147,
+      "mode1_extra_reduction_percent": 2.862436,
+      "mode2_total_reduction_percent": 2.231756,
+      "mode2_extra_reduction_percent": 3.208332
+    },
+    "common_quantiles": {
+      "p50": 3,
+      "p90": 4,
+      "p95": 4,
+      "p99": 4,
+      "p99_9": 5,
+      "maximum": 6,
+      "tail_changed": false
+    },
+    "scope_exclusions": [
+      "the one-time per-CTA codebook construction writes",
+      "WMMA shared-memory accesses",
+      "global-memory traffic",
+      "candidate integer instruction cost, dependencies, and scheduling"
+    ],
+    "not_nsight_compute": true,
+    "interpretation": "The actual tensors offer only about a two-percent lookup-wavefront reduction and leave every reported tail quantile unchanged. Mode2 saves only about 0.24 percentage points more total wavefronts than mode1 while adding the second shift/mask/XOR path; the measured mode2 regression is consistent with that extra ALU cost overwhelming the small additional bank benefit. This is explanatory static evidence, not counter-based causal attribution."
+  },
+  "decision": {
+    "result": "reject",
+    "mode1_selected_gate": "fail",
+    "mode2_selected_gate": "fail",
+    "correctness_resource_graph_gate": "pass",
+    "actual_checkpoint_gate": "fail",
+    "same_bank_stress_gate": "pass",
+    "reason": "Mode1 reaches only 1.00308x actual-checkpoint weighted speedup, below 1.03x, and reverses in every round of two shapes. Mode2 regresses every actual-checkpoint shape, reaches 0.988108x weighted, and reverses in all 24 actual rounds. The large synthetic stress wins are deliberately non-representative and cannot promote either candidate.",
+    "candidate_code_removed": true,
+    "test_only_probe_removed": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "retained_route": "the exact-shape FP8 M32 production dual-resident-A kernel with the original unswizzled uint16 codebook",
+    "five_process_microbenchmark_run": false,
+    "p513_end_to_end_run": false,
+    "candidate_nsight_compute_run": false,
+    "stop_loss": "Do not spend five-process, P513, or NCU budget after the mandatory one-process actual-checkpoint cell, round, and weighted gates fail.",
+    "next_priority": "Run the next bounded screen for the in-progress Decode FP8 M1 [5120,6144] exact single-body/no-tail-barrier candidate. It has no performance result yet; keep its future evidence and claims separate from this rejected Prefill M32 codebook family."
+  },
+  "removal_validation": {
+    "validation_boundary": "verified immediately after codebook-candidate rollback and before the separate Decode FP8 M1 [5120,6144] candidate began",
+    "candidate_source_diff_after_removal": "empty",
+    "candidate_test_diff_after_removal": "empty",
+    "source_and_test_blobs_match_base_head": true,
+    "production_runtime_restored_to_base_head": true,
+    "post_removal_rebuild": "pass",
+    "post_removal_default_gpu_test": "pass",
+    "post_removal_mode0_four_shape_exact_word_sass": "pass",
+    "restored_binary_bytes": 4947936,
+    "restored_binary_sha256": "9b9b90218b0dc7bdbaa9116b126e6c2a64c09931ab1ab448718f4162c87987ce",
+    "note": "The measurement-time candidate binary was overwritten by the restored build. Candidate SASS and formal logs remain local evidence from the pre-removal tree; they are not production artifacts."
+  },
+  "supporting_artifacts": [
+    {
+      "role": "candidate Release build log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/build-final-v2.log",
+      "bytes": 2840,
+      "lines": 35,
+      "sha256": "013edb2f8f641073b6bedb2ef4a221ba48d5e9d748087e67518f471d2203dbc0",
+      "checked_in": false,
+      "process_exit_status": 0
+    },
+    {
+      "role": "candidate default device-test log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/default-final-v2.log",
+      "bytes": 58351,
+      "lines": 339,
+      "sha256": "3bc68ec06d5fc2bd46df81cb70fb637547471835f20d1373b7ecf672cfb7e963",
+      "checked_in": false,
+      "process_exit_status": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed"
+    },
+    {
+      "role": "formal actual-checkpoint plus synthetic-stress rejection log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/perf-screen-1.log",
+      "bytes": 85943,
+      "lines": 416,
+      "sha256": "797792a2e1a5785a00e9ea4745ef663917e1022ac8f8db0213d2e462bbf77fcc",
+      "checked_in": false,
+      "process_exit_status": 1,
+      "result": "expected single candidate-selection rejection assertion"
+    },
+    {
+      "role": "candidate binary cuobjdump SASS used for the static mechanism extraction",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/current-final-v2.sass",
+      "bytes": 24419776,
+      "sha256": "4784053fd9df57f2f14ef71200a7c3fc6226da9c4b101d21d032d37753ec48af",
+      "checked_in": false
+    },
+    {
+      "role": "mode0 complete instruction-word SASS audit log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/sass-audit-final-v2.log",
+      "bytes": 850,
+      "lines": 4,
+      "sha256": "4069367fb63246246e6dc4692347547c22fb22eb0f4b8cf1537977c95051e8d6",
+      "checked_in": false,
+      "result": "all four frozen-versus-candidate mode0 exact-word comparisons pass"
+    },
+    {
+      "role": "measurement-time candidate same-binary device-test identity",
+      "path_during_measurement": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5088728,
+      "sha256": "45cb5345b4143c54b2d769b0755d09a0a3093dd756a912360eca15225454cd28",
+      "checked_in": false,
+      "retained": false,
+      "path_was_overwritten_by_post_removal_build": true
+    },
+    {
+      "role": "post-removal forced rebuild log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/rollback-build.log",
+      "bytes": 2840,
+      "lines": 35,
+      "sha256": "75eb71f6dbe3fdb6dccc8aea8a47930fef1ce9b2e73b0c10ca7d76372baeff3e",
+      "checked_in": false,
+      "process_exit_status": 0
+    },
+    {
+      "role": "post-removal default device-test log",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/rollback-default.log",
+      "bytes": 54298,
+      "lines": 322,
+      "sha256": "78006da6f0030cb4d7718cade63e51c6702c392be55f4c4d55205195b4d42fc4",
+      "checked_in": false,
+      "process_exit_status": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed"
+    },
+    {
+      "role": "post-removal mode0 four-shape exact-word SASS audit",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/rollback-sass-audit.log",
+      "bytes": 866,
+      "lines": 4,
+      "sha256": "4df525f71e71cad11e2491e98d080fe0a62e28459c3717c5fa9f9fdf85bfdb33",
+      "checked_in": false,
+      "result": "all four frozen-versus-rollback mode0 exact-word comparisons pass"
+    },
+    {
+      "role": "restored post-removal device-test binary",
+      "local_path": "/tmp/q3x-fp8-m32-codebook-swizzle.KwEQpC/q3x_sm87_weight_only_gemv_test.rollback",
+      "bytes": 4947936,
+      "sha256": "9b9b90218b0dc7bdbaa9116b126e6c2a64c09931ab1ab448718f4162c87987ce",
+      "checked_in": false,
+      "retained": true,
+      "source_tree": "restored base_head"
+    }
+  ],
+  "limitations": [
+    "The formal timing is one fixed-frequency process. No five-process distribution was run after the mandatory hard gate failed.",
+    "Actual-checkpoint timing uses one complete pinned tensor per production shape, not every same-shaped tensor in the model.",
+    "The same-bank fixture is deliberately adversarial synthetic mechanism evidence and is not a production benefit claim.",
+    "The static bank-wavefront audit is a source-level model, not Nsight Compute. It excludes codebook construction, WMMA shared accesses, and candidate ALU/scheduling cost.",
+    "No candidate Nsight Compute, P513, whole-model, serving, power, or energy run was performed after rejection.",
+    "The candidate never entered production dispatch. Source and test additions were fully removed; the measurement-time binary was overwritten, while retained candidate SASS and raw logs remain evidence only."
+  ]
+}

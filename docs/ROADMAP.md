@@ -191,6 +191,12 @@ Deliverables:
   Q/K+RoPE subtiles, one stream, and one outer state commit.
 - [done, exact-shape gated] Fixed-M32 FP8 Tensor Core projections for four
   production shapes, with two-M16 fallback elsewhere.
+- [measured and rejected] Test-only U16 codebook swizzles for those four FP8
+  M32 shapes. Mode 1 (`x ^ (x >> 5)`) reaches only 1.00308x on the
+  hash-pinned, `48:64:48:16` weighted actual tensors; mode 2
+  (`x ^ (x >> 5) ^ (x >> 6)`) regresses to 0.988108x. Large synthetic
+  same-bank gains are retained only as mechanism evidence. Production keeps
+  the unswizzled dual-resident-A route and all candidate hooks are removed.
 - [done, productionized exact shape] Attention-values for Q24/KV4/D256, with
   the generic predecessor retained as a test baseline and fallback elsewhere.
 - [done, exact-shape gated] Fixed-M32 NVFP4 Tensor Core projections for
@@ -535,6 +541,25 @@ per-function encodings. Exact P33/P513 B-C-C-B runs improve average TTFT from
 persistent memory drop. These unlocked-clock ratios are diagnostic promotion
 evidence, not a release-latency claim. See the
 [FP8 M32 dual-resident-A promotion record](metadata/qwen36-27b-fp8-m32-dual-resident-a-benchmark.json).
+
+The bounded U16 codebook-swizzle follow-up is now closed. Both test-only byte
+bijections pass exhaustive 256-code/four-position, signed-NaN, exact replay,
+guard, resource, and Graph gates, and the production mode-0 SASS remains
+word-identical on all four shapes. Real shard-1 payloads tell a different
+performance story from the synthetic same-bank fixture: mode 1 reaches only
+1.00308x weighted and reverses in two of four cells, while mode 2 reaches
+0.988108x and reverses in every actual cell. A full 5,570,560-instruction
+source-level bank audit finds only 1.985% and 2.224% total-wavefront reductions
+and no tail-quantile change; it is not an NCU result. The 1.55792x/1.52486x
+synthetic stress results are therefore not production benefits. Neither
+candidate advances to five-process, P513, or NCU work, and production remains
+the original dual-resident-A layout. See the
+[FP8 M32 codebook-swizzle rejection record](metadata/qwen36-27b-fp8-m32-codebook-swizzle-rejection.json).
+
+The next bounded screen is the in-progress Decode FP8 M1 `[5120,6144]` exact
+single-body/no-tail-barrier candidate. It has no performance result yet, must
+retain an early same-binary real-payload gate, and remains separate from the
+rejected Prefill M32 codebook family.
 
 The subsequent exact Q24/KV4/D256 attention-values route is now productionized.
 It reduces registers from 40 to 26 and the `cuobjdump` function-block count
