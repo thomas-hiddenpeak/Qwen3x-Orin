@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-post-c4-prefill-phase-profile",
+  "status": "diagnostic-production-prefill-profile",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "The promoted C4 residual-add plus centered-RMSNorm kernel now contributes only 37.396384 ms, or 0.803400% of the P513/C32 prefix kernel union, so further local work on that chain is no longer a leading priority.",
+    "After removing the exact-M32 gate/up cross-stream overlap, NVFP4 M32 gate/up and down remain the first two Prefill opportunities with 2,280.888320 ms of combined marginal exposure, or 49.001152% of prefix union.",
+    "The next bounded screens are an exact-M32 gate/up single-slot raw-weight cp.async narrow reopen, a table-free E4M3-to-BF16 scale constructor covering both exact-M32 NVFP4 shapes, and a down-only N160/320-thread balanced-grid topology. None changes production dispatch before its same-binary hard gate passes.",
+    "A general scheduler-level double or triple buffer remains lower priority: the measured single-request prefix kernel-span idle is only 1.940194%, while the leading phase-local kernel groups expose materially more time."
+  ],
+  "source": {
+    "profiled_effective_commit": "17b018f3281dce06e11b725d8110fd8f6662aa9d",
+    "profiled_effective_subject": "kernels: stage exact M32 residual RMS state",
+    "measurement_note": "The trace was captured from the C4 measurement worktree immediately before promotion. The promoted main binary has identical complete C4 kernel SASS after removing only the anonymous-namespace Function symbol line; the normalized kernel SHA-256 is f436fe5d4bc8c1e053841abe74dfc56a2e99628fc5e26d8c8aeb3f0038f0e1e5.",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "promoted_main_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 4130032,
+      "sha256": "922c8a444102dc78903135c881b23d4f65cc3d305f0af53357f2d1920d776234",
+      "elf_build_id": "ef99d116fc488282bfb868a416721cb27670188c"
+    },
+    "measurement_binary": {
+      "local_path": "/home/rm01/q3x-m32-resrms-c2/build/orin-release/qwen3x-orin",
+      "bytes": 4130032,
+      "sha256": "7aaa080f9c9ae27556f14935279affcf05b21c1ec4e9e85d83821e9bbc048066",
+      "elf_build_id": "9564dff7b7ca33c71090c6612b132854930242d2",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_mrq_rate_locked": true
+    }
+  },
+  "protocol": {
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "warmup_rounds": 0,
+    "measured_rounds": 1,
+    "prompt_construction": "501 space-separated copies of the ASCII word hello",
+    "rendered_prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "prefix_schedule": [
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32
+    ],
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "max_new_tokens": 1,
+    "nsys_options": "--trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true",
+    "phase_ranges_enabled": true,
+    "oracle": {
+      "status": "ok",
+      "prompt_token_count": 513,
+      "generated_token_count": 1,
+      "generated_ids": [
+        9419
+      ],
+      "generated_text": "Hello",
+      "stop_reason": "max_new_tokens",
+      "step_count": 513
+    },
+    "runner_timing_ms": {
+      "prefix_execution_sum": 4747.866,
+      "finish_prefill": 128.373,
+      "prompt_prefill": 4876.240,
+      "time_to_first_token": 4876.240
+    }
+  },
+  "attribution_method": {
+    "compatibility": "Identical to qwen36-27b-post-gdn-m16-phase-profile.",
+    "nvtx_selection": "Completed q3x.* push/pop ranges, resolving registered strings through coalesce(NVTX_EVENTS.text, StringIds.value via textId); hotspot ranking uses q3x.prefill.prefix_tile.",
+    "runtime_selection": "CUDA Runtime API calls whose host start and end lie inside a phase range on the same globalTid.",
+    "runtime_to_kernel_join": "correlationId plus k.globalPid = (r.globalTid & 0xFFFFFFFFFF000000).",
+    "raw_kernel_ns": "Sum of kernel end minus start; overlapping streams are counted more than once.",
+    "union_kernel_ns": "Length of the merged GPU kernel interval union.",
+    "span_kernel_ns": "Last associated kernel end minus first associated kernel start.",
+    "idle_ns": "Kernel span minus kernel interval union.",
+    "overlap_ns": "Raw kernel sum minus kernel interval union.",
+    "marginal_critical_path_ns": "Full prefix kernel union minus the union after removing every interval in one exact demangled-kernel-name group.",
+    "cross_check": "The same analysis reproduced every recorded top-eight marginal value in the prior post-GDN SQLite before it was applied to this trace."
+  },
+  "prefill_profile": {
+    "nvtx_ranges": {
+      "generation": {
+        "instances": 1,
+        "host_ns": 4876380448
+      },
+      "prefix_tile": {
+        "instances": 16,
+        "host_ns": 4747908672,
+        "average_host_ns": 296744292,
+        "median_host_ns": 297413280,
+        "minimum_host_ns": 285380448,
+        "maximum_host_ns": 309310336
+      },
+      "finish_prefill": {
+        "instances": 1,
+        "host_ns": 128376000
+      }
+    },
+    "kernel_timeline": {
+      "generation": {
+        "kernel_instances": 40661,
+        "raw_ns": 5173742720,
+        "union_ns": 4781804000,
+        "span_ns": 4875238880,
+        "idle_ns": 93434880,
+        "overlap_ns": 391938720
+      },
+      "prefix_tile": {
+        "kernel_instances": 40176,
+        "main_stream_instances": 39152,
+        "auxiliary_stream_instances": 1024,
+        "raw_ns": 5046703392,
+        "union_ns": 4654764672,
+        "span_ns": 4746863008,
+        "idle_ns": 92098336,
+        "overlap_ns": 391938720,
+        "idle_percent_of_span": 1.940194
+      },
+      "finish_prefill": {
+        "kernel_instances": 485,
+        "raw_ns": 127039328,
+        "union_ns": 127039328,
+        "span_ns": 128320192,
+        "idle_ns": 1280864,
+        "overlap_ns": 0
+      },
+      "closure": {
+        "generation_kernel_instances": 40661,
+        "leaf_kernel_instances": 40661,
+        "missing": 0,
+        "extra": 0,
+        "duplicate_leaf_assignment": 0
+      }
+    },
+    "prefix_marginal_hotspots": [
+      {
+        "rank": 1,
+        "group": "NVFP4 M32 gate/up [17408,5120] dual-stream pair",
+        "kernel_instances": 2048,
+        "main_stream_instances": 1024,
+        "auxiliary_stream_instances": 1024,
+        "raw_ns": 1739878944,
+        "raw_overlap_ns": 391938720,
+        "marginal_critical_path_ns": 1347940224,
+        "marginal_share_of_prefix_union_percent": 28.958289
+      },
+      {
+        "rank": 2,
+        "group": "NVFP4 M32 down [5120,17408]",
+        "kernel_instances": 1024,
+        "raw_ns": 932948096,
+        "marginal_critical_path_ns": 932948096,
+        "marginal_share_of_prefix_union_percent": 20.042863
+      },
+      {
+        "rank": 3,
+        "group": "exact GDN M16 register-state",
+        "kernel_instances": 1536,
+        "raw_ns": 488075648,
+        "marginal_critical_path_ns": 488075648,
+        "marginal_share_of_prefix_union_percent": 10.485506
+      },
+      {
+        "rank": 4,
+        "group": "FP8 M32 [10240,5120] dual-resident-A",
+        "kernel_instances": 768,
+        "raw_ns": 391339840,
+        "marginal_critical_path_ns": 391339840,
+        "marginal_share_of_prefix_union_percent": 8.407296
+      },
+      {
+        "rank": 5,
+        "group": "FP8 M32 [5120,6144] dual-resident-A",
+        "kernel_instances": 1024,
+        "raw_ns": 382110944,
+        "marginal_critical_path_ns": 382110944,
+        "marginal_share_of_prefix_union_percent": 8.209028
+      },
+      {
+        "rank": 6,
+        "group": "FP8 M32 [6144,5120] dual-resident-A",
+        "kernel_instances": 768,
+        "raw_ns": 247188864,
+        "marginal_critical_path_ns": 247188864,
+        "marginal_share_of_prefix_union_percent": 5.310448
+      },
+      {
+        "rank": 7,
+        "group": "FP8 M8 [1024,5120] fixed-shape",
+        "kernel_instances": 2048,
+        "raw_ns": 165650720,
+        "marginal_critical_path_ns": 165650720,
+        "marginal_share_of_prefix_union_percent": 3.558735
+      },
+      {
+        "rank": 8,
+        "group": "FP8 M32 [12288,5120] dual-resident-A",
+        "kernel_instances": 256,
+        "raw_ns": 154792448,
+        "marginal_critical_path_ns": 154792448,
+        "marginal_share_of_prefix_union_percent": 3.325462
+      }
+    ],
+    "promoted_c4_position": {
+      "rank": 13,
+      "group": "exact-M32 residual-add plus centered-RMSNorm C4",
+      "kernel_instances": 2048,
+      "raw_ns": 37396384,
+      "marginal_critical_path_ns": 37396384,
+      "marginal_share_of_prefix_union_percent": 0.803400,
+      "formal_same_kernel_bracket_ms": {
+        "C0_mean": 62.402608,
+        "C4": 37.396384,
+        "saving": 25.006224,
+        "speedup": 1.668680266
+      }
+    },
+    "ranking_summary": {
+      "top_two_nvfp4_marginal_ns": 2280888320,
+      "top_two_nvfp4_share_of_prefix_union_percent": 49.001152,
+      "top_three_share_of_prefix_union_percent": 59.486659,
+      "top_six_share_of_prefix_union_percent": 81.413431,
+      "gate_up_raw_share_is_not_critical_share": "The raw 1739.878944 ms double-counts 391.938720 ms of gate/up overlap. The current-timeline marginal exposure is 1347.940224 ms."
+    }
+  },
+  "priority_decision": {
+    "first": "Narrowly reopen the retained M17-M31 single-slot raw-weight cp.async mechanism for exact-M32 gate/up only. The historical same-shape probe reached about 1.06x in isolation but had too little M17-M31 whole-model coverage; the post-C4 exact-M32 gate/up group alone now exposes 28.958289% of prefix union. Down remains excluded because its adjacent raw-weight screens regressed.",
+    "second": "Screen an exact-M32 NVFP4 table-free E4M3 scale-bit constructor against both gate/up and down. It removes the remaining 512-byte shared scale codebook and its hot-loop indexed loads without adding a second buffer.",
+    "parallel_down_only_screen": "Screen an N160/320-thread exact-down topology. It reduces grid and repeated CTA setup by 20% while preserving 320 output warps and exact per-warp arithmetic order.",
+    "hard_gate": {
+      "common": "Candidates remain test-only until exact-bit, replay, guard, Graph, invalid-input, resource, and same-binary performance gates pass.",
+      "gate_up_raw_weight_cp_async": "Require block 256; at most 51 registers; exactly 27648 static shared bytes; zero local memory; at least five active CTAs/SM; emitted LDGSTS, dependency-barrier, and shared-to-register ownership instructions; every isolated distribution cell at least 1.03x without a round reversal; and every production dual-stream pair cell plus aggregate at least 1.02x without a round reversal.",
+      "table_free_e4m3": "Require 256-code exact E4M3FN-to-BF16 bits; block 256; at most 50 registers; exactly 23040 static shared bytes; zero local memory; at least five active CTAs/SM; every shape/distribution cell non-regressing; and weighted speedup at least 1.02x. Weight gate/up and down by 128:64 production calls in each distribution, then divide the sum of weighted baseline cell medians by the corresponding candidate sum. The production dual-stream gate/up pair must independently reach at least 1.02x aggregate without a round reversal.",
+      "down_n160": "Require block 320, grid 32, at most 51 registers, exactly 28160 static shared bytes, zero local memory, at least four active CTAs/SM, every measured round non-regressing, and paired-median speedup at least 1.03x."
+    },
+    "after_nvfp4": "If neither bounded mechanism passes, move to the ranked FP8 M32 shapes rather than reopening evidence-closed NVFP4 buffering variants.",
+    "scheduler": "Defer general double/triple buffering to a multi-request continuous-batching milestone with explicit request, KV, workspace, fairness, cancellation, tail-latency, and memory-admission ownership."
+  },
+  "artifacts": {
+    "primary_nsys_report": {
+      "local_path": "/tmp/q3x-m32-resrms-prod-c4.nsys-rep",
+      "bytes": 3128633,
+      "sha256": "2c1c50ab8263e9c76460339e8895dff3f7a89d8d71d9b85d1a287f11aa14e3af",
+      "checked_in": false
+    },
+    "derived_sqlite": {
+      "local_path": "/tmp/q3x-m32-resrms-prod-c4.sqlite",
+      "bytes": 8720384,
+      "sha256": "0f2dab9cc3f10584736d72d43442ac78546919bf02bb39563a9ef3cc0f0baeeb",
+      "checked_in": false
+    },
+    "console_log": {
+      "local_path": "/tmp/q3x-m32-resrms-prod-c4.log",
+      "bytes": 9051,
+      "sha256": "2e2c575b5e3a5ceed2b2730fdf13167f3aaf89f9d22fc045d8dffbfad3c4ab44",
+      "checked_in": false
+    }
+  },
+  "limitations": [
+    "This is one no-warmup profiled process for hotspot selection, not a repeated latency distribution or release SLA.",
+    "Nsight Systems perturbs absolute time. No pre/post whole-profile speedup is inferred by comparing this capture with an older capture.",
+    "The C4 production claim uses its same-kernel C0 bracket and unprofiled B-C-C-B gates; the phase trace only establishes its new rank and exposure.",
+    "Marginal exposure is a current-timeline removal calculation, not an additive or counterfactual speedup prediction.",
+    "No Nsight Compute counters, multi-request throughput, continuous batching, power, energy, tail-latency, cancellation, or admission result is claimed."
+  ]
+}

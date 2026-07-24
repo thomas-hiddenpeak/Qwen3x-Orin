@@ -429,6 +429,14 @@ The diagnostic Phase 3 records are:
   B-C-C-B pairs reduce the whole prefix by 27.559 ms, or 0.579%, with neutral
   finish-prefill. The record separates hot-chain, production-kernel, and
   end-to-end claims and explains why the other three variants were not selected.
+- [`qwen36-27b-post-c4-prefill-phase-profile.json`](qwen36-27b-post-c4-prefill-phase-profile.json),
+  which refreshes fixed-frequency P513/C32 Prefill attribution after C4. It
+  closes all 40,176 prefix kernels, separates the 391.939 ms dual-stream
+  overlap from raw gate/up duration, places the promoted residual/RMSNorm
+  chain at only 0.803% of kernel union, and shows that exact-M32 NVFP4 gate/up
+  plus down retain 49.001% marginal exposure. It also freezes the next three
+  test-only mechanism gates and keeps general scheduler buffering behind the
+  much larger phase-local opportunities.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
