@@ -492,7 +492,16 @@ The diagnostic Phase 3 records are:
   resource gates pass, and every fixed-clock round improves, but the 1.02474x
   paired median misses the frozen 1.03x early gate. Stop-loss removes the
   candidate before runner/model/profiler work and keeps production unchanged;
-  the next selection requires a fresh current-HEAD phase profile.
+  its required fresh current-HEAD phase profile is recorded immediately below.
+- [`qwen36-27b-current-head-phase-profile.json`](qwen36-27b-current-head-phase-profile.json),
+  which refreshes fixed-clock P513/C32 Prefill and P19/C32/max26 Decode
+  attribution at `9bddbda`. It freezes the binary, exact output oracles,
+  reports, SQLite exports, analysis script, NVTX closure, and interval-union
+  method. The current Prefill gate/up and down rows account for 48.238973% of
+  prefix critical-path exposure; Decode remains single-stream with 0.584882%
+  span idle and its top three rows account for 75.591051% of kernel time. The
+  result keeps phase-local, NCU-guided kernel work ahead of general batch-one
+  double/triple buffering and forbids restoring already closed mechanisms.
 - [`qwen36-27b-fp8-m32-packed-decode-static-rejection.json`](qwen36-27b-fp8-m32-packed-decode-static-rejection.json),
   which closes the CPU/compile/SASS-only exact-M32 FP8 packed-decode screen.
   The exact four-code BF16-bit constructor removes all 32 codebook `LDS.U16`,

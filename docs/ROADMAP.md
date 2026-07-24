@@ -738,11 +738,24 @@ runner integration, model-oracle, NCU/Nsys, end-to-end, and replication work.
 See the
 [GDN exact-C32 rejection record](metadata/qwen36-27b-gdn-m32-register-resident-bf16-state-rejection.json).
 
-The next bounded kernel experiment now requires a fresh post-C1 marginal
-profile and a materially different phase-local mechanism; closed table-free,
-half-tile, pair-fused, and shared-pipeline variants are not candidates for
-restoration. The measured sub-1% Decode scheduling hole still leaves general
-batch-one double/triple buffering behind phase-local work.
+That required current-HEAD marginal refresh is now complete at `9bddbda`.
+Against the earlier `b09614c` snapshot, the production raw-weight `cp.async`
+route reduces the P513/C32 prefix union from 4,701.134368 to 4,580.975776 ms
+and the gate/up marginal exposure from 1,367.811104 to 1,273.522080 ms. The
+current Prefill gate/up and down rows contribute 27.800236% and 20.438737% of
+prefix union; the top ten rows cover 93.891520%. The P19/C32/max26 Decode
+refresh contains the same 10,925 kernels on one stream, 2,757.625632 ms raw
+time equal to union, and only 16.223744 ms (0.584882%) idle in its kernel span.
+Its NVFP4 gate/up, FP8 QKV/Z, and NVFP4 down rows account for 75.591051% of
+Decode kernel time. See the
+[current-HEAD phase-profile record](metadata/qwen36-27b-current-head-phase-profile.json).
+
+The next bounded work item is therefore a current-production NCU capture of a
+head Decode kernel, followed by a materially different phase-local work
+partition or load-path screen selected from counter evidence. Closed
+table-free, half-tile, pair-fused, and shared-pipeline variants are not
+candidates for restoration. The measured sub-1% Decode scheduling hole still
+leaves general batch-one double/triple buffering behind phase-local work.
 Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident
