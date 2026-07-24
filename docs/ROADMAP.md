@@ -695,15 +695,27 @@ files.
 See the
 [QKV/Z dual-N128 rejection record](metadata/qwen36-27b-fp8-m32-qkv-z-dual-n128-fusion-rejection.json).
 
-The next bounded kernel screen is an independent exact-M32 FP8
-`[5120,6144]` K6144 half-tile single-slot raw-weight `cp.async` study. Its
-post-C1 marginal exposure is 382.219296 ms (8.3653% of the prefix kernel
-union), and the longer K is outside the closed `[10240,5120]` half-tile
-result. The new screen may use that recovery patch as design evidence but may
-not restore the rejected shape; it must retain 256-thread/five-CTA residency,
-clear every actual-payload round, and reach the frozen 1.03x paired-median
-gate before wider validation. The measured sub-1% Decode scheduling hole still
-leaves general batch-one double/triple buffering behind phase-local work.
+The independent exact-M32 FP8 `[5120,6144]` K6144 half-tile single-slot
+raw-weight `cp.async` screen is now closed. Its test-only grid40/block256
+candidate targeted 382.219296 ms of post-C1 marginal exposure (8.3653% of
+prefix kernel union) and passes static resource/SASS, exhaustive-code, full-K,
+replay, guard, input-preservation, Graph, and actual-weight/scalar plus
+deterministic-activation correctness gates.
+All six fixed-clock `B-C-C-B` rounds regress, however: paired median 0.947746x
+and range 0.947361x-0.948105x. The reported five CTAs per SM is occupancy
+capacity; the 40-CTA grid averages only 2.5 CTAs per SM across this device's 16
+SMs. The actual-first stop-loss skips stress, NCU/Nsys, end-to-end, and
+five-process work, restores the tracked source/test files, and makes no
+profiler-attribution claim. Both exact FP8 half-tile shapes are therefore
+closed under their frozen gates. See the
+[K6144 half-tile rejection record](metadata/qwen36-27b-fp8-m32-k6144-half-tile-raw-weight-cp-async-rejection.json).
+
+The provisional next bounded kernel screen is the higher-risk asymmetric
+table-free-E4M3 concurrent topology on the current production baseline. It
+must begin test-only, freeze a fresh resource/SASS feasibility gate, and clear
+actual payloads first before stress, profiling, end-to-end, or replication.
+The measured sub-1% Decode scheduling hole still leaves general batch-one
+double/triple buffering behind phase-local work.
 Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident

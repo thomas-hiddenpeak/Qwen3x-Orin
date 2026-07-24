@@ -470,6 +470,14 @@ The diagnostic Phase 3 records are:
   frozen 1.03x gate. Stop-loss therefore removes the candidate and skips
   stress, profiling, end-to-end work, and five-process replication while
   retaining a complete recovery patch for possible independent shape study.
+- [`qwen36-27b-fp8-m32-k6144-half-tile-raw-weight-cp-async-rejection.json`](qwen36-27b-fp8-m32-k6144-half-tile-raw-weight-cp-async-rejection.json),
+  which records that independent exact-M32 FP8 `[5120,6144]` K6144 screen.
+  The test-only 4 KiB half-tile slot passes resource, SASS, exhaustive-code,
+  full-K, replay, guard, input-preservation, Graph, and actual-weight/scalar
+  plus deterministic-activation correctness gates, but all six fixed-clock rounds regress to
+  0.947361x-0.948105x and the paired median is 0.947746x. The actual-first
+  stop-loss removes the candidate and skips stress, NCU/Nsys, end-to-end, and
+  five-process work, closing this longer-K shape without changing production.
 - [`qwen36-27b-fp8-m32-packed-decode-static-rejection.json`](qwen36-27b-fp8-m32-packed-decode-static-rejection.json),
   which closes the CPU/compile/SASS-only exact-M32 FP8 packed-decode screen.
   The exact four-code BF16-bit constructor removes all 32 codebook `LDS.U16`,
