@@ -23,6 +23,7 @@ constexpr std::size_t kResidualRmsM32ElementCount =
     kResidualRmsM32TokenCount * kResidualRmsHiddenSize;
 constexpr std::size_t kResidualRmsM32Bytes =
     kResidualRmsM32ElementCount * sizeof(std::uint16_t);
+constexpr unsigned int kResidualRmsM32Threads = 512U;
 constexpr std::size_t kFusedGqaQueryHeads = 24U;
 constexpr std::size_t kFusedGqaKvHeads = 4U;
 constexpr std::size_t kFusedGqaHeadDimension = 256U;
@@ -61,6 +62,7 @@ static_assert((kThreads & (kThreads - 1U)) == 0U);
 static_assert(kBf16GreedyArgmaxBlocks != 0U &&
               kBf16GreedyArgmaxBlocks <= 32U);
 static_assert(kResidualRmsHiddenSize % kThreads == 0U);
+static_assert(kResidualRmsHiddenSize % kResidualRmsM32Threads == 0U);
 static_assert(kResidualRmsM32TokenCount <= kMaximumBlocks);
 static_assert(kResidualRmsM32TokenCount <=
               std::numeric_limits<std::size_t>::max() /
@@ -532,12 +534,13 @@ __global__ void residual_add_centered_rms_norm_5120_kernel(
   }
 }
 
-// Exact-M32 Prefill path. One CTA owns one token, preserving the exact
-// residual BF16 boundary and per-token reduction tree of the two-kernel
-// reference path. The block-wide barriers also make normalized_output ==
-// right safe: every right operand is consumed before any normalized value is
-// written.
-__global__ __launch_bounds__(kThreads)
+// Exact-M32 Prefill path. One 512-thread CTA owns one token and stages the
+// rounded residual in shared memory. The lower 256 lanes retain the reference
+// path's exact per-lane accumulation order and reduction tree while caching
+// the BF16 residual bits in registers for the output pass. The block-wide
+// barriers also make normalized_output == right safe: every right operand is
+// consumed before any normalized value is written.
+__global__ __launch_bounds__(kResidualRmsM32Threads, 3)
 void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
     const std::uint16_t* const left,
     const std::uint16_t* const right,
@@ -545,11 +548,18 @@ void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
     const float epsilon,
     std::uint16_t* const residual_output,
     std::uint16_t* const normalized_output) {
+  __shared__ std::uint16_t shared_residual[kResidualRmsHiddenSize];
   __shared__ float partial[kThreads];
   const std::size_t token = static_cast<std::size_t>(blockIdx.x);
   const std::size_t token_offset = token * kResidualRmsHiddenSize;
+  constexpr unsigned int kValuesPerReductionLane =
+      static_cast<unsigned int>(kResidualRmsHiddenSize / kThreads);
+  constexpr unsigned int kPackedValuesPerReductionLane =
+      kValuesPerReductionLane / 2U;
+  static_assert(kValuesPerReductionLane == 20U);
+  static_assert(kValuesPerReductionLane % 2U == 0U);
+  std::uint32_t packed_residuals[kPackedValuesPerReductionLane];
 
-  float sum = 0.0F;
   for (std::size_t dimension = threadIdx.x;
        dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
     const std::size_t index = token_offset + dimension;
@@ -558,11 +568,35 @@ void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
         encode_bf16_device(decode_bf16_device(left[index]) +
                            decode_bf16_device(right[index]));
     residual_output[index] = residual_bits;
-    const float residual = decode_bf16_device(residual_bits);
-    sum = fmaf(residual, residual, sum);
+    shared_residual[dimension] = residual_bits;
   }
 
-  partial[threadIdx.x] = sum;
+  __syncthreads();
+  if (threadIdx.x < kThreads) {
+    float sum = 0.0F;
+#pragma unroll
+    for (unsigned int packed_index = 0U;
+         packed_index < kPackedValuesPerReductionLane; ++packed_index) {
+      const std::size_t first_dimension =
+          static_cast<std::size_t>(threadIdx.x) +
+          static_cast<std::size_t>(2U * packed_index) * kThreads;
+      const std::size_t second_dimension = first_dimension + kThreads;
+      const std::uint16_t first_residual_bits =
+          shared_residual[first_dimension];
+      const float first_residual =
+          decode_bf16_device(first_residual_bits);
+      sum = fmaf(first_residual, first_residual, sum);
+      const std::uint16_t second_residual_bits =
+          shared_residual[second_dimension];
+      const float second_residual =
+          decode_bf16_device(second_residual_bits);
+      sum = fmaf(second_residual, second_residual, sum);
+      packed_residuals[packed_index] =
+          static_cast<std::uint32_t>(first_residual_bits) |
+          (static_cast<std::uint32_t>(second_residual_bits) << 16U);
+    }
+    partial[threadIdx.x] = sum;
+  }
   __syncthreads();
   for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
     if (threadIdx.x < stride) {
@@ -570,15 +604,36 @@ void residual_add_headwise_centered_rms_norm_m32_5120_kernel(
     }
     __syncthreads();
   }
-  const float inverse_rms =
-      rsqrtf(partial[0] / static_cast<float>(kResidualRmsHiddenSize) +
-             epsilon);
-  for (std::size_t dimension = threadIdx.x;
-       dimension < kResidualRmsHiddenSize; dimension += blockDim.x) {
-    const std::size_t index = token_offset + dimension;
-    const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
-    normalized_output[index] = encode_bf16_device(
-        decode_bf16_device(residual_output[index]) * inverse_rms * gamma);
+  if (threadIdx.x < kThreads) {
+    const float inverse_rms =
+        rsqrtf(partial[0] / static_cast<float>(kResidualRmsHiddenSize) +
+               epsilon);
+#pragma unroll
+    for (unsigned int packed_index = 0U;
+         packed_index < kPackedValuesPerReductionLane; ++packed_index) {
+      const std::size_t first_dimension =
+          static_cast<std::size_t>(threadIdx.x) +
+          static_cast<std::size_t>(2U * packed_index) * kThreads;
+      const std::size_t second_dimension = first_dimension + kThreads;
+      const std::size_t first_index = token_offset + first_dimension;
+      const std::size_t second_index = token_offset + second_dimension;
+      const std::uint32_t packed_residual =
+          packed_residuals[packed_index];
+      const std::uint16_t first_residual_bits =
+          static_cast<std::uint16_t>(packed_residual);
+      const std::uint16_t second_residual_bits =
+          static_cast<std::uint16_t>(packed_residual >> 16U);
+      const float first_gamma =
+          decode_bf16_device(weight[first_dimension]) + 1.0F;
+      const float second_gamma =
+          decode_bf16_device(weight[second_dimension]) + 1.0F;
+      normalized_output[first_index] = encode_bf16_device(
+          decode_bf16_device(first_residual_bits) * inverse_rms *
+          first_gamma);
+      normalized_output[second_index] = encode_bf16_device(
+          decode_bf16_device(second_residual_bits) * inverse_rms *
+          second_gamma);
+    }
   }
 }
 
@@ -1302,9 +1357,9 @@ int launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   residual_add_headwise_centered_rms_norm_m32_5120_kernel
-      <<<static_cast<unsigned int>(kResidualRmsM32TokenCount), kThreads, 0U,
-         stream>>>(left, right, weight, epsilon, residual_output,
-                   normalized_output);
+      <<<static_cast<unsigned int>(kResidualRmsM32TokenCount),
+         kResidualRmsM32Threads, 0U, stream>>>(
+          left, right, weight, epsilon, residual_output, normalized_output);
   return static_cast<int>(cudaGetLastError());
 }
 
@@ -1328,7 +1383,7 @@ int query_residual_add_headwise_centered_rms_norm_m32_5120_test_cuda_resources(
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks, residual_add_headwise_centered_rms_norm_m32_5120_kernel,
-      static_cast<int>(kThreads), 0U);
+      static_cast<int>(kResidualRmsM32Threads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }

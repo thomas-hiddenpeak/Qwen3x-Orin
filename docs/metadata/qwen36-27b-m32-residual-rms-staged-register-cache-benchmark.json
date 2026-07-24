@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-m32-residual-rms-staged-register-cache-benchmark",
+  "status": "promoted-production-prefill-exact-m32-staged-register-cache",
+  "recorded_at": "2026-07-24",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "Promote the 512-thread shared-staging plus low-256-lane register-cache implementation of the exact-M32 residual-add and centered-RMSNorm kernel.",
+    "The selected C4 candidate reduces the 2,048 production kernel instances from a bracketed 62.402608 ms to 37.396384 ms, a 1.668680266x kernel speedup and 25.006224 ms saving over the already-promoted C0 kernel.",
+    "Two unprofiled P513 B-C-C-B pairs reduce the prefix bracket mean from 4,757.0760 to 4,729.5175 ms, or 27.5585 ms and 0.579316%, while finish-prefill is neutral.",
+    "C1 register-only, C2 512-thread shared-only, and C3 768-thread shared-only variants remain experimental worktree evidence and are not retained in production."
+  ],
+  "source": {
+    "base_head": "6962ed60c8dcc6e73c3e7f7caf1493421643082e",
+    "base_subject": "kernels: fuse exact M32 residual RMSNorm",
+    "base_tree": "0a9aa191c9c7085d62f32cd8bd0ee25efe3bd243",
+    "candidate_commit": null,
+    "candidate_tree": "uncommitted C4 kernel and resource/Graph test update on base_head",
+    "project_version": "0.2.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "C0_binary": {
+      "local_path": "/tmp/q3x-m32-resrms-c0-production",
+      "bytes": 4130032,
+      "sha256": "dd2457dd13600bb40300fb8da5a98385c63b0dda338f7f22384212760ba4ff1c",
+      "elf_build_id": "19468f254c51ff7f097eb5718cf5713e1de71935"
+    },
+    "C4_measurement_binary": {
+      "path_during_measurement": "/home/rm01/q3x-m32-resrms-c2/build/orin-release/qwen3x-orin",
+      "bytes": 4130032,
+      "sha256": "7aaa080f9c9ae27556f14935279affcf05b21c1ec4e9e85d83821e9bbc048066",
+      "elf_build_id": "9564dff7b7ca33c71090c6612b132854930242d2",
+      "checked_in": false
+    },
+    "C4_main_binary": {
+      "local_path": "build/orin-release/qwen3x-orin",
+      "bytes": 4130032,
+      "sha256": "922c8a444102dc78903135c881b23d4f65cc3d305f0af53357f2d1920d776234",
+      "elf_build_id": "ef99d116fc488282bfb868a416721cb27670188c"
+    },
+    "production_kernel_identity": "The main and measurement binaries have identical complete kernel SASS after removing only the anonymous-namespace Function symbol line; normalized SHA-256 is f436fe5d4bc8c1e053841abe74dfc56a2e99628fc5e26d8c8aeb3f0038f0e1e5."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "cuda_runtime": "13.3.29",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "fixed_frequency": {
+      "nvpmodel": "MAXN",
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_mrq_rate_locked": true,
+      "claim_boundary": "Named-device batch-one latency evidence only."
+    }
+  },
+  "variants": [
+    {
+      "id": "C0",
+      "description": "Promoted 256-thread one-CTA-per-token kernel; global residual is reread for normalized output.",
+      "registers": 20,
+      "static_shared_bytes": 1024,
+      "local_bytes": 0,
+      "threads": 256,
+      "active_blocks_per_sm": 6,
+      "disposition": "production baseline"
+    },
+    {
+      "id": "C1",
+      "description": "256-thread scalarized packed register cache; removes the global residual reread but retains only 16 resident warps per SM for the 32-CTA grid.",
+      "registers": 40,
+      "static_shared_bytes": 1024,
+      "local_bytes": 0,
+      "threads": 256,
+      "active_blocks_per_sm": 6,
+      "production_raw_ms": 47.191552,
+      "disposition": "not selected"
+    },
+    {
+      "id": "C2",
+      "description": "512-thread BF16 shared staging; raises producer parallelism but rereads the shared residual for output.",
+      "registers": 18,
+      "static_shared_bytes": 11264,
+      "local_bytes": 0,
+      "threads": 512,
+      "active_blocks_per_sm": 3,
+      "disposition": "not selected after hot screen"
+    },
+    {
+      "id": "C3",
+      "description": "768-thread BF16 shared staging; each of 16 SMs receives exactly two CTAs, but output rereads shared residual.",
+      "registers": 24,
+      "static_shared_bytes": 11264,
+      "local_bytes": 0,
+      "threads": 768,
+      "active_blocks_per_sm": 2,
+      "production_raw_ms": 46.727168,
+      "disposition": "not selected"
+    },
+    {
+      "id": "C4",
+      "description": "512-thread producer writes identical rounded BF16 bits to global and shared memory; low 256 lanes preserve the original 20-value FMA sequence while caching ten packed BF16 pairs in registers for output.",
+      "registers": 30,
+      "static_shared_bytes": 11264,
+      "local_bytes": 0,
+      "threads": 512,
+      "active_blocks_per_sm": 3,
+      "production_raw_ms": 37.396384,
+      "disposition": "selected"
+    }
+  ],
+  "C4_contract": {
+    "token_count": 32,
+    "hidden_size": 5120,
+    "grid": [32, 1, 1],
+    "block": [512, 1, 1],
+    "producer_mapping": "All 512 lanes cover dimensions tid+512*k exactly once, perform residual-left plus projection-right, round to BF16, and store the same bits to residual_output and shared_residual.",
+    "reduction_mapping": "Only lanes 0..255 consume dimensions tid+256*k in k=0..19 order, preserving the original 20 dependent fmaf operations and 128,64,32,16,8,4,2,1 tree.",
+    "register_cache": "The low lanes cache ten pairs of rounded BF16 bits across the reduction barriers. Output loads weights but performs no second global or shared residual read.",
+    "alias_safety": "All 512 right inputs are consumed before the first block barrier and before normalized output can overwrite exact-right alias storage.",
+    "barriers": 10,
+    "fallbacks_unchanged": "Decode/M1, Prefill M2..M31, non-5120 shapes, and M31 tail tiles retain the prior path.",
+    "general_double_or_triple_buffer_added": false
+  },
+  "correctness_and_graph": {
+    "finite_bitwise": "pass for residual and normalized output, out-of-place and exact-right-alias",
+    "complete_signed_bf16_nan_pairs": 64516,
+    "nan_runtime_order_matches": 64516,
+    "guards": "pass",
+    "inputs_preserved": true,
+    "direct_replay": "pass",
+    "graph_replay": "pass",
+    "baseline_graph_kernel_nodes": 2,
+    "C4_graph_kernel_nodes": 1,
+    "C4_graph_block": [512, 1, 1],
+    "invalid_graph_nodes": 0,
+    "P64_C32_oracle": "64 prompt tokens; M32+M31 prefix schedule; generated ID 9419, text Hello, 64 steps",
+    "P513_oracle": "All profiled and B-C-C-B runs plus a final main-binary smoke generated ID 9419, text Hello, and 513 steps",
+    "gate": "pass"
+  },
+  "sass_and_resources": {
+    "registers_per_thread": 30,
+    "static_shared_bytes": 11264,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 512,
+    "active_blocks_per_sm": 3,
+    "instructions": 592,
+    "complete_function_block_bytes": 145860,
+    "complete_function_block_sha256": "c11066c507521a5532ddf4ac12503359d0b92671f3ee77a97643790778af9602",
+    "normalized_main_measurement_sha256": "f436fe5d4bc8c1e053841abe74dfc56a2e99628fc5e26d8c8aeb3f0038f0e1e5",
+    "resource_dump_sha256": "23dcbe9d517d2284bfd290410b14a1f96f4e79b532a1b8f73a1236fd62eb845d",
+    "compiled_mechanism": "20 LDS.U16 occur before reduction; no residual LDS occurs in the output phase; no LDL or STL occurs."
+  },
+  "hot_same_binary_screen": {
+    "protocol": "128 alternating warmups, six B-C-C-B rounds, 512 recursive chains per pass, actual layer-0/layer-1 norm weights and deterministic cancellation stress",
+    "comparison": "original two-kernel residual plus centered-RMSNorm chain versus each fused candidate",
+    "layer0_median_speedups": {
+      "C0": 1.49684,
+      "C1": 1.98099,
+      "C2": 1.77271,
+      "C3": 1.79018,
+      "C4_main": 2.11469
+    },
+    "C4_main_fixtures": [
+      {"name": "actual_layer0_post_attention_norm", "median_speedup": 2.11469, "minimum_round_speedup": 2.11245},
+      {"name": "actual_layer1_input_norm", "median_speedup": 2.11266, "minimum_round_speedup": 2.10975},
+      {"name": "deterministic_cancellation_stress", "median_speedup": 2.11338, "minimum_round_speedup": 2.11005}
+    ],
+    "all_bitwise_and_input_gates": "pass",
+    "claim_boundary": "Hot repeated-chain evidence is used for screening and is not the whole-Prefill result."
+  },
+  "production_nsys": {
+    "workload": "P513/C32/max1 with 2,048 fused kernel instances",
+    "order": "C0-B1, C1, C3, C0-B2, followed by C4 and C0-B3",
+    "C0_bracket_for_C4_ms": [62.422624, 62.382592],
+    "C0_bracket_mean_ms": 62.402608,
+    "C4_ms": 37.396384,
+    "saving_ms": 25.006224,
+    "speedup": 1.668680266,
+    "reduction_percent": 40.072402,
+    "C4_average_us": 18.259953,
+    "C4_vs_C1_speedup": 1.261928212,
+    "C4_vs_C3_speedup": 1.249510327,
+    "topology": "C0, C1, C3, and C4 each retain exactly 2,048 fused launches and 40,176 prefix kernel instances.",
+    "drift_boundary": "Whole-phase Nsys ranges still show unrelated gate/up and finish-prefill drift. The same fused-kernel C0 bracket differs by only 0.064%, so raw same-kernel attribution is the production mechanism gate; unprofiled B-C-C-B below is the whole-prefix gate."
+  },
+  "unprofiled_P513_B_C_C_B": {
+    "order": "C0-C4-C4-C0",
+    "warmup_rounds_per_process": 1,
+    "measured_rounds_per_process": 5,
+    "prefix_medians_ms": {
+      "C0": [4759.684, 4754.468],
+      "C4": [4734.333, 4724.702]
+    },
+    "prefix_bracket_mean_ms": {"C0": 4757.0760, "C4": 4729.5175},
+    "prefix_pair_savings_ms": [25.351, 29.766],
+    "prefix_saving_ms": 27.5585,
+    "prefix_speedup": 1.005826916,
+    "prefix_reduction_percent": 0.579316,
+    "prompt_prefill_bracket_mean_ms": {"C0": 4868.8080, "C4": 4841.2675},
+    "prompt_prefill_saving_ms": 27.5405,
+    "prompt_prefill_speedup": 1.005688696,
+    "finish_prefill_bracket_mean_ms": {"C0": 111.7335, "C4": 111.7345},
+    "finish_prefill_ratio": 0.999991050,
+    "oracle": "all eight measured binaries/processes report the exact P513 ID 9419, text Hello, and 513 steps",
+    "gate": "pass"
+  },
+  "validation": {
+    "main_default_cuda_test": "pass",
+    "main_formal_cuda_test": "pass",
+    "release_ctest": "56/56 completed without failure: 51 passed and 5 configured skips",
+    "main_P64_model_smoke": "pass",
+    "main_P513_model_smoke": "pass",
+    "git_diff_check": "pass",
+    "independent_code_and_evidence_audit": "GO; no correctness, production-launch, SASS-identity, arithmetic, or promotion blocker"
+  },
+  "artifacts": {
+    "main_default_log": {"path": "/tmp/q3x-m32-resrms-c4-main-default.log", "bytes": 2556, "sha256": "3db5f441fa4a979145d96b78ed238d90c6b4a12f10f0e85e960f828adb6b3d37"},
+    "main_formal_log": {"path": "/tmp/q3x-m32-resrms-c4-main-formal.log", "bytes": 13472, "sha256": "9f3a6b903f08b8ea2eeb046287ac0d34be5f7d7168994a2b30836715f3f81743"},
+    "main_kernel_sass": {"path": "/tmp/q3x-m32-resrms-c4-main.kernel.sass", "bytes": 145860, "sha256": "c11066c507521a5532ddf4ac12503359d0b92671f3ee77a97643790778af9602"},
+    "main_resources": {"path": "/tmp/q3x-m32-resrms-c4-main.resources", "bytes": 39407, "sha256": "23dcbe9d517d2284bfd290410b14a1f96f4e79b532a1b8f73a1236fd62eb845d"},
+    "C4_nsys": {"path": "/tmp/q3x-m32-resrms-prod-c4.nsys-rep", "bytes": 3128633, "sha256": "2c1c50ab8263e9c76460339e8895dff3f7a89d8d71d9b85d1a287f11aa14e3af"},
+    "C0_nsys_before_C4": {"path": "/tmp/q3x-m32-resrms-prod-c0-b2.nsys-rep", "bytes": 3128976, "sha256": "f78627aba5ff7ed507481d0d732bac1961dd9206074f10055fe7fed01f83bed7"},
+    "C0_nsys_after_C4": {"path": "/tmp/q3x-m32-resrms-prod-c0-b3.nsys-rep", "bytes": 3127638, "sha256": "6021c7395e5505ed686c6feeada7a83ed85c7aa34b6fafb47b45783d246736d5"},
+    "B_C_C_B_logs": [
+      {"path": "/tmp/q3x-m32-resrms-c4-e2e-b1.log", "sha256": "7f58c08be991a1b6787cb570504e0045d8e02ace16985b0d3daed8a5e34c3a6a"},
+      {"path": "/tmp/q3x-m32-resrms-c4-e2e-c1.log", "sha256": "20f19295ceee450d72dc025de68ec752a53639cbfcb0ea64f5db2ceb4fbd5a23"},
+      {"path": "/tmp/q3x-m32-resrms-c4-e2e-c2.log", "sha256": "84fa5d7c41e3055d03d41a480952f29ac613ae934a5a84bf0230ffdef05e70a6"},
+      {"path": "/tmp/q3x-m32-resrms-c4-e2e-b2.log", "sha256": "3b75b10c61cdae2eb893d216155cba9831f6da9aaba36e1cf0711e98c6c3daff"}
+    ],
+    "main_P64_log": {"path": "/tmp/q3x-m32-resrms-c4-main-p64.log", "bytes": 2467, "sha256": "57c63ef335c96fe8270aa5fdaec455af3a2270dd3c49d47a64cdc0d8408be205"},
+    "main_P513_log": {"path": "/tmp/q3x-m32-resrms-c4-main-p513.log", "bytes": 7974, "sha256": "9004fa7f5a1aa44993582ce544604062df7046e626985a73006f10ea0d3751f1"}
+  },
+  "promotion": {
+    "decision": "promote C4",
+    "reason": "C4 passes bitwise, NaN, alias, guard, replay, Graph, resource, compiled-mechanism, actual-model, hot-screen, production raw, and unprofiled P513 end-to-end gates. It exceeds the predeclared 1.05x production-context threshold over C0 by a wide margin.",
+    "scope": "Exact M32 residual/RMSNorm boundaries only; the measured whole-P513 prefix improvement is 0.579%, not the 2.11x hot-chain or 1.669x production-kernel result.",
+    "next_work": "Refresh the post-C4 phase profile and return to the much larger M32 NVFP4 gate/up and down-projection critical-path regions; do not continue polishing this now-subpercent whole-phase hotspot without new profile evidence."
+  }
+}

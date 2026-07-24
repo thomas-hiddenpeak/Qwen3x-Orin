@@ -420,6 +420,15 @@ The diagnostic Phase 3 records are:
   about 1.497x, production raw target kernels reach 1.0703x, and the measured
   whole P513 prefix improves by 0.278%; the record explicitly confines each
   claim and retains the cross-capture Nsight drift warning.
+- [`qwen36-27b-m32-residual-rms-staged-register-cache-benchmark.json`](qwen36-27b-m32-residual-rms-staged-register-cache-benchmark.json),
+  which records the follow-up C1/C2/C3/C4 screen and promotion of the
+  512-thread shared-staging plus low-lane register-cache C4 kernel. It preserves
+  the exact BF16 boundary and reduction tree while raising producer parallelism
+  and removing the output-phase residual reread. The 2,048 production launches
+  fall from a bracketed 62.403 to 37.396 ms (1.6687x), and two unprofiled P513
+  B-C-C-B pairs reduce the whole prefix by 27.559 ms, or 0.579%, with neutral
+  finish-prefill. The record separates hot-chain, production-kernel, and
+  end-to-end claims and explains why the other three variants were not selected.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
