@@ -750,9 +750,21 @@ Its NVFP4 gate/up, FP8 QKV/Z, and NVFP4 down rows account for 75.591051% of
 Decode kernel time. See the
 [current-HEAD phase-profile record](metadata/qwen36-27b-current-head-phase-profile.json).
 
-The next bounded work item is therefore a current-production NCU capture of a
-head Decode kernel, followed by a materially different phase-local work
-partition or load-path screen selected from counter evidence. Closed
+The first bounded Decode follow-up screened the exact-N17,408 gate/up tail.
+It retained the production mapping for rows 0-16,383 and replaced the old
+half-grid ninth row-quad round with one row pair per warp across all 64 CTAs.
+Resources and every actual/stress/nonfinite bitwise gate pass, but all five
+fixed-clock rounds regress: 0.951273x actual and 0.955264x stress paired
+medians. The candidate and test hooks were removed before a clean rebuild and
+default device-test pass. See the
+[balanced-tail rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json).
+
+The next bounded work item is therefore a materially different exact-M1
+packed-weight K-tile load-path screen that preserves the production row
+mapping and arithmetic order. Current-production NCU remains unavailable on
+this vGPU because performance-counter permission is denied, so the screen must
+use static resource/SASS checks followed by same-binary actual-payload gates.
+Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. The measured sub-1% Decode scheduling hole still
 leaves general batch-one double/triple buffering behind phase-local work.
@@ -780,8 +792,11 @@ Exit criteria:
 - End-to-end 27B decode and time-to-first-token measurements are published with
   enough environment detail to reproduce them.
 
-No throughput target is fixed before Phase 0 measurements. This prevents a
-speculative estimate from becoming an accidental compatibility promise.
+The current single-request Decode stage target is now fixed at no more than
+100 ms/token and at least 10 token/s on the named P19/C32/max26 fixed-clock
+Orin workload, with exact output preserved. Prefill work resumes after that
+incremental Decode gate is met; multi-request serving throughput remains a
+separate later target.
 
 ## Phase 4 — 35B-A3B MoE
 

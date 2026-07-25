@@ -524,6 +524,16 @@ The diagnostic Phase 3 records are:
   NCU/Nsys, end-to-end work, and five-process replication, restores the two
   tracked source/test files exactly to `ce98625`, and retains the complete
   recovery patch.
+- [`qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json`](qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json),
+  which closes the first Decode follow-up to the current-HEAD profile. The
+  exact-M1 test-only candidate preserves the first 16,384 rows and redistributes
+  only the final 1,024 rows from 32 row quads to 64 row pairs. Resources remain
+  64 registers, 11,328 B shared, zero local, and four active CTAs/SM; actual,
+  stress, and signed-nonfinite outputs are bit-exact with intact guards and
+  preserved inputs. Nevertheless, all five fixed-clock `B-C-C-B` rounds regress:
+  paired medians are 0.951273x actual and 0.955264x stress. Stop-loss removes
+  the candidate, restores both tracked files exactly, and skips production,
+  model-oracle, end-to-end, Nsys, NCU, and replication work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

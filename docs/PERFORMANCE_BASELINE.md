@@ -3697,6 +3697,59 @@ remains frozen in the
 and the later Decode result is recorded in the
 [attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
 
+## Decode NVFP4 M1 Gate/Up balanced-tail rejection
+
+The first current-HEAD Decode screen targeted the fused exact-M1
+`[17408,5120]` residual/norm/gate/up/SiLU kernel, which accounts for
+35.788149% of P19/C32/max26 Decode kernel time. Production uses 64 CTAs and
+eight warps per CTA. Its first eight row-quad rounds cover rows 0-16,383 on
+the full grid; only the first 32 CTAs execute the ninth row-quad round that
+covers the final 1,024 rows.
+
+The test-only candidate left the first eight rounds unchanged and assigned one
+two-row tail to every warp:
+
+```text
+tail_row0 = 16384 + 2 * (blockIdx.x * 8 + warp)
+tail_row1 = tail_row0 + 1
+```
+
+Every warp therefore processed 34 rows instead of the production 36/32 split.
+The row-pair retained the four accumulator chains per row, packed-column and
+two-phase order, warp reduction, weight-scale multiply, BF16-RNE boundary,
+residual/norm behavior, and SiLU order. Production dispatch and the public ABI
+were unchanged throughout the screen.
+
+Static resources were neutral:
+
+| Exact M1 fused route | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production | 64 | 11,328 B | 0 B | 4 |
+| Balanced tail | 64 | 11,328 B | 0 B | 4 |
+
+The actual checkpoint, same-bank stress, and signed Inf/NaN comparisons report
+zero residual, final-gate, and up mismatches; canaries remain intact and all
+inputs are preserved. The fixed-clock same-binary protocol used ten warmups,
+64 launches per timed pass, five `B-C-C-B` rounds, and current production as
+the direct baseline.
+
+| Fixture | Paired speedup range | Paired median | Production pass median | Candidate pass median |
+| --- | ---: | ---: | ---: | ---: |
+| Actual layer-0 weights/scales | 0.950984x-0.951884x | 0.951273x | 0.622637 ms | 0.654414 ms |
+| Same-bank stress | 0.954611x-0.955693x | 0.955264x | 0.626957 ms | 0.656310 ms |
+
+All ten rounds fail the 1.00x non-regression requirement, and actual misses the
+frozen 1.03x early gate. The result shows that the old half-grid tail already
+retains sufficient resident warps to sustain its weight stream; distributing
+the same bytes across twice as many CTAs adds row-pair/control overhead without
+unlocking useful parallelism.
+
+Stop-loss removed the candidate and all test hooks before a clean rebuild and
+default SM87 device-test pass. Production behavior is unchanged. Full fixture
+hashes, per-round measurements, artifact identities, rollback proof, and claim
+limits are in the
+[balanced-tail rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json).
+
 ## Prefill exact-M32 NVFP4 down/residual epilogue-fusion rejection
 
 The next bounded Prefill screen targeted the exact-M32 NVFP4 down projection

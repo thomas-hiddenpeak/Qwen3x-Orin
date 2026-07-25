@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-balanced-tail",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_head": "7b550ab",
+    "base_tree": "90366e27df2e471ac912ba7ad0018e5693e1431b",
+    "base_subject": "docs: refresh current-head phase profile",
+    "branch": "main",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "profile_priority": {
+    "source": "qwen36-27b-current-head-phase-profile",
+    "workload": "P19/C32/max26 Decode",
+    "decode_after_first_milliseconds": 2773.775,
+    "decode_steps": 25,
+    "milliseconds_per_token": 110.951,
+    "tokens_per_second": 9.013,
+    "target_kernel_raw_milliseconds": 986.903168,
+    "target_kernel_decode_percent": 35.788149,
+    "target_instances": 1600,
+    "reason_selected": "the largest Decode hotspot had a deterministic half-grid ninth-row-quad tail and the candidate preserved the first 94.1 percent of row scheduling"
+  },
+  "candidate": {
+    "scope": "test-only exact M1 residual/norm/gate/up/SiLU kernel; never selected by production dispatch",
+    "shape_n_by_k": [17408, 5120],
+    "launch": {
+      "grid": [64, 1, 1],
+      "block": [256, 1, 1],
+      "warps_per_cta": 8
+    },
+    "production_mapping": {
+      "row_stride": 2048,
+      "first_16384_rows": "all 64 CTAs execute eight row-quad rounds",
+      "last_1024_rows": "the first 32 CTAs execute one additional row-quad",
+      "rows_per_warp": "36 for the first 32 CTAs and 32 for the last 32 CTAs"
+    },
+    "balanced_mapping": {
+      "first_16384_rows": "unchanged production row-quad mapping",
+      "last_1024_rows": "all 64 CTAs execute one row pair per warp",
+      "tail_formula": "16384 + 2 * (blockIdx.x * 8 + warp)",
+      "rows_per_warp": 34,
+      "rows_per_cta": 272,
+      "theoretical_tail_balance_kernel_speedup_ceiling": 1.058824
+    },
+    "numerical_contract": "each row retains four accumulator chains, identical packed-column and two-phase order, warp reduction, weight-scale multiply, BF16 RNE boundary, residual/norm order, and SiLU order",
+    "runtime_double_or_triple_buffer": false
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "fixed_frequency_readback": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [3200000000, 3200000000, 3200000000]
+    },
+    "claim_boundary": "one same-binary process on one fixed-clock device"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 4
+    },
+    "balanced_tail": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 4
+    },
+    "gate": "pass"
+  },
+  "correctness": {
+    "actual_checkpoint": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "same_bank_stress": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "signed_inf_nan": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "classified_candidate_nan_outputs": "34816/34816",
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "gate": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f0932870947",
+    "activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "consumed_payload_identity_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary current production kernel versus test-only balanced-tail kernel",
+    "running_binary_sha256": "af19e237f838f988fe0f7df0cbf71d518c1f92a70b5f33b3f1c2250739313c50",
+    "warmup_launches_per_implementation": 10,
+    "launches_per_timed_pass": 64,
+    "rounds": 5,
+    "order": "B-C-C-B",
+    "round_speedup": "(B1+B2)/(C1+C2)",
+    "minimum_each_round_speedup": 1.0,
+    "minimum_actual_paired_median_speedup": 1.03,
+    "minimum_stress_paired_median_speedup": 1.0,
+    "stop_loss": "one-process failure stops replication, production integration, model oracle, end-to-end, Nsys, and NCU work"
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.622415, "candidate_1_ms": 0.653795, "candidate_2_ms": 0.654715, "production_2_ms": 0.622624, "speedup": 0.951494},
+        {"round": 2, "production_1_ms": 0.622431, "candidate_1_ms": 0.654194, "candidate_2_ms": 0.654627, "production_2_ms": 0.622387, "speedup": 0.951099},
+        {"round": 3, "production_1_ms": 0.622789, "candidate_1_ms": 0.654933, "candidate_2_ms": 0.654302, "production_2_ms": 0.622651, "speedup": 0.951273},
+        {"round": 4, "production_1_ms": 0.622812, "candidate_1_ms": 0.654373, "candidate_2_ms": 0.654193, "production_2_ms": 0.622791, "speedup": 0.951884},
+        {"round": 5, "production_1_ms": 0.622725, "candidate_1_ms": 0.654455, "candidate_2_ms": 0.654944, "production_2_ms": 0.622492, "speedup": 0.950984}
+      ],
+      "production_pass_median_ms": 0.622637,
+      "candidate_pass_median_ms": 0.654414,
+      "pass_median_ratio": 0.951442,
+      "paired_round_median_speedup": 0.951273,
+      "round_speedup_range": [0.950984, 0.951884],
+      "rounds_at_or_above_1_0": 0,
+      "candidate_latency_increase_percent": 5.10362,
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.626581, "candidate_1_ms": 0.656283, "candidate_2_ms": 0.655869, "production_2_ms": 0.626615, "speedup": 0.955069},
+        {"round": 2, "production_1_ms": 0.627111, "candidate_1_ms": 0.656025, "candidate_2_ms": 0.656731, "production_2_ms": 0.626917, "speedup": 0.955264},
+        {"round": 3, "production_1_ms": 0.626886, "candidate_1_ms": 0.656719, "candidate_2_ms": 0.656753, "production_2_ms": 0.626968, "speedup": 0.954611},
+        {"round": 4, "production_1_ms": 0.626947, "candidate_1_ms": 0.655971, "candidate_2_ms": 0.656337, "production_2_ms": 0.627217, "speedup": 0.955693},
+        {"round": 5, "production_1_ms": 0.626974, "candidate_1_ms": 0.656126, "candidate_2_ms": 0.656430, "production_2_ms": 0.627186, "speedup": 0.955509}
+      ],
+      "production_pass_median_ms": 0.626957,
+      "candidate_pass_median_ms": 0.656310,
+      "pass_median_ratio": 0.955276,
+      "paired_round_median_speedup": 0.955264,
+      "round_speedup_range": [0.954611, 0.955693],
+      "rounds_at_or_above_1_0": 0,
+      "candidate_latency_increase_percent": 4.68182,
+      "gate": "fail"
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the candidate is bit-exact and resource-neutral, but every actual and stress round regresses by roughly five percent",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "closed_scope": "redistributing only the exact-N17408 final 1024 rows from 32 row quads to 64 row pairs",
+    "mechanism_interpretation": "the current half-grid tail still exposes 16 warps per SM and can sustain the weight stream; doubling the participating CTAs adds row-pair control and tail memory scheduling overhead without reducing bytes"
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "clean_release_rebuild": "pass",
+    "clean_default_device_test": "pass",
+    "clean_binary_sha256": "cb7bf17939c7572325339b224185564373354e0f0f4574f40ac222786524ef3f"
+  },
+  "artifacts": [
+    {
+      "role": "retained candidate test binary",
+      "path": "/tmp/q3x-decode-gateup-balanced-tail-candidate-test-binary",
+      "bytes": 5085960,
+      "sha256": "af19e237f838f988fe0f7df0cbf71d518c1f92a70b5f33b3f1c2250739313c50",
+      "checked_in": false
+    },
+    {
+      "role": "full actual-checkpoint and stress hard-gate log",
+      "path": "/tmp/q3x-decode-gateup-balanced-tail-r1.log",
+      "bytes": 73756,
+      "lines": 394,
+      "sha256": "a7fe7e7799e4aff5d5859f72f310853f5dbc97959683bd165e6aa200eeb041ab",
+      "expected_binary_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "post-restore clean default device-test log",
+      "path": "/tmp/q3x-decode-gateup-balanced-tail-clean-default.log",
+      "bytes": 55646,
+      "lines": 328,
+      "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698",
+      "expected_exit_code": 0,
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "screen an exact-M1 packed-weight K-tile software pipeline while preserving the production row mapping and arithmetic order",
+    "do_not_restore": "balanced-tail row-pair redistribution without a materially different load mechanism"
+  },
+  "limitations": [
+    "The result is from one fixed-clock Jetson AGX Orin and is not a cross-device claim.",
+    "Weights and block scales are exact layer-0 checkpoint slices; residual and norm inputs are deterministic BF16 fixtures rather than captured runtime activations.",
+    "The one-process stop-loss intentionally omitted five-process replication, full-model oracle, end-to-end timing, Nsys, and NCU.",
+    "The rejection closes this tail redistribution only; it does not reject materially different packed-weight load pipelines or weight layouts."
+  ]
+}
