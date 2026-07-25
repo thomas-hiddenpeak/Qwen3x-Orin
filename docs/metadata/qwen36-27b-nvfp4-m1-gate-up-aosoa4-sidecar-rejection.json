@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-aosoa4-sidecar",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_head": "4cedb37",
+    "base_tree": "d8f9a2fe3b700e8cf16757895a3f97b1ed5600ff",
+    "base_subject": "docs: close Decode K256 inline-barrier screen",
+    "branch": "main",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "profile_priority": {
+    "workload": "P19/C32/max26 Decode",
+    "milliseconds_per_token": 110.951,
+    "tokens_per_second": 9.013,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_kernel_raw_milliseconds": 986.903168,
+    "target_kernel_decode_percent": 35.788149,
+    "target_instances": 1600
+  },
+  "candidate": {
+    "scope": "test-only exact-M1 residual/norm/gate/up/SiLU kernel consuming a one-layer Decode-only packed-weight sidecar",
+    "shape_n_by_k": [17408, 5120],
+    "layout": "AoSoA4 by packed uint32 word: dst[row_quad][word]=uint4{canonical[row0][word],canonical[row1][word],canonical[row2][word],canonical[row3][word]}",
+    "row_quads": 4352,
+    "packed_words_per_row": 640,
+    "sidecar_bytes_per_projection": 44564480,
+    "sidecar_bytes_per_layer_gate_up": 89128960,
+    "full_64_layer_gate_up_sidecar_bytes": 5704253440,
+    "full_64_layer_gate_up_sidecar_gib": 5.3125,
+    "block_scales": "canonical row-major layout",
+    "load_change": "replace four independent 32-bit row weight loads per lane/phase with one aligned uint4 load; packed bytes and DRAM sectors are not reduced",
+    "numerical_contract": "production row mapping, scale XOR pairing, activation indexing, four accumulator chains, FFMA order, warp reduction, BF16 RNE boundaries, residual/norm order, and SiLU order remain unchanged",
+    "alignment_contract": "test-only sidecar bases require 16-byte alignment; canonical production and 4-byte fallback remain unchanged"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "fixed_frequency_readback": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [3200000000, 3200000000, 3200000000]
+    },
+    "claim_boundary": "one same-binary process on one fixed-clock device"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "active_ctas_per_sm": 4
+    },
+    "gate": "pass"
+  },
+  "sass": {
+    "production_function_sha256": "4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95",
+    "production_matches_frozen_baseline": true,
+    "candidate_function_sha256": "7466492c429daf53f3bc4b00bed9254c10f0fd9024486f877a598a93473c1b84",
+    "hot_loop_sha256": "1ab513f9adb1606ba9bf40f4dfc1c452808937897c0dd44f66e3cb01a09b4736",
+    "unrolled_hot_loop": {
+      "canonical_scale_ldg_e_u8": 4,
+      "aosoa4_weight_ldg_e_128": 2,
+      "weight_32_bit_ldg": 0,
+      "prmt": 3,
+      "weight_deinterleave_prmt": 0,
+      "warpsync": 0,
+      "cta_barrier": 0,
+      "local_load": 0,
+      "local_store": 0
+    },
+    "gate": "pass"
+  },
+  "correctness": {
+    "alignment_negative": {
+      "gate_sidecar_4_byte_only_status": "cudaErrorInvalidValue",
+      "up_sidecar_4_byte_only_status": "cudaErrorInvalidValue",
+      "captured_graph_nodes": 0,
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "gate_sidecar_sha256": "58956cffd3103288fe1831f2ef74443d6162c9033aef5de790849141aa411832",
+      "up_sidecar_sha256": "2ee4f0c0119d52908ecf4377f6c430aa4666975344f86267fb227e58418233e7",
+      "gate_full_inverse_memcmp": "pass",
+      "up_full_inverse_memcmp": "pass",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "sidecars_preserved": true,
+      "inputs_preserved": true
+    },
+    "same_bank_stress": {
+      "gate_sidecar_sha256": "3c01b9bddc6d66957ea15a11f9038bd9f45aa91401bb666a174e2c5e4c97340d",
+      "up_sidecar_sha256": "7bf289e5c5161c92ab1eb7471b565d99fa88e4f20b91c254e6c0165369dff6da",
+      "gate_full_inverse_memcmp": "pass",
+      "up_full_inverse_memcmp": "pass",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "sidecars_preserved": true,
+      "inputs_preserved": true
+    },
+    "gate": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "consumed_payload_identity_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary production fused kernel on canonical weights versus test-only fused kernel on AoSoA4 sidecars",
+    "running_binary_sha256": "b0cbcb2f37dac468536170db5e2d01751a84e2d4da4acd0c5f08e890939b3ca1",
+    "warmup_launches_per_implementation": 10,
+    "launches_per_timed_pass": 64,
+    "rounds": 5,
+    "order": "B-C-C-B",
+    "minimum_each_actual_round_speedup": 1.0,
+    "minimum_actual_paired_median_speedup": 1.03,
+    "minimum_stress_paired_median_speedup": 1.0
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.613005, "candidate_1_ms": 0.616410, "candidate_2_ms": 0.615675, "production_2_ms": 0.612790, "speedup": 0.994894},
+        {"round": 2, "production_1_ms": 0.612954, "candidate_1_ms": 0.615829, "candidate_2_ms": 0.615274, "production_2_ms": 0.612473, "speedup": 0.995390},
+        {"round": 3, "production_1_ms": 0.612674, "candidate_1_ms": 0.615066, "candidate_2_ms": 0.615798, "production_2_ms": 0.612869, "speedup": 0.995677},
+        {"round": 4, "production_1_ms": 0.612252, "candidate_1_ms": 0.615708, "candidate_2_ms": 0.615566, "production_2_ms": 0.612441, "speedup": 0.994655},
+        {"round": 5, "production_1_ms": 0.612391, "candidate_1_ms": 0.615696, "candidate_2_ms": 0.615755, "production_2_ms": 0.612557, "speedup": 0.994719}
+      ],
+      "production_pass_median_ms": 0.612615,
+      "candidate_pass_median_ms": 0.615702,
+      "paired_round_median_speedup": 0.994987,
+      "round_speedup_range": [0.994655, 0.995677],
+      "rounds_at_or_above_1_0": 0,
+      "candidate_latency_increase_percent": 0.503,
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.617437, "candidate_1_ms": 0.614086, "candidate_2_ms": 0.614781, "production_2_ms": 0.617288, "speedup": 1.00477},
+        {"round": 2, "production_1_ms": 0.616963, "candidate_1_ms": 0.614736, "candidate_2_ms": 0.614447, "production_2_ms": 0.616904, "speedup": 1.00381},
+        {"round": 3, "production_1_ms": 0.616859, "candidate_1_ms": 0.614813, "candidate_2_ms": 0.614622, "production_2_ms": 0.616837, "speedup": 1.00347},
+        {"round": 4, "production_1_ms": 0.616641, "candidate_1_ms": 0.614711, "candidate_2_ms": 0.614713, "production_2_ms": 0.617033, "speedup": 1.00346},
+        {"round": 5, "production_1_ms": 0.616854, "candidate_1_ms": 0.614797, "candidate_2_ms": 0.614095, "production_2_ms": 0.616831, "speedup": 1.00390}
+      ],
+      "production_pass_median_ms": 0.616882,
+      "candidate_pass_median_ms": 0.614712,
+      "paired_round_median_speedup": 1.00353,
+      "round_speedup_range": [1.00346, 1.00477],
+      "rounds_at_or_above_1_0": 5,
+      "gate": "pass"
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the sidecar is bit-exact and removes three weight load instructions per lane/phase, but every actual-payload round regresses and the 0.994987x median misses the frozen 1.03x gate",
+    "candidate_promoted": false,
+    "full_model_sidecar_built": false,
+    "production_dispatch_changed": false,
+    "closed_scope": "packed-weight-only AoSoA4 row-quad interleave with canonical scales",
+    "mechanism_interpretation": "instruction count changes without reducing packed-weight bytes or sectors; the small stress improvement does not transfer to the hash-pinned real payload",
+    "do_not_continue": "do not interleave scales, allocate the 5.3125-GiB full-model sidecar, add loader/RAII/cache support, or repeat across processes after the actual-payload first screen fails"
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "clean_release_rebuild": "pass",
+    "clean_default_device_test": "pass",
+    "clean_binary_sha256": "5c01a1f9514b3fc83e4f718e1a59b0d42f738f69b4825c48a62c2a420ae52077"
+  },
+  "artifacts": [
+    {
+      "role": "retained candidate test binary",
+      "path": "/tmp/q3x-decode-gateup-aosoa4-candidate-test-binary",
+      "bytes": 5086528,
+      "sha256": "b0cbcb2f37dac468536170db5e2d01751a84e2d4da4acd0c5f08e890939b3ca1",
+      "checked_in": false
+    },
+    {
+      "role": "full actual-checkpoint and stress hard-gate log",
+      "path": "/tmp/q3x-aosoa4-sidecar-test.log",
+      "bytes": 74410,
+      "lines": 397,
+      "sha256": "ccdda3a2a94e1b27b1bedc0d5432afd83b92cbe51ae0c9b66d0b97be94364a26",
+      "expected_binary_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "candidate Function SASS",
+      "path": "/tmp/q3x-decode-gateup-aosoa4-candidate.sass",
+      "bytes": 337114,
+      "lines": 2677,
+      "sha256": "7466492c429daf53f3bc4b00bed9254c10f0fd9024486f877a598a93473c1b84",
+      "checked_in": false
+    },
+    {
+      "role": "candidate hot-loop SASS",
+      "path": "/tmp/q3x-decode-gateup-aosoa4-hot-loop.sass",
+      "bytes": 97776,
+      "lines": 776,
+      "sha256": "1ab513f9adb1606ba9bf40f4dfc1c452808937897c0dd44f66e3cb01a09b4736",
+      "checked_in": false
+    },
+    {
+      "role": "post-restore clean default device-test log",
+      "path": "/tmp/q3x-decode-gateup-aosoa4-clean-default.log",
+      "bytes": 55646,
+      "lines": 328,
+      "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698",
+      "expected_exit_code": 0,
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "re-rank the remaining current-production Decode hotspots, starting with FP8 linear-attention QKV/Z at 20.968203 percent and NVFP4 down at 18.834699 percent",
+    "gate_up_status": "tail scheduling, canonical shared cp.async, inline barrier spelling, K512 extension, and packed-weight-only AoSoA4 sidecar are now closed without a materially different byte-reduction mechanism"
+  },
+  "limitations": [
+    "The result is from one fixed-clock Jetson AGX Orin and is not a cross-device claim.",
+    "Weights and block scales are exact layer-0 checkpoint slices; residual and norm inputs are deterministic BF16 fixtures rather than captured runtime activations.",
+    "The one-process stop-loss intentionally omitted full-model sidecar allocation, load-time repacking, five-process replication, model oracle, end-to-end timing, Nsys, and NCU.",
+    "Stress improvement is reported but cannot override the hash-pinned actual-payload gate."
+  ]
+}

@@ -552,6 +552,15 @@ The diagnostic Phase 3 records are:
   `WARPSYNC R30; RET` helper. Static stop-loss skips redundant correctness and
   timing, restores source/test exactly, and moves the next bounded screen to a
   single-layer AoSoA4 row-quad-interleaved Decode weight sidecar.
+- [`qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection.json`](qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection.json),
+  which closes that materially different layout screen. The single-layer
+  85-MiB sidecar combines four row words into each `uint4`, generates two
+  `LDG.E.128` weight loads and zero 32-bit weight loads in the unrolled phase,
+  and retains the production 64-register/11,328-byte/four-CTA resource
+  envelope. Actual and stress outputs are bit-exact, but actual regresses in
+  all five rounds to a 0.994987x paired median; stress reaches only 1.00353x.
+  Stop-loss skips the 5.3125-GiB full-model sidecar and restores source/test
+  before re-ranking the remaining Decode hotspots.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -3826,6 +3826,67 @@ at least 1.03x without a reversed round. Full K256 round data, binary/SASS
 identities, fixture hashes, cleanup proof, and claim limits are in the
 [K256 packed-weight pipeline rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json).
 
+## Decode NVFP4 M1 Gate/Up AoSoA4 sidecar rejection
+
+The materially different follow-up changed the physical packed-weight layout
+instead of staging canonical rows. For every packed `uint32` word, an AoSoA4
+sidecar stores the same word from four consecutive rows in one `uint4`:
+
+```text
+dst[row_quad][word] = {row0[word], row1[word], row2[word], row3[word]}
+```
+
+The test-only exact-M1 kernel therefore replaces four independent 32-bit
+weight loads per lane and phase with one aligned 128-bit load. Block scales
+remain canonical, as do row mapping, scale XOR pairing, activation indexing,
+FFMA order, reductions, BF16 boundaries, residual/norm staging, and SiLU. One
+projection sidecar is 44,564,480 bytes; gate plus up is 85 MiB per layer and
+5.3125 GiB for all 64 layers. The experiment allocates only the single-layer
+pair and never changes the loader or production dispatcher.
+
+Static resources return exactly to the production envelope:
+
+| Exact M1 fused route | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production canonical | 64 | 11,328 B | 0 B | 4 |
+| AoSoA4 sidecar | 64 | 11,328 B | 0 B | 4 |
+
+The unrolled projection hot loop contains two `LDG.E.128` sidecar weight
+loads and zero 32-bit weight loads. Its four byte loads and three `PRMT`
+instructions belong to unchanged canonical scale-code assembly; no weight
+deinterleave is present. The loop has no `WARPSYNC`, CTA barrier, `LDL`, or
+`STL`. Production SASS remains frozen at
+`4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95`.
+
+Both actual and stress host sidecars pass a full inverse-layout `memcmp` before
+upload. The direct ABI rejects either 4-byte-only sidecar base and captures
+zero Graph nodes. Both fixtures then report zero residual/final/up mismatches,
+zero unexpected nonfinite outputs, intact canaries, and preserved canonical
+inputs and sidecars.
+
+Ten warmups and five 64-launch `B-C-C-B` rounds give:
+
+| Fixture | Paired speedup range | Paired median | Production pass median | Candidate pass median |
+| --- | ---: | ---: | ---: | ---: |
+| Actual layer-0 weights/scales | 0.994655x-0.995677x | 0.994987x | 0.612615 ms | 0.615702 ms |
+| Same-bank stress | 1.00346x-1.00477x | 1.00353x | 0.616882 ms | 0.614712 ms |
+
+The stress improvement is real but cannot override the hash-pinned actual
+payload, whose five rounds all fail non-regression and whose median misses the
+1.03x gate. Combining loads without reducing packed-weight bytes or sectors
+does not improve the real workload. Stop-loss removes the kernel, sidecars,
+and test hooks before a forced Release rebuild and default device-test pass.
+It also forbids the 5.3125-GiB full-model allocation, scale interleave, loader
+ownership, and offline-cache work.
+
+This closes the current tail-scheduling, canonical `cp.async`, inline-barrier,
+K512-extension, and packed-weight-only sidecar branches for gate/up. The next
+priority is re-ranked from the remaining current-production Decode hotspots,
+starting with FP8 linear-attention QKV/Z and fused NVFP4 down. Full round data,
+layout hashes, static identities, artifacts, rollback proof, and limitations
+are in the
+[AoSoA4 sidecar rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection.json).
+
 ## Prefill exact-M32 NVFP4 down/residual epilogue-fusion rejection
 
 The next bounded Prefill screen targeted the exact-M32 NVFP4 down projection

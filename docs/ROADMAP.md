@@ -779,13 +779,23 @@ skips redundant correctness and timing. See the
 
 A K512 canonical variant is not next: it can only halve this overhead, needs
 four more live packed words, and cannot credibly recover a measured seven-
-percent regression under the 64-register ceiling. The next materially
-different route is a single-layer Decode-only AoSoA4 row-quad-interleaved
-sidecar microbenchmark. It directly loads the four row words as one `uint4`,
-deletes shared staging and both warp barriers, retains canonical block scales,
-and leaves canonical weights available for Prefill and the public 4-byte-
-alignment fallback. Only a repeatable single-layer result of at least 1.03x
-justifies expanding the layout toward the full 5.3125-GiB 64-layer sidecar.
+percent regression under the 64-register ceiling. The materially different
+single-layer Decode-only AoSoA4 sidecar is now closed too. It directly loads
+the four row words as one `uint4`, deletes shared staging and both warp
+barriers, and returns to the production 64-register/11,328-byte resource
+envelope. Actual and stress results remain bit-exact, and the stress median is
+1.00353x, but every actual-payload round regresses; the paired median is
+0.994987x against the frozen 1.03x gate. See the
+[AoSoA4 sidecar rejection](metadata/qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection.json).
+The full 5.3125-GiB 64-layer sidecar, scale interleave, loader changes, and
+cache format are therefore not built.
+
+Gate/up load-shape work is now deprioritized without a mechanism that reduces
+actual bytes or sectors. The next Decode choice is re-ranked from the current-
+production profile: FP8 linear-attention QKV/Z contributes 20.968203% and the
+fused NVFP4 down route contributes 18.834699%, ahead of the 10.875899% FP8
+output-projection row. A new candidate must be outside each route's existing
+rejection closure and retain the same first-screen discipline.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
