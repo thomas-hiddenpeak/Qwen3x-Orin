@@ -3750,6 +3750,71 @@ hashes, per-round measurements, artifact identities, rollback proof, and claim
 limits are in the
 [balanced-tail rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json).
 
+## Decode NVFP4 M1 K256 packed-weight pipeline rejection
+
+The next exact-M1 gate/up screen preserved the production 64-CTA row-quad
+mapping and all arithmetic, but replaced each phase's four canonical global
+`uint32` loads with a cooperative packed-weight stage. For every K256 tile,
+loader lane `l` copied one aligned `uint4` selected by `row=l/8` and
+`vector=l%8`. Each warp staged four 128-byte rows, so the single shared slot
+was 512 bytes/warp and 4,096 bytes/CTA. After `cp.async` wait and a warp
+synchronization, compute lane `c` loaded shared words `c`, `32+c`, `64+c`, and
+`96+c` into registers. A second warp synchronization made the same-slot
+overwrite safe, and the next asynchronous copy then overlapped the current
+tile's FFMA chains. This is logical register/shared double buffering, not two
+shared slots or executor-level concurrency.
+
+Static gates pass. The candidate remains at the 64-register ceiling, adds only
+the expected 4-KiB slot, allocates no local or stack memory, and preserves four
+active CTAs/SM:
+
+| Exact M1 fused route | Registers/thread | Static shared | Local | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Production | 64 | 11,328 B | 0 B | 4 |
+| K256 packed-weight pipeline | 64 | 15,424 B | 0 B | 4 |
+
+The candidate SASS contains `LDGSTS.E.BYPASS.128`, `LDGDEPBAR`, and
+`DEPBAR.LE`; wait precedes four cross-lane shared loads and slot overwrite
+follows the second warp synchronization. There is no hot-loop CTA barrier and
+no `LDL`/`STL`. The production Function remains byte-identical to its frozen
+comparator at SHA-256
+`4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95`.
+One important code-generation detail is retained for the follow-up: ptxas
+outlines each source `__syncwarp()` through a `CALL.REL` to a shared
+`WARPSYNC/RET` body.
+
+The test-only direct ABI rejects either 4-byte-only packed-weight base with
+`cudaErrorInvalidValue` and captures zero Graph nodes. Actual checkpoint and
+same-bank stress fixtures both report 0/5,120 residual, 0/17,408 final-gate,
+and 0/17,408 up mismatches, zero unexpected nonfinite values, intact canaries,
+and preserved inputs.
+
+The fixed-clock same-binary screen used ten warmups, 64 launches per timed
+pass, and five `B-C-C-B` rounds:
+
+| Fixture | Paired speedup range | Paired median | Production pass median | Candidate pass median |
+| --- | ---: | ---: | ---: | ---: |
+| Actual layer-0 weights/scales | 0.932326x-0.933307x | 0.932869x | 0.619377 ms | 0.663949 ms |
+| Same-bank stress | 0.928641x-0.929438x | 0.928905x | 0.623363 ms | 0.671072 ms |
+
+All ten rounds fail non-regression; the candidate raises pass latency by about
+7.20% actual and 7.65% stress. The canonical four-row global accesses were
+already coalesced, so the experiment does not reduce bytes or transactions;
+it adds shared-memory round trips and synchronization. Stop-loss removes the
+candidate and test hooks before a clean Release rebuild and default device-
+test pass. Production dispatch and the public ABI remain unchanged.
+
+The higher-register K512 form is skipped because halving synchronization
+cannot credibly close a seven-percent gap and holding both phases' packed words
+risks spill at 64 registers. One narrower SASS experiment remains justified:
+force the two constant full-mask warp barriers inline while keeping the exact
+K256 load layout and frozen gates. If that does not recover non-regression,
+the next materially different candidate is a Decode-only row-quad-interleaved
+weight sidecar, while canonical weights continue serving Prefill and 4-byte
+fallback. Full round data, binary/SASS identities, fixture hashes, cleanup
+proof, and claim limits are in the
+[K256 packed-weight pipeline rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json).
+
 ## Prefill exact-M32 NVFP4 down/residual epilogue-fusion rejection
 
 The next bounded Prefill screen targeted the exact-M32 NVFP4 down projection

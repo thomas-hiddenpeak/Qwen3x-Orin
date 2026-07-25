@@ -759,11 +759,32 @@ medians. The candidate and test hooks were removed before a clean rebuild and
 default device-test pass. See the
 [balanced-tail rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json).
 
-The next bounded work item is therefore a materially different exact-M1
-packed-weight K-tile load-path screen that preserves the production row
-mapping and arithmetic order. Current-production NCU remains unavailable on
-this vGPU because performance-counter permission is denied, so the screen must
-use static resource/SASS checks followed by same-binary actual-payload gates.
+That packed-weight screen is now measured. Its exact-K256 single-slot
+`cp.async` candidate uses one 4-KiB CTA slot and current packed words in
+registers as a logical double buffer. It preserves 64 registers, zero local
+memory, and four active CTAs/SM, and all actual/stress output gates are
+bit-exact. However, all five rounds regress: paired medians are 0.932869x on
+the actual layer-0 payload and 0.928905x on same-bank stress. Canonical weight
+traffic was already coalesced, while the candidate adds four shared loads and
+two cross-lane synchronizations per K256 tile. See the
+[K256 packed-weight pipeline rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json).
+
+SASS exposes a smaller, bounded code-generation question before committing
+roughly 5.31 GiB to a Decode-only interleaved-weight sidecar: both full-warp
+synchronizations were outlined through `CALL/WARPSYNC/RET`. The immediate
+screen therefore keeps the rejected K256 layout and every promotion gate
+fixed, but forces a constant full-mask inline warp barrier. It proceeds only
+if SASS removes those calls without spill, local memory, CTA barriers, or a
+production-kernel change. A K512 canonical variant is not next: it can only
+halve this overhead, needs four more live packed words, and cannot credibly
+recover a measured seven-percent regression under the 64-register ceiling.
+If the inline screen fails non-regression, the next materially different route
+is the Decode-only row-quad-interleaved sidecar, with canonical weights retained
+for Prefill and the public 4-byte-alignment fallback.
+
+Current-production NCU remains unavailable on this vGPU because performance-
+counter permission is denied, so these screens use static resource/SASS checks
+followed by same-binary actual-payload gates.
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. The measured sub-1% Decode scheduling hole still

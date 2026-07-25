@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-k256-packed-weight-pipeline",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_head": "9a2300d",
+    "base_tree": "c4773f7fe89b830970c25d56f6a8a364fefe180d",
+    "base_subject": "docs: record Decode gate-up balanced-tail rejection",
+    "branch": "main",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "profile_priority": {
+    "source": "qwen36-27b-current-head-phase-profile",
+    "workload": "P19/C32/max26 Decode",
+    "decode_after_first_milliseconds": 2773.775,
+    "decode_steps": 25,
+    "milliseconds_per_token": 110.951,
+    "tokens_per_second": 9.013,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_kernel_raw_milliseconds": 986.903168,
+    "target_kernel_decode_percent": 35.788149,
+    "target_instances": 1600,
+    "reason_selected": "the fused exact-M1 NVFP4 gate/up kernel is the largest Decode hotspot and its canonical four-row loads expose a bounded packed-weight latency-overlap experiment"
+  },
+  "candidate": {
+    "scope": "test-only exact M1 residual/norm/gate/up/SiLU kernel; never selected by production dispatch",
+    "shape_n_by_k": [17408, 5120],
+    "launch": {
+      "grid": [64, 1, 1],
+      "block": [256, 1, 1],
+      "warps_per_cta": 8
+    },
+    "tile": {
+      "values_per_row": 256,
+      "packed_bytes_per_row": 128,
+      "rows_per_warp": 4,
+      "bytes_per_warp_slot": 512,
+      "bytes_per_cta_slot": 4096,
+      "tiles_per_projection": 20,
+      "cp_async_per_lane_per_tile": 1
+    },
+    "loader_mapping": "copy_row=lane/8 and vector_in_row=lane%8; each lane copies one aligned uint4 from one canonical row",
+    "consumer_mapping": "after wait and warp synchronization, compute lane c loads shared uint32 words c, 32+c, 64+c, and 96+c for its four rows",
+    "pipeline": "one shared slot plus current packed words in registers; after all four words are registerized and a second warp synchronization completes, the next K256 tile overwrites the slot while current FFMA chains execute",
+    "runtime_double_or_triple_buffer": "logical register/shared double buffering only; no second shared slot and no executor-level overlap",
+    "numerical_contract": "production row mapping, scale XOR pairing, packed-column order, four accumulator chains, FFMA order, warp reduction, weight-scale multiply, BF16 RNE boundary, residual/norm order, and SiLU order are unchanged",
+    "alignment_contract": "test-only direct entry requires both packed-weight bases to be 16-byte aligned; production retains its existing 4-byte-aligned path"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "Release, CUDA architecture 87",
+    "fixed_frequency_readback": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [3200000000, 3200000000, 3200000000]
+    },
+    "claim_boundary": "one same-binary process on one fixed-clock device"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 15424,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 4
+    },
+    "gate": "pass"
+  },
+  "sass": {
+    "production_function_sha256": "4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95",
+    "production_function_matches_frozen_baseline": true,
+    "candidate_pipeline_sequence": "LDGSTS.E.BYPASS.128 -> LDGDEPBAR -> DEPBAR.LE -> CALL/WARPSYNC -> four cross-lane LDS -> CALL/WARPSYNC -> next LDGSTS",
+    "hot_loop_cta_barrier": false,
+    "local_load_store_present": false,
+    "compiler_observation": "each source __syncwarp is outlined as CALL.REL to a WARPSYNC/RET helper; this dynamic control cost remains a separately bounded follow-up",
+    "gate": "pass"
+  },
+  "correctness": {
+    "alignment_negative": {
+      "gate_weight_4_byte_only_status": "cudaErrorInvalidValue",
+      "up_weight_4_byte_only_status": "cudaErrorInvalidValue",
+      "captured_graph_nodes": 0,
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "same_bank_stress": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "gate": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "consumed_payload_identity_gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary current production kernel versus test-only K256 packed-weight pipeline",
+    "running_binary_sha256": "7e0bc1b63e2df3e6ef885eec8dc55c0cff86bdf08404f576926a5210ade0193c",
+    "warmup_launches_per_implementation": 10,
+    "launches_per_timed_pass": 64,
+    "rounds": 5,
+    "order": "B-C-C-B",
+    "round_speedup": "(B1+B2)/(C1+C2)",
+    "minimum_each_actual_round_speedup": 1.0,
+    "minimum_actual_paired_median_speedup": 1.03,
+    "minimum_stress_paired_median_speedup": 1.0,
+    "stop_loss": "one-process failure stops replication, production integration, model oracle, end-to-end, Nsys, and NCU work"
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.619385, "candidate_1_ms": 0.664083, "candidate_2_ms": 0.663897, "production_2_ms": 0.619192, "speedup": 0.932678},
+        {"round": 2, "production_1_ms": 0.619416, "candidate_1_ms": 0.663947, "candidate_2_ms": 0.663691, "production_2_ms": 0.619677, "speedup": 0.933307},
+        {"round": 3, "production_1_ms": 0.619875, "candidate_1_ms": 0.663952, "candidate_2_ms": 0.664115, "production_2_ms": 0.618999, "speedup": 0.932840},
+        {"round": 4, "production_1_ms": 0.619419, "candidate_1_ms": 0.663926, "candidate_2_ms": 0.664008, "production_2_ms": 0.619136, "speedup": 0.932692},
+        {"round": 5, "production_1_ms": 0.619371, "candidate_1_ms": 0.663906, "candidate_2_ms": 0.664372, "production_2_ms": 0.619018, "speedup": 0.932326}
+      ],
+      "production_pass_median_ms": 0.619377,
+      "candidate_pass_median_ms": 0.663949,
+      "paired_round_median_speedup": 0.932869,
+      "round_speedup_range": [0.932326, 0.933307],
+      "rounds_at_or_above_1_0": 0,
+      "candidate_latency_increase_percent": 7.196,
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.623258, "candidate_1_ms": 0.671140, "candidate_2_ms": 0.671049, "production_2_ms": 0.623417, "speedup": 0.928837},
+        {"round": 2, "production_1_ms": 0.623555, "candidate_1_ms": 0.671096, "candidate_2_ms": 0.670495, "production_2_ms": 0.623371, "speedup": 0.929438},
+        {"round": 3, "production_1_ms": 0.623305, "candidate_1_ms": 0.671239, "candidate_2_ms": 0.671218, "production_2_ms": 0.623355, "speedup": 0.928641},
+        {"round": 4, "production_1_ms": 0.623520, "candidate_1_ms": 0.670886, "candidate_2_ms": 0.670814, "production_2_ms": 0.623487, "speedup": 0.929423},
+        {"round": 5, "production_1_ms": 0.622977, "candidate_1_ms": 0.671109, "candidate_2_ms": 0.670816, "production_2_ms": 0.623215, "speedup": 0.928660}
+      ],
+      "production_pass_median_ms": 0.623363,
+      "candidate_pass_median_ms": 0.671072,
+      "paired_round_median_speedup": 0.928905,
+      "round_speedup_range": [0.928641, 0.929438],
+      "rounds_at_or_above_1_0": 0,
+      "candidate_latency_increase_percent": 7.653,
+      "gate": "fail"
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the canonical-layout pipeline is bit-exact and preserves four-CTA occupancy, but all actual and stress rounds regress by about seven percent",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "closed_scope": "K256 canonical-layout single-shared-slot cp.async with source-level __syncwarp consumers",
+    "mechanism_interpretation": "canonical global accesses were already coalesced; shared staging adds four LDS operations and two cross-lane synchronizations per K256 tile without reducing weight bytes or transactions, and ptxas outlines each synchronization through CALL/WARPSYNC/RET",
+    "k512_decision": "do not screen the higher-register K512 form after a 0.93x result; halving synchronization frequency cannot credibly meet the frozen 1.03x gate and risks spill from the 64-register ceiling"
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "clean_release_rebuild": "pass",
+    "clean_default_device_test": "pass",
+    "clean_binary_sha256": "83b04922f7b17c14661ec1700f411e3b1a1284fd2050cad4385beca97c8be3aa"
+  },
+  "artifacts": [
+    {
+      "role": "retained candidate test binary",
+      "path": "/tmp/q3x-decode-gateup-k256-packed-pipeline-candidate-test-binary",
+      "bytes": 5086080,
+      "sha256": "7e0bc1b63e2df3e6ef885eec8dc55c0cff86bdf08404f576926a5210ade0193c",
+      "checked_in": false
+    },
+    {
+      "role": "full actual-checkpoint and stress hard-gate log",
+      "path": "/tmp/q3x-packed-weight-pipeline-test.log",
+      "bytes": 73953,
+      "lines": 395,
+      "sha256": "9f8e3ab6dc7b1f77a208fc51819b78a8c013b081b67c7cd4734e90475bfb70e7",
+      "expected_binary_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "candidate whole-binary SASS dump",
+      "path": "/tmp/q3x-decode-gateup-k256-packed-pipeline-candidate.sass",
+      "bytes": 23787984,
+      "lines": 189989,
+      "sha256": "c6d35061cc2ddd553f52a2fe7047cecf883553c72e097cd8327824f0c919b742",
+      "checked_in": false
+    },
+    {
+      "role": "post-restore clean default device-test log",
+      "path": "/tmp/q3x-decode-gateup-k256-packed-pipeline-clean-default.log",
+      "bytes": 55646,
+      "lines": 328,
+      "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698",
+      "expected_exit_code": 0,
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "run one bounded K256 code-generation experiment replacing the two full-mask source __syncwarp calls with an inline full-mask warp barrier so the compiler cannot outline them; keep every other load, arithmetic, and test gate identical",
+    "fallback_priority": "if the inline barrier does not recover non-regression, prototype a Decode-only row-quad-interleaved packed-weight sidecar that removes cross-lane shared staging while canonical weights remain available for Prefill and 4-byte fallback",
+    "do_not_restore": "the measured canonical-layout K256 source-__syncwarp candidate, or a higher-register K512 variant, without materially different SASS"
+  },
+  "limitations": [
+    "The result is from one fixed-clock Jetson AGX Orin and is not a cross-device claim.",
+    "Weights and block scales are exact layer-0 checkpoint slices; residual and norm inputs are deterministic BF16 fixtures rather than captured runtime activations.",
+    "The one-process stop-loss intentionally omitted five-process replication, full-model oracle, end-to-end timing, Nsys, and NCU.",
+    "The rejection closes the measured canonical-layout K256 implementation, not an interleaved Decode weight layout or a version whose SASS eliminates the observed synchronization calls."
+  ]
+}

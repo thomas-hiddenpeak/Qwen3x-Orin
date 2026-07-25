@@ -534,6 +534,16 @@ The diagnostic Phase 3 records are:
   paired medians are 0.951273x actual and 0.955264x stress. Stop-loss removes
   the candidate, restores both tracked files exactly, and skips production,
   model-oracle, end-to-end, Nsys, NCU, and replication work.
+- [`qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json`](qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json),
+  which closes the next exact-M1 Decode gate/up screen. A canonical-layout
+  K256 cooperative loader adds one 4-KiB CTA raw-weight slot and forms a
+  logical register/shared double buffer with `cp.async`; resources remain 64
+  registers, zero local memory, and four active CTAs/SM. Static SASS,
+  alignment, actual/stress bitwise, canary, and input-preservation gates all
+  pass, but every fixed-clock round regresses. Paired medians are 0.932869x
+  actual and 0.928905x stress. Stop-loss restores source/test exactly and
+  retains the observed out-of-line `CALL/WARPSYNC/RET` synchronization as one
+  narrower code-generation follow-up before an interleaved Decode sidecar.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
