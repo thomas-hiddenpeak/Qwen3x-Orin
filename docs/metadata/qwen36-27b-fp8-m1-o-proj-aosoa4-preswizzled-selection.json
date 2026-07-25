@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection",
+  "status": "selected-test-only-formal-decode-fp8-m1-o-proj-aosoa4-preswizzled",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "cc1ab05a5f130046bc632c61efd1036beff051de",
+    "base_subject": "docs: reject Decode gate-up AoSoA4 sidecar",
+    "candidate_commit": null,
+    "tree_state_at_measurement": "uncommitted test-only source and formal-harness changes based on base_head",
+    "candidate_retained_for_followup": true,
+    "candidate_reachable_from_production_dispatch": false,
+    "runtime_changed": false,
+    "public_abi_changed": false,
+    "production_claim": false,
+    "end_to_end_claim": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measured_source_files": {
+      "src/kernels/sm87/weight_only_gemv.cu": {
+        "git_blob_sha1": "a88738dd1542dcfe54e1a40a9ff08abbf4127bf3",
+        "sha256": "e8b4c548ce0f86eab1a4f83bae37532d7a5a9cf13a8a3ff2318b5cf50ae7ae8f"
+      },
+      "tests/sm87_weight_only_gemv_test.cu": {
+        "git_blob_sha1": "7546bf0bf663f32b4701dc37d32c9a70471ecc4b",
+        "sha256": "14fd776430e493928a7ba304b8d445a12604468b75bbb1a5f0668b39c0ba1b2a"
+      }
+    },
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-fp8-o-aosoa4-formal.MSm3lN/q3x_sm87_weight_only_gemv_test.candidate",
+      "bytes": 5019512,
+      "sha256": "70f75165c842b8fc6bd1333d284093215634c18e64c1d2598568a56f80b58cc3",
+      "gnu_build_id": "fd2563f4d2ad584d696f3ccf0c0ebb3fad44b265",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_frequency_hz": {
+      "before_min_max_current": [1300500000, 1300500000, 1300500000],
+      "after_min_max_current": [1300500000, 1300500000, 1300500000],
+      "identical_before_and_after": true
+    },
+    "claim_boundary": "The fixed GPU sysfs readback supports this named-device same-binary selection. It does not establish thermal, power, cross-device, serving-throughput, or energy behavior."
+  },
+  "candidate": {
+    "phase": "Decode M1, plus any final-prompt C1 delegation that reaches the same exact route",
+    "scope": "only exact aligned FP8 output projection [5120,6144]",
+    "shape_n_by_k": [5120, 6144],
+    "weight_encoding": "FP8 E4M3FN",
+    "activation_and_output_dtype": "BF16",
+    "launcher": "launch_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_test_cuda",
+    "resource_query": "query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda",
+    "kernel": "fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel",
+    "production_predecessor": "current codebook-swizzled row-quad kernel launched directly at cap 1280",
+    "production_grid_cap": 1280,
+    "candidate_grid_blocks": 1024,
+    "threads_per_block": 256,
+    "rows_per_logical_body": 4,
+    "row_quads": 1280,
+    "candidate_ctas_with_two_row_quad_bodies": 256,
+    "candidate_ctas_with_one_row_quad_body": 768,
+    "mechanism": "Prepack the same packed four-column word from four adjacent rows into uint4{x,y,z,w}; pretransform every raw FP8 byte to code^(code>>5); load the four row words with one aligned 128-bit transaction and index the existing shared decoded-codebook swizzle directly.",
+    "arithmetic_contract": "The decoded values, BF16 activation decode, per-row FFMA order, reduction, scaling, and BF16-RNE output order match the direct production predecessor.",
+    "exact_shape_and_alignment_contract": {
+      "rows": 5120,
+      "columns": 6144,
+      "sidecar_alignment_bytes": 16,
+      "activation_alignment_bytes": 8,
+      "invalid_contract_returns": "cudaErrorInvalidValue"
+    },
+    "scope_boundary": "The candidate and its ABI are test-only and unreachable from the public production selector."
+  },
+  "sidecar": {
+    "layout": "AoSoA4 over row quads and packed four-column words",
+    "logical_element": "uint4 holding one uint32 word from each of four adjacent rows",
+    "byte_transform": "slot = code ^ (code >> 5)",
+    "word_transform": "preswizzled = word ^ ((word >> 5) & 0x07070707)",
+    "bytes_per_exact_projection_per_layer": 31457280,
+    "mebibytes_per_exact_projection_per_layer": 30.0,
+    "layers_in_planning_projection": 64,
+    "full_64_layer_bytes": 2013265920,
+    "full_64_layer_gibibytes": 1.875,
+    "storage_overhead_relative_to_original_fp8_tensor": "1.0x additional bytes for every materialized same-shape tensor",
+    "lifetime_requirement": "The selection assumes a persistent sidecar prepared at model-load/cache-construction time. Per-request packing time is absent from the formal kernel measurement and cannot be charged outside an end-to-end gate.",
+    "integration_not_yet_built": [
+      "resident-loader construction or prepacked cache format",
+      "64-layer allocation and peak-memory accounting",
+      "production selector and fallback wiring",
+      "startup/load-time measurement",
+      "model-oracle and end-to-end validation"
+    ]
+  },
+  "checkpoint_fixture": {
+    "source": "one exact actual checkpoint tensor payload",
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "tensor": "model.language_model.layers.0.linear_attn.out_proj.weight",
+    "shape_n_by_k": [5120, 6144],
+    "absolute_payload_offset": 3569011232,
+    "payload_bytes": 31457280,
+    "payload_sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9",
+    "payload_hash_recomputed_by_formal_test": true,
+    "identity_gate": "pass",
+    "activation_fixture": "deterministic finite BF16 vector shared by baseline and candidate",
+    "test_weight_scale": 0.015625,
+    "weight_scale_caveat": "The formal screen reuses one fixed finite scale on both routes; it validates exact route equivalence and payload-dependent timing, not a standalone model-layer oracle."
+  },
+  "correctness_and_preservation": {
+    "status": "pass",
+    "actual_checkpoint": {
+      "candidate_bf16_mismatches": "0/5120",
+      "deterministic_replay_mismatches": "0/5120",
+      "outputs_finite": true,
+      "natural_weight_input_preserved": true,
+      "activation_input_preserved": true,
+      "sidecar_payload_and_guards_preserved": true,
+      "baseline_output_guards": "intact",
+      "candidate_output_guards": "intact",
+      "replay_output_guards": "intact",
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "fixture_sha256": "2a00d50275fa3085c61aa9090c5356a04ed6f4413ae2d1da7b5b9dbe5c09e009",
+      "candidate_bf16_mismatches": "0/5120",
+      "deterministic_replay_mismatches": "0/5120",
+      "outputs_finite": true,
+      "natural_weight_input_preserved": true,
+      "activation_input_preserved": true,
+      "sidecar_payload_and_guards_preserved": true,
+      "all_output_guards": "intact",
+      "gate": "pass"
+    },
+    "host_sidecar_semantic_check": "Every packed byte is checked against code^(code>>5) before upload.",
+    "resource_query_null_destination_rejected": true,
+    "whole_device_test_terminal_line": "SM87 weight-only GEMV tests passed"
+  },
+  "sass_and_resources": {
+    "candidate_mangled_symbol": "_ZN3q3x7kernels52_GLOBAL__N__cabd56ea_19_weight_only_gemv_cu_a558074259fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernelEPK5uint4fPKtmmPt",
+    "candidate_demangled_symbol": "q3x::kernels::(anonymous namespace)::fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(uint4 const*, float, unsigned short const*, unsigned long, unsigned long, unsigned short*)",
+    "registers_per_thread": 64,
+    "maximum_registers_per_thread": 64,
+    "static_shared_bytes": 1152,
+    "maximum_static_shared_bytes": 1152,
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "constant0_bytes": 400,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 4,
+    "minimum_active_blocks_per_sm": 4,
+    "elf_text_section": {
+      "index_hex": "0x15c",
+      "file_offset_hex": "0x19e500",
+      "bytes": 16384,
+      "alignment_hex": "0x80"
+    },
+    "canonicalization": {
+      "raw_cuobjdump_function_block_sha256": "0f0c0e0b8603633b0019796d47d9fa8bf08e3d69273b6e76e573d161b3c9c71a",
+      "ordered_instruction_words_concatenated_sha256": "7a50455dda2735aed927c86ab58ec8841862e45bf49e53e08909bab630675ded",
+      "whitespace_normalized_sass_body_sha256": "f65b0a3f5f97f9421f37999049da57a98374511da2e8729bf135edf17d21b4c0",
+      "independent_raw_elf_section_byte_hash_captured": false
+    },
+    "instructions": 1024,
+    "instruction_counts": {
+      "BAR.SYNC.DEFER": 3,
+      "BMOV.32": 2,
+      "BMOV.32.CLEAR": 15,
+      "BRA": 17,
+      "BRA.DIV": 2,
+      "BSSY": 5,
+      "BSYNC": 5,
+      "CALL.REL.NOINC": 22,
+      "CS2R": 6,
+      "EXIT": 2,
+      "FADD": 70,
+      "FFMA": 128,
+      "FMUL": 7,
+      "IADD3": 23,
+      "IADD3.X": 3,
+      "IMAD": 2,
+      "IMAD.IADD": 2,
+      "IMAD.MOV.U32": 46,
+      "IMAD.SHL.U32": 35,
+      "IMAD.U32": 16,
+      "IMAD.WIDE.U32": 4,
+      "IMAD.X": 7,
+      "ISETP.GE.U32.AND": 7,
+      "ISETP.GE.U32.AND.EX": 7,
+      "ISETP.GT.U32.AND": 6,
+      "ISETP.LE.U32.AND": 2,
+      "ISETP.LE.U32.OR.EX": 2,
+      "ISETP.LT.U32.AND": 1,
+      "ISETP.LT.U32.OR.EX": 1,
+      "ISETP.NE.AND": 6,
+      "ISETP.NE.U32.AND": 1,
+      "LDG.E.128": 8,
+      "LDG.E.64": 8,
+      "LDS": 132,
+      "LEA": 15,
+      "LEA.HI.X": 21,
+      "LOP3.LUT": 168,
+      "MOV": 20,
+      "NOP": 12,
+      "PLOP3.LUT": 4,
+      "RET.REL.NODEC": 1,
+      "S2R": 2,
+      "SEL": 2,
+      "SHF.L.U32": 2,
+      "SHF.R.U32.HI": 110,
+      "SHF.R.U64": 10,
+      "SHFL.DOWN": 41,
+      "STG.E.U16": 4,
+      "STS": 5,
+      "ULDC.64": 1,
+      "UMOV": 1,
+      "WARPSYNC": 2
+    },
+    "scalar_LDG.E_weight_instructions": 0,
+    "opcode_count_sum": 1024,
+    "mechanism_interpretation": "The candidate replaces the predecessor's four scalar row-word loads per packed position with one uint4 load and removes the runtime byte swizzle while retaining the arithmetic and shared-codebook operation counts relevant to bitwise output.",
+    "resource_gate": "pass"
+  },
+  "performance_protocol": {
+    "command": "set -o pipefail; Q3X_RUN_SM87_FP8_M1_ROW_QUAD_AOSOA4_PRESWIZZLED_PERF=1 Q3X_FP8_M1_O_PROJ_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test 2>&1 | tee /tmp/q3x-fp8-o-aosoa4-formal.log",
+    "comparison": "current production codebook-swizzled row-quad direct cap1280 baseline versus test-only AoSoA4/preswizzled fixed-cap1024 candidate in one binary, stream, activation, and logical weight fixture",
+    "independent_processes": 1,
+    "warmup_launches_per_route": 10,
+    "measurement_rounds_per_fixture": 5,
+    "logical_launches_per_timed_pass": 64,
+    "round_order": "B-C-C-B",
+    "round_statistic": "(baseline_pass1 + baseline_pass2) / (candidate_pass1 + candidate_pass2)",
+    "selection_statistic": "median of the five paired per-round speedups; the separately printed pass medians and their ratio are diagnostic only",
+    "gates": {
+      "minimum_actual_checkpoint_paired_median_speedup": 1.03,
+      "minimum_actual_checkpoint_each_round_speedup": 1.0,
+      "minimum_same_bank_stress_paired_median_speedup": 1.0,
+      "bitwise_replay_guards_inputs_resources_and_timing_finite": "required"
+    }
+  },
+  "performance": {
+    "status": "pass",
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "baseline_pass1_ms": 0.187215, "candidate_pass1_ms": 0.178032, "candidate_pass2_ms": 0.177966, "baseline_pass2_ms": 0.187134, "paired_speedup": 1.05155},
+        {"round": 2, "baseline_pass1_ms": 0.187161, "candidate_pass1_ms": 0.178189, "candidate_pass2_ms": 0.178218, "baseline_pass2_ms": 0.187394, "paired_speedup": 1.05092},
+        {"round": 3, "baseline_pass1_ms": 0.187338, "candidate_pass1_ms": 0.178253, "candidate_pass2_ms": 0.178160, "baseline_pass2_ms": 0.187227, "paired_speedup": 1.05093},
+        {"round": 4, "baseline_pass1_ms": 0.187201, "candidate_pass1_ms": 0.177960, "candidate_pass2_ms": 0.178150, "baseline_pass2_ms": 0.187305, "paired_speedup": 1.05166},
+        {"round": 5, "baseline_pass1_ms": 0.187403, "candidate_pass1_ms": 0.177979, "candidate_pass2_ms": 0.178147, "baseline_pass2_ms": 0.187210, "paired_speedup": 1.05191}
+      ],
+      "baseline_pass_median_ms": 0.187221,
+      "candidate_pass_median_ms": 0.178149,
+      "pass_median_ratio_diagnostic": 1.05093,
+      "paired_round_speedup_median": 1.05155,
+      "paired_round_speedup_minimum": 1.05092,
+      "all_five_rounds_nonregressing": true,
+      "hard_gate": "pass"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "paired_speedup": 1.01465},
+        {"round": 2, "paired_speedup": 1.02279},
+        {"round": 3, "paired_speedup": 1.00970},
+        {"round": 4, "paired_speedup": 1.01884},
+        {"round": 5, "paired_speedup": 1.00963}
+      ],
+      "baseline_pass_median_ms": 0.171240,
+      "candidate_pass_median_ms": 0.168202,
+      "pass_median_ratio_diagnostic": 1.01807,
+      "paired_round_speedup_median": 1.01465,
+      "hard_gate": "pass"
+    },
+    "formal_log": {
+      "local_path": "/tmp/q3x-fp8-o-aosoa4-formal.log",
+      "bytes": 61733,
+      "lines": 348,
+      "sha256": "d9875bc081ab1340bb836c60436745564dae325f3404e1c60ecdcd2273208523",
+      "pipeline_exit_code": 0,
+      "checked_in": false
+    }
+  },
+  "decode_projection_only_estimate": {
+    "classification": "arithmetic projection from the isolated test-only pass medians, not an end-to-end measurement",
+    "baseline_per_projection_ms": 0.187221,
+    "candidate_per_projection_ms": 0.178149,
+    "isolated_saving_per_projection_ms": 0.009072,
+    "assumed_same_shape_projections_per_token": 64,
+    "projected_saving_per_token_ms": 0.580608,
+    "current_planning_baseline_ms_per_token": 110.951,
+    "current_planning_baseline_tokens_per_second": 9.013,
+    "projected_ms_per_token": 110.370392,
+    "projected_tokens_per_second": 9.060400909,
+    "projected_25_token_cumulative_kernel_saving_ms": 14.5152,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_met_by_projection": false,
+    "limitations": [
+      "No production runner used the sidecar.",
+      "No loader, allocation, startup, request, model-oracle, Nsys, NCU, or end-to-end generation measurement was performed.",
+      "The 64-call multiplication assumes every planned layer uses the exact same shape and realizes the isolated delta without interaction.",
+      "Any sidecar construction, copy, cache, memory-pressure, or startup cost is excluded.",
+      "The projected 110.370 ms/token and 9.060 token/s values are not achieved runtime metrics."
+    ]
+  },
+  "decision": {
+    "formal_selection": "pass",
+    "selected_scope": "retain the test-only exact-shape candidate and formal harness for bounded persistent-sidecar integration work",
+    "production_promotion": "not performed",
+    "end_to_end_validation": "not performed",
+    "required_next_gates": [
+      "define a permanent load-time or cache-time sidecar ownership and format contract",
+      "measure 1.875 GiB full-model allocation, startup, and resident-memory effects",
+      "wire exact production dispatch with unchanged invalid/alignment fallbacks",
+      "run exact C1/C8/C16/C32 model-oracle and default test suites",
+      "run fixed-clock P19/C32/max26 B-C-C-B end-to-end Decode validation",
+      "publish matched Nsys attribution before claiming the projected token saving"
+    ],
+    "summary": "The AoSoA4/preswizzled candidate clears the frozen test-only actual and stress micro gates. This selects a persistent-sidecar integration experiment; it does not select production dispatch and does not establish an end-to-end latency or throughput improvement."
+  }
+}

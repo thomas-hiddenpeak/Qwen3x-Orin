@@ -790,12 +790,19 @@ envelope. Actual and stress results remain bit-exact, and the stress median is
 The full 5.3125-GiB 64-layer sidecar, scale interleave, loader changes, and
 cache format are therefore not built.
 
-Gate/up load-shape work is now deprioritized without a mechanism that reduces
-actual bytes or sectors. The next Decode choice is re-ranked from the current-
-production profile: FP8 linear-attention QKV/Z contributes 20.968203% and the
-fused NVFP4 down route contributes 18.834699%, ahead of the 10.875899% FP8
-output-projection row. A new candidate must be outside each route's existing
-rejection closure and retain the same first-screen discipline.
+Gate/up load-shape work remains deprioritized, but a separate exact FP8 M1
+`[5120,6144]` output-projection AoSoA4 plus byte-preswizzled sidecar now clears
+the test-only formal gate: 1.05155x actual paired median with all five rounds
+non-regressing, 1.01465x stress, and complete bitwise/guard/resource gates.
+The next bounded step is persistent load/cache-time sidecar integration, not
+production dispatch: 30 MiB per layer and 1.875 GiB for 64 layers must clear
+loader, startup, peak-memory, model-oracle, and fixed-clock end-to-end gates.
+The isolated 0.580608-ms/token projection moves the 110.951-ms planning value
+only arithmetically to 110.370 ms, about 9.060 token/s, and is not an achieved
+runtime result. If those integration gates fail, re-rank FP8 linear-attention
+QKV/Z and fused NVFP4 down from the current-production profile; do not restore
+closed gate/up mechanisms. See the
+[test-only selection record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json).
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks

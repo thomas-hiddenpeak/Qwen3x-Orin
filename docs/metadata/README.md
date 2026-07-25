@@ -561,6 +561,16 @@ The diagnostic Phase 3 records are:
   all five rounds to a 0.994987x paired median; stress reaches only 1.00353x.
   Stop-loss skips the 5.3125-GiB full-model sidecar and restores source/test
   before re-ranking the remaining Decode hotspots.
+- [`qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json`](qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json),
+  which selects, at the test-only formal-microbenchmark stage, the exact FP8
+  M1 `[5120,6144]` output-projection AoSoA4 plus byte-preswizzled sidecar. The
+  pinned real layer-0 payload clears a 1.05155x paired-median gate with all
+  five rounds non-regressing, same-bank stress clears 1.01465x, and bitwise,
+  replay, guard, input/sidecar-preservation, and resource gates pass. The
+  record also freezes the 30-MiB-per-layer/1.875-GiB-for-64-layers memory
+  obligation and a projection-only 110.951-to-110.370 ms/token estimate. It
+  does not claim production dispatch, loader integration, or an achieved
+  end-to-end latency or throughput result.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

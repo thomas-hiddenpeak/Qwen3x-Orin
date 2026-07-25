@@ -4681,3 +4681,25 @@ rejection does not preselect one. The performance command, symbols, word hashes,
 per-pass timings, artifact identities, historical log hashes, rollback proof,
 and limitations are in the
 [attention O-projection no-tail rejection record](metadata/qwen36-27b-fp8-m1-attention-o-proj-no-tail-rejection.json).
+
+## Decode FP8 M1 output-projection AoSoA4/preswizzled test-only selection
+
+The materially different exact `[5120,6144]` follow-up places each four-row
+packed word in one `uint4` and pretransforms every FP8 byte as
+`code ^ (code >> 5)`. Its test-only fixed-1,024-CTA kernel clears the
+hash-pinned actual layer-0 gate at a 1.05155x paired median with all five
+`B-C-C-B` rounds non-regressing, and clears same-bank stress at 1.01465x.
+Actual candidate/replay mismatches are 0/5,120, inputs, sidecar, and guards are
+preserved, and resources remain 64 registers, 1,152 B shared, zero local, and
+four active CTAs/SM. Diagnostic production/candidate pass medians are
+0.187221/0.178149 ms.
+
+One persistent sidecar costs 30 MiB; 64 layers cost 1.875 GiB. Multiplying the
+isolated 0.009072-ms delta by 64 gives only a projection estimate of 0.580608
+ms/token, moving the 110.951-ms planning baseline arithmetically to 110.370 ms
+or about 9.060 token/s. No loader, allocation, production selector,
+model-oracle, end-to-end, Nsys, or NCU gate has run, so this selects only the
+test-only persistent-sidecar integration experiment and does not claim an
+achieved runtime improvement. Full rounds, hashes, SASS, memory obligations,
+and promotion gates are in the
+[AoSoA4/preswizzled selection record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json).
