@@ -3806,13 +3806,24 @@ test pass. Production dispatch and the public ABI remain unchanged.
 
 The higher-register K512 form is skipped because halving synchronization
 cannot credibly close a seven-percent gap and holding both phases' packed words
-risks spill at 64 registers. One narrower SASS experiment remains justified:
-force the two constant full-mask warp barriers inline while keeping the exact
-K256 load layout and frozen gates. If that does not recover non-regression,
-the next materially different candidate is a Decode-only row-quad-interleaved
-weight sidecar, while canonical weights continue serving Prefill and 4-byte
-fallback. Full round data, binary/SASS identities, fixture hashes, cleanup
-proof, and claim limits are in the
+risks spill at 64 registers. The narrower SASS experiment replaced both
+source synchronizations with volatile inline PTX
+`bar.warp.sync 0xffffffff`, but ptxas emitted a Function byte-identical to the
+measured candidate: SHA-256
+`0c5ec4ced9ef546f6f176d3e298e057ac94b3c0ffdfcb818aa08f5232e7a21bf`
+for both, including the same four `CALL.REL` sites and
+`WARPSYNC R30; RET` helper. Static-equivalence stop-loss therefore skipped a
+redundant correctness and performance rerun. That result is recorded in the
+[inline warp-barrier static rejection](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-inline-warp-barrier-static-rejection.json).
+
+The next materially different candidate is a single-layer Decode-only AoSoA4
+row-quad-interleaved weight sidecar. It makes the four row words one direct
+`uint4` global load, removes shared staging and both warp barriers, keeps block
+scales canonical, and leaves canonical weights serving Prefill and 4-byte
+fallback. The full 64-layer gate/up layout costs 5.3125 GiB, so loader and
+production integration remain forbidden until the single-layer screen reaches
+at least 1.03x without a reversed round. Full K256 round data, binary/SASS
+identities, fixture hashes, cleanup proof, and claim limits are in the
 [K256 packed-weight pipeline rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json).
 
 ## Prefill exact-M32 NVFP4 down/residual epilogue-fusion rejection

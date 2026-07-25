@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-k256-inline-warp-barrier-static-rejection",
+  "status": "rejected-static-equivalent-decode-nvfp4-m1-k256-inline-warp-barrier",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_head": "b71dfea",
+    "base_tree": "ecb57d67b8f9703c30f43debffe5036479ae5134",
+    "base_subject": "docs: reject Decode gate-up K256 packed pipeline",
+    "branch": "main",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "parent_result": {
+    "artifact": "qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection",
+    "actual_paired_median_speedup": 0.932869,
+    "stress_paired_median_speedup": 0.928905,
+    "observed_codegen_issue": "the two source __syncwarp calls per K256 tile were outlined through CALL.REL to a WARPSYNC/RET helper"
+  },
+  "candidate": {
+    "scope": "test-only exact-M1 K256 packed-weight pipeline; production remained frozen",
+    "only_intended_change": "replace both source __syncwarp calls with a force-inlined volatile PTX full-mask warp barrier",
+    "inline_ptx": "asm volatile(\"bar.warp.sync 0xffffffff;\" ::: \"memory\")",
+    "semantic_contract": "cp.async wait, cross-lane shared visibility, four LDS consumers, overwrite ordering, production row mapping, and all arithmetic remain unchanged",
+    "shape_n_by_k": [17408, 5120]
+  },
+  "static_protocol": {
+    "required_resources": {
+      "maximum_registers_per_thread": 64,
+      "expected_static_shared_bytes": 15424,
+      "required_local_bytes": 0,
+      "required_stack_bytes": 0,
+      "minimum_active_ctas_per_sm": 4
+    },
+    "required_pipeline_sass": "DEPBAR.LE -> direct WARPSYNC 0xffffffff -> four raw LDS -> direct WARPSYNC 0xffffffff -> next LDGSTS.E.BYPASS.128",
+    "forbidden_pipeline_sass": "CALL/RET wrapper or WARPSYNC Rn at either candidate pipeline synchronization",
+    "performance_stop": "if the candidate Function remains byte-identical to the measured 0.93x parent candidate, do not repeat correctness or timing"
+  },
+  "static_result": {
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 15424,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "active_ctas_per_sm": 4,
+      "gate": "pass"
+    },
+    "production_function_sha256": "4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95",
+    "production_matches_frozen_baseline": true,
+    "parent_source_syncwarp_candidate_function_sha256": "0c5ec4ced9ef546f6f176d3e298e057ac94b3c0ffdfcb818aa08f5232e7a21bf",
+    "inline_barrier_candidate_function_sha256": "0c5ec4ced9ef546f6f176d3e298e057ac94b3c0ffdfcb818aa08f5232e7a21bf",
+    "candidate_functions_byte_identical": true,
+    "pipeline_sync_offsets": ["0x26c0", "0x2740", "0x3430", "0x34b0"],
+    "pipeline_sync_instruction": "CALL.REL.NOINC 0x5ac0",
+    "helper_instruction": "WARPSYNC R30; RET",
+    "direct_immediate_warpsync_observed": false,
+    "ldgsts_ldgdepbar_depbar_retained": true,
+    "local_load_store_present": false,
+    "gate": "fail"
+  },
+  "execution": {
+    "actual_checkpoint_correctness_rerun": false,
+    "actual_checkpoint_performance_rerun": false,
+    "stress_performance_rerun": false,
+    "reason": "the compiled candidate is byte-identical to the already bit-exact and decisively slower parent candidate"
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "inline PTX does not alter final SM87 SASS; ptxas performs the same outlining, so the candidate cannot change the measured result",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "closed_scope": "source-level full-mask inline PTX as a method of eliminating the K256 pipeline CALL/WARPSYNC/RET sequence",
+    "next_priority": "test a Decode-only AoSoA4 row-quad-interleaved packed-weight sidecar that directly loads four row words in one uint4 and removes shared staging and warp barriers"
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_blob_sha1": "24cb9cf59c1f7c0936bf3a8b130eb5275bb755cd",
+    "test_blob_sha1": "07b62aa568b9958dcfc8d882f9ea415eca15a04a",
+    "source_and_test_match_base": true,
+    "clean_release_rebuild": "pass",
+    "clean_default_device_test": "pass",
+    "clean_binary_sha256": "89bae8dd3684a65e5a8fe91ff28b641ecc9275aaf5849125ea168d3914067e5a"
+  },
+  "artifacts": [
+    {
+      "role": "static gate log",
+      "path": "/tmp/q3x-k256-inline-warp-barrier-static-gate.log",
+      "bytes": 3664,
+      "lines": 40,
+      "sha256": "78af6ff59d18b5f37a03d502bf31ef65ed34302856adc087800ac9ac6948a33c",
+      "checked_in": false
+    },
+    {
+      "role": "inline-barrier candidate Function SASS",
+      "path": "/tmp/q3x-k256-inline-warp-barrier-candidate.sass",
+      "bytes": 369386,
+      "lines": 2933,
+      "sha256": "0c5ec4ced9ef546f6f176d3e298e057ac94b3c0ffdfcb818aa08f5232e7a21bf",
+      "checked_in": false
+    },
+    {
+      "role": "frozen production Function SASS",
+      "path": "/tmp/q3x-k256-inline-warp-barrier-production.sass",
+      "bytes": 339147,
+      "lines": 2693,
+      "sha256": "4d8893b3e0d4328c4fc464cdb12563541466e121ede524edd9b386003ce5ab95",
+      "checked_in": false
+    },
+    {
+      "role": "post-restore clean default device-test log",
+      "path": "/tmp/q3x-k256-inline-warp-barrier-clean-default.log",
+      "bytes": 55646,
+      "lines": 328,
+      "sha256": "571f75ed98a18aa611f79932a2f3d21533aab2837ad6481eac841087a2720698",
+      "expected_exit_code": 0,
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "This is a static equivalence rejection, not a second independent GPU performance measurement.",
+    "The conclusion closes this source-level barrier spelling only; it does not close a materially different packed-weight layout.",
+    "NCU performance counters remain unavailable on this vGPU."
+  ]
+}

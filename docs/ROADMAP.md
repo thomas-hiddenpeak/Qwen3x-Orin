@@ -769,18 +769,23 @@ traffic was already coalesced, while the candidate adds four shared loads and
 two cross-lane synchronizations per K256 tile. See the
 [K256 packed-weight pipeline rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-packed-weight-pipeline-rejection.json).
 
-SASS exposes a smaller, bounded code-generation question before committing
-roughly 5.31 GiB to a Decode-only interleaved-weight sidecar: both full-warp
-synchronizations were outlined through `CALL/WARPSYNC/RET`. The immediate
-screen therefore keeps the rejected K256 layout and every promotion gate
-fixed, but forces a constant full-mask inline warp barrier. It proceeds only
-if SASS removes those calls without spill, local memory, CTA barriers, or a
-production-kernel change. A K512 canonical variant is not next: it can only
-halve this overhead, needs four more live packed words, and cannot credibly
-recover a measured seven-percent regression under the 64-register ceiling.
-If the inline screen fails non-regression, the next materially different route
-is the Decode-only row-quad-interleaved sidecar, with canonical weights retained
-for Prefill and the public 4-byte-alignment fallback.
+The smaller code-generation screen is also closed. Replacing both source
+`__syncwarp` calls with volatile inline PTX
+`bar.warp.sync 0xffffffff` produces a candidate Function byte-identical to the
+measured 0.93x version: ptxas still emits the same four `CALL.REL` sites and
+the same `WARPSYNC R30; RET` helper. The static-equivalence stop therefore
+skips redundant correctness and timing. See the
+[inline warp-barrier static rejection](metadata/qwen36-27b-nvfp4-m1-gate-up-k256-inline-warp-barrier-static-rejection.json).
+
+A K512 canonical variant is not next: it can only halve this overhead, needs
+four more live packed words, and cannot credibly recover a measured seven-
+percent regression under the 64-register ceiling. The next materially
+different route is a single-layer Decode-only AoSoA4 row-quad-interleaved
+sidecar microbenchmark. It directly loads the four row words as one `uint4`,
+deletes shared staging and both warp barriers, retains canonical block scales,
+and leaves canonical weights available for Prefill and the public 4-byte-
+alignment fallback. Only a repeatable single-layer result of at least 1.03x
+justifies expanding the layout toward the full 5.3125-GiB 64-layer sidecar.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks

@@ -544,6 +544,14 @@ The diagnostic Phase 3 records are:
   actual and 0.928905x stress. Stop-loss restores source/test exactly and
   retains the observed out-of-line `CALL/WARPSYNC/RET` synchronization as one
   narrower code-generation follow-up before an interleaved Decode sidecar.
+- [`qwen36-27b-nvfp4-m1-gate-up-k256-inline-warp-barrier-static-rejection.json`](qwen36-27b-nvfp4-m1-gate-up-k256-inline-warp-barrier-static-rejection.json),
+  which closes that narrower code-generation follow-up. Volatile inline PTX
+  `bar.warp.sync 0xffffffff` preserves the candidate's 64-register/15,424-byte
+  resource envelope but compiles to a Function byte-identical to the measured
+  source-`__syncwarp` version, including the same four `CALL.REL` sites and
+  `WARPSYNC R30; RET` helper. Static stop-loss skips redundant correctness and
+  timing, restores source/test exactly, and moves the next bounded screen to a
+  single-layer AoSoA4 row-quad-interleaved Decode weight sidecar.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
