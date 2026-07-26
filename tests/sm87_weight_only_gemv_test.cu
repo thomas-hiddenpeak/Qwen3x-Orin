@@ -5723,6 +5723,13 @@ decode_down_dead_raw_inline_residual_performance_enabled() noexcept {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool decode_projection_palette_v2_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_PROJECTION_PALETTE_V2_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool nvfp4_m1_k5120_xor_dual_gate_performance_enabled()
     noexcept {
   const char* const value =
@@ -13641,8 +13648,27 @@ void run_optional_fp8_m1_qkv_z_reduction_scratch_ping_pong_performance(
                       "resource/actual-value/stress-non-regression gates");
 }
 
+constexpr std::size_t kDecodeProjectionPaletteV2Rounds = 5U;
+
+struct DecodeProjectionPaletteV2ComponentResult {
+  bool completed = false;
+  bool correctness_gate = false;
+  bool actual_every_round_strictly_improves = false;
+  bool stress_every_round_strictly_improves = false;
+  std::array<float, kDecodeProjectionPaletteV2Rounds> actual_speedups{};
+  std::array<float, kDecodeProjectionPaletteV2Rounds> actual_deltas_ms{};
+  std::array<float, kDecodeProjectionPaletteV2Rounds> stress_speedups{};
+  std::array<float, kDecodeProjectionPaletteV2Rounds> stress_deltas_ms{};
+  float actual_median_speedup = std::numeric_limits<float>::quiet_NaN();
+  float actual_median_delta_ms = std::numeric_limits<float>::quiet_NaN();
+  float stress_median_speedup = std::numeric_limits<float>::quiet_NaN();
+  float stress_median_delta_ms = std::numeric_limits<float>::quiet_NaN();
+  double projected_delta_ms = std::numeric_limits<double>::quiet_NaN();
+};
+
 void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
-    TestContext& test, cudaStream_t stream) {
+    TestContext& test, cudaStream_t stream,
+    DecodeProjectionPaletteV2ComponentResult* const joint_result = nullptr) {
   constexpr std::size_t kQkvRows = 10'240U;
   constexpr std::size_t kZRows = 6'144U;
   constexpr std::size_t kAbRows = 48U;
@@ -13659,6 +13685,7 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
   constexpr float kSyntheticZScale = 1.0F / 96.0F;
   const std::string label =
       "FP8 M1 QKV/Z plus BF16 A/B tail-composite screen";
+  const bool joint_mode = joint_result != nullptr;
 
   int registers_per_thread = -1;
   std::size_t static_shared_bytes =
@@ -14083,6 +14110,9 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
   struct LinearQkvCsTiming {
     bool ready = false;
     bool every_round_nonregressing = false;
+    bool every_round_strictly_improves = false;
+    std::array<float, kDecodeProjectionPaletteV2Rounds> round_speedups{};
+    std::array<float, kDecodeProjectionPaletteV2Rounds> round_deltas_ms{};
     float baseline_median_ms = std::numeric_limits<float>::quiet_NaN();
     float candidate_median_ms = std::numeric_limits<float>::quiet_NaN();
     float paired_median_speedup = std::numeric_limits<float>::quiet_NaN();
@@ -14094,6 +14124,8 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     constexpr int kWarmupIterations = 10;
     constexpr int kMeasuredIterations = 64;
     constexpr int kMeasurementRounds = 5;
+    static_assert(static_cast<std::size_t>(kMeasurementRounds) ==
+                  kDecodeProjectionPaletteV2Rounds);
     constexpr std::size_t kTimedPasses =
         2U * static_cast<std::size_t>(kMeasurementRounds);
     LinearQkvCsTiming result{};
@@ -14133,6 +14165,7 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     std::array<float, kMeasurementRounds> paired_speedups{};
     std::array<float, kMeasurementRounds> paired_deltas{};
     bool every_round_nonregressing = timing_ready;
+    bool every_round_strictly_improves = timing_ready;
     for (int round = 0; round < kMeasurementRounds && timing_ready; ++round) {
       const bool baseline_first = (round & 1) == 0;
       const std::string round_label =
@@ -14186,8 +14219,11 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
       paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
       const bool round_nonregressing = finite && paired_speedup >= 1.0F;
+      const bool round_strictly_improves = finite && paired_speedup > 1.0F;
       every_round_nonregressing =
           every_round_nonregressing && round_nonregressing;
+      every_round_strictly_improves =
+          every_round_strictly_improves && round_strictly_improves;
       std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_ROUND: fixture="
                 << fixture_label << " round=" << round + 1
                 << " order=" << (baseline_first ? "B-C-C-B" : "C-B-B-C")
@@ -14202,9 +14238,30 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
                 << " paired_delta_ms=" << paired_delta
                 << " gate=" << (round_nonregressing ? "PASS" : "FAIL")
                 << '\n';
+      if (joint_mode) {
+        const bool actual_fixture = fixture_label == "actual_checkpoint";
+        std::cout
+            << "PERF_DECODE_PROJECTION_PALETTE_V2_COMPONENT_ROUND:"
+            << " component=qkv fixture="
+            << (actual_fixture ? "actual" : "stress")
+            << " round=" << round + 1
+            << " order=" << (baseline_first ? "B-C-C-B" : "C-B-B-C")
+            << " baseline=rollback_tail_composite_default_cache_test_abi"
+            << " candidate=public_selected_qkv_z_fp8_weight_cs"
+            << " speedup=" << paired_speedup
+            << " delta_ms_per_layer=" << paired_delta
+            << " direction="
+            << (round_strictly_improves ? "IMPROVE" : "TIE_OR_REGRESS")
+            << " required_speedup=strictly_gt_1"
+            << " gate=" << (round_strictly_improves ? "PASS" : "FAIL")
+            << '\n';
+      }
     }
     result.ready = timing_ready;
     result.every_round_nonregressing = every_round_nonregressing;
+    result.every_round_strictly_improves = every_round_strictly_improves;
+    result.round_speedups = paired_speedups;
+    result.round_deltas_ms = paired_deltas;
     if (timing_ready) {
       result.baseline_median_ms =
           median_fp8_kv_pair_timing(baseline_passes);
@@ -14221,8 +14278,10 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     return result;
   };
 
-  const bool cs_performance_enabled =
+  const bool cs_isolated_performance_enabled =
       decode_fp8_linear_qkv_cs_performance_enabled();
+  const bool cs_performance_enabled =
+      cs_isolated_performance_enabled || joint_mode;
 
   if (!upload_fixture(label + " synthetic same-bank")) {
     return;
@@ -14956,9 +15015,60 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
         default_gate && payload_hash_gate && synthetic_cs_bitwise_gate &&
         actual_cs_bitwise_gate && actual_cs_timing_gate &&
         stress_cs_timing_gate;
-    test.expect(cs_process_gate,
-                label + " rollback-versus-selected process clears frozen gate");
-    std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_SELECTED:"
+    if (joint_mode) {
+      joint_result->completed = true;
+      joint_result->correctness_gate =
+          default_gate && payload_hash_gate && synthetic_cs_bitwise_gate &&
+          actual_bitwise_gate && actual_cs_bitwise_gate;
+      joint_result->actual_every_round_strictly_improves =
+          actual_cs_timing.ready &&
+          actual_cs_timing.every_round_strictly_improves;
+      joint_result->stress_every_round_strictly_improves =
+          stress_cs_timing.ready &&
+          stress_cs_timing.every_round_strictly_improves;
+      joint_result->actual_speedups = actual_cs_timing.round_speedups;
+      joint_result->actual_deltas_ms = actual_cs_timing.round_deltas_ms;
+      joint_result->stress_speedups = stress_cs_timing.round_speedups;
+      joint_result->stress_deltas_ms = stress_cs_timing.round_deltas_ms;
+      joint_result->actual_median_speedup =
+          actual_cs_timing.paired_median_speedup;
+      joint_result->actual_median_delta_ms =
+          actual_cs_timing.paired_median_delta_ms;
+      joint_result->stress_median_speedup =
+          stress_cs_timing.paired_median_speedup;
+      joint_result->stress_median_delta_ms =
+          stress_cs_timing.paired_median_delta_ms;
+      joint_result->projected_delta_ms =
+          actual_cs_timing.projected_48_layer_delta_ms;
+      std::cout << "PERF_DECODE_PROJECTION_PALETTE_V2_COMPONENT:"
+                << " component=qkv"
+                << " baseline=rollback_tail_composite_default_cache_test_abi"
+                << " candidate=public_selected_qkv_z_fp8_weight_cs"
+                << " actual_median_speedup="
+                << joint_result->actual_median_speedup
+                << " stress_median_speedup="
+                << joint_result->stress_median_speedup
+                << " actual_delta_ms_per_layer="
+                << joint_result->actual_median_delta_ms
+                << " projected_48_layer_delta_ms="
+                << joint_result->projected_delta_ms
+                << " actual_every_round_strictly_gt_1="
+                << (joint_result->actual_every_round_strictly_improves
+                        ? "true"
+                        : "false")
+                << " stress_every_round_strictly_gt_1="
+                << (joint_result->stress_every_round_strictly_improves
+                        ? "true"
+                        : "false")
+                << " correctness="
+                << (joint_result->correctness_gate ? "PASS" : "FAIL")
+                << " isolated_absolute_gate=not_applied"
+                << " gate=pending_joint_aggregation\n";
+    } else {
+      test.expect(
+          cs_process_gate,
+          label + " rollback-versus-selected process clears frozen gate");
+      std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_SELECTED:"
               << " baseline=rollback_tail_composite_default_cache_test_abi"
               << " candidate=public_selected_qkv_z_fp8_weight_cs"
               << " actual_baseline_median_ms="
@@ -15003,6 +15113,7 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
               << " payload_hashes=" << (payload_hash_gate ? "PASS" : "FAIL")
               << " default_gate=" << (default_gate ? "PASS" : "FAIL")
               << " gate=" << (cs_process_gate ? "PASS" : "FAIL") << '\n';
+    }
   }
 
   if (!predecessor_composite_performance_enabled) {
@@ -49353,8 +49464,10 @@ template <typename Launch>
 }
 
 void run_optional_nvfp4_m1_scale6_sidecar_closeout(
-    TestContext& test, cudaStream_t stream) {
-  if (!decode_nvfp4_scale6_sidecar_performance_enabled()) {
+    TestContext& test, cudaStream_t stream,
+    DecodeProjectionPaletteV2ComponentResult* const joint_result = nullptr) {
+  const bool joint_mode = joint_result != nullptr;
+  if (!joint_mode && !decode_nvfp4_scale6_sidecar_performance_enabled()) {
     return;
   }
   constexpr std::size_t kGateRows = 17'408U;
@@ -50194,6 +50307,9 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
   }};
   struct Timing {
     bool gate = false;
+    bool every_round_strictly_improves = false;
+    std::array<float, kDecodeProjectionPaletteV2Rounds> round_speedups{};
+    std::array<float, kDecodeProjectionPaletteV2Rounds> round_deltas_ms{};
     float median_speedup = 0.0F;
     float median_delta_ms = 0.0F;
   };
@@ -50225,7 +50341,10 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
          std::isfinite(prime_c2) && std::isfinite(prime_b2);
     std::array<float, kRounds> speedups{};
     std::array<float, kRounds> deltas{};
+    static_assert(static_cast<std::size_t>(kRounds) ==
+                  kDecodeProjectionPaletteV2Rounds);
     bool every_round = ok;
+    bool every_round_strictly_improves = ok;
     for (int round = 0; round < kRounds; ++round) {
       float b1 = 0.0F, b2 = 0.0F, c1 = 0.0F, c2 = 0.0F;
       const bool baseline_outer = (round % 2) == 0;
@@ -50245,7 +50364,12 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
       const bool round_gate = std::isfinite(speedups[round]) &&
                               std::isfinite(deltas[round]) &&
                               speedups[round] >= 1.0F;
+      const bool round_strictly_improves =
+          std::isfinite(speedups[round]) &&
+          std::isfinite(deltas[round]) && speedups[round] > 1.0F;
       every_round = every_round && round_gate;
+      every_round_strictly_improves =
+          every_round_strictly_improves && round_strictly_improves;
       std::cout << "PERF_DECODE_SCALE6_ROUND: route=" << route
                 << " round=" << round + 1 << " order="
                 << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
@@ -50254,10 +50378,33 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
                 << " speedup=" << speedups[round]
                 << " delta_ms=" << deltas[round]
                 << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+      if (joint_mode && route.find("/down") != std::string::npos) {
+        const bool actual_fixture =
+            route.rfind("actual_checkpoint/", 0U) == 0U;
+        std::cout
+            << "PERF_DECODE_PROJECTION_PALETTE_V2_COMPONENT_ROUND:"
+            << " component=down fixture="
+            << (actual_fixture ? "actual" : "stress")
+            << " round=" << round + 1
+            << " order=" << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+            << " baseline=canonical_public_cs"
+            << " candidate=scale6"
+            << " speedup=" << speedups[round]
+            << " delta_ms_per_layer=" << deltas[round]
+            << " direction="
+            << (round_strictly_improves ? "IMPROVE" : "TIE_OR_REGRESS")
+            << " required_speedup=strictly_gt_1"
+            << " gate=" << (round_strictly_improves ? "PASS" : "FAIL")
+            << '\n';
+      }
     }
+    result.round_speedups = speedups;
+    result.round_deltas_ms = deltas;
     result.median_speedup = median_fp8_kv_pair_timing(speedups);
     result.median_delta_ms = median_fp8_kv_pair_timing(deltas);
     result.gate = every_round && result.median_speedup >= 1.0F;
+    result.every_round_strictly_improves =
+        every_round_strictly_improves;
     return result;
   };
 
@@ -50867,6 +51014,55 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
   test.expect(down_nonfinite_gate,
               label + " clears down scale6 signed Inf/NaN gate");
 
+  if (joint_mode) {
+    const Timing& actual_down = timings[0U][1U];
+    const Timing& stress_down = timings[1U][1U];
+    joint_result->completed = true;
+    joint_result->correctness_gate =
+        micro_gate && payload_gate && sidecar_gate && down_resource_gate &&
+        graph_gate && down_invalid_gate && down_invalid_cases == 8U &&
+        replay_graph_gate && down_correctness[0U] && down_correctness[1U] &&
+        down_nonfinite_gate;
+    joint_result->actual_every_round_strictly_improves =
+        actual_down.every_round_strictly_improves;
+    joint_result->stress_every_round_strictly_improves =
+        stress_down.every_round_strictly_improves;
+    joint_result->actual_speedups = actual_down.round_speedups;
+    joint_result->actual_deltas_ms = actual_down.round_deltas_ms;
+    joint_result->stress_speedups = stress_down.round_speedups;
+    joint_result->stress_deltas_ms = stress_down.round_deltas_ms;
+    joint_result->actual_median_speedup = actual_down.median_speedup;
+    joint_result->actual_median_delta_ms = actual_down.median_delta_ms;
+    joint_result->stress_median_speedup = stress_down.median_speedup;
+    joint_result->stress_median_delta_ms = stress_down.median_delta_ms;
+    joint_result->projected_delta_ms =
+        static_cast<double>(kEligibleDownLayers) *
+        static_cast<double>(actual_down.median_delta_ms);
+    std::cout << "PERF_DECODE_PROJECTION_PALETTE_V2_COMPONENT:"
+              << " component=down"
+              << " baseline=canonical_public_cs"
+              << " candidate=scale6"
+              << " actual_median_speedup="
+              << joint_result->actual_median_speedup
+              << " stress_median_speedup="
+              << joint_result->stress_median_speedup
+              << " actual_delta_ms_per_layer="
+              << joint_result->actual_median_delta_ms
+              << " projected_53_layer_delta_ms="
+              << joint_result->projected_delta_ms
+              << " actual_every_round_strictly_gt_1="
+              << (joint_result->actual_every_round_strictly_improves ? "true"
+                                                                      : "false")
+              << " stress_every_round_strictly_gt_1="
+              << (joint_result->stress_every_round_strictly_improves ? "true"
+                                                                      : "false")
+              << " correctness="
+              << (joint_result->correctness_gate ? "PASS" : "FAIL")
+              << " isolated_absolute_gate=not_applied"
+              << " gate=pending_joint_aggregation\n";
+    return;
+  }
+
   const float combined_projected_saving_ms =
       static_cast<float>(kEligibleGateUpLayers) *
           timings[0U][0U].median_delta_ms +
@@ -50945,6 +51141,64 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
               label + " clears independent 53-layer down-only gate");
 }
 
+void finish_decode_projection_palette_v2_joint_gate(
+    TestContext& test,
+    const DecodeProjectionPaletteV2ComponentResult& qkv,
+    const DecodeProjectionPaletteV2ComponentResult& down) {
+  constexpr double kRequiredPerProcessArithmeticDeltaMs = 0.30;
+  constexpr double kRequiredThreeProcessMedianArithmeticDeltaMs = 0.35;
+  const bool completed_gate = qkv.completed && down.completed;
+  const bool correctness_gate =
+      completed_gate && qkv.correctness_gate && down.correctness_gate;
+  const bool strict_round_direction_gate =
+      completed_gate && qkv.actual_every_round_strictly_improves &&
+      qkv.stress_every_round_strictly_improves &&
+      down.actual_every_round_strictly_improves &&
+      down.stress_every_round_strictly_improves;
+  const double arithmetic_joint_delta_ms =
+      qkv.projected_delta_ms + down.projected_delta_ms;
+  const bool process_delta_gate =
+      std::isfinite(qkv.projected_delta_ms) &&
+      std::isfinite(down.projected_delta_ms) &&
+      std::isfinite(arithmetic_joint_delta_ms) &&
+      arithmetic_joint_delta_ms >= kRequiredPerProcessArithmeticDeltaMs;
+  const bool joint_gate =
+      correctness_gate && strict_round_direction_gate && process_delta_gate;
+  test.expect(joint_gate,
+              "Decode projection palette v2 clears same-process joint gate");
+  std::cout << "PERF_DECODE_PROJECTION_PALETTE_V2_SELECTED:"
+            << " process_scope=same_process"
+            << " stream_scope=same_stream"
+            << " measurement_order=qkv_then_down"
+            << " qkv_projected_48_layer_delta_ms="
+            << qkv.projected_delta_ms
+            << " down_projected_53_layer_delta_ms="
+            << down.projected_delta_ms
+            << " arithmetic_joint_delta_ms=" << arithmetic_joint_delta_ms
+            << " qkv_actual_rounds_strictly_gt_1="
+            << (qkv.actual_every_round_strictly_improves ? "true" : "false")
+            << " qkv_stress_rounds_strictly_gt_1="
+            << (qkv.stress_every_round_strictly_improves ? "true" : "false")
+            << " down_actual_rounds_strictly_gt_1="
+            << (down.actual_every_round_strictly_improves ? "true" : "false")
+            << " down_stress_rounds_strictly_gt_1="
+            << (down.stress_every_round_strictly_improves ? "true" : "false")
+            << " required_each_component_actual_stress_round_speedup="
+               "strictly_gt_1"
+            << " required_per_process_arithmetic_joint_delta_ms="
+            << kRequiredPerProcessArithmeticDeltaMs
+            << " required_three_process_median_arithmetic_joint_delta_ms="
+            << kRequiredThreeProcessMedianArithmeticDeltaMs
+            << " three_process_median_gate=pending_external_aggregation"
+            << " isolated_qkv_absolute_gates=not_applied"
+            << " isolated_down_absolute_gates=not_applied"
+            << " component_correctness="
+            << (correctness_gate ? "PASS" : "FAIL")
+            << " arithmetic_projection_only=true"
+            << " end_to_end_claim=none"
+            << " gate=" << (joint_gate ? "PASS" : "FAIL") << '\n';
+}
+
 }  // namespace
 
 int main() {
@@ -50974,6 +51228,23 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (decode_projection_palette_v2_performance_enabled()) {
+    DecodeProjectionPaletteV2ComponentResult qkv_result;
+    DecodeProjectionPaletteV2ComponentResult down_result;
+    run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(test, stream, &qkv_result);
+    run_optional_nvfp4_m1_scale6_sidecar_closeout(test, stream, &down_result);
+    finish_decode_projection_palette_v2_joint_gate(test, qkv_result,
+                                                    down_result);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode projection palette v2 joint stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode projection palette v2 joint assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode projection palette v2 joint screen passed\n";
+    return 0;
   }
   if (decode_fp8_qkv_z_register_prefetch_performance_enabled()) {
     run_decode_fp8_qkv_z_register_prefetch_screen(test, stream);
