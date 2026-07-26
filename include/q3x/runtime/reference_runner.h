@@ -121,11 +121,14 @@ struct ReferenceStepOutcome {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
-// Test-only screening surface for one fixed-position full Decode
-// CUDA Graph. It deliberately owns only one graph per runner and is not a
-// production position cache. prepare captures and instantiates without
-// executing or committing; replay executes the prepared graph and uses the
-// same synchronize, host prediction validation, and commit boundary as step.
+inline constexpr std::size_t kReferenceDecodeGraphP2MaximumSlots = 64U;
+
+// Test-only screening surface for a short fixed-position full Decode CUDA
+// Graph cache. It is deliberately bounded and is not the production decode
+// scheduler. prepare captures, instantiates, and uploads the current-position
+// slot without executing or committing; replay selects that position's slot
+// and uses the same synchronize, host prediction validation, and commit
+// boundary as step.
 struct ReferenceDecodeGraphP1Stats {
   std::uint32_t position = 0U;
   std::uint32_t input_token_id = 0U;
@@ -133,6 +136,11 @@ struct ReferenceDecodeGraphP1Stats {
   std::size_t kernel_node_count = 0U;
   std::size_t memcpy_node_count = 0U;
   std::size_t other_node_count = 0U;
+  double capture_enqueue_milliseconds = 0.0;
+  double topology_inspection_milliseconds = 0.0;
+  double instantiate_milliseconds = 0.0;
+  double upload_ready_milliseconds = 0.0;
+  double total_prepare_milliseconds = 0.0;
 };
 
 struct ReferenceDecodeGraphP1PrepareOutcome {
@@ -306,14 +314,22 @@ class ReferenceRunner {
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
 
-  // Strict SM87 predicted-token-only experiment. The prepared graph fixes the
-  // current_position(); replay updates the root embedding node even when the
-  // token is unchanged. reset may restore the same logical position before
-  // another replay; graph pointers remain valid because RequestState storage
-  // is stable for the runner lifetime.
+  // Strict SM87 predicted-token-only experiment. Each prepared slot fixes one
+  // current_position(); replay updates its root embedding node even when the
+  // token is unchanged. Slots are indexed by positions [0, 64). reset may
+  // restore a prepared logical position before another replay; graph pointers
+  // remain valid because RequestState storage is stable for the runner
+  // lifetime.
   [[nodiscard]] ReferenceDecodeGraphP1PrepareOutcome
   prepare_fixed_position_decode_graph_p1(
       std::uint32_t input_token_id) noexcept;
+  [[nodiscard]] bool has_fixed_position_decode_graph_p1(
+      std::uint32_t position) const noexcept;
+  [[nodiscard]] std::optional<ReferenceDecodeGraphP1Stats>
+  fixed_position_decode_graph_p1_stats(
+      std::uint32_t position) const noexcept;
+  // Callers select their serial fallback with has_* before replay. Directly
+  // replaying a missing slot is an invalid experimental operation.
   [[nodiscard]] ReferenceStepOutcome replay_fixed_position_decode_graph_p1(
       std::uint32_t input_token_id, bool measure_timing = false) noexcept;
 
@@ -372,7 +388,6 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceStepOutcome step_impl(
       std::uint32_t input_token_id, const ReferenceStepOptions& options,
       DecodeGraphP1Action graph_action) noexcept;
-  void destroy_decode_graph_p1() noexcept;
 
   struct DecodeGraphP1KernelLaunch {
     void* function = nullptr;
@@ -380,6 +395,17 @@ class ReferenceRunner {
     std::array<unsigned int, 3U> block{};
     unsigned int shared_memory_bytes = 0U;
   };
+
+  struct DecodeGraphP1Slot {
+    void* graph = nullptr;
+    void* exec = nullptr;
+    void* embedding_node = nullptr;
+    ReferenceDecodeGraphP1Stats stats{};
+    DecodeGraphP1KernelLaunch embedding_launch{};
+  };
+
+  void destroy_decode_graph_p1_slot(std::size_t position) noexcept;
+  void destroy_decode_graph_p1() noexcept;
 
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
@@ -389,11 +415,8 @@ class ReferenceRunner {
   void* prefill_branch_done_event_ = nullptr;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
-  void* decode_graph_p1_ = nullptr;
-  void* decode_graph_exec_p1_ = nullptr;
-  void* decode_graph_embedding_node_p1_ = nullptr;
-  ReferenceDecodeGraphP1Stats decode_graph_p1_stats_{};
-  DecodeGraphP1KernelLaunch decode_graph_embedding_launch_p1_{};
+  std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
+      decode_graph_p1_slots_{};
   bool decode_graph_capture_active_ = false;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;

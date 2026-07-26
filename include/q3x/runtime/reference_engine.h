@@ -69,6 +69,11 @@ struct ReferenceGenerateOptions {
   // boundaries. Disabled by default so ordinary generation pays one
   // predictable dispatch branch.
   bool emit_nvtx_phase_ranges = false;
+  // Test-only production-alignment hook. When enabled, predicted-only Decode
+  // replays an already-prepared position-specialized graph and falls back to
+  // the ordinary serial step on every incompatible option or cache miss.
+  // Graph preparation is explicit and never occurs in a timed request.
+  bool use_prepared_decode_graph_cache = false;
 };
 
 enum class ReferenceStopReason : std::uint8_t {
@@ -112,6 +117,8 @@ struct ReferenceGeneration {
   ReferenceGenerationTiming timing;
   std::vector<ReferenceStepResult> steps;
   std::vector<ReferenceTraceDigest> traces;
+  std::size_t decode_graph_replays = 0U;
+  std::size_t decode_graph_serial_fallbacks = 0U;
 };
 
 struct ReferenceEngineLoadStats {
@@ -205,6 +212,74 @@ struct ReferenceDecodeGraphP1ScreenOutcome {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+inline constexpr std::size_t kReferenceDecodeGraphP2ScreenRounds = 5U;
+inline constexpr std::size_t kReferenceDecodeGraphP2ContinuousSteps = 25U;
+
+struct ReferenceDecodeGraphP2ScreenOptions {
+  std::uint32_t first_decode_position = 19U;
+  std::uint32_t last_decode_position = 43U;
+  std::uint32_t boundary_graph_position = 63U;
+  std::uint32_t capture_input_token_id = 0U;
+  std::uint32_t boundary_input_token_id = 9'419U;
+  std::uint32_t max_new_tokens = 26U;
+  std::uint32_t prefill_chunk_size = kMaximumRequestPrefillChunkSize;
+};
+
+struct ReferenceDecodeGraphP2RoundTiming {
+  double serial_first_milliseconds_per_token = 0.0;
+  double graph_first_milliseconds_per_token = 0.0;
+  double graph_second_milliseconds_per_token = 0.0;
+  double serial_second_milliseconds_per_token = 0.0;
+};
+
+struct ReferenceDecodeGraphP2ScreenResult {
+  std::array<ReferenceDecodeGraphP1Stats,
+             kReferenceDecodeGraphP2ContinuousSteps>
+      continuous_graphs{};
+  ReferenceDecodeGraphP1Stats boundary_graph;
+  double cache_prepare_milliseconds = 0.0;
+  std::uint64_t cache_free_bytes_before = 0U;
+  std::uint64_t cache_free_bytes_after = 0U;
+  std::uint64_t cache_cuda_free_drop_bytes = 0U;
+  std::uint64_t boundary_free_bytes_after = 0U;
+  std::uint64_t boundary_cuda_free_drop_bytes = 0U;
+  std::uint64_t cache_plus_boundary_cuda_free_drop_bytes = 0U;
+  std::uint64_t cache_host_private_bytes_before = 0U;
+  std::uint64_t cache_host_private_bytes_after = 0U;
+  std::uint64_t cache_host_private_increase_bytes = 0U;
+  bool cache_host_private_observed = false;
+  bool cache_prepare_arena_exact = false;
+  bool boundary_prepare_arena_exact = false;
+  ReferenceGeneration serial_generation;
+  ReferenceGeneration graph_generation;
+  bool continuous_generation_exact = false;
+  bool continuous_arena_exact = false;
+  bool cache_miss_fallback_exact = false;
+  bool full_statistics_fallback_exact = false;
+  bool trace_fallback_exact = false;
+  bool boundary_cache_hit = false;
+  bool boundary_cache_miss_fallback = false;
+  std::uint32_t boundary_serial_first_prediction = 0U;
+  std::uint32_t boundary_serial_second_prediction = 0U;
+  std::uint32_t boundary_graph_first_prediction = 0U;
+  std::uint32_t boundary_fallback_second_prediction = 0U;
+  bool boundary_arena_exact = false;
+  std::uint64_t compared_arena_bytes = 0U;
+  std::array<ReferenceDecodeGraphP2RoundTiming,
+             kReferenceDecodeGraphP2ScreenRounds>
+      rounds{};
+};
+
+struct ReferenceDecodeGraphP2ScreenOutcome {
+  std::optional<ReferenceDecodeGraphP2ScreenResult> value;
+  ReferenceEngineDiagnostic diagnostic;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && diagnostic.code == ReferenceEngineError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 struct ReferenceEngineCreateResult;
 struct ReferenceOneShotOptions;
 struct ReferenceOneShotResult;
@@ -242,6 +317,14 @@ class ReferenceEngine {
   screen_fixed_position_decode_graph_p1(
       std::string_view user_prompt,
       const ReferenceDecodeGraphP1ScreenOptions& options = {});
+
+  // Test-only P2 screen for a pre-uploaded short-position GraphExec cache.
+  // It validates continuous generation and serial fallbacks from identical
+  // complete arena snapshots before measuring hot subsequent-token latency.
+  [[nodiscard]] ReferenceDecodeGraphP2ScreenOutcome
+  screen_short_decode_graph_cache_p2(
+      std::string_view user_prompt,
+      const ReferenceDecodeGraphP2ScreenOptions& options = {});
 
  private:
   friend struct ReferenceEngineCreateResult;

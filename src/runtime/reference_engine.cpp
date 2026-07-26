@@ -12,11 +12,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <future>
 #include <limits>
 #include <memory>
 #include <new>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -319,6 +321,128 @@ struct NvFp4DownScale6LayerPlan {
       .count();
 }
 
+[[nodiscard]] std::optional<std::uint64_t>
+process_private_memory_bytes() {
+  std::ifstream input("/proc/self/smaps_rollup");
+  if (!input) {
+    return std::nullopt;
+  }
+  std::uint64_t private_clean_kib = 0U;
+  std::uint64_t private_dirty_kib = 0U;
+  bool found_clean = false;
+  bool found_dirty = false;
+  std::string line;
+  while (std::getline(input, line)) {
+    const bool clean = line.rfind("Private_Clean:", 0U) == 0U;
+    const bool dirty = line.rfind("Private_Dirty:", 0U) == 0U;
+    if (!clean && !dirty) {
+      continue;
+    }
+    std::istringstream fields(line);
+    std::string key;
+    std::uint64_t kib = 0U;
+    std::string unit;
+    if (!(fields >> key >> kib >> unit) || unit != "kB") {
+      return std::nullopt;
+    }
+    if (clean) {
+      private_clean_kib = kib;
+      found_clean = true;
+    } else {
+      private_dirty_kib = kib;
+      found_dirty = true;
+    }
+  }
+  if (!found_clean || !found_dirty ||
+      private_clean_kib >
+          std::numeric_limits<std::uint64_t>::max() - private_dirty_kib ||
+      private_clean_kib + private_dirty_kib >
+          std::numeric_limits<std::uint64_t>::max() / 1024U) {
+    return std::nullopt;
+  }
+  return (private_clean_kib + private_dirty_kib) * 1024U;
+}
+
+[[nodiscard]] bool same_generation_semantics(
+    const ReferenceGeneration& expected,
+    const ReferenceGeneration& actual) noexcept {
+  if (expected.rendered_prompt != actual.rendered_prompt ||
+      expected.prompt_token_ids != actual.prompt_token_ids ||
+      expected.generated_token_ids != actual.generated_token_ids ||
+      expected.generated_text != actual.generated_text ||
+      expected.stop_reason != actual.stop_reason ||
+      expected.requested_prefill_chunk_size !=
+          actual.requested_prefill_chunk_size ||
+      expected.effective_prefill_chunk_size !=
+          actual.effective_prefill_chunk_size ||
+      expected.steps.size() != actual.steps.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < expected.steps.size(); ++index) {
+    const ReferenceStepResult& left = expected.steps[index];
+    const ReferenceStepResult& right = actual.steps[index];
+    if (left.position != right.position ||
+        left.input_token_id != right.input_token_id ||
+        left.logits.has_value() != right.logits.has_value() ||
+        left.prediction.has_value() != right.prediction.has_value()) {
+      return false;
+    }
+    if (left.logits.has_value() &&
+        (left.logits->predicted_token_id !=
+             right.logits->predicted_token_id ||
+         left.logits->chosen_logit != right.logits->chosen_logit ||
+         left.logits->max_log_probability !=
+             right.logits->max_log_probability ||
+         left.logits->logsumexp != right.logits->logsumexp)) {
+      return false;
+    }
+    if (left.prediction.has_value() &&
+        left.prediction->predicted_token_id !=
+            right.prediction->predicted_token_id) {
+      return false;
+    }
+  }
+  if (expected.traces.size() != actual.traces.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < expected.traces.size(); ++index) {
+    const ReferenceTraceDigest& left = expected.traces[index];
+    const ReferenceTraceDigest& right = actual.traces[index];
+    if (left.position != right.position ||
+        left.input_token_id != right.input_token_id ||
+        left.element_count != right.element_count ||
+        left.full_sha256 != right.full_sha256 ||
+        left.embedding_sha256 != right.embedding_sha256 ||
+        left.layer_hidden_sha256 != right.layer_hidden_sha256 ||
+        left.layer_residual_sha256 != right.layer_residual_sha256 ||
+        left.final_norm_sha256 != right.final_norm_sha256) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool decode_milliseconds_per_token(
+    const ReferenceGeneration& generation,
+    const std::size_t expected_steps, double& milliseconds) noexcept {
+  if (expected_steps == 0U ||
+      generation.timing.subsequent_token_milliseconds.size() !=
+          expected_steps ||
+      !std::isfinite(generation.timing.decode_after_first_milliseconds) ||
+      generation.timing.decode_after_first_milliseconds < 0.0) {
+    return false;
+  }
+  for (const double sample :
+       generation.timing.subsequent_token_milliseconds) {
+    if (!std::isfinite(sample) || sample < 0.0) {
+      return false;
+    }
+  }
+  milliseconds = generation.timing.decode_after_first_milliseconds /
+                 static_cast<double>(expected_steps);
+  return std::isfinite(milliseconds) && milliseconds >= 0.0;
+}
+
 [[nodiscard]] ReferenceEngineDiagnostic engine_diagnostic(
     const ReferenceEngineError code, std::string stage,
     std::string message, std::string context = {}) {
@@ -517,6 +641,8 @@ struct EngineStepContext {
   ReferenceRunner* runner = nullptr;
   std::vector<ReferenceTraceDigest>* traces = nullptr;
   bool capture_trace = false;
+  std::size_t decode_graph_replays = 0U;
+  std::size_t decode_graph_serial_fallbacks = 0U;
 };
 
 [[nodiscard]] ReferenceStepOutcome step_with_trace(
@@ -590,6 +716,22 @@ struct EngineStepContext {
   }
   return context.runner->prefill_prefix_tile(input_token_ids, token_count,
                                              options);
+}
+
+[[nodiscard]] ReferenceStepOutcome decode_with_prepared_graph_cache(
+    void* const opaque_context, const std::uint32_t input_token_id,
+    const ReferenceStepOptions& options) {
+  auto& context = *static_cast<EngineStepContext*>(opaque_context);
+  if (options.compute_logits && !options.capture_trace &&
+      options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly &&
+      context.runner->has_fixed_position_decode_graph_p1(
+          context.runner->current_position())) {
+    ++context.decode_graph_replays;
+    return context.runner->replay_fixed_position_decode_graph_p1(
+        input_token_id, options.measure_timing);
+  }
+  ++context.decode_graph_serial_fallbacks;
+  return step_with_trace(opaque_context, input_token_id, options);
 }
 
 [[nodiscard]] bool checked_required_steps(
@@ -1338,7 +1480,10 @@ ReferenceGenerateResult ReferenceEngine::generate(
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
-    decode_plan.decode_step = step_with_trace;
+    decode_plan.decode_step =
+        options.use_prepared_decode_graph_cache
+            ? decode_with_prepared_graph_cache
+            : step_with_trace;
 
     reference_engine_detail::GenerationControlResult control =
         reference_engine_detail::run_generation_control(
@@ -1384,6 +1529,9 @@ ReferenceGenerateResult ReferenceEngine::generate(
     generation.timing = std::move(control.value->timing);
     generation.steps = std::move(control.value->steps);
     generation.traces = std::move(traces);
+    generation.decode_graph_replays = step_context.decode_graph_replays;
+    generation.decode_graph_serial_fallbacks =
+        step_context.decode_graph_serial_fallbacks;
     result.value.emplace(std::move(generation));
     return result;
   } catch (const std::bad_alloc&) {
@@ -1825,6 +1973,815 @@ ReferenceEngine::screen_fixed_position_decode_graph_p1(
     outcome.diagnostic = engine_diagnostic(
         ReferenceEngineError::kRunnerStepFailure,
         "decode_graph_p1_screen", error.what());
+    return outcome;
+  }
+}
+
+ReferenceDecodeGraphP2ScreenOutcome
+ReferenceEngine::screen_short_decode_graph_cache_p2(
+    const std::string_view user_prompt,
+    const ReferenceDecodeGraphP2ScreenOptions& options) {
+  ReferenceDecodeGraphP2ScreenOutcome outcome;
+  if (!*this) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "decode_graph_p2_engine", "reference engine is empty");
+    return outcome;
+  }
+  const bool continuous_range_exact =
+      options.first_decode_position <= options.last_decode_position &&
+      static_cast<std::uint64_t>(options.last_decode_position) -
+                  options.first_decode_position +
+              1U ==
+          kReferenceDecodeGraphP2ContinuousSteps;
+  if (user_prompt.empty() || !continuous_range_exact ||
+      options.last_decode_position >=
+          kReferenceDecodeGraphP2MaximumSlots ||
+      options.boundary_graph_position + 1U !=
+          kReferenceDecodeGraphP2MaximumSlots ||
+      options.capture_input_token_id >= kReferenceVocabularySize ||
+      options.boundary_input_token_id >= kReferenceVocabularySize ||
+      options.max_new_tokens !=
+          kReferenceDecodeGraphP2ContinuousSteps + 1U ||
+      options.prefill_chunk_size == 0U ||
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
+      options.prefill_chunk_size >
+          impl_->request_state->plan().prefill_chunk_size ||
+      max_sequence_length() < options.boundary_graph_position + 2U ||
+      !impl_->trace_enabled) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "decode_graph_p2_options",
+        "P2 requires a 25-position range below P64, a P63 boundary, "
+        "max_new_tokens=26, trace reservation, and request capacity through "
+        "P64");
+    return outcome;
+  }
+
+  try {
+    RequestState& state = *impl_->request_state;
+    ReferenceRunner& runner = *impl_->runner;
+    const ReferenceRunnerStatus reset_status = runner.reset();
+    if (!reset_status) {
+      outcome.diagnostic = runner_diagnostic(
+          ReferenceEngineError::kRunnerResetFailure,
+          "decode_graph_p2_initial_reset", reset_status);
+      return outcome;
+    }
+
+    const std::uint64_t arena_bytes_u64 = state.arena_bytes();
+    if (state.arena_data() == nullptr || arena_bytes_u64 == 0U ||
+        arena_bytes_u64 > static_cast<std::uint64_t>(
+                              std::numeric_limits<std::size_t>::max())) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kArithmeticOverflow,
+          "decode_graph_p2_arena",
+          "request arena cannot be represented by the P2 screen");
+      return outcome;
+    }
+    const std::size_t arena_bytes =
+        static_cast<std::size_t>(arena_bytes_u64);
+    void* const arena = state.arena_data();
+
+    auto set_cuda_diagnostic = [&outcome](
+                                   const ReferenceEngineError code,
+                                   const std::string_view stage,
+                                   const std::string_view message,
+                                   const cudaError_t status) {
+      outcome.diagnostic = engine_diagnostic(
+          code, std::string(stage), std::string(message),
+          cudaGetErrorString(status));
+      outcome.diagnostic.cuda_error = static_cast<int>(status);
+    };
+
+    DecodeGraphP1DeviceBuffer baseline;
+    DecodeGraphP1DeviceBuffer serial_after;
+    DecodeGraphP1DeviceBuffer boundary_baseline;
+    for (auto* const allocation :
+         {&baseline, &serial_after, &boundary_baseline}) {
+      const cudaError_t status = allocation->allocate(arena_bytes);
+      if (status != cudaSuccess) {
+        set_cuda_diagnostic(
+            ReferenceEngineError::kAllocationFailure,
+            "decode_graph_p2_snapshot_allocate",
+            "failed to allocate a complete device arena snapshot", status);
+        return outcome;
+      }
+    }
+
+    constexpr std::size_t kCompareChunkBytes = 8U * 1024U * 1024U;
+    const std::size_t host_compare_bytes =
+        std::min(arena_bytes, kCompareChunkBytes);
+    std::vector<std::uint8_t> expected_chunk(host_compare_bytes);
+    std::vector<std::uint8_t> actual_chunk(host_compare_bytes);
+
+    auto copy_arena_to = [&](void* const destination,
+                             const std::string_view stage) -> bool {
+      cudaError_t status = cudaMemcpy(destination, arena, arena_bytes,
+                                      cudaMemcpyDeviceToDevice);
+      if (status == cudaSuccess) {
+        status = cudaDeviceSynchronize();
+      }
+      if (status != cudaSuccess) {
+        set_cuda_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure, stage,
+            "failed to snapshot and synchronize the complete request arena",
+            status);
+        return false;
+      }
+      return true;
+    };
+
+    if (!copy_arena_to(baseline.data,
+                       "decode_graph_p2_baseline_snapshot")) {
+      return outcome;
+    }
+
+    DecodeGraphP1StateRestoreGuard restore_guard{
+        &state, arena, baseline.data, arena_bytes, 0U, true};
+
+    auto set_position = [&](const std::uint32_t position,
+                            const std::string_view stage) -> bool {
+      const RequestOperationStatus status =
+          state.set_sequence_length(position);
+      if (!status) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRequestStateFailure,
+            std::string(stage), "failed to set the logical sequence length",
+            "position=" + std::to_string(position));
+        outcome.diagnostic.dependency_error =
+            static_cast<int>(status.error);
+        outcome.diagnostic.cuda_error = status.cuda_error;
+        return false;
+      }
+      return true;
+    };
+
+    auto restore_from = [&](const void* const snapshot,
+                            const std::uint32_t position,
+                            const std::string_view stage) -> bool {
+      cudaError_t status = cudaMemcpy(arena, snapshot, arena_bytes,
+                                      cudaMemcpyDeviceToDevice);
+      if (status == cudaSuccess) {
+        status = cudaDeviceSynchronize();
+      }
+      if (status != cudaSuccess) {
+        set_cuda_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure, stage,
+            "failed to restore and synchronize the complete request arena",
+            status);
+        return false;
+      }
+      return set_position(position, stage);
+    };
+
+    auto compare_arenas = [&](const void* const expected,
+                              const void* const actual,
+                              bool* const exact,
+                              const std::string_view stage) -> bool {
+      *exact = true;
+      const auto* const expected_bytes =
+          static_cast<const std::uint8_t*>(expected);
+      const auto* const actual_bytes =
+          static_cast<const std::uint8_t*>(actual);
+      for (std::size_t offset = 0U; offset < arena_bytes;
+           offset += host_compare_bytes) {
+        const std::size_t bytes =
+            std::min(host_compare_bytes, arena_bytes - offset);
+        cudaError_t status = cudaMemcpy(
+            expected_chunk.data(), expected_bytes + offset, bytes,
+            cudaMemcpyDeviceToHost);
+        if (status == cudaSuccess) {
+          status = cudaMemcpy(actual_chunk.data(), actual_bytes + offset,
+                              bytes, cudaMemcpyDeviceToHost);
+        }
+        if (status != cudaSuccess) {
+          set_cuda_diagnostic(
+              ReferenceEngineError::kRunnerStepFailure, stage,
+              "failed to read complete arenas for exact comparison", status);
+          return false;
+        }
+        if (std::memcmp(expected_chunk.data(), actual_chunk.data(), bytes) !=
+            0) {
+          *exact = false;
+        }
+      }
+      return true;
+    };
+
+    auto run_generation = [&](const std::string_view prompt,
+                              const std::uint32_t max_new_tokens,
+                              const bool graph,
+                              const ReferenceLogitsMode logits_mode,
+                              const bool capture_trace,
+                              const std::string_view stage,
+                              ReferenceGeneration* const generation) -> bool {
+      ReferenceGenerateOptions generate_options;
+      generate_options.max_new_tokens = max_new_tokens;
+      generate_options.capture_trace = capture_trace;
+      generate_options.prefill_chunk_size = options.prefill_chunk_size;
+      generate_options.logits_mode = logits_mode;
+      generate_options.use_prepared_decode_graph_cache = graph;
+      ReferenceGenerateResult generated = generate(prompt, generate_options);
+      if (!generated) {
+        outcome.diagnostic = std::move(generated.diagnostic);
+        outcome.diagnostic.stage =
+            std::string(stage) + "/" + outcome.diagnostic.stage;
+        return false;
+      }
+      *generation = std::move(*generated.value);
+      return true;
+    };
+
+    auto valid_continuous_shape = [&](
+                                      const ReferenceGeneration& generation)
+        -> bool {
+      return generation.prompt_token_ids.size() ==
+                 options.first_decode_position &&
+             generation.generated_token_ids.size() ==
+                 options.max_new_tokens &&
+             generation.steps.size() ==
+                 generation.prompt_token_ids.size() +
+                     generation.generated_token_ids.size() - 1U &&
+             generation.timing.subsequent_token_milliseconds.size() ==
+                 kReferenceDecodeGraphP2ContinuousSteps;
+    };
+
+    ReferenceDecodeGraphP2ScreenResult result;
+    result.compared_arena_bytes = arena_bytes_u64;
+
+    // Establish one serial oracle and warm every production kernel/module
+    // before taking cache resource readings.
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_serial_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, false,
+                        ReferenceLogitsMode::kPredictedTokenOnly, false,
+                        "decode_graph_p2_serial_generation",
+                        &result.serial_generation) ||
+        !valid_continuous_shape(result.serial_generation) ||
+        result.serial_generation.decode_graph_replays != 0U ||
+        result.serial_generation.decode_graph_serial_fallbacks != 0U ||
+        state.current_position() != options.last_decode_position + 1U ||
+        !copy_arena_to(serial_after.data,
+                       "decode_graph_p2_serial_result_snapshot")) {
+      if (outcome.diagnostic.code == ReferenceEngineError::kNone) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p2_serial_shape",
+            "serial oracle did not produce the exact continuous P2 shape");
+      }
+      return outcome;
+    }
+
+    // Before preparation, the opt-in dispatch must cleanly choose serial for
+    // every Decode position and reproduce the complete serial result.
+    ReferenceGeneration cache_miss_generation;
+    bool cache_miss_arena_exact = false;
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_cache_miss_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, true,
+                        ReferenceLogitsMode::kPredictedTokenOnly, false,
+                        "decode_graph_p2_cache_miss_generation",
+                        &cache_miss_generation) ||
+        !compare_arenas(serial_after.data, arena, &cache_miss_arena_exact,
+                        "decode_graph_p2_cache_miss_arena")) {
+      return outcome;
+    }
+    result.cache_miss_fallback_exact =
+        same_generation_semantics(result.serial_generation,
+                                  cache_miss_generation) &&
+        cache_miss_generation.decode_graph_replays == 0U &&
+        cache_miss_generation.decode_graph_serial_fallbacks ==
+            kReferenceDecodeGraphP2ContinuousSteps &&
+        cache_miss_arena_exact;
+    if (!result.cache_miss_fallback_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_cache_miss_fallback",
+          "empty-cache opt-in did not reproduce serial generation exactly");
+      return outcome;
+    }
+
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_prepare_restore")) {
+      return outcome;
+    }
+    for (std::uint32_t position = options.first_decode_position;
+         position <= options.last_decode_position; ++position) {
+      if (runner.has_fixed_position_decode_graph_p1(position)) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kInvalidArgument,
+            "decode_graph_p2_preexisting_cache",
+            "P2 screen requires an empty continuous cache");
+        return outcome;
+      }
+    }
+    if (runner.has_fixed_position_decode_graph_p1(
+            options.boundary_graph_position)) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "decode_graph_p2_preexisting_boundary_cache",
+          "P2 screen requires an empty boundary cache slot");
+      return outcome;
+    }
+
+    std::size_t free_before = 0U;
+    std::size_t total_before = 0U;
+    cudaError_t cuda_status =
+        cudaMemGetInfo(&free_before, &total_before);
+    if (cuda_status != cudaSuccess) {
+      set_cuda_diagnostic(ReferenceEngineError::kRunnerStepFailure,
+                          "decode_graph_p2_memory_before",
+                          "failed to read CUDA free memory before cache prep",
+                          cuda_status);
+      return outcome;
+    }
+    const std::optional<std::uint64_t> host_private_before =
+        process_private_memory_bytes();
+    const Clock::time_point prepare_begin = Clock::now();
+    bool topology_exact = true;
+    for (std::size_t index = 0U;
+         index < kReferenceDecodeGraphP2ContinuousSteps; ++index) {
+      const std::uint32_t position =
+          options.first_decode_position +
+          static_cast<std::uint32_t>(index);
+      if (!set_position(position, "decode_graph_p2_prepare_position")) {
+        return outcome;
+      }
+      ReferenceDecodeGraphP1PrepareOutcome prepared =
+          runner.prepare_fixed_position_decode_graph_p1(
+              options.capture_input_token_id);
+      if (!prepared) {
+        outcome.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p2_prepare_slot", prepared.status);
+        return outcome;
+      }
+      if (state.current_position() != position) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p2_prepare_slot_position",
+            "graph preparation changed the logical sequence length",
+            "expected=" + std::to_string(position) + " actual=" +
+                std::to_string(state.current_position()));
+        return outcome;
+      }
+      result.continuous_graphs[index] = *prepared.value;
+      const ReferenceDecodeGraphP1Stats& stats =
+          result.continuous_graphs[index];
+      topology_exact =
+          topology_exact && stats.position == position &&
+          stats.input_token_id == options.capture_input_token_id &&
+          stats.node_count == 390U && stats.kernel_node_count == 389U &&
+          stats.memcpy_node_count == 1U && stats.other_node_count == 0U &&
+          runner.has_fixed_position_decode_graph_p1(position);
+    }
+    if (!set_position(0U, "decode_graph_p2_prepare_restore_position")) {
+      return outcome;
+    }
+    // The cold-time and memory gates describe the production P19-P43 cache.
+    // P63 is prepared separately below only to validate the P63/P64 boundary;
+    // it is not part of the selected short-position cache window.
+    result.cache_prepare_milliseconds =
+        elapsed_milliseconds(prepare_begin);
+
+    std::size_t free_after = 0U;
+    std::size_t total_after = 0U;
+    cuda_status = cudaMemGetInfo(&free_after, &total_after);
+    if (cuda_status != cudaSuccess || total_before != total_after) {
+      set_cuda_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_memory_after",
+          "failed to read a stable CUDA memory total after cache prep",
+          cuda_status == cudaSuccess ? cudaErrorUnknown : cuda_status);
+      return outcome;
+    }
+    result.cache_free_bytes_before = free_before;
+    result.cache_free_bytes_after = free_after;
+    result.cache_cuda_free_drop_bytes =
+        free_before >= free_after ? free_before - free_after : 0U;
+    const std::optional<std::uint64_t> host_private_after =
+        process_private_memory_bytes();
+    result.cache_host_private_observed =
+        host_private_before.has_value() && host_private_after.has_value();
+    if (result.cache_host_private_observed) {
+      result.cache_host_private_bytes_before = *host_private_before;
+      result.cache_host_private_bytes_after = *host_private_after;
+      result.cache_host_private_increase_bytes =
+          *host_private_after >= *host_private_before
+              ? *host_private_after - *host_private_before
+              : 0U;
+    }
+    if (!compare_arenas(baseline.data, arena,
+                        &result.cache_prepare_arena_exact,
+                        "decode_graph_p2_prepare_arena")) {
+      return outcome;
+    }
+    if (!topology_exact || !result.cache_prepare_arena_exact ||
+        state.current_position() != 0U ||
+        !std::isfinite(result.cache_prepare_milliseconds) ||
+        result.cache_prepare_milliseconds < 0.0) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_prepare_contract",
+          "cache preparation changed state or violated topology/timing");
+      return outcome;
+    }
+
+    if (!set_position(options.boundary_graph_position,
+                      "decode_graph_p2_prepare_boundary_position")) {
+      return outcome;
+    }
+    ReferenceDecodeGraphP1PrepareOutcome boundary_prepared =
+        runner.prepare_fixed_position_decode_graph_p1(
+            options.capture_input_token_id);
+    if (!boundary_prepared) {
+      outcome.diagnostic = runner_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_prepare_boundary", boundary_prepared.status);
+      return outcome;
+    }
+    if (state.current_position() != options.boundary_graph_position) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_prepare_boundary_position_contract",
+          "boundary graph preparation changed logical sequence length",
+          "expected=" +
+              std::to_string(options.boundary_graph_position) +
+              " actual=" + std::to_string(state.current_position()));
+      return outcome;
+    }
+    result.boundary_graph = *boundary_prepared.value;
+    topology_exact =
+        topology_exact &&
+        result.boundary_graph.position == options.boundary_graph_position &&
+        result.boundary_graph.input_token_id ==
+            options.capture_input_token_id &&
+        result.boundary_graph.node_count == 390U &&
+        result.boundary_graph.kernel_node_count == 389U &&
+        result.boundary_graph.memcpy_node_count == 1U &&
+        result.boundary_graph.other_node_count == 0U &&
+        runner.has_fixed_position_decode_graph_p1(
+            options.boundary_graph_position) &&
+        !runner.has_fixed_position_decode_graph_p1(
+            options.boundary_graph_position + 1U);
+    if (!set_position(0U,
+                      "decode_graph_p2_prepare_boundary_restore_position") ||
+        !compare_arenas(baseline.data, arena,
+                        &result.boundary_prepare_arena_exact,
+                        "decode_graph_p2_prepare_boundary_arena")) {
+      return outcome;
+    }
+    std::size_t free_after_boundary = 0U;
+    std::size_t total_after_boundary = 0U;
+    cuda_status = cudaMemGetInfo(&free_after_boundary,
+                                 &total_after_boundary);
+    if (cuda_status != cudaSuccess ||
+        total_before != total_after_boundary) {
+      set_cuda_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_boundary_memory_after",
+          "failed to read stable CUDA memory after boundary graph prep",
+          cuda_status == cudaSuccess ? cudaErrorUnknown : cuda_status);
+      return outcome;
+    }
+    result.boundary_free_bytes_after = free_after_boundary;
+    result.boundary_cuda_free_drop_bytes =
+        free_after >= free_after_boundary
+            ? free_after - free_after_boundary
+            : 0U;
+    result.cache_plus_boundary_cuda_free_drop_bytes =
+        free_before >= free_after_boundary
+            ? free_before - free_after_boundary
+            : 0U;
+    if (!topology_exact || !result.boundary_prepare_arena_exact ||
+        state.current_position() != 0U) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_prepare_boundary_contract",
+          "boundary graph preparation changed state or violated topology");
+      return outcome;
+    }
+
+    // This is the first replay of every distinct uploaded slot. It is the
+    // production-alignment correctness chain, not a warmed single-exec loop.
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_graph_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, true,
+                        ReferenceLogitsMode::kPredictedTokenOnly, false,
+                        "decode_graph_p2_graph_generation",
+                        &result.graph_generation) ||
+        !compare_arenas(serial_after.data, arena,
+                        &result.continuous_arena_exact,
+                        "decode_graph_p2_continuous_arena")) {
+      return outcome;
+    }
+    result.continuous_generation_exact =
+        valid_continuous_shape(result.graph_generation) &&
+        same_generation_semantics(result.serial_generation,
+                                  result.graph_generation) &&
+        result.graph_generation.decode_graph_replays ==
+            kReferenceDecodeGraphP2ContinuousSteps &&
+        result.graph_generation.decode_graph_serial_fallbacks == 0U &&
+        state.current_position() == options.last_decode_position + 1U;
+    if (!result.continuous_generation_exact ||
+        !result.continuous_arena_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_continuous_correctness",
+          "continuous Graph generation did not reproduce serial semantics "
+          "and complete arena");
+      return outcome;
+    }
+
+    ReferenceGeneration full_statistics_serial;
+    ReferenceGeneration full_statistics_fallback;
+    bool full_statistics_arena_exact = false;
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_full_stats_serial_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, false,
+                        ReferenceLogitsMode::kFullStatistics, false,
+                        "decode_graph_p2_full_stats_serial",
+                        &full_statistics_serial) ||
+        !copy_arena_to(serial_after.data,
+                       "decode_graph_p2_full_stats_serial_snapshot") ||
+        !restore_from(baseline.data, 0U,
+                      "decode_graph_p2_full_stats_fallback_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, true,
+                        ReferenceLogitsMode::kFullStatistics, false,
+                        "decode_graph_p2_full_stats_generation",
+                        &full_statistics_fallback) ||
+        !compare_arenas(serial_after.data, arena,
+                        &full_statistics_arena_exact,
+                        "decode_graph_p2_full_stats_arena")) {
+      return outcome;
+    }
+    result.full_statistics_fallback_exact =
+        same_generation_semantics(full_statistics_serial,
+                                  full_statistics_fallback) &&
+        full_statistics_serial.decode_graph_replays == 0U &&
+        full_statistics_serial.decode_graph_serial_fallbacks == 0U &&
+        full_statistics_fallback.decode_graph_replays == 0U &&
+        full_statistics_fallback.decode_graph_serial_fallbacks ==
+            kReferenceDecodeGraphP2ContinuousSteps &&
+        full_statistics_arena_exact;
+    if (!result.full_statistics_fallback_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_full_stats_fallback",
+          "full-statistics opt-in did not take an exact serial fallback");
+      return outcome;
+    }
+
+    ReferenceGeneration trace_serial;
+    ReferenceGeneration trace_fallback;
+    bool trace_arena_exact = false;
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_trace_serial_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, false,
+                        ReferenceLogitsMode::kPredictedTokenOnly, true,
+                        "decode_graph_p2_trace_serial", &trace_serial) ||
+        !copy_arena_to(serial_after.data,
+                       "decode_graph_p2_trace_serial_snapshot") ||
+        !restore_from(baseline.data, 0U,
+                      "decode_graph_p2_trace_fallback_restore") ||
+        !run_generation(user_prompt, options.max_new_tokens, true,
+                        ReferenceLogitsMode::kPredictedTokenOnly, true,
+                        "decode_graph_p2_trace_generation",
+                        &trace_fallback) ||
+        !compare_arenas(serial_after.data, arena, &trace_arena_exact,
+                        "decode_graph_p2_trace_arena")) {
+      return outcome;
+    }
+    result.trace_fallback_exact =
+        same_generation_semantics(trace_serial, trace_fallback) &&
+        trace_serial.decode_graph_replays == 0U &&
+        trace_serial.decode_graph_serial_fallbacks == 0U &&
+        trace_fallback.decode_graph_replays == 0U &&
+        trace_fallback.decode_graph_serial_fallbacks ==
+            kReferenceDecodeGraphP2ContinuousSteps &&
+        trace_fallback.traces.size() == trace_fallback.steps.size() &&
+        trace_arena_exact;
+    if (!result.trace_fallback_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_trace_fallback",
+          "trace opt-in did not take an exact serial fallback");
+      return outcome;
+    }
+
+    std::string boundary_prompt;
+    for (std::size_t word = 0U; word < 51U; ++word) {
+      if (!boundary_prompt.empty()) {
+        boundary_prompt.push_back(' ');
+      }
+      boundary_prompt += "hello";
+    }
+    ReferenceGeneration boundary_seed;
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_boundary_seed_restore") ||
+        !run_generation(boundary_prompt, 1U, false,
+                        ReferenceLogitsMode::kPredictedTokenOnly, false,
+                        "decode_graph_p2_boundary_seed", &boundary_seed) ||
+        boundary_seed.prompt_token_ids.size() !=
+            options.boundary_graph_position ||
+        boundary_seed.generated_token_ids.size() != 1U ||
+        boundary_seed.generated_token_ids.front() !=
+            options.boundary_input_token_id ||
+        state.current_position() != options.boundary_graph_position ||
+        !copy_arena_to(boundary_baseline.data,
+                       "decode_graph_p2_boundary_baseline")) {
+      if (outcome.diagnostic.code == ReferenceEngineError::kNone) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p2_boundary_prompt_shape",
+            "the pinned 51-word boundary prompt did not produce P63");
+      }
+      return outcome;
+    }
+
+    ReferenceStepOptions boundary_step_options;
+    boundary_step_options.compute_logits = true;
+    boundary_step_options.capture_trace = false;
+    boundary_step_options.measure_timing = false;
+    boundary_step_options.logits_mode =
+        ReferenceLogitsMode::kPredictedTokenOnly;
+    auto boundary_step = [&](const bool graph,
+                             const std::uint32_t input_token_id,
+                             std::uint32_t* const prediction) -> bool {
+      ReferenceStepOutcome stepped =
+          graph ? runner.replay_fixed_position_decode_graph_p1(
+                      input_token_id, false)
+                : runner.step(input_token_id, boundary_step_options);
+      if (!stepped || !stepped.value->prediction.has_value()) {
+        if (!stepped) {
+          outcome.diagnostic = runner_diagnostic(
+              ReferenceEngineError::kRunnerStepFailure,
+              graph ? "decode_graph_p2_boundary_graph"
+                    : "decode_graph_p2_boundary_serial",
+              stepped.status);
+        } else {
+          outcome.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kMissingPrediction,
+              "decode_graph_p2_boundary_prediction",
+              "boundary step did not return a prediction");
+        }
+        return false;
+      }
+      *prediction = stepped.value->prediction->predicted_token_id;
+      return true;
+    };
+
+    const std::uint32_t boundary_input =
+        boundary_seed.generated_token_ids.front();
+    if (!boundary_step(false, boundary_input,
+                       &result.boundary_serial_first_prediction) ||
+        !boundary_step(false, result.boundary_serial_first_prediction,
+                       &result.boundary_serial_second_prediction) ||
+        !copy_arena_to(serial_after.data,
+                       "decode_graph_p2_boundary_serial_snapshot") ||
+        !restore_from(boundary_baseline.data,
+                      options.boundary_graph_position,
+                      "decode_graph_p2_boundary_graph_restore")) {
+      return outcome;
+    }
+    result.boundary_cache_hit =
+        runner.has_fixed_position_decode_graph_p1(
+            options.boundary_graph_position);
+    if (!boundary_step(true, boundary_input,
+                       &result.boundary_graph_first_prediction)) {
+      return outcome;
+    }
+    result.boundary_cache_miss_fallback =
+        state.current_position() == options.boundary_graph_position + 1U &&
+        !runner.has_fixed_position_decode_graph_p1(
+            options.boundary_graph_position + 1U);
+    EngineStepContext boundary_dispatch_context;
+    boundary_dispatch_context.runner = &runner;
+    boundary_dispatch_context.capture_trace = false;
+    ReferenceStepOutcome boundary_fallback =
+        decode_with_prepared_graph_cache(
+            &boundary_dispatch_context,
+            result.boundary_graph_first_prediction,
+            boundary_step_options);
+    if (!boundary_fallback ||
+        !boundary_fallback.value->prediction.has_value()) {
+      if (!boundary_fallback) {
+        outcome.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p2_boundary_dispatch_fallback",
+            boundary_fallback.status);
+      } else {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kMissingPrediction,
+            "decode_graph_p2_boundary_dispatch_prediction",
+            "P64 dispatcher fallback did not return a prediction");
+      }
+      return outcome;
+    }
+    result.boundary_fallback_second_prediction =
+        boundary_fallback.value->prediction->predicted_token_id;
+    result.boundary_cache_miss_fallback =
+        result.boundary_cache_miss_fallback &&
+        boundary_dispatch_context.decode_graph_replays == 0U &&
+        boundary_dispatch_context.decode_graph_serial_fallbacks == 1U;
+    if (!compare_arenas(serial_after.data, arena,
+                        &result.boundary_arena_exact,
+                        "decode_graph_p2_boundary_arena")) {
+      return outcome;
+    }
+    if (!result.boundary_cache_hit ||
+        !result.boundary_cache_miss_fallback ||
+        result.boundary_graph_first_prediction !=
+            result.boundary_serial_first_prediction ||
+        result.boundary_fallback_second_prediction !=
+            result.boundary_serial_second_prediction ||
+        !result.boundary_arena_exact ||
+        state.current_position() != options.boundary_graph_position + 2U) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p2_boundary_correctness",
+          "P63 Graph plus P64 serial fallback did not reproduce the serial "
+          "two-step boundary");
+      return outcome;
+    }
+
+    auto run_timed_segment = [&](const bool graph,
+                                 double* const milliseconds) -> bool {
+      if (!restore_from(baseline.data, 0U,
+                        graph ? "decode_graph_p2_timed_graph_restore"
+                              : "decode_graph_p2_timed_serial_restore")) {
+        return false;
+      }
+      ReferenceGeneration generated;
+      if (!run_generation(user_prompt, options.max_new_tokens, graph,
+                          ReferenceLogitsMode::kPredictedTokenOnly, false,
+                          graph ? "decode_graph_p2_timed_graph"
+                                : "decode_graph_p2_timed_serial",
+                          &generated) ||
+          !same_generation_semantics(result.serial_generation, generated) ||
+          (graph &&
+           (generated.decode_graph_replays !=
+                kReferenceDecodeGraphP2ContinuousSteps ||
+            generated.decode_graph_serial_fallbacks != 0U)) ||
+          (!graph && (generated.decode_graph_replays != 0U ||
+                      generated.decode_graph_serial_fallbacks != 0U)) ||
+          !decode_milliseconds_per_token(
+              generated, kReferenceDecodeGraphP2ContinuousSteps,
+              *milliseconds)) {
+        if (outcome.diagnostic.code == ReferenceEngineError::kNone) {
+          outcome.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerStepFailure,
+              "decode_graph_p2_timed_contract",
+              "timed segment did not preserve the serial generation "
+              "contract");
+        }
+        return false;
+      }
+      return true;
+    };
+
+    for (const bool graph : {false, true, true, false}) {
+      double ignored = 0.0;
+      if (!run_timed_segment(graph, &ignored)) {
+        return outcome;
+      }
+    }
+    for (ReferenceDecodeGraphP2RoundTiming& round : result.rounds) {
+      if (!run_timed_segment(
+              false, &round.serial_first_milliseconds_per_token) ||
+          !run_timed_segment(
+              true, &round.graph_first_milliseconds_per_token) ||
+          !run_timed_segment(
+              true, &round.graph_second_milliseconds_per_token) ||
+          !run_timed_segment(
+              false, &round.serial_second_milliseconds_per_token)) {
+        return outcome;
+      }
+    }
+
+    if (!restore_from(baseline.data, 0U,
+                      "decode_graph_p2_final_restore")) {
+      return outcome;
+    }
+    restore_guard.armed = false;
+    outcome.value.emplace(std::move(result));
+    return outcome;
+  } catch (const std::bad_alloc&) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure,
+        "decode_graph_p2_screen",
+        "host allocation failed during the Decode Graph P2 screen");
+    return outcome;
+  } catch (const std::length_error& error) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure,
+        "decode_graph_p2_screen", error.what());
+    return outcome;
+  } catch (const std::exception& error) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kRunnerStepFailure,
+        "decode_graph_p2_screen", error.what());
     return outcome;
   }
 }

@@ -873,16 +873,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_branch_done_event_, nullptr);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
-  decode_graph_p1_ = std::exchange(other.decode_graph_p1_, nullptr);
-  decode_graph_exec_p1_ =
-      std::exchange(other.decode_graph_exec_p1_, nullptr);
-  decode_graph_embedding_node_p1_ =
-      std::exchange(other.decode_graph_embedding_node_p1_, nullptr);
-  decode_graph_p1_stats_ = other.decode_graph_p1_stats_;
-  other.decode_graph_p1_stats_ = {};
-  decode_graph_embedding_launch_p1_ =
-      other.decode_graph_embedding_launch_p1_;
-  other.decode_graph_embedding_launch_p1_ = {};
+  decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
+  other.decode_graph_p1_slots_ = {};
   decode_graph_capture_active_ =
       std::exchange(other.decode_graph_capture_active_, false);
   views_ = other.views_;
@@ -954,19 +946,27 @@ void ReferenceRunner::release() noexcept {
   trace_input_token_ = 0U;
 }
 
-void ReferenceRunner::destroy_decode_graph_p1() noexcept {
-  if (decode_graph_exec_p1_ != nullptr) {
+void ReferenceRunner::destroy_decode_graph_p1_slot(
+    const std::size_t position) noexcept {
+  if (position >= decode_graph_p1_slots_.size()) {
+    return;
+  }
+  DecodeGraphP1Slot& slot = decode_graph_p1_slots_[position];
+  if (slot.exec != nullptr) {
     (void)cudaGraphExecDestroy(
-        reinterpret_cast<cudaGraphExec_t>(decode_graph_exec_p1_));
+        reinterpret_cast<cudaGraphExec_t>(slot.exec));
   }
-  if (decode_graph_p1_ != nullptr) {
-    (void)cudaGraphDestroy(reinterpret_cast<cudaGraph_t>(decode_graph_p1_));
+  if (slot.graph != nullptr) {
+    (void)cudaGraphDestroy(reinterpret_cast<cudaGraph_t>(slot.graph));
   }
-  decode_graph_exec_p1_ = nullptr;
-  decode_graph_p1_ = nullptr;
-  decode_graph_embedding_node_p1_ = nullptr;
-  decode_graph_p1_stats_ = {};
-  decode_graph_embedding_launch_p1_ = {};
+  slot = {};
+}
+
+void ReferenceRunner::destroy_decode_graph_p1() noexcept {
+  for (std::size_t position = 0U;
+       position < decode_graph_p1_slots_.size(); ++position) {
+    destroy_decode_graph_p1_slot(position);
+  }
 }
 
 ReferenceStepOutcome ReferenceRunner::fail_step(
@@ -1073,6 +1073,7 @@ ReferenceStepOutcome ReferenceRunner::step(
 ReferenceDecodeGraphP1PrepareOutcome
 ReferenceRunner::prepare_fixed_position_decode_graph_p1(
     const std::uint32_t input_token_id) noexcept {
+  const std::uint32_t position = current_position();
   ReferenceStepOptions options;
   options.compute_logits = true;
   options.capture_trace = false;
@@ -1083,12 +1084,33 @@ ReferenceRunner::prepare_fixed_position_decode_graph_p1(
                 DecodeGraphP1Action::kCaptureOnly);
   ReferenceDecodeGraphP1PrepareOutcome outcome;
   outcome.status = captured.status;
-  if (captured && decode_graph_p1_ != nullptr &&
-      decode_graph_exec_p1_ != nullptr &&
-      decode_graph_embedding_node_p1_ != nullptr) {
-    outcome.value.emplace(decode_graph_p1_stats_);
+  const std::optional<ReferenceDecodeGraphP1Stats> stats =
+      fixed_position_decode_graph_p1_stats(position);
+  if (captured && stats.has_value()) {
+    outcome.value.emplace(*stats);
   }
   return outcome;
+}
+
+bool ReferenceRunner::has_fixed_position_decode_graph_p1(
+    const std::uint32_t position) const noexcept {
+  if (position >= decode_graph_p1_slots_.size()) {
+    return false;
+  }
+  const DecodeGraphP1Slot& slot = decode_graph_p1_slots_[position];
+  return slot.graph != nullptr && slot.exec != nullptr &&
+         slot.embedding_node != nullptr &&
+         slot.embedding_launch.function != nullptr &&
+         slot.stats.position == position;
+}
+
+std::optional<ReferenceDecodeGraphP1Stats>
+ReferenceRunner::fixed_position_decode_graph_p1_stats(
+    const std::uint32_t position) const noexcept {
+  if (!has_fixed_position_decode_graph_p1(position)) {
+    return std::nullopt;
+  }
+  return decode_graph_p1_slots_[position].stats;
 }
 
 ReferenceStepOutcome
@@ -1174,8 +1196,16 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
 
   const std::uint32_t position = state_->current_position();
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  DecodeGraphP1Slot* decode_graph_slot = nullptr;
+  Clock::time_point decode_graph_prepare_started{};
   if (graph_action == DecodeGraphP1Action::kCaptureOnly) {
-    destroy_decode_graph_p1();
+    if (position >= decode_graph_p1_slots_.size()) {
+      return fail_step(runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "decode_graph_p1_position_not_cacheable"));
+    }
+    decode_graph_slot = &decode_graph_p1_slots_[position];
+    decode_graph_prepare_started = Clock::now();
     const cudaError_t begin_status = cudaStreamBeginCapture(
         stream, cudaStreamCaptureModeThreadLocal);
     if (begin_status != cudaSuccess) {
@@ -1186,13 +1216,12 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     }
     decode_graph_capture_active_ = true;
   } else if (graph_action == DecodeGraphP1Action::kReplay) {
-    if (decode_graph_p1_ == nullptr || decode_graph_exec_p1_ == nullptr ||
-        decode_graph_embedding_node_p1_ == nullptr ||
-        decode_graph_p1_stats_.position != position) {
+    if (!has_fixed_position_decode_graph_p1(position)) {
       return fail_step(runner_status(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_not_prepared"));
     }
+    decode_graph_slot = &decode_graph_p1_slots_[position];
   }
   ReferenceRunnerStatus launch_failure{};
   const auto check_cuda = [&launch_failure](
@@ -1612,6 +1641,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           "decode_graph_p1_end_capture", kReferenceNoLayer,
           static_cast<int>(end_status)));
     }
+    const Clock::time_point capture_finished = Clock::now();
 
     constexpr std::size_t kMaximumDecodeGraphP1Nodes = 1'024U;
     std::size_t node_count = 0U;
@@ -1643,6 +1673,10 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     stats.position = position;
     stats.input_token_id = input_token_id;
     stats.node_count = node_count;
+    stats.capture_enqueue_milliseconds =
+        std::chrono::duration<double, std::milli>(
+            capture_finished - decode_graph_prepare_started)
+            .count();
     for (std::size_t index = 0U; index < node_count; ++index) {
       cudaGraphNodeType type{};
       graph_status = cudaGraphNodeGetType(nodes[index], &type);
@@ -1751,8 +1785,14 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_embedding_arguments"));
     }
+    const Clock::time_point topology_finished = Clock::now();
+    stats.topology_inspection_milliseconds =
+        std::chrono::duration<double, std::milli>(
+            topology_finished - capture_finished)
+            .count();
 
     cudaGraphExec_t captured_exec = nullptr;
+    const Clock::time_point instantiate_started = Clock::now();
     graph_status = cudaGraphInstantiate(
         &captured_exec, captured_graph, nullptr, nullptr, 0U);
     if (graph_status != cudaSuccess || captured_exec == nullptr) {
@@ -1765,20 +1805,56 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           "decode_graph_p1_instantiate", kReferenceNoLayer,
           static_cast<int>(graph_status)));
     }
+    const Clock::time_point instantiate_finished = Clock::now();
+    stats.instantiate_milliseconds =
+        std::chrono::duration<double, std::milli>(
+            instantiate_finished - instantiate_started)
+            .count();
 
-    decode_graph_p1_ = captured_graph;
-    decode_graph_exec_p1_ = captured_exec;
-    decode_graph_embedding_node_p1_ = embedding_node;
-    decode_graph_p1_stats_ = stats;
-    decode_graph_embedding_launch_p1_.function = embedding_launch.func;
-    decode_graph_embedding_launch_p1_.grid = {
+    const Clock::time_point upload_ready_started = Clock::now();
+    graph_status = cudaGraphUpload(captured_exec, stream);
+    if (graph_status == cudaSuccess) {
+      graph_status = cudaStreamSynchronize(stream);
+    }
+    if (graph_status != cudaSuccess || decode_graph_slot == nullptr) {
+      (void)cudaGraphExecDestroy(captured_exec);
+      (void)cudaGraphDestroy(captured_graph);
+      return fail_step(runner_status(
+          graph_status == cudaSuccess
+              ? ReferenceRunnerError::kInvalidRunner
+              : ReferenceRunnerError::kCudaFailure,
+          "decode_graph_p1_upload", kReferenceNoLayer,
+          static_cast<int>(graph_status)));
+    }
+    const Clock::time_point upload_ready_finished = Clock::now();
+    stats.upload_ready_milliseconds =
+        std::chrono::duration<double, std::milli>(
+            upload_ready_finished - upload_ready_started)
+            .count();
+
+    DecodeGraphP1Slot prepared_slot;
+    prepared_slot.graph = captured_graph;
+    prepared_slot.exec = captured_exec;
+    prepared_slot.embedding_node = embedding_node;
+    prepared_slot.embedding_launch.function = embedding_launch.func;
+    prepared_slot.embedding_launch.grid = {
         embedding_launch.gridDim.x, embedding_launch.gridDim.y,
         embedding_launch.gridDim.z};
-    decode_graph_embedding_launch_p1_.block = {
+    prepared_slot.embedding_launch.block = {
         embedding_launch.blockDim.x, embedding_launch.blockDim.y,
         embedding_launch.blockDim.z};
-    decode_graph_embedding_launch_p1_.shared_memory_bytes =
+    prepared_slot.embedding_launch.shared_memory_bytes =
         embedding_launch.sharedMemBytes;
+    stats.total_prepare_milliseconds =
+        std::chrono::duration<double, std::milli>(
+            Clock::now() - decode_graph_prepare_started)
+            .count();
+    prepared_slot.stats = stats;
+    // Publish only after the replacement is completely uploaded and ready.
+    // A failed recapture retains the prior slot handles; the runner's normal
+    // failure contract still requires reset before any later reuse.
+    destroy_decode_graph_p1_slot(position);
+    *decode_graph_slot = prepared_slot;
     ReferenceStepOutcome outcome;
     ReferenceStepResult result;
     result.position = position;
@@ -1789,17 +1865,17 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
 
   if (graph_action == DecodeGraphP1Action::kReplay) {
     cudaKernelNodeParams embedding_params{};
-    embedding_params.func = decode_graph_embedding_launch_p1_.function;
+    embedding_params.func = decode_graph_slot->embedding_launch.function;
     embedding_params.gridDim =
-        dim3(decode_graph_embedding_launch_p1_.grid[0],
-             decode_graph_embedding_launch_p1_.grid[1],
-             decode_graph_embedding_launch_p1_.grid[2]);
+        dim3(decode_graph_slot->embedding_launch.grid[0],
+             decode_graph_slot->embedding_launch.grid[1],
+             decode_graph_slot->embedding_launch.grid[2]);
     embedding_params.blockDim =
-        dim3(decode_graph_embedding_launch_p1_.block[0],
-             decode_graph_embedding_launch_p1_.block[1],
-             decode_graph_embedding_launch_p1_.block[2]);
+        dim3(decode_graph_slot->embedding_launch.block[0],
+             decode_graph_slot->embedding_launch.block[1],
+             decode_graph_slot->embedding_launch.block[2]);
     embedding_params.sharedMemBytes =
-        decode_graph_embedding_launch_p1_.shared_memory_bytes;
+        decode_graph_slot->embedding_launch.shared_memory_bytes;
     const std::uint16_t* embedding_table =
         weights_->embed_tokens().weight;
     std::size_t embedding_offset =
@@ -1812,13 +1888,12 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     embedding_params.kernelParams = embedding_arguments;
     embedding_params.extra = nullptr;
     cudaError_t graph_status = cudaGraphExecKernelNodeSetParams(
-        reinterpret_cast<cudaGraphExec_t>(decode_graph_exec_p1_),
-        reinterpret_cast<cudaGraphNode_t>(
-            decode_graph_embedding_node_p1_),
+        reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec),
+        reinterpret_cast<cudaGraphNode_t>(decode_graph_slot->embedding_node),
         &embedding_params);
     if (graph_status == cudaSuccess) {
       graph_status = cudaGraphLaunch(
-          reinterpret_cast<cudaGraphExec_t>(decode_graph_exec_p1_), stream);
+          reinterpret_cast<cudaGraphExec_t>(decode_graph_slot->exec), stream);
     }
     if (graph_status != cudaSuccess) {
       return fail_step(runner_status(
