@@ -1773,11 +1773,11 @@ fp8_w8a16_gemv_bf16_complete_row_quad_no_tail_barrier_register_lookahead_test_bo
   }
 }
 
-// Test-only exact arithmetic twin of the production QKV/Z row-quad body.
-// Only the four one-pass canonical FP8 weight words use the evict-first
-// streaming cache operator. Activation loads deliberately retain the
-// production default policy, and the scalar per-tensor weight scale remains a
-// kernel argument rather than a global-memory scale tensor.
+// Exact arithmetic QKV/Z row-quad body selected by production and retained by
+// the test ABI under the historical symbol name. Only the four one-pass
+// canonical FP8 weight words use the evict-first streaming cache operator.
+// Activation loads retain the default policy, and the scalar per-tensor weight
+// scale remains a kernel argument rather than a global-memory scale tensor.
 __device__ __forceinline__ void
 fp8_w8a16_gemv_bf16_complete_row_quad_no_tail_barrier_cs_test_body(
     const std::uint8_t* const weights, const float weight_scale,
@@ -2267,10 +2267,10 @@ fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_
                                        row1);
 }
 
-// Test-only production-topology twin for the bounded Decode cache-policy
-// screen. QKV/Z use evict-first streaming loads for canonical FP8 weight
-// words. Activation and BF16 A/B weight loads retain the production compiler-
-// default cache policy so the candidate changes one mechanism only.
+// Production-selected topology, also exposed through the retained test ABI
+// for Function-identity and rollback screens. QKV/Z use evict-first streaming
+// loads for canonical FP8 weight words. Activation and BF16 A/B weight loads
+// retain the compiler-default cache policy.
 __global__ __launch_bounds__(kThreads, 4) void
 fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_cs_test_kernel(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
@@ -9482,9 +9482,10 @@ nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_kernel(
   }
 }
 
-// Test-only cooperative twin using the row-quad/K512 six-bit scale sidecar.
-// Canonical packed weights retain the selected streaming load policy; only
-// block-scale addressing and exact byte reconstruction differ.
+// Production-selected cooperative scale6 Function, also exposed through the
+// retained test ABI under its historical symbol name. Canonical packed weights
+// keep the streaming load policy; only block-scale addressing and exact byte
+// reconstruction differ.
 __global__ __launch_bounds__(512, 2) void
 nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel(
     const std::uint8_t* const packed_weights,
