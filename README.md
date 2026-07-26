@@ -546,11 +546,12 @@ The resolved route registry, 29-cell direct-kernel atlas, pinned long-prompt
 fixtures, chunk matrix, and Nsight attribution are recorded in the
 [SM87 shape/chunk/prompt matrix](docs/metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
 The latest fixed-clock P19/C32/max26 single-request Decode gate records
-**108.6695 ms/token (9.202214053 token/s)** after the runner-only dead-up
-promotion, with exact output and fresh 25-step Nsys closure. See the
-[production benchmark](docs/metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json)
-and
-[post-promotion profile](docs/metadata/qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json).
+**108.2645 ms/token (9.236638048 token/s)** after one exact M1 kernel combines
+the established FP8 QKV/Z work with BF16 A/B in 24 light tail CTAs. Both
+mirrored end-to-end pairs improve, all outputs remain exact, and fresh Nsys
+closes 25 Decode steps with 1,200 composite launches and 1,200 fewer kernel
+rows. See the
+[production benchmark](docs/metadata/qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json).
 
 Inspect a local checkpoint without loading weight payloads:
 

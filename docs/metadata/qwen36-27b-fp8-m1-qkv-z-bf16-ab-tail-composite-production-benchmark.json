@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark",
+  "status": "production-promoted-exact-shape-single-request-decode",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "selection_commit": "8e842658ac076c7deb07e4564851bda3fe108bb0",
+    "selection_tree": "3322b0e52a7dbecab1ada90c10c04b8bf90f19b8",
+    "selection_subject": "perf: select Decode QKV Z and BF16 AB fusion",
+    "production_commit": "f64abc2722c31294d023c9371aed82b4db40d863",
+    "production_tree": "f47b2c6b52fe82c08fedac1769d7947a49faaa34",
+    "production_subject": "perf: promote Decode linear attention input fusion",
+    "preceding_production_commit": "d80a37d3ed45bc46fb7c444d9903030b28f79443",
+    "preceding_production_tree": "8a8c840e64e3e7b37723d6aa1d1225fa001daed4",
+    "preceding_anchor_record": "qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measurement_identity": "The frozen candidate executable was built from the exact production tree before its source-identical commit. The baseline is the frozen preceding production executable used to establish the 108.6695-ms/token anchor."
+  },
+  "binaries": {
+    "end_to_end_baseline": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/qwen3x-orin",
+      "bytes": 4270312,
+      "sha256": "30ac57d91cbee7921765eea73015ba2ff513d8e5460f1677eb20fa6a1a482aba",
+      "elf_build_id": "46bf9c7aa90958175d1e5150f9b36d8be8983bc7",
+      "checked_in": false
+    },
+    "end_to_end_candidate": {
+      "local_path": "/tmp/q3x-linear-attn-production.GkLVIh/qwen3x-orin.candidate",
+      "bytes": 4338184,
+      "sha256": "6e96b12e84d24428517138b83ab98640fff0fb9cf5afbb36dd5317d9b1d97e53",
+      "elf_build_id": "4ef7bd98e8bbc5ec70828b785528b6d9ca2164b4",
+      "checked_in": false
+    },
+    "final_device_test": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5505408,
+      "sha256": "2ace3c4e488838f48820228526843453151330a9d117ccf86e3ad05a4ad27819",
+      "elf_build_id": "97419a94243c042007df68d7e4a04d14fc0503be",
+      "checked_in": false
+    },
+    "final_model_oracle": {
+      "local_path": "build/orin-release/q3x_reference_engine_e2e_test",
+      "bytes": 4262752,
+      "sha256": "53cdbc2a73977a4d36200dadff6d96815865d8e6fe54c961bcedbbf9bfa8f228",
+      "elf_build_id": "a328b73504a5221b34fa058fd6de8e860e6ddc4f",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz_before_and_after": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz_before_and_after": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "nsight_systems": "2026.1.3.243-261337792075v0",
+    "after_profile_gpu_temperature_c": 59.875,
+    "after_profile_gpu_utilization_percent": 0,
+    "clock_scope": "Direct min/max/current readbacks before and after the four-process benchmark and profile establish the requested fixed-frequency state. They do not establish thermal-soak, power, or energy behavior."
+  },
+  "implementation": {
+    "phase": "exact M1 linear-attention input projection",
+    "linear_attention_layers": 48,
+    "qkv": {
+      "dtype": "FP8 E4M3",
+      "shape_n_by_k": [10240, 5120]
+    },
+    "z": {
+      "dtype": "FP8 E4M3",
+      "shape_n_by_k": [6144, 5120]
+    },
+    "a_and_b": {
+      "dtype": "BF16",
+      "shape_n_by_k_each": [48, 5120]
+    },
+    "physical_grid_blocks": 1536,
+    "threads_per_block": 256,
+    "qkv_z_arithmetic_changed": false,
+    "tail_ctas_computing_a_and_b": 24,
+    "a_b_rows_per_tail_cta": 2,
+    "a_b_outputs_per_tail_cta": 4,
+    "shared_activation_load_across_a_b_outputs": true,
+    "predecessor_kernel_nodes_per_linear_attention_layer": 2,
+    "candidate_kernel_nodes_per_linear_attention_layer": 1,
+    "m2_through_m32_prefill_tile_dispatch_changed": false,
+    "m1_finish_prefill_uses_composite": true,
+    "runtime_stream_policy_changed": false,
+    "general_double_or_triple_buffer_added": false,
+    "prefill_decode_overlap_added": false
+  },
+  "production_identity_and_resources": {
+    "kernel": "fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel",
+    "registers_per_thread": 64,
+    "static_shared_bytes": 1280,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 4,
+    "normalized_sass": {
+      "method": "cuobjdump Function section normalized to one lowercase 0x-prefixed 64-bit encoding word per line",
+      "section_64bit_words": 3504,
+      "sha256": "c7b810b4effa7223274c28e7569f9218f451f9c96bce24ba4b179b1c95596a8d",
+      "local_path": "/tmp/q3x-linear-attn-production.GkLVIh/composite.encoding64.normalized",
+      "bytes": 66576,
+      "selected_and_production_hash_equal": true
+    },
+    "resource_gate": "pass"
+  },
+  "actual_checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "qkv_weight": {
+      "absolute_offset": 3485125152,
+      "bytes": 52428800,
+      "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "z_weight": {
+      "absolute_offset": 3537553952,
+      "bytes": 31457280,
+      "sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae"
+    },
+    "a_weight": {
+      "absolute_offset": 2543016896,
+      "bytes": 491520,
+      "sha256": "73465d67c2d85fc1dbe477df6d67794a979369e2edb032ca0f9af04c0c64568d"
+    },
+    "b_weight": {
+      "absolute_offset": 2543508416,
+      "bytes": 491520,
+      "sha256": "e2c02daf895618828a36fcba4cd6b90ea8313587eca293baceebff549f509c90"
+    },
+    "qkv_weight_scale": {
+      "absolute_offset": 126516,
+      "value": 0.001007080078125,
+      "sha256": "d552446f521b6f79296f0473d8e8a66303ca4d1299688f286b90c7c923527021"
+    },
+    "z_weight_scale": {
+      "absolute_offset": 126524,
+      "value": 0.0005231585237197578,
+      "sha256": "861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9"
+    },
+    "payload_identity_gate": "pass"
+  },
+  "correctness_and_dispatch_gates": {
+    "status": "pass",
+    "synthetic_four_output_bitwise_and_guards": true,
+    "actual_checkpoint_four_output_bitwise": true,
+    "cuda_graph_baseline_nodes": 2,
+    "cuda_graph_candidate_nodes": 1,
+    "cuda_graph_replay_bitwise_and_guarded": true,
+    "low_level_invalid_calls_return_invalid_value_before_enqueue": true,
+    "high_level_payload_range_alias_validation_before_alignment": true,
+    "high_level_invalid_payload_graph_nodes": 0,
+    "high_level_cross_projection_alias_graph_nodes": 0,
+    "high_level_device_scalar_alias_graph_nodes": 0,
+    "high_level_odd_bf16_weight_graph_nodes": 0,
+    "safe_fusion_alignment_miss_returns_not_supported": true,
+    "release_ctest": {
+      "total": 56,
+      "passed": 51,
+      "skipped": 5,
+      "failed": 0
+    },
+    "model_oracles": {
+      "chunks_passed": [1, 8, 16, 32],
+      "final_wrapper_hardening_rerun_chunks": [1, 32],
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44,
+      "fp8_output_sidecar_layers": 64,
+      "fp8_output_sidecar_bytes": 2013265920,
+      "fp8_output_sidecar_fallback_reason": ""
+    }
+  },
+  "same_binary_microbenchmark": {
+    "status": "pass",
+    "warmup_iterations_per_route": 10,
+    "measured_iterations_per_timed_pass": 80,
+    "measurement_rounds": 5,
+    "timed_order_per_round": ["baseline", "candidate", "candidate", "baseline"],
+    "hard_gates": {
+      "minimum_saved_ms_per_layer": 0.0104167,
+      "minimum_speedup": 1.0215,
+      "minimum_projected_saved_ms_per_token": 0.5
+    },
+    "independent_actual_checkpoint_projected_saved_ms_per_token": [0.566158, 0.586158, 0.609119],
+    "independent_actual_checkpoint_speedup_range": [1.0244, 1.0264],
+    "same_bank_stress_projected_saved_ms_per_token": 0.556704,
+    "same_bank_stress_speedup": 1.026724,
+    "all_measured_rounds_improve": true,
+    "interpretation": "These are isolated same-binary kernel projections across 48 layers. They are promotion gates, not achieved whole-model latency values."
+  },
+  "end_to_end_benchmark": {
+    "status": "pass",
+    "protocol": {
+      "scope": "hot single-request Decode",
+      "process_order": ["B1", "C1", "C2", "B2"],
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_intervals_per_generation": 25,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "projection_backend": "sm87_weight_only"
+    },
+    "runs": {
+      "B1": {"subsequent_token_ms": 108.820, "decode_after_first_ms": 2720.705, "ttft_ms": 428.238, "total_generation_ms": 3148.944, "finish_prefill_ms": 108.542, "prompt_prefix_ms": 319.696},
+      "C1": {"subsequent_token_ms": 108.337, "decode_after_first_ms": 2708.661, "ttft_ms": 427.693, "total_generation_ms": 3136.407, "finish_prefill_ms": 108.096, "prompt_prefix_ms": 319.595},
+      "C2": {"subsequent_token_ms": 108.192, "decode_after_first_ms": 2704.985, "ttft_ms": 427.499, "total_generation_ms": 3132.496, "finish_prefill_ms": 107.911, "prompt_prefix_ms": 319.574},
+      "B2": {"subsequent_token_ms": 108.964, "decode_after_first_ms": 2724.023, "ttft_ms": 428.134, "total_generation_ms": 3152.184, "finish_prefill_ms": 108.658, "prompt_prefix_ms": 319.471}
+    },
+    "mirrored_aggregate": {
+      "baseline_subsequent_ms": 108.892,
+      "candidate_subsequent_ms": 108.2645,
+      "subsequent_delta_ms": -0.6275,
+      "subsequent_speedup": 1.0057959903754232,
+      "candidate_tokens_per_second": 9.236638048483114,
+      "pair1_subsequent_delta_ms": -0.483,
+      "pair2_subsequent_delta_ms": -0.772,
+      "both_mirrored_subsequent_pairs_improve": true,
+      "baseline_decode_after_first_ms": 2722.364,
+      "candidate_decode_after_first_ms": 2706.823,
+      "decode_after_first_delta_ms": -15.541,
+      "baseline_ttft_ms": 428.186,
+      "candidate_ttft_ms": 427.596,
+      "ttft_delta_ms": -0.590,
+      "baseline_total_generation_ms": 3150.564,
+      "candidate_total_generation_ms": 3134.4515,
+      "total_generation_delta_ms": -16.1125,
+      "baseline_finish_prefill_ms": 108.6000,
+      "candidate_finish_prefill_ms": 108.0035,
+      "finish_prefill_delta_ms": -0.5965,
+      "baseline_prompt_prefix_ms": 319.5835,
+      "candidate_prompt_prefix_ms": 319.5845,
+      "prompt_prefix_delta_ms": 0.0010
+    },
+    "functional_canonicalization": {
+      "rows_per_process": 21,
+      "sha256": "99e91d052157ac48608a4c6e46f62536db0f8376f1ce37276abcdbbaf3c92841",
+      "all_four_equal": true
+    },
+    "completeness": {
+      "sample_count_each": 5,
+      "later_token_intervals_each_process": 125,
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/e2e-b1.log", "bytes": 7738, "sha256": "6f430165446a6fd64c0fba2673b58010144524730f2af479f41165d390104797"},
+      "C1": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/e2e-c1.log", "bytes": 7742, "sha256": "5dc2d23f51318d4d26802efa58ed30a458d08ca9799268ce85817f35cb799658"},
+      "C2": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/e2e-c2.log", "bytes": 7738, "sha256": "d39e26cf2fcbf8e50d31735ba940e3597f58b1aedd50b63f03d33351af47c532"},
+      "B2": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/e2e-b2.log", "bytes": 7744, "sha256": "f56ea5e7684379957acfb6c92f716ebd69b5990d5d1ca0793489b078ba2a81f1"}
+    }
+  },
+  "nsight_systems_gate": {
+    "status": "pass",
+    "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT CANDIDATE generate MODEL --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+    "exact_generation": {"prompt_ids": 19, "generated_ids": 26, "exact_text": true, "stop_reason": "im_end", "steps": 44},
+    "phases": {
+      "q3x.prefill.prefix_tile": {"ranges": 1, "kernel_rows": 1635, "raw_ns": 318728992, "span_ns": 321728672, "overlap_ns": 0},
+      "q3x.prefill.finish": {"ranges": 1, "kernel_rows": 389, "raw_ns": 126765344, "span_ns": 127770432, "overlap_ns": 0},
+      "q3x.decode.step": {"ranges": 25, "kernel_rows": 9725, "kernel_rows_per_range": 389, "raw_ns": 2702309344, "span_ns": 2715246240, "union_ns": 2702309344, "overlap_ns": 0, "idle_ns": 12936896, "streams": 1},
+      "q3x.generation": {"ranges": 1, "kernel_rows": 11749, "raw_ns": 3147803680, "span_ns": 3166217184, "overlap_ns": 0, "streams": 1}
+    },
+    "predecessor_comparison": {
+      "decode_kernel_rows_before": 10925,
+      "decode_kernel_rows_after": 9725,
+      "decode_kernel_row_delta": -1200,
+      "finish_kernel_rows_before": 437,
+      "finish_kernel_rows_after": 389,
+      "generation_kernel_rows_before": 12997,
+      "generation_kernel_rows_after": 11749,
+      "old_qkv_z_decode_instances_before": 1200,
+      "old_qkv_z_decode_raw_ns_before": 571339072,
+      "old_bf16_ab_pair_decode_instances_before": 1200,
+      "old_bf16_ab_pair_decode_raw_ns_before": 22505504,
+      "new_composite_decode_instances_after": 1200,
+      "new_composite_decode_raw_ns_after": 581083904,
+      "old_qkv_z_decode_instances_after": 0,
+      "old_bf16_ab_pair_decode_instances_after": 0,
+      "launch_reduction_equals_48_layers_times_25_steps": true
+    },
+    "artifacts": {
+      "console_log": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/nsys-profile.log", "bytes": 2900, "sha256": "e247fd276ec69aac3fc7275f9feca350cf7f2e8c2ab1197afa12c466b73ff37f"},
+      "report": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/decode-profile.nsys-rep", "bytes": 938888, "sha256": "2145bfe8da78c38a62a9163e254274b4e25abc4d8f15471ae002b8fd540ff42a"},
+      "sqlite": {"local_path": "/tmp/q3x-linear-attn-production.GkLVIh/decode-profile.sqlite", "bytes": 2662400, "sha256": "ca12f1d336400aac6c81da76d1f2178004b0a362c3fa3d5018f45ab1a0e8eeb7"}
+    },
+    "interpretation": "The exact row-count reduction and symbol replacement establish dispatch closure. Profiled timing is supporting attribution and does not replace the unprofiled mirrored end-to-end gate."
+  },
+  "decision": {
+    "result": "promote exact M1 linear-attention QKV/Z plus A/B tail composite",
+    "prior_formal_hot_decode_ms_per_token": 108.6695,
+    "achieved_hot_decode_ms_per_token": 108.2645,
+    "delta_from_prior_formal_anchor_ms_per_token": -0.4050,
+    "same_run_mirrored_baseline_ms_per_token": 108.892,
+    "same_run_mirrored_candidate_delta_ms_per_token": -0.6275,
+    "achieved_single_request_tokens_per_second": 9.236638048483114,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 8.2645,
+    "remaining_tokens_per_second": 0.7633619515168864,
+    "remaining_relative_latency_reduction_percent": 7.633619515168867,
+    "next_priority": "Use the fresh production profile to select the next bounded Decode optimization. Keep the larger Prefill program behind the 100-ms/token and 10-token/s stage target."
+  },
+  "limitations": [
+    "The achieved latency and reciprocal token/s result are hot single-request Decode on the named P19/C32/max26 workload. They exclude model load and are not concurrent-serving throughput.",
+    "The candidate also affects the ordinary M1 finish-prefill boundary, but M2-M32 prefix tiles are unchanged; this record is not a general Prefill performance claim.",
+    "The four short fixed-frequency benchmark processes do not establish thermal-soak, tail latency, power, or energy behavior.",
+    "Execution remains causally serialized on one CUDA stream. This promotion adds no executor-level double or triple buffering, Prefill/Decode overlap, or continuous batching.",
+    "The actual-checkpoint and stress microbenchmark projections are isolated kernel evidence. Only 108.2645 ms/token is the achieved end-to-end anchor.",
+    "Raw binaries, logs, normalized SASS, and Nsight reports are local evidence and are not checked into the repository.",
+    "No cross-device, long-context, multi-request, fresh NCU, or Compute Sanitizer claim is made."
+  ]
+}

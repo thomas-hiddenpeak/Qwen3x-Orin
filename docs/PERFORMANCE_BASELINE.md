@@ -5467,3 +5467,71 @@ is not an achieved value. Complete machine-readable evidence is in the
 [production benchmark](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json)
 and
 [post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json).
+
+## Decode FP8 QKV/Z plus BF16 A/B tail-composite production promotion
+
+Commit `f64abc2` promotes the candidate selected in `8e84265` for the exact
+aligned SM87 M1 linear-attention input group: FP8 QKV `[10240,5120]`, FP8 Z
+`[6144,5120]`, and BF16 A/B `[48,5120]`. The physical `1536x256` QKV/Z launch
+and its arithmetic are unchanged. Twenty-four otherwise-light tail CTAs each
+compute two adjacent rows from both A and B while sharing the activation load,
+so the established QKV/Z kernel and BF16 pair kernel become one launch. M2–M32
+prefix tiles are unchanged; ordinary M1 Decode and finish-prefill use the new
+route.
+
+The high-level wrapper validates each projection and all six cross-projection
+pairs before checking fusion-only alignment. This covers four writable
+outputs against four matrices, the activation, four FP8 device scalars, and
+one another. Invalid payload, BF16 alignment, range, or alias cases return
+`cudaErrorInvalidValue` with zero Graph nodes; only a semantically safe
+fusion alignment miss returns `cudaErrorNotSupported` for the ordered old
+fallback. The full Release suite reports 51 passes, five configured skips,
+and zero failures out of 56. Pinned C1/C8/C16/C32 model oracles all match 19
+prompt IDs, 26 generated IDs, exact text, `im_end`, and 44 steps; C1 and C32
+were rerun after final wrapper hardening.
+
+The production composite has 64 registers/thread, 1,280 B static shared
+memory, zero local memory, 256 threads/block, and four active CTAs/SM. Its
+3,504 normalized 64-bit SASS words hash to
+`c7b810b4effa7223274c28e7569f9218f451f9c96bce24ba4b179b1c95596a8d`,
+identical to the selected test route. Actual checkpoint, same-bank stress,
+Graph replay, canary, resource, and invalid-call gates pass bitwise. Three
+independent actual-checkpoint screens project savings of 0.566158, 0.586158,
+and 0.609119 ms/token across 48 linear-attention layers; the independent
+stress screen projects 0.556704 ms/token.
+
+The formal fixed-clock gate uses four independently loaded engines in strict
+`B1-C1-C2-B2` order, with one warmup and five measured P19/C32/max26
+generations per process:
+
+| Process | Subsequent token | Decode after first | TTFT | Total generation |
+| --- | ---: | ---: | ---: | ---: |
+| B1 | 108.820 ms | 2,720.705 ms | 428.238 ms | 3,148.944 ms |
+| C1 | 108.337 ms | 2,708.661 ms | 427.693 ms | 3,136.407 ms |
+| C2 | 108.192 ms | 2,704.985 ms | 427.499 ms | 3,132.496 ms |
+| B2 | 108.964 ms | 2,724.023 ms | 428.134 ms | 3,152.184 ms |
+
+The mirrored baseline/candidate hot medians are 108.892 and **108.2645
+ms/token**, a 0.6275-ms reduction or 1.005795990x speedup. Both pairs improve
+independently by 0.483 and 0.772 ms/token. Decode-after-first falls from
+2,722.364 to 2,706.823 ms. Prefix execution is effectively unchanged
+(319.5835 versus 319.5845 ms), while the M1 finish-prefill boundary improves
+from 108.6000 to 108.0035 ms. All four logs share the same 21-row functional
+SHA-256 `99e91d052157ac48608a4c6e46f62536db0f8376f1ce37276abcdbbaf3c92841`.
+
+Fresh Nsys closes all 25 Decode ranges over 9,725 kernel rows, exactly 389 per
+range, versus the preceding 10,925/437. The composite appears exactly 1,200
+times (`48x25`); both predecessor symbols appear zero times. Finish-prefill
+falls from 437 to 389 rows, and the complete generation from 12,997 to 11,749.
+Execution remains on one stream with zero kernel overlap. This establishes a
+deterministic one-launch-per-linear-layer reduction, not hidden concurrency or
+system buffering.
+
+The achieved single-request anchor is therefore **108.2645 ms/token and
+9.236638048 token/s**, 0.405 ms/token below the prior 108.6695-ms formal
+anchor. The remaining stage gap is 8.2645 ms/token or 0.763361952 token/s;
+reaching 100 ms requires another 7.633620% latency reduction. This is hot
+single-request Decode on one fixed-clock Orin, excludes model load, and is not
+a Prefill, multi-request throughput, tail-latency, power, or energy claim.
+Complete evidence is in the
+[production benchmark](metadata/qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json).
