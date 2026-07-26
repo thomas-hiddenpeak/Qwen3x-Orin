@@ -32413,108 +32413,339 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
             << (residual_norm_coarsened_invalid_gate ? "PASS" : "FAIL")
             << '\n';
 
+  struct ResidualNormDeadUpArguments final {
+    const std::uint8_t* gate_packed_weights;
+    const std::uint8_t* gate_block_scales;
+    float gate_weight_scale_2;
+    const std::uint8_t* up_packed_weights;
+    const std::uint8_t* up_block_scales;
+    float up_weight_scale_2;
+    const std::uint16_t* residual_left;
+    const std::uint16_t* residual_right;
+    const std::uint16_t* norm_weight;
+    float epsilon;
+    std::size_t rows;
+    std::size_t columns;
+    std::uint16_t* residual_output;
+    std::uint16_t* gate_output;
+    std::uint16_t* up_workspace;
+  };
+  const ResidualNormDeadUpArguments valid_dead_up_arguments{
+      fake_gate_packed,     fake_gate_scales,   kGateWeightScale2,
+      fake_up_packed,       fake_up_scales,     kUpWeightScale2,
+      fake_residual_left,   fake_residual_right, fake_norm_weight,
+      1.0e-6F,              kExactRows,          kExactColumns,
+      fake_residual_output, fake_gate_output,    fake_up_output};
   const auto residual_norm_dead_up_status =
-      [&](const std::uint8_t* const gate_weights,
-          const std::uint16_t* const left, const float epsilon,
-          const std::size_t rows, const std::size_t columns,
-          std::uint16_t* const residual, std::uint16_t* const gate,
-          std::uint16_t* const up) noexcept {
+      [&](const ResidualNormDeadUpArguments& arguments) noexcept {
         return q3x::kernels::
             launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
-                gate_weights, fake_gate_scales, kGateWeightScale2,
-                fake_up_packed, fake_up_scales, kUpWeightScale2, left,
-                fake_residual_right, fake_norm_weight, epsilon, rows, columns,
-                residual, gate, up, static_cast<void*>(stream));
+                arguments.gate_packed_weights,
+                arguments.gate_block_scales,
+                arguments.gate_weight_scale_2,
+                arguments.up_packed_weights,
+                arguments.up_block_scales,
+                arguments.up_weight_scale_2, arguments.residual_left,
+                arguments.residual_right, arguments.norm_weight,
+                arguments.epsilon, arguments.rows, arguments.columns,
+                arguments.residual_output, arguments.gate_output,
+                arguments.up_workspace, static_cast<void*>(stream));
       };
   bool residual_norm_dead_up_invalid_gate = true;
   std::size_t residual_norm_dead_up_invalid_cases = 0U;
+  std::size_t residual_norm_dead_up_null_cases = 0U;
+  std::size_t residual_norm_dead_up_scalar_cases = 0U;
+  std::size_t residual_norm_dead_up_shape_cases = 0U;
+  std::size_t residual_norm_dead_up_alignment_cases = 0U;
+  std::size_t residual_norm_dead_up_alias_cases = 0U;
+  std::size_t residual_norm_dead_up_overflow_cases = 0U;
   const auto expect_residual_norm_dead_up_invalid =
-      [&](const auto& launch, const std::string& reason) {
+      [&](const ResidualNormDeadUpArguments arguments,
+          std::size_t& category_cases, const std::string& reason) {
         const bool rejected = expect_invalid_before_enqueue(
-            launch, "production residual/norm runner dead-up " + reason);
+            [&]() noexcept {
+              return residual_norm_dead_up_status(arguments);
+            },
+            "production residual/norm runner dead-up " + reason);
         residual_norm_dead_up_invalid_gate =
             residual_norm_dead_up_invalid_gate && rejected;
         ++residual_norm_dead_up_invalid_cases;
+        ++category_cases;
       };
+  const auto mutate_dead_up_arguments =
+      [&](const auto& mutation) {
+        ResidualNormDeadUpArguments arguments = valid_dead_up_arguments;
+        mutation(arguments);
+        return arguments;
+      };
+
+  // Ten required pointers: seven read-only inputs and three writable outputs.
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            nullptr, fake_residual_left, 1.0e-6F, kExactRows, kExactColumns,
-            fake_residual_output, fake_gate_output, fake_up_output);
-      },
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_packed_weights = nullptr;
+      }),
+      residual_norm_dead_up_null_cases,
       "null gate weights");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, nullptr, 1.0e-6F, kExactRows, kExactColumns,
-            fake_residual_output, fake_gate_output, fake_up_output);
-      },
-      "null left");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_block_scales = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null gate scales");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left, 0.0F, kExactRows,
-            kExactColumns, fake_residual_output, fake_gate_output,
-            fake_up_output);
-      },
-      "zero epsilon");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_packed_weights = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null up weights");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left,
-            std::numeric_limits<float>::infinity(), kExactRows, kExactColumns,
-            fake_residual_output, fake_gate_output, fake_up_output);
-      },
-      "infinite epsilon");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_block_scales = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null up scales");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left, 1.0e-6F, kExactRows - 4U,
-            kExactColumns, fake_residual_output, fake_gate_output,
-            fake_up_output);
-      },
-      "near-miss rows");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_left = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null residual left");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left, 1.0e-6F, kExactRows,
-            kExactColumns + 16U, fake_residual_output, fake_gate_output,
-            fake_up_output);
-      },
-      "near-miss columns");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_right = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null residual right");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed,
-            reinterpret_cast<const std::uint16_t*>(
-                reinterpret_cast<std::uintptr_t>(fake_residual_left) + 1U),
-            1.0e-6F, kExactRows, kExactColumns, fake_residual_output,
-            fake_gate_output, fake_up_output);
-      },
-      "odd left alignment");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.norm_weight = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null norm weight");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left, 1.0e-6F, kExactRows,
-            kExactColumns, const_cast<std::uint16_t*>(fake_residual_left),
-            fake_gate_output, fake_up_output);
-      },
-      "residual aliases left");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_output = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null residual output");
   expect_residual_norm_dead_up_invalid(
-      [&]() noexcept {
-        return residual_norm_dead_up_status(
-            fake_gate_packed, fake_residual_left, 1.0e-6F, kExactRows,
-            kExactColumns, fake_residual_output,
-            const_cast<std::uint16_t*>(fake_norm_weight), fake_up_output);
-      },
-      "gate output aliases norm weight");
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_output = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null gate output");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_workspace = nullptr;
+      }),
+      residual_norm_dead_up_null_cases, "null up workspace");
+
+  // The two dequantization scalars and epsilon each cover their distinct
+  // invalid sign/range and non-finite predicates.
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_weight_scale_2 = -1.0F;
+      }),
+      residual_norm_dead_up_scalar_cases, "negative gate scale2");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_weight_scale_2 =
+            std::numeric_limits<float>::infinity();
+      }),
+      residual_norm_dead_up_scalar_cases, "infinite gate scale2");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_weight_scale_2 = -1.0F;
+      }),
+      residual_norm_dead_up_scalar_cases, "negative up scale2");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_weight_scale_2 =
+            std::numeric_limits<float>::quiet_NaN();
+      }),
+      residual_norm_dead_up_scalar_cases, "NaN up scale2");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.epsilon = 0.0F;
+      }),
+      residual_norm_dead_up_scalar_cases, "zero epsilon");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.epsilon = std::numeric_limits<float>::infinity();
+      }),
+      residual_norm_dead_up_scalar_cases, "infinite epsilon");
+
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.rows = 0U;
+        arguments.columns = 0U;
+      }),
+      residual_norm_dead_up_shape_cases, "empty shape");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([&](auto& arguments) {
+        arguments.rows = kExactRows - 4U;
+      }),
+      residual_norm_dead_up_shape_cases, "near-miss rows");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([&](auto& arguments) {
+        arguments.columns = kExactColumns + 16U;
+      }),
+      residual_norm_dead_up_shape_cases, "near-miss columns");
+
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_packed_weights =
+            reinterpret_cast<const std::uint8_t*>(
+                reinterpret_cast<std::uintptr_t>(
+                    arguments.gate_packed_weights) +
+                1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned gate weights");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_packed_weights =
+            reinterpret_cast<const std::uint8_t*>(
+                reinterpret_cast<std::uintptr_t>(
+                    arguments.up_packed_weights) +
+                1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned up weights");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_left = reinterpret_cast<const std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.residual_left) + 1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned residual left");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_right = reinterpret_cast<const std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.residual_right) + 1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned residual right");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.norm_weight = reinterpret_cast<const std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.norm_weight) + 1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned norm weight");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_output = reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.residual_output) +
+            1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned residual output");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_output = reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.gate_output) + 1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned gate output");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_workspace = reinterpret_cast<std::uint16_t*>(
+            reinterpret_cast<std::uintptr_t>(arguments.up_workspace) + 1U);
+      }),
+      residual_norm_dead_up_alignment_cases, "unaligned up workspace");
+
+  struct ReadOnlyAliasTarget final {
+    const void* pointer;
+    const char* name;
+  };
+  const std::array<ReadOnlyAliasTarget, 7U> read_only_alias_targets{{
+      {fake_gate_packed, "gate weights"},
+      {fake_gate_scales, "gate scales"},
+      {fake_up_packed, "up weights"},
+      {fake_up_scales, "up scales"},
+      {fake_residual_left, "residual left"},
+      {fake_residual_right, "residual right"},
+      {fake_norm_weight, "norm weight"},
+  }};
+  const std::array<const char*, 3U> writable_output_names{{
+      "residual output", "gate output", "up workspace"}};
+  for (const ReadOnlyAliasTarget& target : read_only_alias_targets) {
+    for (std::size_t output_index = 0U;
+         output_index < writable_output_names.size(); ++output_index) {
+      ResidualNormDeadUpArguments arguments = valid_dead_up_arguments;
+      auto* const alias = reinterpret_cast<std::uint16_t*>(
+          const_cast<void*>(target.pointer));
+      if (output_index == 0U) {
+        arguments.residual_output = alias;
+      } else if (output_index == 1U) {
+        arguments.gate_output = alias;
+      } else {
+        arguments.up_workspace = alias;
+      }
+      expect_residual_norm_dead_up_invalid(
+          arguments, residual_norm_dead_up_alias_cases,
+          std::string(writable_output_names[output_index]) + " aliases " +
+              target.name);
+    }
+  }
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_output = arguments.residual_output;
+      }),
+      residual_norm_dead_up_alias_cases,
+      "gate output aliases residual output");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_workspace = arguments.residual_output;
+      }),
+      residual_norm_dead_up_alias_cases,
+      "up workspace aliases residual output");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.up_workspace = arguments.gate_output;
+      }),
+      residual_norm_dead_up_alias_cases,
+      "up workspace aliases gate output");
+
+  constexpr std::uintptr_t kMaximumAddress =
+      std::numeric_limits<std::uintptr_t>::max();
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.gate_packed_weights =
+            reinterpret_cast<const std::uint8_t*>(kMaximumAddress - 3U);
+      }),
+      residual_norm_dead_up_overflow_cases, "gate packed range overflow");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_left =
+            reinterpret_cast<const std::uint16_t*>(kMaximumAddress - 1U);
+      }),
+      residual_norm_dead_up_overflow_cases, "residual input range overflow");
+  expect_residual_norm_dead_up_invalid(
+      mutate_dead_up_arguments([](auto& arguments) {
+        arguments.residual_output =
+            reinterpret_cast<std::uint16_t*>(kMaximumAddress - 1U);
+      }),
+      residual_norm_dead_up_overflow_cases,
+      "residual output range overflow");
+
+  constexpr std::size_t kExpectedDeadUpNullCases = 10U;
+  constexpr std::size_t kExpectedDeadUpScalarCases = 6U;
+  constexpr std::size_t kExpectedDeadUpShapeCases = 3U;
+  constexpr std::size_t kExpectedDeadUpAlignmentCases = 8U;
+  constexpr std::size_t kExpectedDeadUpAliasCases = 24U;
+  constexpr std::size_t kExpectedDeadUpOverflowCases = 3U;
+  constexpr std::size_t kExpectedDeadUpInvalidCases =
+      kExpectedDeadUpNullCases + kExpectedDeadUpScalarCases +
+      kExpectedDeadUpShapeCases + kExpectedDeadUpAlignmentCases +
+      kExpectedDeadUpAliasCases + kExpectedDeadUpOverflowCases;
+  static_assert(kExpectedDeadUpInvalidCases == 54U);
   residual_norm_dead_up_invalid_gate =
       residual_norm_dead_up_invalid_gate &&
-      residual_norm_dead_up_invalid_cases == 9U;
+      residual_norm_dead_up_null_cases == kExpectedDeadUpNullCases &&
+      residual_norm_dead_up_scalar_cases == kExpectedDeadUpScalarCases &&
+      residual_norm_dead_up_shape_cases == kExpectedDeadUpShapeCases &&
+      residual_norm_dead_up_alignment_cases ==
+          kExpectedDeadUpAlignmentCases &&
+      residual_norm_dead_up_alias_cases == kExpectedDeadUpAliasCases &&
+      residual_norm_dead_up_overflow_cases == kExpectedDeadUpOverflowCases &&
+      residual_norm_dead_up_invalid_cases == kExpectedDeadUpInvalidCases;
   test.expect(residual_norm_dead_up_invalid_gate,
-              label + " dead-up invalid calls capture zero nodes");
+              label + " dead-up complete invalid matrix captures zero nodes");
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_DEAD_UP_INVALID: "
             << "cases=" << residual_norm_dead_up_invalid_cases
+            << " null=" << residual_norm_dead_up_null_cases
+            << " scalar=" << residual_norm_dead_up_scalar_cases
+            << " shape=" << residual_norm_dead_up_shape_cases
+            << " alignment=" << residual_norm_dead_up_alignment_cases
+            << " alias=" << residual_norm_dead_up_alias_cases
+            << " overflow=" << residual_norm_dead_up_overflow_cases
             << " required_nodes_each=0 gate="
             << (residual_norm_dead_up_invalid_gate ? "PASS" : "FAIL")
             << '\n';
