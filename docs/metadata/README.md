@@ -674,6 +674,18 @@ The diagnostic Phase 3 records are:
   effectively flat (+0.002021 ms/step) because separate-run drift moves other
   rows. The trace explicitly remains serial, single-stream, and without a
   system double/triple buffer or independent Prefill/Decode executors.
+- [`qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection.json`](qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection.json),
+  which closes the test-only exact-M1 fused gate/up `16x1024` balanced-tail
+  screen. Each physical CTA pairs logical production blocks `b` and `b+16`,
+  preserving all 512 projection warps and assigning one tail-bearing logical
+  block to every CTA while halving repeated residual/RMSNorm setup. Resource,
+  exact-capacity, distinct-Graph, nine-invalid, finite/replay, guard, input,
+  signed Inf/NaN, and SASS gates pass. However, all ten fixed-clock paired
+  rounds regress: actual-checkpoint and stress medians are 0.994805x and
+  0.996853x. Stop-loss ends after one process, removes source/test hooks, and
+  leaves production and the formal 109.056-ms/token / 9.169600939-token/s
+  anchor unchanged. A naive contiguous `16x1024` mapping was not tested and
+  is outside this rejection.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

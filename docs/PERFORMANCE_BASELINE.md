@@ -5162,3 +5162,75 @@ boundaries are retained in the
 [production benchmark](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark.json)
 and
 [post-promotion Decode profile](metadata/qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json).
+
+## Decode NVFP4 M1 gate/up 16x1024 balanced-tail rejection
+
+The next bounded screen asked whether the production exact `[17408,5120]`
+fused residual/norm/gate/up/SiLU route could profitably coarsen one final time.
+The test-only candidate keeps the production `32x512` kernel's 512 global
+projection warps, 2,048-row stride, packed-weight arithmetic, and BF16
+boundaries, but places two 512-thread logical CTAs in each 1,024-thread
+physical CTA. Physical CTA `b` pairs logical blocks `b` and `b+16`; physical
+warps 0–15 serve the former and warps 16–31 serve the latter. The final 1,024
+rows belong to logical blocks 0–15, so this pairing gives every physical CTA
+one tail-bearing and one non-tail logical block. It also reduces repeated
+residual/RMSNorm setup from 32 physical CTAs to 16. Low threads 0–255 preserve
+the production accumulation and reduction tree, and all 1,024 threads traverse
+every CTA barrier.
+
+This is specifically the `b`/`b+16` balanced-tail mapping. A naive contiguous
+`16x1024` row mapping was neither implemented nor timed and is not rejected by
+this result. The candidate remained test-only throughout; production dispatch,
+the public ABI, model storage, and the production `32x512` route did not
+change.
+
+Static and launch-contract gates pass:
+
+| Exact M1 fused route | Registers/thread | Static shared | Local | Active CTA/SM | Resident capacity | Graph |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Production `32x512` | 64 | 11,328 B | 0 B | 2 | 32 CTAs | one node, `32x512` |
+| Test-only `16x1024` | 64 | 11,328 B | 0 B | 1 | 16 CTAs | one distinct node, `16x1024` |
+
+The candidate grid exactly equals the measured 16-SM resident capacity, with
+no CTA margin, while retaining 32 resident warps/SM. Its null resource query
+is rejected, and all nine invalid launches capture zero Graph nodes. Actual
+layer-0 checkpoint and same-bank-stress fixtures match production bitwise at
+0/5,120 residual, 0/17,408 final-gate, 0/17,408 up, and 0/39,936 replay
+mismatches, with finite outputs, intact guards, and preserved inputs. The
+combined signed Inf/NaN fixture also matches all three outputs bitwise and
+preserves class and sign for all 34,816 classified NaN outputs.
+
+The frozen candidate ELF is 5,435,784 bytes, SHA-256
+`e4024bfc5932344d565724ca7c57182cf4f0eeeca97d51ba5e3ebb1e2102cc87`,
+and Build ID `79c4e43d2f0d36bbf3be896fca87f9e9c59ebf4e`. Inside that same
+binary, production's normalized encoding remains its promoted 2,704-word
+stream at SHA-256
+`134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab`.
+The distinct candidate has 2,720 words at SHA-256
+`4bdb0246107e16c68c75e00803452d446d193c182d701d4e0d1649b81bdc8b2c`
+and contains no `LDL` or `STL`.
+
+One fixed-clock same-binary process used ten warmups per route and five
+64-launch `B-C-C-B` rounds per fixture:
+
+| Fixture | Production pass median | Candidate pass median | Paired range | Paired median | Frozen median gate | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 0.603352 ms | 0.606524 ms | 0.994464x–0.995194x | 0.994805x | 1.005x | fail |
+| Same-bank stress | 0.607962 ms | 0.609870 ms | 0.996282x–0.997435x | 0.996853x | 1.000x | fail |
+
+All ten rounds regress; pass-median latency rises by approximately 0.526% on
+the actual payload and 0.314% on stress. The expected nonzero screen exit is
+therefore a performance-gate rejection, not a correctness or resource
+failure. Stop-loss ends the experiment after the first process: no
+three-process confirmation, production integration, full-model oracle,
+end-to-end benchmark, Nsys, or NCU study is attached. Without NCU counters,
+the result does not assign causality to the exact-capacity launch, scheduling,
+barriers, or memory traffic.
+
+The candidate and all test hooks are removed, and source/test blobs again
+match clean commit `31716af`; production remains `32x512`. Consequently the
+formal single-request result remains **109.056 ms/token and 9.169600939
+token/s**, still 9.056 ms/token from the stage target. Complete rounds,
+payload identities, artifact hashes, cleanup proof, and scope limits are in
+the
+[16x1024 rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection.json).

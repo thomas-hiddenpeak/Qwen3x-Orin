@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-cta-coarsen-16x1024-balanced-tail",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_commit": "31716af7544d782fd3fc126871eaf7b7881da0b2",
+    "base_tree": "bf32105b212406dc076f9280e819e0422be186a1",
+    "base_subject": "docs: record Decode down CTA promotion",
+    "branch": "main",
+    "candidate_commit": null,
+    "candidate_scope": "uncommitted test-only exact-M1 fused residual/norm/gate/up/SiLU kernel and screening hooks",
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "formal_milliseconds_per_token": 109.056,
+    "formal_tokens_per_second": 9.169600939,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.056,
+    "profile_context": {
+      "source": "qwen36-27b-post-down-cta-coarsen-decode-phase-profile",
+      "gate_up_milliseconds_per_decode_step": 38.83422208,
+      "gate_up_raw_share_percent": 35.626773,
+      "gate_up_instances_per_decode_step": 64
+    },
+    "claim_boundary": "The rejected microbenchmark does not change the formal end-to-end anchor."
+  },
+  "candidate": {
+    "shape_n_by_k": [17408, 5120],
+    "phase": "exact M1 Decode fused residual add, centered RMSNorm, NVFP4 gate/up projection, and SiLU",
+    "scope": "test-only direct entry; production remains the 32x512 route",
+    "production_launch": {
+      "grid": [32, 1, 1],
+      "block": [512, 1, 1],
+      "warps_per_cta": 16,
+      "global_projection_warps": 512,
+      "row_stride": 2048
+    },
+    "candidate_launch": {
+      "grid": [16, 1, 1],
+      "block": [1024, 1, 1],
+      "warps_per_cta": 32,
+      "global_projection_warps": 512,
+      "row_stride": 2048,
+      "launch_bounds": [1024, 1]
+    },
+    "logical_mapping": {
+      "logical_threads_per_cta": 512,
+      "logical_warps_per_cta": 16,
+      "logical_blocks": 32,
+      "logical_half": "threadIdx.x / 512",
+      "logical_block": "blockIdx.x + logical_half * 16",
+      "logical_thread": "threadIdx.x % 512",
+      "phase_warp": "(physical_warp & 15) + ((physical_warp >> 4) * 256)",
+      "physical_warps_0_through_15": "logical block b, logical warps 0 through 15",
+      "physical_warps_16_through_31": "logical block b + 16, logical warps 0 through 15",
+      "silu_rows_per_logical_cta_stride": 64,
+      "silu_local_row_step": 512
+    },
+    "balanced_tail": {
+      "pairing": "each physical CTA b fuses logical blocks b and b + 16",
+      "final_1024_rows": "the tail belongs to logical blocks 0 through 15, so every physical CTA receives one tail-bearing and one non-tail logical block",
+      "intent": "halve repeated residual/RMSNorm setup from 32 physical CTAs to 16 while balancing the final half-stride across all 16 physical CTAs"
+    },
+    "numerical_contract": "reuse the production 32x512 projection phase and its 2048-row stride; low threads 0 through 255 preserve the existing residual/RMSNorm accumulation and reduction order, all 1024 threads traverse every CTA barrier, and each 512-thread logical half preserves production SiLU row ownership and arithmetic",
+    "runtime_double_or_triple_buffer": false,
+    "naive_contiguous_16x1024_mapping_tested": false,
+    "scope_limit": "This record rejects only the measured b/b+16 balanced-tail mapping, not an unimplemented naive contiguous 16x1024 mapping or another materially different 1024-thread algorithm."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "power_mode": "MAXN",
+    "build": "Release, CUDA architecture 87",
+    "fixed_frequency_readback": {
+      "gpu_min_max_current_hz": [1300500000, 1300500000, 1300500000],
+      "emc_min_max_current_hz": [3200000000, 3200000000, 3200000000]
+    },
+    "claim_boundary": "one same-process, same-binary screen on one fixed-clock device"
+  },
+  "resources": {
+    "production_32x512": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32,
+      "resident_grid_capacity_ctas": 32
+    },
+    "candidate_16x1024": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 1024,
+      "active_ctas_per_sm": 1,
+      "resident_warps_per_sm": 32,
+      "multiprocessor_count": 16,
+      "resident_grid_capacity_ctas": 16,
+      "required_grid_ctas": 16,
+      "capacity_margin_ctas": 0,
+      "null_query_rejected": true
+    },
+    "gate": "pass"
+  },
+  "cuda_graph": {
+    "production": {
+      "total_nodes": 1,
+      "kernel_nodes": 1,
+      "grid": [32, 1, 1],
+      "block": [512, 1, 1]
+    },
+    "candidate": {
+      "total_nodes": 1,
+      "kernel_nodes": 1,
+      "grid": [16, 1, 1],
+      "block": [1024, 1, 1],
+      "dynamic_shared_bytes": 0
+    },
+    "functions_distinct": true,
+    "invalid_cases": 9,
+    "invalid_total_nodes_each": 0,
+    "gate": "pass"
+  },
+  "correctness": {
+    "actual_checkpoint": {
+      "reference": "production_32x512",
+      "candidate": "test_only_16x1024",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "replay_mismatches": "0/39936",
+      "unexpected_nonfinite": 0,
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "reference": "production_32x512",
+      "candidate": "test_only_16x1024",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "replay_mismatches": "0/39936",
+      "unexpected_nonfinite": 0,
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "combined_signed_inf_nan": {
+      "reference": "production_32x512",
+      "candidate": "test_only_16x1024",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "classified_nan_outputs": "34816/34816",
+      "unexpected_nonfinite": 0,
+      "bitwise_equal": true,
+      "class_and_sign_equal": true,
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "gate": "pass"
+  },
+  "checkpoint_fixture": {
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "consumed_payload_identity_gate": "pass"
+  },
+  "sass": {
+    "production": {
+      "normalized_encoding_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+      "normalized_encoding_words": 2704,
+      "body_sha256": "62bec1cb9859a72c99ccaa479deb1ffb5b4fabfb31b54c8598e4d674c676b1cb",
+      "matches_promoted_production_encoding": true
+    },
+    "candidate": {
+      "normalized_encoding_sha256": "4bdb0246107e16c68c75e00803452d446d193c182d701d4e0d1649b81bdc8b2c",
+      "normalized_encoding_words": 2720,
+      "body_sha256": "1cb3e76804f59d780e4509889a6e451bd8114f6e3cd17592874c885000137a78",
+      "ldl_present": false,
+      "stl_present": false
+    },
+    "gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "same-process and same-binary production 32x512 route versus test-only balanced-tail 16x1024 route",
+    "running_binary_sha256": "e4024bfc5932344d565724ca7c57182cf4f0eeeca97d51ba5e3ebb1e2102cc87",
+    "running_binary_build_id": "79c4e43d2f0d36bbf3be896fca87f9e9c59ebf4e",
+    "warmup_launches_per_route": 10,
+    "launches_per_timed_pass": 64,
+    "rounds": 5,
+    "order_each_round": "B-C-C-B",
+    "round_speedup": "(B1+B2)/(C1+C2)",
+    "minimum_actual_paired_median_speedup": 1.005,
+    "minimum_stress_paired_median_speedup": 1.0,
+    "minimum_each_round_speedup": 1.0,
+    "stop_loss": "reject after the first process if either fixture misses its median gate or any paired round regresses; do not run three-process confirmation or production promotion"
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.603265, "candidate_1_ms": 0.606586, "candidate_2_ms": 0.606439, "production_2_ms": 0.603459, "paired_speedup": 0.994805, "nonregression": "fail"},
+        {"round": 2, "production_1_ms": 0.603180, "candidate_1_ms": 0.606588, "candidate_2_ms": 0.606619, "production_2_ms": 0.603311, "paired_speedup": 0.994464, "nonregression": "fail"},
+        {"round": 3, "production_1_ms": 0.603414, "candidate_1_ms": 0.606709, "candidate_2_ms": 0.606426, "production_2_ms": 0.603402, "paired_speedup": 0.994792, "nonregression": "fail"},
+        {"round": 4, "production_1_ms": 0.603251, "candidate_1_ms": 0.606325, "candidate_2_ms": 0.606587, "production_2_ms": 0.603394, "paired_speedup": 0.994833, "nonregression": "fail"},
+        {"round": 5, "production_1_ms": 0.603534, "candidate_1_ms": 0.606054, "candidate_2_ms": 0.606462, "production_2_ms": 0.603155, "paired_speedup": 0.995194, "nonregression": "fail"}
+      ],
+      "production_pass_median_ms": 0.603352,
+      "candidate_pass_median_ms": 0.606524,
+      "candidate_pass_latency_increase_percent": 0.525730,
+      "paired_round_median_speedup": 0.994805,
+      "round_speedup_range": [0.994464, 0.995194],
+      "rounds_at_or_above_1_0": 0,
+      "required_paired_round_median_speedup": 1.005,
+      "every_round_nonregression": "fail",
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "production_1_ms": 0.609066, "candidate_1_ms": 0.610461, "candidate_2_ms": 0.610313, "production_2_ms": 0.607822, "paired_speedup": 0.996816, "nonregression": "fail"},
+        {"round": 2, "production_1_ms": 0.608141, "candidate_1_ms": 0.610448, "candidate_2_ms": 0.610096, "production_2_ms": 0.607864, "paired_speedup": 0.996282, "nonregression": "fail"},
+        {"round": 3, "production_1_ms": 0.607984, "candidate_1_ms": 0.609906, "candidate_2_ms": 0.609608, "production_2_ms": 0.608344, "paired_speedup": 0.997387, "nonregression": "fail"},
+        {"round": 4, "production_1_ms": 0.607617, "candidate_1_ms": 0.609339, "candidate_2_ms": 0.609739, "production_2_ms": 0.607624, "paired_speedup": 0.996853, "nonregression": "fail"},
+        {"round": 5, "production_1_ms": 0.608185, "candidate_1_ms": 0.609419, "candidate_2_ms": 0.609834, "production_2_ms": 0.607941, "paired_speedup": 0.997435, "nonregression": "fail"}
+      ],
+      "production_pass_median_ms": 0.607962,
+      "candidate_pass_median_ms": 0.609870,
+      "candidate_pass_latency_increase_percent": 0.313835,
+      "paired_round_median_speedup": 0.996853,
+      "round_speedup_range": [0.996282, 0.997435],
+      "rounds_at_or_above_1_0": 0,
+      "required_paired_round_median_speedup": 1.0,
+      "every_round_nonregression": "fail",
+      "gate": "fail"
+    },
+    "regressing_rounds": 10,
+    "total_rounds": 10,
+    "all_fixtures_gate": "fail"
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "Resource, capacity, Graph, invalid-call, finite/replay, guard, input, signed nonfinite, and SASS gates pass, but all ten paired rounds regress. Actual reaches only 0.994805x against 1.005x and stress only 0.996853x against 1.0x.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "stop_loss_triggered_after_process": 1,
+    "closed_scope": "the exact b/b+16 balanced-tail 16x1024 regrouping of the production 32x512 fused kernel",
+    "mechanism_interpretation": "The further halving of repeated residual/RMSNorm setup and balanced tail do not offset the measured cost of the 1024-thread physical grouping. The exact cause is not assigned without NCU counters, and the zero-capacity-margin launch is retained as a resource fact rather than asserted as the cause.",
+    "not_run": [
+      "three-process confirmation",
+      "production integration",
+      "full-model oracle",
+      "P19/C32/max26 end-to-end benchmark",
+      "Nsight Systems",
+      "Nsight Compute"
+    ],
+    "formal_anchor_after_rejection": {
+      "milliseconds_per_token": 109.056,
+      "tokens_per_second": 9.169600939
+    }
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_blob_sha1": "cb01ee9ccc5e2cd835cd59a3319eabe8bbcc6f51",
+    "test_blob_sha1": "9130ee9fcf560df28ad1f706681065631862a6b3",
+    "source_and_test_match_base_commit": true,
+    "production_route": "unchanged 32x512",
+    "post_cleanup_gpu_rerun": "not run; cleanup is proved by exact source/test blob identity with base commit"
+  },
+  "artifacts": [
+    {
+      "role": "frozen candidate test binary",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/q3x_sm87_weight_only_gemv_test.candidate",
+      "bytes": 5435784,
+      "sha256": "e4024bfc5932344d565724ca7c57182cf4f0eeeca97d51ba5e3ebb1e2102cc87",
+      "build_id": "79c4e43d2f0d36bbf3be896fca87f9e9c59ebf4e",
+      "checked_in": false
+    },
+    {
+      "role": "candidate-binary default device-test log",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/default-test.log",
+      "bytes": 58393,
+      "lines": 339,
+      "sha256": "3de0bec9f784105c4a23d8cc13c0de5229f4d14db942469ed107f1e7bc1235c7",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "authoritative fixed-clock process-1 screen log",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/screen-process-1.log",
+      "bytes": 83903,
+      "lines": 426,
+      "sha256": "8a17c924d61ce2f780704c8ae75d21478dc0ccbab8f9c119046bbf0db6b55289",
+      "expected_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "ptxas resource report",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/resource-usage.log",
+      "bytes": 37202,
+      "lines": 378,
+      "sha256": "cf1162259178ee6d2224c06999d98840b181bc395c668d6cad1c6e723c49400f",
+      "checked_in": false
+    },
+    {
+      "role": "full candidate-binary SASS dump",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/full.sass",
+      "bytes": 24736468,
+      "lines": 197529,
+      "sha256": "a31e94b9ad0e994a39fae1503f2e68c8aee8f4e65290fd475ac1869e2d69cc22",
+      "checked_in": false
+    },
+    {
+      "role": "production normalized SASS encoding",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/production.encoding64",
+      "bytes": 51376,
+      "lines": 2704,
+      "sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+      "checked_in": false
+    },
+    {
+      "role": "candidate normalized SASS encoding",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/candidate.encoding64",
+      "bytes": 51680,
+      "lines": 2720,
+      "sha256": "4bdb0246107e16c68c75e00803452d446d193c182d701d4e0d1649b81bdc8b2c",
+      "checked_in": false
+    },
+    {
+      "role": "pre-screen fixed-clock environment readback",
+      "path": "/tmp/q3x-gate1024-screen.BP028L/environment-before.log",
+      "bytes": 995,
+      "lines": 6,
+      "sha256": "379263f5be2e0df4926e3b0de3b9fdc3a962011b2136d78ffa2b9109b4bd211d",
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "return to a materially different gate/up or QKV/Z mechanism; do not continue CTA-width coarsening from this result",
+    "do_not_restore": "Do not restore the measured b/b+16 16x1024 candidate without a materially different mechanism and a newly frozen gate.",
+    "unmeasured_branch": "A naive contiguous 16x1024 row mapping was not implemented or timed and is outside this rejection."
+  },
+  "limitations": [
+    "The performance claim is one process on one fixed-clock Jetson AGX Orin; stop-loss intentionally omits replication.",
+    "The test uses exact layer-0 checkpoint weights and scales with deterministic BF16 residual, norm-weight, and activation inputs rather than captured runtime activation tensors.",
+    "No NCU counter evidence is available, so the document does not assign a causal bottleneck to occupancy margin, scheduling, barriers, or memory traffic.",
+    "The nonzero screen exit is the expected frozen performance-gate rejection; correctness, resource, Graph, invalid-call, and static gates pass.",
+    "No end-to-end latency or throughput movement is claimed; 109.056 ms/token and 9.169600939 token/s remain authoritative."
+  ]
+}
