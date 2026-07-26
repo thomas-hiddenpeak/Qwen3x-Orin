@@ -764,6 +764,18 @@ The diagnostic Phase 3 records are:
   performance after the warp-uniform shuffle fix. Production, the serial
   one-stream schedule, Prefill, and the **107.889500 ms/token / 9.268742556
   token/s** anchor remain unchanged.
+- [`qwen36-27b-decode-fp8-linear-qkv-streaming-rejection.json`](qwen36-27b-decode-fp8-linear-qkv-streaming-rejection.json),
+  which closes the test-only evict-first streaming-load screen for the current
+  public linear-attention FP8 QKV/Z plus BF16 A/B tail composite. Production
+  and candidate each contain 3,504 normalized SASS words and retain identical
+  `64r/1,280B/0local/4CTA-SM` resources; only 32 FP8 weight `LDG.E` loads
+  become `LDG.E.EF`. Actual and same-bank fixtures are bitwise/guarded and
+  improve in all five rounds, but the first retained formal process projects
+  only 0.172513 ms/token over 48 linear-attention layers, below its 0.20-ms
+  stop-loss floor. The other two formal processes, end-to-end benchmark, and
+  Nsys closure were therefore not run. Production, the serial one-stream
+  schedule, Prefill, and the **107.889500 ms/token / 9.268742556 token/s**
+  anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

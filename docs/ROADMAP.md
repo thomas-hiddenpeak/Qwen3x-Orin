@@ -232,6 +232,16 @@ Deliverables:
   run is excluded after the `7612bd5` warp-uniform shuffle fix. Production
   remains serial on one stream at 107.889500 ms/token and 9.268742556 token/s;
   the next dedicated Prefill optimization stage has not started.
+- [measured and rejected by first-process stop-loss] Apply evict-first
+  streaming policy only to the 32 canonical FP8 weight loads in the current
+  public exact-M1 linear QKV/Z plus BF16 A/B tail composite. Actual and
+  same-bank fixtures are bitwise/guarded and improve in all five rounds, while
+  SASS size and `64r/1,280B/0local/4CTA-SM` resources are preserved. The
+  actual 1.00756x result projects to only 0.172513 ms/token over 48 linear
+  layers, below the 0.20-ms first-process floor, so the other two processes,
+  production integration, end-to-end benchmark, and Nsys closure are skipped.
+  The 107.889500-ms/token / 9.268742556-token/s anchor, serial one-stream
+  schedule, and not-yet-started dedicated Prefill phase remain unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

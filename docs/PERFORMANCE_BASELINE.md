@@ -5888,3 +5888,55 @@ started; bounded Decode work continues until the 100-ms/token and 10-token/s
 gate is met. Complete hashes, the interrupted-run exclusion, formal logs, and
 claim limits are in the
 [scale6 rejection record](metadata/qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json).
+
+## Rejected Decode linear QKV/Z FP8-weight streaming loads
+
+The next bounded Decode cell applied evict-first streaming cache policy only
+to the canonical FP8 weight words in the current public exact-M1
+linear-attention QKV/Z plus BF16 A/B tail composite. The test-only candidate
+retains the public one-kernel `1536x256` topology, arithmetic, reduction order,
+scalar QKV/Z scales, BF16 A/B path, output boundaries, launch count, and
+stream. Static extraction leaves both routes at 3,504 normalized 64-bit SASS
+words: production hashes to
+`c7b810b4effa7223274c28e7569f9218f451f9c96bce24ba4b179b1c95596a8d`
+and the candidate to
+`153979c36e233fd0a5da59d80ac0e1a79d4c135ec3073c1b91241db6e8f48312`.
+The only targeted SASS change is 32 `LDG.E` FP8-weight loads becoming
+`LDG.E.EF`; eight activation `LDG.E.64` and forty BF16 A/B-weight
+`LDG.E.U16` loads remain unchanged. Both routes use 64 registers/thread,
+1,280 B static shared memory, zero local memory, and four active CTAs/SM.
+
+The pinned layer-0 actual checkpoint and same-bank stress fixtures match the
+current public outputs bitwise for QKV, Z, A, and B with intact output guards.
+The synthetic candidate also captures as a distinct one-node CUDA Graph,
+replays bitwise with guards, and passes the four-case fail-before-enqueue
+zero-node matrix. The default Release suite reports 51 passed and five skipped
+tests out of 56. This screen did not independently hash or guard-check inputs,
+add a signed-nonfinite fixture, or replay the candidate Graph on the actual
+checkpoint; those scope limits do not weaken the first-process stop-loss
+decision.
+
+The frozen same-binary, same-stream screen uses ten warmups, an unmeasured
+`B-C-C-B` prime, and five alternating 64-chain rounds per fixture:
+
+| Fixture | Public median | Candidate median | Paired speedup | Paired delta/layer | Projected 48-layer delta | Improving rounds | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 0.479171 ms | 0.475652 ms | 1.00756x | 0.00359401 ms | **0.172513 ms/token** | 5/5 | **fail absolute floor** |
+| Same-bank stress | 0.445017 ms | 0.440557 ms | 1.00979x | 0.00431475 ms | — | 5/5 | pass |
+
+The candidate is directionally positive and clears the 1.005x actual and
+1.0x stress relative gates, but the actual projection misses the required
+0.20-ms/token first-process absolute floor. Stop-loss therefore rejects this
+isolated mechanism without running the other two formal processes or the
+planned 0.25-ms/token cross-process median gate. No candidate production
+integration, full-model end-to-end benchmark, or Nsys closure was attempted.
+The 0.172513-ms/token projection is arithmetic only and is not an achieved
+whole-engine reduction.
+
+The formal hot P19/C32/max26 anchor remains **107.889500 ms/token and
+9.268742556 token/s**, still 7.889500 ms/token and 0.731257444 token/s short of
+the stage target. Decode remains serial on one stream without double/triple
+buffering or cross-kernel overlap, and dedicated Prefill optimization has not
+started. The frozen binary, Build ID, exact per-round values, payload hashes,
+SASS identities, and retained 7,258-byte log are recorded in the
+[linear QKV/Z streaming rejection record](metadata/qwen36-27b-decode-fp8-linear-qkv-streaming-rejection.json).
