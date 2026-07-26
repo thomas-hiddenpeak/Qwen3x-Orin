@@ -4922,3 +4922,99 @@ fresh Decode Nsys closure before the formal performance anchor changes. The
 complete 15-plus-15 rounds, payload identities, artifacts, gates, and
 limitations are retained in the
 [CTA-coarsening selection record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json).
+
+## Decode NVFP4 M1 gate/up 32x512 CTA-coarsening production promotion
+
+Commit `15cbb28` promotes the selected exact `[17408,5120]` route without
+changing its public API, dispatcher eligibility, model format, loader, or
+resident-memory footprint. The public residual/norm/gate/up/SiLU launch now
+uses 32 CTAs of 512 threads. The old 64-CTA, 256-thread implementation remains
+reachable only as a same-binary predecessor for regression gates, while a
+second test entry replays the production function identity directly.
+
+The final production screen retains the frozen layer-0 checkpoint payload,
+same-bank stress fixture, five 64-launch `B-C-C-B` rounds per fixture, and the
+per-round no-regression requirement:
+
+| Fixture | 64x256 predecessor | 32x512 production | Paired median | Result |
+| --- | ---: | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 0.615768 ms | 0.601257 ms | 1.02388x | pass |
+| Same-bank stress | 0.619698 ms | 0.605754 ms | 1.02302x | pass |
+
+All ten paired rounds improve. Both finite fixtures match residual at
+`0/5,120`, final gate and up at `0/17,408` each, and deterministic replay at
+`0/39,936`, with intact guards and preserved inputs. The signed Inf/NaN case
+matches both implementations bitwise and preserves all 34,816 expected NaN
+outputs, including class and sign. The production node is exactly `32x512`,
+the predecessor is a distinct `64x256` node, and all nine invalid calls capture
+zero nodes.
+
+The promoted kernel retains 64 registers/thread, 11,328 B static shared
+memory, zero per-thread local memory, and two active CTAs/SM, or the same 32
+resident warps/SM as the predecessor. Normalized SASS remains identical to the
+selected candidate: 2,704 words with SHA-256
+`134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab`.
+The retained predecessor remains 2,688 words with SHA-256
+`1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a`.
+Release build, the four targeted CTests, and the pinned full-model oracle all
+pass. The oracle reproduces 19 prompt IDs, 26 generated IDs, exact text,
+`im_end`, and 44 steps with requested/effective C32 and all 64 FP8 output
+sidecars attached.
+
+The fixed-frequency end-to-end gate freezes separate Release binaries and
+runs one warmup plus five measured generations per process in
+`B1-C1-C2-B2` order on P19/C32/max26:
+
+| Process | Subsequent-token median | Decode-after-first | TTFT | Total generation |
+| --- | ---: | ---: | ---: | ---: |
+| B1 predecessor | 109.868 ms | 2,745.622 ms | 428.830 ms | 3,174.413 ms |
+| C1 production | 108.959 ms | 2,723.965 ms | 427.775 ms | 3,151.794 ms |
+| C2 production | 109.153 ms | 2,728.987 ms | 428.088 ms | 3,156.942 ms |
+| B2 predecessor | 109.766 ms | 2,744.400 ms | 429.043 ms | 3,173.748 ms |
+
+Both mirrored pairs improve independently. The mean of process medians moves
+hot subsequent-token latency from 109.817 to **109.056 ms/token**, a
+0.761-ms reduction or 1.006978x speedup. Decode-after-first moves from
+2,745.011 to 2,726.476 ms, a reduction of 18.535 ms across 25 later-token
+steps. The new formal single-request rate is **9.1696 token/s**. Compared with
+the previous 109.7585-ms release anchor, the accumulated production result is
+0.7025 ms/token lower. The remaining stage gap is 9.056 ms/token, or
+0.8304 token/s; reaching 100 ms now requires another 8.304% latency reduction.
+
+A fresh same-binary Nsys capture closes 25 Decode ranges over 10,925 distinct
+kernel rows, exactly 437 per step. The one generation range contains 12,997
+kernels and closes exactly over the prefix, finish, and Decode leaves with no
+missing, extra, or duplicate rows. Decode remains on one stream with
+2,725.022432 ms raw time equal to interval union, zero overlap, and
+17.434496 ms idle across the associated span. The promoted gate/up kernel is
+present exactly 1,600 times at `32x512`; the predecessor is absent. The FP8
+output sidecar remains present 1,600 times, with no canonical output fallback
+or pack work inside generation.
+
+| Rank | Decode group | Launches | Mean launch | Per Decode step | Raw share |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | NVFP4 residual/norm/gate/up/SiLU 32x512 | 1,600 | 0.605825 ms | 38.772791 ms | 35.571075% |
+| 2 | FP8 linear-attention QKV/Z | 1,200 | 0.477056 ms | 22.898703 ms | 21.007812% |
+| 3 | NVFP4 down/residual/norm | 1,600 | 0.326449 ms | 20.892739 ms | 19.167492% |
+| 4 | FP8 output AoSoA4/preswizzled sidecar | 1,600 | 0.180820 ms | 11.572457 ms | 10.616846% |
+| 5 | FP8 full-attention Q+K/V | 400 | 0.428260 ms | 6.852165 ms | 6.286338% |
+| 6 | NVFP4 language head | 25 | 4.382528 ms | 4.382528 ms | 4.020635% |
+
+Against the immediately preceding matched-workload profiler capture, the
+gate/up row falls from 39.675852 to 38.772791 ms/step, a 0.903060-ms reduction
+or 1.023291x directional speedup. Complete Decode raw time is 0.831695 ms/step
+lower. These profiler values diagnose topology and attribution only; they do
+not replace the unprofiled 109.056-ms release anchor. Nsight also reports a
+14,155,776-byte context-level `localMemoryTotal` field for both old and new
+captures; the kernel-specific per-thread local field, resource query, and SASS
+audit all remain zero, so that context field is not evidence of a spill.
+
+The promotion adds no double/triple buffer and does not overlap Prefill with
+Decode. Gate/up remains the largest Decode row, but QKV/Z and down remain close
+behind; the next bounded mechanism must be selected from the refreshed
+production profile without restoring the rejected QKV/Z sidecar, down CTA
+prune, or earlier gate/up load-shape branches. Full binary identities,
+commands, arithmetic, logs, and limitations are retained in the
+[production benchmark record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json)
+and the
+[post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json).

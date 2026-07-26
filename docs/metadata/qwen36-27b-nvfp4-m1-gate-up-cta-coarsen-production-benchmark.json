@@ -1,0 +1,386 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark",
+  "status": "production-promoted-exact-shape-single-request-decode",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "candidate_commit": "15cbb2896a526d8912cfc63aa5de80ba66d48c23",
+    "candidate_tree": "188d1125858503fdb9ab269356c25a675a0fad94",
+    "candidate_subject": "perf: promote Decode gate-up CTA coarsen",
+    "selection_commit": "4b0680ca94d13098cbbefc8c1ac2a03ccd144108",
+    "selection_tree": "60d254762dfd2706e6352d5c32e194b31ca8c1fc",
+    "selection_subject": "bench: select Decode gate-up CTA coarsen",
+    "selection_record": "docs/metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json",
+    "measurement_identity": "The production formal screen, focused CTest, model oracle, and candidate benchmark executable were built from the candidate_tree before candidate_commit was created; candidate_commit records that exact implementation-and-test tree.",
+    "baseline_identity": "The frozen baseline executable was copied before the public exact-shape route was relinked. The selection_commit changes only the test-only candidate and its evidence, so its public 64x256 production route is the retained predecessor used by the baseline executable.",
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "binaries": {
+      "end_to_end_baseline": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/qwen3x-orin.baseline",
+        "bytes": 4199264,
+        "sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+        "elf_build_id": "c28ae51b0e28618fefd55484650e0128404e9c4e",
+        "checked_in": false
+      },
+      "end_to_end_candidate": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/qwen3x-orin.candidate",
+        "bytes": 4200816,
+        "sha256": "21481a684288e1ac802a817b7f8390d778ea1a356e9279f527a7fc13bfc47d32",
+        "elf_build_id": "afb64b388cd5f9ae2e951a1c480cc6a3f8d8eff9",
+        "checked_in": false
+      },
+      "production_formal_microbenchmark": {
+        "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+        "bytes": 5158960,
+        "sha256": "f269c16798b0135c9e8b1fc48ee481c9bf30d404bc3ee69c9a7c30ad6375f3f2",
+        "elf_build_id": "2c209433b3ec8bfae17e47bbeff71222680d4d0a",
+        "checked_in": false
+      },
+      "model_oracle": {
+        "local_path": "build/orin-release/q3x_reference_engine_e2e_test",
+        "bytes": 4125288,
+        "sha256": "cf437e12d2adb7779fabe84f490351e8742a15222e7ac75ddfb4c203a5703158",
+        "elf_build_id": "63c4b19d3358135b415fd5eac24524ce3d9322ee",
+        "checked_in": false
+      },
+      "test_only_selection_freeze": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/q3x_sm87_weight_only_gemv_test.selection",
+        "bytes": 5159160,
+        "sha256": "fc1b9f8d1c2c54ee4be09ea0a7d792a72bf376600ac8c0d913a70a1a56a09c73",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "projection_backend": "sm87_weight_only",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz_before_and_after": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz_before_and_after": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "before_log": {
+      "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/environment-before.log",
+      "bytes": 1713,
+      "sha256": "8f1927b70faba8f25352d6d4cb1dec2791b26f4e0c0d7c238688c13fd4f2e227"
+    },
+    "after_log": {
+      "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/environment-after.log",
+      "bytes": 3480,
+      "sha256": "1aca8a7bf466c3b907494b35763e9115a128c0a814937d6c6d3b004844f0497d"
+    },
+    "clock_scope": "Direct sysfs min/max/current readbacks before and after the four-process benchmark establish the requested fixed-frequency state. They do not establish thermal-soak or power stability."
+  },
+  "implementation": {
+    "phase": "exact M1 Decode post-attention residual add, centered RMSNorm, NVFP4 gate/up projections, and SiLU",
+    "shape_n_by_k": [17408, 5120],
+    "predecessor_topology": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "warps_per_block": 8,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 4,
+      "resident_warps_per_sm": 32
+    },
+    "production_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "mechanism": "Regroup the unchanged 512 global projection warps into 32 CTAs of 16 warps instead of 64 CTAs of eight warps. This halves the CTAs that repeat residual-add and centered-RMSNorm setup while preserving the projection warp count and 2,048-row global stride.",
+    "norm_contract": "Threads 0 through 255 preserve the predecessor's i+=256 residual/RMS accumulation, 256-element reduction tree, rsqrtf, gamma, and BF16-RNE operation order. Threads 256 through 511 skip norm arithmetic but participate in every CTA barrier.",
+    "projection_and_silu_contract": "The global warp-to-row-quad mapping, packed-weight and scale accesses, decoded values, BF16 activation, FFMA and warp-reduction order, scaling, BF16-RNE output order, and SiLU row coverage are unchanged.",
+    "production_dispatch_change": "The existing public exact 17408x5120 M1 residual/norm/gate/up/SiLU route now selects the previously screened 32x512 implementation. The 64x256 implementation remains available as a same-binary predecessor oracle in the test harness.",
+    "memory_overhead_bytes": 0,
+    "additional_persistent_or_workspace_buffers": 0,
+    "additional_streams": 0,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_route_changed": false,
+    "m2_and_larger_routes_changed": false
+  },
+  "production_formal_screen": {
+    "log": {
+      "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/production-formal-screen.log",
+      "bytes": 75703,
+      "sha256": "1cb8b8abb01af1c85b767214f116a52b8f4ed1bc1ae7bf5c1c7c599da9946b33"
+    },
+    "protocol": {
+      "comparison": "same Release binary, same stream, retained 64x256 predecessor B versus public 32x512 production C",
+      "warmup_launches_per_route": 10,
+      "rounds_per_fixture": 5,
+      "logical_launches_per_timed_pass": 64,
+      "order_each_round": "B-C-C-B",
+      "paired_round_statistic": "(predecessor_pass1 + predecessor_pass2) / (production_pass1 + production_pass2)",
+      "actual_checkpoint_required_median_speedup": 1.005,
+      "same_bank_stress_required_median_speedup": 1.0,
+      "required_each_round_speedup": 1.0
+    },
+    "actual_checkpoint": {
+      "predecessor_64x256_pass_median_ms": 0.615768,
+      "production_32x512_pass_median_ms": 0.601257,
+      "pass_median_delta_ms_per_layer": -0.014511,
+      "paired_round_median_speedup": 1.02388,
+      "every_round_nonregression": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "predecessor_64x256_pass_median_ms": 0.619698,
+      "production_32x512_pass_median_ms": 0.605754,
+      "pass_median_delta_ms_per_layer": -0.013944,
+      "paired_round_median_speedup": 1.02302,
+      "every_round_nonregression": true,
+      "gate": "pass"
+    },
+    "arithmetic_actual_checkpoint_saving_across_64_layers_ms_per_token": 0.928704,
+    "arithmetic_saving_note": "This is a phase-local arithmetic projection from the same-binary pass-median delta, not the end-to-end claim. The measured end-to-end comparison below is authoritative for total Decode latency.",
+    "cuda_graph": {
+      "production": {"nodes": 1, "grid": [32, 1, 1], "block": [512, 1, 1], "dynamic_shared_bytes": 0},
+      "direct_replay": {"nodes": 1, "grid": [32, 1, 1], "block": [512, 1, 1], "dynamic_shared_bytes": 0},
+      "predecessor": {"nodes": 1, "grid": [64, 1, 1], "block": [256, 1, 1], "dynamic_shared_bytes": 0},
+      "production_and_replay_same_function": true,
+      "predecessor_function_distinct": true,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "cases": 9,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "resources": {
+      "production_registers_per_thread": 64,
+      "production_static_shared_bytes": 11328,
+      "production_local_bytes": 0,
+      "production_maximum_threads_per_block": 512,
+      "production_active_ctas_per_sm": 2,
+      "production_resident_warps_per_sm": 32,
+      "null_resource_query_rejected": true,
+      "gate": "pass"
+    },
+    "finite_bitwise": {
+      "fixtures": ["actual_checkpoint", "same_bank_stress"],
+      "production_residual_mismatches_each": "0/5120",
+      "production_final_gate_mismatches_each": "0/17408",
+      "production_up_mismatches_each": "0/17408",
+      "production_replay_mismatches_each": "0/39936",
+      "predecessor_mismatches_each": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "signed_inf_nan_bitwise": {
+      "fixture": "actual_checkpoint",
+      "production_residual_mismatches": "0/5120",
+      "production_final_gate_mismatches": "0/17408",
+      "production_up_mismatches": "0/17408",
+      "classified_nan_outputs": "34816/34816",
+      "class_and_sign": true,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "sass": {
+      "production_32x512": {
+        "normalized_instruction_words": 2704,
+        "normalized_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab"
+      },
+      "predecessor_64x256": {
+        "normalized_instruction_words": 2688,
+        "normalized_sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a"
+      },
+      "functions_distinct": true,
+      "interpretation": "The public production route resolves to the previously selected 2704-word 32x512 kernel; the retained 2688-word 64x256 predecessor remains a distinct same-binary oracle."
+    },
+    "terminal_selection": {
+      "actual_paired_median_speedup": 1.02388,
+      "stress_paired_median_speedup": 1.02302,
+      "resource_gate": "pass",
+      "finite_bitwise_replay_gate": "pass",
+      "nonfinite_bitwise_gate": "pass",
+      "overall_gate": "pass"
+    }
+  },
+  "release_validation": {
+    "focused_ctest": {
+      "command": "ctest --test-dir build/orin-release --output-on-failure -R 'sm87_weight_only_gemv|projection_backend_dispatch|model_weights_host|reference_runner_host'",
+      "suite_tests_discovered": 56,
+      "selected": 4,
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        "sm87_weight_only_gemv",
+        "projection_backend_dispatch",
+        "reference_runner_host",
+        "model_weights_host"
+      ],
+      "log": {
+        "local_path": "build/orin-release/Testing/Temporary/LastTest.log",
+        "bytes": 59631,
+        "sha256": "7c5323d4a798fbd3ab1af72acef1714c8635ab517fb187c25b627a89738694d7"
+      },
+      "scope_note": "Four selected tests passed; this entry does not claim that all 56 discovered tests were executed in this focused invocation.",
+      "status": "pass"
+    },
+    "model_oracle": {
+      "command": "build/orin-release/q3x_reference_engine_e2e_test /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 sm87 32",
+      "log": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/model-oracle.log",
+        "bytes": 402,
+        "sha256": "74dda4df3ce2f5a19361fcc18a4af21b13a066d886584ec30f66a64c842e25dc"
+      },
+      "status": "pass",
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "generated_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44,
+      "prefill_chunk_size": 32,
+      "projection_backend": "sm87_weight_only",
+      "fp8_output_sidecar_layers": 64,
+      "fp8_output_sidecar_bytes": 2013265920,
+      "fp8_output_sidecar_fallback_reason": ""
+    }
+  },
+  "end_to_end_benchmark": {
+    "workload": {
+      "scope": "hot single-request Decode",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "max_new_tokens": 26,
+      "decode_intervals": 25,
+      "max_sequence_length": 64,
+      "prefill_chunk_size": 32,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "process_order": "B1-C1-C2-B2",
+      "normalized_command": "BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 32"
+    },
+    "functional_canonicalization": {
+      "field_scope": [
+        "status and projection backend",
+        "requested and effective Prefill chunk size",
+        "existing FP8 output-sidecar enablement, layer count, bytes, and fallback reason",
+        "request arena and sequence limits",
+        "benchmark mode, counts, stop token, and sample count",
+        "Decode sample counts",
+        "device-memory total, tolerance, and persistent-drop flag",
+        "prompt text, prompt IDs, generated IDs, generated text, stop reason, step count, and complete steps"
+      ],
+      "B1_sha256": "af8828216e4be5204c3db76b50715652be6282453d363dd733fb59475c253050",
+      "C1_sha256": "af8828216e4be5204c3db76b50715652be6282453d363dd733fb59475c253050",
+      "C2_sha256": "af8828216e4be5204c3db76b50715652be6282453d363dd733fb59475c253050",
+      "B2_sha256": "af8828216e4be5204c3db76b50715652be6282453d363dd733fb59475c253050",
+      "all_four_equal": true
+    },
+    "logs": {
+      "B1": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/e2e-b1.log",
+        "bytes": 8127,
+        "sha256": "8f73325976e3611e153f45313dcbf5c2bfedf5b8c14d99d22f75f48d517827cf"
+      },
+      "C1": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/e2e-c1.log",
+        "bytes": 8127,
+        "sha256": "3aed3e3b4ba91c2745a6775840afec13cabba0ea4ee6f9e8a38e298854d222fb"
+      },
+      "C2": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/e2e-c2.log",
+        "bytes": 8134,
+        "sha256": "e20f087153fbed5dce6baf1d24d3f8a3e9eb47444428f183ac6b8d12cee8ce6e"
+      },
+      "B2": {
+        "local_path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/e2e-b2.log",
+        "bytes": 8127,
+        "sha256": "f476deb6d54b27f6cf7e5ac03d47fe15df1224008bf8fb625d631a1b60bf0006"
+      }
+    },
+    "process_medians_ms": {
+      "B1": {"subsequent_token": 109.868, "decode_after_first": 2745.622, "time_to_first_token": 428.830, "total_generation": 3174.413},
+      "C1": {"subsequent_token": 108.959, "decode_after_first": 2723.965, "time_to_first_token": 427.775, "total_generation": 3151.794},
+      "C2": {"subsequent_token": 109.153, "decode_after_first": 2728.987, "time_to_first_token": 428.088, "total_generation": 3156.942},
+      "B2": {"subsequent_token": 109.766, "decode_after_first": 2744.400, "time_to_first_token": 429.043, "total_generation": 3173.748}
+    },
+    "mirrored_aggregate": {
+      "method": "arithmetic mean of the two process medians on each side",
+      "baseline_subsequent_token_ms": 109.817,
+      "candidate_subsequent_token_ms": 109.056,
+      "subsequent_token_delta_ms": -0.761,
+      "subsequent_token_speedup": 1.0069780663,
+      "candidate_single_request_tokens_per_second": 9.169600939,
+      "baseline_decode_after_first_ms": 2745.011,
+      "candidate_decode_after_first_ms": 2726.476,
+      "decode_after_first_delta_ms": -18.535,
+      "decode_after_first_speedup": 1.006798153,
+      "baseline_time_to_first_token_ms": 428.9365,
+      "candidate_time_to_first_token_ms": 427.9315,
+      "time_to_first_token_delta_ms": -1.005,
+      "baseline_total_generation_ms": 3174.0805,
+      "candidate_total_generation_ms": 3154.368,
+      "total_generation_delta_ms": -19.7125,
+      "both_mirrored_subsequent_token_pairs_improve": true,
+      "both_mirrored_decode_after_first_pairs_improve": true
+    },
+    "correctness_and_memory": {
+      "all_processes_status_ok": true,
+      "all_processes_prompt_ids": 19,
+      "all_processes_generated_ids": 26,
+      "all_processes_exact_text_and_steps": true,
+      "all_processes_stop_reason": "im_end",
+      "all_processes_step_count": 44,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "incremental_candidate_memory_bytes": 0,
+      "existing_fp8_output_sidecar_layers": 64,
+      "existing_fp8_output_sidecar_bytes": 2013265920,
+      "existing_fp8_output_sidecar_fallback_reason": "",
+      "memory_interpretation": "The CTA-coarsening candidate adds no allocation. Both sides retain the already-selected 1.875-GiB FP8 output sidecar, which is not attributable to this optimization."
+    }
+  },
+  "decision": {
+    "result": "promote the exact M1 Decode residual/norm/gate-up/SiLU 32x512 CTA-coarsened route to production SM87 dispatch",
+    "prior_formal_hot_decode_ms_per_token": 109.7585,
+    "achieved_hot_decode_ms_per_token": 109.056,
+    "improvement_from_prior_formal_anchor_ms_per_token": -0.7025,
+    "same_run_mirrored_baseline_ms_per_token": 109.817,
+    "same_run_mirrored_candidate_delta_ms_per_token": -0.761,
+    "achieved_single_request_tokens_per_second": 9.169600939,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 9.056,
+    "remaining_tokens_per_second": 0.830399061,
+    "remaining_relative_latency_reduction_percent": 8.303991,
+    "selection_basis": "Formal same-binary actual-checkpoint and stress screens pass every threshold and contract; fixed-frequency B1-C1-C2-B2 improves both mirrored hot-Decode pairs and reduces the aggregate subsequent-token median by 0.761 ms.",
+    "fresh_profile_record": "qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json",
+    "next_priority": "Use the fresh promoted-tree Decode profile to select and screen one bounded phase-local mechanism at a time until the 100-ms/token stage target is met.",
+    "prefill_policy": "Begin the much larger Prefill optimization program after the incremental single-request Decode target is reached, unless a correctness blocker requires earlier Prefill work."
+  },
+  "limitations": [
+    "The 109.056-ms/token and 9.169600939-token/s result is hot single-request Decode on the named P19/C32/max26 workload. It excludes model load and is not a Prefill result.",
+    "The token/s value is the reciprocal of the mirrored hot subsequent-token median; it is not multi-request serving throughput.",
+    "The CTA coarsening adds zero device memory, but both benchmark sides retain the previously selected 1.875-GiB FP8 output sidecar. This record does not claim that the complete runtime has no auxiliary memory.",
+    "The fixed-frequency readbacks and mirrored ordering control first-order clock drift; four short processes with five measured rounds each are not a thermal-soak, power, energy, or tail-latency characterization.",
+    "TTFT is recorded only to bound unintended movement. Its small observed delta does not establish a Prefill optimization claim.",
+    "Execution remains a causally serialized single-request path. This change adds no double/triple buffering, Prefill/Decode overlap, multi-stream overlap, or multi-request scheduler.",
+    "Fresh post-promotion Nsys topology and attribution are recorded separately and do not replace this release gate. No fresh NCU counters, long-context matrix, cross-device result, or multi-request result is claimed."
+  ]
+}

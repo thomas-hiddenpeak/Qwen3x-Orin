@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile",
+  "status": "post-gate-up-cta-coarsen-fixed-clock-decode-hotspot-refresh",
+  "recorded_at": "2026-07-26T10:00:34+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "profiled_head": "15cbb2896a526d8912cfc63aa5de80ba66d48c23",
+    "profiled_tree": "188d1125858503fdb9ab269356c25a675a0fad94",
+    "profiled_subject": "perf: promote Decode gate-up CTA coarsen",
+    "latest_runtime_source_commit": "15cbb2896a526d8912cfc63aa5de80ba66d48c23",
+    "latest_runtime_source_tree": "188d1125858503fdb9ab269356c25a675a0fad94",
+    "latest_runtime_source_subject": "perf: promote Decode gate-up CTA coarsen",
+    "provenance_note": "The profiled Release executable is the final production binary built from the committed 15cbb28 source tree; the exact M1 Decode gate/up route selects the promoted 32x512 CTA-coarsened kernel.",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "binary": {
+      "path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/qwen3x-orin.candidate",
+      "bytes": 4200816,
+      "sha256": "21481a684288e1ac802a817b7f8390d778ea1a356e9279f527a7fc13bfc47d32",
+      "elf_build_id": "afb64b388cd5f9ae2e951a1c480cc6a3f8d8eff9",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "fixed_frequency": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz_readback": 1300500000,
+      "gpu_readback_note": "The promotion protocol retained the fixed 1.3005-GHz GPU setup; this is not a thermal or power-stability claim.",
+      "emc_status": "not freshly recorded for this capture"
+    },
+    "exclusivity": {
+      "other_qwen3x_nsys_or_ncu_processes_before_capture": 0
+    }
+  },
+  "protocol": {
+    "scope": "Decode-only hotspot selection from completed q3x.decode.step ranges; the same short trace's one prefix tile and finish-prefill range are deliberately excluded from Prefill ranking",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "warmup_rounds": 0,
+    "measured_processes": 1,
+    "trace_domains": [
+      "cuda",
+      "nvtx"
+    ],
+    "nsys_common_options": "--trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true",
+    "capture": {
+      "id": "P19-C32-max26",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "prefix_tokens": 18,
+      "prefix_tiles": 1,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_steps_after_first": 25,
+      "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o /tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/p19-c32-max26 /tmp/q3x-gateup-coarsen-promotion.erIFsw/qwen3x-orin.candidate generate /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges"
+    },
+    "correctness_anchor": {
+      "capture_console_log_retained": true,
+      "capture_console_log_sha256": "37ca578efb201189a01af5fc17cd57ce3bdc73390941fb61c33710f7f260d5c3",
+      "production_benchmark_record": "qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json",
+      "same_binary_sha256": "21481a684288e1ac802a817b7f8390d778ea1a356e9279f527a7fc13bfc47d32",
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+      "stop_reason": "im_end",
+      "steps": 44,
+      "fp8_output_sidecar_layers": 64,
+      "fp8_output_sidecar_bytes": 2013265920,
+      "fp8_output_sidecar_fallback_reason": "",
+      "status": "pass"
+    }
+  },
+  "attribution_method": {
+    "nvtx_selection": "completed q3x.decode.step ranges with registered strings resolved through coalesce(NVTX_EVENTS.text, StringIds.value via textId)",
+    "runtime_selection": "CUDA Runtime calls on the same globalTid whose host start and end are contained in one completed Decode range",
+    "runtime_to_kernel_join": "correlationId plus k.globalPid=(r.globalTid & 0xFFFFFFFFFF000000)",
+    "duplicate_kernel_row_check": {
+      "selected_rows": 10925,
+      "distinct_kernel_rows": 10925,
+      "status": "pass"
+    },
+    "raw_kernel_ns": "sum of kernel end-start",
+    "union_kernel_ns": "length of the merged GPU interval union",
+    "union_rule": "sort [start,end], starting a new segment only when next.start is greater than current.end",
+    "idle_ns": "last associated kernel end minus first associated kernel start across all selected Decode rows, minus their interval union; this overall span includes gaps between adjacent Decode steps",
+    "decode_ranking": "raw time by exact demangled kernel name after proving zero cross-stream overlap"
+  },
+  "decode_profile": {
+    "nvtx_ranges": {
+      "decode_step": {
+        "instances": 25,
+        "host_sum_ns": 2742394144,
+        "host_average_ns": 109695765.76,
+        "host_average_ms": 109.69576576,
+        "host_median_ns": 109654368,
+        "host_median_ms": 109.654368,
+        "host_minimum_ns": 109333952,
+        "host_minimum_ms": 109.333952,
+        "host_maximum_ns": 110171808,
+        "host_maximum_ms": 110.171808
+      }
+    },
+    "kernel_timeline": {
+      "kernel_instances": 10925,
+      "instances_per_decode_step": 437,
+      "stream_instances": {
+        "18": 10925
+      },
+      "raw_ns": 2725022432,
+      "raw_ms": 2725.022432,
+      "raw_per_decode_step_ms": 109.00089728,
+      "union_ns": 2725022432,
+      "union_ms": 2725.022432,
+      "span_ns": 2742456928,
+      "span_ms": 2742.456928,
+      "idle_ns": 17434496,
+      "idle_ms": 17.434496,
+      "idle_percent_of_span": 0.635725,
+      "overlap_ns": 0,
+      "raw_equals_union": true
+    },
+    "generation_leaf_closure": {
+      "generation_kernel_instances": 12997,
+      "leaf_kernel_instances": 12997,
+      "generation_raw_ns": 3168157792,
+      "leaf_raw_ns": 3168157792,
+      "missing_generation_kernels": 0,
+      "extra_leaf_kernels": 0,
+      "duplicate_leaf_kernels": 0,
+      "duplicate_leaf_rows": 0,
+      "status": "pass"
+    },
+    "decode_gate_up_route_sanity": {
+      "production_coarsened_kernel_instances": 1600,
+      "production_launches_per_decode_step": 64,
+      "predecessor_64x256_kernel_instances": 0,
+      "production_topology": {
+        "grid": [32, 1, 1],
+        "block": [512, 1, 1],
+        "dynamic_shared_bytes": 0,
+        "registers_per_thread": 64,
+        "static_shared_bytes": 11328,
+        "local_bytes_per_thread": 0,
+        "active_ctas_per_sm": 2,
+        "resident_warps_per_sm": 32
+      },
+      "nsys_local_memory_total_bytes": 14155776,
+      "nsys_local_memory_total_interpretation": "This is an Nsight context-level launch field and is unchanged from the predecessor report. It is not per-thread spill evidence. The same-binary CUDA resource query reports zero local bytes, and normalized SASS corroborates zero local-memory spill code.",
+      "same_binary_resource_query_record": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/production-formal-screen.log",
+      "same_binary_resource_query_record_sha256": "1cb8b8abb01af1c85b767214f116a52b8f4ed1bc1ae7bf5c1c7c599da9946b33",
+      "normalized_sass": {
+        "instruction_words": 2704,
+        "sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+        "local_spill_evidence": false
+      },
+      "raw_ns": 969319776,
+      "per_decode_step_ms": 38.77279104,
+      "status": "pass"
+    },
+    "decode_output_sidecar_route_sanity": {
+      "aosoa4_preswizzled_output_kernel_instances": 1600,
+      "canonical_output_row_quad_kernel_instances": 0,
+      "output_sidecar_pack_kernel_instances": 0,
+      "interpretation": "All 64 per-step output projections retain the production sidecar route inside Decode; canonical fallback and generation-time pack work are absent.",
+      "status": "pass"
+    },
+    "decode_hotspots": [
+      {
+        "rank": 1,
+        "group": "NVFP4 fused residual/norm/gate/up/SiLU coarsened 32x512 [17408,5120]",
+        "exact_demangled_name": "q3x::kernels::<unnamed>::nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_coarsened_512_kernel(const unsigned char *, const unsigned char *, float, const unsigned char *, const unsigned char *, float, const unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *, unsigned short *)",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 969319776,
+        "average_ns": 605824.86,
+        "average_ms": 0.60582486,
+        "per_decode_step_ms": 38.77279104,
+        "share_of_decode_raw_percent": 35.571075
+      },
+      {
+        "rank": 2,
+        "group": "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+        "exact_demangled_name": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_qkv_z_two_phase_reduction_scratch_ping_pong_kernel(const unsigned char *, float, const unsigned char *, float, const unsigned short *, unsigned long, unsigned short *, unsigned short *)",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 572467584,
+        "average_ns": 477056.32,
+        "average_ms": 0.47705632,
+        "per_decode_step_ms": 22.89870336,
+        "share_of_decode_raw_percent": 21.007812
+      },
+      {
+        "rank": 3,
+        "group": "NVFP4 fused down/residual/norm [5120,17408]",
+        "exact_demangled_name": "void q3x::kernels::<unnamed>::nvfp4_w4a16_down_residual_norm_activation_staged_kernel<(unsigned long)5120, (unsigned long)17408>(const unsigned char *, const unsigned char *, float, const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *)",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 522318464,
+        "average_ns": 326449.04,
+        "average_ms": 0.32644904,
+        "per_decode_step_ms": 20.89273856,
+        "share_of_decode_raw_percent": 19.167492
+      },
+      {
+        "rank": 4,
+        "group": "FP8 output projection AoSoA4/preswizzled sidecar [5120,6144]",
+        "exact_demangled_name": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(const uint4 *, float, const unsigned short *, unsigned long, unsigned long, unsigned short *)",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 289311424,
+        "average_ns": 180819.64,
+        "average_ms": 0.18081964,
+        "per_decode_step_ms": 11.57245696,
+        "share_of_decode_raw_percent": 10.616846
+      },
+      {
+        "rank": 5,
+        "group": "FP8 full-attention Q+K/V reduction-scratch ping-pong",
+        "exact_demangled_name": "q3x::kernels::<unnamed>::fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel(const unsigned char *, float, const unsigned char *, float, const unsigned char *, float, const unsigned short *, unsigned short *, unsigned short *, unsigned short *)",
+        "kernel_instances": 400,
+        "launches_per_decode_step": 16,
+        "total_ns": 171304128,
+        "average_ns": 428260.32,
+        "average_ms": 0.42826032,
+        "per_decode_step_ms": 6.85216512,
+        "share_of_decode_raw_percent": 6.286338
+      },
+      {
+        "rank": 6,
+        "group": "NVFP4 language head [248320,5120]",
+        "exact_demangled_name": "void q3x::kernels::<unnamed>::nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel<(unsigned long)248320, (unsigned long)5120>(const unsigned char *, const unsigned char *, float, const unsigned short *, unsigned short *)",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 109563200,
+        "average_ns": 4382528,
+        "average_ms": 4.382528,
+        "per_decode_step_ms": 4.382528,
+        "share_of_decode_raw_percent": 4.020635
+      },
+      {
+        "rank": 7,
+        "group": "fused Decode GDN/plain-RMSNorm/SiLU gate",
+        "exact_demangled_name": "void q3x::runtime::<unnamed>::gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<(bool)1>(const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, const unsigned short *, unsigned short *, float, const unsigned short *, const unsigned short *, float, unsigned short *)",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 38197664,
+        "average_ns": 31831.386667,
+        "average_ms": 0.031831387,
+        "per_decode_step_ms": 1.52790656,
+        "share_of_decode_raw_percent": 1.401738
+      },
+      {
+        "rank": 8,
+        "group": "BF16 projection pair tile",
+        "exact_demangled_name": "q3x::kernels::<unnamed>::bf16_gemv_pair_tile_bf16_kernel(const unsigned short *, const unsigned short *, const unsigned short *, unsigned long, unsigned long, unsigned short *, unsigned short *)",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 22717888,
+        "average_ns": 18931.573333,
+        "average_ms": 0.018931573,
+        "per_decode_step_ms": 0.90871552,
+        "share_of_decode_raw_percent": 0.833677
+      },
+      {
+        "rank": 9,
+        "group": "GQA sigmoid gate Q24/KV4/D256",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::gqa_sigmoid_gate_24_4_256_kernel(const unsigned short *, const unsigned short *, const unsigned short *, unsigned long, float, float *, const unsigned short *, unsigned short *)",
+        "kernel_instances": 400,
+        "launches_per_decode_step": 16,
+        "total_ns": 19708768,
+        "average_ns": 49271.92,
+        "average_ms": 0.04927192,
+        "per_decode_step_ms": 0.78835072,
+        "share_of_decode_raw_percent": 0.723252
+      },
+      {
+        "rank": 10,
+        "group": "causal Conv1D/SiLU",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::causal_conv1d_silu_update_kernel(const unsigned short *, const unsigned short *, unsigned short *, unsigned short *)",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 6556384,
+        "average_ns": 5463.653333,
+        "average_ms": 0.005463653,
+        "per_decode_step_ms": 0.26225536,
+        "share_of_decode_raw_percent": 0.240599
+      },
+      {
+        "rank": 11,
+        "group": "full-attention preprocess Q24/KV4/D256/C64",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::full_attention_preprocess_24_4_256_64_kernel(const unsigned short *, unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *, const float *, const float *, unsigned long)",
+        "kernel_instances": 400,
+        "launches_per_decode_step": 16,
+        "total_ns": 2498752,
+        "average_ns": 6246.88,
+        "average_ms": 0.00624688,
+        "per_decode_step_ms": 0.09995008,
+        "share_of_decode_raw_percent": 0.091697
+      },
+      {
+        "rank": 12,
+        "group": "final RMSNorm",
+        "exact_demangled_name": "void q3x::runtime::<unnamed>::rms_norm_kernel<(bool)1>(const unsigned short *, const unsigned short *, unsigned long, float, unsigned short *)",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 488032,
+        "average_ns": 19521.28,
+        "average_ms": 0.01952128,
+        "per_decode_step_ms": 0.01952128,
+        "share_of_decode_raw_percent": 0.017909
+      },
+      {
+        "rank": 13,
+        "group": "BF16 greedy argmax",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::bf16_greedy_argmax_kernel(const unsigned short *, unsigned long, q3x::runtime::Bf16GreedyArgmaxResult *)",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 374752,
+        "average_ns": 14990.08,
+        "average_ms": 0.01499008,
+        "per_decode_step_ms": 0.01499008,
+        "share_of_decode_raw_percent": 0.013752
+      },
+      {
+        "rank": 14,
+        "group": "embedding gather",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::embedding_gather_kernel(const unsigned short *, unsigned long, unsigned long, unsigned short *)",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 108352,
+        "average_ns": 4334.08,
+        "average_ms": 0.00433408,
+        "per_decode_step_ms": 0.00433408,
+        "share_of_decode_raw_percent": 0.003976
+      },
+      {
+        "rank": 15,
+        "group": "BF16 greedy argmax finalize",
+        "exact_demangled_name": "q3x::runtime::<unnamed>::bf16_greedy_argmax_finalize_kernel(const unsigned short *, const q3x::runtime::Bf16GreedyArgmaxResult *, q3x::runtime::Bf16GreedyArgmaxResult *)",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 87264,
+        "average_ns": 3490.56,
+        "average_ms": 0.00349056,
+        "per_decode_step_ms": 0.00349056,
+        "share_of_decode_raw_percent": 0.003202
+      }
+    ],
+    "ranking_summary": {
+      "distinct_exact_kernel_names": 15,
+      "ranked_total_ns": 2725022432,
+      "ranked_total_equals_decode_raw": true,
+      "top_three_share_of_decode_raw_percent": 75.746379,
+      "top_five_share_of_decode_raw_percent": 92.649563,
+      "top_ten_share_of_decode_raw_percent": 99.869463,
+      "all_ranked_share_of_decode_raw_percent": 100,
+      "raw_equals_union": true,
+      "largest_remaining_group": "NVFP4 fused residual/norm/gate/up/SiLU coarsened 32x512 [17408,5120]"
+    }
+  },
+  "predecessor_current_trace_comparison": {
+    "baseline_record": "qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json",
+    "baseline_profiled_commit": "aa7312b9f6242dae5a26045241646e1d813d0cae",
+    "baseline_runtime_binary_sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+    "same_workload_contract": {
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_ranges_each": 25,
+      "decode_kernel_instances_each": 10925,
+      "overlap_ns_each": 0
+    },
+    "gate_up_projection": {
+      "baseline_topology": "64x256",
+      "current_topology": "32x512",
+      "kernel_instances_each": 1600,
+      "baseline_total_ns": 991896288,
+      "current_total_ns": 969319776,
+      "delta_total_ns": -22576512,
+      "baseline_per_decode_step_ms": 39.67585152,
+      "current_per_decode_step_ms": 38.77279104,
+      "delta_per_decode_step_ms": -0.90306048,
+      "current_over_baseline": 0.977239437,
+      "arithmetic_speedup": 1.02329109
+    },
+    "decode_raw": {
+      "baseline_ns": 2745814816,
+      "current_ns": 2725022432,
+      "delta_ns": -20792384,
+      "delta_per_decode_step_ms": -0.83169536,
+      "current_over_baseline": 0.992427609,
+      "arithmetic_reduction_percent": 0.757239
+    },
+    "decode_host_range_average": {
+      "baseline_ms": 110.51928576,
+      "current_ms": 109.69576576,
+      "delta_ms": -0.82352
+    },
+    "interpretation": "The gate/up row moves in the intended direction by 0.90306048 ms per profiled Decode step, and full Decode raw time is directionally lower by 0.83169536 ms per step. These are separate single-process Nsys captures, so neither delta replaces the release benchmark nor proves causal attribution for every unchanged row."
+  },
+  "release_performance_anchor": {
+    "record": "qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json",
+    "method": "fixed-frequency P19/C32/max26 B1-C1-C2-B2, one warmup and five measured generations per process, arithmetic mean of mirrored process medians",
+    "hot_subsequent_token_ms": 109.056,
+    "single_request_tokens_per_second": 9.169600939,
+    "target_ms_per_token": 100,
+    "target_tokens_per_second": 10,
+    "remaining_ms_per_token": 9.056,
+    "remaining_relative_latency_reduction_percent": 8.303991,
+    "single_nsys_capture_replaces_release_anchor": false,
+    "note": "The 109.695766-ms profiled host-range average and 109.000897-ms GPU raw time per Decode step are profiler-run diagnostics, not replacement latency or throughput measurements."
+  },
+  "priority_decision": {
+    "continue_incremental_decode_work_before_prefill": true,
+    "next_profile_order": [
+      "NVFP4 fused residual/norm/gate/up/SiLU coarsened 32x512 [17408,5120]",
+      "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+      "NVFP4 fused down/residual/norm [5120,17408]",
+      "FP8 output projection AoSoA4/preswizzled sidecar [5120,6144]"
+    ],
+    "reasons": [
+      "The first three groups still account for 75.746379% of Decode raw kernel time.",
+      "Decode remains one stream with raw equal to union, zero overlap, and only 0.635725% idle in the associated kernel span.",
+      "The release anchor is 109.056 ms/token and 9.169600939 token/s, leaving 9.056 ms/token to the single-request target.",
+      "The promoted gate/up topology is present in all 1,600 expected Decode launches; the 64x256 predecessor is absent."
+    ],
+    "mechanism_boundary": [
+      "This profile does not revive previously rejected gate/up, QKV/Z-sidecar, or down CTA-prune candidates.",
+      "A next implementation still requires its own exactness, topology, resource, microbenchmark, model-oracle, and mirrored end-to-end gates.",
+      "General batch-one double/triple buffering has no measured same-request overlap opportunity in this single-stream dependency chain."
+    ],
+    "prefill_policy": "Resume the larger Prefill program after the 100-ms/token and 10-token/s single-request Decode target is met."
+  },
+  "artifacts": [
+    {
+      "role": "Decode capture console log",
+      "path": "/tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/p19-c32-max26.log",
+      "bytes": 3137,
+      "sha256": "37ca578efb201189a01af5fc17cd57ce3bdc73390941fb61c33710f7f260d5c3",
+      "checked_in": false
+    },
+    {
+      "role": "Decode Nsys report",
+      "path": "/tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/p19-c32-max26.nsys-rep",
+      "bytes": 1023363,
+      "sha256": "7b1d8c92c11fb59e3747b007e94d9bfed7a91fa9ea207d1517be139631c7421e",
+      "checked_in": false
+    },
+    {
+      "role": "Decode SQLite export",
+      "path": "/tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/p19-c32-max26.sqlite",
+      "bytes": 2867200,
+      "sha256": "1827836cd578415e88d999bd980c03894d7832407c9c4cefab67a3ffbca22796",
+      "checked_in": false
+    },
+    {
+      "role": "exact phase analysis JSON",
+      "path": "/tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/analysis.json",
+      "bytes": 23468,
+      "sha256": "1d2433c243f9986f6e562f7e0a8e4870ed4b798c4cd4419534cfb4ee693f258d",
+      "checked_in": false
+    },
+    {
+      "role": "route and closure supplemental audit JSON",
+      "path": "/tmp/q3x-gateup-coarsen-production-nsys.X8YCbS/supplemental-audit.json",
+      "bytes": 2147,
+      "sha256": "46f194347a46260bb0eece1ade967a85dd68bd22a6a1a947bee43b7a348da8ab",
+      "checked_in": false
+    },
+    {
+      "role": "profiled Release executable",
+      "path": "/tmp/q3x-gateup-coarsen-promotion.erIFsw/qwen3x-orin.candidate",
+      "bytes": 4200816,
+      "sha256": "21481a684288e1ac802a817b7f8390d778ea1a356e9279f527a7fc13bfc47d32",
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "This is one profiled P19/C32/max26 process with no warmup, not a latency distribution, release SLA, or end-to-end promotion gate.",
+    "Nsight Systems perturbs absolute latency; this trace selects hotspots and audits topology. The separate fixed-frequency B1-C1-C2-B2 result is the release performance anchor.",
+    "The predecessor/current Nsys comparison uses different binaries and processes. Profiler and run drift prevent assigning the complete raw or host-range delta causally to the CTA coarsen.",
+    "Nsight's localMemoryTotal=14155776 launch-context field is identical to the predecessor report and is not a spill metric. The same-binary CUDA resource query reports local_bytes=0, supported by normalized SASS.",
+    "No Nsight Compute counters, fresh EMC readback, power, energy, thermal-soak, long-context, tail-latency, or multi-request evidence was collected.",
+    "The short trace contains only one 18-token prefix tile; it is intentionally not used to rank Prefill.",
+    "Prefill and Decode remain logically separate but dependency-serialized for one request; no general double/triple buffer, independent executor, or cross-request scheduler is implemented by this profile."
+  ]
+}

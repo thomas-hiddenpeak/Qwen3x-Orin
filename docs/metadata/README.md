@@ -618,6 +618,23 @@ The diagnostic Phase 3 records are:
   is an arithmetic projection; production remains at 109.7585 ms/token and
   9.1109 token/s pending final production integration, model-oracle,
   end-to-end, and Nsys evidence.
+- [`qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json`](qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json),
+  which records the subsequent zero-additional-sidecar production promotion.
+  The final
+  exact checkpoint/stress gates reach 1.02388x/1.02302x with every round
+  improving; finite, replay, signed Inf/NaN, resource, Graph, invalid-call,
+  SASS, Release, CTest, and full-model oracle checks pass. Fixed-frequency
+  P19/C32/max26 `B1-C1-C2-B2` moves the mirrored hot Decode median from
+  109.817 to 109.056 ms/token with both pairs improving, establishing
+  9.1696 token/s and a remaining 9.056-ms/token stage gap.
+- [`qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json`](qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json),
+  which records the fresh production Decode closure. Across all 25 ranges,
+  there are exactly 10,925 distinct kernel rows (437 per range) on one stream,
+  with raw equal to union and zero overlap. The promoted `32x512` gate/up
+  kernel appears 1,600 times and falls
+  directionally from 39.675852 to 38.772791 ms/step; the old `64x256` kernel is
+  absent. Generation/leaf closure and the retained FP8 output-sidecar route
+  both pass, while the unprofiled 109.056-ms result remains authoritative.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

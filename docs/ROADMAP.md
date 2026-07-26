@@ -868,15 +868,28 @@ actual-checkpoint and same-bank-stress cross-process paired medians are
 Inf/NaN outputs pass bitwise, and resource including null-query rejection,
 one-node Graph, and nine zero-node invalid-call gates pass. Production SASS
 remains identical in the test build, and all three processes exit zero.
-
-This selection has not changed production or the formal 109.7585-ms/token,
-9.1109-token/s result. Its 0.926016-ms/token median 64-layer arithmetic
-projection, with a 0.833856–0.927104-ms/token process range, is not an
-end-to-end result. The immediate work is production promotion followed by
-final Release gates, the pinned model oracle, fixed-frequency P19/C32/max26
-mirrored `B-C-C-B` end-to-end measurement, and a fresh Decode Nsys closure.
-See the
+The complete test-only stage remains in the
 [CTA-coarsening selection](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json).
+
+That production promotion is now complete at `15cbb28`. The public exact M1
+route is `32x512`; the retained `64x256` predecessor remains test-only. The
+final actual/stress paired medians are 1.02388x/1.02302x, every round improves,
+all finite/replay and signed Inf/NaN outputs remain bit-exact, and the final
+resource, Graph, invalid-call, SASS, Release, CTest, and pinned full-model
+oracle gates pass. No public API, model format, loader, sidecar, or persistent
+memory changes are required.
+
+The fixed-frequency P19/C32/max26 `B1-C1-C2-B2` gate moves mirrored hot Decode
+from 109.817 to **109.056 ms/token**, or **9.1696 token/s**, with both pairs
+improving. This is an achieved end-to-end result. The stage target is now
+9.056 ms/token and 0.8304 token/s away, requiring another 8.304% latency
+reduction. Fresh Nsys closure retains 25 ranges, 10,925 distinct kernel rows,
+one stream, and zero overlap. The promoted gate/up row falls directionally from
+39.675852 to 38.772791 ms/step while remaining rank one; QKV/Z and down remain
+ranks two and three. See the
+[production benchmark](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json)
+and
+[post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json).
 Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants, the down CTA-
 prune, and the QKV/Z sidecar remain closed. The 100-ms/token and 10-token/s gate
 still precedes the larger Prefill program.
