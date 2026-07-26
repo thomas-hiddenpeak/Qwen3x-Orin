@@ -91,6 +91,12 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_test_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_test_cuda(
+    const std::uint8_t* aosoa4_preswizzled_weights, float weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
     const std::uint8_t* aosoa4_preswizzled_weights, float weight_scale,
     const std::uint16_t* activation,
@@ -112,6 +118,12 @@ query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
 
 [[nodiscard]] int
 query_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -6077,6 +6089,14 @@ decode_fp8_qkv_z_register_prefetch_performance_enabled() noexcept {
 decode_fp8_o_proj_resident_grid64_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_FP8_O_PROJ_RESIDENT_GRID64_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_fp8_o_proj_cta512_shared_activation_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CTA512_SHARED_ACTIVATION_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -20497,6 +20517,555 @@ void run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(
     TestContext& test, cudaStream_t stream) {
   run_fp8_m1_output_projection_aosoa4_screen(
       test, stream, Fp8M1OProjAosoa4ScreenMode::kResidentGrid64);
+}
+
+void run_fp8_m1_output_projection_aosoa4_cta512_shared_activation_screen(
+    TestContext& test, cudaStream_t stream) {
+  if (!decode_fp8_o_proj_cta512_shared_activation_performance_enabled()) {
+    std::cout
+        << "SKIP: Decode FP8 O-proj CTA512 shared-activation screen; set "
+           "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CTA512_SHARED_ACTIVATION_PERF=1 "
+           "to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 6'144U;
+  constexpr std::size_t kWeightBytes = kRows * kColumns;
+  constexpr std::size_t kInputGuardBytes = 64U;
+  constexpr std::size_t kActivationGuardElements = 16U;
+  constexpr std::size_t kOutputGuardElements = 32U;
+  constexpr std::uint8_t kSidecarGuard = 0xd3U;
+  constexpr std::uint16_t kActivationGuard = 0x7fc1U;
+  constexpr std::uint16_t kOutputCanary = 0x5aa5U;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr std::uint64_t kActualPayloadOffset = 3'569'011'232ULL;
+  constexpr std::string_view kActualPayloadSha256 =
+      "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9";
+  constexpr std::string_view kActualSidecarSha256 =
+      "20f6875f163aefa869d7c96c436fdc63f90171793a88a0f1b3fefca55531782b";
+  constexpr std::string_view kLabel =
+      "FP8 M1 output projection AoSoA4 CTA512 shared activation";
+
+  Fp8M1Aosoa4PreswizzledResources public_resources{};
+  Fp8M1Aosoa4PreswizzledResources candidate_resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
+              &public_resources.registers_per_thread,
+              &public_resources.static_shared_bytes,
+              &public_resources.local_bytes,
+              &public_resources.maximum_threads_per_block,
+              &public_resources.active_blocks_per_sm)),
+      std::string(kLabel) + " query public resources");
+  ready = test.cuda_ok(
+              static_cast<cudaError_t>(q3x::kernels::
+                  query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_resources_test_cuda(
+                      &candidate_resources.registers_per_thread,
+                      &candidate_resources.static_shared_bytes,
+                      &candidate_resources.local_bytes,
+                      &candidate_resources.maximum_threads_per_block,
+                      &candidate_resources.active_blocks_per_sm)),
+              std::string(kLabel) + " query candidate resources") &&
+          ready;
+  const bool public_resource_gate =
+      ready && public_resources.registers_per_thread == 64 &&
+      public_resources.static_shared_bytes == 1'152U &&
+      public_resources.local_bytes == 0U &&
+      public_resources.maximum_threads_per_block == 256 &&
+      public_resources.active_blocks_per_sm == 4;
+  const bool candidate_resource_gate =
+      ready && candidate_resources.registers_per_thread <= 64 &&
+      candidate_resources.static_shared_bytes == 13'568U &&
+      candidate_resources.local_bytes == 0U &&
+      candidate_resources.maximum_threads_per_block == 512 &&
+      candidate_resources.active_blocks_per_sm >= 2;
+  const bool resource_gate = public_resource_gate && candidate_resource_gate;
+  test.expect(resource_gate,
+              std::string(kLabel) + " clears resource/occupancy gate");
+  std::cout << "FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_RESOURCES:"
+            << " public_registers=" << public_resources.registers_per_thread
+            << " candidate_registers="
+            << candidate_resources.registers_per_thread
+            << " public_static_shared_bytes="
+            << public_resources.static_shared_bytes
+            << " candidate_static_shared_bytes="
+            << candidate_resources.static_shared_bytes
+            << " public_local_bytes=" << public_resources.local_bytes
+            << " candidate_local_bytes=" << candidate_resources.local_bytes
+            << " public_max_threads="
+            << public_resources.maximum_threads_per_block
+            << " candidate_max_threads="
+            << candidate_resources.maximum_threads_per_block
+            << " public_active_blocks_per_sm="
+            << public_resources.active_blocks_per_sm
+            << " candidate_active_blocks_per_sm="
+            << candidate_resources.active_blocks_per_sm
+            << " require_candidate_registers_le=64"
+            << " require_candidate_shared_eq=13568"
+            << " require_candidate_active_blocks_ge=2"
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready || !resource_gate) {
+    return;
+  }
+
+  std::vector<std::uint8_t> host_weights(kWeightBytes);
+  std::vector<std::uint8_t> host_sidecar_storage;
+  std::vector<std::uint16_t> host_activation_storage(
+      kActivationGuardElements + kColumns + kActivationGuardElements,
+      kActivationGuard);
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered =
+        static_cast<int>((column * 29U + (column >> 3U) * 7U + 11U) %
+                         127U) -
+        63;
+    host_activation_storage[kActivationGuardElements + column] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  const std::vector<std::uint16_t> host_output_initial(
+      kOutputGuardElements + kRows + kOutputGuardElements, kOutputCanary);
+
+  DeviceBuffer<std::uint8_t> sidecar_storage;
+  DeviceBuffer<std::uint16_t> activation_storage;
+  DeviceBuffer<std::uint16_t> public_output_storage;
+  DeviceBuffer<std::uint16_t> candidate_output_storage;
+  DeviceBuffer<std::uint16_t> timing_output_storage;
+  ready = test.cuda_ok(
+      sidecar_storage.allocate(kInputGuardBytes + kWeightBytes +
+                               kInputGuardBytes),
+      std::string(kLabel) + " allocate guarded sidecar");
+  ready = test.cuda_ok(
+              activation_storage.allocate(host_activation_storage.size()),
+              std::string(kLabel) + " allocate guarded activation") &&
+          ready;
+  for (auto* const storage : {&public_output_storage,
+                              &candidate_output_storage,
+                              &timing_output_storage}) {
+    ready = test.cuda_ok(storage->allocate(host_output_initial.size()),
+                         std::string(kLabel) + " allocate guarded output") &&
+            ready;
+  }
+  if (!ready) {
+    return;
+  }
+
+  const std::uint8_t* const sidecar =
+      sidecar_storage.get() + kInputGuardBytes;
+  const std::uint16_t* const activation =
+      activation_storage.get() + kActivationGuardElements;
+  std::uint16_t* const public_output =
+      public_output_storage.get() + kOutputGuardElements;
+  std::uint16_t* const candidate_output =
+      candidate_output_storage.get() + kOutputGuardElements;
+  std::uint16_t* const timing_output =
+      timing_output_storage.get() + kOutputGuardElements;
+
+  const auto launch_public = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+            sidecar, kWeightScale, activation, kRows, kColumns, output,
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_test_cuda(
+            sidecar, kWeightScale, activation, kRows, kColumns, output,
+            static_cast<void*>(stream));
+  };
+
+  bool actual_sidecar_identity_gate = false;
+  const auto upload_fixture = [&](const std::string& fixture_name,
+                                  const bool require_actual_identity) {
+    const bool sidecar_semantics =
+        build_fp8_m1_aosoa4_preswizzled_sidecar(
+            host_weights, kRows, kColumns, kInputGuardBytes, kSidecarGuard,
+            host_sidecar_storage);
+    bool fixture_ready = sidecar_semantics;
+    test.expect(sidecar_semantics,
+                fixture_name + " preserves sidecar byte semantics");
+    fixture_ready = test.cuda_ok(
+                        cudaMemcpyAsync(sidecar_storage.get(),
+                                        host_sidecar_storage.data(),
+                                        host_sidecar_storage.size(),
+                                        cudaMemcpyHostToDevice, stream),
+                        fixture_name + " upload sidecar") &&
+                    fixture_ready;
+    fixture_ready = test.cuda_ok(
+                        cudaMemcpyAsync(
+                            activation_storage.get(),
+                            host_activation_storage.data(),
+                            host_activation_storage.size() *
+                                sizeof(std::uint16_t),
+                            cudaMemcpyHostToDevice, stream),
+                        fixture_name + " upload activation") &&
+                    fixture_ready;
+    for (auto* const storage : {&public_output_storage,
+                                &candidate_output_storage,
+                                &timing_output_storage}) {
+      fixture_ready = test.cuda_ok(
+                          cudaMemcpyAsync(
+                              storage->get(), host_output_initial.data(),
+                              host_output_initial.size() *
+                                  sizeof(std::uint16_t),
+                              cudaMemcpyHostToDevice, stream),
+                          fixture_name + " initialize output") &&
+                      fixture_ready;
+    }
+    fixture_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                 fixture_name + " upload synchronize") &&
+                    fixture_ready;
+    const std::string sidecar_sha256 =
+        q3x::core::sha256(std::string_view(
+            reinterpret_cast<const char*>(host_sidecar_storage.data() +
+                                          kInputGuardBytes),
+            kWeightBytes))
+            .hex();
+    if (require_actual_identity) {
+      actual_sidecar_identity_gate =
+          sidecar_sha256 == kActualSidecarSha256;
+      test.expect(actual_sidecar_identity_gate,
+                  fixture_name + " matches pinned sidecar hash");
+      fixture_ready = fixture_ready && actual_sidecar_identity_gate;
+    }
+    std::cout << "FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_FIXTURE:"
+              << " fixture=" << fixture_name
+              << " canonical_bytes=" << host_weights.size()
+              << " sidecar_bytes=" << kWeightBytes
+              << " sidecar_sha256=" << sidecar_sha256
+              << " sidecar_layout=aosoa4_preswizzled"
+              << " require_actual_identity="
+              << (require_actual_identity ? "true" : "false")
+              << " gate=" << (fixture_ready ? "PASS" : "FAIL") << '\n';
+    return fixture_ready;
+  };
+
+  std::vector<std::uint16_t> observed_public(host_output_initial.size());
+  std::vector<std::uint16_t> observed_candidate(host_output_initial.size());
+  std::vector<std::uint8_t> observed_sidecar;
+  std::vector<std::uint16_t> observed_activation(
+      host_activation_storage.size());
+  const auto guards_intact = [&](const auto& observed) {
+    return std::all_of(
+               observed.begin(),
+               observed.begin() + kOutputGuardElements,
+               [](const std::uint16_t value) {
+                 return value == kOutputCanary;
+               }) &&
+           std::all_of(
+               observed.end() - kOutputGuardElements, observed.end(),
+               [](const std::uint16_t value) {
+                 return value == kOutputCanary;
+               });
+  };
+  const auto run_bitwise = [&](const std::string& fixture_name) {
+    bool diff_ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_public(public_output)),
+        fixture_name + " launch public");
+    diff_ready = test.cuda_ok(
+                     static_cast<cudaError_t>(
+                         launch_candidate(candidate_output)),
+                     fixture_name + " launch candidate") &&
+                 diff_ready;
+    diff_ready = test.cuda_ok(
+                     cudaMemcpyAsync(
+                         observed_public.data(), public_output_storage.get(),
+                         observed_public.size() * sizeof(std::uint16_t),
+                         cudaMemcpyDeviceToHost, stream),
+                     fixture_name + " copy public output") &&
+                 diff_ready;
+    diff_ready = test.cuda_ok(
+                     cudaMemcpyAsync(
+                         observed_candidate.data(),
+                         candidate_output_storage.get(),
+                         observed_candidate.size() * sizeof(std::uint16_t),
+                         cudaMemcpyDeviceToHost, stream),
+                     fixture_name + " copy candidate output") &&
+                 diff_ready;
+    observed_sidecar.resize(host_sidecar_storage.size());
+    diff_ready = test.cuda_ok(
+                     cudaMemcpyAsync(
+                         observed_sidecar.data(), sidecar_storage.get(),
+                         observed_sidecar.size(), cudaMemcpyDeviceToHost,
+                         stream),
+                     fixture_name + " copy sidecar") &&
+                 diff_ready;
+    diff_ready = test.cuda_ok(
+                     cudaMemcpyAsync(
+                         observed_activation.data(), activation_storage.get(),
+                         observed_activation.size() * sizeof(std::uint16_t),
+                         cudaMemcpyDeviceToHost, stream),
+                     fixture_name + " copy activation") &&
+                 diff_ready;
+    diff_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                              fixture_name + " diff synchronize") &&
+                 diff_ready;
+    std::size_t mismatches = 0U;
+    for (std::size_t row = 0U; row < kRows; ++row) {
+      mismatches +=
+          observed_public[kOutputGuardElements + row] !=
+                  observed_candidate[kOutputGuardElements + row]
+              ? 1U
+              : 0U;
+    }
+    const bool public_guards = guards_intact(observed_public);
+    const bool candidate_guards = guards_intact(observed_candidate);
+    const bool sidecar_preserved =
+        observed_sidecar == host_sidecar_storage;
+    const bool activation_preserved =
+        observed_activation == host_activation_storage;
+    const bool gate = diff_ready && mismatches == 0U && public_guards &&
+                      candidate_guards && sidecar_preserved &&
+                      activation_preserved;
+    test.expect(gate, fixture_name + " is bitwise with intact guards");
+    std::cout << "FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_DIFF:"
+              << " fixture=" << fixture_name
+              << " mismatches=" << mismatches << '/' << kRows
+              << " public_guards="
+              << (public_guards ? "PASS" : "FAIL")
+              << " candidate_guards="
+              << (candidate_guards ? "PASS" : "FAIL")
+              << " sidecar_immutable="
+              << (sidecar_preserved ? "PASS" : "FAIL")
+              << " activation_immutable="
+              << (activation_preserved ? "PASS" : "FAIL")
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    return gate;
+  };
+
+  struct Timing {
+    bool ready = false;
+    bool every_round_passed = false;
+    float public_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float candidate_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float paired_median_speedup =
+        std::numeric_limits<float>::quiet_NaN();
+    float paired_median_delta_ms =
+        std::numeric_limits<float>::quiet_NaN();
+    double projected_64_layer_delta_ms =
+        std::numeric_limits<double>::quiet_NaN();
+  };
+  constexpr int kWarmupPairs = 10;
+  constexpr int kMeasuredLaunches = 64;
+  constexpr int kRounds = 5;
+  const auto launch_public_timing = [&]() noexcept {
+    return launch_public(timing_output);
+  };
+  const auto launch_candidate_timing = [&]() noexcept {
+    return launch_candidate(timing_output);
+  };
+  const auto benchmark_fixture = [&](const std::string& fixture_name,
+                                     const bool require_strict_rounds) {
+    Timing timing;
+    bool timing_ready = true;
+    for (int pair = 0; pair < kWarmupPairs && timing_ready; ++pair) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_public_timing()),
+          fixture_name + " public warmup");
+      timing_ready = test.cuda_ok(
+                         static_cast<cudaError_t>(
+                             launch_candidate_timing()),
+                         fixture_name + " candidate warmup") &&
+                     timing_ready;
+    }
+    timing_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                fixture_name + " warmup synchronize") &&
+                   timing_ready;
+    std::array<float, 2U * kRounds> public_passes{};
+    std::array<float, 2U * kRounds> candidate_passes{};
+    std::array<float, kRounds> speedups{};
+    std::array<float, kRounds> deltas{};
+    bool every_round_passed = timing_ready;
+    for (int round = 0; round < kRounds && timing_ready; ++round) {
+      const bool public_first = (round & 1) == 0;
+      const std::string round_label =
+          fixture_name + " round=" + std::to_string(round + 1);
+      const auto measure = [&](const auto& launch,
+                               const std::string& pass) {
+        return measure_small_m_tile(test, stream, launch,
+                                    kMeasuredLaunches,
+                                    round_label + " " + pass);
+      };
+      float public1 = 0.0F;
+      float public2 = 0.0F;
+      float candidate1 = 0.0F;
+      float candidate2 = 0.0F;
+      if (public_first) {
+        public1 = measure(launch_public_timing, "B1");
+        candidate1 = measure(launch_candidate_timing, "C1");
+        candidate2 = measure(launch_candidate_timing, "C2");
+        public2 = measure(launch_public_timing, "B2");
+      } else {
+        candidate1 = measure(launch_candidate_timing, "C1");
+        public1 = measure(launch_public_timing, "B1");
+        public2 = measure(launch_public_timing, "B2");
+        candidate2 = measure(launch_candidate_timing, "C2");
+      }
+      const float paired_public = 0.5F * (public1 + public2);
+      const float paired_candidate = 0.5F * (candidate1 + candidate2);
+      const float speedup = paired_public / paired_candidate;
+      const float delta = paired_public - paired_candidate;
+      const bool finite =
+          std::isfinite(public1) && std::isfinite(public2) &&
+          std::isfinite(candidate1) && std::isfinite(candidate2) &&
+          public1 > 0.0F && public2 > 0.0F && candidate1 > 0.0F &&
+          candidate2 > 0.0F;
+      const bool round_gate =
+          finite && (require_strict_rounds ? speedup > 1.0F
+                                           : speedup >= 1.0F);
+      every_round_passed = every_round_passed && round_gate;
+      timing_ready = timing_ready && finite;
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      public_passes[pass] = public1;
+      public_passes[pass + 1U] = public2;
+      candidate_passes[pass] = candidate1;
+      candidate_passes[pass + 1U] = candidate2;
+      speedups[static_cast<std::size_t>(round)] = speedup;
+      deltas[static_cast<std::size_t>(round)] = delta;
+      std::cout << "PERF_FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_ROUND:"
+                << " fixture=" << fixture_name
+                << " round=" << round + 1
+                << " order="
+                << (public_first ? "B-C-C-B" : "C-B-B-C")
+                << " launches_per_pass=" << kMeasuredLaunches
+                << " public1_ms=" << public1
+                << " candidate1_ms=" << candidate1
+                << " candidate2_ms=" << candidate2
+                << " public2_ms=" << public2
+                << " paired_speedup=" << speedup
+                << " paired_delta_ms=" << delta
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    timing.ready = timing_ready;
+    timing.every_round_passed = every_round_passed;
+    if (timing_ready) {
+      timing.public_median_ms =
+          median_fp8_kv_pair_timing(public_passes);
+      timing.candidate_median_ms =
+          median_fp8_kv_pair_timing(candidate_passes);
+      timing.paired_median_speedup =
+          median_fp8_kv_pair_timing(speedups);
+      timing.paired_median_delta_ms =
+          median_fp8_kv_pair_timing(deltas);
+      timing.projected_64_layer_delta_ms =
+          static_cast<double>(timing.paired_median_delta_ms) * 64.0;
+    }
+    return timing;
+  };
+
+  const char* const actual_checkpoint =
+      std::getenv("Q3X_FP8_M1_O_PROJ_ACTUAL_CHECKPOINT_FILE");
+  const bool actual_source_set =
+      actual_checkpoint != nullptr && actual_checkpoint[0] != '\0';
+  test.expect(actual_source_set,
+              std::string(kLabel) + " requires actual checkpoint shard");
+  if (!actual_source_set) {
+    return;
+  }
+  std::ifstream input(actual_checkpoint, std::ios::binary);
+  input.seekg(0, std::ios::end);
+  const std::streamoff file_size = input.tellg();
+  const bool actual_range = input.is_open() && file_size >= 0 &&
+      kActualPayloadOffset <= static_cast<std::uint64_t>(file_size) &&
+      kWeightBytes <=
+          static_cast<std::uint64_t>(file_size) - kActualPayloadOffset;
+  test.expect(actual_range,
+              std::string(kLabel) + " actual payload range is valid");
+  if (!actual_range) {
+    return;
+  }
+  input.seekg(static_cast<std::streamoff>(kActualPayloadOffset),
+              std::ios::beg);
+  input.read(reinterpret_cast<char*>(host_weights.data()),
+             static_cast<std::streamsize>(host_weights.size()));
+  const bool read_complete =
+      input.gcount() == static_cast<std::streamsize>(host_weights.size());
+  const std::string actual_sha256 =
+      q3x::core::sha256(std::string_view(
+          reinterpret_cast<const char*>(host_weights.data()),
+          host_weights.size()))
+          .hex();
+  const bool actual_identity_gate =
+      read_complete && actual_sha256 == kActualPayloadSha256;
+  test.expect(actual_identity_gate,
+              std::string(kLabel) + " matches actual payload hash");
+  std::cout << "FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_ACTUAL_FIXTURE:"
+            << " checkpoint_path=" << actual_checkpoint
+            << " payload_offset=" << kActualPayloadOffset
+            << " payload_bytes=" << host_weights.size()
+            << " sha256=" << actual_sha256
+            << " expected_sha256=" << kActualPayloadSha256
+            << " gate=" << (actual_identity_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!actual_identity_gate ||
+      !upload_fixture("actual_checkpoint", true)) {
+    return;
+  }
+  const bool actual_bitwise_gate = run_bitwise("actual_checkpoint");
+  const Timing actual_timing =
+      actual_bitwise_gate ? benchmark_fixture("actual_checkpoint", true)
+                          : Timing{};
+  constexpr double kRequiredActualSpeedup = 1.02;
+  constexpr double kRequiredProjectedDeltaMs = 0.30;
+  constexpr double kRequiredThreeProcessMedianDeltaMs = 0.40;
+  const bool actual_gate =
+      actual_sidecar_identity_gate && actual_bitwise_gate &&
+      actual_timing.ready && actual_timing.every_round_passed &&
+      actual_timing.paired_median_speedup >= kRequiredActualSpeedup &&
+      actual_timing.projected_64_layer_delta_ms >=
+          kRequiredProjectedDeltaMs;
+  test.expect(actual_gate,
+              std::string(kLabel) + " clears actual performance gate");
+  std::cout << "PERF_FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_ACTUAL:"
+            << " public_median_ms=" << actual_timing.public_median_ms
+            << " candidate_median_ms="
+            << actual_timing.candidate_median_ms
+            << " paired_median_speedup="
+            << actual_timing.paired_median_speedup
+            << " paired_median_delta_ms="
+            << actual_timing.paired_median_delta_ms
+            << " projected_64_layer_delta_ms="
+            << actual_timing.projected_64_layer_delta_ms
+            << " required_speedup=" << kRequiredActualSpeedup
+            << " required_projected_delta_ms="
+            << kRequiredProjectedDeltaMs
+            << " required_three_process_median_delta_ms="
+            << kRequiredThreeProcessMedianDeltaMs
+            << " gate=" << (actual_gate ? "PASS" : "FAIL") << '\n';
+  if (!actual_gate) {
+    std::cout
+        << "PERF_FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_STOP_LOSS:"
+        << " reason=actual_first_process_failed"
+        << " stress=NOT_RUN gate=FAIL\n";
+    return;
+  }
+
+  fill_fp8_m2_code_distribution(host_weights, kRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  if (!upload_fixture("same_bank_stress", false)) {
+    return;
+  }
+  const bool stress_bitwise_gate = run_bitwise("same_bank_stress");
+  const Timing stress_timing =
+      stress_bitwise_gate
+          ? benchmark_fixture("same_bank_stress", false)
+          : Timing{};
+  const bool stress_gate =
+      stress_bitwise_gate && stress_timing.ready &&
+      stress_timing.every_round_passed &&
+      stress_timing.paired_median_speedup >= 1.0F;
+  const bool selected = resource_gate && actual_gate && stress_gate;
+  test.expect(selected,
+              std::string(kLabel) + " clears single-process selection gate");
+  std::cout << "PERF_FP8_M1_O_PROJ_CTA512_SHARED_ACTIVATION_SELECTED:"
+            << " baseline=public_aosoa4_1024x256"
+            << " candidate=test_only_cta512_shared_activation_640x512"
+            << " worker_topology=two_independent_256_thread_workers"
+            << " actual_projected_64_layer_delta_ms="
+            << actual_timing.projected_64_layer_delta_ms
+            << " stress_paired_median_speedup="
+            << stress_timing.paired_median_speedup
+            << " three_process_gate=pending_external_aggregation"
+            << " gate=" << (selected ? "PASS" : "FAIL") << '\n';
 }
 
 void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
@@ -51833,6 +52402,23 @@ int main() {
     std::cout << "NVFP4 LM-head cache-policy screen passed\n";
     return 0;
   }
+  if (decode_fp8_o_proj_cta512_shared_activation_performance_enabled()) {
+    run_fp8_m1_output_projection_aosoa4_cta512_shared_activation_screen(
+        test, stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy Decode FP8 O-proj CTA512 shared-activation stream");
+    if (test.failures() != 0) {
+      std::cerr
+          << test.failures()
+          << " Decode FP8 O-proj CTA512 shared-activation assertion(s) "
+             "failed\n";
+      return 1;
+    }
+    std::cout
+        << "Decode FP8 O-proj CTA512 shared-activation screen passed\n";
+    return 0;
+  }
   if (decode_fp8_o_proj_resident_grid64_performance_enabled()) {
     run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(test,
                                                                stream);
@@ -52051,6 +52637,8 @@ int main() {
   run_optional_fp8_m1_swizzled_codebook_performance(test, stream);
   run_fp8_m1_output_projection_aosoa4_cs_screen(test, stream);
   run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(test, stream);
+  run_fp8_m1_output_projection_aosoa4_cta512_shared_activation_screen(
+      test, stream);
   run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(test,
                                                                 stream);
   run_fp8_m1_kv_pair_correctness_and_optional_performance(test, stream);

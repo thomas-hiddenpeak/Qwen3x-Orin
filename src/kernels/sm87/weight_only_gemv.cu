@@ -80,6 +80,11 @@ constexpr unsigned int kFp8OutputProjectionRowQuads =
 constexpr std::size_t kFp8OutputProjectionPackedColumns =
     kFp8OutputProjectionColumns / kFp8VectorValuesPerLane;
 constexpr unsigned int kFp8OutputProjectionAosoa4Blocks = 1'024U;
+constexpr unsigned int kFp8OutputProjectionCta512Threads = 2U * kThreads;
+constexpr unsigned int kFp8OutputProjectionCta512Blocks =
+    kFp8OutputProjectionRowQuads / 2U;
+constexpr unsigned int kFp8OutputProjectionActivationWords =
+    static_cast<unsigned int>(kFp8OutputProjectionColumns / 4U);
 constexpr unsigned int kFp8QkvRowQuads =
     static_cast<unsigned int>(kFp8QkvRows / 4U);
 constexpr unsigned int kFp8ZRowQuads =
@@ -1013,6 +1018,131 @@ fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(
       }
     }
     __syncthreads();
+  }
+}
+
+// Test-only exact [5120,6144] Decode candidate. Two independent 256-thread
+// mathematical workers share one 512-thread CTA. Each worker retains the
+// production row-quad ownership, per-lane accumulator order, warp reduction,
+// weight scale, and BF16-RNE publication. Only the immutable BF16 activation
+// is staged once per CTA and reused by both workers. The production kernel and
+// launcher remain untouched until this distinct Function clears its frozen
+// actual-checkpoint gates.
+__global__ __launch_bounds__(kFp8OutputProjectionCta512Threads, 2) void
+fp8_w8a16_gemv_bf16_row_quad_aosoa4_cta512_shared_activation_test_kernel(
+    const uint4* const weights, const float weight_scale,
+    const std::uint16_t* const activation, std::uint16_t* const output) {
+  static_assert((kFp8OutputProjectionRowQuads % 2U) == 0U);
+  static_assert((kFp8OutputProjectionColumns % 4U) == 0U);
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ std::uint64_t
+      staged_activation_words[kFp8OutputProjectionActivationWords];
+  __shared__ float warp_sums[2U][4U][kWarpsPerBlock];
+
+  const unsigned int cta_thread = threadIdx.x;
+  if (cta_thread < kFp8EncodedValueCount) {
+    const std::uint8_t code = static_cast<std::uint8_t>(cta_thread);
+    decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  }
+  const auto activation_words =
+      reinterpret_cast<const std::uint64_t*>(activation);
+  for (unsigned int word = cta_thread;
+       word < kFp8OutputProjectionActivationWords;
+       word += kFp8OutputProjectionCta512Threads) {
+    staged_activation_words[word] = activation_words[word];
+  }
+  __syncthreads();
+
+  const unsigned int worker = cta_thread / kThreads;
+  const unsigned int worker_thread = cta_thread % kThreads;
+  const unsigned int lane = worker_thread & (kWarpSize - 1U);
+  const unsigned int warp = worker_thread / kWarpSize;
+  const std::size_t row_quad =
+      2U * static_cast<std::size_t>(blockIdx.x) + worker;
+  const std::size_t row0 = 4U * row_quad;
+  float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+  float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+  for (std::size_t first_column =
+           static_cast<std::size_t>(worker_thread) *
+           kFp8VectorValuesPerLane;
+       first_column < kFp8OutputProjectionColumns;
+       first_column += kFp8VectorColumnsPerBlock) {
+    const std::size_t packed_column =
+        first_column / kFp8VectorValuesPerLane;
+    const uint4 packed_weights =
+        weights[row_quad * kFp8OutputProjectionPackedColumns + packed_column];
+    const std::uint64_t packed_activation =
+        staged_activation_words[first_column / 4U];
+#pragma unroll
+    for (unsigned int value = 0U; value < kFp8VectorValuesPerLane; ++value) {
+      const unsigned int weight_shift = value * 8U;
+      const std::uint8_t encoded_weight0 = static_cast<std::uint8_t>(
+          (packed_weights.x >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_weight1 = static_cast<std::uint8_t>(
+          (packed_weights.y >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_weight2 = static_cast<std::uint8_t>(
+          (packed_weights.z >> weight_shift) & 0xffU);
+      const std::uint8_t encoded_weight3 = static_cast<std::uint8_t>(
+          (packed_weights.w >> weight_shift) & 0xffU);
+      const std::uint16_t encoded_activation = static_cast<std::uint16_t>(
+          (packed_activation >> (value * 16U)) & 0xffffU);
+      const float decoded_activation = decode_bf16(encoded_activation);
+      accumulators0[value] =
+          fmaf(decoded_weights[encoded_weight0], decoded_activation,
+               accumulators0[value]);
+      accumulators1[value] =
+          fmaf(decoded_weights[encoded_weight1], decoded_activation,
+               accumulators1[value]);
+      accumulators2[value] =
+          fmaf(decoded_weights[encoded_weight2], decoded_activation,
+               accumulators2[value]);
+      accumulators3[value] =
+          fmaf(decoded_weights[encoded_weight3], decoded_activation,
+               accumulators3[value]);
+    }
+  }
+
+  float sum0 = (accumulators0[0] + accumulators0[1]) +
+               (accumulators0[2] + accumulators0[3]);
+  float sum1 = (accumulators1[0] + accumulators1[1]) +
+               (accumulators1[2] + accumulators1[3]);
+  float sum2 = (accumulators2[0] + accumulators2[1]) +
+               (accumulators2[2] + accumulators2[3]);
+  float sum3 = (accumulators3[0] + accumulators3[1]) +
+               (accumulators3[2] + accumulators3[3]);
+  sum0 = warp_sum(sum0);
+  sum1 = warp_sum(sum1);
+  sum2 = warp_sum(sum2);
+  sum3 = warp_sum(sum3);
+  if (lane == 0U) {
+    warp_sums[worker][0U][warp] = sum0;
+    warp_sums[worker][1U][warp] = sum1;
+    warp_sums[worker][2U][warp] = sum2;
+    warp_sums[worker][3U][warp] = sum3;
+  }
+  __syncthreads();
+  if (warp == 0U) {
+    float block_sum0 =
+        lane < kWarpsPerBlock ? warp_sums[worker][0U][lane] : 0.0F;
+    float block_sum1 =
+        lane < kWarpsPerBlock ? warp_sums[worker][1U][lane] : 0.0F;
+    float block_sum2 =
+        lane < kWarpsPerBlock ? warp_sums[worker][2U][lane] : 0.0F;
+    float block_sum3 =
+        lane < kWarpsPerBlock ? warp_sums[worker][3U][lane] : 0.0F;
+    block_sum0 = warp_sum(block_sum0) * weight_scale;
+    block_sum1 = warp_sum(block_sum1) * weight_scale;
+    block_sum2 = warp_sum(block_sum2) * weight_scale;
+    block_sum3 = warp_sum(block_sum3) * weight_scale;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(block_sum0);
+      output[row0 + 1U] = encode_bf16_rne(block_sum1);
+      output[row0 + 2U] = encode_bf16_rne(block_sum2);
+      output[row0 + 3U] = encode_bf16_rne(block_sum3);
+    }
   }
 }
 
@@ -14741,6 +14871,44 @@ int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_test_cuda(
+    const std::uint8_t* const sidecar_weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != kFp8OutputProjectionRows ||
+      columns != kFp8OutputProjectionColumns) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_launch(
+      sidecar_weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  constexpr std::size_t kSidecarBytes =
+      kFp8OutputProjectionRows * kFp8OutputProjectionColumns;
+  constexpr std::size_t kActivationBytes =
+      kFp8OutputProjectionColumns * sizeof(std::uint16_t);
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(sidecar_weights) &&
+      pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(output);
+  if (!aligned ||
+      ranges_overlap(sidecar_weights, kSidecarBytes,
+                     activation, kActivationBytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_row_quad_aosoa4_cta512_shared_activation_test_kernel
+      <<<kFp8OutputProjectionCta512Blocks,
+         kFp8OutputProjectionCta512Threads, 0U, stream>>>(
+          reinterpret_cast<const uint4*>(sidecar_weights), weight_scale,
+          activation, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
     const std::uint8_t* const aosoa4_preswizzled_weights,
     const float weight_scale, const std::uint16_t* const activation,
@@ -14856,6 +15024,40 @@ int query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
       &active_blocks,
       fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_cs_test_kernel,
       static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cta512_shared_activation_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_row_quad_aosoa4_cta512_shared_activation_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_row_quad_aosoa4_cta512_shared_activation_test_kernel,
+      static_cast<int>(kFp8OutputProjectionCta512Threads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
