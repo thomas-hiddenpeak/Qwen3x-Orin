@@ -406,6 +406,22 @@ query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output, std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_default_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_down_residual_norm_cs_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activation,
@@ -583,6 +599,26 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_tes
 
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_default_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_default_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -33115,6 +33151,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   cudaKernelNodeParams residual_norm_coarsened_parameters{};
   cudaKernelNodeParams residual_norm_dead_up_parameters{};
   cudaKernelNodeParams residual_norm_dead_up_cs_parameters{};
+  cudaKernelNodeParams residual_norm_dead_up_default_parameters{};
   const bool residual_norm_public_captured = capture_single_kernel(
       [&]() noexcept {
         return residual_norm_public_status(
@@ -33187,6 +33224,19 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
       },
       "test exact residual/norm runner dead-up packed/scale streaming",
       &residual_norm_dead_up_cs_parameters);
+  const bool residual_norm_dead_up_default_captured = capture_single_kernel(
+      [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_default_test_cuda(
+                fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+                fake_up_packed, fake_up_scales, kUpWeightScale2,
+                fake_residual_left, fake_residual_right, fake_norm_weight,
+                1.0e-6F, kExactRows, kExactColumns, fake_residual_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "test exact residual/norm runner dead-up default rollback",
+      &residual_norm_dead_up_default_parameters);
   const bool residual_norm_identity_gate =
       residual_norm_public_captured && residual_norm_coarsened_captured &&
       residual_norm_public_parameters.func ==
@@ -33272,9 +33322,12 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
               label +
                   " dead-up candidate is distinct 32x512 one-node graph");
   const bool residual_norm_dead_up_cs_topology_gate =
-      residual_norm_dead_up_cs_captured && residual_norm_dead_up_captured &&
-      residual_norm_dead_up_cs_parameters.func !=
-          residual_norm_dead_up_parameters.func &&
+      residual_norm_dead_up_captured && residual_norm_dead_up_cs_captured &&
+      residual_norm_dead_up_default_captured &&
+      residual_norm_dead_up_parameters.func ==
+          residual_norm_dead_up_cs_parameters.func &&
+      residual_norm_dead_up_parameters.func !=
+          residual_norm_dead_up_default_parameters.func &&
       residual_norm_dead_up_cs_parameters.gridDim.x == 32U &&
       residual_norm_dead_up_cs_parameters.gridDim.y == 1U &&
       residual_norm_dead_up_cs_parameters.gridDim.z == 1U &&
@@ -33282,15 +33335,44 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
       residual_norm_dead_up_cs_parameters.blockDim.y == 1U &&
       residual_norm_dead_up_cs_parameters.blockDim.z == 1U &&
       residual_norm_dead_up_cs_parameters.sharedMemBytes == 0U &&
+      residual_norm_dead_up_default_parameters.gridDim.x == 32U &&
+      residual_norm_dead_up_default_parameters.gridDim.y == 1U &&
+      residual_norm_dead_up_default_parameters.gridDim.z == 1U &&
+      residual_norm_dead_up_default_parameters.blockDim.x == 512U &&
+      residual_norm_dead_up_default_parameters.blockDim.y == 1U &&
+      residual_norm_dead_up_default_parameters.blockDim.z == 1U &&
+      residual_norm_dead_up_default_parameters.sharedMemBytes == 0U &&
       residual_norm_dead_up_cs_parameters.gridDim.x ==
           residual_norm_dead_up_parameters.gridDim.x &&
+      residual_norm_dead_up_cs_parameters.gridDim.y ==
+          residual_norm_dead_up_parameters.gridDim.y &&
+      residual_norm_dead_up_cs_parameters.gridDim.z ==
+          residual_norm_dead_up_parameters.gridDim.z &&
       residual_norm_dead_up_cs_parameters.blockDim.x ==
           residual_norm_dead_up_parameters.blockDim.x &&
+      residual_norm_dead_up_cs_parameters.blockDim.y ==
+          residual_norm_dead_up_parameters.blockDim.y &&
+      residual_norm_dead_up_cs_parameters.blockDim.z ==
+          residual_norm_dead_up_parameters.blockDim.z &&
       residual_norm_dead_up_cs_parameters.sharedMemBytes ==
+          residual_norm_dead_up_parameters.sharedMemBytes &&
+      residual_norm_dead_up_default_parameters.gridDim.x ==
+          residual_norm_dead_up_parameters.gridDim.x &&
+      residual_norm_dead_up_default_parameters.gridDim.y ==
+          residual_norm_dead_up_parameters.gridDim.y &&
+      residual_norm_dead_up_default_parameters.gridDim.z ==
+          residual_norm_dead_up_parameters.gridDim.z &&
+      residual_norm_dead_up_default_parameters.blockDim.x ==
+          residual_norm_dead_up_parameters.blockDim.x &&
+      residual_norm_dead_up_default_parameters.blockDim.y ==
+          residual_norm_dead_up_parameters.blockDim.y &&
+      residual_norm_dead_up_default_parameters.blockDim.z ==
+          residual_norm_dead_up_parameters.blockDim.z &&
+      residual_norm_dead_up_default_parameters.sharedMemBytes ==
           residual_norm_dead_up_parameters.sharedMemBytes;
   test.expect(residual_norm_dead_up_cs_topology_gate,
               label +
-                  " dead-up streaming candidate is distinct 32x512 one-node graph");
+                  " dead-up production selects streaming 32x512 one-node graph");
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_CTA_COARSEN_GRAPH: "
             << "production_nodes=1 production_grid=32 production_block=512"
             << " replay_nodes=1 replay_grid=32 replay_block=512"
@@ -33321,9 +33403,15 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
             << '\n';
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_DEAD_UP_CS_GRAPH: "
             << "production_nodes=1 production_grid=32 production_block=512"
-            << " candidate_nodes=1 candidate_grid=32 candidate_block=512"
-            << " dynamic_shared=0 distinct_func="
-            << (residual_norm_dead_up_cs_parameters.func !=
+            << " cs_nodes=1 cs_grid=32 cs_block=512"
+            << " default_nodes=1 default_grid=32 default_block=512"
+            << " dynamic_shared=0 public_cs_same_func="
+            << (residual_norm_dead_up_cs_parameters.func ==
+                        residual_norm_dead_up_parameters.func
+                    ? "true"
+                    : "false")
+            << " default_distinct_func="
+            << (residual_norm_dead_up_default_parameters.func !=
                         residual_norm_dead_up_parameters.func
                     ? "true"
                     : "false")
@@ -34712,6 +34800,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   NvFp4M1DownDualKernelResources residual_norm_shared_tree_resources{};
   NvFp4M1DownDualKernelResources residual_norm_coarsened_resources{};
   NvFp4M1DownDualKernelResources residual_norm_dead_up_resources{};
+  NvFp4M1DownDualKernelResources residual_norm_dead_up_cs_resources{};
+  NvFp4M1DownDualKernelResources residual_norm_dead_up_default_resources{};
   bool ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_gate_up_pair_activation_staged_resources_test_cuda(
@@ -34765,6 +34855,24 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               &residual_norm_dead_up_resources.maximum_threads_per_block,
               &residual_norm_dead_up_resources.active_blocks_per_sm)),
       label + " query production runner-only dead-up resources");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+              &residual_norm_dead_up_cs_resources.registers_per_thread,
+              &residual_norm_dead_up_cs_resources.static_shared_bytes,
+              &residual_norm_dead_up_cs_resources.local_bytes,
+              &residual_norm_dead_up_cs_resources.maximum_threads_per_block,
+              &residual_norm_dead_up_cs_resources.active_blocks_per_sm)),
+      label + " query streaming runner-only dead-up resources");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_default_resources_test_cuda(
+              &residual_norm_dead_up_default_resources.registers_per_thread,
+              &residual_norm_dead_up_default_resources.static_shared_bytes,
+              &residual_norm_dead_up_default_resources.local_bytes,
+              &residual_norm_dead_up_default_resources.maximum_threads_per_block,
+              &residual_norm_dead_up_default_resources.active_blocks_per_sm)),
+      label + " query default rollback runner-only dead-up resources");
   const bool coarsened_resource_null_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_test_cuda(
@@ -34782,6 +34890,33 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               &residual_norm_dead_up_resources.maximum_threads_per_block,
               &residual_norm_dead_up_resources.active_blocks_per_sm)) ==
       cudaErrorInvalidValue;
+  const bool dead_up_cs_resource_null_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+              nullptr,
+              &residual_norm_dead_up_cs_resources.static_shared_bytes,
+              &residual_norm_dead_up_cs_resources.local_bytes,
+              &residual_norm_dead_up_cs_resources.maximum_threads_per_block,
+              &residual_norm_dead_up_cs_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  const bool dead_up_default_resource_null_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_default_resources_test_cuda(
+              nullptr,
+              &residual_norm_dead_up_default_resources.static_shared_bytes,
+              &residual_norm_dead_up_default_resources.local_bytes,
+              &residual_norm_dead_up_default_resources.maximum_threads_per_block,
+              &residual_norm_dead_up_default_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  const auto same_resources = [](
+                                  const NvFp4M1DownDualKernelResources& lhs,
+                                  const NvFp4M1DownDualKernelResources& rhs) {
+    return lhs.registers_per_thread == rhs.registers_per_thread &&
+           lhs.static_shared_bytes == rhs.static_shared_bytes &&
+           lhs.local_bytes == rhs.local_bytes &&
+           lhs.maximum_threads_per_block == rhs.maximum_threads_per_block &&
+           lhs.active_blocks_per_sm == rhs.active_blocks_per_sm;
+  };
   const auto resource_ok = [](const NvFp4M1DownDualKernelResources& r) {
     return r.registers_per_thread <= 64 &&
            r.static_shared_bytes <= 11'328U && r.local_bytes == 0U &&
@@ -34804,7 +34939,16 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       residual_norm_dead_up_resources.local_bytes == 0U &&
       residual_norm_dead_up_resources.maximum_threads_per_block >= 512 &&
       residual_norm_dead_up_resources.active_blocks_per_sm >= 2 &&
-      dead_up_resource_null_rejected;
+      same_resources(residual_norm_dead_up_resources,
+                     residual_norm_dead_up_cs_resources) &&
+      residual_norm_dead_up_default_resources.registers_per_thread <= 64 &&
+      residual_norm_dead_up_default_resources.static_shared_bytes == 13'632U &&
+      residual_norm_dead_up_default_resources.local_bytes == 0U &&
+      residual_norm_dead_up_default_resources.maximum_threads_per_block >=
+          512 &&
+      residual_norm_dead_up_default_resources.active_blocks_per_sm >= 2 &&
+      dead_up_resource_null_rejected && dead_up_cs_resource_null_rejected &&
+      dead_up_default_resource_null_rejected;
   test.expect(coarsened_resource_gate,
               label +
                   " 32x512 coarsened kernel clears 64r/11328B/0local/2CTA gate");
@@ -34813,7 +34957,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                   " clears pair/fused/residual-norm A/B resource gates");
   test.expect(dead_up_resource_gate,
               label +
-                  " dead-up shared-pair clears 64r/13632B/0local/2CTA gate");
+                  " dead-up production equals streaming and default rollback preserves the old envelope");
   std::cout << "PERF_NVFP4_M1_GATE_UP_SILU_RESOURCES: pair_registers="
             << pair_resources.registers_per_thread
             << " pair_shared=" << pair_resources.static_shared_bytes
@@ -34860,18 +35004,39 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             << " gate=" << (coarsened_resource_gate ? "PASS" : "FAIL")
             << '\n';
   std::cout << "PERF_NVFP4_M1_GATE_UP_DEAD_UP_RESOURCES: "
-            << "candidate=production_runner_dead_up_grid32_block512"
-            << " registers="
+            << "production=streaming_runner_dead_up_grid32_block512"
+            << " production_registers="
             << residual_norm_dead_up_resources.registers_per_thread
-            << " shared="
+            << " production_shared="
             << residual_norm_dead_up_resources.static_shared_bytes
-            << " local=" << residual_norm_dead_up_resources.local_bytes
-            << " max_threads="
+            << " production_local="
+            << residual_norm_dead_up_resources.local_bytes
+            << " production_max_threads="
             << residual_norm_dead_up_resources.maximum_threads_per_block
-            << " active_ctas_per_sm="
+            << " production_active_ctas_per_sm="
             << residual_norm_dead_up_resources.active_blocks_per_sm
-            << " null_query_rejected="
-            << (dead_up_resource_null_rejected ? "true" : "false")
+            << " production_cs_equal="
+            << (same_resources(residual_norm_dead_up_resources,
+                               residual_norm_dead_up_cs_resources)
+                    ? "true"
+                    : "false")
+            << " default_registers="
+            << residual_norm_dead_up_default_resources.registers_per_thread
+            << " default_shared="
+            << residual_norm_dead_up_default_resources.static_shared_bytes
+            << " default_local="
+            << residual_norm_dead_up_default_resources.local_bytes
+            << " default_max_threads="
+            << residual_norm_dead_up_default_resources
+                   .maximum_threads_per_block
+            << " default_active_ctas_per_sm="
+            << residual_norm_dead_up_default_resources.active_blocks_per_sm
+            << " null_queries_rejected="
+            << (dead_up_resource_null_rejected &&
+                        dead_up_cs_resource_null_rejected &&
+                        dead_up_default_resource_null_rejected
+                    ? "true"
+                    : "false")
             << " limits=64r,13632shared,0local,active2"
             << " gate=" << (dead_up_resource_gate ? "PASS" : "FAIL")
             << '\n';
@@ -35071,9 +35236,9 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             kNormEpsilon, kRows, kColumns, candidate_residual,
             candidate_gate, candidate_up, static_cast<void*>(stream));
   };
-  const auto launch_residual_norm_dead_up_cs_candidate = [&]() noexcept {
+  const auto launch_residual_norm_dead_up_default_rollback = [&]() noexcept {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_default_test_cuda(
             gate_packed.get(), gate_scales.get(), gate_scale2,
             up_packed.get(), up_scales.get(), up_scale2,
             residual_left.get(), residual_right.get(), norm_weight.get(),
@@ -35189,7 +35354,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const int cache_resource_status =
         streaming_policy
             ? q3x::kernels::
-                  query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+                  query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resources_test_cuda(
                       &cache_candidate_resources.registers_per_thread,
                       &cache_candidate_resources.static_shared_bytes,
                       &cache_candidate_resources.local_bytes,
@@ -35208,7 +35373,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const bool cache_resource_gate =
         cache_ready && dead_up_resource_gate &&
         cache_candidate_resources.registers_per_thread ==
-            residual_norm_dead_up_resources.registers_per_thread &&
+            residual_norm_dead_up_default_resources.registers_per_thread &&
         cache_candidate_resources.registers_per_thread <= 64 &&
         cache_candidate_resources.static_shared_bytes == 13'632U &&
         cache_candidate_resources.local_bytes == 0U &&
@@ -35218,13 +35383,13 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                 cache_label + " preserves the production resource envelope");
     std::cout << "PERF_DECODE_GATE_UP_CACHE_POLICY_RESOURCES:"
               << " baseline_registers="
-              << residual_norm_dead_up_resources.registers_per_thread
+              << residual_norm_dead_up_default_resources.registers_per_thread
               << " baseline_shared="
-              << residual_norm_dead_up_resources.static_shared_bytes
+              << residual_norm_dead_up_default_resources.static_shared_bytes
               << " baseline_local="
-              << residual_norm_dead_up_resources.local_bytes
+              << residual_norm_dead_up_default_resources.local_bytes
               << " baseline_active="
-              << residual_norm_dead_up_resources.active_blocks_per_sm
+              << residual_norm_dead_up_default_resources.active_blocks_per_sm
               << " candidate_registers="
               << cache_candidate_resources.registers_per_thread
               << " candidate_shared="
@@ -35266,7 +35431,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         [&](std::uint16_t* const residual, std::uint16_t* const gate,
             std::uint16_t* const up) noexcept {
           return q3x::kernels::
-              launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+              launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_default_test_cuda(
                   gate_packed.get(), gate_scales.get(), gate_scale2,
                   up_packed.get(), up_scales.get(), up_scale2,
                   residual_left.get(), residual_right.get(),
@@ -35278,7 +35443,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             std::uint16_t* const up) noexcept {
           if (streaming_policy) {
             return q3x::kernels::
-                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
                     gate_packed.get(), gate_scales.get(), gate_scale2,
                     up_packed.get(), up_scales.get(), up_scale2,
                     residual_left.get(), residual_right.get(),
@@ -37165,12 +37330,12 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
              iteration < kWarmupIterations && timing_ready; ++iteration) {
           timing_ready = test.cuda_ok(
               static_cast<cudaError_t>(
-                  launch_residual_norm_dead_up_candidate()),
-              fixture_label + " cache baseline warmup");
+                  launch_residual_norm_dead_up_default_rollback()),
+              fixture_label + " default rollback baseline warmup");
           timing_ready = timing_ready && test.cuda_ok(
               static_cast<cudaError_t>(
-                  launch_residual_norm_dead_up_cs_candidate()),
-              fixture_label + " streaming candidate warmup");
+                  launch_residual_norm_dead_up_candidate()),
+              fixture_label + " public selected candidate warmup");
         }
         timing_ready = timing_ready && test.cuda_ok(
             cudaStreamSynchronize(stream),
@@ -37179,17 +37344,17 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
           return timing;
         }
         const float prime_b1 = measure_small_m_tile(
-            test, stream, launch_residual_norm_dead_up_candidate,
-            kMeasuredIterations, fixture_label + " streaming prime B1");
+            test, stream, launch_residual_norm_dead_up_default_rollback,
+            kMeasuredIterations, fixture_label + " default prime B1");
         const float prime_c1 = measure_small_m_tile(
-            test, stream, launch_residual_norm_dead_up_cs_candidate,
-            kMeasuredIterations, fixture_label + " streaming prime C1");
-        const float prime_c2 = measure_small_m_tile(
-            test, stream, launch_residual_norm_dead_up_cs_candidate,
-            kMeasuredIterations, fixture_label + " streaming prime C2");
-        const float prime_b2 = measure_small_m_tile(
             test, stream, launch_residual_norm_dead_up_candidate,
-            kMeasuredIterations, fixture_label + " streaming prime B2");
+            kMeasuredIterations, fixture_label + " public prime C1");
+        const float prime_c2 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_candidate,
+            kMeasuredIterations, fixture_label + " public prime C2");
+        const float prime_b2 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_default_rollback,
+            kMeasuredIterations, fixture_label + " default prime B2");
         if (!std::isfinite(prime_b1) || !std::isfinite(prime_c1) ||
             !std::isfinite(prime_c2) || !std::isfinite(prime_b2)) {
           return timing;
@@ -37210,30 +37375,30 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
           float c2 = 0.0F;
           if (baseline_outer) {
             b1 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_candidate,
+                test, stream, launch_residual_norm_dead_up_default_rollback,
                 kMeasuredIterations, round_label + " B1 default");
             c1 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_cs_candidate,
-                kMeasuredIterations, round_label + " C1 cs");
-            c2 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_cs_candidate,
-                kMeasuredIterations, round_label + " C2 cs");
-            b2 = measure_small_m_tile(
                 test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " C1 public");
+            c2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " C2 public");
+            b2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_default_rollback,
                 kMeasuredIterations, round_label + " B2 default");
           } else {
             c1 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_cs_candidate,
-                kMeasuredIterations, round_label + " C1 cs");
-            b1 = measure_small_m_tile(
                 test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " C1 public");
+            b1 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_default_rollback,
                 kMeasuredIterations, round_label + " B1 default");
             b2 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_candidate,
+                test, stream, launch_residual_norm_dead_up_default_rollback,
                 kMeasuredIterations, round_label + " B2 default");
             c2 = measure_small_m_tile(
-                test, stream, launch_residual_norm_dead_up_cs_candidate,
-                kMeasuredIterations, round_label + " C2 cs");
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " C2 public");
           }
           const std::size_t pass = 2U * static_cast<std::size_t>(round);
           production_passes[pass] = b1;
@@ -37352,8 +37517,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     if (decode_gate_up_cs_performance_enabled()) {
       residual_norm_dead_up_cs_correctness[fixture] =
           check_residual_norm_correctness(
-              fixture_label, launch_residual_norm_dead_up_cs_candidate,
-              "test_only_runner_dead_up_packed_scale_cs", false);
+              fixture_label, launch_residual_norm_dead_up_candidate,
+              "public_selected_runner_dead_up_packed_scale_cs", false);
     }
     residual_norm_reduction_direct_correctness[fixture] =
         check_residual_norm_reduction_direct_correctness(
@@ -37406,8 +37571,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             upload_residual_fixture(nonfinite_label) &&
             check_residual_norm_reduction_direct_correctness(
                 nonfinite_label, true,
-                launch_residual_norm_dead_up_cs_candidate,
-                "test_only_runner_dead_up_packed_scale_cs", false);
+                launch_residual_norm_dead_up_candidate,
+                "public_selected_runner_dead_up_packed_scale_cs", false);
       }
       host_residual_left = finite_residual_left;
       host_residual_right = finite_residual_right;
@@ -40591,6 +40756,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
 
   NvFp4M1DownDualKernelResources production_resources{};
   NvFp4M1DownDualKernelResources candidate_resources{};
+  NvFp4M1DownDualKernelResources default_resources{};
   bool ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
@@ -40609,6 +40775,15 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                                &candidate_resources.maximum_threads_per_block,
                                &candidate_resources.active_blocks_per_sm)),
                        label + " query .cs candidate resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           query_sm87_nvfp4_w4a16_m1_down_residual_norm_default_resources_test_cuda(
+                               &default_resources.registers_per_thread,
+                               &default_resources.static_shared_bytes,
+                               &default_resources.local_bytes,
+                               &default_resources.maximum_threads_per_block,
+                               &default_resources.active_blocks_per_sm)),
+                       label + " query default rollback resources");
   int device = 0;
   int cooperative_launch = 0;
   int multiprocessor_count = 0;
@@ -40632,24 +40807,42 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
               &candidate_resources.maximum_threads_per_block,
               &candidate_resources.active_blocks_per_sm)) ==
       cudaErrorInvalidValue;
+  const bool default_null_query_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_down_residual_norm_default_resources_test_cuda(
+              nullptr, &default_resources.static_shared_bytes,
+              &default_resources.local_bytes,
+              &default_resources.maximum_threads_per_block,
+              &default_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  const auto resources_equal = [](
+                                   const NvFp4M1DownDualKernelResources& lhs,
+                                   const NvFp4M1DownDualKernelResources& rhs) {
+    return lhs.registers_per_thread == rhs.registers_per_thread &&
+           lhs.static_shared_bytes == rhs.static_shared_bytes &&
+           lhs.local_bytes == rhs.local_bytes &&
+           lhs.maximum_threads_per_block == rhs.maximum_threads_per_block &&
+           lhs.active_blocks_per_sm == rhs.active_blocks_per_sm;
+  };
   const bool resource_gate =
       ready && cooperative_launch != 0 && multiprocessor_count > 0 &&
       production_resources.registers_per_thread == 64 &&
-      candidate_resources.registers_per_thread ==
-          production_resources.registers_per_thread &&
       production_resources.static_shared_bytes == 35'904U &&
-      candidate_resources.static_shared_bytes ==
-          production_resources.static_shared_bytes &&
       production_resources.local_bytes == 0U &&
-      candidate_resources.local_bytes == production_resources.local_bytes &&
       production_resources.maximum_threads_per_block >= 512 &&
-      candidate_resources.maximum_threads_per_block >= 512 &&
       production_resources.active_blocks_per_sm >= 2 &&
+      resources_equal(production_resources, candidate_resources) &&
+      default_resources.registers_per_thread == 64 &&
+      default_resources.static_shared_bytes == 35'904U &&
+      default_resources.local_bytes == 0U &&
+      default_resources.maximum_threads_per_block >= 512 &&
+      default_resources.active_blocks_per_sm >= 2 &&
       candidate_resources.active_blocks_per_sm >= 2 &&
       multiprocessor_count * candidate_resources.active_blocks_per_sm >= 32 &&
-      null_query_rejected;
+      null_query_rejected && default_null_query_rejected;
   test.expect(resource_gate,
-              label + " preserves cooperative 32x512 resource capacity");
+              label +
+                  " production equals .cs and default rollback preserves the cooperative 32x512 envelope");
   std::cout << "DECODE_DOWN_CS_RESOURCES:"
             << " production_registers="
             << production_resources.registers_per_thread
@@ -40666,11 +40859,23 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
             << production_resources.active_blocks_per_sm
             << " candidate_active_ctas_per_sm="
             << candidate_resources.active_blocks_per_sm
+            << " production_cs_equal="
+            << (resources_equal(production_resources, candidate_resources)
+                    ? "true"
+                    : "false")
+            << " default_registers="
+            << default_resources.registers_per_thread
+            << " default_static_shared_bytes="
+            << default_resources.static_shared_bytes
+            << " default_local_bytes=" << default_resources.local_bytes
+            << " default_active_ctas_per_sm="
+            << default_resources.active_blocks_per_sm
             << " resident_grid_capacity="
             << multiprocessor_count * candidate_resources.active_blocks_per_sm
             << " cooperative_launch=" << cooperative_launch
-            << " null_query_rejected="
-            << (null_query_rejected ? "true" : "false")
+            << " null_queries_rejected="
+            << (null_query_rejected && default_null_query_rejected ? "true"
+                                                                    : "false")
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
   if (!resource_gate) {
     return;
@@ -40756,6 +40961,15 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                 fake_residual, fake_normalized, static_cast<void*>(stream));
       },
       ".cs candidate");
+  const CapturedDownKernel default_graph = capture_single_kernel(
+      [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
+                fake_packed, fake_scales, 1.0F / 64.0F, fake_activation,
+                fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+                fake_residual, fake_normalized, static_cast<void*>(stream));
+      },
+      "default rollback");
   const auto exact_topology = [](const CapturedDownKernel& captured) {
     return captured.ready && captured.parameters.func != nullptr &&
            captured.parameters.gridDim.x == 32U &&
@@ -40768,21 +40982,32 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   };
   const bool graph_gate =
       exact_topology(production_graph) && exact_topology(candidate_graph) &&
-      production_graph.parameters.func != candidate_graph.parameters.func;
+      exact_topology(default_graph) &&
+      production_graph.parameters.func == candidate_graph.parameters.func &&
+      production_graph.parameters.func != default_graph.parameters.func;
   test.expect(graph_gate,
-              label + " captures distinct one-node 32x512 functions");
+              label +
+                  " captures public == .cs != default one-node 32x512 functions");
   std::cout << "DECODE_DOWN_CS_GRAPH: production_nodes="
             << production_graph.nodes
             << " candidate_nodes=" << candidate_graph.nodes
+            << " default_nodes=" << default_graph.nodes
             << " production_grid=" << production_graph.parameters.gridDim.x
             << " candidate_grid=" << candidate_graph.parameters.gridDim.x
+            << " default_grid=" << default_graph.parameters.gridDim.x
             << " production_block=" << production_graph.parameters.blockDim.x
             << " candidate_block=" << candidate_graph.parameters.blockDim.x
+            << " default_block=" << default_graph.parameters.blockDim.x
             << " dynamic_shared="
             << candidate_graph.parameters.sharedMemBytes
-            << " distinct_func="
-            << (production_graph.parameters.func !=
+            << " public_cs_same_func="
+            << (production_graph.parameters.func ==
                         candidate_graph.parameters.func
+                    ? "true"
+                    : "false")
+            << " default_distinct_func="
+            << (production_graph.parameters.func !=
+                        default_graph.parameters.func
                     ? "true"
                     : "false")
             << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
@@ -41006,7 +41231,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       candidate_norm_storage.get() + kGuardElements;
   const auto launch_baseline = [&]() noexcept -> int {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+        launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
             packed.get(), scales.get(), actual_scale2, activation.get(),
             residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
             baseline_raw, baseline_residual, baseline_norm,
@@ -41014,7 +41239,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   };
   const auto launch_candidate = [&]() noexcept -> int {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_cs_test_cuda(
+        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
             packed.get(), scales.get(), actual_scale2, activation.get(),
             residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
             candidate_raw, candidate_residual, candidate_norm,
@@ -41025,7 +41250,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   // policy gain. Correctness continues to use disjoint guarded buffers.
   const auto launch_timing_baseline = [&]() noexcept -> int {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+        launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
             packed.get(), scales.get(), actual_scale2, activation.get(),
             residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
             candidate_raw, candidate_residual, candidate_norm,
@@ -41273,10 +41498,10 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     ready = ready && poison_outputs(fixture_name);
     ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
                                   label + " launch " + fixture_name +
-                                      " production baseline");
+                                      " default rollback baseline");
     ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
                                   label + " launch " + fixture_name +
-                                      " .cs candidate");
+                                      " public selected candidate");
     ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                   label + " " + fixture_name +
                                       " correctness synchronize");
@@ -41343,8 +41568,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                 label + " " + fixture_name +
                     " preserves bits/replay/guards/inputs");
     std::cout << "DECODE_DOWN_CS_DIFF: fixture=" << fixture_name
-              << " baseline=production_32x512"
-              << " candidate=packed_and_scale_cs_32x512"
+              << " baseline=default_rollback_32x512"
+              << " candidate=public_selected_cs_32x512"
               << " raw_mismatches=" << raw_mismatches << '/' << kRows
               << " residual_mismatches=" << residual_mismatches << '/'
               << kRows << " norm_mismatches=" << norm_mismatches << '/'
@@ -41370,12 +41595,12 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
          iteration < kWarmupIterations && timing_ready; ++iteration) {
       timing_ready = test.cuda_ok(
           static_cast<cudaError_t>(launch_timing_baseline()),
-          label + " " + fixture_name + " production warmup");
+          label + " " + fixture_name + " default rollback warmup");
       timing_ready = timing_ready && test.cuda_ok(
                                          static_cast<cudaError_t>(
                                              launch_candidate()),
                                          label + " " + fixture_name +
-                                             " .cs warmup");
+                                             " public selected warmup");
     }
     timing_ready = timing_ready && test.cuda_ok(
                                          cudaStreamSynchronize(stream),
@@ -41559,12 +41784,12 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                                              static_cast<cudaError_t>(
                                                  launch_baseline()),
                                              label + " launch " + fixture +
-                                                 " production baseline");
+                                                 " default rollback baseline");
         fixture_ready = fixture_ready && test.cuda_ok(
                                              static_cast<cudaError_t>(
                                                  launch_candidate()),
                                              label + " launch " + fixture +
-                                                 " .cs candidate");
+                                                 " public selected candidate");
         fixture_ready = fixture_ready && test.cuda_ok(
                                              cudaStreamSynchronize(stream),
                                              label + " " + fixture +
@@ -41753,8 +41978,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       fixture_gates[0U] && fixture_gates[1U] && absolute_delta_gate &&
       nonfinite_gate;
   std::cout << "PERF_DECODE_DOWN_CS_SELECTED:"
-            << " baseline=production_default_32x512"
-            << " candidate=packed_and_scale_cs_32x512"
+            << " baseline=default_rollback_32x512"
+            << " candidate=public_selected_cs_32x512"
             << " actual_paired_median_speedup="
             << fixture_paired_medians[0U]
             << " stress_paired_median_speedup="
