@@ -6048,3 +6048,43 @@ the stage target. Decode remains serial on one stream without double/triple
 buffering or cross-kernel overlap, and dedicated Prefill optimization has not
 started. Complete evidence is in the
 [LM-head streaming rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-streaming-rejection.json).
+
+## Decode projection palette-v2 production promotion
+
+The production palette-v2 route combines evict-first FP8 QKV/Z weight loads
+with lossless six-bit NVFP4 down-scale sidecars. The latter are admitted for
+53 of 64 down projections; 11 layers retain the canonical-scale fallback.
+Canonical scales remain resident for bulk Prefill and fallback, so the 53
+sidecars add **221,429,760 bytes (0.206223 GiB)** rather than replacing model
+storage. Their cold host-pack/upload step takes approximately **2 seconds**
+and is excluded from the hot Decode number.
+
+Pinned full-model oracles at C1, C8, C16, and C32 preserve all 19 prompt IDs,
+26 generated IDs, exact text, `im_end`, and 44 steps. The fixed-clock
+P19/C32/max26 end-to-end gate first runs `B1-C1-C2-B2`; a subsequent `B3-C3`
+pair supplies the third independent confirmation:
+
+| Pair | Baseline | Palette v2 | Saved |
+| --- | ---: | ---: | ---: |
+| B1/C1 | 107.186 ms/token | 106.666 ms/token | 0.520 ms/token |
+| B2/C2 | 107.114 ms/token | 106.860 ms/token | 0.254 ms/token |
+| B3/C3 | 107.157 ms/token | 106.769 ms/token | 0.388 ms/token |
+
+The first four mirrored processes aggregate to **107.150 ms/token** for the
+baseline and **106.763 ms/token** for palette v2, saving **0.387 ms/token**.
+All three independent pairs improve by 0.520/0.254/0.388 ms/token, with a
+**0.388-ms/token median**. The new achieved hot single-request Decode anchor
+is therefore **106.763000 ms/token and 9.366540843 token/s**, replacing the
+previous formal **107.314000 ms/token and 9.318448665 token/s** anchor. This
+leaves **6.763000 ms/token and 0.633459157 token/s** to the 100-ms/token and
+10-token/s target, so the stage target is not yet met.
+
+These values come from full generation processes; the earlier phase-local
+QKV-plus-down arithmetic sums are selection diagnostics and are not treated
+as end-to-end timing. Execution remains dependency-ordered on one CUDA stream
+with no system double/triple buffer or cross-kernel overlap. Bulk Prefill tile
+dispatch is unchanged, while the finish-prefill M1 step shares the selected
+M1 route. The next priority remains incremental Decode work toward 100
+ms/token; the larger dedicated Prefill program follows that gate. Complete
+commands, hashes, process results, startup cost, and claim limits are in the
+[palette-v2 production benchmark](metadata/qwen36-27b-decode-projection-palette-v2-production-benchmark.json).

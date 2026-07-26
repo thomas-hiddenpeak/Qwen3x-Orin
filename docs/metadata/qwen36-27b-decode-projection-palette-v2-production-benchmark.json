@@ -1,0 +1,587 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-projection-palette-v2-production-benchmark",
+  "status": "production-promoted-single-request-decode-target-not-yet-met",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "selection_commit": "741b36b629402c6f07dac99c79053db01ced83da",
+    "selection_tree": "c8acc510a23f78fdcce64e7de7b751d112fe2dff",
+    "selection_subject": "docs: select Decode projection palette v2",
+    "selection_record": "qwen36-27b-decode-qkv-cs-down-scale6-bundle-selection.json",
+    "selection_record_blob": "29df1e8868d9c953f2f4a2b0f46a1240afe105fc",
+    "production_commit": "91b67c5f0e6591b22e2b58636c9dfc0c0f0f1cf9",
+    "production_tree": "2650ba1460097c9487dd9e188443816afd0a062e",
+    "production_subject": "feat: add Decode projection palette v2",
+    "production_parent_commit": "741b36b629402c6f07dac99c79053db01ced83da",
+    "kernel_comment_alignment_commit": "072f3a7a21b8e25b83783a2730742a734732df42",
+    "kernel_comment_alignment_tree": "3194e93e5bdacc2a9658de1570c4c491f241bfc4",
+    "validation_commit": "055f2cb21a316d167459e776e26bd3991c5221ea",
+    "validation_tree": "e0868fd983fe3d0dcafb48de7689af769ea75d54",
+    "validation_subject": "test: cover Decode projection palette v2",
+    "joint_gate_commit": "6f91813263140eea0d6727b7a21482f1f874fe00",
+    "joint_gate_tree": "8cbecfca200e7c50e9cd9be7bbe78d488aff072e",
+    "joint_gate_subject": "bench: add Decode palette v2 joint gate",
+    "preceding_anchor_record_commit": "e42af1e56a7ef73beded1de05fd77f93c67ce619",
+    "preceding_anchor_record_tree": "5bd6c9046d66191320dd6fc40988260738d0d66d",
+    "preceding_anchor_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json",
+    "baseline_source_commit": "93bf30d49e4d29e5fc2cff42f87289280791eb1f",
+    "baseline_source_tree": "318b4564fc6be22a224a04ca024093a078be1e3b",
+    "baseline_source_subject": "docs: fix Decode down SASS provenance",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "blobs_at_joint_gate_commit": {
+      "kernel_header": "0a6d3babe36f80fa6f5b034eb75b6292585b7690",
+      "kernel_source": "b310b80770672031dfd38f0122bdcb1d31891f96",
+      "projection_dispatch_source": "46f15d60d1d443edc0bd89f1772060c5946e12b8",
+      "model_weights_header": "d4653d22e8dafb96b326272ed0445213387903d0",
+      "model_weights_source": "eb49e04132ad3b826e362ec237dede11e9f0800b",
+      "reference_engine_header": "fe6fe0d1d1ce42fb95bcca53143c8072b0b93d90",
+      "reference_engine_source": "530515c3a4e2d8e0724b00c046f0703586f07dab",
+      "cli_source": "ed155364f744b98f6d673772c21ff51a3a1af02c",
+      "model_weights_test": "5f49042a2c14b49617bd2e799a08f8a1d5a96f19",
+      "projection_dispatch_test": "973a937f5ed3074d4c95835800e450fdcd1e2797",
+      "reference_engine_e2e_test": "e48cd3941c2d43f4a73d86c324396ed365e35890",
+      "joint_cuda_test": "d7c463d3898c72a0cf6ac8e23f1b4cbfa506b672"
+    },
+    "measurement_identity": "B is the executable frozen from 93bf30d, whose production dispatch remained the preceding anchor route. C is the Release executable frozen after the palette-v2 implementation and validation commits. B1-C1-C2-B2 is the mirrored anchor sequence; B3-C3 is an additional independent directional pair. Every process performs its own model load, warmup, and five measured rounds."
+  },
+  "binaries": {
+    "production_baseline": {
+      "local_path": "/tmp/q3x-bundle-baseline-93bf30d-qwen3x-orin",
+      "bytes": 4959912,
+      "sha256": "000347c978123ff8d7f70a0bc40bac67b7fc08c49de257e14ec7185622c3180f",
+      "elf_build_id": "668b5404a342ff304377043d41fc2684bf7e9825",
+      "checked_in": false
+    },
+    "production_candidate": {
+      "local_path": "/tmp/q3x-palette-v2-candidate-055f2cb-qwen3x-orin",
+      "bytes": 4960440,
+      "sha256": "20886354d742b44774cc02a1ef2343758cfe4bba1fc0263c457da47dba12fc45",
+      "elf_build_id": "031c35e0ec6d9f53a639f4f98b19574242a984be",
+      "checked_in": false
+    },
+    "production_model_oracle": {
+      "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/q3x_reference_engine_e2e_test",
+      "bytes": 4819288,
+      "sha256": "f6a25beca96c0530b3be490942d6ec14d70a685788ff31db25cf7031f4bf664d",
+      "elf_build_id": "014b2d2d8a99532e6f51783a22002bdfe8058bfe",
+      "checked_in": false
+    },
+    "production_joint_device_test": {
+      "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7319592,
+      "sha256": "12c194e7c64640b205809c46ef1f715e86773439fbd3331969991effc0eb36ed",
+      "elf_build_id": "79c5940f1f41e29a90bbab289033e3939bf2bd69",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "gpu_name": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "kernel": "Linux 6.8.12-1021-tegra",
+    "driver_version": "595.78",
+    "cuda_compiler": "CUDA 13.3 build 37862127_0",
+    "cmake_version": "3.28.3",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": 1300500000,
+    "emc_bwmgr_devfreq_hz": 3200000000,
+    "clock_scope": "The formal evidence uses the project's fixed-frequency MAXN workflow. This record does not establish thermal-soak, power, or energy behavior."
+  },
+  "implementation": {
+    "name": "Decode projection palette v2",
+    "scope": "single-token SM87 projection dispatch",
+    "linear_attention_qkv_z": {
+      "layers": 48,
+      "shape_summary": "QKV 10240x5120, Z 6144x5120, BF16 A/B 48x5120",
+      "production_route": "the public QKV/Z plus BF16 A/B tail-composite launcher selects the existing FP8 weight-streaming .cs Function",
+      "rollback_route": "the default-cache tail-composite Function remains reachable through the test ABI",
+      "persistent_memory_overhead_bytes": 0,
+      "launch_count_changed": false
+    },
+    "dense_mlp_down": {
+      "total_layers": 64,
+      "scale6_eligible_layers": 53,
+      "canonical_fallback_layers": [2, 24, 30, 31, 54, 55, 56, 57, 58, 59, 60],
+      "canonical_fallback_layer_count": 11,
+      "shape": "5120x17408",
+      "sidecar_bytes_per_eligible_layer": 4177920,
+      "sidecar_bytes_total": 221429760,
+      "sidecar_gib_total": 0.206222534,
+      "canonical_scales_retained": true,
+      "production_route": "an attached exact base-plus-six-bit-delta scale sidecar selects the scale6 down residual/norm kernel; absent or ineligible sidecars retain the canonical .cs route",
+      "attach_contract": "the complete eligible inventory is shape-, alignment-, span-, duplicate-, and overlap-validated before an atomic ModelWeights attachment",
+      "fallback_contract": "optional admission or allocation failure preserves canonical execution and records a stable fallback reason",
+      "launch_count_changed": false
+    },
+    "startup_sidecar_preparation": {
+      "candidate_process_milliseconds": [2022.537, 1996.824, 2014.771],
+      "median_milliseconds": 2014.771,
+      "eligible_layers_each_process": 53,
+      "fallback_layers_each_process": 11,
+      "bytes_each_process": 221429760,
+      "fallback_reason_each_process": "",
+      "included_in_hot_decode_latency": false,
+      "interpretation": "Approximately two seconds of cold scale inspection, packing, allocation, upload, verification, and attachment occurs during engine creation and is excluded from the hot subsequent-token metric."
+    },
+    "prefill_scope": {
+      "bulk_prompt_prefix_projection_route_changed": false,
+      "single_token_finish_prefill_uses_palette_v2_m1_route": true,
+      "dedicated_prefill_optimization_claim": false,
+      "interpretation": "Bulk tiled Prefill remains unchanged. The final single-token finish-prefill step shares the M1 production runner path and therefore executes palette v2."
+    },
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap_added": false,
+      "prefill_decode_overlap_added": false,
+      "schedule_changed_by_palette_v2": false
+    },
+    "public_abi_changed": false
+  },
+  "same_process_joint_microbenchmark": {
+    "status": "pass",
+    "environment_variable": "Q3X_RUN_SM87_DECODE_PROJECTION_PALETTE_V2_PERF=1",
+    "command": "Q3X_RUN_SM87_DECODE_PROJECTION_PALETTE_V2_PERF=1 /tmp/q3x-palette-v2-formal.AQhAYl/q3x_sm87_weight_only_gemv_test",
+    "independent_processes": 3,
+    "same_binary": true,
+    "same_process_per_qkv_down_pair": true,
+    "same_nonblocking_stream": true,
+    "measurement_order": "QKV component, then down component",
+    "fixtures_per_component": ["actual_checkpoint", "same_bank_stress"],
+    "rounds_per_fixture": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "selected_component_rounds_per_process": 20,
+    "selected_component_rounds_total": 60,
+    "all_selected_component_rounds_strictly_improved": true,
+    "correctness_graph_resource_and_nonfinite_gates": "pass",
+    "processes": [
+      {
+        "process": 1,
+        "qkv_projected_48_layer_delta_ms": 0.173088,
+        "down_projected_53_layer_delta_ms": 0.274845,
+        "arithmetic_joint_delta_ms": 0.447933,
+        "per_process_required_ms": 0.30,
+        "gate": "pass",
+        "log": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/joint.P1.log",
+          "bytes": 21614,
+          "lines": 84,
+          "sha256": "09ebda7405df076f6d3a09e56298a67adf9706a2475bebe58a41bc3f0e779906",
+          "terminal_line": "Decode projection palette v2 joint screen passed",
+          "exit_code": 0
+        }
+      },
+      {
+        "process": 2,
+        "qkv_projected_48_layer_delta_ms": 0.184440,
+        "down_projected_53_layer_delta_ms": 0.604837,
+        "arithmetic_joint_delta_ms": 0.789277,
+        "per_process_required_ms": 0.30,
+        "gate": "pass",
+        "log": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/joint.P2.log",
+          "bytes": 21573,
+          "lines": 84,
+          "sha256": "ee136dd471aeed650d65091563a8b4d585b6ab23b6b28f1417234510a0afa775",
+          "terminal_line": "Decode projection palette v2 joint screen passed",
+          "exit_code": 0
+        }
+      },
+      {
+        "process": 3,
+        "qkv_projected_48_layer_delta_ms": 0.220822,
+        "down_projected_53_layer_delta_ms": 0.978540,
+        "arithmetic_joint_delta_ms": 1.199360,
+        "per_process_required_ms": 0.30,
+        "gate": "pass",
+        "log": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/joint.P3.log",
+          "bytes": 21590,
+          "lines": 84,
+          "sha256": "439e3b318d149d0e59db0f60fb207e4f99d6faec582de2c0ca42fc48c31e89ea",
+          "terminal_line": "Decode projection palette v2 joint screen passed",
+          "exit_code": 0
+        }
+      }
+    ],
+    "aggregate": {
+      "arithmetic_joint_delta_ms": [0.447933, 0.789277, 1.199360],
+      "median_arithmetic_joint_delta_ms": 0.789277,
+      "required_median_arithmetic_joint_delta_ms": 0.35,
+      "processes_passing": "3/3",
+      "median_gate": "pass",
+      "arithmetic_projection_only": true,
+      "joint_wall_clock_timed": false,
+      "end_to_end_claim": false
+    },
+    "exclusion": "The scale6 gate/up exploration also appears in the logs and regresses, but gate/up was already rejected and is not a selected palette-v2 component. The 60/60 statement covers only QKV and down actual/stress component rounds."
+  },
+  "release_validation": {
+    "model_oracles": {
+      "status": "pass",
+      "command_template": "/tmp/q3x-palette-v2-formal.AQhAYl/q3x_reference_engine_e2e_test MODEL_DIR sm87 {1|8|16|32}",
+      "chunks_passed": [1, 8, 16, 32],
+      "shared_result": {
+        "prompt_ids": 19,
+        "generated_ids": 26,
+        "exact_text": true,
+        "stop_reason": "im_end",
+        "steps": 44,
+        "projection_backend": "sm87_weight_only",
+        "startup_overlap": true,
+        "fp8_output_sidecar_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920,
+        "nvfp4_down_scale6_sidecars_enabled": true,
+        "nvfp4_down_scale6_sidecar_eligible_layers": 53,
+        "nvfp4_down_scale6_sidecar_fallback_layers": 11,
+        "nvfp4_down_scale6_sidecar_bytes": 221429760,
+        "nvfp4_down_scale6_sidecar_fallback_reason": ""
+      },
+      "logs": {
+        "C1": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/oracle.C1.log",
+          "bytes": 652,
+          "lines": 1,
+          "sha256": "feb33f453ce043918f83425f4b8e9c6d470a33010864b0c95db06a661a88c64b"
+        },
+        "C8": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/oracle.C8.log",
+          "bytes": 652,
+          "lines": 1,
+          "sha256": "f2bb83ed395c8e3077352a4beb107b7881b393d90a2f6e6871edb657b1382b59"
+        },
+        "C16": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/oracle.C16.log",
+          "bytes": 650,
+          "lines": 1,
+          "sha256": "1635c79f8497eab3959850c550fe2b507c00d58da08151fe774bf9d1b7474889"
+        },
+        "C32": {
+          "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/oracle.C32.log",
+          "bytes": 652,
+          "lines": 1,
+          "sha256": "2900198794bc69a9fbdd5ce92e276c0cb0a47852db3df8f4af7a27d0d1cd6c6a"
+        }
+      }
+    }
+  },
+  "end_to_end_benchmark": {
+    "status": "pass",
+    "protocol": {
+      "scope": "hot serial single-request Decode",
+      "process_order": ["B1", "C1", "C2", "B2", "B3", "C3"],
+      "anchor_sequence": ["B1", "C1", "C2", "B2"],
+      "additional_confirmation_sequence": ["B3", "C3"],
+      "command_template": "BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --prefill-chunk-size 32 --projection-backend sm87",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_intervals_per_generation": 25,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "projection_backend": "sm87_weight_only"
+    },
+    "runs": {
+      "B1": {
+        "subsequent_token_ms": 107.186,
+        "decode_after_first_ms": 2679.703,
+        "ttft_ms": 424.551,
+        "total_generation_ms": 3104.254,
+        "prompt_prefix_ms": 317.463,
+        "finish_prefill_ms": 107.113
+      },
+      "C1": {
+        "subsequent_token_ms": 106.666,
+        "decode_after_first_ms": 2666.588,
+        "ttft_ms": 424.160,
+        "total_generation_ms": 3090.667,
+        "prompt_prefix_ms": 317.540,
+        "finish_prefill_ms": 106.649
+      },
+      "C2": {
+        "subsequent_token_ms": 106.860,
+        "decode_after_first_ms": 2671.520,
+        "ttft_ms": 424.533,
+        "total_generation_ms": 3096.010,
+        "prompt_prefix_ms": 317.692,
+        "finish_prefill_ms": 106.826
+      },
+      "B2": {
+        "subsequent_token_ms": 107.114,
+        "decode_after_first_ms": 2677.871,
+        "ttft_ms": 424.734,
+        "total_generation_ms": 3102.509,
+        "prompt_prefix_ms": 317.637,
+        "finish_prefill_ms": 107.076
+      },
+      "B3": {
+        "subsequent_token_ms": 107.157,
+        "decode_after_first_ms": 2679.526,
+        "ttft_ms": 424.664,
+        "total_generation_ms": 3104.190,
+        "prompt_prefix_ms": 317.562,
+        "finish_prefill_ms": 107.159
+      },
+      "C3": {
+        "subsequent_token_ms": 106.769,
+        "decode_after_first_ms": 2669.257,
+        "ttft_ms": 424.494,
+        "total_generation_ms": 3093.736,
+        "prompt_prefix_ms": 317.753,
+        "finish_prefill_ms": 106.739
+      }
+    },
+    "pairwise_subsequent_token_gate": {
+      "saved_ms": [0.520, 0.254, 0.388],
+      "pair_labels": ["B1-C1", "B2-C2", "B3-C3"],
+      "every_pair_strictly_improves": true,
+      "median_saved_ms": 0.388,
+      "required_median_saved_ms": 0.25,
+      "gate": "pass"
+    },
+    "mirrored_anchor_aggregate": {
+      "processes": ["B1", "C1", "C2", "B2"],
+      "baseline_subsequent_ms": 107.150000,
+      "candidate_subsequent_ms": 106.763000,
+      "subsequent_saved_ms": 0.387000,
+      "subsequent_speedup": 1.003624851,
+      "candidate_tokens_per_second": 9.366540843,
+      "baseline_decode_after_first_ms": 2678.787000,
+      "candidate_decode_after_first_ms": 2669.054000,
+      "decode_after_first_saved_ms": 9.733000,
+      "decode_after_first_speedup": 1.003646610,
+      "baseline_ttft_ms": 424.642500,
+      "candidate_ttft_ms": 424.346500,
+      "ttft_saved_ms": 0.296000,
+      "ttft_speedup": 1.000697543,
+      "baseline_total_generation_ms": 3103.381500,
+      "candidate_total_generation_ms": 3093.338500,
+      "total_generation_saved_ms": 10.043000,
+      "total_generation_speedup": 1.003246654,
+      "baseline_prompt_prefix_ms": 317.550000,
+      "candidate_prompt_prefix_ms": 317.616000,
+      "prompt_prefix_delta_ms": 0.066000,
+      "baseline_finish_prefill_ms": 107.094500,
+      "candidate_finish_prefill_ms": 106.737500,
+      "finish_prefill_saved_ms": 0.357000,
+      "finish_prefill_speedup": 1.003344654
+    },
+    "additional_confirmation_pair": {
+      "baseline_subsequent_ms": 107.157,
+      "candidate_subsequent_ms": 106.769,
+      "subsequent_saved_ms": 0.388,
+      "subsequent_speedup": 1.003634014,
+      "candidate_less_than_baseline": true
+    },
+    "functional_canonicalization": {
+      "canonical_files": 6,
+      "rows_per_file": 29,
+      "bytes_per_file": 1881,
+      "sha256_each": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "all_six_equal": true,
+      "matches_historical_golden": true,
+      "interpretation": "The canonical projection/output and generation contract is identical. Candidate-only scale6 load-stat rows are intentionally outside the 29-row canonicalization and are validated separately from the raw candidate logs."
+    },
+    "completeness": {
+      "baseline_lines_per_raw_log": 163,
+      "candidate_lines_per_raw_log": 169,
+      "candidate_additional_load_stat_lines": 6,
+      "sample_count_each": 5,
+      "later_token_intervals_each_process": 125,
+      "sample_4_later_token_values_each": 25,
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "all_six_logs_complete": true,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/B1.log",
+        "bytes": 8133,
+        "lines": 163,
+        "sha256": "aa9e82eb479a022e54ba801a32d0e424ed8d356d9c7e9db23fe6a8131caf5c89"
+      },
+      "C1": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/C1.log",
+        "bytes": 8407,
+        "lines": 169,
+        "sha256": "46658b48ba48c44d92223ba6f046b5a294765dd1510658f477aaa3e764d61f28"
+      },
+      "C2": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/C2.log",
+        "bytes": 8407,
+        "lines": 169,
+        "sha256": "c091faac8fbb1dd9a98d7bf3cf9be57786390fcbbfbcd278726fdb887c6df482"
+      },
+      "B2": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/B2.log",
+        "bytes": 8133,
+        "lines": 163,
+        "sha256": "680c37ead3f0e9386458c39f6ffe0726cc0cd36f79ac9f336701c2abf4a014ea"
+      },
+      "B3": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/B3.log",
+        "bytes": 8127,
+        "lines": 163,
+        "sha256": "bac8659a37f48819c68806febafc115328a8d074b31ae7505def953a4c4817b3"
+      },
+      "C3": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/C3.log",
+        "bytes": 8407,
+        "lines": 169,
+        "sha256": "a3d887eea4577d7c814400e3626bfcccabfa2ebff4e779e42b9ab20281a4eb10"
+      },
+      "sha256_manifest": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/e2e/logs.sha256",
+        "bytes": 666,
+        "lines": 6,
+        "sha256": "e5875b6db72596415b845c2a70a0fb73b48abd9fc32000ac30559ad24dc1f548"
+      }
+    }
+  },
+  "nsight_systems_gate": {
+    "status": "pass-supporting-topology-and-dispatch-evidence-not-anchor-prerequisite",
+    "used_to_establish_anchor": false,
+    "exact_generation": {
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44
+    },
+    "nvtx_ranges": {
+      "generation": {
+        "instances": 1,
+        "total_ms": 3151.241760
+      },
+      "decode_step": {
+        "instances": 25,
+        "total_ms": 2696.374432,
+        "median_ms": 107.266816
+      },
+      "prefill_prefix_tile": {
+        "instances": 1,
+        "total_ms": 321.543328
+      },
+      "prefill_finish": {
+        "instances": 1,
+        "total_ms": 133.187072
+      }
+    },
+    "palette_dispatch_closure": {
+      "qkv_cs": {
+        "kernel_instances": 1248,
+        "expected_formula": "48 layers * 26 M1 steps",
+        "total_ms": 608.333888,
+        "median_us_per_call": 484.016
+      },
+      "down_scale6": {
+        "kernel_instances": 1378,
+        "expected_formula": "53 eligible layers * 26 M1 steps",
+        "total_ms": 437.647648,
+        "median_us_per_call": 314.688
+      },
+      "down_canonical_cs": {
+        "kernel_instances": 286,
+        "expected_formula": "11 fallback layers * 26 M1 steps",
+        "total_ms": 93.099104,
+        "median_us_per_call": 319.472
+      },
+      "gate_up": {
+        "kernel_instances": 1664,
+        "expected_formula": "64 layers * 26 M1 steps"
+      },
+      "palette_projection_instances": 2912,
+      "palette_projection_formula": "1248 + 1378 + 286",
+      "gate": "pass"
+    },
+    "stream_topology": {
+      "hot_inference_kernel_instances": 11749,
+      "hot_inference_stream": 18,
+      "all_hot_inference_kernels_on_one_stream": true,
+      "palette_projection_kernel_instances": 2912,
+      "all_palette_projection_kernels_on_hot_stream": true,
+      "cold_output_projection_pack_instances": 64,
+      "cold_output_projection_pack_stream": 17,
+      "cold_pack_is_hot_inference": false,
+      "hot_execution_dependency_serial": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap": false,
+      "gate": "pass"
+    },
+    "interpretation": "The trace closes the exact 48-layer QKV, 53-layer scale6 down, and 11-layer canonical fallback inventory and confirms that all 11,749 hot inference kernels are dependency-serial on stream 18. The 64 stream-17 pack launches are cold engine-creation work. Profiler timings are supporting attribution and topology evidence; the unprofiled mirrored E2E result alone establishes the 106.763-ms anchor.",
+    "artifacts": {
+      "report": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.nsys-rep",
+        "bytes": 944060,
+        "sha256": "232380d0baab1e634de2026a24a8fed177b60f97cc45a919c546195c7e67ce52"
+      },
+      "stdout_log": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.log",
+        "bytes": 3420,
+        "lines": 64,
+        "sha256": "f9b08aeb034da16720433ccdc016a044bd82476f4860ca9a91b04f3ed32152f5"
+      },
+      "stats_csv": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.stats.csv",
+        "bytes": 12039,
+        "lines": 70,
+        "sha256": "23160777bbcd1550fa6292db1d4e1046ada735cd18de871e72ec4682ec4b84b2"
+      },
+      "gpu_trace_csv": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.gpu-trace.csv",
+        "bytes": 4324285,
+        "lines": 14969,
+        "sha256": "860eac98a089b41fd1444e37a365e7fb6189bcb8932a2b621eca3fe555b1f049"
+      },
+      "sqlite": {
+        "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.sqlite",
+        "bytes": 2670592,
+        "sha256": "a5954e9cedfdef7b3f305405436dcf60a34d02da0c0f5856f64c154661eafc1a"
+      }
+    }
+  },
+  "decision": {
+    "result": "promote Decode projection palette v2",
+    "prior_active_anchor_ms_per_token": 107.314000,
+    "prior_active_anchor_tokens_per_second": 9.318448665,
+    "achieved_hot_single_request_ms_per_token": 106.763000,
+    "achieved_hot_single_request_tokens_per_second": 9.366540843,
+    "saved_from_prior_active_anchor_ms_per_token": 0.551000,
+    "speedup_from_prior_active_anchor": 1.005160964,
+    "same_run_mirrored_baseline_ms_per_token": 107.150000,
+    "same_run_mirrored_candidate_saved_ms_per_token": 0.387000,
+    "same_run_mirrored_speedup": 1.003624851,
+    "three_pair_median_saved_ms_per_token": 0.388000,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 6.763000,
+    "remaining_tokens_per_second": 0.633459157,
+    "remaining_relative_latency_reduction_percent": 6.334591572,
+    "target_met": false,
+    "next_priority": "Continue bounded single-request Decode optimization until the 100-ms/token and 10-token/s stage target is met; then begin the larger dedicated Prefill program."
+  },
+  "claim_limits": [
+    "The 106.763000-ms/token anchor is the directly measured C1/C2 mirrored mean from B1-C1-C2-B2, not the 0.789277-ms isolated arithmetic median subtracted from the prior anchor.",
+    "The 0.447933/0.789277/1.199360-ms joint-screen values add separately measured QKV and down component projections inside each process. They are arithmetic projections, not fused joint wall-clock or end-to-end latency.",
+    "The achieved anchor is hot single-request Decode on one fixed-clock Orin and excludes model load, including approximately two seconds of scale6 sidecar preparation.",
+    "The additional 221,429,760 bytes are persistent sidecar storage, not a model-memory saving; canonical scales remain resident for bulk Prefill and 11 Decode fallback layers.",
+    "Bulk tiled Prefill is unchanged, but the single-token finish-prefill step shares the new M1 route. This record makes no dedicated Prefill performance claim.",
+    "Production remains serial on one stream. No double buffering, triple buffering, cross-kernel overlap, multi-request scheduling, or Prefill/Decode overlap was introduced.",
+    "Fresh palette-v2 Nsight Systems closes dispatch and single-stream topology, but its profiler timings are supporting evidence and are not required for, or used in, the E2E anchor update.",
+    "This is not a multi-request throughput, tail-latency, power, energy, or thermal-soak claim."
+  ]
+}

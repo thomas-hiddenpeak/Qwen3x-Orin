@@ -258,6 +258,19 @@ Deliverables:
   pass, but the candidate regresses in all five actual rounds to 0.993515x,
   adding 0.0286746 ms/token. Stress timing, later processes, production, E2E,
   and Nsys are skipped; the anchor and serial/Prefill state remain unchanged.
+- [done, Decode projection palette-v2 production promotion] Select
+  evict-first FP8 QKV/Z loads and lossless six-bit NVFP4 down scales for 53
+  eligible layers, retaining canonical fallback for 11 layers. C1/C8/C16/C32
+  pinned model oracles pass. The first four mirrored full-generation
+  processes move 107.150 to 106.763 ms/token, and three independent pairs
+  improve by 0.520/0.254/0.388 ms/token (median 0.388). This establishes the
+  **106.763000-ms/token / 9.366540843-token/s** hot single-request anchor,
+  still 6.763000 ms/token and 0.633459157 token/s short of the stage target.
+  The 221,429,760-byte (0.206223-GiB) persistent sidecar and roughly two-second
+  cold pack are explicit costs. Execution remains serial on one stream with
+  no double/triple buffer or overlap; bulk Prefill tiles are unchanged, while
+  finish-prefill M1 shares the selected route. Earlier component arithmetic
+  remains microbenchmark evidence rather than end-to-end timing.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -1049,6 +1062,23 @@ variants, the down CTA-prune, the QKV/Z sidecar, and production-ping-pong
 QKV1024/Z768 grid-cap policy remain closed. The next bounded mechanism must be
 selected from the refreshed gate/up, QKV/Z, and down ranking. The 100-ms/token
 and 10-token/s gate still precedes the larger Prefill program.
+
+The later GQA warp-position promotion established the previous formal
+**107.314000-ms/token / 9.318448665-token/s** anchor. Decode projection palette
+v2 now supersedes it with a full-generation result of **106.763000 ms/token
+and 9.366540843 token/s**: the first four mirrored processes move 107.150 to
+106.763 ms/token, while three independent pair savings are
+0.520/0.254/0.388 ms/token (median 0.388). This is end-to-end evidence, unlike
+the earlier QKV-plus-down arithmetic selection projections. The C1/C8/C16/C32
+oracles pass; 53 down layers use the new 221,429,760-byte (0.206223-GiB)
+sidecar, 11 fall back, and cold packing costs about two seconds.
+
+The target remains unmet by **6.763000 ms/token and 0.633459157 token/s**.
+One-stream serial execution, the absence of system double/triple buffering or
+overlap, and bulk Prefill tile dispatch are unchanged; finish-prefill M1 does
+share the selected route. Continue bounded Decode optimization toward 100
+ms/token before starting the larger dedicated Prefill stage. See the
+[palette-v2 production benchmark](metadata/qwen36-27b-decode-projection-palette-v2-production-benchmark.json).
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks

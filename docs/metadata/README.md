@@ -969,6 +969,28 @@ The diagnostic Phase 3 records are:
   heuristic recovers only about 0.101 ms from the 0.613196-ms idle upper bound,
   so palette v2 is the next bounded candidate; production and the serial
   one-stream schedule remain unchanged.
+- [`qwen36-27b-decode-projection-palette-v2-production-benchmark.json`](qwen36-27b-decode-projection-palette-v2-production-benchmark.json),
+  which records the subsequent production promotion of the 48-layer FP8 QKV/Z
+  `.cs` route plus exact down-only scale6 sidecars for 53 layers, with 11
+  canonical down fallbacks. Three same-process/same-stream component screens
+  pass all 60 selected actual/stress rounds and yield arithmetic-only savings
+  of 0.447933/0.789277/1.199360 ms, with a 0.789277-ms median; those values are
+  isolated projections, not E2E timing. C1/C8/C16/C32 model oracles pass, and
+  six whole-model processes preserve the same 29-line/1,881-byte canonical
+  generation contract and golden SHA. The `B1-C1-C2-B2-B3-C3` subsequent-token
+  medians are 107.186/106.666/106.860/107.114/107.157/106.769 ms; all three
+  pairwise savings are positive at 0.520/0.254/0.388 ms and have a 0.388-ms
+  median. The first four mirrored processes directly establish **106.763000
+  ms/token and 9.366540843 token/s**, saving 0.551 ms against the prior formal
+  anchor and leaving **6.763 ms/token / 0.633459157 token/s** to the stage
+  target. The 221,429,760-byte sidecar and its roughly two-second cold build
+  remain outside hot Decode latency. Bulk tiled Prefill is unchanged, while
+  the single-token finish-prefill step shares the new M1 route. Scheduling is
+  still serial on one stream without double/triple buffering or overlap. A
+  fresh palette-v2 Nsight Systems trace closes all 11,749 hot inference kernels
+  on one stream and exactly counts 48-layer QKV, 53-layer scale6 down, and
+  11-layer canonical down dispatch; its profiled timing remains supporting
+  attribution and is not used to establish this E2E anchor.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
