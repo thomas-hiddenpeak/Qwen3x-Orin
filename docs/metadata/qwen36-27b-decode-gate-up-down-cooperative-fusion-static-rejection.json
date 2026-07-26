@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gate-up-down-cooperative-fusion-static-rejection",
+  "status": "rejected-static-audit-decode-gate-up-down-cooperative-fusion",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode launch-amortization audit",
+  "source": {
+    "base_commit": "a022007020d7379b2a05d401d26d6f29c3cdac97",
+    "base_tree": "530506416233d62d9056e5fa6e34f3572990ac36",
+    "base_subject": "docs: record Decode candidate stop losses",
+    "branch": "main",
+    "production_anchor_record": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "production_anchor_record_blob": "30d43c584572c38087aef1fd14898e8a59b8e08b",
+    "reference_runner_blob": "5ba4003cce8ca9606bb7bfdcc4660750d6c02d9a",
+    "projection_dispatch_blob": "46f15d60d1d443edc0bd89f1772060c5946e12b8",
+    "kernel_source_blob": "bfe0c60429d351d99c45f07113ff38d0701aed00",
+    "candidate_commit": null,
+    "candidate_source_present": false,
+    "candidate_built": false,
+    "candidate_tested": false,
+    "gpu_work_run_for_this_audit": false,
+    "audit_scope": "read-only source, checked-in metadata, and existing palette-v2 Nsight Systems SQLite evidence",
+    "production_dispatch_changed": false,
+    "production_runner_changed": false,
+    "production_kernel_changed": false,
+    "public_abi_changed": false,
+    "prefill_changed": false
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 6.763000,
+    "remaining_tokens_per_second": 0.633459157,
+    "anchor_changed_by_this_audit": false
+  },
+  "production_chain": {
+    "layers_per_step": 64,
+    "stream_count": 1,
+    "execution_order": [
+      "runner-only post-attention residual add, centered RMSNorm, NVFP4 gate/up, and SiLU with dead up publication",
+      "NVFP4 down projection, residual add, and next-layer or final centered RMSNorm"
+    ],
+    "runtime_source": {
+      "file": "src/runtime/reference_runner.cpp",
+      "gate_up_call_lines": "1345-1356",
+      "down_call_lines": "1365-1382",
+      "trace_copy_between_calls_lines": "1357-1363"
+    },
+    "buffer_handoff": {
+      "gated_activation": "views_.projection[0], 17408 BF16 elements",
+      "post_attention_residual": "views_.hidden[2], 5120 BF16 elements",
+      "dead_up_workspace_then_raw_down_output": "views_.projection[1]",
+      "down_residual_output": "views_.hidden[0]",
+      "down_normalized_output": "views_.hidden[1]"
+    },
+    "down_dispatch": {
+      "file": "src/kernels/reference/projection_dispatch.cpp",
+      "lines": "1391-1427",
+      "scale6_layers": 53,
+      "canonical_fallback_layers": 11,
+      "selection": "down_scale6_sidecar selects the scale6 cooperative Function; absent sidecar selects the canonical streaming cooperative Function"
+    },
+    "trace_note": "Trace mode currently copies the post-attention residual between launches. Down only reads that buffer, so a future composite could move the value-equivalent copy after the composite only with an explicit trace oracle; this audit does not authorize that change."
+  },
+  "audited_candidate": {
+    "scope": "unbuilt test-only exact-M1 32x512 cooperative or persistent kernel combining the production gate/up dead-up phase with the immediately following production down/residual/norm phase",
+    "shape_chain": [
+      "gate and up: 17408x5120 NVFP4",
+      "down: 5120x17408 NVFP4"
+    ],
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "inter_phase_synchronization": "one required cooperative grid synchronization after all final gated BF16 values are published",
+    "global_gated_activation_retained": true,
+    "required_down_variants": [
+      "canonical streaming block scales",
+      "scale6 sidecar with canonical fallback"
+    ],
+    "intended_launch_change_per_layer": {
+      "baseline": 2,
+      "candidate": 1,
+      "removed": 1
+    },
+    "arithmetic_feasibility": "A bit-exact implementation is statically possible if every existing BF16 boundary and arithmetic order is retained, but no compiled, correctness, resource, Graph, or performance claim exists."
+  },
+  "nsight_systems_evidence": {
+    "source_record": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "evidence_role": "existing production topology and timing evidence; no new profiling was run",
+    "report": {
+      "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.nsys-rep",
+      "bytes": 944060,
+      "sha256": "232380d0baab1e634de2026a24a8fed177b60f97cc45a919c546195c7e67ce52"
+    },
+    "sqlite": {
+      "local_path": "/tmp/q3x-palette-v2-formal.AQhAYl/nsys.palette-v2.sqlite",
+      "bytes": 2670592,
+      "sha256": "a5954e9cedfdef7b3f305405436dcf60a34d02da0c0f5856f64c154661eafc1a"
+    },
+    "selection_method": "Select completed q3x.decode.step NVTX ranges, join contained CUDA runtime calls to kernels by correlationId and globalPid, partition each range and stream by GPU start time, and inspect LEAD(name,start) after every production gate/up row.",
+    "boundary_adjacency": {
+      "decode_steps": 25,
+      "expected_boundaries_per_step": 64,
+      "expected_boundaries": 1600,
+      "observed_gate_up_boundaries": 1600,
+      "immediately_followed_by_any_down": 1600,
+      "immediately_followed_by_scale6_down": 1325,
+      "immediately_followed_by_canonical_down": 275,
+      "unexpected_next_kernel_count": 0,
+      "gate": "pass"
+    },
+    "gate_up_end_to_down_start_gap": {
+      "total_ns": 2144640,
+      "ms_per_decode_token": 0.0857856,
+      "mean_ns_per_layer": 1340.4,
+      "mean_us_per_layer": 1.3404,
+      "median_ns_per_layer": 1344,
+      "median_us_per_layer": 1.344,
+      "minimum_ns_per_layer": 992,
+      "p95_ns_per_layer": 1408,
+      "p95_us_per_layer": 1.408,
+      "p99_ns_per_layer": 1440,
+      "maximum_ns_per_layer": 1728,
+      "maximum_us_per_layer": 1.728,
+      "per_step_ns": {
+        "mean": 85785.6,
+        "median": 85760,
+        "minimum": 84864,
+        "maximum": 86400
+      }
+    },
+    "branch_split": {
+      "scale6": {
+        "boundaries": 1325,
+        "layers_per_step": 53,
+        "total_gap_ns": 1774080,
+        "gap_ms_per_decode_token": 0.0709632,
+        "mean_ns_per_layer": 1338.9283018867925,
+        "median_ns_per_layer": 1344,
+        "p95_ns_per_layer": 1408,
+        "maximum_ns_per_layer": 1728
+      },
+      "canonical": {
+        "boundaries": 275,
+        "layers_per_step": 11,
+        "total_gap_ns": 370560,
+        "gap_ms_per_decode_token": 0.0148224,
+        "mean_ns_per_layer": 1347.490909090909,
+        "median_ns_per_layer": 1344,
+        "p95_ns_per_layer": 1440,
+        "maximum_ns_per_layer": 1728
+      }
+    },
+    "host_launch_calls": {
+      "gate_up_cudaLaunchKernel": {
+        "calls": 1600,
+        "mean_duration_ns": 6542.94,
+        "median_duration_ns": 6432,
+        "summed_duration_ms_per_decode_token": 0.41874816,
+        "launch_end_to_gpu_start_median_ns": 50284400,
+        "launch_end_to_gpu_start_minimum_ns": 648928
+      },
+      "down_cudaLaunchCooperativeKernel": {
+        "calls": 1600,
+        "weighted_mean_duration_ns": 6711.26,
+        "median_duration_ns": 6592,
+        "summed_duration_ms_per_decode_token": 0.42952064,
+        "launch_end_to_gpu_start_median_ns": 50879808,
+        "launch_end_to_gpu_start_minimum_ns": 1232768
+      },
+      "critical_path_interpretation": "The CPU had already submitted both launches at least hundreds of microseconds and typically about 50 ms before GPU execution. The approximately 0.419-ms/token gate/up API duration is overlapped host work and cannot be added to the 0.0857856-ms/token GPU boundary gap."
+    },
+    "prior_launch_amortization_cross_check": {
+      "record": "qwen36-27b-decode-qkv-cs-down-scale6-bundle-selection.json",
+      "all_decode_serial_idle_upper_bound_ms_per_token": 0.613196,
+      "reference_launch_count": 388,
+      "hypothetical_launches_removed": 64,
+      "proportional_idle_heuristic_ms_per_token": 0.101145732,
+      "interpretation": "The earlier topology-only heuristic is close to and conservatively above the exact current 0.0857856-ms boundary sum."
+    }
+  },
+  "traffic_and_setup_ceiling": {
+    "global_bf16_gated_activation": {
+      "elements_per_layer": 17408,
+      "bytes_per_element": 2,
+      "publication_bytes_per_layer": 34816,
+      "down_ctas_staging_complete_vector": 32,
+      "logical_staging_load_bytes_per_layer": 1114112,
+      "publication_bytes_across_64_layers": 2228224,
+      "logical_staging_load_bytes_across_64_layers": 71303168,
+      "retained_by_candidate_contract": true
+    },
+    "maximum_global_bytes_eliminated_under_stated_contract": 0,
+    "unchanged_global_work": [
+      "gate and up packed-weight and block-scale loads",
+      "down packed-weight and canonical or scale6 scale loads",
+      "gated BF16 publication and complete per-CTA down activation staging",
+      "raw-down, residual, and normalized BF16 boundaries",
+      "post-attention residual and norm-weight reads"
+    ],
+    "reusable_codebook_setup_only": {
+      "e2m1_entries_per_cta": 16,
+      "e4m3_entries_per_cta": 256,
+      "shared_write_bytes_per_cta": 1088,
+      "shared_write_bytes_per_layer": 34816,
+      "shared_write_bytes_across_64_layers": 2228224,
+      "global_traffic": false,
+      "barrier_removed": false,
+      "reason_barrier_remains": "The complete 17408-element gated activation must still be staged for down and synchronized within every CTA."
+    },
+    "required_new_cost": "A cooperative grid barrier between gate/up publication and down consumption is unavoidable because every down CTA consumes all 17408 activation elements produced across the full gate/up grid."
+  },
+  "resource_and_graph_audit": {
+    "device": {
+      "name": "Jetson AGX Orin Developer Kit",
+      "compute_capability": "8.7",
+      "sm_count": 16,
+      "cooperative_launch_supported_by_existing_production_down": true
+    },
+    "production_gate_up": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_launch": false
+    },
+    "production_canonical_down": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_launch": true
+    },
+    "production_scale6_down": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "cooperative_launch": true
+    },
+    "resident_grid": {
+      "required_blocks": 32,
+      "measured_capacity_formula": "16 SM * 2 active CTAs/SM",
+      "measured_capacity_blocks": 32,
+      "margin_blocks": 0,
+      "risk": "Any register, spill, shared-memory, or maximum-thread regression that reduces occupancy below two CTAs/SM invalidates the exact cooperative grid."
+    },
+    "minimum_candidate_resource_gate_if_reopened": {
+      "maximum_registers_per_thread": 64,
+      "maximum_static_shared_bytes": 35904,
+      "required_local_bytes": 0,
+      "minimum_maximum_threads_per_block": 512,
+      "minimum_active_ctas_per_sm": 2,
+      "minimum_resident_grid_capacity": 32,
+      "shared_storage_plan": "Explicitly alias or union gate/up and down phase storage rather than retaining independent layouts."
+    },
+    "cuda_graph": {
+      "existing_gate_up_nodes": 1,
+      "existing_down_nodes": 1,
+      "baseline_chain_nodes": 2,
+      "intended_candidate_nodes": 1,
+      "intended_candidate_node_type": "32x512 cooperative kernel",
+      "platform_capture_support": "Existing production down real-buffer Graph capture, instantiate, and replay evidence establishes cooperative-kernel capture support on the named device.",
+      "candidate_capture_tested": false
+    }
+  },
+  "numerical_contract_if_reopened": {
+    "gate_up": [
+      "preserve independently BF16-RNE rounded gate and up values",
+      "preserve BF16-RNE SiLU(rounded_gate) multiplied by rounded_up",
+      "publish the final 17408-element gated BF16 vector globally",
+      "leave the dead-up workspace untouched before it becomes raw-down output"
+    ],
+    "handoff": [
+      "complete all gated BF16 global stores before cooperative grid synchronization",
+      "begin down activation loads only after that grid synchronization"
+    ],
+    "down": [
+      "preserve canonical or scale6 exact scale reconstruction",
+      "raw_down_output = BF16_RNE(down projection)",
+      "residual_output = BF16_RNE(post_attention_residual + raw_down_output)",
+      "normalized_output preserves the selected 256-thread centered-RMSNorm accumulation and reduction tree, rsqrtf, centered gamma, and BF16-RNE publication",
+      "select next-layer input norm weight or final norm weight exactly as the runner does today"
+    ],
+    "validation": "A future composite must validate the full phase-lifetime alias contract before enqueue, including intentional reuse of the dead-up workspace as raw-down output, and preserve canonical fallback behavior."
+  },
+  "performance_ceiling": {
+    "perfect_boundary_gap_removal_ms_per_token": 0.0857856,
+    "new_grid_sync_cost_assumed_for_ceiling_ms": 0.0,
+    "codebook_reuse_time_measured": false,
+    "target_region_ms_per_token": [
+      0.3,
+      0.5
+    ],
+    "required_saving_us_per_layer": {
+      "for_0_3_ms_per_token": 4.6875,
+      "for_0_5_ms_per_token": 7.8125
+    },
+    "observed_mean_gap_as_percent_of_target": {
+      "of_0_3_ms": 28.5952,
+      "of_0_5_ms": 17.15712
+    },
+    "shortfall_even_with_free_grid_sync_ms_per_token": {
+      "to_0_3_ms": 0.2142144,
+      "to_0_5_ms": 0.4142144
+    },
+    "interpretation": "The launch-only mechanism cannot enter the required 0.3-0.5-ms/token region. The ceiling is intentionally optimistic because it charges zero for the required new grid barrier and does not include possible instruction-cache, register-allocation, parameter, or cooperative-launch regressions."
+  },
+  "historical_context": {
+    "down_residual_norm_fusion": {
+      "record": "qwen36-27b-nvfp4-down-residual-norm-fusion-benchmark.json",
+      "achieved_end_to_end_saved_ms_per_token": 0.7065,
+      "reason_not_comparable": "That promotion removed a real standalone 20-CTA residual/norm kernel and reused down-kernel state; it was not a pure empty-boundary launch saving."
+    },
+    "output_projection_residual_handoff": {
+      "record": "qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection.json",
+      "projected_64_layer_delta_ms": -0.235329,
+      "reason_relevant": "A nearby same-layer handoff transformation that retained two launches and moved exact residual work regressed, showing that boundary rearrangement without material byte or launch savings is not free."
+    }
+  },
+  "decision": {
+    "result": "reject before build",
+    "classification": "static NO-GO",
+    "reason": "The exact current boundary exposes only 0.0857856 ms/token of GPU idle, host launch setup is already queued far ahead and non-additive, the stated contract eliminates zero global bytes, and a new exact-capacity cooperative grid barrier is mandatory. The mechanism cannot credibly clear the required 0.3-0.5-ms/token region.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "reopen_when": "Reopen only as a materially different mechanism that removes real projection, epilogue, synchronization, or global-memory work and has a source/profile-backed ceiling of at least 0.3 ms/token after charging cooperative synchronization and exact-boundary costs.",
+    "not_run": [
+      "CUDA build or ptxas resource extraction",
+      "GPU correctness, Graph, resource, guard, alias, and nonfinite tests",
+      "same-binary chain microbenchmark",
+      "model oracle and end-to-end benchmark",
+      "new Nsight Systems or Nsight Compute profiling"
+    ]
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 106.763000,
+    "formal_anchor_after_ms_per_token": 106.763000,
+    "formal_tokens_per_second": 9.366540843,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "persistent_memory_changed": false,
+    "prefill_changed": false,
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap": false,
+      "prefill_decode_overlap": false
+    }
+  },
+  "claim_limits": [
+    "This is a static NO-GO based on current production source and an existing production Nsys trace, not a measured candidate regression or speedup.",
+    "The 0.0857856-ms/token value is the exact observed sum of the selected gate/up-to-down GPU gaps in one supporting profile; it is not a general CUDA launch-cost constant.",
+    "The approximately 0.419-ms/token gate/up CUDA API duration is overlapped host work and is explicitly not added to the device critical-path ceiling.",
+    "Logical activation staging bytes are not claimed as measured DRAM bytes; under the retained global-BF16 contract, however, the candidate removes none of those logical accesses.",
+    "No candidate source, binary, GPU run, correctness result, resource result, Graph result, production route, end-to-end result, or new anchor exists.",
+    "Production, the 106.763000-ms/token anchor, the serial one-stream schedule, and Prefill remain unchanged."
+  ]
+}

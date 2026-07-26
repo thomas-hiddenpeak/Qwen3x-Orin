@@ -1019,6 +1019,24 @@ The diagnostic Phase 3 records are:
   test-only, production ABI/dispatch are unchanged, and the formal Decode
   anchor remains **106.763 ms/token and 9.366540843 token/s**.
 
+- [`qwen36-27b-decode-gate-up-down-cooperative-fusion-static-rejection.json`](qwen36-27b-decode-gate-up-down-cooperative-fusion-static-rejection.json),
+  which closes the proposed `32x512` cooperative Gate/Up-to-Down chain before
+  build. A direct read of the existing palette-v2 Nsys SQLite trace finds all
+  1,600 Gate/Up boundaries across 25 Decode steps immediately followed by the
+  expected Down Function. Their complete device gaps total only 2,144,640 ns,
+  or **0.0857856 ms/token**: 1.3404 us/layer on average, with 1.344-us median,
+  1.408-us P95, and 1.728-us maximum. The 53 scale6 and 11 canonical layers
+  contribute 0.0709632 and 0.0148224 ms/token respectively. Although Gate/Up
+  host launch calls sum to roughly 0.419 ms/token, they finish a median 50.284
+  ms before GPU execution and are therefore overlapped, not additive savings.
+  Retaining the global BF16 gated activation eliminates no global bytes, while
+  the candidate requires a new grid barrier and must fit a 32-block resident
+  grid with zero occupancy margin. This is a static NO-GO with no candidate,
+  build, GPU run, or production change. Reopen only for a materially different
+  mechanism that removes real computation or global traffic and has a ceiling
+  of at least 0.3 ms/token; the formal anchor remains **106.763 ms/token and
+  9.366540843 token/s**.
+
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
 quantization fields; index counts; representative shapes read from the first
