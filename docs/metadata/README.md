@@ -596,6 +596,15 @@ The diagnostic Phase 3 records are:
   `9bddbda` trace is explicitly directional; the formal performance anchor
   remains the unprofiled 109.7585 ms/token and 9.1109 token/s `B1-C1-C2-B2`
   result.
+- [`qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json`](qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json),
+  which closes the test-only exact-M1 linear-attention QKV/Z
+  AoSoA4/preswizzled sidecar screen. The hash-pinned layer-0 payload, stress,
+  replay, guard, input-preservation, invalid-call, resource, Graph, and static
+  production-identity gates pass. Actual payload improves in all five rounds
+  but reaches only 1.00562x against 1.03x, while stress regresses in all five
+  rounds to 0.984394x. Stop-loss skips the 3.75-GiB 48-layer sidecar and all
+  production, model, profiler, and replication work, removes the candidate,
+  and retains the restored default-test pass.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

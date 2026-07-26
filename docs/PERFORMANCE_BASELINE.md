@@ -4828,3 +4828,43 @@ leading kernel exposures. Rejected gate/up load-shape and down CTA-prune
 mechanisms remain closed. Commands, exact arithmetic, report/SQLite hashes,
 same-binary oracle anchor, and limitations are retained in the
 [post-sidecar Decode phase-profile record](metadata/qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json).
+
+## Decode FP8 M1 linear-attention QKV/Z AoSoA4 sidecar rejection
+
+The first bounded follow-up to that refreshed ranking targeted the second-place
+FP8 linear-attention QKV/Z row: 22.898294 ms per Decode step and 20.848359% of
+raw Decode kernel time. The test-only exact `[10240,5120]` QKV plus
+`[6144,5120]` Z candidate preserves the production one-kernel two-phase
+`1536/768` reduction-scratch ping-pong topology. Its sidecars interleave the
+same packed word from four adjacent rows in one `uint4` and preswizzle every
+FP8 byte with `code ^ (code >> 5)`.
+
+Production and candidate remain distinct one-node `1536x256` Graphs and both
+retain 64 registers/thread, 1,280 B static shared, zero local memory, and four
+active CTAs/SM. All nine invalid calls capture zero nodes. The hash- and
+offset-pinned layer-0 QKV/Z payload plus same-bank stress fixture each match
+QKV, Z, and replay outputs bitwise, with intact output/sidecar guards and
+preserved canonical inputs and activation. Static inspection also proves the
+production function unchanged at 2,416 normalized words while the candidate
+falls to 2,224 words.
+
+Five 80-launch `B-C-C-B` rounds produce:
+
+| Fixture | Production median | Candidate median | Paired median | Frozen gate | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 0.472820 ms | 0.470228 ms | 1.00562x | 1.03x | fail |
+| Same-bank stress | 0.439653 ms | 0.446634 ms | 0.984394x | 1.00x | fail |
+
+All actual-payload rounds improve, but by far too little for the residency
+cost, while every stress round regresses. The isolated actual pass-median
+delta multiplied by 48 linear-attention layers is only **0.124416 ms/token**
+in an ideal arithmetic projection, not an achieved end-to-end result. The
+sidecars would add 83,886,080 bytes per layer and 4,026,531,840 bytes
+(3.75 GiB) across 48 layers while canonical weights remain required.
+
+Stop-loss therefore removes the candidate and retains production at
+`1ab756a`. The 48-layer sidecar, loader/model integration, full-model oracle,
+P19 benchmark, Nsys, NCU, and cross-process replication were not run. The
+default restored device test passes. Full round data, payload identities,
+SASS/artifact hashes, cleanup proof, and limitations are retained in the
+[QKV/Z AoSoA4 sidecar rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json).

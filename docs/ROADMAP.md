@@ -845,11 +845,24 @@ The unprofiled 109.7585 ms/token and 9.1109 token/s `B1-C1-C2-B2` result remains
 the release anchor. See the
 [post-sidecar Decode phase profile](metadata/qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json).
 
-The next bounded Decode work therefore starts from the leading three rows and
-requires a materially different mechanism with fixed-clock actual-payload
-gates. Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants and the
-down CTA-prune are not restored merely because their parent rows remain hot.
-The 100-ms/token and 10-token/s gate still precedes the larger Prefill program.
+The first bounded follow-up from that ranking is now closed. The test-only FP8
+M1 `[10240,5120]` QKV plus `[6144,5120]` Z AoSoA4/preswizzled sidecar is
+bit-exact on the hash-pinned layer-0 and stress fixtures, preserves the
+one-node `1536x256` Graph and 64-register/four-CTA resource envelope, and
+reduces the normalized candidate function from 2,416 to 2,224 words. Actual
+payload improves in all five rounds but reaches only 1.00562x versus the 1.03x
+gate; stress regresses in all five rounds to 0.984394x. Its ideal 48-layer
+arithmetic saving is only 0.124416 ms/token against 3.75 GiB of extra residency.
+The candidate is removed before full-model allocation, integration, profiling,
+or end-to-end work. See the
+[QKV/Z sidecar rejection](metadata/qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json).
+
+The next bounded Decode work therefore returns to the leading production rows
+and requires a materially different mechanism with an actual-payload gate.
+Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants, the down CTA-
+prune, and this QKV/Z sidecar are not restored merely because their parent rows
+remain hot. The 100-ms/token and 10-token/s gate still precedes the larger
+Prefill program.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
