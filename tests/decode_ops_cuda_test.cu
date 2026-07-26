@@ -108,6 +108,24 @@ int query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
 
+int launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+    const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
+    const std::uint16_t* q_weight, const std::uint16_t* k_weight,
+    float epsilon, std::uint16_t* query_output,
+    std::uint16_t* gate_output, const float* cosines, const float* sines,
+    std::size_t first_position, std::size_t token_count,
+    void* cuda_stream) noexcept;
+
+int query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
 }  // namespace q3x::runtime
 
 namespace {
@@ -3022,6 +3040,9 @@ void run_full_attention_preproc_fusion_exact_case(
   GuardedBf16Buffer candidate_query;
   GuardedBf16Buffer candidate_gate;
   GuardedBf16Buffer candidate_key;
+  GuardedBf16Buffer warp_query;
+  GuardedBf16Buffer warp_gate;
+  GuardedBf16Buffer warp_key;
   ManagedBuffer<float> cosines;
   ManagedBuffer<float> sines;
   bool ready = interleaved_q_gate.allocate(
@@ -3045,6 +3066,12 @@ void run_full_attention_preproc_fusion_exact_case(
   ready = ready && candidate_key.allocate(
                        test, key_elements, label + " candidate key");
   ready = ready &&
+          warp_query.allocate(test, query_elements, label + " warp query");
+  ready = ready &&
+          warp_gate.allocate(test, query_elements, label + " warp gate");
+  ready = ready &&
+          warp_key.allocate(test, key_elements, label + " warp key");
+  ready = ready &&
           test.cuda_ok(cosines.allocate(table_elements),
                        label + " cosine table");
   ready = ready &&
@@ -3063,6 +3090,9 @@ void run_full_attention_preproc_fusion_exact_case(
   candidate_query.initialize(0x4c48U, 0x18a8U, 0xe757U);
   candidate_gate.initialize(0x3d59U, 0x29b9U, 0xd646U);
   candidate_key.initialize(0U, 0x3acaU, 0xc535U);
+  warp_query.initialize(0x2e6aU, 0x4b1dU, 0xb4e2U);
+  warp_gate.initialize(0x1f7bU, 0x5c2eU, 0xa3d1U);
+  warp_key.initialize(0U, 0x6d3fU, 0x92c0U);
 
   for (std::size_t head = 0U; head < token_count * kQueryHeads; ++head) {
     const std::size_t input_offset = head * 2U * kDimension;
@@ -3082,6 +3112,7 @@ void run_full_attention_preproc_fusion_exact_case(
                            251) /
         96.0F);
     candidate_key.data()[index] = baseline_key.data()[index];
+    warp_key.data()[index] = baseline_key.data()[index];
   }
   for (std::size_t dimension = 0U; dimension < kDimension; ++dimension) {
     q_weight.data()[dimension] = encode_bf16(
@@ -3110,6 +3141,7 @@ void run_full_attention_preproc_fusion_exact_case(
       baseline_key.data()[key_index] =
           kSpecialBits[(sample + 1U) % kSpecialBits.size()];
       candidate_key.data()[key_index] = baseline_key.data()[key_index];
+      warp_key.data()[key_index] = baseline_key.data()[key_index];
     }
     q_weight.data()[13U] = 0x7fc1U;
     k_weight.data()[29U] = 0xff80U;
@@ -3167,12 +3199,22 @@ void run_full_attention_preproc_fusion_exact_case(
         candidate_gate.data(), cosines.data(), sines.data(), kFirstPosition,
         token_count, static_cast<void*>(stream));
   };
+  const auto launch_warp = [&]() {
+    return q3x::runtime::
+        launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+            interleaved_q_gate.data(), warp_key.data(), q_weight.data(),
+            k_weight.data(), kEpsilon, warp_query.data(), warp_gate.data(),
+            cosines.data(), sines.data(), kFirstPosition, token_count,
+            static_cast<void*>(stream));
+  };
 
   const bool baseline_ready = launch_after_stale(
       test, stream, label + " baseline four launches", launch_baseline);
   const bool candidate_ready = launch_after_stale(
       test, stream, label + " candidate one launch", launch_candidate);
-  if (baseline_ready && candidate_ready) {
+  const bool warp_ready = launch_after_stale(
+      test, stream, label + " warp-RMS one launch", launch_warp);
+  if (baseline_ready && candidate_ready && warp_ready) {
     expect_bf16_bits_equal(test, candidate_query.data(),
                            baseline_query.data(), query_elements,
                            label + " normalized and rotated query");
@@ -3181,6 +3223,15 @@ void run_full_attention_preproc_fusion_exact_case(
                            label + " in-place normalized and rotated key");
     expect_bf16_bits_equal(test, candidate_gate.data(), baseline_gate.data(),
                            query_elements, label + " raw packed gate");
+    expect_bf16_bits_equal(test, warp_query.data(), candidate_query.data(),
+                           query_elements,
+                           label + " warp-RMS normalized and rotated query");
+    expect_bf16_bits_equal(test, warp_key.data(), candidate_key.data(),
+                           key_elements,
+                           label + " warp-RMS normalized and rotated key");
+    expect_bf16_bits_equal(test, warp_gate.data(), candidate_gate.data(),
+                           query_elements,
+                           label + " warp-RMS raw packed gate");
   }
 
   interleaved_q_gate.expect_snapshot(test, original_interleaved,
@@ -3194,6 +3245,9 @@ void run_full_attention_preproc_fusion_exact_case(
   candidate_query.expect_guards(test, label + " candidate query");
   candidate_gate.expect_guards(test, label + " candidate gate");
   candidate_key.expect_guards(test, label + " candidate key");
+  warp_query.expect_guards(test, label + " warp query");
+  warp_gate.expect_guards(test, label + " warp gate");
+  warp_key.expect_guards(test, label + " warp key");
   test.expect(std::memcmp(cosines.data(), original_cosines.data(),
                           table_elements * sizeof(float)) == 0,
               label + " cosine table is unchanged");
@@ -3204,14 +3258,353 @@ void run_full_attention_preproc_fusion_exact_case(
 
 void test_full_attention_preproc_fusion_exact(TestContext& test,
                                               cudaStream_t stream) {
-  run_full_attention_preproc_fusion_exact_case(
-      test, stream, 1U, FullAttentionPreprocFixture::kFinite);
-  run_full_attention_preproc_fusion_exact_case(
-      test, stream, 2U, FullAttentionPreprocFixture::kNonfinite);
-  run_full_attention_preproc_fusion_exact_case(
-      test, stream, 8U, FullAttentionPreprocFixture::kFinite);
-  run_full_attention_preproc_fusion_exact_case(
-      test, stream, 16U, FullAttentionPreprocFixture::kFinite);
+  constexpr std::array<std::size_t, 4U> kTokenCounts = {1U, 2U, 8U, 16U};
+  for (const std::size_t token_count : kTokenCounts) {
+    run_full_attention_preproc_fusion_exact_case(
+        test, stream, token_count, FullAttentionPreprocFixture::kFinite);
+    run_full_attention_preproc_fusion_exact_case(
+        test, stream, token_count, FullAttentionPreprocFixture::kNonfinite);
+  }
+}
+
+struct FullPreprocessKernelResources {
+  int registers = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks_per_multiprocessor = 0;
+};
+
+using FullPreprocessResourceQuery = int (*)(
+    int*, std::size_t*, std::size_t*, int*, int*) noexcept;
+
+void test_full_attention_preproc_warp_rms_contract(TestContext& test,
+                                                   cudaStream_t stream) {
+  constexpr std::size_t kQueryElements = 24U * 256U;
+  constexpr std::size_t kKeyElements = 4U * 256U;
+  constexpr std::size_t kInterleavedElements = 2U * kQueryElements;
+  constexpr std::size_t kHalfRotary = 32U;
+  constexpr float kEpsilon = 1.0e-6F;
+  const std::string label = "full-attention preprocess warp-RMS contract";
+
+  FullPreprocessKernelResources production_resources;
+  FullPreprocessKernelResources candidate_resources;
+  constexpr std::array<std::pair<const char*, FullPreprocessResourceQuery>, 2U>
+      kQueries{{
+          {"production",
+           q3x::runtime::
+               query_full_attention_preprocess_24_4_256_64_resources_test_cuda},
+          {"warp-RMS",
+           q3x::runtime::
+               query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda},
+      }};
+  for (const auto& [name, query] : kQueries) {
+    FullPreprocessKernelResources scratch;
+    for (std::size_t null_index = 0U; null_index < 5U; ++null_index) {
+      const cudaError_t status = static_cast<cudaError_t>(query(
+          null_index == 0U ? nullptr : &scratch.registers,
+          null_index == 1U ? nullptr : &scratch.static_shared_bytes,
+          null_index == 2U ? nullptr : &scratch.local_bytes,
+          null_index == 3U ? nullptr : &scratch.maximum_threads,
+          null_index == 4U
+              ? nullptr
+              : &scratch.active_blocks_per_multiprocessor));
+      test.expect(status == cudaErrorInvalidValue,
+                  label + " " + name + " resource query rejects null " +
+                      std::to_string(null_index));
+    }
+  }
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
+              &production_resources.registers,
+              &production_resources.static_shared_bytes,
+              &production_resources.local_bytes,
+              &production_resources.maximum_threads,
+              &production_resources.active_blocks_per_multiprocessor)),
+      label + " query production resources");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::runtime::
+                           query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda(
+                               &candidate_resources.registers,
+                               &candidate_resources.static_shared_bytes,
+                               &candidate_resources.local_bytes,
+                               &candidate_resources.maximum_threads,
+                               &candidate_resources
+                                    .active_blocks_per_multiprocessor)),
+                       label + " query candidate resources");
+  if (!ready) {
+    return;
+  }
+  const bool resource_gate =
+      production_resources.local_bytes == 0U &&
+      candidate_resources.registers <= 40 &&
+      candidate_resources.static_shared_bytes <= sizeof(float) &&
+      candidate_resources.local_bytes == 0U &&
+      candidate_resources.maximum_threads >= 256 &&
+      candidate_resources.active_blocks_per_multiprocessor >= 6;
+  test.expect(resource_gate,
+              label + " keeps the <=40r/4B/0-local/6-CTA resource envelope");
+  std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_RESOURCES: production_regs="
+            << production_resources.registers
+            << " production_shared_bytes="
+            << production_resources.static_shared_bytes
+            << " production_local_bytes=" << production_resources.local_bytes
+            << " production_active_blocks_per_sm="
+            << production_resources.active_blocks_per_multiprocessor
+            << " candidate_regs=" << candidate_resources.registers
+            << " candidate_shared_bytes="
+            << candidate_resources.static_shared_bytes
+            << " candidate_local_bytes=" << candidate_resources.local_bytes
+            << " candidate_active_blocks_per_sm="
+            << candidate_resources.active_blocks_per_multiprocessor
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+
+  ManagedBuffer<std::uint16_t> interleaved;
+  ManagedBuffer<std::uint16_t> production_key;
+  ManagedBuffer<std::uint16_t> candidate_key;
+  ManagedBuffer<std::uint16_t> q_weight;
+  ManagedBuffer<std::uint16_t> k_weight;
+  ManagedBuffer<std::uint16_t> production_query;
+  ManagedBuffer<std::uint16_t> production_gate;
+  ManagedBuffer<std::uint16_t> candidate_query;
+  ManagedBuffer<std::uint16_t> candidate_gate;
+  ManagedBuffer<float> cosines;
+  ManagedBuffer<float> sines;
+  ready = test.cuda_ok(interleaved.allocate(kInterleavedElements),
+                       label + " allocate interleaved");
+  ready = ready && test.cuda_ok(production_key.allocate(kKeyElements),
+                                label + " allocate production key");
+  ready = ready && test.cuda_ok(candidate_key.allocate(kKeyElements),
+                                label + " allocate candidate key");
+  ready = ready && test.cuda_ok(q_weight.allocate(256U),
+                                label + " allocate Q weight");
+  ready = ready && test.cuda_ok(k_weight.allocate(256U),
+                                label + " allocate K weight");
+  ready = ready && test.cuda_ok(production_query.allocate(kQueryElements),
+                                label + " allocate production query");
+  ready = ready && test.cuda_ok(production_gate.allocate(kQueryElements),
+                                label + " allocate production gate");
+  ready = ready && test.cuda_ok(candidate_query.allocate(kQueryElements),
+                                label + " allocate candidate query");
+  ready = ready && test.cuda_ok(candidate_gate.allocate(kQueryElements),
+                                label + " allocate candidate gate");
+  ready = ready && test.cuda_ok(cosines.allocate(kHalfRotary),
+                                label + " allocate cosines");
+  ready = ready && test.cuda_ok(sines.allocate(kHalfRotary),
+                                label + " allocate sines");
+  if (!ready) {
+    return;
+  }
+  std::fill_n(interleaved.data(), interleaved.size(), encode_bf16(0.25F));
+  std::fill_n(production_key.data(), production_key.size(),
+              encode_bf16(0.5F));
+  std::copy_n(production_key.data(), production_key.size(),
+              candidate_key.data());
+  std::fill_n(q_weight.data(), q_weight.size(), encode_bf16(0.0F));
+  std::fill_n(k_weight.data(), k_weight.size(), encode_bf16(0.0F));
+  std::fill_n(cosines.data(), cosines.size(), 1.0F);
+  std::fill_n(sines.data(), sines.size(), 0.0F);
+
+  struct Topology {
+    void* function = nullptr;
+    dim3 grid{};
+    dim3 block{};
+    std::size_t dynamic_shared_bytes = 0U;
+  };
+  const auto capture_valid = [&](const std::string& route,
+                                 auto&& launch,
+                                 Topology& topology) {
+    bool capture_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        label + " " + route + " begin capture");
+    const cudaError_t launch_status =
+        capture_ready ? static_cast<cudaError_t>(launch())
+                      : cudaErrorUnknown;
+    test.expect(launch_status == cudaSuccess,
+                label + " " + route + " capture launch succeeds");
+    cudaGraph_t graph = nullptr;
+    capture_ready = capture_ready &&
+                    test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                                 label + " " + route + " end capture");
+    if (!capture_ready) {
+      return false;
+    }
+    std::size_t node_count = 0U;
+    capture_ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                                 label + " " + route + " count nodes") &&
+                    capture_ready;
+    test.expect(node_count == 1U,
+                label + " " + route + " captures one node");
+    cudaGraphNode_t node = nullptr;
+    std::size_t capacity = 1U;
+    if (node_count == 1U) {
+      capture_ready = test.cuda_ok(cudaGraphGetNodes(graph, &node, &capacity),
+                                   label + " " + route + " fetch node") &&
+                      capture_ready;
+      cudaGraphNodeType node_type = cudaGraphNodeTypeEmpty;
+      capture_ready = test.cuda_ok(cudaGraphNodeGetType(node, &node_type),
+                                   label + " " + route + " node type") &&
+                      capture_ready;
+      test.expect(node_type == cudaGraphNodeTypeKernel,
+                  label + " " + route + " node is a kernel");
+      cudaKernelNodeParams parameters{};
+      capture_ready = test.cuda_ok(
+                          cudaGraphKernelNodeGetParams(node, &parameters),
+                          label + " " + route + " node parameters") &&
+                      capture_ready;
+      if (capture_ready) {
+        topology.function = parameters.func;
+        topology.grid = parameters.gridDim;
+        topology.block = parameters.blockDim;
+        topology.dynamic_shared_bytes = parameters.sharedMemBytes;
+      }
+    } else {
+      capture_ready = false;
+    }
+    cudaGraphExec_t executable = nullptr;
+    if (capture_ready) {
+      capture_ready = test.cuda_ok(
+                          cudaGraphInstantiate(&executable, graph, nullptr,
+                                               nullptr, 0U),
+                          label + " " + route + " instantiate") &&
+                      capture_ready;
+    }
+    if (capture_ready) {
+      capture_ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                                   label + " " + route + " replay") &&
+                      capture_ready;
+      capture_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                   label + " " + route + " replay sync") &&
+                      capture_ready;
+    }
+    if (executable != nullptr) {
+      (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                         label + " " + route + " destroy executable");
+    }
+    (void)test.cuda_ok(cudaGraphDestroy(graph),
+                       label + " " + route + " destroy graph");
+    return capture_ready;
+  };
+
+  const auto launch_production = [&]() {
+    return q3x::runtime::launch_full_attention_preprocess_24_4_256_64_cuda(
+        interleaved.data(), production_key.data(), q_weight.data(),
+        k_weight.data(), kEpsilon, production_query.data(),
+        production_gate.data(), cosines.data(), sines.data(), 0U, 1U,
+        static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&]() {
+    return q3x::runtime::
+        launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+            interleaved.data(), candidate_key.data(), q_weight.data(),
+            k_weight.data(), kEpsilon, candidate_query.data(),
+            candidate_gate.data(), cosines.data(), sines.data(), 0U, 1U,
+            static_cast<void*>(stream));
+  };
+  Topology production_topology;
+  Topology candidate_topology;
+  const bool production_graph =
+      capture_valid("production", launch_production, production_topology);
+  const bool candidate_graph =
+      capture_valid("warp-RMS", launch_candidate, candidate_topology);
+  const bool topology_gate =
+      production_graph && candidate_graph &&
+      production_topology.function != candidate_topology.function &&
+      production_topology.grid.x == 28U &&
+      candidate_topology.grid.x == 28U &&
+      production_topology.block.x == 256U &&
+      candidate_topology.block.x == 256U &&
+      production_topology.dynamic_shared_bytes == 0U &&
+      candidate_topology.dynamic_shared_bytes == 0U;
+  test.expect(topology_gate,
+              label + " preserves one-node 28x256 launch topology");
+  std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_GRAPH: production_nodes=1 "
+               "candidate_nodes=1 production_grid="
+            << production_topology.grid.x
+            << " candidate_grid=" << candidate_topology.grid.x
+            << " production_block=" << production_topology.block.x
+            << " candidate_block=" << candidate_topology.block.x
+            << " distinct_functions="
+            << (production_topology.function != candidate_topology.function
+                    ? "true"
+                    : "false")
+            << " replay=pass gate=" << (topology_gate ? "PASS" : "FAIL")
+            << '\n';
+
+  const auto launch_invalid = [&](const std::size_t invalid_case) {
+    const std::uint16_t* input = interleaved.data();
+    std::uint16_t* key = candidate_key.data();
+    const std::uint16_t* q_scale = q_weight.data();
+    const std::uint16_t* k_scale = k_weight.data();
+    float epsilon = kEpsilon;
+    std::uint16_t* query = candidate_query.data();
+    std::uint16_t* gate = candidate_gate.data();
+    const float* cosine = cosines.data();
+    const float* sine = sines.data();
+    std::size_t position = 0U;
+    std::size_t tokens = 1U;
+    switch (invalid_case) {
+      case 0U: tokens = 0U; break;
+      case 1U: tokens = 17U; break;
+      case 2U: epsilon = std::numeric_limits<float>::quiet_NaN(); break;
+      case 3U: position = std::numeric_limits<std::size_t>::max(); break;
+      case 4U: input = nullptr; break;
+      case 5U: key = nullptr; break;
+      case 6U: q_scale = nullptr; break;
+      case 7U: k_scale = nullptr; break;
+      case 8U: query = nullptr; break;
+      case 9U: gate = nullptr; break;
+      case 10U: cosine = nullptr; break;
+      case 11U: sine = nullptr; break;
+      case 12U: gate = query; break;
+      case 13U:
+        query = const_cast<std::uint16_t*>(input);
+        break;
+      case 14U:
+        key = const_cast<std::uint16_t*>(q_scale);
+        break;
+      default: break;
+    }
+    return q3x::runtime::
+        launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+            input, key, q_scale, k_scale, epsilon, query, gate, cosine, sine,
+            position, tokens, static_cast<void*>(stream));
+  };
+  bool invalid_gate = true;
+  for (std::size_t invalid_case = 0U; invalid_case < 15U; ++invalid_case) {
+    const std::string case_label =
+        label + " invalid=" + std::to_string(invalid_case);
+    bool case_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        case_label + " begin capture");
+    const cudaError_t status =
+        case_ready ? static_cast<cudaError_t>(launch_invalid(invalid_case))
+                   : cudaErrorUnknown;
+    test.expect(status == cudaErrorInvalidValue,
+                case_label + " returns cudaErrorInvalidValue");
+    cudaGraph_t graph = nullptr;
+    case_ready = case_ready &&
+                 test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                              case_label + " end capture");
+    std::size_t node_count = std::numeric_limits<std::size_t>::max();
+    if (case_ready) {
+      case_ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                               case_label + " count nodes") &&
+                   case_ready;
+      test.expect(node_count == 0U,
+                  case_label + " rejects before enqueue");
+      (void)test.cuda_ok(cudaGraphDestroy(graph), case_label + " destroy graph");
+    }
+    invalid_gate = invalid_gate && case_ready &&
+                   status == cudaErrorInvalidValue && node_count == 0U;
+  }
+  test.expect(invalid_gate,
+              label + " all 15 invalid/alias calls capture zero nodes");
+  std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_INVALID: cases=15 "
+               "zero_node_cases="
+            << (invalid_gate ? 15 : 0)
+            << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
 }
 
 void test_full_attention_preproc_rope_fusion_perf(TestContext& test,
@@ -3504,6 +3897,274 @@ void test_full_attention_preproc_rope_fusion_perf(TestContext& test,
             << " required_saved_ms=" << kMinimumSavedMilliseconds
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, label + " clears weighted and 1.5 ms saved gates");
+}
+
+void test_full_attention_preproc_warp_rms_perf(TestContext& test,
+                                               cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_FULL_ATTENTION_PREPROCESS_WARP_RMS_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout
+        << "SKIP: Decode full-attention preprocess warp-RMS performance gate; "
+           "set Q3X_RUN_FULL_ATTENTION_PREPROCESS_WARP_RMS_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQueryHeads = 24U;
+  constexpr std::size_t kKeyHeads = 4U;
+  constexpr std::size_t kDimension = 256U;
+  constexpr std::size_t kHalfRotary = 32U;
+  constexpr std::size_t kMaximumTokens = 16U;
+  constexpr std::size_t kFirstPosition = 11U;
+  constexpr std::size_t kQueryElementsPerToken =
+      kQueryHeads * kDimension;
+  constexpr std::size_t kKeyElementsPerToken = kKeyHeads * kDimension;
+  constexpr float kEpsilon = 1.0e-6F;
+  constexpr std::size_t kWarmupIterations = 128U;
+  constexpr std::size_t kMeasuredIterations = 4'096U;
+  constexpr std::size_t kMeasurementRounds = 5U;
+  constexpr double kRequiredDecodeMedianSpeedup = 1.10;
+  constexpr double kRequiredDecodePerCallDeltaMs = 0.00125;
+  constexpr double kDecodeLayersPerToken = 16.0;
+  const std::string label =
+      "Decode full-attention preprocess warp-RMS formal perf";
+
+  ManagedBuffer<std::uint16_t> interleaved;
+  ManagedBuffer<std::uint16_t> q_weight;
+  ManagedBuffer<std::uint16_t> k_weight;
+  ManagedBuffer<std::uint16_t> production_key;
+  ManagedBuffer<std::uint16_t> candidate_key;
+  ManagedBuffer<std::uint16_t> production_query;
+  ManagedBuffer<std::uint16_t> candidate_query;
+  ManagedBuffer<std::uint16_t> production_gate;
+  ManagedBuffer<std::uint16_t> candidate_gate;
+  ManagedBuffer<float> cosines;
+  ManagedBuffer<float> sines;
+  bool ready = test.cuda_ok(
+      interleaved.allocate(2U * kMaximumTokens * kQueryElementsPerToken),
+      label + " allocate interleaved");
+  ready = ready && test.cuda_ok(q_weight.allocate(kDimension),
+                                label + " allocate Q weight");
+  ready = ready && test.cuda_ok(k_weight.allocate(kDimension),
+                                label + " allocate K weight");
+  ready = ready && test.cuda_ok(
+                       production_key.allocate(kMaximumTokens *
+                                               kKeyElementsPerToken),
+                       label + " allocate production key");
+  ready = ready && test.cuda_ok(
+                       candidate_key.allocate(kMaximumTokens *
+                                              kKeyElementsPerToken),
+                       label + " allocate candidate key");
+  ready = ready && test.cuda_ok(
+                       production_query.allocate(kMaximumTokens *
+                                                 kQueryElementsPerToken),
+                       label + " allocate production query");
+  ready = ready && test.cuda_ok(
+                       candidate_query.allocate(kMaximumTokens *
+                                                kQueryElementsPerToken),
+                       label + " allocate candidate query");
+  ready = ready && test.cuda_ok(
+                       production_gate.allocate(kMaximumTokens *
+                                                kQueryElementsPerToken),
+                       label + " allocate production gate");
+  ready = ready && test.cuda_ok(
+                       candidate_gate.allocate(kMaximumTokens *
+                                               kQueryElementsPerToken),
+                       label + " allocate candidate gate");
+  ready = ready && test.cuda_ok(
+                       cosines.allocate((kFirstPosition + kMaximumTokens) *
+                                        kHalfRotary),
+                       label + " allocate cosine table");
+  ready = ready && test.cuda_ok(
+                       sines.allocate((kFirstPosition + kMaximumTokens) *
+                                      kHalfRotary),
+                       label + " allocate sine table");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t index = 0U; index < interleaved.size(); ++index) {
+    interleaved[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 37U + 19U) % 509U) -
+                           254) /
+        128.0F);
+  }
+  for (std::size_t dimension = 0U; dimension < kDimension; ++dimension) {
+    q_weight[dimension] = encode_bf16(
+        static_cast<float>(static_cast<int>((dimension * 17U) % 61U) - 30) /
+        64.0F);
+    k_weight[dimension] = encode_bf16(
+        static_cast<float>(static_cast<int>((dimension * 29U) % 67U) - 33) /
+        64.0F);
+  }
+  std::fill_n(cosines.data(), cosines.size(), 1.0F);
+  std::fill_n(sines.data(), sines.size(), 0.0F);
+
+  constexpr std::array<std::size_t, 4U> kTokenCounts = {1U, 2U, 8U, 16U};
+  bool secondary_cells_positive = true;
+  bool decode_gate = false;
+  for (const std::size_t token_count : kTokenCounts) {
+    const std::size_t query_elements =
+        token_count * kQueryElementsPerToken;
+    const std::size_t key_elements = token_count * kKeyElementsPerToken;
+    for (std::size_t index = 0U; index < key_elements; ++index) {
+      const std::uint16_t value = encode_bf16(
+          static_cast<float>(static_cast<int>((index * 43U + 23U) % 503U) -
+                             251) /
+          96.0F);
+      production_key[index] = value;
+      candidate_key[index] = value;
+    }
+    const auto launch_production = [&]() {
+      return q3x::runtime::launch_full_attention_preprocess_24_4_256_64_cuda(
+          interleaved.data(), production_key.data(), q_weight.data(),
+          k_weight.data(), kEpsilon, production_query.data(),
+          production_gate.data(), cosines.data(), sines.data(), kFirstPosition,
+          token_count, static_cast<void*>(stream));
+    };
+    const auto launch_candidate = [&]() {
+      return q3x::runtime::
+          launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+              interleaved.data(), candidate_key.data(), q_weight.data(),
+              k_weight.data(), kEpsilon, candidate_query.data(),
+              candidate_gate.data(), cosines.data(), sines.data(),
+              kFirstPosition, token_count, static_cast<void*>(stream));
+    };
+    const std::string cell_label =
+        label + " M=" + std::to_string(token_count);
+    for (std::size_t iteration = 0U;
+         ready && iteration < kWarmupIterations; ++iteration) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_production()),
+                           cell_label + " production warmup");
+      ready = ready &&
+              test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                           cell_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " warmup synchronize");
+    if (!ready) {
+      return;
+    }
+
+    std::array<double, kMeasurementRounds> paired_speedups{};
+    std::array<double, kMeasurementRounds> paired_deltas{};
+    bool all_rounds_positive = true;
+    for (std::size_t round = 0U; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          cell_label + " round=" + std::to_string(round + 1U);
+      float production_first = 0.0F;
+      float production_second = 0.0F;
+      float candidate_first = 0.0F;
+      float candidate_second = 0.0F;
+      const bool baseline_outer = (round % 2U) == 0U;
+      if (baseline_outer) {
+        production_first = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " B1",
+            launch_production);
+        candidate_first = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " C1",
+            launch_candidate);
+        candidate_second = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " C2",
+            launch_candidate);
+        production_second = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " B2",
+            launch_production);
+      } else {
+        candidate_first = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " C1",
+            launch_candidate);
+        production_first = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " B1",
+            launch_production);
+        production_second = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " B2",
+            launch_production);
+        candidate_second = measure_cuda_span_milliseconds(
+            test, stream, kMeasuredIterations, round_label + " C2",
+            launch_candidate);
+      }
+      const double production_pair =
+          (static_cast<double>(production_first) +
+           static_cast<double>(production_second)) /
+          2.0;
+      const double candidate_pair =
+          (static_cast<double>(candidate_first) +
+           static_cast<double>(candidate_second)) /
+          2.0;
+      paired_speedups[round] = production_pair / candidate_pair;
+      paired_deltas[round] = production_pair - candidate_pair;
+      const bool round_positive =
+          std::isfinite(production_pair) && production_pair > 0.0 &&
+          std::isfinite(candidate_pair) && candidate_pair > 0.0 &&
+          paired_deltas[round] > 0.0;
+      all_rounds_positive = all_rounds_positive && round_positive;
+      std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_PERF_ROUND: M="
+                << token_count << " round=" << round + 1U
+                << " order=" << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+                << " iterations=" << kMeasuredIterations
+                << " B1_call_ms=" << production_first
+                << " C1_call_ms=" << candidate_first
+                << " C2_call_ms=" << candidate_second
+                << " B2_call_ms=" << production_second
+                << " paired_speedup=" << paired_speedups[round]
+                << " paired_delta_ms_per_call=" << paired_deltas[round]
+                << " positive=" << (round_positive ? "true" : "false")
+                << '\n';
+    }
+    auto sorted_speedups = paired_speedups;
+    auto sorted_deltas = paired_deltas;
+    std::sort(sorted_speedups.begin(), sorted_speedups.end());
+    std::sort(sorted_deltas.begin(), sorted_deltas.end());
+    const double median_speedup = sorted_speedups[2U];
+    const double median_delta = sorted_deltas[2U];
+    const double projected_decode_delta =
+        median_delta * kDecodeLayersPerToken;
+    const bool cell_gate =
+        all_rounds_positive &&
+        (token_count != 1U ||
+         (median_speedup >= kRequiredDecodeMedianSpeedup &&
+          median_delta >= kRequiredDecodePerCallDeltaMs));
+    if (token_count == 1U) {
+      decode_gate = cell_gate;
+    } else {
+      secondary_cells_positive = secondary_cells_positive && cell_gate;
+    }
+    test.expect(cell_gate,
+                cell_label +
+                    (token_count == 1U
+                         ? " clears 1.10x, 1.25-us, every-round Decode gates"
+                         : " is positive in every supporting round"));
+    expect_bf16_bits_equal(test, candidate_query.data(),
+                           production_query.data(), query_elements,
+                           cell_label + " repeated query");
+    expect_bf16_bits_equal(test, candidate_key.data(), production_key.data(),
+                           key_elements, cell_label + " repeated key");
+    expect_bf16_bits_equal(test, candidate_gate.data(), production_gate.data(),
+                           query_elements, cell_label + " repeated gate");
+    std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_PERF_CELL: M="
+              << token_count << " paired_median_speedup=" << median_speedup
+              << " paired_median_delta_ms_per_call=" << median_delta
+              << " projected_16_layer_delta_ms_per_token="
+              << projected_decode_delta
+              << " all_rounds_positive="
+              << (all_rounds_positive ? "true" : "false")
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const bool overall_gate = decode_gate && secondary_cells_positive;
+  test.expect(overall_gate,
+              label + " clears Decode selection and supporting-cell gates");
+  std::cout << "DECODE_FULL_PREPROCESS_WARP_RMS_PERF_SUMMARY: "
+               "decode_M1_gate="
+            << (decode_gate ? "PASS" : "FAIL")
+            << " supporting_M2_M8_M16_gate="
+            << (secondary_cells_positive ? "PASS" : "FAIL")
+            << " required_decode_median_speedup="
+            << kRequiredDecodeMedianSpeedup
+            << " required_decode_delta_ms_per_call="
+            << kRequiredDecodePerCallDeltaMs
+            << " required_projected_delta_ms_per_token="
+            << kRequiredDecodePerCallDeltaMs * kDecodeLayersPerToken
+            << " gate=" << (overall_gate ? "PASS" : "FAIL") << '\n';
 }
 
 enum class QkRopeTileFixture {
@@ -7452,7 +8113,9 @@ int main() {
               q3x::runtime::kLinearAttentionHeadDimension,
               "GDN L2 target 16x128");
   test_full_attention_preproc_fusion_exact(test, stream);
+  test_full_attention_preproc_warp_rms_contract(test, stream);
   test_full_attention_preproc_rope_fusion_perf(test, stream);
+  test_full_attention_preproc_warp_rms_perf(test, stream);
   test_rope(test, stream);
   test_qk_rope_tile_exact(test, stream);
   test_qk_rope_tile_perf(test, stream);

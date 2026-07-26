@@ -477,6 +477,127 @@ __global__ void full_attention_preprocess_24_4_256_64_kernel(
   }
 }
 
+// Test-only fixed-shape candidate. One CTA still owns one Q or K head, but
+// warp 0 constructs the 256-value RMS reduction locally. The scalar grouping
+// exactly mirrors the production shared-memory tree's 128, 64, and 32 stages;
+// the shuffle tree then reproduces its 16, 8, 4, 2, and 1 stages. All threads
+// retain production's centered-RMSNorm and BF16 boundary, and the second CTA
+// barrier retains production's normalized-input boundary before RoPE.
+__global__ void full_attention_preprocess_warp_rms_24_4_256_64_test_kernel(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position) {
+  constexpr std::size_t kCombinedHeads =
+      kFullPreprocessQueryHeads + kFullPreprocessKvHeads;
+  __shared__ float inverse_rms_shared;
+
+  const std::size_t combined_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t token = combined_head / kCombinedHeads;
+  const std::size_t token_head = combined_head - token * kCombinedHeads;
+  const bool is_query = token_head < kFullPreprocessQueryHeads;
+  const std::size_t head =
+      is_query ? token_head : token_head - kFullPreprocessQueryHeads;
+  const std::size_t dimension = threadIdx.x;
+
+  std::size_t packed_head_offset = 0U;
+  const std::uint16_t* head_input = nullptr;
+  const std::uint16_t* weight = nullptr;
+  if (is_query) {
+    packed_head_offset =
+        (token * kFullPreprocessQueryHeads + head) *
+        kFullPreprocessHeadDimension;
+    head_input =
+        interleaved_q_gate +
+        (token * kFullPreprocessQueryHeads + head) *
+            (2U * kFullPreprocessHeadDimension);
+    gate_output[packed_head_offset + dimension] =
+        head_input[kFullPreprocessHeadDimension + dimension];
+    weight = q_weight;
+  } else {
+    packed_head_offset =
+        (token * kFullPreprocessKvHeads + head) *
+        kFullPreprocessHeadDimension;
+    head_input = key + packed_head_offset;
+    weight = k_weight;
+  }
+
+  const float value = decode_bf16_device(head_input[dimension]);
+  if (dimension < 32U) {
+    const std::size_t lane = dimension;
+    float sum = fmaf(value, value, 0.0F);
+    float rhs_value = decode_bf16_device(head_input[lane + 128U]);
+    float rhs = fmaf(rhs_value, rhs_value, 0.0F);
+    sum += rhs;
+
+    float sibling_value = decode_bf16_device(head_input[lane + 64U]);
+    float sibling = fmaf(sibling_value, sibling_value, 0.0F);
+    rhs_value = decode_bf16_device(head_input[lane + 192U]);
+    rhs = fmaf(rhs_value, rhs_value, 0.0F);
+    sibling += rhs;
+    sum += sibling;
+
+    sibling_value = decode_bf16_device(head_input[lane + 32U]);
+    sibling = fmaf(sibling_value, sibling_value, 0.0F);
+    rhs_value = decode_bf16_device(head_input[lane + 160U]);
+    rhs = fmaf(rhs_value, rhs_value, 0.0F);
+    sibling += rhs;
+    float upper_value = decode_bf16_device(head_input[lane + 96U]);
+    float upper = fmaf(upper_value, upper_value, 0.0F);
+    rhs_value = decode_bf16_device(head_input[lane + 224U]);
+    rhs = fmaf(rhs_value, rhs_value, 0.0F);
+    upper += rhs;
+    sibling += upper;
+    sum += sibling;
+
+#pragma unroll
+    for (unsigned int stride = 16U; stride != 0U; stride >>= 1U) {
+      rhs = __shfl_down_sync(0xffffffffU, sum, stride);
+      if (dimension < stride) {
+        sum += rhs;
+      }
+    }
+    if (dimension == 0U) {
+      inverse_rms_shared =
+          rsqrtf(sum /
+                     static_cast<float>(kFullPreprocessHeadDimension) +
+                 epsilon);
+    }
+  }
+  __syncthreads();
+
+  const float gamma = decode_bf16_device(weight[dimension]) + 1.0F;
+  const std::uint16_t normalized =
+      encode_bf16_device(value * inverse_rms_shared * gamma);
+  std::uint16_t* const normalized_output = is_query ? query_output : key;
+  normalized_output[packed_head_offset + dimension] = normalized;
+
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  __syncthreads();
+  if (dimension < kHalfRotary) {
+    std::uint16_t* const head_output =
+        normalized_output + packed_head_offset;
+    const std::size_t table_offset =
+        (first_position + token) * kHalfRotary + dimension;
+    const float cosine = cosines[table_offset];
+    const float sine = sines[table_offset];
+    const float first = decode_bf16_device(head_output[dimension]);
+    const float second =
+        decode_bf16_device(head_output[dimension + kHalfRotary]);
+    const float rotated_first = fmaf(first, cosine, -(second * sine));
+    const float rotated_second = fmaf(second, cosine, first * sine);
+    head_output[dimension] = encode_bf16_device(rotated_first);
+    head_output[dimension + kHalfRotary] =
+        encode_bf16_device(rotated_second);
+  }
+}
+
 __global__ void residual_add_kernel(const std::uint16_t* const left,
                                     const std::uint16_t* const right,
                                     const std::size_t element_count,
@@ -2370,6 +2491,147 @@ int launch_full_attention_preprocess_24_4_256_64_cuda(
                        query_output, gate_output, cosines, sines,
                        first_position);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
+    const std::uint16_t* const interleaved_q_gate,
+    std::uint16_t* const key,
+    const std::uint16_t* const q_weight,
+    const std::uint16_t* const k_weight,
+    const float epsilon,
+    std::uint16_t* const query_output,
+    std::uint16_t* const gate_output,
+    const float* const cosines,
+    const float* const sines,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kHalfRotary = kQwenRotaryDimension / 2U;
+  if (token_count == 0U || token_count > kQkRopeTileMaximumTokens ||
+      !valid_epsilon(epsilon) ||
+      first_position >
+          std::numeric_limits<std::size_t>::max() - token_count ||
+      product3_overflows(first_position + token_count, kHalfRotary,
+                         sizeof(float)) ||
+      interleaved_q_gate == nullptr || key == nullptr ||
+      q_weight == nullptr || k_weight == nullptr || query_output == nullptr ||
+      gate_output == nullptr || cosines == nullptr || sines == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  constexpr std::size_t kQueryElementsPerToken =
+      kFullPreprocessQueryHeads * kFullPreprocessHeadDimension;
+  constexpr std::size_t kKeyElementsPerToken =
+      kFullPreprocessKvHeads * kFullPreprocessHeadDimension;
+  const std::size_t query_bytes =
+      token_count * kQueryElementsPerToken * sizeof(std::uint16_t);
+  const std::size_t interleaved_bytes = 2U * query_bytes;
+  const std::size_t key_bytes =
+      token_count * kKeyElementsPerToken * sizeof(std::uint16_t);
+  constexpr std::size_t kWeightBytes =
+      kFullPreprocessHeadDimension * sizeof(std::uint16_t);
+  const std::size_t table_bytes =
+      (first_position + token_count) * kHalfRotary * sizeof(float);
+
+  if (ranges_overlap(interleaved_q_gate, interleaved_bytes, key, key_bytes) ||
+      ranges_overlap(interleaved_q_gate, interleaved_bytes, query_output,
+                     query_bytes) ||
+      ranges_overlap(interleaved_q_gate, interleaved_bytes, gate_output,
+                     query_bytes) ||
+      ranges_overlap(key, key_bytes, q_weight, kWeightBytes) ||
+      ranges_overlap(key, key_bytes, k_weight, kWeightBytes) ||
+      ranges_overlap(key, key_bytes, query_output, query_bytes) ||
+      ranges_overlap(key, key_bytes, gate_output, query_bytes) ||
+      ranges_overlap(key, key_bytes, cosines, table_bytes) ||
+      ranges_overlap(key, key_bytes, sines, table_bytes) ||
+      ranges_overlap(query_output, query_bytes, gate_output, query_bytes) ||
+      ranges_overlap(query_output, query_bytes, q_weight, kWeightBytes) ||
+      ranges_overlap(query_output, query_bytes, k_weight, kWeightBytes) ||
+      ranges_overlap(query_output, query_bytes, cosines, table_bytes) ||
+      ranges_overlap(query_output, query_bytes, sines, table_bytes) ||
+      ranges_overlap(gate_output, query_bytes, q_weight, kWeightBytes) ||
+      ranges_overlap(gate_output, query_bytes, k_weight, kWeightBytes) ||
+      ranges_overlap(gate_output, query_bytes, cosines, table_bytes) ||
+      ranges_overlap(gate_output, query_bytes, sines, table_bytes)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  constexpr std::size_t kCombinedHeads =
+      kFullPreprocessQueryHeads + kFullPreprocessKvHeads;
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  full_attention_preprocess_warp_rms_24_4_256_64_test_kernel
+      <<<static_cast<unsigned int>(token_count * kCombinedHeads), kThreads,
+         0U, stream>>>(interleaved_q_gate, key, q_weight, k_weight, epsilon,
+                       query_output, gate_output, cosines, sines,
+                       first_position);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_full_attention_preprocess_24_4_256_64_resources_test_cuda(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, full_attention_preprocess_24_4_256_64_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, full_attention_preprocess_24_4_256_64_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_full_attention_preprocess_warp_rms_24_4_256_64_resources_test_cuda(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      full_attention_preprocess_warp_rms_24_4_256_64_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      full_attention_preprocess_warp_rms_24_4_256_64_test_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 int launch_softmax_reference_cuda(
