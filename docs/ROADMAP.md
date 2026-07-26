@@ -857,12 +857,29 @@ The candidate is removed before full-model allocation, integration, profiling,
 or end-to-end work. See the
 [QKV/Z sidecar rejection](metadata/qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json).
 
-The next bounded Decode work therefore returns to the leading production rows
-and requires a materially different mechanism with an actual-payload gate.
+That materially different leading-row mechanism is now selected at the
+test-only microbenchmark stage. The exact M1 residual/norm/gate/up/SiLU
+candidate changes production's `64x256` physical grouping to `32x512` while
+preserving all 512 projection warps, the 2,048-row stride, exact arithmetic,
+32 resident warps/SM, and zero extra model memory. It halves the CTAs that
+repeat residual/RMSNorm setup. Across three independent same-binary processes,
+actual-checkpoint and same-bank-stress cross-process paired medians are
+1.02410x and 1.02295x; all 30 rounds improve. Exact finite/replay and signed
+Inf/NaN outputs pass bitwise, and resource including null-query rejection,
+one-node Graph, and nine zero-node invalid-call gates pass. Production SASS
+remains identical in the test build, and all three processes exit zero.
+
+This selection has not changed production or the formal 109.7585-ms/token,
+9.1109-token/s result. Its 0.926016-ms/token median 64-layer arithmetic
+projection, with a 0.833856–0.927104-ms/token process range, is not an
+end-to-end result. The immediate work is production promotion followed by
+final Release gates, the pinned model oracle, fixed-frequency P19/C32/max26
+mirrored `B-C-C-B` end-to-end measurement, and a fresh Decode Nsys closure.
+See the
+[CTA-coarsening selection](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json).
 Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants, the down CTA-
-prune, and this QKV/Z sidecar are not restored merely because their parent rows
-remain hot. The 100-ms/token and 10-token/s gate still precedes the larger
-Prefill program.
+prune, and the QKV/Z sidecar remain closed. The 100-ms/token and 10-token/s gate
+still precedes the larger Prefill program.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks

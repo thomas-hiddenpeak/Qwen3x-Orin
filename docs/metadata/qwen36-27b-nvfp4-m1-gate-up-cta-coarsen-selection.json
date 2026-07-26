@@ -1,0 +1,468 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection",
+  "status": "selected-test-only-awaiting-production-integration",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode",
+  "source": {
+    "base_commit": "8026b291a0633f37f0bcc140352f054d26404110",
+    "base_tree": "cf456401fe68e376f823915cd0631e0d4006d50e",
+    "base_subject": "docs: reject Decode QKV-Z sidecar",
+    "candidate_commit": null,
+    "tree_state_at_measurement": "uncommitted test-only source and formal-harness changes based on base_commit",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_claim": false,
+    "end_to_end_claim": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "current_formal_hot_milliseconds_per_token": 109.7585,
+    "current_formal_single_request_tokens_per_second": 9.1109,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.7585,
+    "current_result_unchanged_by_this_selection": true
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "jetson_clocks_note": "jetson_clocks --show required root; the retained direct GPU and bwmgr devfreq readbacks were fixed at the values above",
+    "comparison_scope": "three independent processes of one fixed exact-shape candidate binary on the named device",
+    "claim_boundary": "The fixed-frequency same-binary result selects a production-integration candidate. It does not establish an end-to-end latency, throughput, thermal, power, or cross-device result."
+  },
+  "candidate": {
+    "phase": "exact M1 Decode post-attention residual add, centered RMSNorm, NVFP4 gate/up, and SiLU",
+    "shape_n_by_k": [17408, 5120],
+    "dtype": "BF16 residual/norm inputs and outputs; NVFP4 E2M1 packed weights with FP8 E4M3FN block scales",
+    "baseline_topology": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "warps_per_block": 8,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 4,
+      "resident_warps_per_sm": 32
+    },
+    "candidate_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "mechanism": "Regroup the same 512 global projection warps as 32 CTAs of 16 warps instead of 64 CTAs of eight warps. This halves the CTAs that repeat residual/RMSNorm setup while preserving the 2,048-row projection stride.",
+    "norm_contract": "Threads 0 through 255 preserve production's i+=256 residual/RMS accumulation, 256-element reduction tree, rsqrtf, gamma, and BF16-RNE order. Threads 256 through 511 skip arithmetic but participate in every CTA barrier.",
+    "projection_contract": "Global warp-to-row-quad mapping, packed-weight and scale access, decoded values, BF16 activation, per-row FFMA order, warp reduction, scaling, and BF16-RNE output order match production.",
+    "silu_contract": "The candidate covers the same rows with a 64-row-per-CTA local mapping and the unchanged BF16-rounded gate/up inputs and output order.",
+    "memory_overhead_bytes": 0,
+    "scope_boundary": "The candidate launcher, query, and kernel are test-only and are not selected by the public production route."
+  },
+  "checkpoint_fixture": {
+    "source": "actual pinned layer-0 checkpoint payload",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_data_base": 126512,
+    "gate_weight": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+      "absolute_offset_begin": 6757009952,
+      "bytes": 44564480,
+      "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+    },
+    "up_weight": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight",
+      "absolute_offset_begin": 6801574432,
+      "bytes": 44564480,
+      "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+    },
+    "gate_block_scale": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale",
+      "absolute_offset_begin": 3606039072,
+      "bytes": 5570560,
+      "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+    },
+    "up_block_scale": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight_scale",
+      "absolute_offset_begin": 3611609632,
+      "bytes": 5570560,
+      "sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+    },
+    "gate_and_up_weight_scale_2_little_endian_bits": "0x391e79e8",
+    "deterministic_activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "all_payload_hashes_matched": true
+  },
+  "correctness_and_contracts": {
+    "cuda_graph": {
+      "production": {
+        "nodes": 1,
+        "grid": [64, 1, 1],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "candidate": {
+        "nodes": 1,
+        "grid": [32, 1, 1],
+        "block": [512, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "functions_distinct": true,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "cases": 9,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "actual_checkpoint_finite": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "replay_mismatches": "0/39936",
+      "nonfinite_outputs": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "same_bank_stress_finite": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "up_mismatches": "0/17408",
+      "replay_mismatches": "0/39936",
+      "nonfinite_outputs": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "signed_inf_nan": {
+      "actual_checkpoint": {
+        "residual_mismatches": "0/5120",
+        "final_gate_mismatches": "0/17408",
+        "up_mismatches": "0/17408",
+        "unexpected_nonfinite": 0,
+        "classified_nan_outputs": "34816/34816",
+        "class_and_sign": true,
+        "guards": "intact",
+        "inputs_preserved": true
+      },
+      "gate": "pass"
+    },
+    "whole_device_test_terminal_line": "SM87 weight-only GEMV tests passed",
+    "all_gates": "pass"
+  },
+  "resources": {
+    "baseline": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4,
+      "resident_warps_per_sm": 32
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "required_candidate": {
+      "maximum_registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "minimum_active_ctas_per_sm": 2,
+      "minimum_resident_warps_per_sm": 32,
+      "null_resource_query_must_return_invalid_value": true
+    },
+    "null_resource_query_rejected": true,
+    "gate": "pass"
+  },
+  "sass": {
+    "baseline_production": {
+      "normalized_instruction_words": 2688,
+      "normalized_sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a"
+    },
+    "candidate_build_production": {
+      "normalized_instruction_words": 2688,
+      "normalized_sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a"
+    },
+    "production_baseline_and_candidate_build_exact_match": true,
+    "test_only_candidate": {
+      "normalized_instruction_words": 2704,
+      "normalized_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab"
+    },
+    "interpretation": "The candidate build leaves the production function byte-for-byte unchanged at the normalized instruction-word level; the selected 32x512 function is distinct and remains test-only."
+  },
+  "performance_protocol": {
+    "comparison": "within each process, production exact 64x256 kernel versus test-only exact 32x512 candidate in one binary, stream, and fixture",
+    "warmup_launches_per_route": 10,
+    "rounds_per_fixture": 5,
+    "logical_launches_per_timed_pass": 64,
+    "order_each_round": "B-C-C-B",
+    "paired_round_statistic": "(production_pass1 + production_pass2) / (candidate_pass1 + candidate_pass2)",
+    "independent_same_binary_processes": 3,
+    "rounds_per_fixture_across_processes": 15,
+    "within_process_selection_statistic": "median of five paired per-round speedups; separately printed pass medians are diagnostic",
+    "cross_process_reporting_statistic": "median of the three within-process paired-round medians",
+    "gates": {
+      "minimum_actual_checkpoint_paired_median_speedup_per_process": 1.005,
+      "minimum_same_bank_stress_paired_median_speedup_per_process": 1.0,
+      "minimum_each_round_speedup_in_every_process": 1.0,
+      "resources_graph_invalid_bitwise_replay_guards_inputs_and_nonfinite": "required"
+    }
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "processes": [
+        {
+          "process": 1,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.614854, "candidate_pass1_ms": 0.600804, "candidate_pass2_ms": 0.600397, "production_pass2_ms": 0.615290, "paired_speedup": 1.02410, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.614946, "candidate_pass1_ms": 0.600256, "candidate_pass2_ms": 0.600335, "production_pass2_ms": 0.614958, "paired_speedup": 1.02441, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.615084, "candidate_pass1_ms": 0.600645, "candidate_pass2_ms": 0.600819, "production_pass2_ms": 0.615085, "paired_speedup": 1.02389, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.615099, "candidate_pass1_ms": 0.600796, "candidate_pass2_ms": 0.600617, "production_pass2_ms": 0.614830, "paired_speedup": 1.02374, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.615360, "candidate_pass1_ms": 0.600487, "candidate_pass2_ms": 0.600254, "production_pass2_ms": 0.614699, "paired_speedup": 1.02442, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.615021,
+          "candidate_pass_median_ms": 0.600552,
+          "pass_median_delta_ms": 0.014469,
+          "paired_round_median_speedup": 1.02410,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.614196, "candidate_pass1_ms": 0.599590, "candidate_pass2_ms": 0.600042, "production_pass2_ms": 0.614099, "paired_speedup": 1.02389, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.613798, "candidate_pass1_ms": 0.599368, "candidate_pass2_ms": 0.599160, "production_pass2_ms": 0.621625, "paired_speedup": 1.03078, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.616759, "candidate_pass1_ms": 0.600582, "candidate_pass2_ms": 0.599812, "production_pass2_ms": 0.614174, "paired_speedup": 1.02544, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.613501, "candidate_pass1_ms": 0.599654, "candidate_pass2_ms": 0.599580, "production_pass2_ms": 0.613782, "paired_speedup": 1.02339, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.613891, "candidate_pass1_ms": 0.599147, "candidate_pass2_ms": 0.599357, "production_pass2_ms": 0.614043, "paired_speedup": 1.02456, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.614071,
+          "candidate_pass_median_ms": 0.599585,
+          "pass_median_delta_ms": 0.014486,
+          "paired_round_median_speedup": 1.02456,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.613580, "candidate_pass1_ms": 0.600168, "candidate_pass2_ms": 0.600308, "production_pass2_ms": 0.613342, "paired_speedup": 1.02203, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.613001, "candidate_pass1_ms": 0.600348, "candidate_pass2_ms": 0.600514, "production_pass2_ms": 0.612904, "paired_speedup": 1.02085, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.613296, "candidate_pass1_ms": 0.600157, "candidate_pass2_ms": 0.600124, "production_pass2_ms": 0.613166, "paired_speedup": 1.02181, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.613154, "candidate_pass1_ms": 0.600471, "candidate_pass2_ms": 0.600133, "production_pass2_ms": 0.613235, "paired_speedup": 1.02148, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.613500, "candidate_pass1_ms": 0.599977, "candidate_pass2_ms": 0.601040, "production_pass2_ms": 0.621553, "paired_speedup": 1.02834, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.613266,
+          "candidate_pass_median_ms": 0.600237,
+          "pass_median_delta_ms": 0.013029,
+          "paired_round_median_speedup": 1.02181,
+          "gate": "pass"
+        }
+      ],
+      "process_paired_round_median_speedups": [1.02410, 1.02456, 1.02181],
+      "cross_process_paired_round_median_speedup": 1.02410,
+      "required_paired_round_median_speedup_per_process": 1.005,
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "processes": [
+        {
+          "process": 1,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.618985, "candidate_pass1_ms": 0.605424, "candidate_pass2_ms": 0.605062, "production_pass2_ms": 0.619222, "paired_speedup": 1.02290, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.619250, "candidate_pass1_ms": 0.605177, "candidate_pass2_ms": 0.605511, "production_pass2_ms": 0.619617, "paired_speedup": 1.02327, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.619371, "candidate_pass1_ms": 0.605020, "candidate_pass2_ms": 0.605733, "production_pass2_ms": 0.619044, "paired_speedup": 1.02285, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.619149, "candidate_pass1_ms": 0.605162, "candidate_pass2_ms": 0.604995, "production_pass2_ms": 0.618998, "paired_speedup": 1.02313, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.618989, "candidate_pass1_ms": 0.604972, "candidate_pass2_ms": 0.605113, "production_pass2_ms": 0.619070, "paired_speedup": 1.02312, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.619110,
+          "candidate_pass_median_ms": 0.605138,
+          "pass_median_delta_ms": 0.013972,
+          "paired_round_median_speedup": 1.02312,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.618302, "candidate_pass1_ms": 0.604117, "candidate_pass2_ms": 0.604496, "production_pass2_ms": 0.618050, "paired_speedup": 1.02295, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.618469, "candidate_pass1_ms": 0.604882, "candidate_pass2_ms": 0.604783, "production_pass2_ms": 0.618303, "paired_speedup": 1.02241, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.617972, "candidate_pass1_ms": 0.604568, "candidate_pass2_ms": 0.604360, "production_pass2_ms": 0.618243, "paired_speedup": 1.02257, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.618438, "candidate_pass1_ms": 0.604063, "candidate_pass2_ms": 0.604132, "production_pass2_ms": 0.617907, "paired_speedup": 1.02330, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.618525, "candidate_pass1_ms": 0.604457, "candidate_pass2_ms": 0.604421, "production_pass2_ms": 0.618424, "paired_speedup": 1.02322, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.618302,
+          "candidate_pass_median_ms": 0.604439,
+          "pass_median_delta_ms": 0.013863,
+          "paired_round_median_speedup": 1.02295,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.617568, "candidate_pass1_ms": 0.604668, "candidate_pass2_ms": 0.604993, "production_pass2_ms": 0.617394, "paired_speedup": 1.02092, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.617086, "candidate_pass1_ms": 0.605103, "candidate_pass2_ms": 0.604762, "production_pass2_ms": 0.617603, "paired_speedup": 1.02052, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.617835, "candidate_pass1_ms": 0.604485, "candidate_pass2_ms": 0.604620, "production_pass2_ms": 0.617350, "paired_speedup": 1.02157, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.617499, "candidate_pass1_ms": 0.604479, "candidate_pass2_ms": 0.604658, "production_pass2_ms": 0.617782, "paired_speedup": 1.02162, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.617571, "candidate_pass1_ms": 0.604866, "candidate_pass2_ms": 0.604841, "production_pass2_ms": 0.617611, "paired_speedup": 1.02106, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.617570,
+          "candidate_pass_median_ms": 0.604715,
+          "pass_median_delta_ms": 0.012855,
+          "paired_round_median_speedup": 1.02106,
+          "gate": "pass"
+        }
+      ],
+      "process_paired_round_median_speedups": [1.02312, 1.02295, 1.02106],
+      "cross_process_paired_round_median_speedup": 1.02295,
+      "required_paired_round_median_speedup_per_process": 1.0,
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "all_fixtures_gate": "pass"
+  },
+  "projection_only_planning": {
+    "dense_mlp_layers": 64,
+    "actual_process_pass_median_deltas_ms_per_layer": [0.014469, 0.014486, 0.013029],
+    "median_actual_pass_median_delta_ms_per_layer": 0.014469,
+    "ideal_arithmetic_delta_ms_per_token": 0.926016,
+    "ideal_arithmetic_delta_range_ms_per_token": [0.833856, 0.927104],
+    "formula": "median(0.014469, 0.014486, 0.013029) * 64",
+    "fraction_of_remaining_9_7585_ms_gap_percent": 9.48933,
+    "not_an_achieved_end_to_end_result": true,
+    "current_formal_result_remains_milliseconds_per_token": 109.7585,
+    "current_formal_result_remains_tokens_per_second": 9.1109
+  },
+  "decision": {
+    "result": "select-for-production-integration",
+    "reason": "Across three independent same-binary processes, the actual checkpoint and same-bank stress paired medians clear their frozen gates and all 30 paired rounds non-regress. Exact output, replay, guards, inputs, signed Inf/NaN, resource including null-query rejection, production-static-identity, and the independently required Graph and invalid-call gates pass; every process exits zero.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "achieved_end_to_end_improvement": false,
+    "next_required_work": [
+      "promote the 32x512 exact-shape implementation into the production route without leaving a parallel test-only implementation",
+      "re-run default, exact finite/replay, signed Inf/NaN, invalid-call, Graph, resource, and production SASS gates on the final Release binary",
+      "run the pinned full-model exact-output oracle",
+      "run fixed-frequency P19/C32/max26 mirrored B-C-C-B end-to-end measurement against an independently retained baseline",
+      "capture a post-promotion Decode Nsys trace and close phase ranges over unique kernel rows"
+    ],
+    "promotion_gate": "Only the final production binary and full-model/end-to-end evidence may change the formal 109.7585-ms/token and 9.1109-token/s anchor."
+  },
+  "artifacts": [
+    {
+      "role": "hardened artifact SHA-256 manifest",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/SHA256SUMS.hardened",
+      "bytes": 1383,
+      "lines": 11,
+      "sha256": "d0c891d0be7909ab5dff283da89644a9202dc67f0234b40e9d2d246c66070513",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative frozen same-binary screen process 1",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/frozen-screen-hardened.log",
+      "bytes": 74941,
+      "lines": 397,
+      "sha256": "d81e2bc5af6d086a141a561af51f5903c5670804f1938dae006474d3ab8ea8e7",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative frozen same-binary screen process 2",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/frozen-screen-hardened-rep2.log",
+      "bytes": 74948,
+      "lines": 397,
+      "sha256": "caddf9271a152840fb4e0c673efc3a1b9fadbd86ead16cfed2443bdc4418e477",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative frozen same-binary screen process 3",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/frozen-screen-hardened-rep3.log",
+      "bytes": 74951,
+      "lines": 397,
+      "sha256": "f80eb443af1c142fe0b5fe4b4f17d63a57b837ea93333581624fc37e5cbae15a",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "hardened candidate test binary shared by all three processes",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/q3x_sm87_weight_only_gemv_test.hardened",
+      "bytes": 5159160,
+      "sha256": "fc1b9f8d1c2c54ee4be09ea0a7d792a72bf376600ac8c0d913a70a1a56a09c73",
+      "gnu_build_id": "6a8c9097fe526740e04baf7bde63b9ae409dd43c",
+      "checked_in": false
+    },
+    {
+      "role": "hardened test-only candidate patch",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/candidate-hardened.patch",
+      "bytes": 61337,
+      "lines": 1216,
+      "sha256": "f8456b40ad37a9d0fdbcdedb06138cb220868ddcabe78e01f79ab290084c1b3d",
+      "checked_in": false
+    },
+    {
+      "role": "default hardened candidate-build device-test log",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/default-hardened.log",
+      "bytes": 56095,
+      "lines": 331,
+      "sha256": "381c55927d672653d5908a398f49511da05f7c87897548b5360e19623290ee1a",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "baseline production normalized SASS",
+      "path": "/tmp/q3x-gateup-coarsen-baseline.CVziCu/production-residual-norm-gate-up-silu.encoding64.normalized",
+      "instruction_words": 2688,
+      "sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a",
+      "checked_in": false
+    },
+    {
+      "role": "candidate-build production normalized SASS",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/hardened-production.normalized",
+      "instruction_words": 2688,
+      "sha256": "1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a",
+      "checked_in": false
+    },
+    {
+      "role": "test-only candidate normalized SASS",
+      "path": "/tmp/q3x-gateup-coarsen.Tghgt4/hardened-candidate.normalized",
+      "instruction_words": 2704,
+      "sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "The selected launcher and kernel are test-only; no production route changed.",
+    "The screen uses three independent processes of one fixed binary on one device; it does not establish another-build or cross-device behavior.",
+    "No full-model model-oracle, P19/C32/max26 end-to-end run, Nsys, or NCU measurement has been performed for the selected candidate.",
+    "The 0.926016-ms/token value and 0.833856-to-0.927104-ms/token range are linear 64-layer arithmetic projections from isolated actual pass medians, not achieved latency reductions.",
+    "The formal performance anchor remains 109.7585 ms/token and 9.1109 token/s until final production integration and end-to-end validation pass.",
+    "The result does not measure Prefill, multi-request serving, energy, or behavior on another device or clock configuration."
+  ]
+}

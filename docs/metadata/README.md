@@ -605,6 +605,19 @@ The diagnostic Phase 3 records are:
   rounds to 0.984394x. Stop-loss skips the 3.75-GiB 48-layer sidecar and all
   production, model, profiler, and replication work, removes the candidate,
   and retains the restored default-test pass.
+- [`qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json`](qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json),
+  which selects the test-only exact-M1 residual/norm/gate/up/SiLU `32x512`
+  CTA grouping for production integration. It preserves the same 512
+  projection warps and 32 resident warps/SM as production's `64x256` route
+  while halving repeated per-CTA residual/RMSNorm setup. Across three
+  independent same-binary processes, the pinned actual-checkpoint and
+  same-bank-stress paired medians reach 1.02410x and 1.02295x, with all 30
+  rounds improving and finite/replay, signed Inf/NaN, guard, input, resource,
+  Graph, invalid-call, and production-static-identity gates passing. The
+  0.926016-ms/token 64-layer value (0.833856–0.927104-ms/token process range)
+  is an arithmetic projection; production remains at 109.7585 ms/token and
+  9.1109 token/s pending final production integration, model-oracle,
+  end-to-end, and Nsys evidence.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -4868,3 +4868,57 @@ P19 benchmark, Nsys, NCU, and cross-process replication were not run. The
 default restored device test passes. Full round data, payload identities,
 SASS/artifact hashes, cleanup proof, and limitations are retained in the
 [QKV/Z AoSoA4 sidecar rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-aosoa4-preswizzled-sidecar-rejection.json).
+
+## Decode NVFP4 M1 gate/up 32x512 CTA-coarsening selection
+
+The next bounded screen returns to the leading Decode row with a materially
+different mechanism. The test-only exact `[17408,5120]` candidate regroups the
+same 512 projection warps from production's 64 CTAs of eight warps into 32
+CTAs of 16 warps. The global 2,048-row stride, warp-to-row-quad mapping,
+packed-weight/scale accesses, FFMA and reduction order, and BF16 boundaries are
+unchanged. Threads 0–255 also retain the exact production residual and
+centered-RMSNorm accumulation/reduction order; threads 256–511 skip that
+arithmetic but participate in every CTA barrier. The change therefore halves
+the number of CTAs that redundantly prepare the same per-token residual/norm
+activation without adding a sidecar or model-resident memory.
+
+The candidate retains 64 registers/thread, 11,328 B static shared, and zero
+local memory. Its two 512-thread CTAs per SM preserve the production total of
+32 resident warps/SM. Production and candidate capture as distinct single
+kernel nodes at `64x256` and `32x512`, respectively; all nine invalid calls
+capture zero nodes. The actual layer-0 checkpoint and same-bank stress
+fixtures match residual, final gate, up, and deterministic replay outputs
+bitwise, with intact guards and preserved inputs. The signed Inf/NaN case also
+matches all three outputs bitwise and preserves all 34,816 classified NaN
+outputs, including class and sign.
+
+Three independent same-binary processes each run five 64-launch `B-C-C-B`
+rounds per fixture:
+
+| Fixture | Per-process paired medians | Cross-process median | Frozen per-process gate | Result |
+| --- | --- | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 1.02410x / 1.02456x / 1.02181x | 1.02410x | 1.005x plus no regressing round | pass |
+| Same-bank stress | 1.02312x / 1.02295x / 1.02106x | 1.02295x | 1.000x plus no regressing round | pass |
+
+All 30 paired rounds improve, and all three processes exit zero. Static
+inspection independently keeps the
+production function identical between the clean `8026b29` baseline and the
+candidate build at 2,688 normalized instruction words with SHA-256
+`1e5139d45e1cec02a7d416f7dbc8776098e4e2faa5f5d56fb4dc2a6483eca98a`;
+the distinct test-only candidate contains 2,704 words. The successful test
+binary also rejects a null resource-query destination, but its launcher is
+still unreachable from production.
+
+The three isolated actual pass-median deltas are 0.014469, 0.014486, and
+0.013029 ms/layer. Multiplying their median by 64 dense layers gives an ideal
+**0.926016 ms/token** arithmetic saving, with a 0.833856–0.927104-ms/token
+process range. Those are only planning bounds, not achieved end-to-end
+reductions: the formal result remains **109.7585 ms/token and 9.1109 token/s**,
+still 9.7585 ms/token from the stage target.
+The candidate is selected for production integration next. Promotion requires
+the final Release resource/Graph/invalid/static gates, pinned full-model exact
+oracle, fixed-frequency P19/C32/max26 mirrored end-to-end measurement, and a
+fresh Decode Nsys closure before the formal performance anchor changes. The
+complete 15-plus-15 rounds, payload identities, artifacts, gates, and
+limitations are retained in the
+[CTA-coarsening selection record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-selection.json).
