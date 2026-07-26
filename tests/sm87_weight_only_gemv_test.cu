@@ -2,6 +2,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/kernels/reference_gemv.h"
 #include "q3x/runtime/decode_ops.h"
+#include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/model_weights.h"
 
 #include <cuda_runtime.h>
@@ -17,6 +18,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -176,6 +178,24 @@ launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
 
 [[nodiscard]] int
 query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_cuda(
+    const std::uint8_t* qkv_weights, float qkv_weight_scale,
+    const std::uint8_t* z_weights, float z_weight_scale,
+    const std::uint16_t* a_weights, const std::uint16_t* b_weights,
+    const std::uint16_t* activation, std::size_t qkv_rows,
+    std::size_t z_rows, std::size_t ab_rows, std::size_t columns,
+    std::uint16_t* qkv_output, std::uint16_t* z_output,
+    std::uint16_t* a_output, std::uint16_t* b_output,
+    const std::uint16_t* conv_weight, std::uint16_t* history,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -5931,6 +5951,14 @@ fp8_m1_qkv_z_reduction_scratch_ping_pong_performance_enabled() noexcept {
 fp8_m1_qkv_z_bf16_ab_tail_composite_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_FP8_M1_QKV_Z_BF16_AB_TAIL_COMPOSITE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_qkv_causal_conv_epilogue_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_DECODE_QKV_CAUSAL_CONV_EPILOGUE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -15190,6 +15218,1084 @@ struct Fp8M2RowPairMeasurement {
               << mismatches << '/' << baseline.size() << '\n';
   }
   return measurement;
+}
+
+void run_decode_qkv_causal_conv_epilogue_screen(TestContext& test,
+                                                cudaStream_t stream) {
+  constexpr std::size_t kQkvRows = q3x::runtime::kGdnQkvChannels;
+  constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kAbRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kHistoryElements =
+      kQkvRows * q3x::runtime::kGdnConvHistoryWidth;
+  constexpr std::size_t kConvWeightElements =
+      kQkvRows * q3x::runtime::kGdnConvKernelWidth;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr std::size_t kStateCount = 5U;
+  constexpr std::size_t kHistoryIndex = 4U;
+  constexpr std::array<std::size_t, kStateCount> kStateElements{{
+      kQkvRows, kZRows, kAbRows, kAbRows, kHistoryElements,
+  }};
+  constexpr float kQkvScale = 1.0F / 64.0F;
+  constexpr float kZScale = 1.0F / 96.0F;
+  const std::string label =
+      "Decode FP8 QKV/Z/A/B causal-conv epilogue screen";
+
+  int registers_per_thread = -1;
+  std::size_t static_shared_bytes =
+      std::numeric_limits<std::size_t>::max();
+  std::size_t local_bytes = std::numeric_limits<std::size_t>::max();
+  int maximum_threads_per_block = -1;
+  int active_blocks_per_sm = -1;
+  const bool resource_ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm)),
+      label + " query candidate resources");
+  const bool resource_gate =
+      resource_ready && registers_per_thread > 0 &&
+      registers_per_thread <= 64 && static_shared_bytes <= 1'280U &&
+      local_bytes == 0U && maximum_threads_per_block == 256 &&
+      active_blocks_per_sm >= 4;
+  test.expect(resource_gate,
+              label + " clears the hard SM87 occupancy/spill gate");
+  const std::array<int, 5U> null_resource_statuses{{
+      q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              nullptr, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm),
+      q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              &registers_per_thread, nullptr, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm),
+      q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, nullptr,
+              &maximum_threads_per_block, &active_blocks_per_sm),
+      q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              nullptr, &active_blocks_per_sm),
+      q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_resources_test_cuda(
+              &registers_per_thread, &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, nullptr),
+  }};
+  const bool resource_null_gate =
+      std::all_of(null_resource_statuses.begin(),
+                  null_resource_statuses.end(), [](const int status) {
+                    return status == static_cast<int>(cudaErrorInvalidValue);
+                  });
+  test.expect(resource_null_gate,
+              label + " resource query rejects every null destination");
+  std::cout << "DECODE_QKV_CAUSAL_CONV_RESOURCES:"
+            << " registers_per_thread=" << registers_per_thread
+            << " static_shared_bytes=" << static_shared_bytes
+            << " local_bytes=" << local_bytes
+            << " maximum_threads_per_block=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " require_registers_le=64"
+            << " require_static_shared_le=1280"
+            << " require_zero_local=true"
+            << " require_active_blocks_ge=4"
+            << " null_query_gate="
+            << (resource_null_gate ? "PASS" : "FAIL")
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!resource_ready) {
+    return;
+  }
+
+  std::vector<std::uint8_t> host_qkv_weights(kQkvRows * kColumns);
+  std::vector<std::uint8_t> host_z_weights(kZRows * kColumns);
+  std::vector<std::uint16_t> host_a_weights(kAbRows * kColumns);
+  std::vector<std::uint16_t> host_b_weights(kAbRows * kColumns);
+  std::vector<std::uint16_t> host_activation(kColumns);
+  std::vector<std::uint16_t> host_conv_weight(kConvWeightElements);
+  std::vector<std::uint16_t> host_initial_history(kHistoryElements);
+  fill_fp8_m2_code_distribution(host_qkv_weights, kQkvRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  fill_fp8_m2_code_distribution(host_z_weights, kZRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  std::reverse(host_z_weights.begin(), host_z_weights.end());
+  for (std::size_t index = 0U; index < host_a_weights.size(); ++index) {
+    const int a_centered = static_cast<int>((index * 17U + 5U) % 127U) - 63;
+    const int b_centered = static_cast<int>((index * 29U + 11U) % 113U) - 56;
+    host_a_weights[index] =
+        encode_bf16(static_cast<float>(a_centered) / 128.0F);
+    host_b_weights[index] =
+        encode_bf16(static_cast<float>(b_centered) / 256.0F);
+  }
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered =
+        static_cast<int>((column * 13U + (column >> 3U) * 7U + 3U) %
+                         127U) -
+        63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+  for (std::size_t channel = 0U; channel < kQkvRows; ++channel) {
+    for (std::size_t tap = 0U;
+         tap < q3x::runtime::kGdnConvKernelWidth; ++tap) {
+      const int centered =
+          static_cast<int>((channel * 19U + tap * 31U + 7U) % 97U) - 48;
+      host_conv_weight[channel * q3x::runtime::kGdnConvKernelWidth + tap] =
+          encode_bf16(static_cast<float>(centered) / 192.0F);
+    }
+    for (std::size_t slot = 0U;
+         slot < q3x::runtime::kGdnConvHistoryWidth; ++slot) {
+      const int centered =
+          static_cast<int>((channel * 23U + slot * 37U + 11U) % 101U) - 50;
+      host_initial_history
+          [channel * q3x::runtime::kGdnConvHistoryWidth + slot] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> qkv_weights;
+  DeviceBuffer<std::uint8_t> z_weights;
+  DeviceBuffer<std::uint16_t> a_weights;
+  DeviceBuffer<std::uint16_t> b_weights;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> conv_weight;
+  std::array<DeviceBuffer<std::uint16_t>, kStateCount> baseline_storage;
+  std::array<DeviceBuffer<std::uint16_t>, kStateCount> candidate_storage;
+  bool ready = test.cuda_ok(qkv_weights.allocate(host_qkv_weights.size()),
+                            label + " allocate QKV weights");
+  ready = ready && test.cuda_ok(z_weights.allocate(host_z_weights.size()),
+                                label + " allocate Z weights");
+  ready = ready && test.cuda_ok(a_weights.allocate(host_a_weights.size()),
+                                label + " allocate A weights");
+  ready = ready && test.cuda_ok(b_weights.allocate(host_b_weights.size()),
+                                label + " allocate B weights");
+  ready = ready && test.cuda_ok(activation.allocate(host_activation.size()),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(conv_weight.allocate(host_conv_weight.size()),
+                                label + " allocate conv weight");
+  for (std::size_t state = 0U; state < kStateCount && ready; ++state) {
+    ready = test.cuda_ok(
+        baseline_storage[state].allocate(kStateElements[state] +
+                                         2U * kGuardElements),
+        label + " allocate baseline state " + std::to_string(state));
+    ready = ready && test.cuda_ok(
+                         candidate_storage[state].allocate(
+                             kStateElements[state] + 2U * kGuardElements),
+                         label + " allocate candidate state " +
+                             std::to_string(state));
+  }
+  if (!ready) {
+    return;
+  }
+  const auto state_pointer =
+      [&](std::array<DeviceBuffer<std::uint16_t>, kStateCount>& storage,
+          const std::size_t state) {
+        return storage[state].get() + kGuardElements;
+      };
+  const auto upload_inputs = [&]() {
+    bool upload_ready = test.cuda_ok(
+        cudaMemcpyAsync(qkv_weights.get(), host_qkv_weights.data(),
+                        host_qkv_weights.size(), cudaMemcpyHostToDevice,
+                        stream),
+        label + " upload QKV weights");
+    upload_ready = test.cuda_ok(
+                       cudaMemcpyAsync(z_weights.get(), host_z_weights.data(),
+                                       host_z_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload Z weights") &&
+                   upload_ready;
+    upload_ready = test.cuda_ok(
+                       cudaMemcpyAsync(a_weights.get(), host_a_weights.data(),
+                                       host_a_weights.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload A weights") &&
+                   upload_ready;
+    upload_ready = test.cuda_ok(
+                       cudaMemcpyAsync(b_weights.get(), host_b_weights.data(),
+                                       host_b_weights.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload B weights") &&
+                   upload_ready;
+    upload_ready = test.cuda_ok(
+                       cudaMemcpyAsync(activation.get(),
+                                       host_activation.data(),
+                                       host_activation.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload activation") &&
+                   upload_ready;
+    upload_ready = test.cuda_ok(
+                       cudaMemcpyAsync(conv_weight.get(),
+                                       host_conv_weight.data(),
+                                       host_conv_weight.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload conv weight") &&
+                   upload_ready;
+    return test.cuda_ok(cudaStreamSynchronize(stream),
+                        label + " upload synchronize") &&
+           upload_ready;
+  };
+  const auto initialize_state =
+      [&](std::array<DeviceBuffer<std::uint16_t>, kStateCount>& storage,
+          const std::uint8_t output_poison,
+          const std::uint8_t history_poison,
+          const std::string& initialize_label) {
+        bool initialize_ready = true;
+        for (std::size_t state = 0U; state < kHistoryIndex; ++state) {
+          initialize_ready =
+              test.cuda_ok(cudaMemsetAsync(
+                               storage[state].get(), output_poison,
+                               (kStateElements[state] + 2U * kGuardElements) *
+                                   sizeof(std::uint16_t),
+                               stream),
+                           initialize_label + " poison output " +
+                               std::to_string(state)) &&
+              initialize_ready;
+        }
+        initialize_ready =
+            test.cuda_ok(cudaMemsetAsync(
+                             storage[kHistoryIndex].get(), history_poison,
+                             (kHistoryElements + 2U * kGuardElements) *
+                                 sizeof(std::uint16_t),
+                             stream),
+                         initialize_label + " poison history guards") &&
+            initialize_ready;
+        initialize_ready =
+            test.cuda_ok(cudaMemcpyAsync(
+                             state_pointer(storage, kHistoryIndex),
+                             host_initial_history.data(),
+                             host_initial_history.size() *
+                                 sizeof(std::uint16_t),
+                             cudaMemcpyHostToDevice, stream),
+                         initialize_label + " initialize history") &&
+            initialize_ready;
+        return initialize_ready;
+      };
+  if (!upload_inputs() ||
+      !initialize_state(baseline_storage, 0xa5U, 0xc3U,
+                        label + " baseline") ||
+      !initialize_state(candidate_storage, 0x5aU, 0x3cU,
+                        label + " candidate") ||
+      !test.cuda_ok(cudaStreamSynchronize(stream),
+                    label + " initialize synchronize")) {
+    return;
+  }
+
+  const auto launch_baseline =
+      [&](std::array<DeviceBuffer<std::uint16_t>, kStateCount>& storage) {
+        const int projection_status =
+            q3x::kernels::
+                launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+                    qkv_weights.get(), kQkvScale, z_weights.get(), kZScale,
+                    a_weights.get(), b_weights.get(), activation.get(),
+                    kQkvRows, kZRows, kAbRows, kColumns,
+                    state_pointer(storage, 0U), state_pointer(storage, 1U),
+                    state_pointer(storage, 2U), state_pointer(storage, 3U),
+                    static_cast<void*>(stream));
+        if (projection_status != static_cast<int>(cudaSuccess)) {
+          return projection_status;
+        }
+        return q3x::runtime::launch_causal_conv1d_silu_update_reference_cuda(
+            state_pointer(storage, 0U), conv_weight.get(),
+            state_pointer(storage, kHistoryIndex),
+            state_pointer(storage, 0U), {}, static_cast<void*>(stream));
+      };
+  const auto launch_candidate =
+      [&](std::array<DeviceBuffer<std::uint16_t>, kStateCount>& storage) {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_cuda(
+                qkv_weights.get(), kQkvScale, z_weights.get(), kZScale,
+                a_weights.get(), b_weights.get(), activation.get(),
+                kQkvRows, kZRows, kAbRows, kColumns,
+                state_pointer(storage, 0U), state_pointer(storage, 1U),
+                state_pointer(storage, 2U), state_pointer(storage, 3U),
+                conv_weight.get(), state_pointer(storage, kHistoryIndex),
+                static_cast<void*>(stream));
+      };
+
+  using HostState =
+      std::array<std::vector<std::uint16_t>, kStateCount>;
+  const auto make_host_state = [&]() {
+    HostState state;
+    for (std::size_t index = 0U; index < kStateCount; ++index) {
+      state[index].resize(kStateElements[index] + 2U * kGuardElements);
+    }
+    return state;
+  };
+  const auto copy_state =
+      [&](const std::array<DeviceBuffer<std::uint16_t>, kStateCount>& storage,
+          HostState& destination, const std::string& copy_label) {
+        bool copy_ready = true;
+        for (std::size_t state = 0U; state < kStateCount; ++state) {
+          copy_ready =
+              test.cuda_ok(cudaMemcpyAsync(
+                               destination[state].data(), storage[state].get(),
+                               destination[state].size() *
+                                   sizeof(std::uint16_t),
+                               cudaMemcpyDeviceToHost, stream),
+                           copy_label + " copy state " +
+                               std::to_string(state)) &&
+              copy_ready;
+        }
+        return test.cuda_ok(cudaStreamSynchronize(stream),
+                            copy_label + " synchronize") &&
+               copy_ready;
+      };
+  const auto guards_intact = [&](const HostState& state,
+                                 const std::uint8_t output_poison,
+                                 const std::uint8_t history_poison) {
+    bool intact = true;
+    for (std::size_t output = 0U; output < kStateCount; ++output) {
+      const std::uint8_t poison =
+          output == kHistoryIndex ? history_poison : output_poison;
+      const std::uint16_t guard = static_cast<std::uint16_t>(
+          poison | (static_cast<std::uint16_t>(poison) << 8U));
+      for (std::size_t index = 0U; index < kGuardElements; ++index) {
+        intact = intact && state[output][index] == guard &&
+                 state[output][kGuardElements + kStateElements[output] +
+                               index] == guard;
+      }
+    }
+    return intact;
+  };
+  const auto count_mismatches = [&](const HostState& candidate,
+                                    const HostState& baseline) {
+    std::array<std::size_t, kStateCount> mismatches{};
+    for (std::size_t state = 0U; state < kStateCount; ++state) {
+      for (std::size_t index = 0U; index < kStateElements[state]; ++index) {
+        mismatches[state] +=
+            candidate[state][kGuardElements + index] !=
+                    baseline[state][kGuardElements + index]
+                ? 1U
+                : 0U;
+      }
+    }
+    return mismatches;
+  };
+  const auto zero_mismatches =
+      [](const std::array<std::size_t, kStateCount>& mismatches) {
+        return std::all_of(mismatches.begin(), mismatches.end(),
+                           [](const std::size_t count) { return count == 0U; });
+      };
+
+  HostState observed_baseline = make_host_state();
+  HostState observed_candidate = make_host_state();
+  bool sequential_exact_gate = true;
+  for (std::size_t step = 0U; step < 4U; ++step) {
+    const std::string step_label =
+        label + " state step=" + std::to_string(step + 1U);
+    bool step_ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_baseline(baseline_storage)),
+        step_label + " launch two-node baseline");
+    step_ready = test.cuda_ok(
+                     static_cast<cudaError_t>(
+                         launch_candidate(candidate_storage)),
+                     step_label + " launch one-node candidate") &&
+                 step_ready;
+    step_ready = copy_state(baseline_storage, observed_baseline,
+                            step_label + " baseline") &&
+                 step_ready;
+    step_ready = copy_state(candidate_storage, observed_candidate,
+                            step_label + " candidate") &&
+                 step_ready;
+    const auto mismatches =
+        count_mismatches(observed_candidate, observed_baseline);
+    const bool baseline_guards =
+        guards_intact(observed_baseline, 0xa5U, 0xc3U);
+    const bool candidate_guards =
+        guards_intact(observed_candidate, 0x5aU, 0x3cU);
+    const bool step_gate = step_ready && zero_mismatches(mismatches) &&
+                           baseline_guards && candidate_guards;
+    sequential_exact_gate = sequential_exact_gate && step_gate;
+    test.expect(step_gate,
+                step_label + " is five-state bitwise and guarded");
+    std::cout << "DECODE_QKV_CAUSAL_CONV_STEP: step=" << step + 1U
+              << " conv_qkv_mismatches=" << mismatches[0U] << '/'
+              << kQkvRows << " z_mismatches=" << mismatches[1U] << '/'
+              << kZRows << " a_mismatches=" << mismatches[2U] << '/'
+              << kAbRows << " b_mismatches=" << mismatches[3U] << '/'
+              << kAbRows << " history_mismatches="
+              << mismatches[kHistoryIndex] << '/' << kHistoryElements
+              << " baseline_guards="
+              << (baseline_guards ? "intact" : "BAD")
+              << " candidate_guards="
+              << (candidate_guards ? "intact" : "BAD")
+              << " gate=" << (step_gate ? "PASS" : "FAIL") << '\n';
+  }
+
+  std::vector<std::uint8_t> preserved_qkv(host_qkv_weights.size());
+  std::vector<std::uint8_t> preserved_z(host_z_weights.size());
+  std::vector<std::uint16_t> preserved_a(host_a_weights.size());
+  std::vector<std::uint16_t> preserved_b(host_b_weights.size());
+  std::vector<std::uint16_t> preserved_activation(host_activation.size());
+  std::vector<std::uint16_t> preserved_conv(host_conv_weight.size());
+  bool preserve_ready = test.cuda_ok(
+      cudaMemcpyAsync(preserved_qkv.data(), qkv_weights.get(),
+                      preserved_qkv.size(), cudaMemcpyDeviceToHost, stream),
+      label + " preserve QKV weights");
+  preserve_ready = test.cuda_ok(
+                       cudaMemcpyAsync(preserved_z.data(), z_weights.get(),
+                                       preserved_z.size(),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " preserve Z weights") &&
+                   preserve_ready;
+  preserve_ready = test.cuda_ok(
+                       cudaMemcpyAsync(preserved_a.data(), a_weights.get(),
+                                       preserved_a.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " preserve A weights") &&
+                   preserve_ready;
+  preserve_ready = test.cuda_ok(
+                       cudaMemcpyAsync(preserved_b.data(), b_weights.get(),
+                                       preserved_b.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " preserve B weights") &&
+                   preserve_ready;
+  preserve_ready = test.cuda_ok(
+                       cudaMemcpyAsync(preserved_activation.data(),
+                                       activation.get(),
+                                       preserved_activation.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " preserve activation") &&
+                   preserve_ready;
+  preserve_ready = test.cuda_ok(
+                       cudaMemcpyAsync(preserved_conv.data(),
+                                       conv_weight.get(),
+                                       preserved_conv.size() *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " preserve conv weight") &&
+                   preserve_ready;
+  preserve_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " preserve synchronize") &&
+                   preserve_ready;
+  const bool input_preservation_gate =
+      preserve_ready && preserved_qkv == host_qkv_weights &&
+      preserved_z == host_z_weights && preserved_a == host_a_weights &&
+      preserved_b == host_b_weights &&
+      preserved_activation == host_activation &&
+      preserved_conv == host_conv_weight;
+  test.expect(input_preservation_gate,
+              label + " leaves activation and all weights bitwise intact");
+  std::cout << "DECODE_QKV_CAUSAL_CONV_INPUTS: qkv_weights="
+            << (preserved_qkv == host_qkv_weights ? "preserved" : "MUTATED")
+            << " z_weights="
+            << (preserved_z == host_z_weights ? "preserved" : "MUTATED")
+            << " a_weights="
+            << (preserved_a == host_a_weights ? "preserved" : "MUTATED")
+            << " b_weights="
+            << (preserved_b == host_b_weights ? "preserved" : "MUTATED")
+            << " activation="
+            << (preserved_activation == host_activation ? "preserved"
+                                                         : "MUTATED")
+            << " conv_weight="
+            << (preserved_conv == host_conv_weight ? "preserved"
+                                                    : "MUTATED")
+            << " gate=" << (input_preservation_gate ? "PASS" : "FAIL")
+            << '\n';
+
+  struct CapturedRoute {
+    bool ready = false;
+    cudaGraph_t graph = nullptr;
+    std::size_t total_nodes = 0U;
+    std::size_t root_nodes = 0U;
+    std::vector<cudaKernelNodeParams> kernel_params;
+  };
+  const auto capture_route = [&](const auto& launch,
+                                 const std::string& capture_label) {
+    CapturedRoute captured;
+    bool capture_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        capture_label + " begin capture");
+    int launch_status = static_cast<int>(cudaErrorUnknown);
+    if (capture_ready) {
+      launch_status = launch();
+      capture_ready = test.cuda_ok(cudaStreamEndCapture(stream,
+                                                        &captured.graph),
+                                   capture_label + " end capture") &&
+                      capture_ready;
+    }
+    if (capture_ready && captured.graph != nullptr) {
+      capture_ready = test.cuda_ok(
+                          cudaGraphGetNodes(captured.graph, nullptr,
+                                            &captured.total_nodes),
+                          capture_label + " count nodes") &&
+                      capture_ready;
+      capture_ready = test.cuda_ok(
+                          cudaGraphGetRootNodes(captured.graph, nullptr,
+                                                &captured.root_nodes),
+                          capture_label + " count roots") &&
+                      capture_ready;
+    }
+    if (capture_ready && captured.total_nodes != 0U) {
+      std::vector<cudaGraphNode_t> nodes(captured.total_nodes);
+      std::size_t capacity = nodes.size();
+      capture_ready = test.cuda_ok(
+                          cudaGraphGetNodes(captured.graph, nodes.data(),
+                                            &capacity),
+                          capture_label + " get nodes") &&
+                      capture_ready;
+      for (std::size_t index = 0U; index < capacity && capture_ready;
+           ++index) {
+        cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+        capture_ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                                     capture_label + " get node type") &&
+                        capture_ready;
+        if (type == cudaGraphNodeTypeKernel) {
+          cudaKernelNodeParams params{};
+          capture_ready = test.cuda_ok(
+                              cudaGraphKernelNodeGetParams(nodes[index],
+                                                           &params),
+                              capture_label + " get kernel params") &&
+                          capture_ready;
+          captured.kernel_params.push_back(params);
+        }
+      }
+    }
+    captured.ready = capture_ready &&
+                     launch_status == static_cast<int>(cudaSuccess);
+    return captured;
+  };
+  if (!initialize_state(baseline_storage, 0xa5U, 0xc3U,
+                        label + " graph baseline") ||
+      !initialize_state(candidate_storage, 0x5aU, 0x3cU,
+                        label + " graph candidate") ||
+      !test.cuda_ok(cudaStreamSynchronize(stream),
+                    label + " graph initialize synchronize")) {
+    return;
+  }
+  CapturedRoute baseline_graph = capture_route(
+      [&]() { return launch_baseline(baseline_storage); },
+      label + " baseline graph");
+  CapturedRoute candidate_graph = capture_route(
+      [&]() { return launch_candidate(candidate_storage); },
+      label + " candidate graph");
+  const auto exact_topology = [](const cudaKernelNodeParams& params,
+                                 const unsigned int grid_x) {
+    return params.gridDim.x == grid_x && params.gridDim.y == 1U &&
+           params.gridDim.z == 1U && params.blockDim.x == 256U &&
+           params.blockDim.y == 1U && params.blockDim.z == 1U &&
+           params.sharedMemBytes == 0U;
+  };
+  bool baseline_has_projection = false;
+  bool baseline_has_conv = false;
+  for (const cudaKernelNodeParams& params : baseline_graph.kernel_params) {
+    baseline_has_projection =
+        baseline_has_projection || exact_topology(params, 1'536U);
+    baseline_has_conv = baseline_has_conv || exact_topology(params, 40U);
+  }
+  const bool baseline_graph_gate =
+      baseline_graph.ready && baseline_graph.total_nodes == 2U &&
+      baseline_graph.root_nodes == 1U &&
+      baseline_graph.kernel_params.size() == 2U &&
+      baseline_has_projection && baseline_has_conv;
+  const bool candidate_graph_gate =
+      candidate_graph.ready && candidate_graph.total_nodes == 1U &&
+      candidate_graph.root_nodes == 1U &&
+      candidate_graph.kernel_params.size() == 1U &&
+      exact_topology(candidate_graph.kernel_params.front(), 1'536U);
+  bool graph_function_distinct =
+      baseline_graph_gate && candidate_graph_gate;
+  if (graph_function_distinct) {
+    for (const cudaKernelNodeParams& params : baseline_graph.kernel_params) {
+      graph_function_distinct =
+          graph_function_distinct &&
+          candidate_graph.kernel_params.front().func != params.func;
+    }
+  }
+  cudaGraphExec_t candidate_graph_exec = nullptr;
+  bool graph_replay_ready =
+      candidate_graph_gate && graph_function_distinct &&
+      test.cuda_ok(cudaGraphInstantiate(&candidate_graph_exec,
+                                        candidate_graph.graph, nullptr,
+                                        nullptr, 0U),
+                   label + " instantiate candidate graph");
+  if (graph_replay_ready) {
+    graph_replay_ready =
+        initialize_state(baseline_storage, 0xa5U, 0xc3U,
+                         label + " replay baseline") &&
+        initialize_state(candidate_storage, 0x5aU, 0x3cU,
+                         label + " replay candidate");
+  }
+  for (std::size_t replay = 0U; replay < 2U && graph_replay_ready; ++replay) {
+    graph_replay_ready = test.cuda_ok(
+                             static_cast<cudaError_t>(
+                                 launch_baseline(baseline_storage)),
+                             label + " replay baseline step") &&
+                         graph_replay_ready;
+    graph_replay_ready = test.cuda_ok(
+                             cudaGraphLaunch(candidate_graph_exec, stream),
+                             label + " replay candidate step") &&
+                         graph_replay_ready;
+  }
+  graph_replay_ready =
+      copy_state(baseline_storage, observed_baseline,
+                 label + " replay baseline") &&
+      graph_replay_ready;
+  graph_replay_ready =
+      copy_state(candidate_storage, observed_candidate,
+                 label + " replay candidate") &&
+      graph_replay_ready;
+  const auto graph_mismatches =
+      count_mismatches(observed_candidate, observed_baseline);
+  const bool graph_guards =
+      guards_intact(observed_baseline, 0xa5U, 0xc3U) &&
+      guards_intact(observed_candidate, 0x5aU, 0x3cU);
+  const bool graph_replay_gate =
+      graph_replay_ready && zero_mismatches(graph_mismatches) &&
+      graph_guards;
+  const bool graph_gate = baseline_graph_gate && candidate_graph_gate &&
+                          graph_function_distinct && graph_replay_gate;
+  test.expect(graph_gate,
+              label + " captures ordered 2-to-1 Graphs and replays bitwise");
+  std::cout << "DECODE_QKV_CAUSAL_CONV_GRAPH: baseline_nodes="
+            << baseline_graph.total_nodes
+            << " baseline_kernel_nodes="
+            << baseline_graph.kernel_params.size()
+            << " baseline_root_nodes=" << baseline_graph.root_nodes
+            << " candidate_nodes=" << candidate_graph.total_nodes
+            << " candidate_kernel_nodes="
+            << candidate_graph.kernel_params.size()
+            << " candidate_root_nodes=" << candidate_graph.root_nodes
+            << " baseline_projection_grid=1536"
+            << " baseline_conv_grid=40"
+            << " candidate_grid=1536"
+            << " distinct_function="
+            << (graph_function_distinct ? "true" : "false")
+            << " replay_steps=2"
+            << " replay_mismatches="
+            << std::accumulate(graph_mismatches.begin(),
+                               graph_mismatches.end(), std::size_t{0U})
+            << " guards=" << (graph_guards ? "intact" : "BAD")
+            << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+  if (candidate_graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(candidate_graph_exec),
+                       label + " destroy candidate graph executable");
+  }
+  if (candidate_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(candidate_graph.graph),
+                       label + " destroy candidate graph");
+  }
+  if (baseline_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(baseline_graph.graph),
+                       label + " destroy baseline graph");
+  }
+
+  struct InvalidArguments {
+    const std::uint8_t* qkv_weights;
+    float qkv_scale;
+    const std::uint8_t* z_weights;
+    float z_scale;
+    const std::uint16_t* a_weights;
+    const std::uint16_t* b_weights;
+    const std::uint16_t* activation;
+    std::size_t qkv_rows;
+    std::size_t z_rows;
+    std::size_t ab_rows;
+    std::size_t columns;
+    std::uint16_t* qkv_output;
+    std::uint16_t* z_output;
+    std::uint16_t* a_output;
+    std::uint16_t* b_output;
+    const std::uint16_t* conv_weight;
+    std::uint16_t* history;
+  };
+  struct InvalidCase {
+    std::string name;
+    InvalidArguments arguments;
+  };
+  const InvalidArguments valid_arguments{
+      qkv_weights.get(),
+      kQkvScale,
+      z_weights.get(),
+      kZScale,
+      a_weights.get(),
+      b_weights.get(),
+      activation.get(),
+      kQkvRows,
+      kZRows,
+      kAbRows,
+      kColumns,
+      state_pointer(candidate_storage, 0U),
+      state_pointer(candidate_storage, 1U),
+      state_pointer(candidate_storage, 2U),
+      state_pointer(candidate_storage, 3U),
+      conv_weight.get(),
+      state_pointer(candidate_storage, kHistoryIndex),
+  };
+  std::vector<InvalidCase> invalid_cases;
+  const auto add_invalid = [&](std::string name, const auto& mutate) {
+    InvalidArguments arguments = valid_arguments;
+    mutate(arguments);
+    invalid_cases.push_back(InvalidCase{std::move(name), arguments});
+  };
+  add_invalid("bad_qkv_rows", [](auto& args) { --args.qkv_rows; });
+  add_invalid("bad_z_rows", [](auto& args) { --args.z_rows; });
+  add_invalid("bad_ab_rows", [](auto& args) { --args.ab_rows; });
+  add_invalid("bad_columns", [](auto& args) { --args.columns; });
+  add_invalid("null_qkv_weights",
+              [](auto& args) { args.qkv_weights = nullptr; });
+  add_invalid("null_z_weights", [](auto& args) { args.z_weights = nullptr; });
+  add_invalid("null_a_weights", [](auto& args) { args.a_weights = nullptr; });
+  add_invalid("null_b_weights", [](auto& args) { args.b_weights = nullptr; });
+  add_invalid("null_activation", [](auto& args) { args.activation = nullptr; });
+  add_invalid("null_qkv_output", [](auto& args) { args.qkv_output = nullptr; });
+  add_invalid("null_z_output", [](auto& args) { args.z_output = nullptr; });
+  add_invalid("null_a_output", [](auto& args) { args.a_output = nullptr; });
+  add_invalid("null_b_output", [](auto& args) { args.b_output = nullptr; });
+  add_invalid("null_conv_weight",
+              [](auto& args) { args.conv_weight = nullptr; });
+  add_invalid("null_history", [](auto& args) { args.history = nullptr; });
+  add_invalid("qkv_scale_negative",
+              [](auto& args) { args.qkv_scale = -1.0F; });
+  add_invalid("qkv_scale_nan", [](auto& args) {
+    args.qkv_scale = std::numeric_limits<float>::quiet_NaN();
+  });
+  add_invalid("z_scale_negative", [](auto& args) { args.z_scale = -1.0F; });
+  add_invalid("z_scale_inf", [](auto& args) {
+    args.z_scale = std::numeric_limits<float>::infinity();
+  });
+  add_invalid("misaligned_qkv_weights", [](auto& args) {
+    args.qkv_weights = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(args.qkv_weights) + 1U);
+  });
+  add_invalid("misaligned_conv_weight", [](auto& args) {
+    args.conv_weight = reinterpret_cast<const std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.conv_weight) + 1U);
+  });
+  add_invalid("misaligned_history", [](auto& args) {
+    args.history = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.history) + 1U);
+  });
+  add_invalid("qkv_z_output_alias",
+              [](auto& args) { args.z_output = args.qkv_output; });
+  add_invalid("a_b_output_alias",
+              [](auto& args) { args.b_output = args.a_output; });
+  add_invalid("qkv_output_input_alias", [](auto& args) {
+    args.qkv_output = reinterpret_cast<std::uint16_t*>(
+        const_cast<std::uint8_t*>(args.qkv_weights));
+  });
+  add_invalid("history_qkv_output_alias",
+              [](auto& args) { args.history = args.qkv_output; });
+  add_invalid("history_conv_weight_alias", [](auto& args) {
+    args.history = const_cast<std::uint16_t*>(args.conv_weight);
+  });
+  add_invalid("conv_weight_activation_alias",
+              [](auto& args) { args.conv_weight = args.activation; });
+
+  const auto launch_invalid = [&](const InvalidArguments& args) {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_cuda(
+            args.qkv_weights, args.qkv_scale, args.z_weights, args.z_scale,
+            args.a_weights, args.b_weights, args.activation, args.qkv_rows,
+            args.z_rows, args.ab_rows, args.columns, args.qkv_output,
+            args.z_output, args.a_output, args.b_output, args.conv_weight,
+            args.history, static_cast<void*>(stream));
+  };
+  bool invalid_gate = true;
+  std::size_t invalid_failures = 0U;
+  for (const InvalidCase& invalid_case : invalid_cases) {
+    const std::string invalid_label =
+        label + " invalid " + invalid_case.name;
+    cudaGraph_t invalid_graph = nullptr;
+    bool invalid_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        invalid_label + " begin capture");
+    int status = static_cast<int>(cudaErrorUnknown);
+    if (invalid_ready) {
+      status = launch_invalid(invalid_case.arguments);
+      invalid_ready = test.cuda_ok(cudaStreamEndCapture(stream,
+                                                        &invalid_graph),
+                                   invalid_label + " end capture") &&
+                      invalid_ready;
+    }
+    std::size_t nodes = std::numeric_limits<std::size_t>::max();
+    if (invalid_ready && invalid_graph != nullptr) {
+      invalid_ready = test.cuda_ok(
+                          cudaGraphGetNodes(invalid_graph, nullptr, &nodes),
+                          invalid_label + " count nodes") &&
+                      invalid_ready;
+    }
+    if (invalid_graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(invalid_graph),
+                         invalid_label + " destroy graph");
+    }
+    const bool case_gate =
+        invalid_ready && status == static_cast<int>(cudaErrorInvalidValue) &&
+        nodes == 0U;
+    invalid_gate = invalid_gate && case_gate;
+    invalid_failures += case_gate ? 0U : 1U;
+    test.expect(case_gate,
+                invalid_label + " returns invalid and captures zero nodes");
+  }
+  std::cout << "DECODE_QKV_CAUSAL_CONV_INVALID: cases="
+            << invalid_cases.size() << " failures=" << invalid_failures
+            << " aliases_checked=6"
+            << " each_captured_graph_nodes=0"
+            << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
+
+  const bool default_gate =
+      resource_gate && resource_null_gate && sequential_exact_gate &&
+      input_preservation_gate && graph_gate && invalid_gate;
+  test.expect(default_gate,
+              label + " clears the strict default selection contract");
+  std::cout << "DECODE_QKV_CAUSAL_CONV_DEFAULT: sequential_steps=4"
+            << " exact_outputs=qkv_after_conv,z,a,b"
+            << " exact_history=true"
+            << " inputs_preserved="
+            << (input_preservation_gate ? "true" : "false")
+            << " canaries="
+            << (sequential_exact_gate && graph_guards ? "intact" : "BAD")
+            << " graph_2_to_1=" << (graph_gate ? "PASS" : "FAIL")
+            << " invalid_zero_node="
+            << (invalid_gate ? "PASS" : "FAIL")
+            << " resources=" << (resource_gate ? "PASS" : "FAIL")
+            << " gate=" << (default_gate ? "PASS" : "FAIL") << '\n';
+
+  if (!decode_qkv_causal_conv_epilogue_performance_enabled()) {
+    std::cout
+        << "SKIP: Decode QKV causal-conv epilogue formal performance; set "
+           "Q3X_RUN_SM87_DECODE_QKV_CAUSAL_CONV_EPILOGUE_PERF=1 to enable\n";
+    return;
+  }
+  if (!default_gate) {
+    test.expect(false, label + " refuses performance after a default failure");
+    return;
+  }
+
+  constexpr std::size_t kLayerCount = 48U;
+  constexpr int kWarmupChains = 2;
+  constexpr int kMeasuredIterations = 8;
+  constexpr int kMeasurementRounds = 5;
+  constexpr std::size_t kTimedPasses =
+      2U * static_cast<std::size_t>(kMeasurementRounds);
+  constexpr float kRequiredProjectedSavingMs = 0.20F;
+  DeviceBuffer<std::uint16_t> timing_history;
+  DeviceBuffer<std::uint16_t> timing_history_seed;
+  std::vector<std::uint16_t> host_layer_history(kLayerCount *
+                                                kHistoryElements);
+  for (std::size_t layer = 0U; layer < kLayerCount; ++layer) {
+    std::copy(host_initial_history.begin(), host_initial_history.end(),
+              host_layer_history.begin() + layer * kHistoryElements);
+  }
+  bool timing_ready = test.cuda_ok(
+      timing_history.allocate(host_layer_history.size()),
+      label + " allocate timing history");
+  timing_ready = test.cuda_ok(
+                     timing_history_seed.allocate(host_layer_history.size()),
+                     label + " allocate timing history seed") &&
+                 timing_ready;
+  if (timing_ready) {
+    timing_ready = test.cuda_ok(
+        cudaMemcpyAsync(timing_history_seed.get(), host_layer_history.data(),
+                        host_layer_history.size() * sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        label + " upload timing history seed");
+  }
+  const auto reset_timing_history = [&](const std::string& reset_label) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(timing_history.get(), timing_history_seed.get(),
+                        host_layer_history.size() * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToDevice, stream),
+        reset_label + " reset same-address history");
+  };
+  const auto launch_baseline_chain = [&]() {
+    for (std::size_t layer = 0U; layer < kLayerCount; ++layer) {
+      const int projection_status =
+          q3x::kernels::
+              launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+                  qkv_weights.get(), kQkvScale, z_weights.get(), kZScale,
+                  a_weights.get(), b_weights.get(), activation.get(),
+                  kQkvRows, kZRows, kAbRows, kColumns,
+                  state_pointer(candidate_storage, 0U),
+                  state_pointer(candidate_storage, 1U),
+                  state_pointer(candidate_storage, 2U),
+                  state_pointer(candidate_storage, 3U),
+                  static_cast<void*>(stream));
+      if (projection_status != static_cast<int>(cudaSuccess)) {
+        return projection_status;
+      }
+      const int conv_status =
+          q3x::runtime::launch_causal_conv1d_silu_update_reference_cuda(
+              state_pointer(candidate_storage, 0U), conv_weight.get(),
+              timing_history.get() + layer * kHistoryElements,
+              state_pointer(candidate_storage, 0U), {},
+              static_cast<void*>(stream));
+      if (conv_status != static_cast<int>(cudaSuccess)) {
+        return conv_status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_candidate_chain = [&]() {
+    for (std::size_t layer = 0U; layer < kLayerCount; ++layer) {
+      const int status = q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_cuda(
+              qkv_weights.get(), kQkvScale, z_weights.get(), kZScale,
+              a_weights.get(), b_weights.get(), activation.get(),
+              kQkvRows, kZRows, kAbRows, kColumns,
+              state_pointer(candidate_storage, 0U),
+              state_pointer(candidate_storage, 1U),
+              state_pointer(candidate_storage, 2U),
+              state_pointer(candidate_storage, 3U), conv_weight.get(),
+              timing_history.get() + layer * kHistoryElements,
+              static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto measure_chain = [&](const auto& launch_chain,
+                                 const std::string& measure_label) {
+    EventPair events;
+    bool measure_ready = events.create(test);
+    measure_ready = reset_timing_history(measure_label) && measure_ready;
+    measure_ready = test.cuda_ok(cudaEventRecord(events.start(), stream),
+                                 measure_label + " record start") &&
+                    measure_ready;
+    for (int iteration = 0; iteration < kMeasuredIterations && measure_ready;
+         ++iteration) {
+      measure_ready =
+          test.cuda_ok(static_cast<cudaError_t>(launch_chain()),
+                       measure_label + " launch 48-layer chain") &&
+          measure_ready;
+    }
+    measure_ready = test.cuda_ok(cudaEventRecord(events.stop(), stream),
+                                 measure_label + " record stop") &&
+                    measure_ready;
+    measure_ready = test.cuda_ok(cudaEventSynchronize(events.stop()),
+                                 measure_label + " synchronize") &&
+                    measure_ready;
+    float milliseconds = std::numeric_limits<float>::quiet_NaN();
+    measure_ready = test.cuda_ok(
+                        cudaEventElapsedTime(&milliseconds, events.start(),
+                                             events.stop()),
+                        measure_label + " elapsed time") &&
+                    measure_ready;
+    return measure_ready
+               ? milliseconds / static_cast<float>(kMeasuredIterations)
+               : std::numeric_limits<float>::quiet_NaN();
+  };
+  for (int warmup = 0; warmup < kWarmupChains && timing_ready; ++warmup) {
+    timing_ready = reset_timing_history(label + " baseline warmup") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_baseline_chain()),
+                       label + " baseline warmup chain") &&
+                   timing_ready;
+    timing_ready = reset_timing_history(label + " candidate warmup") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate_chain()),
+                       label + " candidate warmup chain") &&
+                   timing_ready;
+  }
+  timing_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                              label + " timing warmup synchronize") &&
+                 timing_ready;
+
+  std::array<float, kTimedPasses> baseline_passes{};
+  std::array<float, kTimedPasses> candidate_passes{};
+  std::array<float, kMeasurementRounds> paired_speedups{};
+  std::array<float, kMeasurementRounds> paired_deltas{};
+  bool every_round_positive = timing_ready;
+  for (int round = 0; round < kMeasurementRounds && timing_ready; ++round) {
+    const bool baseline_first = (round & 1) == 0;
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    float baseline1 = std::numeric_limits<float>::quiet_NaN();
+    float baseline2 = std::numeric_limits<float>::quiet_NaN();
+    float candidate1 = std::numeric_limits<float>::quiet_NaN();
+    float candidate2 = std::numeric_limits<float>::quiet_NaN();
+    if (baseline_first) {
+      baseline1 = measure_chain(launch_baseline_chain, round_label + " B1");
+      candidate1 =
+          measure_chain(launch_candidate_chain, round_label + " C1");
+      candidate2 =
+          measure_chain(launch_candidate_chain, round_label + " C2");
+      baseline2 = measure_chain(launch_baseline_chain, round_label + " B2");
+    } else {
+      candidate1 =
+          measure_chain(launch_candidate_chain, round_label + " C1");
+      baseline1 = measure_chain(launch_baseline_chain, round_label + " B1");
+      baseline2 = measure_chain(launch_baseline_chain, round_label + " B2");
+      candidate2 =
+          measure_chain(launch_candidate_chain, round_label + " C2");
+    }
+    const std::size_t pass = 2U * static_cast<std::size_t>(round);
+    baseline_passes[pass] = baseline1;
+    baseline_passes[pass + 1U] = baseline2;
+    candidate_passes[pass] = candidate1;
+    candidate_passes[pass + 1U] = candidate2;
+    const bool finite =
+        std::isfinite(baseline1) && std::isfinite(baseline2) &&
+        std::isfinite(candidate1) && std::isfinite(candidate2) &&
+        baseline1 > 0.0F && baseline2 > 0.0F && candidate1 > 0.0F &&
+        candidate2 > 0.0F;
+    const float paired_baseline = 0.5F * (baseline1 + baseline2);
+    const float paired_candidate = 0.5F * (candidate1 + candidate2);
+    const float paired_speedup = paired_baseline / paired_candidate;
+    const float paired_delta = paired_baseline - paired_candidate;
+    paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
+    paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
+    const bool round_gate = finite && paired_delta > 0.0F;
+    every_round_positive = every_round_positive && round_gate;
+    timing_ready = timing_ready && finite;
+    std::cout << "PERF_DECODE_QKV_CAUSAL_CONV_ROUND: round=" << round + 1
+              << " order="
+              << (baseline_first ? "B-C-C-B" : "C-B-B-C")
+              << " layers_per_chain=" << kLayerCount
+              << " logical_chains_per_pass=" << kMeasuredIterations
+              << " baseline_pass1_ms=" << baseline1
+              << " candidate_pass1_ms=" << candidate1
+              << " candidate_pass2_ms=" << candidate2
+              << " baseline_pass2_ms=" << baseline2
+              << " paired_speedup=" << paired_speedup
+              << " paired_delta_ms_per_token=" << paired_delta
+              << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const float baseline_median =
+      timing_ready ? median_fp8_kv_pair_timing(baseline_passes)
+                   : std::numeric_limits<float>::quiet_NaN();
+  const float candidate_median =
+      timing_ready ? median_fp8_kv_pair_timing(candidate_passes)
+                   : std::numeric_limits<float>::quiet_NaN();
+  const float paired_median_speedup =
+      timing_ready ? median_fp8_kv_pair_timing(paired_speedups)
+                   : std::numeric_limits<float>::quiet_NaN();
+  const float projected_48_layer_delta_ms =
+      timing_ready ? median_fp8_kv_pair_timing(paired_deltas)
+                   : std::numeric_limits<float>::quiet_NaN();
+  const bool performance_gate =
+      timing_ready && every_round_positive &&
+      projected_48_layer_delta_ms >= kRequiredProjectedSavingMs;
+  std::cout << "PERF_DECODE_QKV_CAUSAL_CONV_SELECTED:"
+            << " baseline=production_composite_plus_reference_conv"
+            << " candidate=test_only_single_node_conv_epilogue"
+            << " layers_per_token=" << kLayerCount
+            << " same_output_addresses=true"
+            << " same_history_address=true"
+            << " reset_same_initial_history_each_pass=true"
+            << " baseline_median_ms_per_48_layer_chain=" << baseline_median
+            << " candidate_median_ms_per_48_layer_chain="
+            << candidate_median
+            << " paired_median_speedup=" << paired_median_speedup
+            << " projected_48_layer_delta_ms_per_token="
+            << projected_48_layer_delta_ms
+            << " required_each_round_positive=true"
+            << " every_round_positive="
+            << (every_round_positive ? "true" : "false")
+            << " required_projected_delta_ms_per_token="
+            << kRequiredProjectedSavingMs
+            << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(performance_gate,
+              label + " clears the formal 48-layer performance gate");
 }
 
 void run_optional_fp8_m2_row_pair_performance(TestContext& test,
@@ -48041,6 +49147,18 @@ int main() {
                     "create non-blocking stream")) {
     return 1;
   }
+  if (decode_qkv_causal_conv_epilogue_performance_enabled()) {
+    run_decode_qkv_causal_conv_epilogue_screen(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode QKV causal-conv epilogue stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode QKV causal-conv epilogue assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode QKV causal-conv epilogue screen passed\n";
+    return 0;
+  }
   if (nvfp4_m1_lm_head_cs_performance_enabled()) {
     run_nvfp4_m1_lm_head_activation_staged_cs_probe(test, stream);
     (void)test.cuda_ok(cudaStreamDestroy(stream),
@@ -48244,6 +49362,7 @@ int main() {
   run_optional_fp8_m1_qkv_z_reduction_scratch_ping_pong_performance(test,
                                                                      stream);
   run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(test, stream);
+  run_decode_qkv_causal_conv_epilogue_screen(test, stream);
   run_optional_fp8_m2_grid_cap_performance(test, stream);
   run_optional_fp8_m2_row_pair_performance(test, stream);
   run_optional_fp8_m2_row_quad_performance(test, stream);
