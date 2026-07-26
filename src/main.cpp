@@ -706,8 +706,18 @@ void PrintGeneration(
          << "load.resident_ms=" << load.resident_load_milliseconds << '\n'
          << "load.weight_bind_ms=" << load.weight_bind_milliseconds << '\n'
          << "load.request_state_ms=" << load.request_state_milliseconds << '\n'
+         << "load.fp8_output_sidecar_ms="
+         << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
+         << "load.fp8_output_sidecars_enabled="
+         << (load.fp8_output_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_output_sidecar_layers="
+         << load.fp8_output_sidecar_layers << '\n'
+         << "load.fp8_output_sidecar_bytes="
+         << load.fp8_output_sidecar_bytes << '\n'
+         << "load.fp8_output_sidecar_fallback_reason="
+         << load.fp8_output_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.bytes_read=" << load.resident.bytes_read << '\n'
@@ -862,8 +872,18 @@ void PrintBenchmarkReport(
          << "load.weight_bind_ms=" << load.weight_bind_milliseconds << '\n'
          << "load.request_state_ms=" << load.request_state_milliseconds
          << '\n'
+         << "load.fp8_output_sidecar_ms="
+         << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
+         << "load.fp8_output_sidecars_enabled="
+         << (load.fp8_output_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_output_sidecar_layers="
+         << load.fp8_output_sidecar_layers << '\n'
+         << "load.fp8_output_sidecar_bytes="
+         << load.fp8_output_sidecar_bytes << '\n'
+         << "load.fp8_output_sidecar_fallback_reason="
+         << load.fp8_output_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.sha256_backend="

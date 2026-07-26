@@ -5,10 +5,10 @@
 
 namespace q3x::kernels {
 
-// SM87 single-request weight-only projection kernels. Every entry point
-// consumes the canonical row-major checkpoint layout, accumulates in FP32,
-// rounds each final row result to BF16 RNE, and writes the raw BF16 bits to
-// output.
+// SM87 single-request weight-only projection kernels. Unless an exact derived
+// layout is documented explicitly, every entry point consumes the canonical
+// row-major checkpoint layout, accumulates in FP32, rounds each final row
+// result to BF16 RNE, and writes the raw BF16 bits to output.
 //
 // The launch is asynchronous on cuda_stream and performs no allocation,
 // copying, or synchronization. cuda_stream is a cudaStream_t represented as
@@ -34,6 +34,37 @@ namespace q3x::kernels {
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activation, std::size_t rows, std::size_t columns,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Exact M=1 output projection over the derived AoSoA4 FP8 layout for
+// [rows=5120, columns=6144]. For each adjacent row quad and packed four-column
+// word, sidecar_weights stores one uint4 whose x/y/z/w components correspond
+// to rows 0/1/2/3. Every byte is pre-swizzled as code ^ (code >> 5). The
+// sidecar therefore has the same 31,457,280-byte extent as the canonical
+// matrix but is not a canonical checkpoint tensor.
+//
+// sidecar_weights requires 16-byte alignment, activation 8-byte alignment,
+// and output 2-byte alignment. Their complete spans must be pairwise
+// disjoint. Only the exact shape is accepted; invalid arguments return
+// cudaErrorInvalidValue before work is enqueued. The launch uses a fixed
+// 1024-CTA grid and is asynchronous on cuda_stream.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+    const std::uint8_t* sidecar_weights, float weight_scale,
+    const std::uint16_t* activation, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Builds the exact AoSoA4 sidecar above from one canonical row-major FP8
+// [5120, 6144] matrix. canonical_weights is read-only and requires 4-byte
+// alignment; sidecar_weights requires 16-byte alignment. Both complete
+// 31,457,280-byte spans must be disjoint. Each destination uint4 is written
+// once after applying the byte-wise code ^ (code >> 5) transform. The launch
+// is asynchronous, allocation-free, and accepts no other shape.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
+    const std::uint8_t* canonical_weights,
+    std::uint8_t* sidecar_weights, std::size_t rows,
+    std::size_t columns, void* cuda_stream = nullptr) noexcept;
 
 // Fused checkpoint QKV/Z projection for the exact FP8 [10240, 5120] and
 // [6144, 5120] M=1 shapes. Both matrices consume the same activation and

@@ -119,6 +119,7 @@ struct ReferenceEngineLoadStats {
   double resident_load_milliseconds = 0.0;
   double weight_bind_milliseconds = 0.0;
   double request_state_milliseconds = 0.0;
+  double fp8_output_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   double total_milliseconds = 0.0;
   ResidentLoadStats resident;
@@ -127,6 +128,13 @@ struct ReferenceEngineLoadStats {
   std::uint32_t request_max_sequence_length = 0U;
   std::uint32_t request_prefill_chunk_size =
       kDefaultRequestPrefillChunkSize;
+  bool fp8_output_sidecars_enabled = false;
+  std::size_t fp8_output_sidecar_layers = 0U;
+  std::uint64_t fp8_output_sidecar_bytes = 0U;
+  // Empty when the SM87 sidecar path was enabled or was not requested.
+  // Optional allocation/memory-gate failures retain the canonical M1 route
+  // and record a stable reason here instead of failing engine creation.
+  std::string fp8_output_sidecar_fallback_reason;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

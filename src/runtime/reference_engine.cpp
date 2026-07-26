@@ -1,6 +1,7 @@
 #include "q3x/runtime/reference_engine.h"
 
 #include "q3x/core/sha256.h"
+#include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/text/tokenizer.h"
 
 #include <cuda_runtime_api.h>
@@ -24,6 +25,50 @@ namespace q3x::runtime {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+struct Sm87Fp8OutputProjectionSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+
+  Sm87Fp8OutputProjectionSidecars() noexcept = default;
+  Sm87Fp8OutputProjectionSidecars(
+      const Sm87Fp8OutputProjectionSidecars&) = delete;
+  Sm87Fp8OutputProjectionSidecars& operator=(
+      const Sm87Fp8OutputProjectionSidecars&) = delete;
+
+  ~Sm87Fp8OutputProjectionSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+  }
+};
+
+struct Sm87Fp8OutputSidecarPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+  std::string fallback_reason;
+};
+
+[[nodiscard]] const Fp8LinearWeight* attention_output_projection(
+    const DecoderLayerWeights& layer) noexcept {
+  if (const auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer.attention)) {
+    return std::get_if<Fp8LinearWeight>(&linear->out_proj);
+  }
+  if (const auto* const full =
+          std::get_if<FullAttentionWeights>(&layer.attention)) {
+    return std::get_if<Fp8LinearWeight>(&full->o_proj);
+  }
+  return nullptr;
+}
 
 [[nodiscard]] double elapsed_milliseconds(
     const Clock::time_point begin) noexcept {
@@ -345,13 +390,167 @@ struct TimedResidentLoad {
   return timed;
 }
 
+[[nodiscard]] Sm87Fp8OutputSidecarPreparation
+prepare_sm87_fp8_output_projection_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87Fp8OutputProjectionSidecars& owner) {
+  Sm87Fp8OutputSidecarPreparation result;
+  if (owner.data != nullptr || owner.bytes != 0U) {
+    result.hard_failure = true;
+    result.message = "FP8 output sidecar owner was not empty before prepare";
+    return result;
+  }
+
+  for (const DecoderLayerWeights& layer : model_weights.layers()) {
+    const Fp8LinearWeight* const output =
+        attention_output_projection(layer);
+    if (output == nullptr || output->weight == nullptr ||
+        output->output_size != kFp8M1OutputProjectionRows ||
+        output->input_size != kFp8M1OutputProjectionColumns ||
+        output->m1_aosoa4_preswizzled_weight != nullptr ||
+        (reinterpret_cast<std::uintptr_t>(output->weight) %
+         alignof(std::uint32_t)) != 0U) {
+      result.fallback_reason = "ineligible_model_weights";
+      return result;
+    }
+  }
+
+  constexpr std::size_t kSidecarBytes =
+      kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes;
+  (void)cudaGetLastError();
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMemGetInfo failed before FP8 output sidecar prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kSidecarBytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - kSidecarBytes) {
+    result.fallback_reason = "insufficient_device_memory_margin";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, kSidecarBytes);
+  if (status == cudaErrorMemoryAllocation) {
+    (void)cudaGetLastError();
+    result.fallback_reason = "cuda_memory_allocation";
+    return result;
+  }
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message = "cudaMalloc failed while creating FP8 output sidecars";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = kSidecarBytes;
+
+  // Recheck the configured safety margin after the allocation. The first
+  // query prevents a predictably unsafe allocation; this second query closes
+  // the normal race with other device allocations and accounts for the
+  // driver's actual allocation granularity. A margin miss is optional-path
+  // fallback, while inability to query CUDA state remains a hard failure.
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status = cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed after FP8 output sidecar allocation";
+    owner.release();
+    return result;
+  }
+  if (static_cast<std::uint64_t>(remaining_free_bytes) <
+      minimum_free_bytes_after_prepare) {
+    result.fallback_reason =
+        "insufficient_device_memory_margin_after_allocation";
+    owner.release();
+    return result;
+  }
+
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaStreamCreateWithFlags failed for FP8 output sidecar prepare";
+    owner.release();
+    return result;
+  }
+
+  std::size_t layer_index = 0U;
+  for (const DecoderLayerWeights& layer : model_weights.layers()) {
+    const Fp8LinearWeight* const output =
+        attention_output_projection(layer);
+    std::uint8_t* const destination =
+        owner.data +
+        layer_index *
+            kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
+    status = static_cast<cudaError_t>(
+        kernels::
+            launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
+                output->weight, destination, output->output_size,
+                output->input_size, static_cast<void*>(stream)));
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "FP8 output sidecar pack launch failed at layer " +
+          std::to_string(layer_index);
+      (void)cudaStreamDestroy(stream);
+      owner.release();
+      return result;
+    }
+    ++layer_index;
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (status != cudaSuccess || destroy_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess ? status : destroy_status;
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message =
+        "FP8 output sidecar pack stream failed to synchronize or destroy";
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_fp8_m1_output_projection_sidecars(
+          owner.data, owner.bytes)) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the complete FP8 output sidecar arena";
+    owner.release();
+    return result;
+  }
+
+  result.enabled = true;
+  result.layers = kQwen36DenseLayerCount;
+  result.bytes = kSidecarBytes;
+  return result;
+}
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> output sidecars ->
+  // resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
+  Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -467,6 +666,30 @@ struct ReferenceEngine::Impl {
             impl->request_state->max_sequence_length();
         impl->load.request_prefill_chunk_size =
             impl->request_state->plan().prefill_chunk_size;
+      }
+
+      if (options.projection_backend ==
+          ProjectionBackend::kSm87WeightOnly) {
+        const Clock::time_point begin = Clock::now();
+        const Sm87Fp8OutputSidecarPreparation preparation =
+            prepare_sm87_fp8_output_projection_sidecars(
+                *impl->model_weights,
+                options.request_options.min_free_bytes_after_create,
+                impl->fp8_output_sidecars);
+        impl->load.fp8_output_sidecar_milliseconds =
+            elapsed_milliseconds(begin);
+        if (preparation.hard_failure) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "fp8_output_sidecar_prepare", preparation.message);
+          result.diagnostic.cuda_error = preparation.cuda_error;
+          return result;
+        }
+        impl->load.fp8_output_sidecars_enabled = preparation.enabled;
+        impl->load.fp8_output_sidecar_layers = preparation.layers;
+        impl->load.fp8_output_sidecar_bytes = preparation.bytes;
+        impl->load.fp8_output_sidecar_fallback_reason =
+            preparation.fallback_reason;
       }
 
       {

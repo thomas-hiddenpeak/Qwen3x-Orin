@@ -98,6 +98,19 @@ template <typename Weight>
          std::isfinite(weight->input_scale) && weight->input_scale >= 0.0F;
 }
 
+[[nodiscard]] LinearWeight* attention_output_projection(
+    DecoderLayerWeights& layer) noexcept {
+  if (auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer.attention)) {
+    return &linear->out_proj;
+  }
+  if (auto* const full =
+          std::get_if<FullAttentionWeights>(&layer.attention)) {
+    return &full->o_proj;
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 class ModelWeightBinder {
@@ -598,6 +611,47 @@ class ModelWeightBinder {
   WeightBindingStats stats_;
   WeightBindDiagnostic diagnostic_;
 };
+
+bool ModelWeights::attach_fp8_m1_output_projection_sidecars(
+    const std::uint8_t* const arena, const std::size_t bytes) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if (arena == nullptr ||
+      bytes != kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes ||
+      (arena_address % kRequiredAlignment) != 0U ||
+      bytes > std::numeric_limits<std::uintptr_t>::max() ||
+      arena_address >
+          std::numeric_limits<std::uintptr_t>::max() - bytes) {
+    return false;
+  }
+
+  std::array<Fp8LinearWeight*, kQwen36DenseLayerCount> outputs{};
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    LinearWeight* const output =
+        attention_output_projection(layers_[layer_index]);
+    Fp8LinearWeight* const fp8 =
+        output == nullptr ? nullptr : std::get_if<Fp8LinearWeight>(output);
+    if (!has_valid_fp8_payload(fp8) ||
+        fp8->output_size != kFp8M1OutputProjectionRows ||
+        fp8->input_size != kFp8M1OutputProjectionColumns) {
+      return false;
+    }
+    outputs[layer_index] = fp8;
+  }
+
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const std::uintptr_t layer_address =
+        arena_address +
+        layer_index *
+            kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
+    outputs[layer_index]->m1_aosoa4_preswizzled_weight =
+        reinterpret_cast<const std::uint8_t*>(layer_address);
+  }
+  return true;
+}
 
 LinearWeightKind linear_weight_kind(const LinearWeight& weight) noexcept {
   if (std::holds_alternative<Bf16LinearWeight>(weight)) {

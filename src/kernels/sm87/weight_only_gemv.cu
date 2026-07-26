@@ -64,6 +64,10 @@ constexpr std::size_t kFp8ZRows = 6'144U;
 constexpr std::size_t kFp8QkvZColumns = 5'120U;
 constexpr std::size_t kFp8OutputProjectionRows = 5'120U;
 constexpr std::size_t kFp8OutputProjectionColumns = 6'144U;
+constexpr unsigned int kFp8OutputProjectionRowQuads =
+    static_cast<unsigned int>(kFp8OutputProjectionRows / 4U);
+constexpr std::size_t kFp8OutputProjectionPackedColumns =
+    kFp8OutputProjectionColumns / kFp8VectorValuesPerLane;
 constexpr unsigned int kFp8OutputProjectionAosoa4Blocks = 1'024U;
 constexpr unsigned int kFp8QkvRowQuads =
     static_cast<unsigned int>(kFp8QkvRows / 4U);
@@ -86,6 +90,8 @@ constexpr std::size_t kNvFp4VectorColumnsPerWarp =
 
 static_assert(kFp8VectorColumnsPerBlock == registry::kFp8VectorColumns);
 static_assert(kNvFp4VectorColumnsPerWarp == registry::kNvFp4VectorColumns);
+static_assert((kFp8OutputProjectionRows % 4U) == 0U);
+static_assert((kFp8OutputProjectionColumns % kFp8VectorValuesPerLane) == 0U);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -711,6 +717,12 @@ fp8_swizzled_codebook_slot(const std::uint8_t code) {
   return value ^ (value >> 5U);
 }
 
+[[nodiscard]] __device__ __forceinline__ std::uint32_t
+fp8_swizzle_packed_codes(const std::uint32_t packed) {
+  constexpr std::uint32_t kFp8PackedHighBits = 0x0707'0707U;
+  return packed ^ ((packed >> 5U) & kFp8PackedHighBits);
+}
+
 template <bool CompleteRowQuads>
 __global__ __launch_bounds__(kThreads, 4) void
 fp8_w8a16_gemv_bf16_row_quad_kernel(
@@ -863,11 +875,13 @@ fp8_w8a16_gemv_bf16_row_quad_kernel(
   }
 }
 
-// Test-only exact [5120,6144] candidate. The sidecar groups four adjacent
+// Exact [5120,6144] production/test body. The sidecar groups four adjacent
 // rows for each packed four-column word as uint4{x,y,z,w}. Every byte is
 // already transformed with code ^ (code >> 5), so one aligned 128-bit load
-// replaces four scalar row loads and the production runtime swizzle. This
-// kernel is intentionally unreachable from production dispatch.
+// replaces four scalar row loads and the canonical-layout runtime swizzle.
+// The historical internal name is retained so the selected test SASS symbol
+// remains stable while both public production and direct test launchers share
+// this one kernel image.
 __global__ __launch_bounds__(kThreads, 4) void
 fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(
     const uint4* const weights, const float weight_scale,
@@ -973,6 +987,43 @@ fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel(
       }
     }
     __syncthreads();
+  }
+}
+
+// Out-of-place builder for the exact output-projection sidecar. Adjacent
+// packed words remain coalesced within each source row; the aligned uint4
+// store interleaves the four rows without changing the total byte extent.
+__global__ __launch_bounds__(kThreads) void
+fp8_w8a16_output_projection_aosoa4_pack_kernel(
+    const std::uint8_t* const canonical_weights,
+    uint4* const sidecar_weights) {
+  const std::size_t row_quad = static_cast<std::size_t>(blockIdx.x);
+  const std::uint8_t* const row0_weights =
+      canonical_weights +
+      (4U * row_quad) * kFp8OutputProjectionColumns;
+  const auto* const row0_words =
+      reinterpret_cast<const std::uint32_t*>(row0_weights);
+  const auto* const row1_words =
+      row0_words + kFp8OutputProjectionPackedColumns;
+  const auto* const row2_words =
+      row1_words + kFp8OutputProjectionPackedColumns;
+  const auto* const row3_words =
+      row2_words + kFp8OutputProjectionPackedColumns;
+  uint4* const output =
+      sidecar_weights + row_quad * kFp8OutputProjectionPackedColumns;
+
+  for (std::size_t packed_column = static_cast<std::size_t>(threadIdx.x);
+       packed_column < kFp8OutputProjectionPackedColumns;
+       packed_column += kThreads) {
+    const std::uint32_t packed0 =
+        fp8_swizzle_packed_codes(row0_words[packed_column]);
+    const std::uint32_t packed1 =
+        fp8_swizzle_packed_codes(row1_words[packed_column]);
+    const std::uint32_t packed2 =
+        fp8_swizzle_packed_codes(row2_words[packed_column]);
+    const std::uint32_t packed3 =
+        fp8_swizzle_packed_codes(row3_words[packed_column]);
+    output[packed_column] = uint4{packed0, packed1, packed2, packed3};
   }
 }
 
@@ -9629,6 +9680,71 @@ int launch_sm87_fp8_w8a16_gemv_bf16_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+    const std::uint8_t* const sidecar_weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != kFp8OutputProjectionRows ||
+      columns != kFp8OutputProjectionColumns) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_launch(
+      sidecar_weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  constexpr std::size_t kSidecarBytes =
+      kFp8OutputProjectionRows * kFp8OutputProjectionColumns;
+  constexpr std::size_t kActivationBytes =
+      kFp8OutputProjectionColumns * sizeof(std::uint16_t);
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(sidecar_weights) &&
+      pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(output);
+  if (!aligned ||
+      ranges_overlap(sidecar_weights, kSidecarBytes,
+                     activation, kActivationBytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel
+      <<<kFp8OutputProjectionAosoa4Blocks, kThreads, 0U, stream>>>(
+          reinterpret_cast<const uint4*>(sidecar_weights), weight_scale,
+          activation, rows, columns, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
+    const std::uint8_t* const canonical_weights,
+    std::uint8_t* const sidecar_weights, const std::size_t rows,
+    const std::size_t columns, void* const cuda_stream) noexcept {
+  if (rows != kFp8OutputProjectionRows ||
+      columns != kFp8OutputProjectionColumns ||
+      canonical_weights == nullptr || sidecar_weights == nullptr) {
+    return invalid_value();
+  }
+  constexpr std::size_t kWeightBytes =
+      kFp8OutputProjectionRows * kFp8OutputProjectionColumns;
+  const bool aligned =
+      pointer_is_aligned<alignof(std::uint32_t)>(canonical_weights) &&
+      pointer_is_aligned<alignof(uint4)>(sidecar_weights);
+  if (!aligned ||
+      ranges_overlap(canonical_weights, kWeightBytes,
+                     sidecar_weights, kWeightBytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_output_projection_aosoa4_pack_kernel
+      <<<kFp8OutputProjectionRowQuads, kThreads, 0U, stream>>>(
+          canonical_weights, reinterpret_cast<uint4*>(sidecar_weights));
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Production exact-shape FP8 QKV/Z projection. The fixed launch retains the
 // independently gated 1,536-CTA QKV and 768-CTA Z row-quad topologies while
 // sharing launch overhead and decoded-codebook setup between both phases. Its
@@ -9935,31 +10051,9 @@ int launch_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_test_cuda(
     const std::uint16_t* const activation, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (rows != kFp8OutputProjectionRows ||
-      columns != kFp8OutputProjectionColumns) {
-    return invalid_value();
-  }
-  const int validation = validate_fp8_launch(
+  return launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
       aosoa4_preswizzled_weights, weight_scale, activation, rows, columns,
-      output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  const bool vector_shape =
-      pointer_is_aligned<alignof(uint4)>(aosoa4_preswizzled_weights) &&
-      pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
-      pointer_is_aligned<alignof(std::uint16_t)>(output);
-  if (!vector_shape) {
-    return invalid_value();
-  }
-
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel
-      <<<kFp8OutputProjectionAosoa4Blocks, kThreads, 0U, stream>>>(
-          reinterpret_cast<const uint4*>(aosoa4_preswizzled_weights),
-          weight_scale, activation, rows, columns, output);
-  return static_cast<int>(cudaGetLastError());
+      output, cuda_stream);
 }
 
 int query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(

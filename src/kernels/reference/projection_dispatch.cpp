@@ -688,6 +688,15 @@ int launch_projection_to_bf16_cuda(
           output == nullptr) {
         return invalid_value();
       }
+      if (selected->m1_aosoa4_preswizzled_weight != nullptr &&
+          selected->output_size == kFp8M1OutputProjectionRows &&
+          selected->input_size == kFp8M1OutputProjectionColumns) {
+        return kernels::
+            launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+                selected->m1_aosoa4_preswizzled_weight,
+                selected->weight_scale, input, selected->output_size,
+                selected->input_size, output, cuda_stream);
+      }
       return kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda(
           selected->weight, selected->weight_scale, input,
           selected->output_size, selected->input_size, output, cuda_stream);

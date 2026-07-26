@@ -547,6 +547,143 @@ void test_routes(TestContext& test) {
               "SM87 NVFP4 route validates its active variant");
 }
 
+void test_fp8_m1_output_sidecar_dispatch(TestContext& test) {
+  constexpr std::size_t kRows = runtime::kFp8M1OutputProjectionRows;
+  constexpr std::size_t kColumns =
+      runtime::kFp8M1OutputProjectionColumns;
+  constexpr std::size_t kM2 = 2U;
+  constexpr std::size_t kM32 = 32U;
+
+  const auto* const canonical_weight =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const sidecar_weight =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const companion_scales =
+      reinterpret_cast<const float*>(0x40'0000'0000ULL);
+  const auto* const activation =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+
+  runtime::Fp8LinearWeight canonical_payload{
+      canonical_weight, companion_scales, companion_scales + 1U,
+      1.0F, 1.0F, kRows, kColumns};
+  runtime::Fp8LinearWeight sidecar_payload = canonical_payload;
+  sidecar_payload.m1_aosoa4_preswizzled_weight = sidecar_weight;
+  const runtime::LinearWeight canonical = canonical_payload;
+  const runtime::LinearWeight sidecar = sidecar_payload;
+
+  const CapturedKernelChain canonical_oracle = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::launch_sm87_fp8_w8a16_gemv_bf16_cuda(
+            canonical_weight, 1.0F, activation, kRows, kColumns, output,
+            static_cast<void*>(stream));
+      },
+      "FP8 canonical M1 output identity oracle");
+  const CapturedKernelChain sidecar_oracle = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+                sidecar_weight, 1.0F, activation, kRows, kColumns, output,
+                static_cast<void*>(stream));
+      },
+      "FP8 AoSoA4 M1 output identity oracle");
+  const auto capture_dispatch =
+      [&](const runtime::LinearWeight& weight,
+          const std::size_t token_count, const std::string& label) {
+        return capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::launch_projection_tile_to_bf16_cuda(
+                  runtime::ProjectionBackend::kSm87WeightOnly, weight,
+                  activation, token_count, nullptr, 0U, output,
+                  static_cast<void*>(stream));
+            },
+            label);
+      };
+  const CapturedKernelChain canonical_m1 = capture_dispatch(
+      canonical, 1U, "SM87 FP8 canonical M1 output dispatch graph");
+  const CapturedKernelChain sidecar_m1 = capture_dispatch(
+      sidecar, 1U, "SM87 FP8 AoSoA4 M1 output dispatch graph");
+
+  const auto has_one_kernel = [](const CapturedKernelChain& chain) noexcept {
+    return chain.valid && chain.launches.size() == 1U;
+  };
+  test.expect(has_one_kernel(canonical_oracle),
+              "FP8 canonical M1 output oracle is one kernel");
+  test.expect(has_one_kernel(sidecar_oracle),
+              "FP8 AoSoA4 M1 output oracle is one kernel");
+  test.expect(has_one_kernel(canonical_m1),
+              "FP8 null-sidecar M1 dispatch is one kernel");
+  test.expect(has_one_kernel(sidecar_m1),
+              "FP8 populated-sidecar M1 dispatch is one kernel");
+  if (has_one_kernel(canonical_oracle) && has_one_kernel(sidecar_oracle) &&
+      has_one_kernel(canonical_m1) && has_one_kernel(sidecar_m1)) {
+    const void* const canonical_function =
+        canonical_oracle.launches.front().function;
+    const void* const sidecar_function = sidecar_oracle.launches.front().function;
+    test.expect(canonical_function != nullptr && sidecar_function != nullptr &&
+                    canonical_function != sidecar_function,
+                "FP8 AoSoA4 M1 output kernel is distinct from canonical M1");
+    test.expect(canonical_m1.launches.front().function == canonical_function,
+                "FP8 null sidecar preserves canonical M1 dispatch");
+    test.expect(sidecar_m1.launches.front().function == sidecar_function,
+                "FP8 populated sidecar selects the AoSoA4 M1 dispatch");
+  }
+
+  const auto expect_same_dispatch =
+      [&](const CapturedKernelChain& first,
+          const CapturedKernelChain& second, const std::string& label) {
+        test.expect(first.valid && second.valid,
+                    label + " captures valid kernel chains");
+        test.expect(first.launches.size() == second.launches.size(),
+                    label + " preserves kernel count");
+        const std::size_t compared =
+            std::min(first.launches.size(), second.launches.size());
+        for (std::size_t index = 0U; index < compared; ++index) {
+          const CapturedKernelLaunch& left = first.launches[index];
+          const CapturedKernelLaunch& right = second.launches[index];
+          test.expect(left.function == right.function &&
+                          left.grid.x == right.grid.x &&
+                          left.grid.y == right.grid.y &&
+                          left.grid.z == right.grid.z &&
+                          left.block.x == right.block.x &&
+                          left.block.y == right.block.y &&
+                          left.block.z == right.block.z &&
+                          left.dynamic_shared_bytes ==
+                              right.dynamic_shared_bytes,
+                      label + " preserves launch " +
+                          std::to_string(index));
+        }
+      };
+  expect_same_dispatch(
+      capture_dispatch(canonical, kM2,
+                       "SM87 FP8 canonical M2 output dispatch graph"),
+      capture_dispatch(sidecar, kM2,
+                       "SM87 FP8 sidecar-present M2 output dispatch graph"),
+      "FP8 M2 ignores the M1-only sidecar");
+  expect_same_dispatch(
+      capture_dispatch(canonical, kM32,
+                       "SM87 FP8 canonical M32 output dispatch graph"),
+      capture_dispatch(sidecar, kM32,
+                       "SM87 FP8 sidecar-present M32 output dispatch graph"),
+      "FP8 M32 ignores the M1-only sidecar");
+
+  runtime::Fp8LinearWeight near_miss_canonical_payload = canonical_payload;
+  near_miss_canonical_payload.output_size = kRows - 1U;
+  runtime::Fp8LinearWeight near_miss_sidecar_payload =
+      near_miss_canonical_payload;
+  near_miss_sidecar_payload.m1_aosoa4_preswizzled_weight = sidecar_weight;
+  expect_same_dispatch(
+      capture_dispatch(runtime::LinearWeight{near_miss_canonical_payload}, 1U,
+                       "SM87 FP8 near-miss canonical M1 dispatch graph"),
+      capture_dispatch(runtime::LinearWeight{near_miss_sidecar_payload}, 1U,
+                       "SM87 FP8 near-miss sidecar M1 dispatch graph"),
+      "FP8 near-miss M1 ignores the exact-shape sidecar");
+}
+
 void test_bf16_direct_production_dispatch(TestContext& test) {
   constexpr std::size_t kRows = 48U;
   constexpr std::size_t kColumns = 5'120U;
@@ -5110,6 +5247,7 @@ int main() {
 
   TestContext test;
   test_routes(test);
+  test_fp8_m1_output_sidecar_dispatch(test);
   test_bf16_direct_production_dispatch(test);
   test_tile_routes(test);
   test_bf16_projection_pair_dispatch(test);

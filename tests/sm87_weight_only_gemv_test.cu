@@ -13936,6 +13936,7 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
 
   DeviceBuffer<std::uint8_t> weight_storage;
   DeviceBuffer<std::uint8_t> sidecar_storage;
+  DeviceBuffer<std::uint8_t> production_pack_sidecar_storage;
   DeviceBuffer<std::uint16_t> activation_storage;
   DeviceBuffer<std::uint16_t> baseline_output_storage;
   DeviceBuffer<std::uint16_t> candidate_output_storage;
@@ -13949,6 +13950,11 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
                            kInputGuardBytes + kWeightElements +
                            kInputGuardBytes),
                        label + " allocate guarded AoSoA4 sidecar");
+  ready = ready && test.cuda_ok(
+                       production_pack_sidecar_storage.allocate(
+                           kInputGuardBytes + kWeightElements +
+                           kInputGuardBytes),
+                       label + " allocate guarded production-pack sidecar");
   ready = ready && test.cuda_ok(
                        activation_storage.allocate(
                            host_activation_storage.size()),
@@ -13981,6 +13987,8 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
       weight_storage.get() + kInputGuardBytes;
   const std::uint8_t* const sidecar =
       sidecar_storage.get() + kInputGuardBytes;
+  std::uint8_t* const production_pack_sidecar =
+      production_pack_sidecar_storage.get() + kInputGuardBytes;
   const std::uint16_t* const activation =
       activation_storage.get() + kActivationGuardElements;
   std::uint16_t* const baseline_output =
@@ -14411,8 +14419,77 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
     test.expect(preservation_gate,
                 fixture_label + " preserves every input and canary guard");
 
+    // Keep production pack validation outside the correctness/performance
+    // launch sequence above. Seed every payload byte with the complement of
+    // its CPU-oracle value so a missed GPU write cannot compare equal by
+    // accident; the guards retain their oracle values to detect overrun.
+    observed_sidecar_storage = host_sidecar_storage;
+    std::transform(
+        observed_sidecar_storage.begin() + kInputGuardBytes,
+        observed_sidecar_storage.end() - kInputGuardBytes,
+        observed_sidecar_storage.begin() + kInputGuardBytes,
+        [](const std::uint8_t value) {
+          return static_cast<std::uint8_t>(value ^ 0xffU);
+        });
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(production_pack_sidecar_storage.get(),
+                        observed_sidecar_storage.data(),
+                        observed_sidecar_storage.size(),
+                        cudaMemcpyHostToDevice, stream),
+        fixture_label + " seed guarded production-pack sidecar");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(q3x::kernels::
+                             launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
+                                 weights, production_pack_sidecar, kRows,
+                                 kColumns, static_cast<void*>(stream))),
+                         fixture_label + " launch production GPU pack");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             observed_sidecar_storage.data(),
+                             production_pack_sidecar_storage.get(),
+                             observed_sidecar_storage.size(),
+                             cudaMemcpyDeviceToHost, stream),
+                         fixture_label +
+                             " copy complete production-pack sidecar");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             observed_weight_storage.data(),
+                             weight_storage.get(),
+                             observed_weight_storage.size(),
+                             cudaMemcpyDeviceToHost, stream),
+                         fixture_label +
+                             " copy canonical weights after production pack");
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         fixture_label +
+                             " production GPU pack verification synchronize");
+    if (!ready) {
+      return;
+    }
+    const bool production_pack_matches_cpu_oracle =
+        observed_sidecar_storage == host_sidecar_storage;
+    const bool production_pack_preserves_canonical =
+        observed_weight_storage == host_weight_storage;
+    const bool production_pack_gate =
+        production_pack_matches_cpu_oracle &&
+        production_pack_preserves_canonical;
+    std::cout << "FP8_M1_AOSOA4_PRODUCTION_PACK: distribution="
+              << fixture.name << " compared_payload_bytes="
+              << kWeightElements
+              << " cpu_oracle_payload_and_guards="
+              << (production_pack_matches_cpu_oracle ? "PASS" : "FAIL")
+              << " canonical_input_preserved="
+              << (production_pack_preserves_canonical ? "true" : "false")
+              << " gate=" << (production_pack_gate ? "PASS" : "FAIL")
+              << '\n';
+    test.expect(production_pack_gate,
+                fixture_label +
+                    " production GPU pack matches the complete 30 MiB CPU "
+                    "oracle and preserves canonical weights");
+
     const bool fixture_gate = sidecar_semantics && bitwise_gate &&
-                              preservation_gate && timing_gate;
+                              preservation_gate && production_pack_gate &&
+                              timing_gate;
     every_executed_fixture_passed =
         every_executed_fixture_passed && fixture_gate;
     std::cout << "PERF_FP8_M1_AOSOA4_PRESWIZZLED_MEDIAN: distribution="
@@ -14443,6 +14520,177 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
                 fixture_label + " clears the frozen formal gate");
   }
 
+  struct InvalidPackCase {
+    const char* name;
+    const std::uint8_t* canonical_weights;
+    std::uint8_t* sidecar_weights;
+    std::size_t rows;
+    std::size_t columns;
+  };
+  const std::array<InvalidPackCase, 7U> invalid_pack_cases{{
+      {"null_canonical", nullptr, production_pack_sidecar, kRows,
+       kColumns},
+      {"null_sidecar", weights, nullptr, kRows, kColumns},
+      {"wrong_rows", weights, production_pack_sidecar, kRows - 1U,
+       kColumns},
+      {"wrong_columns", weights, production_pack_sidecar, kRows,
+       kColumns - 1U},
+      {"canonical_not_4_byte_aligned", weights + 1U,
+       production_pack_sidecar, kRows, kColumns},
+      {"sidecar_not_16_byte_aligned", weights,
+       production_pack_sidecar + 1U, kRows, kColumns},
+      {"complete_span_overlap", weights,
+       const_cast<std::uint8_t*>(weights), kRows, kColumns},
+  }};
+  const auto invalid_pack_does_not_enqueue =
+      [&](const InvalidPackCase& invalid_case) {
+        const std::string case_label =
+            label + " production pack invalid " + invalid_case.name;
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream,
+                                   cudaStreamCaptureModeThreadLocal),
+            case_label + " begin capture");
+        cudaError_t launch_status = cudaErrorUnknown;
+        if (capture_ready) {
+          launch_status = static_cast<cudaError_t>(q3x::kernels::
+              launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
+                  invalid_case.canonical_weights,
+                  invalid_case.sidecar_weights, invalid_case.rows,
+                  invalid_case.columns, static_cast<void*>(stream)));
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           case_label + " end capture") &&
+              capture_ready;
+        }
+        std::size_t node_count = 0U;
+        if (capture_ready && graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           case_label + " query nodes") &&
+              capture_ready;
+        } else if (capture_ready) {
+          test.expect(false, case_label + " produced a null graph");
+          capture_ready = false;
+        }
+        if (graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphDestroy(graph),
+                           case_label + " destroy graph") &&
+              capture_ready;
+        }
+        const bool case_gate =
+            capture_ready && launch_status == cudaErrorInvalidValue &&
+            node_count == 0U;
+        test.expect(case_gate,
+                    case_label +
+                        " returns cudaErrorInvalidValue before enqueue");
+        return case_gate;
+      };
+  bool invalid_pack_gate = true;
+  for (const InvalidPackCase& invalid_case : invalid_pack_cases) {
+    invalid_pack_gate =
+        invalid_pack_does_not_enqueue(invalid_case) && invalid_pack_gate;
+  }
+  every_executed_fixture_passed =
+      every_executed_fixture_passed && invalid_pack_gate;
+  std::cout << "FP8_M1_AOSOA4_PRODUCTION_PACK_INVALID: cases="
+            << invalid_pack_cases.size()
+            << " all_cuda_error_invalid_value_and_zero_nodes="
+            << (invalid_pack_gate ? "PASS" : "FAIL") << '\n';
+
+  struct InvalidGemvCase {
+    const char* name;
+    const std::uint8_t* sidecar_weights;
+    const std::uint16_t* activation;
+    std::size_t rows;
+    std::size_t columns;
+    std::uint16_t* output;
+  };
+  const std::array<InvalidGemvCase, 11U> invalid_gemv_cases{{
+      {"null_sidecar", nullptr, activation, kRows, kColumns,
+       candidate_output},
+      {"null_activation", sidecar, nullptr, kRows, kColumns,
+       candidate_output},
+      {"null_output", sidecar, activation, kRows, kColumns, nullptr},
+      {"wrong_rows", sidecar, activation, kRows - 1U, kColumns,
+       candidate_output},
+      {"wrong_columns", sidecar, activation, kRows, kColumns - 1U,
+       candidate_output},
+      {"sidecar_not_16_byte_aligned", sidecar + 1U, activation, kRows,
+       kColumns, candidate_output},
+      {"activation_not_8_byte_aligned", sidecar, activation + 1U, kRows,
+       kColumns, candidate_output},
+      {"output_not_2_byte_aligned", sidecar, activation, kRows, kColumns,
+       reinterpret_cast<std::uint16_t*>(
+           reinterpret_cast<std::uint8_t*>(candidate_output) + 1U)},
+      {"sidecar_activation_complete_span_overlap", sidecar,
+       reinterpret_cast<const std::uint16_t*>(sidecar), kRows, kColumns,
+       candidate_output},
+      {"sidecar_output_complete_span_overlap", sidecar, activation, kRows,
+       kColumns, reinterpret_cast<std::uint16_t*>(
+                     const_cast<std::uint8_t*>(sidecar))},
+      {"activation_output_complete_span_overlap", sidecar, activation, kRows,
+       kColumns, const_cast<std::uint16_t*>(activation)},
+  }};
+  const auto invalid_gemv_does_not_enqueue =
+      [&](const InvalidGemvCase& invalid_case) {
+        const std::string case_label =
+            label + " production GEMV invalid " + invalid_case.name;
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream,
+                                   cudaStreamCaptureModeThreadLocal),
+            case_label + " begin capture");
+        cudaError_t launch_status = cudaErrorUnknown;
+        if (capture_ready) {
+          launch_status = static_cast<cudaError_t>(q3x::kernels::
+              launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+                  invalid_case.sidecar_weights, kWeightScale,
+                  invalid_case.activation, invalid_case.rows,
+                  invalid_case.columns, invalid_case.output,
+                  static_cast<void*>(stream)));
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           case_label + " end capture") &&
+              capture_ready;
+        }
+        std::size_t node_count = 0U;
+        if (capture_ready && graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           case_label + " query nodes") &&
+              capture_ready;
+        } else if (capture_ready) {
+          test.expect(false, case_label + " produced a null graph");
+          capture_ready = false;
+        }
+        if (graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphDestroy(graph),
+                           case_label + " destroy graph") &&
+              capture_ready;
+        }
+        const bool case_gate =
+            capture_ready && launch_status == cudaErrorInvalidValue &&
+            node_count == 0U;
+        test.expect(case_gate,
+                    case_label +
+                        " returns cudaErrorInvalidValue before enqueue");
+        return case_gate;
+      };
+  bool invalid_gemv_gate = true;
+  for (const InvalidGemvCase& invalid_case : invalid_gemv_cases) {
+    invalid_gemv_gate =
+        invalid_gemv_does_not_enqueue(invalid_case) && invalid_gemv_gate;
+  }
+  every_executed_fixture_passed =
+      every_executed_fixture_passed && invalid_gemv_gate;
+  std::cout << "FP8_M1_AOSOA4_PRODUCTION_GEMV_INVALID: cases="
+            << invalid_gemv_cases.size()
+            << " all_cuda_error_invalid_value_and_zero_nodes="
+            << (invalid_gemv_gate ? "PASS" : "FAIL") << '\n';
+
   std::cout << "PERF_FP8_M1_AOSOA4_PRESWIZZLED_SELECTED:"
             << " shape=5120x6144"
             << " baseline_cap=1280 candidate_cap=" << kCandidateGridCap
@@ -14450,6 +14698,10 @@ void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
             << (actual_fixture_executed ? "EXECUTED" : "SKIPPED")
             << " stress=EXECUTED"
             << " resource_gate=" << (resource_gate ? "PASS" : "FAIL")
+            << " production_pack_invalid_gate="
+            << (invalid_pack_gate ? "PASS" : "FAIL")
+            << " production_gemv_invalid_gate="
+            << (invalid_gemv_gate ? "PASS" : "FAIL")
             << " all_executed_fixtures="
             << (every_executed_fixture_passed ? "PASS" : "FAIL") << '\n';
   test.expect(every_executed_fixture_passed,

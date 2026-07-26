@@ -16,6 +16,15 @@ namespace q3x::runtime {
 inline constexpr std::size_t kQwen36DenseLayerCount = 64U;
 inline constexpr std::size_t kQwen36LinearAttentionLayerCount = 48U;
 inline constexpr std::size_t kQwen36FullAttentionLayerCount = 16U;
+inline constexpr std::size_t kFp8M1OutputProjectionRows = 5'120U;
+inline constexpr std::size_t kFp8M1OutputProjectionColumns = 6'144U;
+inline constexpr std::size_t
+    kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer =
+        kFp8M1OutputProjectionRows * kFp8M1OutputProjectionColumns;
+inline constexpr std::size_t
+    kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes =
+        kQwen36DenseLayerCount *
+        kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
 
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
@@ -41,6 +50,7 @@ struct Fp8LinearWeight {
   float input_scale = 0.0F;
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
+  const std::uint8_t* m1_aosoa4_preswizzled_weight = nullptr;
 };
 
 struct NvFp4LinearWeight {
@@ -231,6 +241,15 @@ class ModelWeights {
   [[nodiscard]] const WeightBindingStats& stats() const noexcept {
     return stats_;
   }
+
+  // Attaches one contiguous, 16-byte-aligned, non-owning AoSoA4 sidecar view
+  // per decoder layer. Every attention output projection must already be an
+  // exact FP8 [5120,6144] binding and bytes must equal the complete 64-layer
+  // sidecar contract. All inputs are validated before any view is changed, so
+  // failure preserves every previously attached pointer. The sidecar arena
+  // must outlive this ModelWeights view and all queued kernels using it.
+  [[nodiscard]] bool attach_fp8_m1_output_projection_sidecars(
+      const std::uint8_t* arena, std::size_t bytes) noexcept;
 
  private:
   friend class ModelWeightBinder;

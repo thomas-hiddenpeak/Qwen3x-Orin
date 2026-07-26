@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark",
+  "status": "production-selected-exact-shape-decode-fp8-output-sidecar",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "4bea7a15e3c78b0d839311f23e9c182e491bfdfd",
+    "base_subject": "bench: select Decode FP8 output sidecar",
+    "benchmark_note": "The production benchmark candidate is a descendant worktree of the test-only selection. The final validation binary adds noexcept and memory-headroom exception-path repairs; its hot-path sidecar dispatch and kernel are unchanged.",
+    "binaries": {
+      "end_to_end_baseline": {
+        "local_path": "/tmp/q3x-fp8-o-sidecar-production.60gsL5/qwen3x-orin.baseline",
+        "bytes": 4131232,
+        "sha256": "144c408ec994e9c519742abcd5ea0322560c1d20b94bbe303ab9dc5f220ecca6",
+        "checked_in": false
+      },
+      "end_to_end_benchmark_candidate": {
+        "local_path": "/tmp/q3x-fp8-o-sidecar-production.60gsL5/qwen3x-orin.candidate",
+        "bytes": 4199264,
+        "sha256": "a6e61ba97dab1a12f45f0efcc8fb29945291b4a385520ef351a952fbd25b3fcc",
+        "checked_in": false
+      },
+      "final_validation_binary": {
+        "local_path": "/tmp/q3x-fp8-o-sidecar-production.60gsL5/qwen3x-orin.final",
+        "bytes": 4199264,
+        "sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+        "checked_in": false
+      },
+      "earlier_formal_microbenchmark_baseline": {
+        "local_path": "/tmp/q3x-fp8-o-sidecar-production.60gsL5/q3x_sm87_weight_only_gemv_test.baseline",
+        "bytes": 5017488,
+        "sha256": "5c01a1f9514b3fc83e4f718e1a59b0d42f738f69b4825c48a62c2a420ae52077",
+        "checked_in": false
+      },
+      "earlier_formal_microbenchmark_candidate": {
+        "local_path": "/tmp/q3x-fp8-o-sidecar-production.60gsL5/q3x_sm87_weight_only_gemv_test.candidate",
+        "bytes": 5086184,
+        "sha256": "051ad74e7db68982067f22b0638677fd0114971456d62178f2f0f1f7c2182bff",
+        "checked_in": false
+      },
+      "final_formal_microbenchmark_binary": {
+        "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+        "bytes": 5086336,
+        "sha256": "dbc32dab63a7f0f7821d7d5158339bce270d1424429bd0ad21adb5691b5a321d",
+        "checked_in": false
+      }
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "projection_backend": "sm87_weight_only",
+    "gpu_clock_hz_before_and_after": 1300500000,
+    "emc_clock_hz_before_and_after": 3200000000,
+    "clock_scope": "sysfs min/max/current readbacks establish the requested fixed-frequency state, not thermal or power stability"
+  },
+  "implementation": {
+    "phase": "Decode M1, plus final-prompt C1 delegation when it reaches the same exact projection route",
+    "shape_n_by_k": [5120, 6144],
+    "canonical_route": "production codebook-swizzled row-quad kernel capped at 1280 CTAs",
+    "sidecar_route": "AoSoA4 row-quad and packed-word layout with each FP8 byte pretransformed as code^(code>>5), fixed at 1024 CTAs",
+    "sidecar_alignment_bytes": 16,
+    "sidecar_bytes_per_layer": 31457280,
+    "sidecar_layers": 64,
+    "sidecar_total_bytes": 2013265920,
+    "sidecar_total_gib": 1.875,
+    "canonical_weights_retained": true,
+    "canonical_route_preserved_for_m2_and_prefill": true,
+    "preparation": "one GPU pack launch per layer during model construction on a private nonblocking stream, synchronized before runner construction",
+    "ownership": "one persistent RAII arena attached atomically to all 64 exact-shape output projections",
+    "admission": "SM87 only; preserve the configured 8-GiB post-create free-memory margin",
+    "failure_policy": "memory-headroom or allocation pressure falls back to canonical weights; pack launch, synchronization, or attachment failure fails construction",
+    "resource_usage": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "runtime_buffering_scope": "persistent weight-format sidecar only; this is not a request double/triple buffer, cross-kernel overlap, Prefill/Decode overlap, or multi-request scheduler"
+  },
+  "formal_kernel_and_pack_gate": {
+    "log": {
+      "local_path": "/tmp/q3x-fp8-o-sidecar-production-final-formal.log",
+      "sha256": "8fe0f805eb6e8c694d3049998d2c32006dd9843f1d81cfaa9989d65b409a46d4"
+    },
+    "actual_checkpoint_payload": {
+      "tensor": "model.layers.0.linear_attn.out_proj.weight",
+      "shard": "model-00001-of-00003.safetensors",
+      "absolute_offset": 3569011232,
+      "bytes": 31457280,
+      "sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9"
+    },
+    "actual_checkpoint": {
+      "rounds": 5,
+      "order_each_round": "B-C-C-B",
+      "measured_launches_per_pass": 64,
+      "baseline_diagnostic_median_ms": 0.185194,
+      "candidate_diagnostic_median_ms": 0.176046,
+      "paired_median_speedup": 1.05212,
+      "required_paired_median_speedup": 1.03,
+      "every_round_nonregression": true,
+      "candidate_mismatches": "0/5120",
+      "replay_mismatches": "0/5120",
+      "guards_and_inputs_preserved": true
+    },
+    "same_bank_stress": {
+      "rounds": 5,
+      "order_each_round": "B-C-C-B",
+      "measured_launches_per_pass": 64,
+      "baseline_diagnostic_median_ms": 0.168455,
+      "candidate_diagnostic_median_ms": 0.166611,
+      "paired_median_speedup": 1.00853,
+      "every_round_nonregression": true,
+      "candidate_mismatches": "0/5120",
+      "replay_mismatches": "0/5120",
+      "guards_and_inputs_preserved": true
+    },
+    "gpu_pack": {
+      "fixtures": ["actual_checkpoint", "same_bank_stress"],
+      "compared_payload_bytes_each": 31457280,
+      "cpu_oracle_payload_and_guards": "pass",
+      "canonical_input_unchanged": true,
+      "invalid_cases": 7,
+      "invalid_expected_result": "cudaErrorInvalidValue and zero captured nodes",
+      "invalid_gate": "pass"
+    },
+    "production_gemv_invalid": {
+      "invalid_cases": 11,
+      "invalid_expected_result": "cudaErrorInvalidValue and zero captured nodes",
+      "invalid_gate": "pass"
+    },
+    "all_executed_fixtures_and_resource_pack_gemv_invalid_gates": "pass",
+    "history_note": "The earlier production-candidate formal log at SHA-256 0e014cf5e0f94825cd57484e9d90ccef869a3cdf88489ac3281e003e1e6d02a4 measured 0.188994/0.176769 ms actual and 0.168544/0.162100 ms stress. It remains historical selection evidence; the Release log above is authoritative for production promotion."
+  },
+  "end_to_end_benchmark": {
+    "workload": {
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "max_new_tokens": 26,
+      "decode_intervals": 25,
+      "max_sequence_length": 64,
+      "prefill_chunk_size": 32,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "process_order": "B1-C1-C2-B2",
+      "normalized_command": "BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 32"
+    },
+    "logs": {
+      "B1": {"local_path": "/tmp/q3x-fp8-o-sidecar-production-b1.log", "sha256": "a1dd3e989a8f41f524b73045d07baf01545a6c75cbaa6d195730fa489f3f2916"},
+      "C1": {"local_path": "/tmp/q3x-fp8-o-sidecar-production-c1.log", "sha256": "a9dd14dcb29d9b4a1531b960a492bcabd14ba01e38bed2de3b5e1fa90ef20d62"},
+      "C2": {"local_path": "/tmp/q3x-fp8-o-sidecar-production-c2.log", "sha256": "5f2b1edc500c7423b50f48a43e6a09d6a71fee5ea4958a8680576e387e159bf1"},
+      "B2": {"local_path": "/tmp/q3x-fp8-o-sidecar-production-b2.log", "sha256": "c6ac012841a796e85d9322368cda0228af99905d46470a8d720a50a95ea01271"}
+    },
+    "process_medians_ms": {
+      "B1": {"subsequent_token": 110.082, "decode_after_first": 2752.664},
+      "C1": {"subsequent_token": 109.786, "decode_after_first": 2744.812, "cold_sidecar_pack": 437.46},
+      "C2": {"subsequent_token": 109.731, "decode_after_first": 2743.777, "cold_sidecar_pack": 497.171},
+      "B2": {"subsequent_token": 110.13, "decode_after_first": 2757.813}
+    },
+    "mirrored_aggregate": {
+      "method": "arithmetic mean of the two process medians on each side",
+      "baseline_subsequent_token_ms": 110.106,
+      "candidate_subsequent_token_ms": 109.7585,
+      "subsequent_token_delta_ms": -0.3475,
+      "subsequent_token_speedup": 1.003166042,
+      "candidate_single_request_tokens_per_second": 9.110911683,
+      "baseline_decode_after_first_ms": 2755.2385,
+      "candidate_decode_after_first_ms": 2744.2945,
+      "decode_after_first_delta_ms": -10.944,
+      "decode_after_first_speedup": 1.00398791,
+      "both_mirrored_pairs_improve": true
+    },
+    "cold_sidecar_pack": {
+      "candidate_process_ms": [437.46, 497.171],
+      "mean_ms": 467.3155,
+      "included_in_hot_decode_metrics": false
+    }
+  },
+  "final_model_oracle": {
+    "binary_sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+    "log": {
+      "local_path": "/tmp/q3x-fp8-o-sidecar-production-release-e2e.log",
+      "sha256": "60d1b89dcdac9b8d74fda86156cde0a413867fd293da644374cb67512c5ceb32"
+    },
+    "status": "pass",
+    "prompt_ids": 19,
+    "generated_ids": 26,
+    "exact_text": true,
+    "stop_reason": "im_end",
+    "steps": 44,
+    "sidecar_layers": 64,
+    "sidecar_bytes": 2013265920,
+    "cold_sidecar_pack_ms": 460.648,
+    "fallback_reason": ""
+  },
+  "decision": {
+    "result": "promote exact FP8 M1 output-projection AoSoA4/preswizzled sidecar to production SM87 dispatch",
+    "achieved_hot_decode_ms_per_token": 109.7585,
+    "achieved_single_request_tokens_per_second": 9.110911683,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 9.7585,
+    "remaining_relative_latency_reduction_percent": 8.890883,
+    "next_priority": "screen the bounded Decode NVFP4 down CTA-prune candidate, then capture a fresh production Decode profile and re-rank remaining phase-local hotspots",
+    "prefill_policy": "resume the much larger Prefill program after the incremental single-request Decode target is met"
+  },
+  "limitations": [
+    "The 109.7585-ms/token result is hot single-request Decode on the named P19/C32/max26 workload; it excludes model load and sidecar construction.",
+    "The production choice consumes 1.875 GiB of persistent device memory and adds about 467 ms mean cold sidecar construction in the two benchmark candidate processes.",
+    "The 9.1109 token/s value is the reciprocal of the mirrored hot subsequent-token median; it is not multi-request serving throughput.",
+    "The final validation binary differs from the timed candidate by noexcept and memory-headroom exception-path repairs. Exact model replay passed on that final binary, but the B-C-C-B timing was not repeated on it.",
+    "This record includes no fresh post-promotion Nsys or NCU attribution, power, energy, thermal-soak, long-context, multi-request, or tail-latency claim.",
+    "Prefill and Decode remain logically separate but causally serialized for one batch-one request; the persistent weight sidecar does not add general double/triple buffering."
+  ]
+}

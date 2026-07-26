@@ -571,6 +571,14 @@ The diagnostic Phase 3 records are:
   obligation and a projection-only 110.951-to-110.370 ms/token estimate. It
   does not claim production dispatch, loader integration, or an achieved
   end-to-end latency or throughput result.
+- [`qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json`](qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json),
+  which records the subsequent persistent-sidecar production promotion. It
+  separates the timed candidate from the final exception-path-fix binary,
+  pins the GPU pack oracle, seven pack-invalid and eleven GEMV-invalid cases,
+  the exact final-model replay, and the P19/C32/max26 `B1-C1-C2-B2` result.
+  The mirrored hot Decode value is
+  109.7585 ms/token, or 9.1109 token/s, while the record also exposes the
+  non-amortized 1.875-GiB residency and roughly 467-ms cold pack cost.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

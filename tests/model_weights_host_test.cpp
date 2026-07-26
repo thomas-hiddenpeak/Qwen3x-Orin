@@ -57,7 +57,11 @@ enum class SyntheticLinearKind : std::uint8_t {
 
 class SyntheticArena {
  public:
-  SyntheticArena() { build(); }
+  explicit SyntheticArena(
+      const bool force_fp8_attention_outputs = false)
+      : force_fp8_attention_outputs_(force_fp8_attention_outputs) {
+    build();
+  }
 
   [[nodiscard]] runtime::WeightBindingSource source() const noexcept {
     runtime::WeightBindingSource source;
@@ -221,8 +225,12 @@ class SyntheticArena {
             {config->linear_num_value_heads});
         add(prefix + "linear_attn.norm.weight", st::DType::kBf16,
             {config->linear_value_head_dim});
+        const SyntheticLinearKind output_kind = next_kind();
         add_linear(prefix + "linear_attn.out_proj", config->hidden_size,
-                   config->linear_value_dim(), next_kind());
+                   config->linear_value_dim(),
+                   force_fp8_attention_outputs_
+                       ? SyntheticLinearKind::kFp8
+                       : output_kind);
       } else {
         add_linear(prefix + "self_attn.q_proj", config->q_projection_dim(),
                    config->hidden_size, next_kind());
@@ -230,8 +238,12 @@ class SyntheticArena {
                    config->hidden_size, next_kind());
         add_linear(prefix + "self_attn.v_proj", config->kv_dim(),
                    config->hidden_size, next_kind());
+        const SyntheticLinearKind output_kind = next_kind();
         add_linear(prefix + "self_attn.o_proj", config->hidden_size,
-                   config->q_dim(), next_kind());
+                   config->q_dim(),
+                   force_fp8_attention_outputs_
+                       ? SyntheticLinearKind::kFp8
+                       : output_kind);
         add(prefix + "self_attn.q_norm.weight", st::DType::kBf16,
             {config->head_dim});
         add(prefix + "self_attn.k_norm.weight", st::DType::kBf16,
@@ -249,7 +261,42 @@ class SyntheticArena {
   std::uint64_t arena_bytes_ = 0U;
   std::size_t linear_index_ = 0U;
   int scalar_status_ = 0;
+  bool force_fp8_attention_outputs_ = false;
 };
+
+[[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
+    runtime::ModelWeights& weights, const std::size_t layer_index) {
+  auto& layer =
+      const_cast<runtime::DecoderLayerWeights&>(weights.layer(layer_index));
+  if (auto* const linear =
+          std::get_if<runtime::LinearAttentionWeights>(&layer.attention)) {
+    return std::get_if<runtime::Fp8LinearWeight>(&linear->out_proj);
+  }
+  if (auto* const full =
+          std::get_if<runtime::FullAttentionWeights>(&layer.attention)) {
+    return std::get_if<runtime::Fp8LinearWeight>(&full->o_proj);
+  }
+  return nullptr;
+}
+
+[[nodiscard]] bool sidecars_match(
+    runtime::ModelWeights& weights, const std::uintptr_t arena_address) {
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    const runtime::Fp8LinearWeight* const output =
+        mutable_attention_output(weights, layer_index);
+    const std::uintptr_t expected =
+        arena_address +
+        layer_index *
+            runtime::kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
+    if (output == nullptr ||
+        reinterpret_cast<std::uintptr_t>(
+            output->m1_aosoa4_preswizzled_weight) != expected) {
+      return false;
+    }
+  }
+  return true;
+}
 
 void test_successful_bind(TestContext& test) {
   static_assert(!std::is_copy_constructible_v<runtime::ModelWeights>);
@@ -337,6 +384,98 @@ void test_successful_bind(TestContext& test) {
   runtime::ModelWeights moved = std::move(*result.value);
   test.expect(moved.embed_tokens().weight != nullptr,
               "non-owning model view is movable");
+}
+
+void test_fp8_m1_output_projection_sidecar_attachment(TestContext& test) {
+  static_assert(runtime::kFp8M1OutputProjectionRows == 5'120U);
+  static_assert(runtime::kFp8M1OutputProjectionColumns == 6'144U);
+  static_assert(
+      runtime::kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer ==
+      30U * 1024U * 1024U);
+  static_assert(
+      runtime::kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes ==
+      1'920U * 1024U * 1024U);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(),
+              "all-FP8 output-projection synthetic ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+  bool defaults_are_null = true;
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    const runtime::Fp8LinearWeight* const output =
+        mutable_attention_output(weights, layer_index);
+    defaults_are_null =
+        defaults_are_null && output != nullptr &&
+        output->m1_aosoa4_preswizzled_weight == nullptr;
+  }
+  test.expect(defaults_are_null,
+              "FP8 sidecar views default to null after binding");
+
+  constexpr std::uintptr_t kFirstArenaAddress = 0x0000040000000000ULL;
+  constexpr std::uintptr_t kSecondArenaAddress = 0x0000050000000000ULL;
+  constexpr std::size_t kSidecarBytes =
+      runtime::kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes;
+  const auto* const first_arena =
+      reinterpret_cast<const std::uint8_t*>(kFirstArenaAddress);
+  const auto* const second_arena =
+      reinterpret_cast<const std::uint8_t*>(kSecondArenaAddress);
+
+  test.expect(weights.attach_fp8_m1_output_projection_sidecars(
+                  first_arena, kSidecarBytes) &&
+                  sidecars_match(weights, kFirstArenaAddress),
+              "exact 64-layer AoSoA4 arena attaches in layer order");
+
+  test.expect(!weights.attach_fp8_m1_output_projection_sidecars(
+                  nullptr, kSidecarBytes) &&
+                  sidecars_match(weights, kFirstArenaAddress),
+              "null sidecar arena fails without changing attached views");
+  test.expect(!weights.attach_fp8_m1_output_projection_sidecars(
+                  second_arena, kSidecarBytes - 1U) &&
+                  sidecars_match(weights, kFirstArenaAddress),
+              "wrong sidecar byte count fails without changing views");
+  test.expect(!weights.attach_fp8_m1_output_projection_sidecars(
+                  reinterpret_cast<const std::uint8_t*>(
+                      kSecondArenaAddress + 1U),
+                  kSidecarBytes) &&
+                  sidecars_match(weights, kFirstArenaAddress),
+              "misaligned sidecar arena fails without changing views");
+
+  runtime::Fp8LinearWeight* const last_output =
+      mutable_attention_output(weights,
+                               runtime::kQwen36DenseLayerCount - 1U);
+  test.expect(last_output != nullptr,
+              "last attention output is FP8 for atomicity test");
+  if (last_output != nullptr) {
+    const std::size_t original_input_size = last_output->input_size;
+    last_output->input_size =
+        runtime::kFp8M1OutputProjectionColumns - 1U;
+    test.expect(!weights.attach_fp8_m1_output_projection_sidecars(
+                    second_arena, kSidecarBytes) &&
+                    sidecars_match(weights, kFirstArenaAddress),
+                "late shape failure leaves all 64 prior views unchanged");
+    last_output->input_size = original_input_size;
+  }
+
+  test.expect(weights.attach_fp8_m1_output_projection_sidecars(
+                  second_arena, kSidecarBytes) &&
+                  sidecars_match(weights, kSecondArenaAddress),
+              "a valid replacement arena atomically updates all views");
+
+  SyntheticArena mixed_arena;
+  runtime::WeightBindResult mixed_result =
+      runtime::bind_qwen36_27b_weights(mixed_arena.source());
+  test.expect(mixed_result.ok(), "mixed projection synthetic ABI binds");
+  if (mixed_result) {
+    test.expect(!mixed_result.value->attach_fp8_m1_output_projection_sidecars(
+                    first_arena, kSidecarBytes),
+                "non-FP8 attention output rejects the sidecar contract");
+  }
 }
 
 void test_projection_pair_eligibility(TestContext& test) {
@@ -798,6 +937,7 @@ void test_scalar_failures(TestContext& test) {
 int main() {
   TestContext test;
   test_successful_bind(test);
+  test_fp8_m1_output_projection_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);
   test_nvfp4_gate_up_silu_fusion_eligibility(test);

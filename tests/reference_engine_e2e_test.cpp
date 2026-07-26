@@ -287,6 +287,8 @@ int main(const int argc, char** const argv) {
       load.weight_bind_milliseconds >= 0.0 &&
       std::isfinite(load.request_state_milliseconds) &&
       load.request_state_milliseconds >= 0.0 &&
+      std::isfinite(load.fp8_output_sidecar_milliseconds) &&
+      load.fp8_output_sidecar_milliseconds >= 0.0 &&
       std::isfinite(load.runner_factory_milliseconds) &&
       load.runner_factory_milliseconds >= 0.0 &&
       std::isfinite(load.total_milliseconds) &&
@@ -297,6 +299,26 @@ int main(const int argc, char** const argv) {
                   std::max(load.tokenizer_milliseconds,
                            load.resident_load_milliseconds),
               "load wall time covers every individual startup phase");
+  constexpr std::uint64_t kExpectedFp8OutputSidecarBytes =
+      2'013'265'920ULL;
+  if (load.fp8_output_sidecars_enabled) {
+    test.expect(projection_backend ==
+                        runtime::ProjectionBackend::kSm87WeightOnly &&
+                    load.fp8_output_sidecar_layers == 64U &&
+                    load.fp8_output_sidecar_bytes ==
+                        kExpectedFp8OutputSidecarBytes &&
+                    load.fp8_output_sidecar_fallback_reason.empty(),
+                "enabled FP8 output sidecars report the exact 64-layer "
+                "allocation");
+  } else {
+    test.expect(load.fp8_output_sidecar_layers == 0U &&
+                    load.fp8_output_sidecar_bytes == 0U &&
+                    (projection_backend ==
+                             runtime::ProjectionBackend::kSm87WeightOnly ||
+                         load.fp8_output_sidecar_fallback_reason.empty()),
+                "disabled FP8 output sidecars retain an internally "
+                "consistent fallback report");
+  }
   if (!load.tokenizer_resident_overlap) {
     test.expect(load.total_milliseconds >=
                     load.tokenizer_milliseconds +
@@ -342,7 +364,17 @@ int main(const int argc, char** const argv) {
               << (result.value->load.tokenizer_resident_overlap ? 1 : 0)
               << " load_total_ms=" << load.total_milliseconds
               << " tokenizer_ms=" << load.tokenizer_milliseconds
-              << " resident_ms=" << load.resident_load_milliseconds << '\n';
+              << " resident_ms=" << load.resident_load_milliseconds
+              << " fp8_output_sidecars_enabled="
+              << (load.fp8_output_sidecars_enabled ? 1 : 0)
+              << " fp8_output_sidecar_layers="
+              << load.fp8_output_sidecar_layers
+              << " fp8_output_sidecar_bytes="
+              << load.fp8_output_sidecar_bytes
+              << " fp8_output_sidecar_ms="
+              << load.fp8_output_sidecar_milliseconds
+              << " fp8_output_sidecar_fallback_reason="
+              << load.fp8_output_sidecar_fallback_reason << '\n';
     return 0;
   }
   return 1;

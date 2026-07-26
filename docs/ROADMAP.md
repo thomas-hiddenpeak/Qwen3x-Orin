@@ -804,6 +804,27 @@ QKV/Z and fused NVFP4 down from the current-production profile; do not restore
 closed gate/up mechanisms. See the
 [test-only selection record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json).
 
+That bounded integration has now cleared production. All 64 exact output
+projections attach a persistent GPU-packed sidecar while retaining canonical
+weights for Prefill, M2+, and fallback. The final Release formal gate reaches
+1.05212x on the actual checkpoint and 1.00853x on same-bank stress; the full
+GPU pack matches a 30-MiB CPU oracle, all seven pack-invalid and eleven direct-
+GEMV-invalid cases pass, and the final Release binary passes the exact model
+oracle. The fixed-frequency P19/C32/max26 `B1-C1-C2-B2` gate moves the mirrored
+hot Decode median from 110.1060 to 109.7585 ms/token, or 9.1109 token/s, with
+both pairs improving. This is an achieved runtime result, unlike the earlier
+arithmetic projection.
+
+The tradeoff is explicit: 2,013,265,920 persistent bytes (1.875 GiB) and
+437.460/497.171 ms of cold construction in the timed candidate processes,
+about 467 ms on average. The hot number excludes that startup work. The
+single-request milestone remains 9.7585 ms/token away from 100 ms and needs a
+further 8.89% latency reduction. Continue incrementally with the bounded NVFP4
+down CTA-prune screen, then capture a fresh Decode profile and re-rank the
+remaining phase-local hotspots. Prefill resumes after the 100-ms/10-token/s
+Decode gate, and closed gate/up load-shape branches remain closed. See the
+[production sidecar benchmark](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json).
+
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
 followed by same-binary actual-payload gates.

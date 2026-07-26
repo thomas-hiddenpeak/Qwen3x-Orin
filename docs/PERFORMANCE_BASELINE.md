@@ -4703,3 +4703,60 @@ test-only persistent-sidecar integration experiment and does not claim an
 achieved runtime improvement. Full rounds, hashes, SASS, memory obligations,
 and promotion gates are in the
 [AoSoA4/preswizzled selection record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-selection.json).
+
+## Decode FP8 M1 output-projection persistent-sidecar production promotion
+
+The selected exact `[5120,6144]` route is now integrated for production SM87
+M1 dispatch. Model construction allocates one persistent arena, launches one
+GPU AoSoA4/preswizzle pack per layer, synchronizes it before runner creation,
+and atomically attaches all 64 sidecars. Canonical weights remain resident for
+Prefill, M2+, and fallback routes. Admission preserves the configured 8-GiB
+post-create free-memory margin; memory pressure falls back to canonical
+weights, while an actual pack or attachment failure fails construction.
+
+The production formal run repeats the hash-pinned actual payload and stress
+gates and validates the GPU pack against a full 30-MiB CPU oracle while
+preserving canonical input. All seven pack invalid cases and all eleven direct
+production-GEMV invalid cases return `cudaErrorInvalidValue` with zero
+captured nodes. The kernel retains 64 registers/thread, 1,152 B static shared
+memory, zero local memory, and four active CTAs/SM.
+
+| Formal fixture | Production median | Sidecar median | Paired speedup | Result |
+| --- | ---: | ---: | ---: | --- |
+| Actual layer-0 checkpoint | 0.185194 ms | 0.176046 ms | 1.05212x | pass |
+| Same-bank stress | 0.168455 ms | 0.166611 ms | 1.00853x | pass |
+
+The fixed-frequency end-to-end gate used separate frozen Release binaries in
+`B1-C1-C2-B2` process order, with one warmup and five measured generations per
+process on the P19/C32/max26 workload:
+
+| Process | Subsequent-token median | Decode-after-first median | Cold sidecar pack |
+| --- | ---: | ---: | ---: |
+| B1 | 110.082 ms | 2,752.664 ms | n/a |
+| C1 | 109.786 ms | 2,744.812 ms | 437.460 ms |
+| C2 | 109.731 ms | 2,743.777 ms | 497.171 ms |
+| B2 | 110.130 ms | 2,757.813 ms | n/a |
+
+The mean of mirrored process medians improves subsequent-token latency from
+110.1060 to **109.7585 ms**, a 0.3475-ms reduction or 1.003166x speedup. Both
+mirrored pairs improve independently. Decode-after-first moves from
+2,755.2385 to 2,744.2945 ms, a 10.944-ms reduction or 1.003988x speedup. The
+current hot single-request rate is therefore **9.1109 token/s**. It remains
+9.7585 ms/token above the 100-ms target, requiring another 8.89% latency
+reduction from the current value.
+
+This promotion deliberately does not hide its system cost. The 64-layer arena
+is 2,013,265,920 bytes, or 1.875 GiB, and the two benchmark processes spend
+437.460/497.171 ms constructing it (467.316 ms mean). Those are cold startup
+costs and are excluded from the hot Decode numbers above. The final Release
+binary differs from the timed candidate only by `noexcept` and memory-margin
+exception-path repairs; it separately passes exact 19-prompt-ID, 26-generated-
+ID, text, `im_end`, and 44-step replay with all 64 sidecars attached and a
+460.648-ms cold pack.
+
+This is a narrow persistent weight-format sidecar, not a runtime double/triple
+buffer or Prefill/Decode overlap. The next bounded Decode item is NVFP4 down
+CTA pruning, followed by a fresh production profile and hotspot re-ranking.
+Full binary and log hashes, aggregation arithmetic, validation scope, memory
+policy, and limitations are in the
+[production benchmark record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json).
