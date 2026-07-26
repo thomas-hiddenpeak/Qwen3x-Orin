@@ -6676,12 +6676,12 @@ nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_coarsened_512_phase(
   }
 }
 
-// Test-only exact down-projection counterpart of the production 64x256
-// phase. The physical grouping changes to 32 CTAs x 16 warps while retaining
+// Production down-projection phase. The physical grouping is 32 CTAs x 16
+// warps while retaining
 // the same 512 global projection warps, 2,048-row stride, per-row FMA order,
 // warp reduction, scale multiply, and BF16 publication boundary.
 __device__ __forceinline__ void
-nvfp4_w4a16_down_activation_staged_coarsened_512_phase(
+nvfp4_w4a16_down_activation_staged_phase(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     std::uint16_t* const output, const ulonglong2* const staged_activation,
@@ -6845,14 +6845,11 @@ nvfp4_w4a16_down_activation_staged_coarsened_512_phase(
   }
 }
 
-// Exact production down projection that reuses the activation-staged phase,
-// preserves the raw BF16 output boundary, and folds the following residual
-// add and centered RMSNorm into one cooperative launch. All 64 CTAs repeat
-// the exact reduction after the grid barrier; only the first 20 CTAs publish
-// disjoint 256-element normalized slices.
+// Test-only 64x256 predecessor retained for direct production A/B checks.
+// It preserves the historical raw BF16 boundary and centered RMSNorm tree.
 template <std::size_t Rows, std::size_t Columns>
 __global__ __launch_bounds__(kThreads, 4) void
-nvfp4_w4a16_down_residual_norm_activation_staged_kernel(
+nvfp4_w4a16_down_residual_norm_activation_staged_predecessor_test_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation,
@@ -6940,13 +6937,13 @@ nvfp4_w4a16_down_residual_norm_activation_staged_kernel(
   }
 }
 
-// Test-only exact-shape CTA-coarsened down/residual/norm kernel. Projection
-// work remains 512 warps in the same global-warp order, but is grouped as
-// 32x512. The low 256 threads preserve production's residual/RMS accumulation
-// and reduction order after the cooperative barrier; the high half remains
-// barrier-participating and never changes the numerical tree.
+// Exact production 32x512 down/residual/norm kernel. Projection remains 512
+// warps in the same global-warp order, and all threads redistribute residual
+// rows. After the grid barrier, the low 256 threads preserve the predecessor's
+// RMS accumulation/reduction order; the high half skips norm arithmetic while
+// still participating in every CTA barrier.
 __global__ __launch_bounds__(512, 2) void
-nvfp4_w4a16_down_residual_norm_activation_staged_coarsened_512_test_kernel(
+nvfp4_w4a16_down_residual_norm_activation_staged_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation,
@@ -6995,7 +6992,7 @@ nvfp4_w4a16_down_residual_norm_activation_staged_coarsened_512_test_kernel(
   }
   __syncthreads();
 
-  nvfp4_w4a16_down_activation_staged_coarsened_512_phase(
+  nvfp4_w4a16_down_activation_staged_phase(
       packed_weights, block_scales, weight_scale_2, raw_down_output,
       staged_activation, decoded_weights, decoded_scales, lane, warp);
 
@@ -9145,6 +9142,40 @@ void launch_nvfp4_down_activation_staged_unchecked(
 }
 
 [[nodiscard]] cudaError_t
+launch_nvfp4_down_residual_norm_predecessor_test_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    cudaStream_t const stream) noexcept {
+  const std::uint8_t* packed_argument = packed_weights;
+  const std::uint8_t* scales_argument = block_scales;
+  float scale_argument = weight_scale_2;
+  const std::uint16_t* activation_argument = activation;
+  std::uint16_t* raw_argument = raw_down_output;
+  const std::uint16_t* residual_left_argument = residual_left;
+  const std::uint16_t* norm_weight_argument = norm_weight;
+  float epsilon_argument = epsilon;
+  std::uint16_t* residual_argument = residual_output;
+  std::uint16_t* normalized_argument = normalized_output;
+  void* arguments[] = {
+      &packed_argument,       &scales_argument,       &scale_argument,
+      &activation_argument,   &raw_argument,          &residual_left_argument,
+      &norm_weight_argument,  &epsilon_argument,      &residual_argument,
+      &normalized_argument,
+  };
+  return cudaLaunchCooperativeKernel(
+      nvfp4_w4a16_down_residual_norm_activation_staged_predecessor_test_kernel<
+          5'120U, 17'408U>,
+      dim3{kNvFp4M1RowQuadMaximumBlocks}, dim3{kThreads}, arguments, 0U,
+      stream);
+}
+
+[[nodiscard]] cudaError_t
 launch_nvfp4_down_residual_norm_unchecked(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -9172,41 +9203,7 @@ launch_nvfp4_down_residual_norm_unchecked(
       &normalized_argument,
   };
   return cudaLaunchCooperativeKernel(
-      nvfp4_w4a16_down_residual_norm_activation_staged_kernel<
-          5'120U, 17'408U>,
-      dim3{kNvFp4M1RowQuadMaximumBlocks}, dim3{kThreads}, arguments, 0U,
-      stream);
-}
-
-[[nodiscard]] cudaError_t
-launch_nvfp4_down_residual_norm_coarsened_512_test_unchecked(
-    const std::uint8_t* const packed_weights,
-    const std::uint8_t* const block_scales, const float weight_scale_2,
-    const std::uint16_t* const activation,
-    const std::uint16_t* const residual_left,
-    const std::uint16_t* const norm_weight, const float epsilon,
-    std::uint16_t* const raw_down_output,
-    std::uint16_t* const residual_output,
-    std::uint16_t* const normalized_output,
-    cudaStream_t const stream) noexcept {
-  const std::uint8_t* packed_argument = packed_weights;
-  const std::uint8_t* scales_argument = block_scales;
-  float scale_argument = weight_scale_2;
-  const std::uint16_t* activation_argument = activation;
-  std::uint16_t* raw_argument = raw_down_output;
-  const std::uint16_t* residual_left_argument = residual_left;
-  const std::uint16_t* norm_weight_argument = norm_weight;
-  float epsilon_argument = epsilon;
-  std::uint16_t* residual_argument = residual_output;
-  std::uint16_t* normalized_argument = normalized_output;
-  void* arguments[] = {
-      &packed_argument,       &scales_argument,       &scale_argument,
-      &activation_argument,   &raw_argument,          &residual_left_argument,
-      &norm_weight_argument,  &epsilon_argument,      &residual_argument,
-      &normalized_argument,
-  };
-  return cudaLaunchCooperativeKernel(
-      nvfp4_w4a16_down_residual_norm_activation_staged_coarsened_512_test_kernel,
+      nvfp4_w4a16_down_residual_norm_activation_staged_kernel,
       dim3{32U}, dim3{512U}, arguments, 0U, stream);
 }
 
@@ -12476,18 +12473,14 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
-      &attributes,
-      nvfp4_w4a16_down_residual_norm_activation_staged_kernel<
-          5'120U, 17'408U>);
+      &attributes, nvfp4_w4a16_down_residual_norm_activation_staged_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &active_blocks,
-      nvfp4_w4a16_down_residual_norm_activation_staged_kernel<
-          5'120U, 17'408U>,
-      static_cast<int>(kThreads), 0U);
+      &active_blocks, nvfp4_w4a16_down_residual_norm_activation_staged_kernel,
+      512, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
@@ -12499,7 +12492,7 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-int launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
+int launch_sm87_nvfp4_w4a16_down_residual_norm_predecessor_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activation,
@@ -12586,7 +12579,7 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   const cudaError_t launch_status =
-      launch_nvfp4_down_residual_norm_coarsened_512_test_unchecked(
+      launch_nvfp4_down_residual_norm_predecessor_test_unchecked(
           packed_weights, block_scales, weight_scale_2, activation,
           residual_left, norm_weight, epsilon, raw_down_output,
           residual_output, normalized_output, stream);
@@ -12596,7 +12589,7 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
-int query_sm87_nvfp4_w4a16_m1_down_residual_norm_coarsened_512_resources_test_cuda(
+int query_sm87_nvfp4_w4a16_m1_down_residual_norm_predecessor_resources_test_cuda(
     int* const registers_per_thread,
     std::size_t* const static_shared_bytes,
     std::size_t* const local_bytes,
@@ -12610,15 +12603,17 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_coarsened_512_resources_test_cu
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      nvfp4_w4a16_down_residual_norm_activation_staged_coarsened_512_test_kernel);
+      nvfp4_w4a16_down_residual_norm_activation_staged_predecessor_test_kernel<
+          5'120U, 17'408U>);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      nvfp4_w4a16_down_residual_norm_activation_staged_coarsened_512_test_kernel,
-      512, 0U);
+      nvfp4_w4a16_down_residual_norm_activation_staged_predecessor_test_kernel<
+          5'120U, 17'408U>,
+      static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
