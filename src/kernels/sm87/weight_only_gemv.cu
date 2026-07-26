@@ -6507,8 +6507,8 @@ nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_phase(
   }
 }
 
-// Test-only 512-thread counterpart of the production gate/up phase. The
-// 32-CTA x 16-warp topology preserves the production kernel's 512 global
+// Exact-shape 512-thread counterpart of the predecessor gate/up phase. The
+// 32-CTA x 16-warp topology preserves the kernel's 512 global
 // warps and exact 2,048-row stride while halving the number of CTAs that
 // repeat residual/RMSNorm setup.
 __device__ __forceinline__ void
@@ -6859,14 +6859,14 @@ nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_kernel(
   }
 }
 
-// Exact-order fusion of the post-attention residual/RMSNorm
-// with the production gate/up/SiLU kernel. Every CTA repeats the same
+// Exact-order 64x256 predecessor fusion of the post-attention residual/RMSNorm
+// with gate/up/SiLU. Every CTA repeats the same
 // 256-thread RMS reduction used by residual_add_centered_rms_norm_5120_kernel
 // and materializes the normalized BF16 activation directly in shared memory.
 // CTA zero alone publishes the residual output. Repeating the small reduction
 // avoids a grid-wide barrier and the intermediate normalized global buffer;
-// the much larger gate/up projection then follows the established 64-CTA
-// topology and arithmetic order.
+// the much larger gate/up projection then follows the retained 64-CTA topology
+// and arithmetic order.
 template <std::size_t Columns, bool UseWarpTailReduction>
 __device__ __forceinline__ void
 stage_residual_centered_rms_norm_bf16(
@@ -6975,7 +6975,7 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_activation_staged_kernel(
   __shared__ float decoded_weights[kNvFp4EncodedValueCount];
   // The RMS reduction and FP8 scale codebook are phase-disjoint and both use
   // exactly one float per thread, so sharing this storage preserves the
-  // production kernel's 11,328-byte shared-memory footprint.
+  // predecessor kernel's 11,328-byte shared-memory footprint.
   __shared__ float norm_partial_or_decoded_scales[kFp8EncodedValueCount];
   auto staged_activation_bf16 =
       reinterpret_cast<std::uint16_t*>(staged_activation);
@@ -7020,7 +7020,7 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_activation_staged_kernel(
   }
 }
 
-// Preserve the exact production 256-thread residual/RMSNorm arithmetic while
+// Preserve the exact predecessor 256-thread residual/RMSNorm arithmetic while
 // letting a 512-thread CTA participate safely in every block barrier. Threads
 // 256..511 remain inactive during this phase; the low half keeps the original
 // i += 256 accumulation order and 256-element reduction tree.
@@ -7088,9 +7088,9 @@ stage_residual_centered_rms_norm_bf16_coarsened_512(
   __syncthreads();
 }
 
-// Test-only CTA-coarsened exact-shape candidate. It changes only the physical
+// Production CTA-coarsened exact-shape kernel. It changes only the physical
 // grouping of the same 512 projection warps: 32 CTAs x 16 warps instead of
-// production's 64 CTAs x 8 warps.
+// the predecessor's 64 CTAs x 8 warps.
 __global__ __launch_bounds__(512, 2) void
 nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_coarsened_512_kernel(
     const std::uint8_t* const gate_packed_weights,
@@ -9098,7 +9098,7 @@ void launch_nvfp4_residual_norm_gate_up_silu_test_unchecked(
   }
 }
 
-void launch_nvfp4_residual_norm_gate_up_silu_coarsened_512_test_unchecked(
+void launch_nvfp4_residual_norm_gate_up_silu_cta_coarsened_512_unchecked(
     const std::uint8_t* const gate_packed_weights,
     const std::uint8_t* const gate_block_scales,
     const float gate_weight_scale_2,
@@ -11629,8 +11629,7 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_nvfp4_residual_norm_gate_up_silu_instance_unchecked<17'408U,
-                                                               5'120U>(
+  launch_nvfp4_residual_norm_gate_up_silu_cta_coarsened_512_unchecked(
       gate_packed_weights, gate_block_scales, gate_weight_scale_2,
       up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
       residual_right, norm_weight, epsilon, residual_output, gate_output,
@@ -12735,7 +12734,7 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_coarsened_512_test_cuda(
   }
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_nvfp4_residual_norm_gate_up_silu_coarsened_512_test_unchecked(
+  launch_nvfp4_residual_norm_gate_up_silu_cta_coarsened_512_unchecked(
       gate_packed_weights, gate_block_scales, gate_weight_scale_2,
       up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
       residual_right, norm_weight, epsilon, residual_output, gate_output,

@@ -29707,10 +29707,14 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   const NvFp4GateUpPairResourceQuery residual_norm_shared_tree_resource_query =
       q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_shared_tree_resources_test_cuda;
+  const NvFp4GateUpPairResourceQuery residual_norm_production_resource_query =
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_test_cuda;
 
   const auto check_resources =
       [&](const NvFp4GateUpPairResourceQuery query,
-          const char* const candidate) {
+          const char* const candidate, const int minimum_threads_per_block,
+          const int minimum_active_blocks_per_sm) {
         NvFp4M1DownDualKernelResources resources{};
         const bool queried = test.cuda_ok(
             static_cast<cudaError_t>(query(
@@ -29723,8 +29727,8 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
             queried && resources.registers_per_thread <= 64 &&
             resources.static_shared_bytes <= 11'328U &&
             resources.local_bytes == 0U &&
-            resources.maximum_threads_per_block >= 256 &&
-            resources.active_blocks_per_sm >= 4;
+            resources.maximum_threads_per_block >= minimum_threads_per_block &&
+            resources.active_blocks_per_sm >= minimum_active_blocks_per_sm;
         const bool null_rejected =
             static_cast<cudaError_t>(query(
                 nullptr, &resources.static_shared_bytes,
@@ -29732,7 +29736,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
                 &resources.active_blocks_per_sm)) == cudaErrorInvalidValue;
         test.expect(resource_gate,
                     label + " " + candidate +
-                        " clears 64r/0local/active4 resource gate");
+                        " clears production resource gate");
         test.expect(null_rejected,
                     label + " " + candidate +
                         " resource query rejects null");
@@ -29750,7 +29754,10 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
                   << " maximum_registers_per_thread=64"
                   << " maximum_static_shared_bytes=11328"
                   << " require_zero_local_bytes=true"
-                  << " minimum_active_blocks_per_sm=4"
+                  << " minimum_threads_per_block="
+                  << minimum_threads_per_block
+                  << " minimum_active_blocks_per_sm="
+                  << minimum_active_blocks_per_sm
                   << " null_query_rejected="
                   << (null_rejected ? "true" : "false")
                   << " gate="
@@ -29759,14 +29766,18 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
         return resource_gate && null_rejected;
       };
   const bool pair_resource_gate =
-      check_resources(pair_resource_query, "pair_only");
+      check_resources(pair_resource_query, "pair_only", 256, 4);
   const bool fused_resource_gate =
-      check_resources(fused_resource_query, "pair_plus_silu");
+      check_resources(fused_resource_query, "pair_plus_silu", 256, 4);
   const bool residual_norm_fused_resource_gate = check_resources(
-      residual_norm_fused_resource_query, "residual_norm_pair_plus_silu");
+      residual_norm_fused_resource_query, "residual_norm_pair_plus_silu", 256,
+      4);
   const bool residual_norm_shared_tree_resource_gate = check_resources(
       residual_norm_shared_tree_resource_query,
-      "residual_norm_pair_plus_silu_shared_tree_baseline");
+      "residual_norm_pair_plus_silu_shared_tree_baseline", 256, 4);
+  const bool residual_norm_production_resource_gate = check_resources(
+      residual_norm_production_resource_query,
+      "residual_norm_pair_plus_silu_production_32x512", 512, 2);
 
   std::vector<std::uint8_t> host_gate_packed(kPackedCount);
   std::vector<std::uint8_t> host_up_packed(kPackedCount);
@@ -30882,58 +30893,83 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
       "test exact residual/norm 32x512 coarsened",
       &residual_norm_coarsened_parameters);
   const bool residual_norm_identity_gate =
-      residual_norm_public_captured && residual_norm_test_captured &&
+      residual_norm_public_captured && residual_norm_coarsened_captured &&
       residual_norm_public_parameters.func ==
-          residual_norm_test_parameters.func &&
-      residual_norm_public_parameters.gridDim.x == 64U &&
+          residual_norm_coarsened_parameters.func &&
+      residual_norm_public_parameters.gridDim.x == 32U &&
       residual_norm_public_parameters.gridDim.y == 1U &&
       residual_norm_public_parameters.gridDim.z == 1U &&
-      residual_norm_public_parameters.blockDim.x == 256U &&
+      residual_norm_public_parameters.blockDim.x == 512U &&
       residual_norm_public_parameters.blockDim.y == 1U &&
       residual_norm_public_parameters.blockDim.z == 1U &&
       residual_norm_public_parameters.sharedMemBytes == 0U &&
       residual_norm_public_parameters.gridDim.x ==
-          residual_norm_test_parameters.gridDim.x &&
+          residual_norm_coarsened_parameters.gridDim.x &&
+      residual_norm_public_parameters.gridDim.y ==
+          residual_norm_coarsened_parameters.gridDim.y &&
+      residual_norm_public_parameters.gridDim.z ==
+          residual_norm_coarsened_parameters.gridDim.z &&
       residual_norm_public_parameters.blockDim.x ==
-          residual_norm_test_parameters.blockDim.x &&
+          residual_norm_coarsened_parameters.blockDim.x &&
+      residual_norm_public_parameters.blockDim.y ==
+          residual_norm_coarsened_parameters.blockDim.y &&
+      residual_norm_public_parameters.blockDim.z ==
+          residual_norm_coarsened_parameters.blockDim.z &&
       residual_norm_public_parameters.sharedMemBytes ==
-          residual_norm_test_parameters.sharedMemBytes;
+          residual_norm_coarsened_parameters.sharedMemBytes;
   test.expect(residual_norm_identity_gate,
-              label + " public/test residual-norm kernels are identical");
+              label + " public/coarsened replay kernels are identical");
   const bool residual_norm_reduction_ab_topology_gate =
-      residual_norm_public_captured && residual_norm_shared_tree_captured &&
-      residual_norm_public_parameters.func !=
+      residual_norm_test_captured && residual_norm_shared_tree_captured &&
+      residual_norm_test_parameters.func !=
           residual_norm_shared_tree_parameters.func &&
-      residual_norm_public_parameters.gridDim.x ==
+      residual_norm_test_parameters.gridDim.x == 64U &&
+      residual_norm_test_parameters.gridDim.y == 1U &&
+      residual_norm_test_parameters.gridDim.z == 1U &&
+      residual_norm_test_parameters.blockDim.x == 256U &&
+      residual_norm_test_parameters.blockDim.y == 1U &&
+      residual_norm_test_parameters.blockDim.z == 1U &&
+      residual_norm_test_parameters.gridDim.x ==
           residual_norm_shared_tree_parameters.gridDim.x &&
-      residual_norm_public_parameters.blockDim.x ==
+      residual_norm_test_parameters.gridDim.y ==
+          residual_norm_shared_tree_parameters.gridDim.y &&
+      residual_norm_test_parameters.gridDim.z ==
+          residual_norm_shared_tree_parameters.gridDim.z &&
+      residual_norm_test_parameters.blockDim.x ==
           residual_norm_shared_tree_parameters.blockDim.x &&
-      residual_norm_public_parameters.sharedMemBytes ==
+      residual_norm_test_parameters.blockDim.y ==
+          residual_norm_shared_tree_parameters.blockDim.y &&
+      residual_norm_test_parameters.blockDim.z ==
+          residual_norm_shared_tree_parameters.blockDim.z &&
+      residual_norm_test_parameters.sharedMemBytes ==
           residual_norm_shared_tree_parameters.sharedMemBytes;
   test.expect(residual_norm_reduction_ab_topology_gate,
               label + " warp-tail/shared-tree A/B keeps launch topology");
   const bool residual_norm_coarsened_topology_gate =
-      residual_norm_public_captured && residual_norm_coarsened_captured &&
+      residual_norm_identity_gate && residual_norm_test_captured &&
       residual_norm_public_parameters.func !=
-          residual_norm_coarsened_parameters.func &&
-      residual_norm_public_parameters.gridDim.x == 64U &&
-      residual_norm_public_parameters.blockDim.x == 256U &&
-      residual_norm_coarsened_parameters.gridDim.x == 32U &&
-      residual_norm_coarsened_parameters.gridDim.y == 1U &&
-      residual_norm_coarsened_parameters.gridDim.z == 1U &&
-      residual_norm_coarsened_parameters.blockDim.x == 512U &&
-      residual_norm_coarsened_parameters.blockDim.y == 1U &&
-      residual_norm_coarsened_parameters.blockDim.z == 1U &&
-      residual_norm_public_parameters.sharedMemBytes == 0U &&
-      residual_norm_coarsened_parameters.sharedMemBytes == 0U;
+          residual_norm_test_parameters.func &&
+      residual_norm_test_parameters.gridDim.x == 64U &&
+      residual_norm_test_parameters.gridDim.y == 1U &&
+      residual_norm_test_parameters.gridDim.z == 1U &&
+      residual_norm_test_parameters.blockDim.x == 256U &&
+      residual_norm_test_parameters.blockDim.y == 1U &&
+      residual_norm_test_parameters.blockDim.z == 1U &&
+      residual_norm_test_parameters.sharedMemBytes == 0U;
   test.expect(residual_norm_coarsened_topology_gate,
-              label + " coarsened candidate is a distinct 32x512 node");
+              label + " production 32x512 is distinct from 64x256 predecessor");
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_CTA_COARSEN_GRAPH: "
-            << "production_nodes=1 production_grid=64 production_block=256"
-            << " candidate_nodes=1 candidate_grid=32 candidate_block=512"
-            << " dynamic_shared=0 distinct_func="
-            << (residual_norm_public_parameters.func !=
+            << "production_nodes=1 production_grid=32 production_block=512"
+            << " replay_nodes=1 replay_grid=32 replay_block=512"
+            << " predecessor_nodes=1 predecessor_grid=64 predecessor_block=256"
+            << " dynamic_shared=0 production_replay_same_func="
+            << (residual_norm_public_parameters.func ==
                         residual_norm_coarsened_parameters.func
+                    ? "true"
+                    : "false")
+            << " predecessor_distinct_func="
+            << (residual_norm_public_parameters.func !=
+                        residual_norm_test_parameters.func
                     ? "true"
                     : "false")
             << " gate="
@@ -31130,8 +31166,10 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   test.expect(residual_norm_public_contract_gate,
               label + " residual/norm public contract passes");
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_SILU_PUBLIC_CONTRACT: "
-            << "public_nodes=1 test_nodes=1 same_func_grid_block_shared="
+            << "public_nodes=1 replay_nodes=1 same_func_grid_block_shared="
             << (residual_norm_identity_gate ? "true" : "false")
+            << " predecessor_nodes=1 distinct_64x256="
+            << (residual_norm_coarsened_topology_gate ? "true" : "false")
             << " invalid_zero_node_gate="
             << (residual_norm_invalid_gate ? "PASS" : "FAIL")
             << " shared_tree_ab_distinct_same_topology="
@@ -31698,7 +31736,8 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   const bool default_gate =
       pair_resource_gate && fused_resource_gate &&
       residual_norm_fused_resource_gate &&
-      residual_norm_shared_tree_resource_gate && residual_norm_gate &&
+      residual_norm_shared_tree_resource_gate &&
+      residual_norm_production_resource_gate && residual_norm_gate &&
       residual_norm_reduction_ab_gate && residual_norm_nonfinite_gate &&
       finite_gate && invalid_contract_gate && public_contract_gate &&
       residual_norm_public_contract_gate && nan_gate;
@@ -31712,6 +31751,8 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
             << (residual_norm_fused_resource_gate ? "PASS" : "FAIL")
             << " residual_norm_shared_tree_resource_gate="
             << (residual_norm_shared_tree_resource_gate ? "PASS" : "FAIL")
+            << " residual_norm_production_resource_gate="
+            << (residual_norm_production_resource_gate ? "PASS" : "FAIL")
             << " residual_norm_bitwise_gate="
             << (residual_norm_gate ? "PASS" : "FAIL")
             << " residual_norm_reduction_ab_gate="
@@ -31735,9 +31776,9 @@ struct NvFp4GateUpSiluFusionTiming {
 };
 
 struct NvFp4GateUpCtaCoarsenTiming {
-  float production_pass_median_milliseconds =
+  float predecessor_pass_median_milliseconds =
       std::numeric_limits<float>::quiet_NaN();
-  float candidate_pass_median_milliseconds =
+  float production_pass_median_milliseconds =
       std::numeric_limits<float>::quiet_NaN();
   float paired_round_median_speedup =
       std::numeric_limits<float>::quiet_NaN();
@@ -32064,7 +32105,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             << " limits=64r,11328shared,0local,active4"
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
   std::cout << "PERF_NVFP4_M1_GATE_UP_CTA_COARSEN_RESOURCES: "
-            << "candidate=grid32_block512"
+            << "production=grid32_block512"
             << " registers="
             << residual_norm_coarsened_resources.registers_per_thread
             << " shared="
@@ -32268,9 +32309,9 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             kNormEpsilon, kRows, kColumns, candidate_residual,
             candidate_gate, candidate_up, static_cast<void*>(stream));
   };
-  const auto launch_residual_norm_coarsened = [&]() noexcept {
+  const auto launch_residual_norm_predecessor = [&]() noexcept {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_coarsened_512_test_cuda(
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_test_cuda(
             gate_packed.get(), gate_scales.get(), gate_scale2,
             up_packed.get(), up_scales.get(), up_scale2,
             residual_left.get(), residual_right.get(), norm_weight.get(),
@@ -33075,8 +33116,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       };
 
   // Isolate the reduction change inside the otherwise-identical single
-  // kernel. B is the preserved all-shared tree and C is the production
-  // shared-prefix/warp-tail tree; symmetric order limits drift bias.
+  // kernel. B is the preserved all-shared tree and C is the retained 64x256
+  // shared-prefix/warp-tail predecessor; symmetric order limits drift bias.
   const auto benchmark_residual_norm_reduction_direct =
       [&](const std::string& fixture_label) {
         NvFp4GateUpSiluFusionTiming timing{};
@@ -33087,7 +33128,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               static_cast<cudaError_t>(launch_residual_norm_shared_tree()),
               fixture_label + " direct shared-tree warmup");
           timing_ready = timing_ready && test.cuda_ok(
-              static_cast<cudaError_t>(launch_residual_norm_candidate()),
+              static_cast<cudaError_t>(launch_residual_norm_predecessor()),
               fixture_label + " direct warp-tail warmup");
         }
         timing_ready = timing_ready && test.cuda_ok(
@@ -33109,10 +33150,10 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               test, stream, launch_residual_norm_shared_tree,
               kMeasuredIterations, round_label + " B1 shared-tree");
           const float c1 = measure_small_m_tile(
-              test, stream, launch_residual_norm_candidate,
+              test, stream, launch_residual_norm_predecessor,
               kMeasuredIterations, round_label + " C1 warp-tail");
           const float c2 = measure_small_m_tile(
-              test, stream, launch_residual_norm_candidate,
+              test, stream, launch_residual_norm_predecessor,
               kMeasuredIterations, round_label + " C2 warp-tail");
           const float b2 = measure_small_m_tile(
               test, stream, launch_residual_norm_shared_tree,
@@ -33142,9 +33183,9 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         return timing;
       };
 
-  // Compare the current production 64x256 kernel directly with the test-only
-  // 32x512 CTA-coarsened kernel. Both retain 512 total projection warps and
-  // 32 resident warps/SM; only the repeated CTA setup count changes.
+  // Compare the retained 64x256 predecessor directly with the public 32x512
+  // production kernel. Both retain 512 total projection warps and 32 resident
+  // warps/SM; only the repeated CTA setup count changes.
   const auto benchmark_residual_norm_cta_coarsen =
       [&](const std::string& fixture_label) {
         NvFp4GateUpCtaCoarsenTiming timing{};
@@ -33152,11 +33193,11 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         for (int iteration = 0;
              iteration < kWarmupIterations && timing_ready; ++iteration) {
           timing_ready = test.cuda_ok(
+              static_cast<cudaError_t>(launch_residual_norm_predecessor()),
+              fixture_label + " CTA coarsen predecessor warmup");
+          timing_ready = timing_ready && test.cuda_ok(
               static_cast<cudaError_t>(launch_residual_norm_candidate()),
               fixture_label + " CTA coarsen production warmup");
-          timing_ready = timing_ready && test.cuda_ok(
-              static_cast<cudaError_t>(launch_residual_norm_coarsened()),
-              fixture_label + " CTA coarsen candidate warmup");
         }
         timing_ready = timing_ready && test.cuda_ok(
             cudaStreamSynchronize(stream),
@@ -33166,30 +33207,30 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         }
         constexpr std::size_t kPasses =
             2U * static_cast<std::size_t>(kMeasurementRounds);
+        std::array<float, kPasses> predecessor_passes{};
         std::array<float, kPasses> production_passes{};
-        std::array<float, kPasses> candidate_passes{};
         bool finite = true;
         for (int round = 0; round < kMeasurementRounds; ++round) {
           const std::string round_label =
               fixture_label + " CTA coarsen round=" +
               std::to_string(round + 1);
           const float b1 = measure_small_m_tile(
-              test, stream, launch_residual_norm_candidate,
-              kMeasuredIterations, round_label + " B1 production");
+              test, stream, launch_residual_norm_predecessor,
+              kMeasuredIterations, round_label + " B1 predecessor");
           const float c1 = measure_small_m_tile(
-              test, stream, launch_residual_norm_coarsened,
-              kMeasuredIterations, round_label + " C1 32x512");
-          const float c2 = measure_small_m_tile(
-              test, stream, launch_residual_norm_coarsened,
-              kMeasuredIterations, round_label + " C2 32x512");
-          const float b2 = measure_small_m_tile(
               test, stream, launch_residual_norm_candidate,
-              kMeasuredIterations, round_label + " B2 production");
+              kMeasuredIterations, round_label + " C1 production 32x512");
+          const float c2 = measure_small_m_tile(
+              test, stream, launch_residual_norm_candidate,
+              kMeasuredIterations, round_label + " C2 production 32x512");
+          const float b2 = measure_small_m_tile(
+              test, stream, launch_residual_norm_predecessor,
+              kMeasuredIterations, round_label + " B2 predecessor");
           const std::size_t pass = 2U * static_cast<std::size_t>(round);
-          production_passes[pass] = b1;
-          production_passes[pass + 1U] = b2;
-          candidate_passes[pass] = c1;
-          candidate_passes[pass + 1U] = c2;
+          predecessor_passes[pass] = b1;
+          predecessor_passes[pass + 1U] = b2;
+          production_passes[pass] = c1;
+          production_passes[pass + 1U] = c2;
           const float paired_speedup = (b1 + b2) / (c1 + c2);
           timing.paired_round_speedups[static_cast<std::size_t>(round)] =
               paired_speedup;
@@ -33199,19 +33240,19 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
           std::cout << "PERF_NVFP4_M1_GATE_UP_CTA_COARSEN_ROUND: fixture="
                     << fixture_label << " round=" << round + 1
                     << " order=B-C-C-B iterations=64"
-                    << " production1_ms=" << b1
-                    << " candidate1_ms=" << c1
-                    << " candidate2_ms=" << c2
-                    << " production2_ms=" << b2
+                    << " predecessor1_ms=" << b1
+                    << " production1_ms=" << c1
+                    << " production2_ms=" << c2
+                    << " predecessor2_ms=" << b2
                     << " paired_speedup=" << paired_speedup << '\n';
         }
         if (!finite) {
           return timing;
         }
+        timing.predecessor_pass_median_milliseconds =
+            median_fp8_kv_pair_timing(predecessor_passes);
         timing.production_pass_median_milliseconds =
             median_fp8_kv_pair_timing(production_passes);
-        timing.candidate_pass_median_milliseconds =
-            median_fp8_kv_pair_timing(candidate_passes);
         timing.paired_round_median_speedup =
             median_fp8_kv_pair_timing(timing.paired_round_speedups);
         return timing;
@@ -33272,15 +33313,16 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     residual_norm_correctness[fixture] =
         check_residual_norm_correctness(
             fixture_label, launch_residual_norm_candidate,
-            "production_64x256");
+            "production_32x512");
     residual_norm_cta_coarsen_correctness[fixture] =
         check_residual_norm_correctness(
-            fixture_label, launch_residual_norm_coarsened,
-            "test_only_32x512");
+            fixture_label, launch_residual_norm_predecessor,
+            "predecessor_64x256") &&
+        residual_norm_correctness[fixture];
     residual_norm_reduction_direct_correctness[fixture] =
         check_residual_norm_reduction_direct_correctness(
             fixture_label + " finite", false,
-            launch_residual_norm_candidate, "production_64x256");
+            launch_residual_norm_predecessor, "predecessor_64x256");
     residual_norm_timings[fixture] =
         benchmark_residual_norm(fixture_label);
     residual_norm_reduction_direct_timings[fixture] =
@@ -33304,13 +33346,13 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       residual_norm_reduction_direct_nonfinite_correctness =
           upload_residual_fixture(nonfinite_label) &&
           check_residual_norm_reduction_direct_correctness(
-              nonfinite_label, true, launch_residual_norm_candidate,
-              "production_64x256");
+              nonfinite_label, true, launch_residual_norm_predecessor,
+              "predecessor_64x256");
       residual_norm_cta_coarsen_nonfinite_correctness =
           upload_residual_fixture(nonfinite_label) &&
           check_residual_norm_reduction_direct_correctness(
-              nonfinite_label, true, launch_residual_norm_coarsened,
-              "test_only_32x512");
+              nonfinite_label, true, launch_residual_norm_candidate,
+              "production_32x512");
       host_residual_left = finite_residual_left;
       host_residual_right = finite_residual_right;
       host_norm_weight = finite_norm_weight;
@@ -33428,21 +33470,21 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     }
     const bool cell_gate =
         residual_norm_cta_coarsen_correctness[fixture] &&
+        std::isfinite(timing.predecessor_pass_median_milliseconds) &&
         std::isfinite(timing.production_pass_median_milliseconds) &&
-        std::isfinite(timing.candidate_pass_median_milliseconds) &&
         std::isfinite(timing.paired_round_median_speedup) &&
+        timing.predecessor_pass_median_milliseconds > 0.0F &&
         timing.production_pass_median_milliseconds > 0.0F &&
-        timing.candidate_pass_median_milliseconds > 0.0F &&
         static_cast<double>(timing.paired_round_median_speedup) >=
             required_median &&
         every_round_nonregression;
     residual_norm_cta_coarsen_cell_gates[fixture] = cell_gate;
     std::cout << "PERF_NVFP4_M1_GATE_UP_CTA_COARSEN: fixture="
               << (fixture == 0U ? "actual_checkpoint" : "same_bank_stress")
-              << " production_64x256_pass_median_ms="
+              << " predecessor_64x256_pass_median_ms="
+              << timing.predecessor_pass_median_milliseconds
+              << " production_32x512_pass_median_ms="
               << timing.production_pass_median_milliseconds
-              << " candidate_32x512_pass_median_ms="
-              << timing.candidate_pass_median_milliseconds
               << " paired_round_median_speedup="
               << timing.paired_round_median_speedup
               << " required_median_speedup=" << required_median
@@ -33458,8 +33500,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       residual_norm_cta_coarsen_cell_gates[1U] &&
       residual_norm_cta_coarsen_nonfinite_correctness;
   std::cout << "PERF_NVFP4_M1_GATE_UP_CTA_COARSEN_SELECTED: "
-            << "candidate=test_only_grid32_block512"
-            << " baseline=production_grid64_block256"
+            << "production=grid32_block512"
+            << " predecessor=grid64_block256"
             << " shape=17408x5120 checkpoint_source=actual"
             << " actual_paired_median_speedup="
             << residual_norm_cta_coarsen_timings[0U]
