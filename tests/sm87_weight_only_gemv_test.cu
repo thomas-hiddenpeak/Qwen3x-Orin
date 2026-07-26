@@ -572,6 +572,26 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resourc
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cg_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cg_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_prerounded_residual_norm_gate_up_silu_dead_up_test_cuda(
     const std::uint8_t* gate_packed_weights,
     const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
@@ -5469,6 +5489,13 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool decode_residual_chain_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_RESIDUAL_CHAIN_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool decode_gate_up_cg_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_CG_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -34368,7 +34395,8 @@ struct NvFp4GateUpDeadUpTiming {
 void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     TestContext& test, cudaStream_t stream) {
   if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled() &&
-      !decode_residual_chain_performance_enabled()) {
+      !decode_residual_chain_performance_enabled() &&
+      !decode_gate_up_cg_performance_enabled()) {
     std::cout
         << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
            "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
@@ -35027,6 +35055,407 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                              cudaStreamSynchronize(stream),
                              fixture_label + " upload synchronize");
       };
+
+  if (decode_gate_up_cg_performance_enabled()) {
+    constexpr int kCacheWarmupIterations = 10;
+    constexpr int kCacheMeasuredIterations = 64;
+    constexpr int kCacheMeasurementRounds = 5;
+    constexpr float kRequiredDeltaMilliseconds = 0.25F / 64.0F;
+    constexpr double kRequiredSpeedup = 1.005;
+    const std::string cache_label =
+        "Decode gate/up packed-weight/block-scale cache-global screen";
+
+    NvFp4M1DownDualKernelResources cache_candidate_resources{};
+    bool cache_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cg_resources_test_cuda(
+                &cache_candidate_resources.registers_per_thread,
+                &cache_candidate_resources.static_shared_bytes,
+                &cache_candidate_resources.local_bytes,
+                &cache_candidate_resources.maximum_threads_per_block,
+                &cache_candidate_resources.active_blocks_per_sm)),
+        cache_label + " query candidate resources");
+    const bool cache_resource_gate =
+        cache_ready && dead_up_resource_gate &&
+        cache_candidate_resources.registers_per_thread ==
+            residual_norm_dead_up_resources.registers_per_thread &&
+        cache_candidate_resources.registers_per_thread <= 64 &&
+        cache_candidate_resources.static_shared_bytes == 13'632U &&
+        cache_candidate_resources.local_bytes == 0U &&
+        cache_candidate_resources.maximum_threads_per_block >= 512 &&
+        cache_candidate_resources.active_blocks_per_sm >= 2;
+    test.expect(cache_resource_gate,
+                cache_label + " preserves the production resource envelope");
+    std::cout << "PERF_DECODE_GATE_UP_CG_RESOURCES:"
+              << " baseline_registers="
+              << residual_norm_dead_up_resources.registers_per_thread
+              << " baseline_shared="
+              << residual_norm_dead_up_resources.static_shared_bytes
+              << " baseline_local="
+              << residual_norm_dead_up_resources.local_bytes
+              << " baseline_active="
+              << residual_norm_dead_up_resources.active_blocks_per_sm
+              << " candidate_registers="
+              << cache_candidate_resources.registers_per_thread
+              << " candidate_shared="
+              << cache_candidate_resources.static_shared_bytes
+              << " candidate_local="
+              << cache_candidate_resources.local_bytes
+              << " candidate_active="
+              << cache_candidate_resources.active_blocks_per_sm
+              << " policy=packed_and_scale_cg"
+              << " gate=" << (cache_resource_gate ? "PASS" : "FAIL")
+              << '\n';
+    if (!cache_resource_gate) {
+      return;
+    }
+
+    DeviceBuffer<std::uint16_t> replay_residual_storage;
+    DeviceBuffer<std::uint16_t> replay_gate_storage;
+    DeviceBuffer<std::uint16_t> replay_up_storage;
+    cache_ready = cache_ready && test.cuda_ok(
+        replay_residual_storage.allocate(kColumns + 2U * kGuardElements),
+        cache_label + " allocate replay residual");
+    cache_ready = cache_ready && test.cuda_ok(
+        replay_gate_storage.allocate(guarded_count),
+        cache_label + " allocate replay gate");
+    cache_ready = cache_ready && test.cuda_ok(
+        replay_up_storage.allocate(guarded_count),
+        cache_label + " allocate replay up workspace");
+    cache_ready = cache_ready && upload_fixture(cache_label);
+    if (!cache_ready) {
+      return;
+    }
+    std::uint16_t* const replay_residual =
+        replay_residual_storage.get() + kGuardElements;
+    std::uint16_t* const replay_gate =
+        replay_gate_storage.get() + kGuardElements;
+    std::uint16_t* const replay_up =
+        replay_up_storage.get() + kGuardElements;
+    const auto launch_cache_baseline_to =
+        [&](std::uint16_t* const residual, std::uint16_t* const gate,
+            std::uint16_t* const up) noexcept {
+          return q3x::kernels::
+              launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+                  gate_packed.get(), gate_scales.get(), gate_scale2,
+                  up_packed.get(), up_scales.get(), up_scale2,
+                  residual_left.get(), residual_right.get(),
+                  norm_weight.get(), kNormEpsilon, kRows, kColumns,
+                  residual, gate, up, static_cast<void*>(stream));
+        };
+    const auto launch_cache_candidate_to =
+        [&](std::uint16_t* const residual, std::uint16_t* const gate,
+            std::uint16_t* const up) noexcept {
+          return q3x::kernels::
+              launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cg_test_cuda(
+                  gate_packed.get(), gate_scales.get(), gate_scale2,
+                  up_packed.get(), up_scales.get(), up_scale2,
+                  residual_left.get(), residual_right.get(),
+                  norm_weight.get(), kNormEpsilon, kRows, kColumns,
+                  residual, gate, up, static_cast<void*>(stream));
+        };
+    const auto launch_cache_baseline = [&]() noexcept {
+      return launch_cache_baseline_to(baseline_residual, baseline_gate,
+                                      baseline_up);
+    };
+    const auto launch_cache_candidate = [&]() noexcept {
+      return launch_cache_candidate_to(candidate_residual, candidate_gate,
+                                       candidate_up);
+    };
+
+    cache_ready = test.cuda_ok(
+        cudaMemsetAsync(baseline_residual_storage.get(), 0x31,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        cache_label + " poison baseline residual");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_residual_storage.get(), 0x42,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        cache_label + " poison candidate residual");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(replay_residual_storage.get(), 0x53,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        cache_label + " poison replay residual");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(baseline_gate_storage.get(), 0x64,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison baseline gate");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_gate_storage.get(), 0x75,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison candidate gate");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(replay_gate_storage.get(), 0x86,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison replay gate");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(baseline_up_storage.get(), 0x97,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison baseline up workspace");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_up_storage.get(), 0xa8,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison candidate up workspace");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaMemsetAsync(replay_up_storage.get(), 0xb9,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        cache_label + " poison replay up workspace");
+    cache_ready = cache_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_cache_baseline()),
+        cache_label + " launch baseline correctness");
+    cache_ready = cache_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_cache_candidate()),
+        cache_label + " launch candidate correctness");
+    cache_ready = cache_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_cache_candidate_to(
+            replay_residual, replay_gate, replay_up)),
+        cache_label + " launch candidate replay");
+
+    std::vector<std::uint16_t> observed_baseline_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_candidate_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_replay_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_baseline_gate(guarded_count);
+    std::vector<std::uint16_t> observed_candidate_gate(guarded_count);
+    std::vector<std::uint16_t> observed_replay_gate(guarded_count);
+    std::vector<std::uint16_t> observed_baseline_up(guarded_count);
+    std::vector<std::uint16_t> observed_candidate_up(guarded_count);
+    std::vector<std::uint16_t> observed_replay_up(guarded_count);
+    const auto copy_cache_output =
+        [&](std::vector<std::uint16_t>& destination,
+            const DeviceBuffer<std::uint16_t>& source,
+            const std::string& operation) {
+          return test.cuda_ok(
+              cudaMemcpyAsync(destination.data(), source.get(),
+                              destination.size() * sizeof(std::uint16_t),
+                              cudaMemcpyDeviceToHost, stream),
+              operation);
+        };
+    cache_ready = cache_ready && copy_cache_output(
+        observed_baseline_residual, baseline_residual_storage,
+        cache_label + " copy baseline residual");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_candidate_residual, candidate_residual_storage,
+        cache_label + " copy candidate residual");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_replay_residual, replay_residual_storage,
+        cache_label + " copy replay residual");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_baseline_gate, baseline_gate_storage,
+        cache_label + " copy baseline gate");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_candidate_gate, candidate_gate_storage,
+        cache_label + " copy candidate gate");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_replay_gate, replay_gate_storage,
+        cache_label + " copy replay gate");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_baseline_up, baseline_up_storage,
+        cache_label + " copy baseline up workspace");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_candidate_up, candidate_up_storage,
+        cache_label + " copy candidate up workspace");
+    cache_ready = cache_ready && copy_cache_output(
+        observed_replay_up, replay_up_storage,
+        cache_label + " copy replay up workspace");
+    cache_ready = cache_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), cache_label + " correctness sync");
+    if (!cache_ready) {
+      return;
+    }
+
+    std::size_t residual_mismatches = 0U;
+    std::size_t gate_mismatches = 0U;
+    std::size_t replay_residual_mismatches = 0U;
+    std::size_t replay_gate_mismatches = 0U;
+    bool finite_outputs = true;
+    for (std::size_t index = 0U; index < kColumns; ++index) {
+      const std::size_t guarded = kGuardElements + index;
+      residual_mismatches += observed_baseline_residual[guarded] !=
+                             observed_candidate_residual[guarded];
+      replay_residual_mismatches += observed_candidate_residual[guarded] !=
+                                    observed_replay_residual[guarded];
+      finite_outputs =
+          finite_outputs &&
+          std::isfinite(decode_bf16(observed_candidate_residual[guarded]));
+    }
+    for (std::size_t row = 0U; row < kRows; ++row) {
+      const std::size_t guarded = kGuardElements + row;
+      gate_mismatches += observed_baseline_gate[guarded] !=
+                         observed_candidate_gate[guarded];
+      replay_gate_mismatches += observed_candidate_gate[guarded] !=
+                                observed_replay_gate[guarded];
+      finite_outputs =
+          finite_outputs &&
+          std::isfinite(decode_bf16(observed_candidate_gate[guarded]));
+    }
+    const auto cache_guards_intact =
+        [&](const std::vector<std::uint16_t>& values,
+            const std::uint16_t canary) {
+          return std::all_of(values.begin(),
+                             values.begin() + kGuardElements,
+                             [canary](const std::uint16_t value) {
+                               return value == canary;
+                             }) &&
+                 std::all_of(values.end() - kGuardElements, values.end(),
+                             [canary](const std::uint16_t value) {
+                               return value == canary;
+                             });
+        };
+    const bool cache_guards_gate =
+        cache_guards_intact(observed_baseline_residual, 0x3131U) &&
+        cache_guards_intact(observed_candidate_residual, 0x4242U) &&
+        cache_guards_intact(observed_replay_residual, 0x5353U) &&
+        cache_guards_intact(observed_baseline_gate, 0x6464U) &&
+        cache_guards_intact(observed_candidate_gate, 0x7575U) &&
+        cache_guards_intact(observed_replay_gate, 0x8686U);
+    const bool cache_workspace_gate =
+        std::all_of(observed_baseline_up.begin(), observed_baseline_up.end(),
+                    [](const std::uint16_t value) {
+                      return value == 0x9797U;
+                    }) &&
+        std::all_of(observed_candidate_up.begin(),
+                    observed_candidate_up.end(),
+                    [](const std::uint16_t value) {
+                      return value == 0xa8a8U;
+                    }) &&
+        std::all_of(observed_replay_up.begin(), observed_replay_up.end(),
+                    [](const std::uint16_t value) {
+                      return value == 0xb9b9U;
+                    });
+    const bool cache_correctness_gate =
+        residual_mismatches == 0U && gate_mismatches == 0U &&
+        replay_residual_mismatches == 0U &&
+        replay_gate_mismatches == 0U && finite_outputs &&
+        cache_guards_gate && cache_workspace_gate;
+    test.expect(cache_correctness_gate,
+                cache_label + " is bitwise, finite, guarded, and replayable");
+    std::cout << "DECODE_GATE_UP_CG_DIFF:"
+              << " residual_mismatches=" << residual_mismatches << '/'
+              << kColumns << " gate_mismatches=" << gate_mismatches << '/'
+              << kRows << " replay_residual_mismatches="
+              << replay_residual_mismatches << '/' << kColumns
+              << " replay_gate_mismatches=" << replay_gate_mismatches << '/'
+              << kRows
+              << " finite_outputs="
+              << (finite_outputs ? "true" : "false")
+              << " guards=" << (cache_guards_gate ? "PASS" : "FAIL")
+              << " workspaces_untouched="
+              << (cache_workspace_gate ? "PASS" : "FAIL")
+              << " gate=" << (cache_correctness_gate ? "PASS" : "FAIL")
+              << '\n';
+    if (!cache_correctness_gate) {
+      return;
+    }
+
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kCacheWarmupIterations && timing_ready; ++iteration) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_cache_baseline()),
+          cache_label + " baseline warmup");
+      timing_ready = timing_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_cache_candidate()),
+          cache_label + " candidate warmup");
+    }
+    timing_ready = timing_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), cache_label + " warmup sync");
+    constexpr std::size_t kTimedPasses =
+        2U * static_cast<std::size_t>(kCacheMeasurementRounds);
+    std::array<float, kTimedPasses> baseline_passes{};
+    std::array<float, kTimedPasses> candidate_passes{};
+    std::array<float, kCacheMeasurementRounds> paired_deltas{};
+    bool all_rounds_improve = timing_ready;
+    for (int round = 0;
+         round < kCacheMeasurementRounds && timing_ready; ++round) {
+      const std::string round_label =
+          cache_label + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(
+          test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+          round_label + " B1");
+      const float c1 = measure_small_m_tile(
+          test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+          round_label + " C1");
+      const float c2 = measure_small_m_tile(
+          test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+          round_label + " C2");
+      const float b2 = measure_small_m_tile(
+          test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+          round_label + " B2");
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      baseline_passes[pass] = b1;
+      baseline_passes[pass + 1U] = b2;
+      candidate_passes[pass] = c1;
+      candidate_passes[pass + 1U] = c2;
+      const bool finite = std::isfinite(b1) && b1 > 0.0F &&
+                          std::isfinite(c1) && c1 > 0.0F &&
+                          std::isfinite(c2) && c2 > 0.0F &&
+                          std::isfinite(b2) && b2 > 0.0F;
+      const float paired_baseline = 0.5F * (b1 + b2);
+      const float paired_candidate = 0.5F * (c1 + c2);
+      paired_deltas[static_cast<std::size_t>(round)] =
+          paired_baseline - paired_candidate;
+      const bool round_improves =
+          finite && c1 < b1 && c2 < b2 &&
+          paired_candidate < paired_baseline;
+      timing_ready = timing_ready && finite;
+      all_rounds_improve = all_rounds_improve && round_improves;
+      std::cout << "PERF_DECODE_GATE_UP_CG_ROUND:"
+                << " fixture=actual_checkpoint"
+                << " round=" << round + 1 << " order=B-C-C-B"
+                << " logical_kernels_per_pass=" << kCacheMeasuredIterations
+                << " baseline1_ms=" << b1 << " candidate1_ms=" << c1
+                << " candidate2_ms=" << c2 << " baseline2_ms=" << b2
+                << " paired_delta_ms="
+                << paired_deltas[static_cast<std::size_t>(round)]
+                << " gate=" << (round_improves ? "PASS" : "FAIL")
+                << '\n';
+    }
+    const float baseline_median =
+        timing_ready ? median_fp8_kv_pair_timing(baseline_passes)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const float candidate_median =
+        timing_ready ? median_fp8_kv_pair_timing(candidate_passes)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const float delta_median =
+        timing_ready ? median_fp8_kv_pair_timing(paired_deltas)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const double speedup = static_cast<double>(baseline_median) /
+                           static_cast<double>(candidate_median);
+    const double projected_decode_delta =
+        64.0 * static_cast<double>(delta_median);
+    const bool timing_gate =
+        timing_ready && all_rounds_improve &&
+        delta_median >= kRequiredDeltaMilliseconds &&
+        std::isfinite(speedup) && speedup >= kRequiredSpeedup;
+    const bool selected_gate =
+        header_gate && pinned_payload_gate && binary_identity_gate &&
+        cache_resource_gate && cache_correctness_gate && timing_gate;
+    test.expect(selected_gate,
+                cache_label + " clears the actual-checkpoint stop-loss");
+    std::cout << "PERF_DECODE_GATE_UP_CG_SELECTED:"
+              << " fixture=actual_checkpoint"
+              << " baseline_median_ms=" << baseline_median
+              << " candidate_median_ms=" << candidate_median
+              << " median_delta_ms_per_layer=" << delta_median
+              << " projected_64_layer_delta_ms="
+              << projected_decode_delta << " speedup=" << speedup
+              << " all_rounds_improve="
+              << (all_rounds_improve ? "true" : "false")
+              << " required_delta_ms_per_layer="
+              << kRequiredDeltaMilliseconds
+              << " required_projected_64_layer_delta_ms=0.25"
+              << " required_speedup=" << kRequiredSpeedup
+              << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+    return;
+  }
 
   if (decode_residual_chain_performance_enabled()) {
     constexpr std::size_t kOutputRows = 5'120U;
@@ -39801,6 +40230,18 @@ int main() {
       return 1;
     }
     std::cout << "Decode residual-chain screen passed\n";
+    return 0;
+  }
+  if (decode_gate_up_cg_performance_enabled()) {
+    run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode gate/up cache-policy stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode gate/up cache-policy assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode gate/up cache-policy screen passed\n";
     return 0;
   }
   run_fp8_m32_wmma_invalid_capture_contract(test, stream);
