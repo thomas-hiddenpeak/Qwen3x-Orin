@@ -811,6 +811,19 @@ The diagnostic Phase 3 records are:
   retained for a materially distinct sidecar plus CTA-persistence/coarsening
   screen; production, Prefill, and the **107.889500 ms/token / 9.268742556
   token/s** anchor remain unchanged.
+- [`qwen36-27b-decode-fp8-q-kv-aosoa4-cta512-rejection.json`](qwen36-27b-decode-fp8-q-kv-aosoa4-cta512-rejection.json),
+  which closes the follow-up full-attention sidecar CTA-coarsening screen.
+  The candidate maps the same 2,048 logical workers into `1024x512`, shares
+  one decoded codebook between two 256-thread halves, and preserves bitwise
+  outputs, byte-exact packing, guarded Graph replay, all 25 invalid cases, and
+  a zero-spill 1,024-active-thread/SM envelope. All five actual-checkpoint
+  rounds nevertheless regress; the 0.984332x median projects the isolated
+  per-layer loss to a **0.106153-ms/token regression**, not an end-to-end
+  result. First-process stop-loss skips stress, a second process, the
+  unallocated 1.09375-GiB production sidecar, integration, and end-to-end
+  work. The next independent cell is attention preprocess/GQA cooperative
+  fusion; production, Prefill, and the **107.889500 ms/token / 9.268742556
+  token/s** anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

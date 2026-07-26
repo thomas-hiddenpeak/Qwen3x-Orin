@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-fp8-q-kv-aosoa4-cta512-rejection",
+  "status": "rejected-cta-coarsening-but-retain-sidecar-substrate",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "5ff3984807e39ca09118561dd8f79a7e9cb022b2",
+    "base_tree": "5f037b24fde9b7bb0ff6961987592543d244961b",
+    "base_subject": "docs: reject standalone Decode attention sidecars",
+    "candidate_commit": "418037ad36caec252549a3c1f302433d00b281f6",
+    "candidate_tree": "261f90abf0c9ecb4a74a46c0ad043be8f19b1809",
+    "candidate_subject": "bench: screen Decode attention CTA coarsening",
+    "branch": "main",
+    "preceding_standalone_record": "qwen36-27b-decode-fp8-q-kv-aosoa4-sidecar-rejection.json",
+    "candidate_scope": "test-only 512-thread CTA coarsening of the retained full-attention FP8 Q plus K/V AoSoA4/preswizzled sidecar kernel and its opt-in same-binary screen",
+    "candidate_retained_for_reproducibility": true,
+    "sidecar_pack_and_correctness_substrate_retained": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-streaming-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.889500,
+    "formal_anchor_tokens_per_second": 9.268742556,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "target_met": false
+  },
+  "candidate": {
+    "name": "aosoa4_preswizzled_cta512",
+    "phase": "exact M1 full-attention Q/K/V projection reached by Decode and the same-shape final-prompt path",
+    "q_shape_n_by_k": [12288, 5120],
+    "key_shape_n_by_k": [1024, 5120],
+    "value_shape_n_by_k": [1024, 5120],
+    "full_attention_layers": 16,
+    "baseline": "current public 2048x256 canonical-weight Q plus K/V two-phase reduction-scratch ping-pong kernel",
+    "test_only_candidate": "1024 physical 512-thread CTAs over the retained AoSoA4/preswizzled Q and joint K/V sidecars, with two independent 256-thread logical workers in each CTA",
+    "mechanism": {
+      "physical_ctas_before": 2048,
+      "physical_ctas_after": 1024,
+      "logical_workers": 2048,
+      "logical_workers_per_candidate_cta": 2,
+      "logical_worker_mapping": "logical_worker = 2 * blockIdx.x + threadIdx.x / 256",
+      "shared_codebook": "the two aligned 256-thread halves share one decoded FP8 codebook initialization",
+      "independent_reduction_scratch": "each half retains two private four-row reduction-scratch slots",
+      "barrier_safety": "even Q and K/V partition boundaries give both halves the same logical-body count, so every CTA-wide barrier remains converged",
+      "sidecar_layout_changed_from_standalone": false,
+      "weight_payload_bytes_changed": false
+    },
+    "topology": {
+      "production_grid": [2048, 1, 1],
+      "production_block": [256, 1, 1],
+      "candidate_grid": [1024, 1, 1],
+      "candidate_block": [512, 1, 1],
+      "production_active_threads_per_sm": 1024,
+      "candidate_active_threads_per_sm": 1024,
+      "launches_per_layer": 1
+    },
+    "unchanged": [
+      "AoSoA4 row grouping and code^(code>>5) byte preswizzle",
+      "decoded E4M3FN values and per-projection scalar scales",
+      "BF16 activation decode and FP32 FMA order",
+      "warp/block reduction pairings and BF16-RNE output boundaries",
+      "Q-to-K/V phase order and logical reduction-scratch ping-pong order",
+      "launch count, stream, and all production and Prefill dispatch"
+    ],
+    "timing_output_addresses_identical_between_baseline_and_candidate": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "memory_obligation_if_productionized": {
+    "q_sidecar_bytes_per_full_attention_layer": 62914560,
+    "joint_kv_sidecar_bytes_per_full_attention_layer": 10485760,
+    "combined_sidecar_bytes_per_full_attention_layer": 73400320,
+    "full_attention_layers": 16,
+    "full_model_extra_sidecar_bytes": 1174405120,
+    "full_model_extra_sidecar_gib": 1.09375,
+    "canonical_weights_would_remain_required": true,
+    "full_model_sidecar_allocated": false,
+    "loader_arena_raii_or_model_attachment_implemented": false
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "stream_count": 1,
+    "formal_log_embeds_independent_power_clock_thermal_or_energy_readbacks": false
+  },
+  "checkpoint_and_sidecar_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "layer": 3,
+    "q": {
+      "absolute_offset": 5862443552,
+      "bytes": 62914560,
+      "sha256": "6a688dbc61bfb33c1224c70b6c7b31e0429ad40d7d16d2107f5fa06dd1636d74"
+    },
+    "key": {
+      "absolute_offset": 5825743392,
+      "bytes": 5242880,
+      "sha256": "5f2b231009ca89447ac875a0f31bf9a22ef5d9e1ad900ad45bdbd3659bffa2e6"
+    },
+    "value": {
+      "absolute_offset": 5925358112,
+      "bytes": 5242880,
+      "sha256": "9c7a05577136027a738019bee827f2c8d48c6a04f53eac27657c3bacb5d7d607"
+    },
+    "q_sidecar": {
+      "bytes": 62914560,
+      "sha256": "5779794f6503d2aab4232cc4325aef294fa6cd62ff4a2ba3874cba01c27ca132"
+    },
+    "joint_kv_sidecar": {
+      "bytes": 10485760,
+      "sha256": "025ab8d73b31d7e5bb3e48ed5b6c2f761cbcaf207c62d10d835a29882a3cb614"
+    },
+    "gpu_pack_byte_exact_against_cpu_contract": true,
+    "activation": "deterministic BF16 synthetic vector shared by production and candidate",
+    "payload_and_pack_gate": "pass"
+  },
+  "static_identity": {
+    "normalization": "Each target cuobjdump Function section is normalized to one lowercase 0x-prefixed 64-bit encoding/control word per line before SHA-256.",
+    "production": {
+      "kernel": "fp8_w8a16_gemv_bf16_q_kv_two_phase_reduction_scratch_ping_pong_kernel",
+      "instructions": 2152,
+      "encoding_words": 4304,
+      "normalized_sha256": "12642e10a6b1e5029cda9308e64bb20f724729f9bc3ab050978fdbd2e4dcf915"
+    },
+    "candidate": {
+      "kernel": "fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_cta512_test_kernel",
+      "instructions": 1960,
+      "encoding_words": 3920,
+      "normalized_sha256": "ac5198bcb2914013f5baf03da6b53f1b5b14044c1b70736921c692fa8402fe74",
+      "instruction_counts": {
+        "weight_LDG_E_128": 16,
+        "activation_LDG_E_64": 16,
+        "BAR": 3,
+        "FFMA": 256,
+        "FADD": 158,
+        "FMUL": 11,
+        "SHFL": 81,
+        "LDS": 264,
+        "STS": 9,
+        "LDL": 0,
+        "STL": 0
+      }
+    },
+    "standalone_sidecar_static_context": {
+      "record": "qwen36-27b-decode-fp8-q-kv-aosoa4-sidecar-rejection.json",
+      "instructions": 1968,
+      "encoding_words": 3936,
+      "candidate_cta512_instruction_delta": -8,
+      "candidate_cta512_encoding_word_delta": -16,
+      "interpretation": "This is static context only; the formal timing baseline is the public canonical-weight production kernel, not a separately timed standalone-sidecar process."
+    }
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1280,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1536,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "candidate_active_threads_match_production": true,
+    "null_query_rejected": true,
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "actual_checkpoint_direct": {
+      "q_mismatches": "0/12288",
+      "key_mismatches": "0/1024",
+      "value_mismatches": "0/1024",
+      "nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "candidate_function_distinct": true,
+      "production_grid": [2048, 1, 1],
+      "production_block": [256, 1, 1],
+      "candidate_grid": [1024, 1, 1],
+      "candidate_block": [512, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "replay_mismatches": 0,
+      "guards": "intact",
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 25,
+      "failures": 0,
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes_each": 0,
+      "stream_clean_after_cases": true,
+      "gate": "pass"
+    },
+    "pack_gate": "pass",
+    "resource_gate": "pass",
+    "combined_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "command": "Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_CTA512_PERF=1 Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "comparison": "public production canonical-weight 2048x256 kernel versus test-only AoSoA4/preswizzled 1024x512 CTA-coarsened kernel in the same binary, process, stream, activation, scales, and timing output addresses",
+    "warmup_launches_per_route": 10,
+    "measured_launches_per_pass": 80,
+    "rounds_per_fixture": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "production_and_candidate_pass_median": "median of ten timed-pass means for that route",
+    "paired_round_statistic": "median of five per-round paired production/candidate speedups or deltas",
+    "required_each_round_speedup": 1.0,
+    "required_actual_paired_median_speedup": 1.005,
+    "required_actual_paired_median_delta_ms_per_layer": 0.0125,
+    "required_actual_projected_16_layer_delta_ms": 0.20,
+    "required_stress_paired_median_speedup": 1.0,
+    "stop_loss": "Stop before stress, a second process, production integration, full-model sidecar allocation, end-to-end timing, or Nsys when the first actual-checkpoint process misses any frozen gate."
+  },
+  "formal_first_process": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "production_1_ms": 0.416698, "candidate_1_ms": 0.423360, "candidate_2_ms": 0.423441, "production_2_ms": 0.416780, "paired_speedup": 0.984266, "paired_delta_ms": -0.00666183, "gate": "fail"},
+        {"round": 2, "order": "C-B-B-C", "production_1_ms": 0.416742, "candidate_1_ms": 0.423601, "candidate_2_ms": 0.423305, "production_2_ms": 0.417136, "paired_speedup": 0.984617, "paired_delta_ms": -0.00651419, "gate": "fail"},
+        {"round": 3, "order": "B-C-C-B", "production_1_ms": 0.416829, "candidate_1_ms": 0.423489, "candidate_2_ms": 0.423401, "production_2_ms": 0.416792, "paired_speedup": 0.984332, "paired_delta_ms": -0.00663459, "gate": "fail"},
+        {"round": 4, "order": "C-B-B-C", "production_1_ms": 0.416858, "candidate_1_ms": 0.423544, "candidate_2_ms": 0.423743, "production_2_ms": 0.416666, "paired_speedup": 0.983756, "paired_delta_ms": -0.00688180, "gate": "fail"},
+        {"round": 5, "order": "B-C-C-B", "production_1_ms": 0.416899, "candidate_1_ms": 0.423450, "candidate_2_ms": 0.423410, "production_2_ms": 0.417030, "paired_speedup": 0.984732, "paired_delta_ms": -0.00646502, "gate": "fail"}
+      ],
+      "production_pass_median_ms": 0.416811,
+      "candidate_pass_median_ms": 0.423445,
+      "paired_median_speedup": 0.984332,
+      "paired_median_delta_ms_per_layer": -0.00663459,
+      "projected_16_layer_delta_ms": -0.106153,
+      "rounds_nonregressing": "0/5",
+      "relative_speedup_gate": "fail",
+      "per_layer_absolute_delta_gate": "fail",
+      "projected_absolute_delta_gate": "fail",
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "status": "not-run-after-actual-stop-loss"
+    },
+    "overall_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "The CTA512 candidate is bitwise exact and preserves the no-spill active-thread envelope, but every actual-checkpoint round regresses. Its 0.984332x median adds 0.00663459 ms in the isolated layer cell and projects to a 0.106153-ms/token regression over 16 full-attention layers.",
+    "failed_gate": "first-process actual-checkpoint nonregression, relative speedup, and absolute latency delta",
+    "stress_run": false,
+    "second_formal_process_run": false,
+    "production_integration_attempted": false,
+    "full_model_sidecar_allocated": false,
+    "full_model_end_to_end_run": false,
+    "nsight_systems_candidate_run": false,
+    "decision": "Reject the 1024x512 CTA-coarsening mechanism and close further Q/KV sidecar scheduling work; retain only the shared sidecar pack/correctness substrate for reproducibility."
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.889500,
+    "formal_anchor_after_ms_per_token": 107.889500,
+    "formal_tokens_per_second": 9.268742556,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "persistent_sidecar_bytes_added": 0,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 6486744,
+      "sha256": "4b23292ff736fb4ee802384d784f0846b431b4b507908b46ed1bea968a3e7a64",
+      "build_id": "935724ea6484f85c6d00cdb0c1089f04232fc6ef",
+      "present_at_record_time": true,
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-fp8-q-kv-aosoa4-cta512-screen.20260726.process1.log",
+      "bytes": 66570,
+      "lines": 373,
+      "sha256": "9fc105ec4e419f9d0c73ca7da21e7647c4837150b115f609403f79ef43fd06e3",
+      "expected_exit_code": 1,
+      "expected_failed_assertions": 1,
+      "failure": "frozen first actual-process hard gate",
+      "checked_in": false
+    }
+  },
+  "follow_up": {
+    "closed_scope": "AoSoA4/preswizzled full-attention Q/KV sidecar combined with two-logical-worker 1024x512 CTA coarsening",
+    "retained_scope": "The common sidecar pack oracle, payload hashes, guarded bitwise replay, invalid Graph coverage, and exact fixtures remain useful reproducibility substrate; they are not a selected runtime representation.",
+    "next_priority": "Move to a separately gated test-only full-attention preprocess/GQA cooperative-fusion cell; do not continue Q/KV sidecar topology variants without a materially new mechanism and evidence.",
+    "productionization_rule": "Do not allocate or attach the 1.09375-GiB full-model sidecar from either rejected Q/KV screen."
+  },
+  "claim_limits": [
+    "The -0.106153-ms/token projection is an isolated layer-3 microbenchmark regression multiplied by 16; it is not an achieved end-to-end Decode result.",
+    "Stress, a second formal process, production integration, full-model sidecar allocation, model oracle, end-to-end timing, candidate Nsys, NCU, energy, and thermal work were intentionally skipped after first-process stop-loss.",
+    "The exact checkpoint weights are pinned, but the activation is deterministic synthetic BF16 rather than a captured runtime activation.",
+    "The formal log does not independently freeze power, clock, thermal, or energy state.",
+    "The production runtime, formal anchor, serial one-stream schedule, and Prefill state are unchanged."
+  ]
+}
