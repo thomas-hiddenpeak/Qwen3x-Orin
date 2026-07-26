@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection",
+  "status": "rejected-test-only-decode-residual-handoff-candidate",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "76553e3",
+    "base_subject": "docs: record Decode linear attention input fusion",
+    "candidate_commit": "d42963a1ad5331797376e6f19d10ca39927bd09a",
+    "candidate_subject": "bench: screen Decode residual handoff",
+    "candidate_retained": true,
+    "test_only_probe_retained": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": true,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "cpu_hz": 2201600000,
+    "active_gpu_tpcs": 8,
+    "fan_pwm": 255
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "scope": "one attention output projection followed by the runner-only post-attention residual/RMSNorm/dead-up gate-up boundary",
+    "launch_count": {
+      "baseline": 2,
+      "candidate": 2
+    },
+    "baseline": [
+      {
+        "operation": "production FP8 AoSoA4 output projection",
+        "shape_n_by_k": [5120, 6144],
+        "publication": "raw BF16 attention output"
+      },
+      {
+        "operation": "production NVFP4 residual/RMSNorm/dead-up gate-up",
+        "shape_n_by_k": [17408, 5120],
+        "input": "residual_left plus raw BF16 attention output",
+        "publication": "rounded residual and final SiLU(gate)*up"
+      }
+    ],
+    "test_only": [
+      {
+        "operation": "FP8 AoSoA4 output projection with residual epilogue",
+        "shape_n_by_k": [5120, 6144],
+        "arithmetic_contract": "raw=BF16_RNE(projection); residual=BF16_RNE(residual_left+decode(raw))",
+        "publication": "rounded residual only",
+        "grid": 1024,
+        "threads": 256
+      },
+      {
+        "operation": "pre-rounded residual RMSNorm/dead-up gate-up",
+        "shape_n_by_k": [17408, 5120],
+        "arithmetic_contract": "the production 256-thread RMS accumulation/reduction tree, centered gamma, independently rounded gate/up pair, and SiLU epilogue are unchanged",
+        "publication": "final SiLU(gate)*up only; up workspace remains untouched",
+        "grid": 32,
+        "threads": 512
+      }
+    ],
+    "production_route_ever_selected_candidate": false,
+    "prefill_changed": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_data_base": 126512,
+    "output_projection": {
+      "tensor": "model.language_model.layers.0.self_attn.o_proj.weight",
+      "absolute_offset": 3569011232,
+      "bytes": 31457280,
+      "sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9",
+      "weight_scale_absolute_offset": 126532,
+      "weight_scale_bits_hex": "0x3b36db6e",
+      "weight_scale": 0.0027901786,
+      "weight_scale_sha256": "5ca44a7624bfdd927b145a51f20f36e4af5f571c8e9d3badc472103b8dbbb6cd",
+      "runtime_layout": "AoSoA4 preswizzled sidecar built from the pinned canonical payload"
+    },
+    "gate_projection": {
+      "absolute_offset": 6757009952,
+      "bytes": 44564480,
+      "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+      "block_scale_absolute_offset": 3606039072,
+      "block_scale_bytes": 5570560,
+      "block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+      "weight_scale_2_absolute_offset": 126548,
+      "weight_scale_2_bits": 958298600
+    },
+    "up_projection": {
+      "absolute_offset": 6801574432,
+      "bytes": 44564480,
+      "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+      "block_scale_absolute_offset": 3611609632,
+      "block_scale_bytes": 5570560,
+      "block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+      "weight_scale_2_absolute_offset": 126556,
+      "weight_scale_2_bits": 958298600
+    },
+    "payload_identity_gate": "pass"
+  },
+  "resources": {
+    "output_projection_residual_epilogue": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate": "pass"
+    },
+    "prerounded_residual_gate_up": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_blocks_per_sm": 2,
+      "gate": "pass"
+    }
+  },
+  "correctness": {
+    "fixture": "actual checkpoint weights with deterministic finite BF16 activations, residual-left values, and norm weights",
+    "rounded_residual_mismatches": {
+      "count": 0,
+      "elements": 5120
+    },
+    "final_gate_mismatches": {
+      "count": 0,
+      "elements": 17408
+    },
+    "candidate_replay_mismatches": {
+      "rounded_residual": 0,
+      "final_gate": 0,
+      "elements": 22528
+    },
+    "finite_outputs": true,
+    "all_output_guards_intact": true,
+    "baseline_up_workspace_untouched": true,
+    "candidate_up_workspace_untouched": true,
+    "gate": "pass",
+    "deferred_after_stop_loss": [
+      "same-bank stress",
+      "signed Inf and NaN",
+      "CUDA Graph topology and replay",
+      "invalid-call zero-node matrix",
+      "full-attention phase-alias validation",
+      "full-model C1/C8/C16/C32 oracle",
+      "end-to-end benchmark",
+      "Nsight Systems closure"
+    ]
+  },
+  "benchmark_protocol": {
+    "order": "B1-C1-C2-B2",
+    "warmup_chains_per_route": 10,
+    "measured_chains_per_pass": 64,
+    "rounds": 5,
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "timed_unit": "complete two-kernel chain",
+    "required_actual_speedup": 1.01,
+    "required_delta_ms_per_layer": 0.0078125,
+    "required_projected_64_layer_delta_ms": 0.5,
+    "required_each_round": "candidate1 < baseline1 and candidate2 < baseline2"
+  },
+  "formal_screen": {
+    "fixture": "actual_checkpoint",
+    "rounds": [
+      {
+        "round": 1,
+        "baseline1_ms": 0.762578,
+        "candidate1_ms": 0.766447,
+        "candidate2_ms": 0.766235,
+        "baseline2_ms": 0.762486,
+        "paired_delta_ms": -0.00380945,
+        "gate": "fail"
+      },
+      {
+        "round": 2,
+        "baseline1_ms": 0.762338,
+        "candidate1_ms": 0.766020,
+        "candidate2_ms": 0.765776,
+        "baseline2_ms": 0.762123,
+        "paired_delta_ms": -0.00366724,
+        "gate": "fail"
+      },
+      {
+        "round": 3,
+        "baseline1_ms": 0.762399,
+        "candidate1_ms": 0.766737,
+        "candidate2_ms": 0.767038,
+        "baseline2_ms": 0.761948,
+        "paired_delta_ms": -0.00471348,
+        "gate": "fail"
+      },
+      {
+        "round": 4,
+        "baseline1_ms": 0.763025,
+        "candidate1_ms": 0.765953,
+        "candidate2_ms": 0.766252,
+        "baseline2_ms": 0.762098,
+        "paired_delta_ms": -0.00354099,
+        "gate": "fail"
+      },
+      {
+        "round": 5,
+        "baseline1_ms": 0.761992,
+        "candidate1_ms": 0.766145,
+        "candidate2_ms": 0.766361,
+        "baseline2_ms": 0.763161,
+        "paired_delta_ms": -0.00367701,
+        "gate": "fail"
+      }
+    ],
+    "baseline_two_kernel_median_ms": 0.762369,
+    "candidate_two_kernel_median_ms": 0.766243,
+    "median_delta_ms_per_layer": -0.00367701,
+    "projected_64_layer_delta_ms": -0.235329,
+    "speedup": 0.994944162622,
+    "all_rounds_improve": false,
+    "gate": "fail"
+  },
+  "earlier_console_only_diagnostic": {
+    "retained_log": false,
+    "baseline_two_kernel_median_ms": 0.769057,
+    "candidate_two_kernel_median_ms": 0.773711,
+    "median_delta_ms_per_layer": -0.00477827,
+    "projected_64_layer_delta_ms": -0.305809,
+    "speedup": 0.993985,
+    "all_five_rounds_regressed": true,
+    "use_in_decision": "directional corroboration only; the retained fixed-clock formal screen is authoritative"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "the actual-checkpoint candidate is slower in both passes of every round, misses the 1.010x speedup gate, and produces a negative rather than positive projected Decode delta",
+    "stress_run": false,
+    "production_integration_attempted": false,
+    "model_oracle_run": false,
+    "end_to_end_run": false,
+    "nsys_run": false,
+    "decision": "reject the residual-handoff mechanism and move to a bounded packed-weight/block-scale cache-policy screen"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_sm87_weight_only_gemv_ctest": {
+      "passed": 1,
+      "failed": 0,
+      "seconds": 2.23
+    },
+    "git_diff_check": "pass",
+    "clang_format": "unavailable on host"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 108.2645,
+    "formal_anchor_after_ms_per_token": 108.2645,
+    "formal_tokens_per_second": 9.236638048,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5576320,
+      "sha256": "6e723aa4ccc1ec00ea961f7dad11f9ecaf83bc2d92b882800cf2e94e488db83c",
+      "build_id": "14d9527f1aadab794e74e17288436b5ee69cf3a3",
+      "checked_in": false
+    },
+    "formal_log": {
+      "local_path": "/tmp/q3x-decode-residual-chain.x1wAFZ/screen.log",
+      "bytes": 4148,
+      "sha256": "43d3f6a7c8a2c5e2b3dce4f628b61f98ad3a0332e17d2d6f5ce649ecc9465c35",
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_SM87_DECODE_RESIDUAL_CHAIN_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test"
+  }
+}

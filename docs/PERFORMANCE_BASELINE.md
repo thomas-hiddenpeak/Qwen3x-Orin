@@ -5535,3 +5535,52 @@ single-request Decode on one fixed-clock Orin, excludes model load, and is not
 a Prefill, multi-request throughput, tail-latency, power, or energy claim.
 Complete evidence is in the
 [production benchmark](metadata/qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json).
+
+## Rejected Decode output-projection residual handoff
+
+Commit d42963a adds a bounded, test-only two-kernel comparison without
+changing runtime dispatch. The baseline publishes the independently rounded
+FP8 attention output, then the selected 32x512 residual/RMSNorm/dead-up
+gate-up kernel recomputes and publishes the residual. The candidate instead
+keeps raw=BF16_RNE(projection) in the output-projection kernel, publishes
+BF16_RNE(hidden0+raw), and lets a second test-only gate-up kernel consume that
+pre-rounded residual. Both routes remain exactly two launches; generic
+projection behavior, runner code, M2–M32 Prefill, and every production symbol
+are unchanged.
+
+The candidate preserves the required arithmetic boundary. On the pinned
+layer-0 output, gate, and up weights it reports zero mismatches over 5,120
+rounded residual values and 17,408 final gate values, plus zero replay
+mismatches over all 22,528 outputs. Both dead-up workspaces remain untouched,
+all output guards pass, and all outputs are finite. Resource limits also pass:
+the output epilogue remains at 64 registers/thread, 1,152 B shared, zero local,
+and four active 256-thread CTAs/SM; the pre-rounded gate-up kernel remains at
+64 registers/thread, 13,632 B shared, zero local, and two active
+512-thread CTAs/SM.
+
+The first fixed-clock actual-checkpoint process uses ten warmups and five
+64-chain rounds in strict B1-C1-C2-B2 order:
+
+| Round | B1 | C1 | C2 | B2 | Paired delta | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.762578 ms | 0.766447 ms | 0.766235 ms | 0.762486 ms | -0.00380945 ms | fail |
+| 2 | 0.762338 ms | 0.766020 ms | 0.765776 ms | 0.762123 ms | -0.00366724 ms | fail |
+| 3 | 0.762399 ms | 0.766737 ms | 0.767038 ms | 0.761948 ms | -0.00471348 ms | fail |
+| 4 | 0.763025 ms | 0.765953 ms | 0.766252 ms | 0.762098 ms | -0.00354099 ms | fail |
+| 5 | 0.761992 ms | 0.766145 ms | 0.766361 ms | 0.763161 ms | -0.00367701 ms | fail |
+
+The baseline/candidate pass medians are 0.762369 and 0.766243 ms/layer,
+respectively: **0.994944x**, with a -0.00367701-ms median delta. Across 64
+layers that is a projected **0.235329-ms/token regression**, not the required
+0.5-ms/token saving. An earlier console-only diagnostic also regressed in all
+five rounds at 0.993985x, so the retained formal result is not an isolated
+reversal.
+
+The mandatory first-process stop-loss therefore rejects this mechanism before
+stress, signed nonfinite, Graph, invalid-contract, model-oracle, end-to-end, or
+Nsys work. The test-only probe remains available for reproducibility, but no
+production path calls it. The achieved anchor remains **108.2645 ms/token and
+9.236638048 token/s**. The next bounded Decode experiment changes only the
+cache policy of one-pass packed-weight/block-scale loads in the dominant
+NVFP4 projections. Complete evidence is in the
+[rejection record](metadata/qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection.json).

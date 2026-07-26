@@ -729,6 +729,22 @@ The diagnostic Phase 3 records are:
   zero times. Generation closes over 12,997 leaves without missing, extra, or
   duplicate rows. Decode remains on one stream with raw equal to union and
   zero overlap; this is not a double/triple-buffer or executor-overlap result.
+- [`qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json`](qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json),
+  which records the selected and promoted exact-M1 linear-attention QKV/Z plus
+  BF16 A/B tail composite. It preserves the established QKV/Z arithmetic and
+  assigns A/B to 24 otherwise-light tail CTAs, passes actual-checkpoint,
+  stress, replay, nonfinite, resource, Graph, invalid-contract, model-oracle,
+  Release, and profile gates, and removes 1,200 launches over 25 Decode steps.
+  The fixed-clock P19/C32/max26 result establishes the current production
+  anchor of **108.2645 ms/token and 9.236638048 token/s**.
+- [`qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection.json`](qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection.json),
+  which closes the test-only two-kernel output-projection residual-handoff
+  screen. Residual and gate results are bitwise exact, guards and dead-up
+  workspaces pass, and both kernels retain their required occupancy, but the
+  actual-checkpoint candidate regresses in all five fixed-clock rounds to
+  0.994944x, projecting a 0.235329-ms/token loss. First-process stop-loss
+  therefore leaves production dispatch, Prefill, and the 108.2645-ms/token
+  anchor unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
