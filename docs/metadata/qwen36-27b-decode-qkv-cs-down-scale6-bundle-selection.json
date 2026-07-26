@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-qkv-cs-down-scale6-bundle-selection",
+  "status": "selected-for-joint-palette-v2-implementation-not-production",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "evidence_head_commit": "93bf30d49e4d29e5fc2cff42f87289280791eb1f",
+    "evidence_head_tree": "318b4564fc6be22a224a04ca024093a078be1e3b",
+    "evidence_head_subject": "docs: fix Decode down SASS provenance",
+    "candidate_test_binary_source_commit": "7a42495a45d7a236ffd0527f68607be05b8a9de5",
+    "kernel_source_blob": "28b9c1bbaa860f191a818a5d5f38771a68cab2c8",
+    "cuda_test_blob": "36a3a492734febf325815b7e7a7cbb05436b9954",
+    "qkv_component_record": "qwen36-27b-decode-fp8-linear-qkv-streaming-rejection.json",
+    "down_component_record": "qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json",
+    "selection_scope": "documentation-only admission of a new joint implementation candidate from refreshed test-only component evidence",
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.314000,
+    "formal_anchor_tokens_per_second": 9.318448665,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_met": false,
+    "anchor_changed_by_this_selection": false
+  },
+  "selection_subject": {
+    "name": "Decode projection palette v2",
+    "implementation_not_yet_present": true,
+    "production_selected": false,
+    "components": {
+      "linear_attention_qkv_z": {
+        "layers": 48,
+        "operation": "production FP8 QKV/Z plus BF16 A/B tail-composite",
+        "candidate": "test-only evict-first streaming loads for canonical QKV/Z FP8 weight words",
+        "shape_summary": "QKV 10240x5120, Z 6144x5120, A/B 48x5120",
+        "launches_per_layer": 1,
+        "extra_resident_storage_bytes": 0
+      },
+      "dense_mlp_down": {
+        "total_layers": 64,
+        "scale6_eligible_layers": 53,
+        "canonical_fallback_layers": [2, 24, 30, 31, 54, 55, 56, 57, 58, 59, 60],
+        "canonical_fallback_layer_count": 11,
+        "operation": "NVFP4 down projection with a six-bit E4M3FN block-scale sidecar",
+        "shape": "5120x17408",
+        "sidecar_bytes_per_eligible_down_layer": 4177920,
+        "down_only_sidecar_bytes": 221429760,
+        "down_only_sidecar_gib": 0.206223,
+        "canonical_scale_payload_retained": true,
+        "memory_interpretation": "The 221,429,760-byte sidecar is additional resident memory, not a model-memory saving, because canonical scales remain required by Prefill and 11 fallback layers."
+      }
+    },
+    "explicit_exclusions": [
+      "scale6 gate/up, whose refreshed actual and stress timings regress",
+      "the rejected dead-raw inline-residual candidate",
+      "production dispatch or end-to-end claims",
+      "launch amortization as an assumed additive benefit"
+    ]
+  },
+  "refresh_protocol": {
+    "binary_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
+    "binary_build_id": "cb3df5224b124f93a862eb0a599564517be3c689",
+    "component_process_count": 6,
+    "logical_pair_count": 3,
+    "same_binary_for_all_six_processes": true,
+    "component_runs_within_each_logical_pair": "sequential independent processes",
+    "same_process_joint_timing_performed": false,
+    "same_process_bundle_executed": false,
+    "pairing_purpose": "align the first, second, and third independent QKV refreshes with the first, second, and third independent down refreshes for a planning-only arithmetic sum",
+    "fixtures_per_component": ["actual_checkpoint", "same_bank_stress"],
+    "rounds_per_fixture": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "measured_logical_chains_or_launches_per_pass": 64,
+    "all_qkv_actual_and_stress_rounds_strictly_positive": true,
+    "all_down_actual_and_stress_rounds_strictly_positive": true,
+    "component_functional_and_graph_gates": "pass in all six refresh processes",
+    "component_original_absolute_gates": {
+      "qkv": "fail in all three processes against its existing +0.20-ms per-process floor",
+      "down": "fail in processes 1 and 2 and pass in process 3 against its existing +0.25-ms floor"
+    },
+    "interpretation": "The refresh does not reverse either component's historical production rejection. It supplies admission evidence for a newly implemented and newly measured joint candidate."
+  },
+  "component_refresh_results": {
+    "process_groups": [
+      {
+        "group": 1,
+        "qkv": {
+          "actual_baseline_median_ms_per_layer": 0.476316,
+          "actual_candidate_median_ms_per_layer": 0.473926,
+          "actual_paired_median_speedup": 1.00517,
+          "actual_delta_ms_per_layer": 0.00245199,
+          "projected_48_layer_delta_ms": 0.117695,
+          "stress_paired_median_speedup": 1.00850,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "original_component_gate": "fail"
+        },
+        "down": {
+          "actual_paired_median_speedup": 1.01198,
+          "actual_delta_ms_per_layer": 0.00368652,
+          "projected_53_layer_delta_ms": 0.195385,
+          "stress_paired_median_speedup": 1.01073,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "signed_nonfinite": "pass",
+          "original_component_gate": "fail"
+        },
+        "planning_arithmetic_sum_ms": 0.313080
+      },
+      {
+        "group": 2,
+        "qkv": {
+          "actual_baseline_median_ms_per_layer": 0.479194,
+          "actual_candidate_median_ms_per_layer": 0.475574,
+          "actual_paired_median_speedup": 1.00740,
+          "actual_delta_ms_per_layer": 0.00351951,
+          "projected_48_layer_delta_ms": 0.168936,
+          "stress_paired_median_speedup": 1.01189,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "original_component_gate": "fail"
+        },
+        "down": {
+          "actual_paired_median_speedup": 1.01427,
+          "actual_delta_ms_per_layer": 0.00437948,
+          "projected_53_layer_delta_ms": 0.232112,
+          "stress_paired_median_speedup": 1.01218,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "signed_nonfinite": "pass",
+          "original_component_gate": "fail"
+        },
+        "planning_arithmetic_sum_ms": 0.401048
+      },
+      {
+        "group": 3,
+        "qkv": {
+          "actual_baseline_median_ms_per_layer": 0.478272,
+          "actual_candidate_median_ms_per_layer": 0.474501,
+          "actual_paired_median_speedup": 1.00805,
+          "actual_delta_ms_per_layer": 0.00382149,
+          "projected_48_layer_delta_ms": 0.183432,
+          "stress_paired_median_speedup": 1.01300,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "original_component_gate": "fail"
+        },
+        "down": {
+          "actual_paired_median_speedup": 1.01889,
+          "actual_delta_ms_per_layer": 0.00579476,
+          "projected_53_layer_delta_ms": 0.307122,
+          "stress_paired_median_speedup": 1.01789,
+          "all_actual_and_stress_rounds_strictly_positive": true,
+          "signed_nonfinite": "pass",
+          "original_component_gate": "pass"
+        },
+        "planning_arithmetic_sum_ms": 0.490554
+      }
+    ],
+    "qkv_projected_48_layer_delta_ms": [0.117695, 0.168936, 0.183432],
+    "down_projected_53_layer_delta_ms": [0.195385, 0.232112, 0.307122],
+    "planning_arithmetic_sums_ms": [0.313080, 0.401048, 0.490554],
+    "planning_arithmetic_sum_median_ms": 0.401048,
+    "arithmetic_sum_is_measured_bundle_latency": false,
+    "arithmetic_sum_is_end_to_end": false,
+    "selection_use": "implementation admission only"
+  },
+  "post_refresh_future_joint_gates": {
+    "registration_time": "after all six component refresh logs were collected and reviewed",
+    "frozen_before_refresh": false,
+    "retroactive_prefrozen_claim": false,
+    "applies_to": "the future newly implemented palette-v2 joint candidate, not the six component refresh processes",
+    "isolated_joint_candidate": {
+      "required_processes": 3,
+      "required_projected_joint_delta_ms_each_process": 0.30,
+      "required_three_process_median_projected_joint_delta_ms": 0.35,
+      "required_each_qkv_actual_and_stress_round_speedup_strictly_greater_than": 1.0,
+      "required_each_down_actual_and_stress_round_speedup_strictly_greater_than": 1.0,
+      "same_process_joint_measurement_required": true,
+      "correctness_graph_resource_and_sidecar_immutability_gates_required": true
+    },
+    "future_end_to_end": {
+      "required_processes": 3,
+      "required_saved_ms_each_process_strictly_greater_than": 0.0,
+      "required_three_process_median_saved_ms": 0.25,
+      "trace_or_output_contract_must_match": true
+    },
+    "refresh_arithmetic_would_clear_admission_numbers": true,
+    "interpretation": "That numerical comparison is why implementation may begin; it is not evidence that the not-yet-built joint candidate has passed these gates."
+  },
+  "launch_amortization_comparison": {
+    "observed_serial_idle_upper_bound_ms_per_token": 0.613196,
+    "reference_launch_count": 388,
+    "hypothetical_launches_removed": 64,
+    "hypothetical_removed_fraction": 0.164948454,
+    "proportional_idle_recovery_heuristic_ms": 0.101145732,
+    "formula": "0.613196 * 64 / 388",
+    "planning_bundle_arithmetic_median_ms": 0.401048,
+    "heuristic_comparison": "The palette-v2 component arithmetic is about four times the proportional 64-launch idle heuristic, so palette v2 is the next bounded implementation before a launch-amortization prototype.",
+    "upper_bound_caveat": "0.613196 ms is an idle upper bound, not guaranteed recoverable launch overhead.",
+    "heuristic_caveat": "The 0.101145732-ms value assumes idle is uniform across 388 launches; no 64-launch removal candidate was implemented or timed, and the heuristic is not additive to the palette-v2 arithmetic sum."
+  },
+  "planning_projection": {
+    "formal_anchor_ms_per_token": 107.314000,
+    "planning_arithmetic_median_saved_ms_per_token": 0.401048,
+    "projected_ms_per_token": 106.912952,
+    "projected_tokens_per_second": 9.35340,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_met_by_projection": false,
+    "formal_anchor_replaced": false,
+    "production_measurement": false,
+    "end_to_end_measurement": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7250984,
+      "sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
+      "build_id": "cb3df5224b124f93a862eb0a599564517be3c689",
+      "checked_in": false
+    },
+    "refresh_logs": [
+      {
+        "logical_group": 1,
+        "component": "qkv_cs",
+        "local_path": "/tmp/q3x-next-bundle-qkv-cs-refresh.log",
+        "bytes": 7255,
+        "lines": 27,
+        "mtime": "2026-07-27T02:00:15.730620966+08:00",
+        "sha256": "2a532bae353a95e22bbe976a6d8423ebd9ed272e22d81fb88de2aa87796040a2",
+        "exit_code": 1,
+        "exit_interpretation": "expected original isolated absolute-gate failure after functional and round-direction gates pass",
+        "checked_in": false
+      },
+      {
+        "logical_group": 1,
+        "component": "down_scale6",
+        "local_path": "/tmp/q3x-next-bundle-down-scale6-refresh.log",
+        "bytes": 7862,
+        "lines": 41,
+        "mtime": "2026-07-27T02:00:29.790742630+08:00",
+        "sha256": "020d044b11cb4f6ed800919b870524f961ab6c8abaebb6cddb664d20e0526286",
+        "exit_code": 1,
+        "exit_interpretation": "expected original isolated down absolute-gate failure after functional and round-direction gates pass",
+        "checked_in": false
+      },
+      {
+        "logical_group": 2,
+        "component": "down_scale6",
+        "local_path": "/tmp/q3x-next-bundle-down-scale6-refresh-p2.log",
+        "bytes": 7862,
+        "lines": 41,
+        "mtime": "2026-07-27T02:00:53.686950457+08:00",
+        "sha256": "b8de5c88bb948a1bc1c43771f95f32c20f08ecb2e843dd9dcc22e0ef7c8cacdb",
+        "exit_code": 1,
+        "exit_interpretation": "expected original isolated down absolute-gate failure after functional and round-direction gates pass",
+        "checked_in": false
+      },
+      {
+        "logical_group": 2,
+        "component": "qkv_cs",
+        "local_path": "/tmp/q3x-next-bundle-qkv-cs-refresh-p2.log",
+        "bytes": 7257,
+        "lines": 27,
+        "mtime": "2026-07-27T02:00:55.978970458+08:00",
+        "sha256": "ada76ae665c988956ddbda41cd1311b8b2e2ef5107fb85461fc70f0be3fe3f72",
+        "exit_code": 1,
+        "exit_interpretation": "expected original isolated absolute-gate failure after functional and round-direction gates pass",
+        "checked_in": false
+      },
+      {
+        "logical_group": 3,
+        "component": "qkv_cs",
+        "local_path": "/tmp/q3x-next-bundle-qkv-cs-refresh-p3.log",
+        "bytes": 7251,
+        "lines": 27,
+        "mtime": "2026-07-27T02:01:10.619098488+08:00",
+        "sha256": "d5454ccf7dcc5ffd97e2e4142471444029cbe36c5191d40cba4633093faa5919",
+        "exit_code": 1,
+        "exit_interpretation": "expected original isolated absolute-gate failure after functional and round-direction gates pass",
+        "checked_in": false
+      },
+      {
+        "logical_group": 3,
+        "component": "down_scale6",
+        "local_path": "/tmp/q3x-next-bundle-down-scale6-refresh-p3.log",
+        "bytes": 7762,
+        "lines": 40,
+        "mtime": "2026-07-27T02:01:15.879144601+08:00",
+        "sha256": "03ed56d9aa779bec31628d791719e4abf5688f5f67fec1b5b77ba751b6608214",
+        "exit_code": 0,
+        "exit_interpretation": "original isolated down gate passes",
+        "checked_in": false
+      }
+    ]
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.314000,
+    "formal_anchor_after_ms_per_token": 107.314000,
+    "formal_tokens_per_second": 9.318448665,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "serial_one_stream_schedule_unchanged": true,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "sidecar_memory_added_to_production": false,
+    "prefill_changed": false
+  },
+  "claim_limits": [
+    "Each logical group's QKV and down components were launched sequentially as independent processes. No log contains a same-process jointly timed QKV-plus-down bundle.",
+    "The 0.313080/0.401048/0.490554-ms values are arithmetic sums of independent 48-layer QKV and 53-layer down projections. Their 0.401048-ms median is an implementation-admission statistic, not a measured bundle, production, or end-to-end result.",
+    "The +0.30-ms per-process, +0.35-ms three-process median, strict component-round, and future +0.25-ms end-to-end median gates were registered only after reviewing these refresh results. They were not frozen before refresh and must not be described as prospectively passed by the six logs.",
+    "The 106.912952 ms/token and 9.35340 token/s values are arithmetic projections from the unchanged 107.314000-ms anchor, not a new formal anchor or achieved throughput.",
+    "The 221,429,760-byte/0.206223-GiB down-only sidecar is additional resident storage. Canonical scales remain resident for Prefill and 11 Decode fallback layers.",
+    "The 0.613196-ms idle value is an upper bound. The 0.101145732-ms 64-of-388 launch-amortization value is a proportional heuristic, not a measured or guaranteed saving.",
+    "Scale6 gate/up remains rejected and is excluded from palette v2 despite passing correctness gates.",
+    "Production runtime, dispatch, formal anchor, serial one-stream scheduling, and Prefill behavior remain unchanged."
+  ],
+  "selection_decision": {
+    "decision": "implement and formally measure Decode projection palette v2 as a new joint candidate",
+    "basis": "three independent component pairs have strictly positive actual/stress rounds and planning arithmetic sums of 0.313080, 0.401048, and 0.490554 ms, while the down-only memory cost is bounded at 0.206223 GiB",
+    "not_authorized": [
+      "production promotion",
+      "formal-anchor update",
+      "claiming the arithmetic sum as joint or end-to-end timing",
+      "including scale6 gate/up",
+      "skipping the newly registered joint and end-to-end gates"
+    ]
+  },
+  "next_priority": {
+    "candidate": "Decode projection palette v2",
+    "scope": "joint QKV/Z FP8 streaming policy plus down-only scale6 sidecars for 53 eligible layers, with canonical fallback for 11 layers",
+    "reason": "Its component arithmetic median is 0.401048 ms versus the approximately 0.101-ms proportional 64-launch idle heuristic. Implement the joint route, then require same-process joint and three-process end-to-end evidence before any production decision."
+  }
+}

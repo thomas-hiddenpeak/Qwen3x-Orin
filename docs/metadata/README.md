@@ -949,6 +949,26 @@ The diagnostic Phase 3 records are:
   execution retains production. The **107.314000 ms/token / 9.318448665
   token/s** anchor and serial one-stream schedule remain unchanged; the next
   priority is a fresh Decode cross-layer/launch-amortization audit pending.
+- [`qwen36-27b-decode-qkv-cs-down-scale6-bundle-selection.json`](qwen36-27b-decode-qkv-cs-down-scale6-bundle-selection.json),
+  which selects projection palette v2 for joint implementation, not production.
+  Six refreshed component processes use the same binary but run QKV streaming
+  and down-only scale6 sequentially in separate processes. Their 48-layer QKV
+  projections are 0.117695/0.168936/0.183432 ms and their 53-layer down
+  projections are 0.195385/0.232112/0.307122 ms. The paired arithmetic sums
+  are 0.313080/0.401048/0.490554 ms, with a 0.401048-ms median; this is only an
+  implementation-admission statistic, not a jointly timed bundle or E2E
+  result. Down scale6 covers 53 layers, keeps 11 canonical fallbacks, and adds
+  221,429,760 bytes (0.206223 GiB) because canonical scales remain resident.
+  Gates registered after reviewing the refresh require a future joint
+  candidate to save at least 0.30 ms in every process and 0.35 ms at the
+  three-process median, with every component actual/stress round positive;
+  future E2E must improve every process and save at least 0.25 ms at median.
+  These are not pre-refresh frozen gates. The arithmetic-only projection is
+  106.912952 ms/token / 9.35340 token/s and does not replace the **107.314000
+  ms/token / 9.318448665 token/s** anchor. A 64-of-388 launch-amortization
+  heuristic recovers only about 0.101 ms from the 0.613196-ms idle upper bound,
+  so palette v2 is the next bounded candidate; production and the serial
+  one-stream schedule remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
