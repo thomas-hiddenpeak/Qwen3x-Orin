@@ -1,0 +1,499 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-down-dead-raw-inline-residual-rejection",
+  "status": "rejected-test-only-decode-down-dead-raw-inline-residual",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "20e1aad713e6e20a3357cf737d4e850d11e64d75",
+    "base_tree": "c41bb4d890dd7511b192fffba2f058b087403985",
+    "base_subject": "docs: reject Decode gate-up warp specialization",
+    "candidate_commit": "7a42495a45d7a236ffd0527f68607be05b8a9de5",
+    "candidate_tree": "4f652e462b5cd4c343b13e37cb22a13201ba267a",
+    "candidate_subject": "bench: screen Decode down dead-raw residual",
+    "kernel_source_blob": "28b9c1bbaa860f191a818a5d5f38771a68cab2c8",
+    "cuda_test_blob": "36a3a492734febf325815b7e7a7cbb05436b9954",
+    "candidate_scope": "test-only exact-M1 Decode NVFP4 down projection that keeps the rounded raw BF16 value in a register, performs the existing left-then-raw residual add immediately, leaves the raw workspace untouched, and preserves the selected cooperative RMSNorm phase",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_dispatch_changed": false,
+    "production_kernel_body_changed": false,
+    "production_launcher_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "test_only_hooks_retained_for_reproducibility": true,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.314000,
+    "formal_anchor_tokens_per_second": 9.318448665,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.314000,
+    "remaining_tokens_per_second": 0.681551335,
+    "target_met": false,
+    "anchor_changed_by_this_rejection": false
+  },
+  "runner_liveness_scope": {
+    "normal_generation_analysis": "The Decode runner layer schedule treats raw_down_output as dead after the fused down/residual/norm call when trace capture is disabled; subsequent normal-generation work consumes the residual and normalized boundaries, not raw down.",
+    "analysis_only": true,
+    "candidate_integrated_into_normal_generation": false,
+    "normal_generation_candidate_route_executed": false,
+    "trace_contract": "Raw down remains an observable BF16 trace boundary. Trace-capable execution retains the current production route and its raw workspace publication.",
+    "trace_route_changed": false,
+    "trace_candidate_executed": false,
+    "conclusion": "Liveness justified a bounded test-only experiment; it did not authorize removal of the production or trace raw-down boundary."
+  },
+  "candidate": {
+    "phase": "64 dense-MLP Decode layers",
+    "token_count": 1,
+    "operation": "cooperative NVFP4 down projection, residual add, and centered RMSNorm",
+    "shape_n_by_k": [5120, 17408],
+    "baseline": "current production 32x512 streaming-load cooperative down/residual/norm kernel with a distinct global BF16 raw-down boundary",
+    "test_only_route": "same exact projection, BF16 rounding, left-then-raw residual arithmetic, cooperative synchronization, and RMSNorm tree, but raw BF16 stays in a register and raw_down_output is not read or written",
+    "topology": {
+      "production_grid": [32, 1, 1],
+      "candidate_grid": [32, 1, 1],
+      "block": [512, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "kernel_nodes_per_call": 1,
+      "launches_removed_if_selected": 0
+    },
+    "mechanism": {
+      "raw_elements_per_layer": 5120,
+      "raw_element_type": "BF16",
+      "eliminated_raw_write_bytes_per_layer": 10240,
+      "eliminated_raw_read_bytes_per_layer": 10240,
+      "eliminated_raw_global_traffic_bytes_per_layer": 20480,
+      "raw_argument_retained_for_test_signature_and_validation": true,
+      "candidate_raw_workspace_references": 0,
+      "rounded_raw_value_retained": true,
+      "residual_add_source_order": "decode_bf16(residual_left[row]) + decode_bf16(raw_bits)",
+      "candidate_residual_output_published": true,
+      "candidate_normalized_output_published": true
+    },
+    "unchanged": [
+      "canonical NVFP4 packed weights, block scales, streaming load policy, activation staging, decode, FFMA, warp reduction, and weight scale",
+      "BF16-RNE raw rounding before residual addition",
+      "left-then-raw residual arithmetic and BF16-RNE residual publication",
+      "cooperative grid synchronization, centered RMSNorm reduction, gamma arithmetic, and BF16-RNE normalized publication",
+      "grid, block, shared-memory layout, launch count, timing output addresses, and stream",
+      "all production, trace, and Prefill dispatch"
+    ],
+    "production_route_ever_selected_candidate": false
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_process": true,
+    "baseline_and_candidate_same_stream": true,
+    "stream_count": 1,
+    "double_or_triple_buffering": false,
+    "cross_kernel_overlap": false,
+    "formal_log_embeds_clock_thermal_or_power_state": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "layer": 0,
+    "down_weight": {
+      "absolute_offset": 6712445472,
+      "bytes": 44564480,
+      "sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+    },
+    "down_block_scale": {
+      "absolute_offset": 3600468512,
+      "bytes": 5570560,
+      "sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+    },
+    "down_weight_scale_2": {
+      "absolute_offset": 126540,
+      "little_endian_fp32_bits": "0x39b61862",
+      "decimal_bits": 968235106
+    },
+    "next_layer_input_norm_weight": {
+      "absolute_offset": 2544010432,
+      "bytes": 10240,
+      "sha256": "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d"
+    },
+    "activation_and_residual": "deterministic mixed-sign finite BF16 fixtures",
+    "payload_identity_gate": "pass"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "resources_equal": true,
+    "resident_grid_capacity": 32,
+    "cooperative_launch_supported": true,
+    "production_and_candidate_zero_local_bytes": true,
+    "candidate_and_default_null_resource_query_rejected": true,
+    "gate": "pass"
+  },
+  "static_identity_and_mechanism": {
+    "normalization": "Each cuobjdump Function body keeps the ordered 64-bit instruction/control encodings, emitted as one lowercase 0x-prefixed word per line before SHA-256.",
+    "production": {
+      "kernel": "nvfp4_w4a16_down_residual_norm_activation_staged_cs_test_kernel",
+      "instructions": 1288,
+      "encoding_words": 2576,
+      "canonical_encoding64_bytes": 48944,
+      "canonical_encoding64_sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
+      "raw_function_body_bytes": 324828,
+      "raw_function_body_lines": 2581,
+      "raw_function_body_sha256": "85c1fc13c481693b7a65d7904ff19dd5de378e1de1d8326b5590d53840a09d77",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "stg_static_instructions": 6,
+      "ldl_instructions": 0,
+      "stl_instructions": 0,
+      "matches_frozen_streaming_production_canonical_sha256": true
+    },
+    "candidate": {
+      "kernel": "nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_kernel",
+      "instructions": 1288,
+      "encoding_words": 2576,
+      "canonical_encoding64_bytes": 48944,
+      "canonical_encoding64_sha256": "6920a9410a48487abd427cba3aeb88d3af6d69e3e4f5593394ef430fe6a6563e",
+      "raw_function_body_bytes": 324832,
+      "raw_function_body_lines": 2581,
+      "raw_function_body_sha256": "585c5b404cf1c0c807a92c19353cf2c2c6d716f30df14390b0ae4d34ebcd8a20",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "stg_static_instructions": 5,
+      "ldl_instructions": 0,
+      "stl_instructions": 0,
+      "raw_workspace_loads_or_stores": 0,
+      "source_left_then_raw_operand_order_audited": true,
+      "sass_mechanism_audited": true
+    },
+    "instruction_count_delta": 0,
+    "static_store_instruction_delta": -1,
+    "candidate_removes_raw_global_publication_and_consumption": true,
+    "candidate_preserves_raw_bf16_rounding_in_register": true,
+    "local_spills_absent": true,
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "actual_checkpoint_direct": {
+      "expected_raw_workspace_difference": "5120/5120 because production publishes raw while the candidate raw workspace remains poisoned",
+      "candidate_raw_workspace_untouched": true,
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "finite_outputs": true,
+      "production_output_guards": "intact",
+      "candidate_output_guards": "intact",
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "production_root_nodes": 1,
+      "candidate_root_nodes": 1,
+      "functions_distinct": true,
+      "production_grid_block": [32, 512],
+      "candidate_grid_block": [32, 512],
+      "dynamic_shared_bytes": 0,
+      "candidate_capture_instantiate_replay": true,
+      "replay_mismatches": "0/15360",
+      "candidate_raw_workspace_untouched_after_replay": true,
+      "replay_guards": "intact",
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 27,
+      "coverage_kind": "representative cases copied from the production validator contract",
+      "categories": {
+        "exact_shape": 2,
+        "invalid_scalar": 4,
+        "null_required_pointer_or_output": 8,
+        "misaligned_pointer_or_output": 7,
+        "overlap": 4,
+        "overflowing_range": 2
+      },
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "input_preservation": {
+      "buffers": [
+        "packed down weights",
+        "down block scales",
+        "activation",
+        "residual_left",
+        "norm_weight"
+      ],
+      "all_five_byte_exact": true,
+      "gate": "pass"
+    },
+    "signed_nonfinite": {
+      "implemented_fixtures": [
+        "residual_signed_nonfinite",
+        "norm_weight_signed_nonfinite",
+        "dual_nan_raw_residual_bitwise_diagnostic"
+      ],
+      "executed_by_final_formal_process": false,
+      "reason_not_executed": "frozen actual-checkpoint performance stop-loss returned before stress and nonfinite work",
+      "dynamic_dual_nan_operand_order_proof": false,
+      "gate": "not-run-after-process-1-stop"
+    },
+    "gate_before_performance": "pass"
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_SM87_DECODE_DOWN_DEAD_RAW_PERF=1",
+    "checkpoint_environment_variable": "Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE",
+    "executable": "./build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "comparison": "current production streaming 32x512 down/residual/norm versus the test-only dead-raw inline-residual Function in one binary, process, non-blocking stream, actual layer-0 checkpoint payload, deterministic finite activation/residual, and shared timing output addresses",
+    "fixture_timed_before_stop": "actual_checkpoint_layer_0_only",
+    "independent_processes_planned": 2,
+    "independent_processes_completed_on_final_binary": 1,
+    "warmup_launches_per_route": 10,
+    "unmeasured_prime_order": "B-C-C-B",
+    "measured_launches_per_pass": 64,
+    "rounds": 5,
+    "passes_per_route_per_round": 2,
+    "round_order": [
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B"
+    ],
+    "route_pass_statistic": "median of ten timed-pass mean milliseconds per launch",
+    "paired_statistic": "median of five per-round values; each round pairs the mean of its two production passes with the mean of its two candidate passes",
+    "required_each_round_speedup_strictly_greater_than": 1.0,
+    "required_paired_median_speedup": 1.005,
+    "required_projected_64_layer_delta_ms": 0.169,
+    "stop_loss": "After the actual-checkpoint cell, stop before stress, nonfinite, process 2, production, end-to-end, and profiler work if any round is not strictly positive or either median gate fails."
+  },
+  "formal_process_1": {
+    "binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
+    "actual_checkpoint": {
+      "rounds": [
+        {
+          "round": 1,
+          "order": "B-C-C-B",
+          "production_pass1_ms_per_layer": 0.312252,
+          "candidate_pass1_ms_per_layer": 0.312313,
+          "candidate_pass2_ms_per_layer": 0.312452,
+          "production_pass2_ms_per_layer": 0.312503,
+          "paired_speedup": 0.999986,
+          "paired_delta_ms_per_layer": -0.00000450015,
+          "gate": "fail"
+        },
+        {
+          "round": 2,
+          "order": "C-B-B-C",
+          "production_pass1_ms_per_layer": 0.312331,
+          "candidate_pass1_ms_per_layer": 0.312347,
+          "candidate_pass2_ms_per_layer": 0.312586,
+          "production_pass2_ms_per_layer": 0.312185,
+          "paired_speedup": 0.999333,
+          "paired_delta_ms_per_layer": -0.000208497,
+          "gate": "fail"
+        },
+        {
+          "round": 3,
+          "order": "B-C-C-B",
+          "production_pass1_ms_per_layer": 0.312033,
+          "candidate_pass1_ms_per_layer": 0.312560,
+          "candidate_pass2_ms_per_layer": 0.312553,
+          "production_pass2_ms_per_layer": 0.312379,
+          "paired_speedup": 0.998878,
+          "paired_delta_ms_per_layer": -0.000350744,
+          "gate": "fail"
+        },
+        {
+          "round": 4,
+          "order": "C-B-B-C",
+          "production_pass1_ms_per_layer": 0.312346,
+          "candidate_pass1_ms_per_layer": 0.312220,
+          "candidate_pass2_ms_per_layer": 0.312500,
+          "production_pass2_ms_per_layer": 0.312072,
+          "paired_speedup": 0.999516,
+          "paired_delta_ms_per_layer": -0.000151247,
+          "gate": "fail"
+        },
+        {
+          "round": 5,
+          "order": "B-C-C-B",
+          "production_pass1_ms_per_layer": 0.311913,
+          "candidate_pass1_ms_per_layer": 0.312277,
+          "candidate_pass2_ms_per_layer": 0.312380,
+          "production_pass2_ms_per_layer": 0.312239,
+          "paired_speedup": 0.999193,
+          "paired_delta_ms_per_layer": -0.000252008,
+          "gate": "fail"
+        }
+      ],
+      "production_pass_median_ms_per_layer": 0.312246,
+      "candidate_pass_median_ms_per_layer": 0.312416,
+      "paired_median_speedup": 0.999333,
+      "paired_median_delta_ms_per_layer": -0.000208497,
+      "projected_64_layer_delta_ms_per_token": -0.0133438,
+      "projected_64_layer_added_latency_ms_per_token": 0.0133438,
+      "rounds_regressing": "5/5",
+      "rounds_improving": "0/5",
+      "every_round_improvement_gate": "fail",
+      "relative_speedup_gate": "fail",
+      "projected_absolute_delta_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "overall_gate": "fail"
+  },
+  "legacy_repeat_directional_evidence": {
+    "status": "superseded-old-binary-directional-evidence-only",
+    "binary_path_at_time": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "binary_sha256": "bfafe6913f5fa95949f93d5497f8682aa48c8fafeb95937e2295e7180d3df9da",
+    "log_path": "/tmp/q3x-down-dead-raw-formal.log",
+    "log_bytes": 3572,
+    "log_lines": 17,
+    "log_sha256": "16b76953d5e3876c60054153c22764b642903664c8be3a3b58c6b798bb41dc66",
+    "production_pass_median_ms_per_layer": 0.308652,
+    "candidate_pass_median_ms_per_layer": 0.308544,
+    "paired_median_speedup": 1.000380,
+    "rounds_regressing": "2/5",
+    "projected_64_layer_delta_ms": 0.00745583,
+    "required_projected_64_layer_delta_ms": 0.169,
+    "overall_gate": "fail",
+    "interpretation": "This old-binary repeat is retained only as directional evidence near measurement noise. It does not replace or combine statistically with the final-binary formal result."
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "All five final-binary actual-checkpoint rounds regress. Production is 0.312246 ms/layer versus 0.312416 ms/layer for the candidate; paired median speedup is 0.999333x and the isolated 64-layer projection is -0.0133438 ms/token, below the +0.169-ms gate.",
+    "stress_timing": "not-run-after-process-1-gate-failure",
+    "signed_nonfinite": "not-run-after-process-1-gate-failure",
+    "process_2": "not-run-after-process-1-gate-failure",
+    "production_integration": "not-run",
+    "whole_model_end_to_end": "not-run",
+    "candidate_nsight_systems": "not-run",
+    "candidate_nsight_compute": "not-run",
+    "decision": "reject this exact dead-raw inline-residual schedule and retain production"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.314000,
+    "formal_anchor_after_ms_per_token": 107.314000,
+    "formal_tokens_per_second": 9.318448665,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "trace_route_changed": false,
+    "launch_count_changed": false,
+    "stream_count_before": 1,
+    "stream_count_after": 1,
+    "serial_one_stream_schedule_unchanged": true,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_test_exit_code": 0,
+    "default_test_result": "pass with the opt-in dead-raw screen skipped",
+    "formal_process_1_exit_code": 1,
+    "formal_process_1_exit_interpretation": "expected frozen performance-gate rejection after resource, Graph topology, representative invalid-call, checkpoint-hash, direct bitwise, raw-poison, guard, replay, and five-input-preservation gates pass"
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7250984,
+      "mtime": "2026-07-27T01:52:52.731115354+08:00",
+      "sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
+      "build_id": "cb3df5224b124f93a862eb0a599564517be3c689",
+      "checked_in": false
+    },
+    "default_log": {
+      "local_path": "/tmp/q3x-down-dead-raw-default.log",
+      "bytes": 65082,
+      "lines": 373,
+      "mtime": "2026-07-27T01:53:00.167167190+08:00",
+      "sha256": "a8e8b472624d811c64ae8e223d3e3ad815cab70f6cf420f266493674efdd0614",
+      "exit_code": 0,
+      "result": "pass with opt-in screen skipped",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-down-dead-raw-formal-final.log",
+      "bytes": 3578,
+      "lines": 17,
+      "mtime": "2026-07-27T01:53:41.255459081+08:00",
+      "sha256": "7d4f2d5a7016b59194f09e72b5b105b488439ce4174beadd2b567c3f452d9e28",
+      "binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
+      "exit_code": 1,
+      "result": "expected frozen performance-gate rejection",
+      "checked_in": false
+    },
+    "production_function_sass": {
+      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.production.sass",
+      "bytes": 324828,
+      "lines": 2581,
+      "sha256": "85c1fc13c481693b7a65d7904ff19dd5de378e1de1d8326b5590d53840a09d77",
+      "checked_in": false
+    },
+    "candidate_function_sass": {
+      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.candidate.sass",
+      "bytes": 324832,
+      "lines": 2581,
+      "sha256": "585c5b404cf1c0c807a92c19353cf2c2c6d716f30df14390b0ae4d34ebcd8a20",
+      "checked_in": false
+    },
+    "production_canonical_encoding64": {
+      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.production.encoding64",
+      "bytes": 48944,
+      "lines": 2576,
+      "sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
+      "checked_in": false
+    },
+    "candidate_canonical_encoding64": {
+      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.candidate.encoding64",
+      "bytes": 48944,
+      "lines": 2576,
+      "sha256": "6920a9410a48487abd427cba3aeb88d3af6d69e3e4f5593394ef430fe6a6563e",
+      "checked_in": false
+    },
+    "whole_cuobjdump_sass": {
+      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.sass",
+      "bytes": 28471899,
+      "sha256": "1d798a391b187c272607655382fea72d84c946415796b15156d71ab7ca143e0d",
+      "checked_in": false
+    },
+    "formal_command": "Q3X_RUN_SM87_DECODE_DOWN_DEAD_RAW_PERF=1 Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "claim_limits": [
+    "This rejection applies to the exact 32x512 test-only dead-raw inline-residual schedule, not every way to eliminate, compress, alias, or asynchronously consume the raw-down boundary.",
+    "Raw down is classified as dead in normal generation only by runner liveness analysis. The candidate was not integrated into or executed by the normal-generation runner, and trace-capable execution deliberately retains the production raw-publication route.",
+    "The -0.0133438-ms/token value is an arithmetic 64-layer projection from one actual layer-0 microbenchmark, not an achieved whole-model or end-to-end Decode regression.",
+    "Only one deterministic finite activation/residual fixture with actual checkpoint weights/scales was timed on the final binary. Stress timing and nonfinite fixtures were skipped by frozen process-1 stop-loss.",
+    "The implemented dual-NaN case was not executed by the final formal process. Even if executed, dynamic NaN bit parity would be a diagnostic and would not prove machine-instruction operand order; operand order was reviewed from source and SASS.",
+    "The 27 invalid zero-node cases are representative copies of the production validator contract. They cover selected null, scalar, shape, alignment, alias, and overflow cases, but they are not a complete validator or alias matrix.",
+    "The old-binary 1.000380x repeat with two regressing rounds and only +0.00745583 ms projected over 64 layers is directional evidence near noise and is not combined with the final-binary formal result.",
+    "No process 2, stress timing, signed-nonfinite execution, production integration, candidate end-to-end benchmark, Nsight Systems capture, or Nsight Compute counter run was performed after final process-1 stop-loss.",
+    "Production dispatch, the trace route, the 107.314000-ms/token anchor, the serial one-stream schedule, and Prefill state remain unchanged."
+  ],
+  "next_priority": {
+    "candidate": "fresh Decode cross-layer/launch-amortization audit pending",
+    "reason": "The isolated dead-raw traffic removal is reproducibly neutral-to-negative and cannot close the remaining 7.314-ms/token gap. Re-audit cross-layer costs and launch amortization before selecting another bounded mechanism; no benefit is assumed in advance."
+  }
+}

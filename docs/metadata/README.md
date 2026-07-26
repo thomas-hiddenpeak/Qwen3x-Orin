@@ -931,6 +931,24 @@ The diagnostic Phase 3 records are:
   regression; the **107.314000 ms/token / 9.318448665 token/s** anchor remains
   unchanged, and the next priority is a down runner-only dead-raw
   inline-residual contract audit.
+- [`qwen36-27b-decode-down-dead-raw-inline-residual-rejection.json`](qwen36-27b-decode-down-dead-raw-inline-residual-rejection.json),
+  which closes that test-only `32x512` down candidate. It keeps the rounded raw
+  BF16 value in a register, performs the existing left-then-raw residual add,
+  and removes the raw workspace store/read while preserving 64 registers,
+  35,904 static shared bytes, zero local bytes, two CTAs/SM, and one cooperative
+  launch. Actual layer-0 residual and normalized outputs are bit exact; the
+  candidate raw workspace stays poisoned; guards, five inputs, one-node/root
+  Graph replay, 27 representative zero-node invalid calls, payload hashes, and
+  static mechanism gates pass. Final-binary performance nevertheless regresses
+  in all five rounds: production is 0.312246 ms/layer versus 0.312416 ms/layer,
+  for **0.999333x** and an isolated **0.0133438-ms/token projected loss** over
+  64 layers. The +0.169-ms gate fails, so frozen stop-loss skips stress,
+  nonfinite, process 2, production, end-to-end, Nsys, and NCU work. An older
+  binary's 1.000380x repeat is retained only as near-noise directional evidence.
+  Normal-generation raw liveness was analyzed but not integrated, while trace
+  execution retains production. The **107.314000 ms/token / 9.318448665
+  token/s** anchor and serial one-stream schedule remain unchanged; the next
+  priority is a fresh Decode cross-layer/launch-amortization audit pending.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
