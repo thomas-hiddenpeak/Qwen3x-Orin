@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark",
+  "status": "production-promoted-exact-shape-single-request-decode",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "production_commit": "2dbd832dee88b5b7da89f368112bb48d20474094",
+    "production_tree": "af706faeb9d5d4cd3d3c527d8acd1356d2698ab2",
+    "production_subject": "perf: promote Decode gate-up dead-up staging",
+    "validation_commit": "798582c27d34906919ffcc325fce39fa33c1fd57",
+    "validation_tree": "9c723d9a185a2d348dda7810cef69a538ab7df1a",
+    "validation_subject": "test: harden Decode dead-up invalid contract",
+    "selection_commit": "544d69557fe63136d832805ed459473ffc09d375",
+    "selection_documentation_commit": "cf284bd28877765d0be3f3f364818a3a93b053b5",
+    "selection_record": "qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json",
+    "profile_record": "qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json",
+    "measurement_identity": "The production executable and model oracle were frozen from the exact implementation tree recorded by production_commit. The final microbenchmark was relinked after validation_commit changed only its host-side invalid matrix; the production CUDA library and normalized public/dead-up SASS remained byte-identical.",
+    "public_generic_abi_changed": false,
+    "explicit_runner_only_api_added": true,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "binaries": {
+    "end_to_end_baseline": {
+      "local_path": "/tmp/q3x-down-promotion.6beBwu/qwen3x-orin.candidate",
+      "bytes": 4267776,
+      "sha256": "f058f0a6f3183a41af16abe1af813d2fcacd11db25d69e96d4b4c4a2c3cf268d",
+      "elf_build_id": "70771bd810e50da7f64991822e000d699c5e365c",
+      "checked_in": false
+    },
+    "end_to_end_candidate": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/qwen3x-orin",
+      "bytes": 4270312,
+      "sha256": "30ac57d91cbee7921765eea73015ba2ff513d8e5460f1677eb20fa6a1a482aba",
+      "elf_build_id": "46bf9c7aa90958175d1e5150f9b36d8be8983bc7",
+      "checked_in": false
+    },
+    "model_oracle": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/q3x_reference_engine_e2e_test",
+      "bytes": 4194736,
+      "sha256": "efbb73ec9a6d0ccf3afb091c5c9557abf93c572ab2ec4918562527ab4261b40a",
+      "elf_build_id": "c8516b4fc5ce060a14b76a9090f784505b432222",
+      "checked_in": false
+    },
+    "production_microbenchmark": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/q3x_sm87_weight_only_gemv_test.invalid54",
+      "bytes": 5368736,
+      "sha256": "d8b4ebfc030a640e59978251ef494b582c637e1772b0eb44b4b5b3130f375731",
+      "elf_build_id": "ca1208f863725556fc1f66532e4841002d446194",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "cmake": "3.28.3",
+    "host_compiler": "GCC 13.3.0",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz_before_and_after": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz_before_and_after": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "before_log": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/environment-before.log",
+      "bytes": 1759,
+      "sha256": "5e0ff827ccf349fb44c22293ba3ed3b9bf15a5ea7d6663d3efb94d97409d8cac"
+    },
+    "after_log": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/environment-after.log",
+      "bytes": 1629,
+      "sha256": "62ec7b3e9fe608f5bc6504a104ec4a72868e25c3a8f8085163a86a379f7f70d3"
+    },
+    "clock_scope": "Direct sysfs min/max/current readbacks before and after the four-process benchmark establish the requested fixed-frequency state. They do not establish thermal-soak or power stability."
+  },
+  "implementation": {
+    "phase": "exact M1 Decode post-attention residual add, centered RMSNorm, NVFP4 gate/up projections, and SiLU",
+    "shape_n_by_k": [17408, 5120],
+    "production_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "mechanism": "Preserve independently BF16-rounded gate and up values in two CTA-local BF16[576] shared arrays, synchronize the CTA, and publish only the final BF16 SiLU(gate)*up value on the explicit runner-dead route.",
+    "generic_contract": "The existing generic low- and high-level APIs still publish independently rounded gate and up outputs. Their symbol, signature, exact route, validation, and every fallback remain available.",
+    "runner_contract": "A new explicit low-level exact-shape API and high-level Decode-runner API validate up_workspace with the complete double-output size, alignment, and alias contract. The exact aligned SM87 NVFP4 route leaves it untouched; every fallback delegates to the existing implementation and may write it.",
+    "runner_liveness_proof": "ReferenceRunner::step consumes only the final gate buffer after the fused boundary. The following same-stream down projection consumes that final activation and overwrites projection[1] with raw down before trace or any other read of projection[1].",
+    "prefix_scope": "C1 finish-prefill delegates through the same runner step and may use the exact route. C2 through C32 prefix-tile projection paths are unchanged.",
+    "m2_and_larger_routes_changed": false,
+    "logical_global_intermediate_bytes_removed_per_layer": 139264,
+    "logical_global_intermediate_bytes_removed_across_64_layers": 8912896,
+    "logical_byte_note": "The byte count covers two 17,408-element BF16 intermediate writes and reads. It is an algorithmic count, not measured DRAM traffic.",
+    "additional_persistent_memory_bytes": 0,
+    "additional_workspace_bytes": 0,
+    "additional_streams": 0,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "cross_kernel_overlap_added": false,
+    "independent_prefill_decode_executors_added": false
+  },
+  "checkpoint_fixture": {
+    "source": "actual pinned layer-0 checkpoint payload",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "deterministic_activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "all_payload_hashes_matched": true
+  },
+  "production_formal_screen": {
+    "command": "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=SHARD q3x_sm87_weight_only_gemv_test",
+    "log": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/focused-actual-invalid54.log",
+      "bytes": 82618,
+      "sha256": "40789187e9481aaa3ea8a5ac7185e499c07935e52a8340c380f68aaa7fa1b047",
+      "exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed"
+    },
+    "protocol": {
+      "comparison": "same Release binary and stream, public production 32x512 double publication B versus explicit runner-only 32x512 dead-up C",
+      "warmup_launches_per_route": 10,
+      "rounds_per_fixture": 5,
+      "logical_launches_per_timed_pass": 64,
+      "order_each_round": "B-C-C-B",
+      "paired_round_statistic": "(production_pass1 + production_pass2) / (dead_up_pass1 + dead_up_pass2)",
+      "actual_checkpoint_required_median_speedup": 1.005,
+      "same_bank_stress_required_median_speedup": 1.0,
+      "required_each_round_speedup": 1.0
+    },
+    "actual_checkpoint": {
+      "public_production_pass_median_ms": 0.599918,
+      "runner_dead_up_pass_median_ms": 0.59399,
+      "pass_median_delta_ms_per_layer": -0.005928,
+      "paired_round_median_speedup": 1.00985,
+      "every_round_nonregression": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "public_production_pass_median_ms": 0.604584,
+      "runner_dead_up_pass_median_ms": 0.599014,
+      "pass_median_delta_ms_per_layer": -0.00557,
+      "paired_round_median_speedup": 1.00921,
+      "every_round_nonregression": true,
+      "gate": "pass"
+    },
+    "arithmetic_actual_checkpoint_saving_across_64_layers_ms_per_token": 0.379392,
+    "arithmetic_saving_note": "This is a phase-local multiplication of a same-binary pass-median delta. It is not the end-to-end claim.",
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32,
+      "null_resource_query_rejected": true,
+      "gate": "pass"
+    },
+    "sentinel_graph_topology": {
+      "public_full_output": {"nodes": 1, "grid": [32, 1, 1], "block": [512, 1, 1], "dynamic_shared_bytes": 0},
+      "runner_dead_up": {"nodes": 1, "grid": [32, 1, 1], "block": [512, 1, 1], "dynamic_shared_bytes": 0},
+      "functions_distinct": true,
+      "scope": "Topology was queried from aligned sentinel-pointer captures. This field is separate from real-buffer replay.",
+      "gate": "pass"
+    },
+    "real_buffer_cuda_graph_replay": {
+      "fixtures": ["actual_checkpoint", "same_bank_stress"],
+      "capture": true,
+      "instantiate": true,
+      "launch": true,
+      "published_residual_mismatches_each": "0/5120",
+      "published_final_gate_mismatches_each": "0/17408",
+      "replay_mismatches_each": "0/22528",
+      "workspace_untouched": true,
+      "direct_and_replay_workspace_poisons_distinct": true,
+      "guards": "intact",
+      "seven_inputs_preserved": true,
+      "topology_queried_on_real_graph": false,
+      "gate": "pass"
+    },
+    "signed_inf_nan_direct_only": {
+      "fixture": "actual_checkpoint",
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "classified_nan_outputs": "17408/17408",
+      "class_and_sign": true,
+      "workspace_untouched": true,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "cuda_graph_replay_covered": false,
+      "gate": "pass"
+    },
+    "invalid_capture": {
+      "cases": 54,
+      "categories": {"null": 10, "scalar": 6, "shape": 3, "alignment": 8, "alias": 24, "address_range_overflow": 3},
+      "coverage": "complete low-level runner-only signature matrix over required pointers, distinct scalar predicates, shapes, wrapper alignments, every writable/read-only and writable/writable alias pair, and representative overflowing address ranges",
+      "status_each": "cudaErrorInvalidValue",
+      "captured_nodes_each": 0,
+      "complete_signature_matrix_claimed": true,
+      "gate": "pass"
+    },
+    "sass": {
+      "normalization": "cuobjdump Function section; every ordered 64-bit encoding/control word emitted as one lowercase 0x-prefixed line before SHA-256",
+      "public_full_output": {
+        "normalized_instruction_words": 2704,
+        "normalized_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+        "exact_match_to_pre_integration_production": true
+      },
+      "runner_dead_up": {
+        "normalized_instruction_words": 2704,
+        "normalized_sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d",
+        "exact_match_to_selected_candidate": true,
+        "ldl_or_stl_instruction_rows": 0
+      },
+      "functions_distinct": true,
+      "gate": "pass"
+    }
+  },
+  "release_validation": {
+    "full_ctest": {
+      "command": "ctest --test-dir build/orin-release --output-on-failure",
+      "tests_discovered": 56,
+      "passed": 51,
+      "failed": 0,
+      "skipped": 5,
+      "model_e2e_skips_manually_covered_below": 4,
+      "log": {
+        "local_path": "build/orin-release/Testing/Temporary/LastTest.log",
+        "bytes": 116606,
+        "sha256": "a6d35f2a69895114e5a5cc9ab74af81bc1b1a0dfd60a9c019a49488975fe5ea2"
+      },
+      "status": "pass"
+    },
+    "model_oracle": {
+      "command_template": "q3x_reference_engine_e2e_test MODEL_DIR sm87 {1|8|16|32}",
+      "shared_result": {
+        "status": "pass",
+        "prompt_ids": 19,
+        "generated_ids": 26,
+        "exact_text": true,
+        "stop_reason": "im_end",
+        "steps": 44,
+        "projection_backend": "sm87_weight_only",
+        "fp8_output_sidecar_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920,
+        "fp8_output_sidecar_fallback_reason": ""
+      },
+      "logs": {
+        "C1": {"bytes": 403, "sha256": "104fd4b14d72fac37f6334a64c81ef13b726f998fca40238ee5e07be2e319e76"},
+        "C8": {"bytes": 403, "sha256": "09134f54b4837988bffab3535996601d400709d7f065a15290ee3f6286c287a0"},
+        "C16": {"bytes": 403, "sha256": "2bb823b979933bb55406757c6f9d02bf38007968b97ef8ddc11923fe50cfc9f4"},
+        "C32": {"bytes": 403, "sha256": "07136337201b3bf564ce85dd4914b91c0554b722ab8fabba6e2f85c9dc34f797"}
+      }
+    }
+  },
+  "end_to_end_benchmark": {
+    "workload": {
+      "scope": "hot single-request Decode",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "max_new_tokens": 26,
+      "decode_intervals": 25,
+      "max_sequence_length": 64,
+      "prefill_chunk_size": 32,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "process_order": "B1-C1-C2-B2",
+      "normalized_command": "BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --projection-backend sm87 --prefill-chunk-size 32"
+    },
+    "process_medians_ms": {
+      "B1": {"subsequent_token": 109.074, "decode_after_first": 2726.544, "time_to_first_token": 428.348, "total_generation": 3154.910},
+      "C1": {"subsequent_token": 108.782, "decode_after_first": 2719.279, "time_to_first_token": 428.538, "total_generation": 3147.832},
+      "C2": {"subsequent_token": 108.557, "decode_after_first": 2713.763, "time_to_first_token": 428.134, "total_generation": 3141.927},
+      "B2": {"subsequent_token": 109.033, "decode_after_first": 2725.636, "time_to_first_token": 428.210, "total_generation": 3153.845}
+    },
+    "mirrored_aggregate": {
+      "method": "arithmetic mean of the two process medians on each side",
+      "baseline_subsequent_token_ms": 109.0535,
+      "candidate_subsequent_token_ms": 108.6695,
+      "subsequent_token_delta_ms": -0.384,
+      "subsequent_token_speedup": 1.00353365,
+      "candidate_single_request_tokens_per_second": 9.202214053,
+      "baseline_decode_after_first_ms": 2726.09,
+      "candidate_decode_after_first_ms": 2716.521,
+      "decode_after_first_delta_ms": -9.569,
+      "baseline_time_to_first_token_ms": 428.279,
+      "candidate_time_to_first_token_ms": 428.336,
+      "time_to_first_token_delta_ms": 0.057,
+      "baseline_total_generation_ms": 3154.3775,
+      "candidate_total_generation_ms": 3144.8795,
+      "total_generation_delta_ms": -9.498,
+      "pair1_subsequent_token_delta_ms": -0.292,
+      "pair2_subsequent_token_delta_ms": -0.476,
+      "both_mirrored_subsequent_token_pairs_improve": true,
+      "both_mirrored_decode_after_first_pairs_improve": true
+    },
+    "functional_canonicalization": {
+      "canonical_rows_per_process": 29,
+      "B1_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "C1_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "C2_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "B2_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "historical_golden_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "all_four_equal_and_match_golden": true
+    },
+    "completeness": {
+      "raw_log_lines_each": 163,
+      "sample_count_each": 5,
+      "later_token_intervals_per_sample": 25,
+      "later_token_intervals_each_process": 125,
+      "terminal_sample_row_present_each": true,
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "incremental_candidate_memory_bytes": 0,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {"bytes": 8134, "sha256": "1372391d853b88e00387c0818475b66b1e799edb16966a3bbdf2b47814fabf92"},
+      "C1": {"bytes": 8127, "sha256": "654c527fc882c52ebe095019f74463b5ea83f23cf3bf18ed5c717968c1f2db1f"},
+      "C2": {"bytes": 8127, "sha256": "c10a9658f975213864c87c65cc93104a0ca4e52db92f01b214593978ed71787f"},
+      "B2": {"bytes": 8127, "sha256": "ff513afafe1027e6bad637607b6dceff9f73c13cf11c63a2d4653fbf2426d73d"},
+      "summary": {"bytes": 1614, "sha256": "e92932f24840bf5099d8871065fb61e003e9ca1960eda832487f580175035ad8"}
+    }
+  },
+  "profile_gate": {
+    "record": "qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json",
+    "decode_ranges": 25,
+    "decode_distinct_kernel_rows": 10925,
+    "kernel_rows_per_decode_range": 437,
+    "generation_leaf_rows": 12997,
+    "generation_leaf_missing_extra_duplicate": [0, 0, 0],
+    "runner_dead_up_kernel_instances": 1600,
+    "runner_dead_up_instances_per_decode_range": 64,
+    "old_full_output_boundary_instances": 0,
+    "stream_count": 1,
+    "decode_raw_equals_union": true,
+    "decode_overlap_ns": 0,
+    "gate": "pass"
+  },
+  "decision": {
+    "result": "promote explicit Decode-runner-only gate/up dead-up staging",
+    "prior_formal_hot_decode_ms_per_token": 109.056,
+    "achieved_hot_decode_ms_per_token": 108.6695,
+    "delta_from_prior_formal_anchor_ms_per_token": -0.3865,
+    "same_run_mirrored_baseline_ms_per_token": 109.0535,
+    "same_run_mirrored_candidate_delta_ms_per_token": -0.384,
+    "achieved_single_request_tokens_per_second": 9.202214053,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 8.6695,
+    "remaining_tokens_per_second": 0.797785947,
+    "remaining_relative_latency_reduction_percent": 7.977859473,
+    "planning_normalized_ms_per_token_not_achieved": 108.672,
+    "selection_basis": "The explicit ABI boundary, same-validator route, real-buffer CUDA Graph replay, finite and direct nonfinite correctness, four chunk-size model oracles, fixed-frequency mirrored end-to-end gate, and fresh production Nsys closure all pass. Both mirrored Decode pairs improve and the measured candidate absolute median is lower than the previous formal anchor.",
+    "next_priority": "Use the fresh production profile to screen the next bounded phase-local Decode mechanism; defer the larger Prefill program until the 100-ms/token and 10-token/s stage target is met."
+  },
+  "limitations": [
+    "The 108.6695-ms/token and 9.202214053-token/s result is hot single-request Decode on the named P19/C32/max26 workload. It excludes model load and is not a Prefill result.",
+    "The token/s value is the reciprocal of the mirrored hot subsequent-token median, not multi-request serving throughput.",
+    "The selection-stage 0.396352-ms/token and final-process 0.379392-ms/token arithmetic projections are isolated kernel calculations. Only 108.6695 ms/token is the achieved end-to-end result.",
+    "The four short benchmark processes and fixed-frequency readbacks do not establish thermal-soak, tail-latency, power, or energy behavior.",
+    "The valid exact route adds no allocation, but both sides retain the existing 1.875-GiB FP8 output sidecar; this optimization is not a claim of zero auxiliary runtime memory.",
+    "Execution remains causally serialized on one CUDA stream. This change adds no system double/triple buffering, Prefill/Decode overlap, multi-request scheduler, or independent executors.",
+    "No fresh NCU, compute-sanitizer, long-context matrix, cross-device, or multi-request result is claimed."
+  ]
+}

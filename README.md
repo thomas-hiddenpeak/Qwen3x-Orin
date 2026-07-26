@@ -265,13 +265,19 @@ operands, and other backends retain two ordered projections.
 Exact aligned SM87 NVFP4 M1 dense-MLP gate/up projections and their SiLU
 multiply likewise use one rolled two-phase projection plus CTA-parallel
 epilogue launch. Gate and up are independently rounded to BF16 before the
-epilogue, and the up output is retained. At the production post-attention
-boundary, the same exact route also folds BF16 residual addition and centered
-RMSNorm into that launch: CTA 0 writes the public residual, while the normalized
-activation remains CTA-local. Its repeated 256-thread RMS reduction preserves
-the shared-tree strides 128/64/32 and the exact remaining pairings through
-warp-zero shuffle-down strides 16/8/4/2/1. C2 through C32, near-miss shapes,
-unaligned operands, and other backends retain the validated ordered fallbacks.
+epilogue. The generic low- and high-level APIs retain both observable rounded
+outputs. The explicit Decode-runner-only exact route instead holds the pair in
+two CTA-local `BF16[576]` arrays, publishes only the final
+`SiLU(gate) * up`, and leaves its validated `up_workspace` untouched. At the
+production post-attention boundary, that route also folds BF16 residual
+addition and centered RMSNorm into the launch: CTA 0 writes the public
+residual, while the normalized activation remains CTA-local. Its repeated
+256-thread RMS reduction preserves the shared-tree strides 128/64/32 and the
+exact remaining pairings through warp-zero shuffle-down strides 16/8/4/2/1.
+The runner does not observe `up_workspace` before the following same-stream
+down projection overwrites it. C2 through C32 prefix tiles, near-miss or
+unaligned operands, BF16/FP8 weights, other backends, and every fallback retain
+the validated ordered chain and may write the workspace.
 The following exact aligned SM87 NVFP4 M1 `[5120,17408]` down projection can
 likewise absorb its BF16 residual-add and centered-RMSNorm boundary into one
 64-CTA cooperative launch. It retains three separately rounded public BF16
@@ -539,6 +545,12 @@ are recorded in the
 The resolved route registry, 29-cell direct-kernel atlas, pinned long-prompt
 fixtures, chunk matrix, and Nsight attribution are recorded in the
 [SM87 shape/chunk/prompt matrix](docs/metadata/qwen36-27b-sm87-shape-chunk-prompt-matrix-benchmark.json).
+The latest fixed-clock P19/C32/max26 single-request Decode gate records
+**108.6695 ms/token (9.202214053 token/s)** after the runner-only dead-up
+promotion, with exact output and fresh 25-step Nsys closure. See the
+[production benchmark](docs/metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json)
+and
+[post-promotion profile](docs/metadata/qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json).
 
 Inspect a local checkpoint without loading weight payloads:
 

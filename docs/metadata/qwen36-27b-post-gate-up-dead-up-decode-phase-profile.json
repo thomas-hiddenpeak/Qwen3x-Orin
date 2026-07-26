@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-post-gate-up-dead-up-decode-phase-profile",
+  "status": "production-profile-closed",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "production_commit": "2dbd832dee88b5b7da89f368112bb48d20474094",
+    "production_tree": "af706faeb9d5d4cd3d3c527d8acd1356d2698ab2",
+    "production_subject": "perf: promote Decode gate-up dead-up staging",
+    "selection_commit": "544d69557fe63136d832805ed459473ffc09d375",
+    "selection_record": "qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json",
+    "production_record": "qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measurement_identity": "The frozen executable was built from the exact production implementation-and-test tree later recorded as production_commit. Documentation changes are outside the measured binary."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "cuda_compiler": "Build cuda_13.3.r13.3/compiler.37862127_0",
+    "nsight_systems": "2026.1.3.243-261337792075v0"
+  },
+  "workload": {
+    "scope": "one production P19/C32/max26 generation captured with NVTX phase ranges",
+    "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT CANDIDATE generate MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+    "prompt": "用一句话解释 CUDA 是什么。",
+    "rendered_prompt_tokens": 19,
+    "generated_tokens": 26,
+    "decode_intervals": 25,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "projection_backend": "sm87_weight_only",
+    "generated_ids_exact": true,
+    "generated_text_exact": true,
+    "stop_reason": "im_end",
+    "step_count": 44
+  },
+  "binary": {
+    "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/qwen3x-orin",
+    "bytes": 4270312,
+    "sha256": "30ac57d91cbee7921765eea73015ba2ff513d8e5460f1677eb20fa6a1a482aba",
+    "elf_build_id": "46bf9c7aa90958175d1e5150f9b36d8be8983bc7",
+    "checked_in": false
+  },
+  "artifacts": {
+    "console_log": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/nsys-profile.log",
+      "bytes": 3146,
+      "sha256": "4d0dd8eab1e434a7e5c41f27690d98f221458ca42464c077a52b5794a0adf30a"
+    },
+    "nsys_report": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/decode-profile.nsys-rep",
+      "bytes": 1018711,
+      "sha256": "8a2b7e4c8f0179cfc600c201937f9f0d4ac328eb8cf8ff6ec6a58a6c0b344b19"
+    },
+    "sqlite": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/decode-profile.sqlite",
+      "bytes": 2863104,
+      "sha256": "6038b3b95a17ddeb2123fe82a6065e764cd7b9312bae8c5f91cac1eadce5c642"
+    },
+    "phase_analysis": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/nsys-analysis.json",
+      "bytes": 22968,
+      "sha256": "2880c3a9911100743fa5c36d0dd8382617e0553bb3d4d00d4e2f4483fae56c7f"
+    },
+    "supplemental_audit": {
+      "local_path": "/tmp/q3x-gateup-dead-up-production-final.ffDPww/nsys-supplemental-audit.json",
+      "bytes": 3693,
+      "sha256": "4a1c0a72c760677b5929859ca7e491ea55ef761a0858da3ed7e638470e56d67a"
+    },
+    "analysis_script": {
+      "local_path": "/tmp/q3x-fresh-phase-profile-analysis.py",
+      "bytes": 7292,
+      "sha256": "335d9daa2cb35b47c1aa72d0f4ceef2293dab4e847d028ccd74ce8f3456ef2a0"
+    }
+  },
+  "attribution_method": {
+    "runtime_selection": "same globalTid with CUDA runtime start/end contained in the completed NVTX range",
+    "kernel_join": "correlationId and globalPid=(globalTid & 0xFFFFFFFFFF000000)",
+    "union_rule": "sort closed kernel intervals and start a new segment only when next.start is greater than current.end",
+    "duplicate_kernel_attribution_rejected": true,
+    "exact_demangled_names_used_for_final_route_counts": true
+  },
+  "phase_closure": {
+    "generation": {
+      "completed_ranges": 1,
+      "kernel_rows": 12997,
+      "distinct_kernel_rows": 12997,
+      "streams": [18]
+    },
+    "prefix_tile": {
+      "completed_ranges": 1,
+      "kernel_rows": 1635,
+      "distinct_kernel_rows": 1635,
+      "streams": [18]
+    },
+    "finish_prefill": {
+      "completed_ranges": 1,
+      "kernel_rows": 437,
+      "distinct_kernel_rows": 437,
+      "streams": [18]
+    },
+    "decode": {
+      "completed_ranges": 25,
+      "kernel_rows": 10925,
+      "distinct_kernel_rows": 10925,
+      "kernel_rows_per_range_minimum": 437,
+      "kernel_rows_per_range_maximum": 437,
+      "streams": [18]
+    },
+    "leaf_to_generation": {
+      "leaf_rows": 12997,
+      "leaf_distinct_rows": 12997,
+      "missing_generation_rows": 0,
+      "extra_leaf_rows": 0,
+      "duplicate_leaf_rows": 0,
+      "gate": "pass"
+    },
+    "gate": "pass"
+  },
+  "decode_timeline": {
+    "host_ranges": {
+      "instances": 25,
+      "sum_ns": 2721817728,
+      "average_ns": 108872709.12,
+      "median_ns": 108841280,
+      "minimum_ns": 108624992,
+      "maximum_ns": 109142336
+    },
+    "kernel_instances": 10925,
+    "raw_ns": 2705937632,
+    "union_ns": 2705937632,
+    "span_ns": 2721827360,
+    "idle_ns": 15889728,
+    "idle_percent_of_span": 0.5837889733,
+    "overlap_ns": 0,
+    "stream_count": 1,
+    "single_stream_raw_equals_union_gate": "pass"
+  },
+  "runner_dead_up_route": {
+    "exact_demangled_name": "q3x::kernels::<unnamed>::nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_kernel(const unsigned char *, const unsigned char *, float, const unsigned char *, const unsigned char *, float, const unsigned short *, const unsigned short *, const unsigned short *, float, unsigned short *, unsigned short *)",
+    "kernel_instances": 1600,
+    "distinct_kernel_rows": 1600,
+    "covered_decode_ranges": 25,
+    "instances_per_decode_range_minimum": 64,
+    "instances_per_decode_range_maximum": 64,
+    "grid": [32, 1, 1],
+    "block": [512, 1, 1],
+    "registers_per_thread": 64,
+    "static_shared_bytes": 13632,
+    "dynamic_shared_bytes": 0,
+    "local_memory_per_thread_bytes": 0,
+    "local_memory_total_context_bytes_not_a_spill_gate": 14155776,
+    "raw_ns": 958966688,
+    "union_ns": 958966688,
+    "overlap_ns": 0,
+    "mean_launch_ms": 0.59935418,
+    "per_decode_step_ms": 38.35866752,
+    "decode_raw_share_percent": 35.439349254,
+    "gate": "pass"
+  },
+  "retired_full_output_boundary": {
+    "match": "residual_norm_gate_up_silu_coarsened_512_kernel",
+    "decode_kernel_instances": 0,
+    "gate": "pass"
+  },
+  "decode_hotspots": [
+    {"rank": 1, "group": "NVFP4 runner-dead residual/norm/gate/up/SiLU", "instances": 1600, "per_step_ms": 38.35866752, "raw_share_percent": 35.439349254},
+    {"rank": 2, "group": "FP8 linear-attention QKV/Z scratch ping-pong", "instances": 1200, "per_step_ms": 22.85356288, "raw_share_percent": 21.114273487},
+    {"rank": 3, "group": "NVFP4 down/residual/norm 32x512", "instances": 1600, "per_step_ms": 20.60257664, "raw_share_percent": 19.034600425},
+    {"rank": 4, "group": "FP8 output AoSoA4/preswizzled", "instances": 1600, "per_step_ms": 11.57497216, "raw_share_percent": 10.694049285},
+    {"rank": 5, "group": "FP8 full-attention Q+K/V scratch ping-pong", "instances": 400, "per_step_ms": 6.8487616, "raw_share_percent": 6.327530907},
+    {"rank": 6, "group": "NVFP4 language head", "instances": 25, "per_step_ms": 4.38269696, "raw_share_percent": 4.049148166}
+  ],
+  "comparison_with_prior_production_profile": {
+    "prior_record": "qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json",
+    "prior_gate_up_per_step_ms": 38.834222,
+    "current_gate_up_per_step_ms": 38.35866752,
+    "directional_gate_up_delta_ms_per_step": -0.47555448,
+    "prior_complete_decode_raw_ms_per_step": 109.0029184,
+    "current_complete_decode_raw_ms_per_step": 108.23750528,
+    "directional_complete_decode_raw_delta_ms_per_step": -0.76541312,
+    "interpretation": "Separate profiler processes support topology, route, and hotspot attribution. Their directional deltas do not replace the fixed-frequency B1-C1-C2-B2 release benchmark or isolate movement in unchanged kernels."
+  },
+  "decision": {
+    "result": "production route and phase closure pass",
+    "runner_only_symbol_1600_gate": "pass",
+    "old_full_output_symbol_zero_gate": "pass",
+    "decode_25_range_10925_leaf_gate": "pass",
+    "generation_leaf_closure_gate": "pass",
+    "single_stream_zero_overlap_gate": "pass",
+    "next_priority": "Continue bounded phase-local Decode work from the refreshed gate/up, QKV/Z, and down ranking; the measured sub-1% scheduling idle leaves system-level batch-one double/triple buffering behind those mechanisms."
+  },
+  "limitations": [
+    "This is one Nsys process, not a latency-distribution, thermal-soak, power, or energy study.",
+    "The profile confirms routing and attribution; the separate fixed-frequency B1-C1-C2-B2 record is authoritative for the achieved latency and token rate.",
+    "localMemoryPerThread is the spill gate and is zero. Nsight localMemoryTotal is context-level bookkeeping and is deliberately not interpreted as spilling.",
+    "Execution remains causally serialized on one CUDA stream with no system double/triple buffer, cross-kernel overlap, or independent Prefill/Decode executors.",
+    "No NCU performance counters are claimed because the current vGPU denies performance-counter access."
+  ]
+}

@@ -712,6 +712,23 @@ The diagnostic Phase 3 records are:
   an explicit runner-only API, full-model oracle, end-to-end benchmark, and
   fresh Nsys closure pass; the generic double-output API must continue to
   publish independently rounded up values.
+- [`qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json`](qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json),
+  which records the explicit runner-only production promotion at `2dbd832`
+  and the complete 54-case invalid-contract hardening at `798582c`. The
+  generic double-output APIs and all fallbacks remain intact; only the exact
+  runner-dead boundary elides up publication. Real-buffer CUDA Graph replay,
+  finite/direct-nonfinite correctness, resource/SASS identity, full Release
+  CTest, and pinned C1/C8/C16/C32 model oracles pass. Fixed-clock
+  P19/C32/max26 `B1-C1-C2-B2` moves the mirrored hot Decode median from
+  109.0535 to **108.6695 ms/token** with both pairs improving, establishing
+  **9.202214053 token/s** and an 8.6695-ms/token remaining stage gap.
+- [`qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json`](qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json),
+  which closes the promoted production route over 25 Decode ranges and 10,925
+  distinct kernel rows, exactly 437 per range. The new symbol appears 1,600
+  times, exactly 64 per step, while the retired full-output boundary appears
+  zero times. Generation closes over 12,997 leaves without missing, extra, or
+  duplicate rows. Decode remains on one stream with raw equal to union and
+  zero overlap; this is not a double/triple-buffer or executor-overlap result.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

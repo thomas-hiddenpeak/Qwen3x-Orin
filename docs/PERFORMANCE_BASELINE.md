@@ -5376,3 +5376,94 @@ the complete invalid matrix; then run Release/default/focused CTests, pinned
 C1/C8/C16/C32 model oracles, P19/C32/max26 `B1-C1-C2-B2`, and a fresh Decode
 Nsys closure. Only that final evidence can update the formal anchor or begin
 the larger Prefill optimization program.
+
+## Decode NVFP4 M1 gate/up dead-up production promotion
+
+Commit `2dbd832` promotes the selected mechanism through two explicit
+runner-only APIs without weakening the generic double-output contract. Only
+the exact aligned SM87 NVFP4 `[17408,5120]` post-attention route keeps the
+independently BF16-rounded gate/up pair in CTA-local `BF16[576]` arrays and
+leaves `up_workspace` untouched. The generic low- and high-level APIs still
+publish rounded up; every near-miss, unaligned, BF16, FP8, reference, or other
+fallback follows the old chain and may write the workspace. In
+`ReferenceRunner::step()`, no consumer observes that workspace between the
+fused boundary and the following same-stream down projection, which
+overwrites it before trace or any later read. C2–C32 prefix-tile routes are
+unchanged; C1 finish-prefill shares the ordinary runner step.
+
+Validation commit `798582c` expands the new low-level contract to a complete
+54-case pre-enqueue matrix: 10 null pointers, six scalar predicates, three
+shapes, eight alignments, 24 writable/read-only or writable/writable aliases,
+and three overflowing address ranges. Every case returns
+`cudaErrorInvalidValue` and captures zero Graph nodes. The full Release CTest
+run reports 51 passes, zero failures, and five configured skips out of 56;
+the four skipped model-dependent chunk cases were run directly against the
+pinned checkpoint at C1/C8/C16/C32. All four match 19 prompt IDs, 26 generated
+IDs, exact text, `im_end`, and 44 steps, with the existing 64 FP8 sidecars and
+no fallback.
+
+The final production microbenchmark preserves the public and dead-up SASS
+identities selected earlier: both have 2,704 normalized words, at SHA-256
+`134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab`
+and
+`38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d`
+respectively. The dead-up kernel reports 64 registers/thread, 13,632 B static
+shared memory, zero local memory, 512 maximum threads/block, and two active
+CTAs/SM. Aligned sentinel captures prove distinct one-node `32x512` launch
+topologies. Separately, real checkpoint and stress buffers complete CUDA Graph
+capture, instantiate, and replay with 0/5,120 residual, 0/17,408 final, and
+0/22,528 replay mismatches, intact guards, all seven inputs preserved, and
+different direct/replay workspace poisons left untouched. The real replay
+itself was not queried for node parameters, and signed Inf/NaN coverage is
+direct-launch only.
+
+One final fixed-clock, same-binary `B-C-C-B` screen retains ten warmups and
+five 64-launch rounds per fixture:
+
+| Fixture | Public pass median | Dead-up pass median | Paired median | Every round non-regress | Result |
+| --- | ---: | ---: | ---: | --- | --- |
+| Actual layer-0 checkpoint | 0.599918 ms | 0.593990 ms | 1.00985x | yes | pass |
+| Same-bank stress | 0.604584 ms | 0.599014 ms | 1.00921x | yes | pass |
+
+The actual pass-median delta projects to 0.379392 ms/token across 64 layers,
+but that multiplication is phase-local evidence only. The formal result comes
+from four independent complete-engine processes in strict `B1-C1-C2-B2`
+order:
+
+| Process | Subsequent token | Decode after first | TTFT | Total generation |
+| --- | ---: | ---: | ---: | ---: |
+| B1 | 109.074 ms | 2,726.544 ms | 428.348 ms | 3,154.910 ms |
+| C1 | 108.782 ms | 2,719.279 ms | 428.538 ms | 3,147.832 ms |
+| C2 | 108.557 ms | 2,713.763 ms | 428.134 ms | 3,141.927 ms |
+| B2 | 109.033 ms | 2,725.636 ms | 428.210 ms | 3,153.845 ms |
+
+The mirrored baseline/candidate hot medians are 109.0535 and **108.6695
+ms/token**, a 0.384-ms same-run reduction or 1.00353365x speedup. Both mirrored
+pairs improve independently by 0.292 and 0.476 ms/token. Decode-after-first
+falls from 2,726.090 to 2,716.521 ms, while TTFT changes only from 428.279 to
+428.336 ms. All four logs contain 163 lines, five samples of exactly 25 later
+tokens, no persistent device-memory drop, and the same 29-row functional
+canonical SHA-256
+`f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8`,
+which also matches the historical golden.
+
+Fresh Nsys evidence closes all 25 Decode ranges over 10,925 distinct kernel
+rows, exactly 437 per range. The generation range closes over 12,997 prefix,
+finish, and Decode leaves with no missing, extra, or duplicate rows. The new
+exact symbol appears 1,600 times—64 in every Decode step—while the retired
+full-output boundary symbol appears zero times. It uses `32x512`, 64
+registers/thread, 13,632 B static shared memory, and zero local memory per
+thread. Decode raw and interval-union time are both 2,705.937632 ms on stream
+18; overlap is zero, and the 2,721.827360-ms span contains only 15.889728 ms
+idle (0.583789%). Thus this win is dead-publication removal, not hidden
+multi-stream overlap or system buffering.
+
+Because the measured 108.6695-ms candidate is 0.3865 ms below the previous
+109.056-ms formal result, the new achieved single-request anchor is
+**108.6695 ms/token and 9.202214053 token/s**. The remaining stage gap is
+8.6695 ms/token or 0.797785947 token/s; reaching 100 ms requires another
+7.977859% latency reduction. The separate 108.672-ms planning normalization
+is not an achieved value. Complete machine-readable evidence is in the
+[production benchmark](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json)
+and
+[post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json).

@@ -177,6 +177,12 @@ Deliverables:
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 gate/up projection
   for `[17408,5120]`, preserving the 8-byte activation alignment contract and
   preceding fallbacks elsewhere.
+- [done, Decode-runner-only production promotion] The exact aligned M1
+  post-attention residual/norm/gate/up/SiLU route keeps independently
+  BF16-rounded gate/up values in CTA-local shared memory and elides only the
+  runner-dead up publication. The generic double-output APIs and every
+  fallback retain their observable up output; the following same-stream down
+  projection overwrites the validated workspace before any read.
 - [done, exact-shape gated] CTA activation-staged NVFP4 M1 language head for
   `[248320,5120]`, preserving the 8-byte activation alignment contract and
   preceding fallbacks elsewhere.
@@ -967,7 +973,7 @@ formal **109.056 ms/token / 9.169600939 token/s** anchor remain unchanged. See
 the
 [QKV grid-cap 1024 rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json).
 
-The materially different gate/up mechanism is now selected at the test-only
+The materially different gate/up mechanism was first selected at the test-only
 stage. It keeps production's `32x512` topology but retains the independently
 BF16-rounded gate/up pair in two CTA-local `BF16[576]` arrays and publishes
 only final `SiLU(gate)*up`; the runner-dead up buffer remains untouched. Three
@@ -976,27 +982,39 @@ of **1.01034x / 1.00932x**, with all 30 rounds improving. Published-output
 bitwise/replay, combined signed Inf/NaN, guards, inputs, resource
 (`64r/13,632B/0local/2CTA`), one-node Graph capture, nine-invalid, and
 production-SASS-identity gates pass. The 64-layer **0.396352-ms/token** value
-is arithmetic only, so production and the formal **109.056 ms/token /
-9.169600939 token/s** anchor have not changed. See the
+was arithmetic only at selection time, so that record did not change the then
+formal **109.056 ms/token / 9.169600939 token/s** anchor. See the
 [selection record](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json).
 
-The immediate P0 sequence is explicit Decode-runner-only production
-integration, Release/default/focused CTests, real-buffer Graph replay and the
-complete invalid matrix, pinned C1/C8/C16/C32 model oracles, fixed-clock
-P19/C32/max26 `B1-C1-C2-B2`, and a fresh Nsys closure. The generic public
-double-output API must continue to publish independently rounded up values;
-only the proven runner-dead boundary may elide that publication. A production
-trace must show the runner-only symbol 1,600 times (64 per Decode step), the
-old full-output exact GateUp symbol zero times on that boundary, and retain the
-25-range/10,925-leaf closure before the anchor changes.
+That production sequence is now complete at `2dbd832`, with the complete
+54-case invalid matrix hardened at `798582c`. The generic public double-output
+API continues to publish independently rounded up values; only the explicit
+runner-dead exact route elides that publication, and every fallback preserves
+the old behavior. Real-buffer CUDA Graph replay, Release/default/full CTest,
+and pinned C1/C8/C16/C32 model oracles pass. Fixed-clock P19/C32/max26
+`B1-C1-C2-B2` moves the mirrored hot Decode median from 109.0535 to
+**108.6695 ms/token**, with both pairs improving, establishing
+**9.202214053 token/s**. The new formal stage gap is 8.6695 ms/token.
+
+The production trace also passes every closure gate: 25 Decode ranges contain
+10,925 distinct rows, exactly 437 per step; the runner-only symbol appears
+1,600 times, exactly 64 per step; the retired full-output boundary symbol is
+absent; and all 12,997 generation leaves close with no missing, extra, or
+duplicate rows. Decode remains one stream with raw equal to union and zero
+overlap. See the
+[production benchmark](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json)
+and
+[post-promotion profile](metadata/qwen36-27b-post-gate-up-dead-up-decode-phase-profile.json).
 
 This remains phase-local work, not a system double/triple buffer or
 Prefill/Decode executor split. The measured single request is causally serial
-on one stream, so general batch-one buffering stays behind this integration.
+on one stream, so general batch-one buffering stays behind the next
+phase-local mechanisms.
 Closed gate/up row-pair balanced-tail/shared-pipeline/AoSoA4/`16x1024`
 variants, the down CTA-prune, the QKV/Z sidecar, and production-ping-pong
-QKV1024/Z768 grid-cap policy remain closed. The 100-ms/token and 10-token/s
-gate still precedes the larger Prefill program.
+QKV1024/Z768 grid-cap policy remain closed. The next bounded mechanism must be
+selected from the refreshed gate/up, QKV/Z, and down ranking. The 100-ms/token
+and 10-token/s gate still precedes the larger Prefill program.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
