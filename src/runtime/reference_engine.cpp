@@ -8,8 +8,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <future>
 #include <limits>
 #include <memory>
@@ -26,6 +28,54 @@ namespace q3x::runtime {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+struct DecodeGraphP1DeviceBuffer {
+  void* data = nullptr;
+  std::size_t bytes = 0U;
+
+  DecodeGraphP1DeviceBuffer() noexcept = default;
+  DecodeGraphP1DeviceBuffer(const DecodeGraphP1DeviceBuffer&) = delete;
+  DecodeGraphP1DeviceBuffer& operator=(const DecodeGraphP1DeviceBuffer&) =
+      delete;
+  ~DecodeGraphP1DeviceBuffer() {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+  }
+
+  [[nodiscard]] cudaError_t allocate(const std::size_t requested_bytes) {
+    if (data != nullptr || requested_bytes == 0U) {
+      return cudaErrorInvalidValue;
+    }
+    const cudaError_t status = cudaMalloc(&data, requested_bytes);
+    if (status == cudaSuccess) {
+      bytes = requested_bytes;
+    }
+    return status;
+  }
+};
+
+struct DecodeGraphP1StateRestoreGuard {
+  RequestState* state = nullptr;
+  void* arena = nullptr;
+  const void* snapshot = nullptr;
+  std::size_t bytes = 0U;
+  std::uint32_t position = 0U;
+  bool armed = false;
+
+  ~DecodeGraphP1StateRestoreGuard() {
+    if (!armed || state == nullptr || arena == nullptr || snapshot == nullptr ||
+        bytes == 0U) {
+      return;
+    }
+    if (cudaMemcpy(arena, snapshot, bytes, cudaMemcpyDeviceToDevice) ==
+        cudaSuccess) {
+      if (cudaDeviceSynchronize() == cudaSuccess) {
+        (void)state->set_sequence_length(position);
+      }
+    }
+  }
+};
 
 struct Sm87Fp8OutputProjectionSidecars {
   std::uint8_t* data = nullptr;
@@ -1349,6 +1399,433 @@ ReferenceGenerateResult ReferenceEngine::generate(
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kTokenizerFailure, "generate", error.what());
     return result;
+  }
+}
+
+ReferenceDecodeGraphP1ScreenOutcome
+ReferenceEngine::screen_fixed_position_decode_graph_p1(
+    const std::string_view user_prompt,
+    const ReferenceDecodeGraphP1ScreenOptions& options) {
+  ReferenceDecodeGraphP1ScreenOutcome outcome;
+  if (!*this) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument, "decode_graph_p1_engine",
+        "reference engine is empty");
+    return outcome;
+  }
+  if (user_prompt.empty() || options.expected_position == 0U ||
+      options.expected_position >= max_sequence_length() ||
+      options.expected_input_token_id >= kReferenceVocabularySize ||
+      options.expected_prediction >= kReferenceVocabularySize ||
+      options.alternate_input_token_id >= kReferenceVocabularySize ||
+      options.expected_alternate_prediction >= kReferenceVocabularySize ||
+      options.expected_input_token_id == options.alternate_input_token_id ||
+      options.prefill_chunk_size == 0U ||
+      options.prefill_chunk_size > kMaximumRequestPrefillChunkSize ||
+      options.prefill_chunk_size >
+          impl_->request_state->plan().prefill_chunk_size) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kInvalidArgument,
+        "decode_graph_p1_options",
+        "prompt, fixed position, distinct token ids, and prefill chunk must "
+        "fit the owned engine capacities");
+    return outcome;
+  }
+
+  try {
+    ReferenceGenerateOptions generation_options;
+    generation_options.max_new_tokens = 1U;
+    generation_options.capture_trace = false;
+    generation_options.prefill_chunk_size = options.prefill_chunk_size;
+    generation_options.logits_mode =
+        ReferenceLogitsMode::kPredictedTokenOnly;
+    ReferenceGenerateResult seeded = generate(user_prompt, generation_options);
+    if (!seeded) {
+      outcome.diagnostic = std::move(seeded.diagnostic);
+      if (outcome.diagnostic.stage.empty()) {
+        outcome.diagnostic.stage = "decode_graph_p1_seed";
+      } else {
+        outcome.diagnostic.stage =
+            "decode_graph_p1_seed/" + outcome.diagnostic.stage;
+      }
+      return outcome;
+    }
+    if (seeded.value->generated_token_ids.size() != 1U ||
+        seeded.value->generated_token_ids.front() !=
+            options.expected_input_token_id ||
+        impl_->request_state->current_position() !=
+            options.expected_position ||
+        impl_->runner->current_position() != options.expected_position) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p1_seed",
+          "the oracle prompt did not produce the fixed P1 boundary",
+          "generated_count=" +
+              std::to_string(seeded.value->generated_token_ids.size()) +
+              " generated_token=" +
+              (seeded.value->generated_token_ids.empty()
+                   ? std::string("none")
+                   : std::to_string(
+                         seeded.value->generated_token_ids.front())) +
+              " position=" +
+              std::to_string(impl_->request_state->current_position()));
+      return outcome;
+    }
+
+    RequestState& state = *impl_->request_state;
+    ReferenceRunner& runner = *impl_->runner;
+    const std::uint64_t arena_bytes_u64 = state.arena_bytes();
+    if (state.arena_data() == nullptr || arena_bytes_u64 == 0U ||
+        arena_bytes_u64 >
+            static_cast<std::uint64_t>(
+                std::numeric_limits<std::size_t>::max())) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kArithmeticOverflow,
+          "decode_graph_p1_arena",
+          "request arena cannot be represented by the screening harness");
+      return outcome;
+    }
+    const std::size_t arena_bytes =
+        static_cast<std::size_t>(arena_bytes_u64);
+    void* const arena = state.arena_data();
+
+    auto set_cuda_diagnostic = [&outcome](
+                                   const ReferenceEngineError code,
+                                   const std::string_view stage,
+                                   const std::string_view message,
+                                   const cudaError_t status) {
+      outcome.diagnostic = engine_diagnostic(
+          code, std::string(stage), std::string(message),
+          cudaGetErrorString(status));
+      outcome.diagnostic.cuda_error = static_cast<int>(status);
+    };
+
+    DecodeGraphP1DeviceBuffer baseline;
+    DecodeGraphP1DeviceBuffer serial_after;
+    cudaError_t cuda_status = baseline.allocate(arena_bytes);
+    if (cuda_status != cudaSuccess) {
+      set_cuda_diagnostic(ReferenceEngineError::kAllocationFailure,
+                          "decode_graph_p1_baseline_allocate",
+                          "failed to allocate the device arena snapshot",
+                          cuda_status);
+      return outcome;
+    }
+    cuda_status = serial_after.allocate(arena_bytes);
+    if (cuda_status != cudaSuccess) {
+      set_cuda_diagnostic(
+          ReferenceEngineError::kAllocationFailure,
+          "decode_graph_p1_serial_allocate",
+          "failed to allocate the serial-result device snapshot",
+          cuda_status);
+      return outcome;
+    }
+    cuda_status = cudaMemcpy(baseline.data, arena, arena_bytes,
+                             cudaMemcpyDeviceToDevice);
+    if (cuda_status != cudaSuccess) {
+      set_cuda_diagnostic(ReferenceEngineError::kRunnerStepFailure,
+                          "decode_graph_p1_baseline_copy",
+                          "failed to snapshot the complete request arena",
+                          cuda_status);
+      return outcome;
+    }
+    cuda_status = cudaDeviceSynchronize();
+    if (cuda_status != cudaSuccess) {
+      set_cuda_diagnostic(ReferenceEngineError::kRunnerStepFailure,
+                          "decode_graph_p1_baseline_synchronize",
+                          "failed to finish the device arena snapshot",
+                          cuda_status);
+      return outcome;
+    }
+
+    DecodeGraphP1StateRestoreGuard restore_guard{
+        &state, arena, baseline.data, arena_bytes,
+        options.expected_position, true};
+
+    auto restore = [&]() -> bool {
+      const cudaError_t copy_status =
+          cudaMemcpy(arena, baseline.data, arena_bytes,
+                     cudaMemcpyDeviceToDevice);
+      if (copy_status != cudaSuccess) {
+        set_cuda_diagnostic(ReferenceEngineError::kRunnerStepFailure,
+                            "decode_graph_p1_restore",
+                            "failed to restore the complete request arena",
+                            copy_status);
+        return false;
+      }
+      const cudaError_t synchronize_status = cudaDeviceSynchronize();
+      if (synchronize_status != cudaSuccess) {
+        set_cuda_diagnostic(ReferenceEngineError::kRunnerStepFailure,
+                            "decode_graph_p1_restore_synchronize",
+                            "failed to finish restoring the request arena",
+                            synchronize_status);
+        return false;
+      }
+      const RequestOperationStatus length_status =
+          state.set_sequence_length(options.expected_position);
+      if (!length_status) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRequestStateFailure,
+            "decode_graph_p1_restore_position",
+            "failed to restore the fixed logical sequence position");
+        outcome.diagnostic.dependency_error =
+            static_cast<int>(length_status.error);
+        outcome.diagnostic.cuda_error = length_status.cuda_error;
+        return false;
+      }
+      return true;
+    };
+
+    ReferenceDecodeGraphP1PrepareOutcome prepared =
+        runner.prepare_fixed_position_decode_graph_p1(
+            options.expected_input_token_id);
+    if (!prepared) {
+      outcome.diagnostic = runner_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p1_prepare", prepared.status);
+      return outcome;
+    }
+
+    ReferenceDecodeGraphP1ScreenResult result;
+    result.graph = *prepared.value;
+    result.compared_arena_bytes = arena_bytes_u64;
+
+    auto run_step = [&](const bool graph, const std::uint32_t input_token_id,
+                        const bool measure_timing,
+                        std::uint32_t* const prediction,
+                        double* const elapsed) -> bool {
+      ReferenceStepOutcome step;
+      if (graph) {
+        step = runner.replay_fixed_position_decode_graph_p1(
+            input_token_id, measure_timing);
+      } else {
+        ReferenceStepOptions step_options;
+        step_options.compute_logits = true;
+        step_options.capture_trace = false;
+        step_options.measure_timing = measure_timing;
+        step_options.logits_mode =
+            ReferenceLogitsMode::kPredictedTokenOnly;
+        step = runner.step(input_token_id, step_options);
+      }
+      const std::string stage = graph ? "decode_graph_p1_replay"
+                                      : "decode_graph_p1_serial";
+      if (!step) {
+        outcome.diagnostic = runner_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure, stage, step.status);
+        return false;
+      }
+      if (step.value->position != options.expected_position ||
+          step.value->input_token_id != input_token_id ||
+          step.value->logits.has_value() ||
+          !step.value->prediction.has_value()) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kMissingPrediction, stage,
+            "predicted-only step returned an invalid result shape");
+        return false;
+      }
+      if (measure_timing != step.value->timing.has_value()) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kMissingTiming, stage,
+            "step timing presence did not match the request");
+        return false;
+      }
+      if (prediction != nullptr) {
+        *prediction = step.value->prediction->predicted_token_id;
+      }
+      if (elapsed != nullptr) {
+        const double milliseconds =
+            step.value->timing->elapsed_milliseconds;
+        if (!std::isfinite(milliseconds) || milliseconds < 0.0) {
+          outcome.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kMissingTiming, stage,
+              "step returned a non-finite or negative timing");
+          return false;
+        }
+        *elapsed = milliseconds;
+      }
+      return true;
+    };
+
+    auto capture_serial_arena = [&]() -> bool {
+      const cudaError_t status =
+          cudaMemcpy(serial_after.data, arena, arena_bytes,
+                     cudaMemcpyDeviceToDevice);
+      if (status != cudaSuccess) {
+        set_cuda_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p1_serial_snapshot",
+            "failed to snapshot the serial request arena", status);
+        return false;
+      }
+      const cudaError_t synchronize_status = cudaDeviceSynchronize();
+      if (synchronize_status != cudaSuccess) {
+        set_cuda_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p1_serial_snapshot_synchronize",
+            "failed to finish the serial request arena snapshot",
+            synchronize_status);
+        return false;
+      }
+      return true;
+    };
+
+    auto compare_graph_arena = [&](bool* const exact) -> bool {
+      constexpr std::size_t kCompareChunkBytes = 8U * 1024U * 1024U;
+      const std::size_t host_bytes =
+          std::min(arena_bytes, kCompareChunkBytes);
+      std::vector<std::uint8_t> serial_chunk(host_bytes);
+      std::vector<std::uint8_t> graph_chunk(host_bytes);
+      *exact = true;
+      const auto* const expected =
+          static_cast<const std::uint8_t*>(serial_after.data);
+      const auto* const actual = static_cast<const std::uint8_t*>(arena);
+      for (std::size_t offset = 0U; offset < arena_bytes;
+           offset += host_bytes) {
+        const std::size_t bytes =
+            std::min(host_bytes, arena_bytes - offset);
+        cudaError_t status =
+            cudaMemcpy(serial_chunk.data(), expected + offset, bytes,
+                       cudaMemcpyDeviceToHost);
+        if (status == cudaSuccess) {
+          status = cudaMemcpy(graph_chunk.data(), actual + offset, bytes,
+                              cudaMemcpyDeviceToHost);
+        }
+        if (status != cudaSuccess) {
+          set_cuda_diagnostic(
+              ReferenceEngineError::kRunnerStepFailure,
+              "decode_graph_p1_arena_compare",
+              "failed to read the complete arena for exact comparison",
+              status);
+          return false;
+        }
+        if (std::memcmp(serial_chunk.data(), graph_chunk.data(), bytes) !=
+            0) {
+          *exact = false;
+        }
+      }
+      return true;
+    };
+
+    if (!restore() ||
+        !run_step(false, options.expected_input_token_id, false,
+                  &result.serial_prediction, nullptr) ||
+        !capture_serial_arena() || !restore() ||
+        !run_step(true, options.expected_input_token_id, false,
+                  &result.graph_prediction, nullptr) ||
+        !compare_graph_arena(&result.primary_arena_exact)) {
+      return outcome;
+    }
+    if (result.serial_prediction != options.expected_prediction ||
+        result.graph_prediction != options.expected_prediction ||
+        !result.primary_arena_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p1_primary_correctness",
+          "primary serial and graph results must match the pinned oracle and "
+          "complete request arena",
+          "serial=" + std::to_string(result.serial_prediction) +
+              " graph=" + std::to_string(result.graph_prediction) +
+              " expected=" +
+              std::to_string(options.expected_prediction) +
+              " arena_exact=" +
+              std::to_string(result.primary_arena_exact));
+      return outcome;
+    }
+
+    if (!restore() ||
+        !run_step(false, options.alternate_input_token_id, false,
+                  &result.alternate_serial_prediction, nullptr) ||
+        !capture_serial_arena() || !restore() ||
+        !run_step(true, options.alternate_input_token_id, false,
+                  &result.alternate_graph_prediction, nullptr) ||
+        !compare_graph_arena(&result.alternate_arena_exact)) {
+      return outcome;
+    }
+    if (result.alternate_serial_prediction !=
+            options.expected_alternate_prediction ||
+        result.alternate_graph_prediction !=
+            options.expected_alternate_prediction ||
+        !result.alternate_arena_exact) {
+      outcome.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kRunnerStepFailure,
+          "decode_graph_p1_alternate_correctness",
+          "alternate serial and graph results must match the pinned oracle "
+          "and complete request arena",
+          "serial=" +
+              std::to_string(result.alternate_serial_prediction) +
+              " graph=" +
+              std::to_string(result.alternate_graph_prediction) +
+              " expected=" +
+              std::to_string(options.expected_alternate_prediction) +
+              " arena_exact=" +
+              std::to_string(result.alternate_arena_exact));
+      return outcome;
+    }
+
+    // One unrecorded B-C-C-B quartet warms the same alternating paths used by
+    // the measured rounds. Every sample starts from the full baseline arena.
+    for (const bool graph : {false, true, true, false}) {
+      std::uint32_t prediction = 0U;
+      if (!restore() ||
+          !run_step(graph, options.expected_input_token_id, false,
+                    &prediction, nullptr)) {
+        return outcome;
+      }
+      if (prediction != result.serial_prediction) {
+        outcome.diagnostic = engine_diagnostic(
+            ReferenceEngineError::kRunnerStepFailure,
+            "decode_graph_p1_warmup_prediction",
+            "warmup prediction was not deterministic");
+        return outcome;
+      }
+    }
+
+    for (ReferenceDecodeGraphP1RoundTiming& round : result.rounds) {
+      std::uint32_t prediction = 0U;
+      if (!restore() ||
+          !run_step(false, options.expected_input_token_id, true,
+                    &prediction, &round.serial_first_milliseconds) ||
+          prediction != result.serial_prediction || !restore() ||
+          !run_step(true, options.expected_input_token_id, true,
+                    &prediction, &round.graph_first_milliseconds) ||
+          prediction != result.serial_prediction || !restore() ||
+          !run_step(true, options.expected_input_token_id, true,
+                    &prediction, &round.graph_second_milliseconds) ||
+          prediction != result.serial_prediction || !restore() ||
+          !run_step(false, options.expected_input_token_id, true,
+                    &prediction, &round.serial_second_milliseconds) ||
+          prediction != result.serial_prediction) {
+        if (outcome.diagnostic.code == ReferenceEngineError::kNone) {
+          outcome.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerStepFailure,
+              "decode_graph_p1_timing_prediction",
+              "timed prediction was not deterministic");
+        }
+        return outcome;
+      }
+    }
+
+    if (!restore()) {
+      return outcome;
+    }
+    restore_guard.armed = false;
+    outcome.value.emplace(std::move(result));
+    return outcome;
+  } catch (const std::bad_alloc&) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure,
+        "decode_graph_p1_screen",
+        "host allocation failed during the decode graph screen");
+    return outcome;
+  } catch (const std::length_error& error) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kAllocationFailure,
+        "decode_graph_p1_screen", error.what());
+    return outcome;
+  } catch (const std::exception& error) {
+    outcome.diagnostic = engine_diagnostic(
+        ReferenceEngineError::kRunnerStepFailure,
+        "decode_graph_p1_screen", error.what());
+    return outcome;
   }
 }
 

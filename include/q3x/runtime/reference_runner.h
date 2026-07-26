@@ -121,6 +121,30 @@ struct ReferenceStepOutcome {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+// Test-only screening surface for one fixed-position full Decode
+// CUDA Graph. It deliberately owns only one graph per runner and is not a
+// production position cache. prepare captures and instantiates without
+// executing or committing; replay executes the prepared graph and uses the
+// same synchronize, host prediction validation, and commit boundary as step.
+struct ReferenceDecodeGraphP1Stats {
+  std::uint32_t position = 0U;
+  std::uint32_t input_token_id = 0U;
+  std::size_t node_count = 0U;
+  std::size_t kernel_node_count = 0U;
+  std::size_t memcpy_node_count = 0U;
+  std::size_t other_node_count = 0U;
+};
+
+struct ReferenceDecodeGraphP1PrepareOutcome {
+  std::optional<ReferenceDecodeGraphP1Stats> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 struct ReferencePrefillTileOptions {
   bool measure_timing = false;
 };
@@ -282,6 +306,17 @@ class ReferenceRunner {
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
 
+  // Strict SM87 predicted-token-only experiment. The prepared graph fixes the
+  // current_position(); replay updates the root embedding node even when the
+  // token is unchanged. reset may restore the same logical position before
+  // another replay; graph pointers remain valid because RequestState storage
+  // is stable for the runner lifetime.
+  [[nodiscard]] ReferenceDecodeGraphP1PrepareOutcome
+  prepare_fixed_position_decode_graph_p1(
+      std::uint32_t input_token_id) noexcept;
+  [[nodiscard]] ReferenceStepOutcome replay_fixed_position_decode_graph_p1(
+      std::uint32_t input_token_id, bool measure_timing = false) noexcept;
+
   // Executes 1..32 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Operations
   // with a 16-token kernel contract are enqueued as ordered subtiles.
@@ -329,6 +364,23 @@ class ReferenceRunner {
   [[nodiscard]] ReferencePrefillTileOutcome fail_prefill_tile(
       ReferenceRunnerStatus status) noexcept;
 
+  enum class DecodeGraphP1Action : std::uint8_t {
+    kDisabled = 0,
+    kCaptureOnly,
+    kReplay,
+  };
+  [[nodiscard]] ReferenceStepOutcome step_impl(
+      std::uint32_t input_token_id, const ReferenceStepOptions& options,
+      DecodeGraphP1Action graph_action) noexcept;
+  void destroy_decode_graph_p1() noexcept;
+
+  struct DecodeGraphP1KernelLaunch {
+    void* function = nullptr;
+    std::array<unsigned int, 3U> grid{};
+    std::array<unsigned int, 3U> block{};
+    unsigned int shared_memory_bytes = 0U;
+  };
+
   const ModelWeights* weights_ = nullptr;
   RequestState* state_ = nullptr;
   void* stream_ = nullptr;
@@ -337,6 +389,12 @@ class ReferenceRunner {
   void* prefill_branch_done_event_ = nullptr;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
+  void* decode_graph_p1_ = nullptr;
+  void* decode_graph_exec_p1_ = nullptr;
+  void* decode_graph_embedding_node_p1_ = nullptr;
+  ReferenceDecodeGraphP1Stats decode_graph_p1_stats_{};
+  DecodeGraphP1KernelLaunch decode_graph_embedding_launch_p1_{};
+  bool decode_graph_capture_active_ = false;
   Views views_{};
   ProjectionBackend projection_backend_ = ProjectionBackend::kReference;
   bool trace_enabled_ = false;

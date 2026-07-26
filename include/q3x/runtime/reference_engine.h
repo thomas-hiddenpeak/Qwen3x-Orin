@@ -163,6 +163,48 @@ struct ReferenceGenerateResult {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+inline constexpr std::size_t kReferenceDecodeGraphP1ScreenRounds = 5U;
+
+struct ReferenceDecodeGraphP1ScreenOptions {
+  std::uint32_t expected_position = 19U;
+  std::uint32_t expected_input_token_id = 77'517U;
+  std::uint32_t expected_prediction = 220U;
+  std::uint32_t alternate_input_token_id = 220U;
+  std::uint32_t expected_alternate_prediction = 52'965U;
+  std::uint32_t prefill_chunk_size = kDefaultRequestPrefillChunkSize;
+};
+
+struct ReferenceDecodeGraphP1RoundTiming {
+  double serial_first_milliseconds = 0.0;
+  double graph_first_milliseconds = 0.0;
+  double graph_second_milliseconds = 0.0;
+  double serial_second_milliseconds = 0.0;
+};
+
+struct ReferenceDecodeGraphP1ScreenResult {
+  ReferenceDecodeGraphP1Stats graph;
+  std::uint32_t serial_prediction = 0U;
+  std::uint32_t graph_prediction = 0U;
+  std::uint32_t alternate_serial_prediction = 0U;
+  std::uint32_t alternate_graph_prediction = 0U;
+  bool primary_arena_exact = false;
+  bool alternate_arena_exact = false;
+  std::uint64_t compared_arena_bytes = 0U;
+  std::array<ReferenceDecodeGraphP1RoundTiming,
+             kReferenceDecodeGraphP1ScreenRounds>
+      rounds{};
+};
+
+struct ReferenceDecodeGraphP1ScreenOutcome {
+  std::optional<ReferenceDecodeGraphP1ScreenResult> value;
+  ReferenceEngineDiagnostic diagnostic;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && diagnostic.code == ReferenceEngineError::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 struct ReferenceEngineCreateResult;
 struct ReferenceOneShotOptions;
 struct ReferenceOneShotResult;
@@ -189,6 +231,17 @@ class ReferenceEngine {
   [[nodiscard]] ReferenceGenerateResult generate(
       std::string_view user_prompt,
       const ReferenceGenerateOptions& options = {});
+
+  // Test-only, fixed-position CUDA Graph P1 screen. It first performs an exact
+  // one-token predicted-only generation so the owned runner is left at the
+  // prompt boundary, then snapshots the complete request arena. Serial and
+  // graph steps are restored from that snapshot before every correctness or
+  // timing sample. The graph remains a single-position experiment; no
+  // production graph cache or generation dispatch is installed.
+  [[nodiscard]] ReferenceDecodeGraphP1ScreenOutcome
+  screen_fixed_position_decode_graph_p1(
+      std::string_view user_prompt,
+      const ReferenceDecodeGraphP1ScreenOptions& options = {});
 
  private:
   friend struct ReferenceEngineCreateResult;

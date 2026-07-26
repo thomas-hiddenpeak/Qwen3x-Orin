@@ -406,6 +406,24 @@ if(BUILD_TESTING)
     TIMEOUT 900
   )
 
+  add_executable(q3x_reference_decode_graph_p1_perf_test
+    tests/reference_decode_graph_p1_perf_test.cpp
+  )
+  target_link_libraries(q3x_reference_decode_graph_p1_perf_test
+    PRIVATE q3x::engine
+  )
+  q3x_enable_warnings(q3x_reference_decode_graph_p1_perf_test)
+  add_test(NAME reference_decode_graph_p1_perf
+    COMMAND q3x_reference_decode_graph_p1_perf_test
+            "${_q3x_e2e_model_dir}"
+  )
+  set_tests_properties(reference_decode_graph_p1_perf PROPERTIES
+    LABELS "e2e;model;performance;decode;cuda_graph"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 1800
+  )
+
   add_executable(q3x_model_config_test tests/model_config_test.cpp)
   target_link_libraries(q3x_model_config_test PRIVATE q3x::core)
   q3x_enable_warnings(q3x_model_config_test)
