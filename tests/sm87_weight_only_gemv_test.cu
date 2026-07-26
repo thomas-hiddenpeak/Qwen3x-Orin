@@ -85,6 +85,12 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_test_cuda(
+    const std::uint8_t* aosoa4_preswizzled_weights, float weight_scale,
+    const std::uint16_t* activation, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
     const std::uint8_t* aosoa4_preswizzled_weights, float weight_scale,
     const std::uint16_t* activation,
@@ -100,6 +106,12 @@ query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
 
 [[nodiscard]] int
 query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -5973,6 +5985,14 @@ decode_qkv_causal_conv_epilogue_performance_enabled() noexcept {
 [[nodiscard]] bool decode_fp8_o_proj_cs_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CS_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_fp8_o_proj_resident_grid64_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_FP8_O_PROJ_RESIDENT_GRID64_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -18087,12 +18107,30 @@ template <std::size_t Count>
   return byte_semantics_match;
 }
 
-void run_fp8_m1_output_projection_aosoa4_cs_screen(
-    TestContext& test, cudaStream_t stream) {
-  if (!decode_fp8_o_proj_cs_performance_enabled()) {
-    std::cout
-        << "SKIP: Decode FP8 O-proj AoSoA4 sidecar cache-policy screen; "
-           "set Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CS_PERF=1 to enable\n";
+enum class Fp8M1OProjAosoa4ScreenMode {
+  kCacheStreaming,
+  kResidentGrid64,
+};
+
+void run_fp8_m1_output_projection_aosoa4_screen(
+    TestContext& test, cudaStream_t stream,
+    const Fp8M1OProjAosoa4ScreenMode mode) {
+  const bool resident_grid64 =
+      mode == Fp8M1OProjAosoa4ScreenMode::kResidentGrid64;
+  const bool enabled = resident_grid64
+                           ? decode_fp8_o_proj_resident_grid64_performance_enabled()
+                           : decode_fp8_o_proj_cs_performance_enabled();
+  if (!enabled) {
+    if (resident_grid64) {
+      std::cout
+          << "SKIP: Decode FP8 O-proj AoSoA4 resident-grid64 screen; set "
+             "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_RESIDENT_GRID64_PERF=1 to "
+             "enable\n";
+    } else {
+      std::cout
+          << "SKIP: Decode FP8 O-proj AoSoA4 sidecar cache-policy screen; "
+             "set Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CS_PERF=1 to enable\n";
+    }
     return;
   }
   constexpr std::size_t kRows = 5'120U;
@@ -18108,8 +18146,52 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   constexpr std::uint64_t kActualPayloadOffset = 3'569'011'232ULL;
   constexpr std::string_view kActualPayloadSha256 =
       "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9";
-  const std::string label =
-      "FP8 M1 output projection AoSoA4 sidecar cache-policy screen";
+  constexpr std::string_view kActualSidecarSha256 =
+      "20f6875f163aefa869d7c96c436fdc63f90171793a88a0f1b3fefca55531782b";
+  const std::string label = resident_grid64
+                                ? "FP8 M1 output projection AoSoA4 resident-grid64 screen"
+                                : "FP8 M1 output projection AoSoA4 sidecar cache-policy screen";
+  const char* const log_prefix = resident_grid64
+                                     ? "FP8_M1_O_PROJ_RESIDENT_GRID64"
+                                     : "FP8_M1_O_PROJ_CS";
+  const char* const perf_prefix = resident_grid64
+                                      ? "PERF_FP8_M1_O_PROJ_RESIDENT_GRID64"
+                                      : "PERF_FP8_M1_O_PROJ_CS";
+  const auto query_candidate_resources =
+      [&](int* const registers_per_thread,
+          std::size_t* const static_shared_bytes,
+          std::size_t* const local_bytes,
+          int* const maximum_threads_per_block,
+          int* const active_blocks_per_sm) noexcept {
+        return resident_grid64
+                   ? q3x::kernels::
+                         query_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_resources_test_cuda(
+                             registers_per_thread, static_shared_bytes,
+                             local_bytes, maximum_threads_per_block,
+                             active_blocks_per_sm)
+                   : q3x::kernels::
+                         query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
+                             registers_per_thread, static_shared_bytes,
+                             local_bytes, maximum_threads_per_block,
+                             active_blocks_per_sm);
+      };
+  const auto launch_candidate_route =
+      [&](const std::uint8_t* const sidecar_weights,
+          const float weight_scale,
+          const std::uint16_t* const activation_values,
+          const std::size_t rows, const std::size_t columns,
+          std::uint16_t* const output,
+          void* const cuda_stream) noexcept {
+        return resident_grid64
+                   ? q3x::kernels::
+                         launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_test_cuda(
+                             sidecar_weights, weight_scale, activation_values,
+                             rows, columns, output, cuda_stream)
+                   : q3x::kernels::
+                         launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
+                             sidecar_weights, weight_scale, activation_values,
+                             rows, columns, output, cuda_stream);
+      };
 
   Fp8M1Aosoa4PreswizzledResources public_resources{};
   Fp8M1Aosoa4PreswizzledResources candidate_resources{};
@@ -18123,14 +18205,13 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
               &public_resources.active_blocks_per_sm)),
       label + " query current public resources");
   ready = ready && test.cuda_ok(
-      static_cast<cudaError_t>(q3x::kernels::
-          query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
+      static_cast<cudaError_t>(query_candidate_resources(
               &candidate_resources.registers_per_thread,
               &candidate_resources.static_shared_bytes,
               &candidate_resources.local_bytes,
               &candidate_resources.maximum_threads_per_block,
               &candidate_resources.active_blocks_per_sm)),
-      label + " query test-only streaming resources");
+      label + " query test-only candidate resources");
   const auto resources_clear_gate = [](const auto& resources) {
     return resources.registers_per_thread > 0 &&
            resources.registers_per_thread <= 64 &&
@@ -18139,10 +18220,33 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
            resources.maximum_threads_per_block == 256 &&
            resources.active_blocks_per_sm >= 4;
   };
+  int device = -1;
+  int multiprocessor_count = 0;
+  if (resident_grid64) {
+    ready = ready &&
+            test.cuda_ok(cudaGetDevice(&device),
+                         label + " query current CUDA device");
+    ready = ready && test.cuda_ok(
+                         cudaDeviceGetAttribute(&multiprocessor_count,
+                                                cudaDevAttrMultiProcessorCount,
+                                                device),
+                         label + " query SM count");
+  }
+  const auto resources_match_resident_grid64 = [](const auto& resources) {
+    return resources.registers_per_thread == 64 &&
+           resources.static_shared_bytes == 1'152U &&
+           resources.local_bytes == 0U &&
+           resources.maximum_threads_per_block == 256 &&
+           resources.active_blocks_per_sm == 4;
+  };
   const bool public_resource_gate =
-      ready && resources_clear_gate(public_resources);
+      ready && (resident_grid64
+                    ? resources_match_resident_grid64(public_resources)
+                    : resources_clear_gate(public_resources));
   const bool candidate_resource_gate =
-      ready && resources_clear_gate(candidate_resources);
+      ready && (resident_grid64
+                    ? resources_match_resident_grid64(candidate_resources)
+                    : resources_clear_gate(candidate_resources));
   const bool public_resource_null_gate =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
@@ -18152,20 +18256,24 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
               &public_resources.active_blocks_per_sm)) ==
       cudaErrorInvalidValue;
   const bool candidate_resource_null_gate =
-      static_cast<cudaError_t>(q3x::kernels::
-          query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
+      static_cast<cudaError_t>(query_candidate_resources(
               nullptr, &candidate_resources.static_shared_bytes,
               &candidate_resources.local_bytes,
               &candidate_resources.maximum_threads_per_block,
               &candidate_resources.active_blocks_per_sm)) ==
       cudaErrorInvalidValue;
-  const bool resource_gate = public_resource_gate &&
-                             candidate_resource_gate &&
-                             public_resource_null_gate &&
-                             candidate_resource_null_gate;
+  const int resident_capacity =
+      multiprocessor_count * candidate_resources.active_blocks_per_sm;
+  const bool resident_capacity_gate =
+      !resident_grid64 ||
+      (multiprocessor_count == 16 && resident_capacity == 64);
+  const bool resource_gate =
+      public_resource_gate && candidate_resource_gate &&
+      public_resource_null_gate && candidate_resource_null_gate &&
+      resident_capacity_gate;
   test.expect(resource_gate,
               label + " preserves the public occupancy/spill contract");
-  std::cout << "FP8_M1_O_PROJ_CS_RESOURCES:"
+  std::cout << log_prefix << "_RESOURCES:"
             << " public_registers="
             << public_resources.registers_per_thread
             << " candidate_registers="
@@ -18180,11 +18288,20 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             << public_resources.active_blocks_per_sm
             << " candidate_active_blocks_per_sm="
             << candidate_resources.active_blocks_per_sm
-            << " require_registers_le=64"
+            << (resident_grid64 ? " require_registers_eq=64"
+                                : " require_registers_le=64")
             << " require_static_shared_eq=1152"
             << " require_zero_local=true"
             << " require_threads_eq=256"
-            << " require_active_blocks_ge=4"
+            << (resident_grid64 ? " require_active_blocks_eq=4"
+                                : " require_active_blocks_ge=4");
+  if (resident_grid64) {
+    std::cout << " device_sms=" << multiprocessor_count
+              << " resident_capacity_blocks=" << resident_capacity
+              << " require_device_sms_eq=16"
+              << " require_resident_capacity_eq=64";
+  }
+  std::cout
             << " null_queries="
             << (public_resource_null_gate && candidate_resource_null_gate
                     ? "PASS"
@@ -18209,6 +18326,8 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
     host_activation_storage[kActivationGuardElements + column] =
         encode_bf16(static_cast<float>(centered) / 512.0F);
   }
+  const std::vector<std::uint16_t> finite_host_activation_storage =
+      host_activation_storage;
   const std::vector<std::uint16_t> host_output_initial(
       kOutputGuardElements + kRows + kOutputGuardElements, kOutputCanary);
 
@@ -18250,6 +18369,8 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   std::uint16_t* const timing_output =
       timing_output_storage.get() + kOutputGuardElements;
 
+  bool actual_sidecar_identity_gate = !resident_grid64;
+  std::string current_sidecar_sha256;
   const auto upload_fixture = [&](const std::string& fixture_name) {
     const bool sidecar_semantics =
         build_fp8_m1_aosoa4_preswizzled_sidecar(
@@ -18296,13 +18417,36 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             reinterpret_cast<const char*>(host_weights.data()),
             host_weights.size()))
             .hex();
-    std::cout << "FP8_M1_O_PROJ_CS_FIXTURE: fixture=" << fixture_name
+    current_sidecar_sha256 =
+        q3x::core::sha256(std::string_view(
+            reinterpret_cast<const char*>(host_sidecar_storage.data() +
+                                          kInputGuardBytes),
+            kWeightElements))
+            .hex();
+    const bool is_actual_payload =
+        canonical_sha256 == kActualPayloadSha256;
+    if (resident_grid64 && is_actual_payload) {
+      actual_sidecar_identity_gate =
+          current_sidecar_sha256 == kActualSidecarSha256;
+      test.expect(actual_sidecar_identity_gate,
+                  fixture_name + " matches pinned actual sidecar SHA256");
+      fixture_ready = fixture_ready && actual_sidecar_identity_gate;
+    }
+    std::cout << log_prefix << "_FIXTURE: fixture=" << fixture_name
               << " canonical_bytes=" << host_weights.size()
               << " canonical_sha256=" << canonical_sha256
               << " sidecar_bytes=" << kWeightElements
               << " sidecar_layout=aosoa4_preswizzled"
-              << " sidecar_runtime_pack=none"
-              << " gate=" << (fixture_ready ? "PASS" : "FAIL") << '\n';
+              << " sidecar_runtime_pack=none";
+    if (resident_grid64) {
+      std::cout << " sidecar_sha256=" << current_sidecar_sha256;
+      if (is_actual_payload) {
+        std::cout << " expected_sidecar_sha256=" << kActualSidecarSha256
+                  << " sidecar_identity="
+                  << (actual_sidecar_identity_gate ? "PASS" : "FAIL");
+      }
+    }
+    std::cout << " gate=" << (fixture_ready ? "PASS" : "FAIL") << '\n';
     return fixture_ready;
   };
 
@@ -18333,12 +18477,10 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
                 public_output, static_cast<void*>(stream))),
         fixture_name + " launch current public O-proj");
     diff_ready = test.cuda_ok(
-                     static_cast<cudaError_t>(q3x::kernels::
-                         launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
-                             sidecar, kWeightScale, activation, kRows,
-                             kColumns, candidate_output,
-                             static_cast<void*>(stream))),
-                     fixture_name + " launch test-only streaming O-proj") &&
+                     static_cast<cudaError_t>(launch_candidate_route(
+                         sidecar, kWeightScale, activation, kRows, kColumns,
+                         candidate_output, static_cast<void*>(stream))),
+                     fixture_name + " launch test-only candidate O-proj") &&
                  diff_ready;
     diff_ready = test.cuda_ok(
                      cudaMemcpyAsync(
@@ -18394,7 +18536,7 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
         sidecar_preserved && activation_preserved;
     test.expect(direct_gate,
                 fixture_name + " is bitwise and preserves all guards");
-    std::cout << "FP8_M1_O_PROJ_CS_DIFF: fixture=" << fixture_name
+    std::cout << log_prefix << "_DIFF: fixture=" << fixture_name
               << " mismatches=" << mismatches << '/' << kRows
               << " public_output_guards="
               << (public_guards ? "PASS" : "FAIL")
@@ -18487,17 +18629,17 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             public_output, static_cast<void*>(stream));
   };
   const auto launch_candidate_graph = [&]() noexcept -> int {
-    return q3x::kernels::
-        launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
-            sidecar, kWeightScale, activation, kRows, kColumns,
-            replay_output, static_cast<void*>(stream));
+    return launch_candidate_route(sidecar, kWeightScale, activation, kRows,
+                                  kColumns, replay_output,
+                                  static_cast<void*>(stream));
   };
   CapturedOProjRoute public_graph =
       capture_route(launch_public_graph, label + " public graph");
   CapturedOProjRoute candidate_graph =
       capture_route(launch_candidate_graph, label + " candidate graph");
-  const auto exact_topology = [](const cudaKernelNodeParams& params) {
-    return params.gridDim.x == 1'024U && params.gridDim.y == 1U &&
+  const auto exact_topology = [](const cudaKernelNodeParams& params,
+                                 const unsigned int grid_x) {
+    return params.gridDim.x == grid_x && params.gridDim.y == 1U &&
            params.gridDim.z == 1U && params.blockDim.x == 256U &&
            params.blockDim.y == 1U && params.blockDim.z == 1U &&
            params.sharedMemBytes == 0U;
@@ -18505,20 +18647,32 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   const bool public_graph_gate =
       public_graph.ready && public_graph.total_nodes == 1U &&
       public_graph.root_nodes == 1U &&
-      exact_topology(public_graph.kernel_params);
+      exact_topology(public_graph.kernel_params, 1'024U);
   const bool candidate_graph_gate =
       candidate_graph.ready && candidate_graph.total_nodes == 1U &&
       candidate_graph.root_nodes == 1U &&
-      exact_topology(candidate_graph.kernel_params);
-  const bool graph_functions_distinct =
+      exact_topology(candidate_graph.kernel_params,
+                     resident_grid64 ? 64U : 1'024U);
+  const bool graph_function_gate =
       public_graph_gate && candidate_graph_gate &&
-      public_graph.kernel_params.func != candidate_graph.kernel_params.func;
+      (resident_grid64
+           ? public_graph.kernel_params.func == candidate_graph.kernel_params.func
+           : public_graph.kernel_params.func != candidate_graph.kernel_params.func);
 
   constexpr std::uint8_t kReplayPoisonByte = 0x69U;
   constexpr std::uint16_t kReplayPoison = 0x6969U;
+  std::vector<std::uint16_t> observed_graph_public(
+      host_output_initial.size());
   std::vector<std::uint16_t> observed_replay(host_output_initial.size());
+  cudaGraphExec_t public_graph_exec = nullptr;
   cudaGraphExec_t candidate_graph_exec = nullptr;
-  bool replay_ready = candidate_graph_gate && graph_functions_distinct;
+  bool replay_ready = candidate_graph_gate && graph_function_gate;
+  if (replay_ready && resident_grid64) {
+    replay_ready = test.cuda_ok(
+        cudaGraphInstantiate(&public_graph_exec, public_graph.graph, nullptr,
+                             nullptr, 0U),
+        label + " instantiate public graph");
+  }
   if (replay_ready) {
     replay_ready = test.cuda_ok(
         cudaGraphInstantiate(&candidate_graph_exec, candidate_graph.graph,
@@ -18526,6 +18680,16 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
         label + " instantiate candidate graph");
   }
   if (replay_ready) {
+    if (resident_grid64) {
+      replay_ready = test.cuda_ok(
+                         cudaMemsetAsync(
+                             public_output_storage.get(), kReplayPoisonByte,
+                             host_output_initial.size() *
+                                 sizeof(std::uint16_t),
+                             stream),
+                         label + " poison public graph replay output") &&
+                     replay_ready;
+    }
     replay_ready = test.cuda_ok(
                        cudaMemsetAsync(
                            replay_output_storage.get(), kReplayPoisonByte,
@@ -18534,10 +18698,27 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
                            stream),
                        label + " poison graph replay output") &&
                    replay_ready;
+    if (resident_grid64) {
+      replay_ready = test.cuda_ok(
+                         cudaGraphLaunch(public_graph_exec, stream),
+                         label + " launch public graph replay") &&
+                     replay_ready;
+    }
     replay_ready = test.cuda_ok(
                        cudaGraphLaunch(candidate_graph_exec, stream),
                        label + " launch candidate graph replay") &&
                    replay_ready;
+    if (resident_grid64) {
+      replay_ready = test.cuda_ok(
+                         cudaMemcpyAsync(
+                             observed_graph_public.data(),
+                             public_output_storage.get(),
+                             observed_graph_public.size() *
+                                 sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         label + " copy public graph replay output") &&
+                     replay_ready;
+    }
     replay_ready = test.cuda_ok(
                        cudaMemcpyAsync(
                            observed_replay.data(), replay_output_storage.get(),
@@ -18551,18 +18732,29 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   }
   std::size_t replay_mismatches = 0U;
   if (replay_ready) {
+    const auto& replay_reference =
+        resident_grid64 ? observed_graph_public : observed_public;
     for (std::size_t row = 0U; row < kRows; ++row) {
       replay_mismatches +=
           observed_replay[kOutputGuardElements + row] !=
-                  observed_public[kOutputGuardElements + row]
+                  replay_reference[kOutputGuardElements + row]
               ? 1U
               : 0U;
     }
   }
+  const bool public_replay_guards =
+      !resident_grid64 ||
+      (replay_ready &&
+       output_guards_intact(observed_graph_public, kReplayPoison));
   const bool replay_guards =
       replay_ready && output_guards_intact(observed_replay, kReplayPoison);
   const bool replay_gate =
-      replay_ready && replay_mismatches == 0U && replay_guards;
+      replay_ready && replay_mismatches == 0U && public_replay_guards &&
+      replay_guards;
+  if (public_graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(public_graph_exec),
+                       label + " destroy public graph executable");
+  }
   if (candidate_graph_exec != nullptr) {
     (void)test.cuda_ok(cudaGraphExecDestroy(candidate_graph_exec),
                        label + " destroy candidate graph executable");
@@ -18576,20 +18768,42 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
                        label + " destroy candidate graph");
   }
   const bool graph_gate = public_graph_gate && candidate_graph_gate &&
-                          graph_functions_distinct && replay_gate;
-  test.expect(graph_gate,
-              label + " captures distinct one-node routes and replays");
-  std::cout << "FP8_M1_O_PROJ_CS_GRAPH:"
-            << " public_nodes=" << public_graph.total_nodes
-            << " public_roots=" << public_graph.root_nodes
-            << " candidate_nodes=" << candidate_graph.total_nodes
-            << " candidate_roots=" << candidate_graph.root_nodes
-            << " grid=1024 block=256 dynamic_shared=0"
-            << " functions_distinct="
-            << (graph_functions_distinct ? "true" : "false")
-            << " replay_mismatches=" << replay_mismatches << '/' << kRows
-            << " replay_guards=" << (replay_guards ? "PASS" : "FAIL")
-            << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+                          graph_function_gate && replay_gate;
+  test.expect(
+      graph_gate,
+      label + (resident_grid64
+                   ? " captures same-function 1024/64-grid routes and replays"
+                   : " captures distinct one-node routes and replays"));
+  if (resident_grid64) {
+    std::cout << log_prefix << "_GRAPH:"
+              << " public_nodes=" << public_graph.total_nodes
+              << " public_roots=" << public_graph.root_nodes
+              << " candidate_nodes=" << candidate_graph.total_nodes
+              << " candidate_roots=" << candidate_graph.root_nodes
+              << " public_grid=" << public_graph.kernel_params.gridDim.x
+              << " candidate_grid=" << candidate_graph.kernel_params.gridDim.x
+              << " block=256 dynamic_shared=0"
+              << " functions_same="
+              << (graph_function_gate ? "true" : "false")
+              << " replay_mismatches=" << replay_mismatches << '/' << kRows
+              << " public_replay_guards="
+              << (public_replay_guards ? "PASS" : "FAIL")
+              << " candidate_replay_guards="
+              << (replay_guards ? "PASS" : "FAIL")
+              << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+  } else {
+    std::cout << "FP8_M1_O_PROJ_CS_GRAPH:"
+              << " public_nodes=" << public_graph.total_nodes
+              << " public_roots=" << public_graph.root_nodes
+              << " candidate_nodes=" << candidate_graph.total_nodes
+              << " candidate_roots=" << candidate_graph.root_nodes
+              << " grid=1024 block=256 dynamic_shared=0"
+              << " functions_distinct="
+              << (graph_function_gate ? "true" : "false")
+              << " replay_mismatches=" << replay_mismatches << '/' << kRows
+              << " replay_guards=" << (replay_guards ? "PASS" : "FAIL")
+              << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+  }
 
   struct InvalidOProjCase {
     const char* name;
@@ -18636,12 +18850,11 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             case_label + " begin capture");
         int launch_status = static_cast<int>(cudaErrorUnknown);
         if (invalid_ready) {
-          launch_status = q3x::kernels::
-              launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
-                  invalid_case.sidecar_weights, kWeightScale,
-                  invalid_case.activation_values, invalid_case.rows,
-                  invalid_case.columns, invalid_case.output,
-                  static_cast<void*>(stream));
+          launch_status = launch_candidate_route(
+              invalid_case.sidecar_weights, kWeightScale,
+              invalid_case.activation_values, invalid_case.rows,
+              invalid_case.columns, invalid_case.output,
+              static_cast<void*>(stream));
           invalid_ready = test.cuda_ok(
                               cudaStreamEndCapture(stream, &invalid_graph),
                               case_label + " end capture") &&
@@ -18675,26 +18888,101 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   for (const InvalidOProjCase& invalid_case : invalid_cases) {
     invalid_gate = invalid_does_not_enqueue(invalid_case) && invalid_gate;
   }
-  std::cout << "FP8_M1_O_PROJ_CS_INVALID: cases=" << invalid_cases.size()
+  std::cout << log_prefix << "_INVALID: cases=" << invalid_cases.size()
             << " all_invalid_value_zero_nodes="
             << (invalid_gate ? "PASS" : "FAIL") << '\n';
 
+  bool signed_nonfinite_gate = true;
+  if (resident_grid64) {
+    struct SignedNonfiniteFixture {
+      const char* name;
+      std::uint16_t activation_bits;
+      bool expect_nan;
+      bool expect_negative;
+    };
+    constexpr std::array<SignedNonfiniteFixture, 4U> kSignedNonfiniteFixtures{{
+        {"positive_infinity", 0x7f80U, false, false},
+        {"negative_infinity", 0xff80U, false, true},
+        {"positive_nan", 0x7fc1U, true, false},
+        {"negative_nan", 0xffc1U, true, true},
+    }};
+    std::fill(host_weights.begin(), host_weights.end(),
+              static_cast<std::uint8_t>(0x38U));
+    for (const SignedNonfiniteFixture& fixture : kSignedNonfiniteFixtures) {
+      host_activation_storage = finite_host_activation_storage;
+      std::fill(host_activation_storage.begin() + kActivationGuardElements,
+                host_activation_storage.end() - kActivationGuardElements,
+                encode_bf16(0.0F));
+      host_activation_storage[kActivationGuardElements + 17U] =
+          fixture.activation_bits;
+      const std::string fixture_label =
+          label + " signed_nonfinite " + fixture.name;
+      const bool uploaded = upload_fixture(fixture_label);
+      const bool bitwise_guarded = uploaded && run_direct_diff(fixture_label);
+      std::size_t classification_matches = 0U;
+      if (bitwise_guarded) {
+        for (std::size_t row = 0U; row < kRows; ++row) {
+          const float value = decode_bf16(
+              observed_public[kOutputGuardElements + row]);
+          const bool matches = fixture.expect_nan
+                                   ? std::isnan(value)
+                                   : std::isinf(value) &&
+                                         std::signbit(value) ==
+                                             fixture.expect_negative;
+          classification_matches += matches ? 1U : 0U;
+        }
+      }
+      const bool fixture_gate =
+          bitwise_guarded && classification_matches == kRows;
+      test.expect(fixture_gate,
+                  fixture_label + " is bitwise with exact classification");
+      signed_nonfinite_gate = signed_nonfinite_gate && fixture_gate;
+      std::cout << log_prefix << "_NONFINITE: fixture=" << fixture.name
+                << " input_bits=0x" << std::hex << fixture.activation_bits
+                << std::dec << " public_candidate_bitwise="
+                << (bitwise_guarded ? "PASS" : "FAIL")
+                << " classification_matches=" << classification_matches
+                << '/' << kRows
+                << " expected="
+                << (fixture.expect_nan
+                        ? (fixture.expect_negative ? "negative_nan"
+                                                   : "positive_nan")
+                        : (fixture.expect_negative ? "negative_infinity"
+                                                   : "positive_infinity"))
+                << " gate=" << (fixture_gate ? "PASS" : "FAIL") << '\n';
+    }
+    host_activation_storage = finite_host_activation_storage;
+  }
+
   const bool focused_gate =
-      resource_gate && stress_direct_gate && graph_gate && invalid_gate;
+      resource_gate && stress_direct_gate && graph_gate && invalid_gate &&
+      signed_nonfinite_gate;
   test.expect(focused_gate,
               label + " clears focused correctness/Graph/invalid gates");
-  std::cout << "FP8_M1_O_PROJ_CS_FOCUSED:"
+  std::cout << log_prefix << "_FOCUSED:"
             << " resources=" << (resource_gate ? "PASS" : "FAIL")
             << " stress_bitwise_guards="
-            << (stress_direct_gate ? "PASS" : "FAIL")
-            << " graph_distinct_replay="
-            << (graph_gate ? "PASS" : "FAIL")
-            << " invalid_zero_node="
-            << (invalid_gate ? "PASS" : "FAIL")
-            << " sidecar_load_policy=streaming"
-            << " activation_load_policy=production_default"
-            << " topology=1024x256"
-            << " gate=" << (focused_gate ? "PASS" : "FAIL") << '\n';
+            << (stress_direct_gate ? "PASS" : "FAIL");
+  if (resident_grid64) {
+    std::cout << " signed_nonfinite="
+              << (signed_nonfinite_gate ? "PASS" : "FAIL")
+              << " graph_same_function_replay="
+              << (graph_gate ? "PASS" : "FAIL")
+              << " invalid_zero_node="
+              << (invalid_gate ? "PASS" : "FAIL")
+              << " sidecar_load_policy=production_default"
+              << " activation_load_policy=production_default"
+              << " topology=64x256";
+  } else {
+    std::cout << " graph_distinct_replay="
+              << (graph_gate ? "PASS" : "FAIL")
+              << " invalid_zero_node="
+              << (invalid_gate ? "PASS" : "FAIL")
+              << " sidecar_load_policy=streaming"
+              << " activation_load_policy=production_default"
+              << " topology=1024x256";
+  }
+  std::cout << " gate=" << (focused_gate ? "PASS" : "FAIL") << '\n';
   if (!focused_gate) {
     return;
   }
@@ -18723,12 +19011,28 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             timing_output, static_cast<void*>(stream));
   };
   const auto launch_candidate_timing = [&]() noexcept -> int {
-    return q3x::kernels::
-        launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_test_cuda(
-            sidecar, kWeightScale, activation, kRows, kColumns,
-            timing_output, static_cast<void*>(stream));
+    return launch_candidate_route(sidecar, kWeightScale, activation, kRows,
+                                  kColumns, timing_output,
+                                  static_cast<void*>(stream));
   };
-  const auto benchmark_fixture = [&](const std::string& fixture_name) {
+  const auto measure_timing_pass = [&](const auto& launch,
+                                       const std::string& pass_label) {
+    if (resident_grid64) {
+      const bool reset_ready = test.cuda_ok(
+          cudaMemcpyAsync(timing_output_storage.get(),
+                          host_output_initial.data(),
+                          host_output_initial.size() * sizeof(std::uint16_t),
+                          cudaMemcpyHostToDevice, stream),
+          pass_label + " reset guarded timing output");
+      if (!reset_ready) {
+        return std::numeric_limits<float>::quiet_NaN();
+      }
+    }
+    return measure_small_m_tile(test, stream, launch, kMeasuredIterations,
+                                pass_label);
+  };
+  const auto benchmark_fixture = [&](const std::string& fixture_name,
+                                     const bool require_round_improvement) {
     OProjCsTiming timing{};
     bool timing_ready = true;
     for (int iteration = 0;
@@ -18790,31 +19094,23 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
       float candidate1 = std::numeric_limits<float>::quiet_NaN();
       float candidate2 = std::numeric_limits<float>::quiet_NaN();
       if (public_first) {
-        public1 = measure_small_m_tile(
-            test, stream, launch_public_timing, kMeasuredIterations,
-            round_label + " B1");
-        candidate1 = measure_small_m_tile(
-            test, stream, launch_candidate_timing, kMeasuredIterations,
-            round_label + " C1");
-        candidate2 = measure_small_m_tile(
-            test, stream, launch_candidate_timing, kMeasuredIterations,
-            round_label + " C2");
-        public2 = measure_small_m_tile(
-            test, stream, launch_public_timing, kMeasuredIterations,
-            round_label + " B2");
+        public1 =
+            measure_timing_pass(launch_public_timing, round_label + " B1");
+        candidate1 = measure_timing_pass(launch_candidate_timing,
+                                         round_label + " C1");
+        candidate2 = measure_timing_pass(launch_candidate_timing,
+                                         round_label + " C2");
+        public2 =
+            measure_timing_pass(launch_public_timing, round_label + " B2");
       } else {
-        candidate1 = measure_small_m_tile(
-            test, stream, launch_candidate_timing, kMeasuredIterations,
-            round_label + " C1");
-        public1 = measure_small_m_tile(
-            test, stream, launch_public_timing, kMeasuredIterations,
-            round_label + " B1");
-        public2 = measure_small_m_tile(
-            test, stream, launch_public_timing, kMeasuredIterations,
-            round_label + " B2");
-        candidate2 = measure_small_m_tile(
-            test, stream, launch_candidate_timing, kMeasuredIterations,
-            round_label + " C2");
+        candidate1 = measure_timing_pass(launch_candidate_timing,
+                                         round_label + " C1");
+        public1 =
+            measure_timing_pass(launch_public_timing, round_label + " B1");
+        public2 =
+            measure_timing_pass(launch_public_timing, round_label + " B2");
+        candidate2 = measure_timing_pass(launch_candidate_timing,
+                                         round_label + " C2");
       }
       const std::size_t pass = 2U * static_cast<std::size_t>(round);
       public_passes[pass] = public1;
@@ -18832,16 +19128,19 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
       const float paired_delta = paired_public - paired_candidate;
       paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
       paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
-      const bool round_nonregressing = finite && paired_speedup >= 1.0F;
+      const bool round_nonregressing =
+          finite && (require_round_improvement ? paired_speedup > 1.0F
+                                               : paired_speedup >= 1.0F);
       every_round_nonregressing =
           every_round_nonregressing && round_nonregressing;
       timing_ready = timing_ready && finite;
-      std::cout << "PERF_FP8_M1_O_PROJ_CS_ROUND: fixture="
+      std::cout << perf_prefix << "_ROUND: fixture="
                 << fixture_name << " round=" << round + 1
                 << " order="
                 << (public_first ? "B-C-C-B" : "C-B-B-C")
                 << " launches_per_pass=" << kMeasuredIterations
                 << " shared_output_address=true"
+                << (resident_grid64 ? " output_reset_each_pass=true" : "")
                 << " public_pass1_ms=" << public1
                 << " candidate_pass1_ms=" << candidate1
                 << " candidate_pass2_ms=" << candidate2
@@ -18918,7 +19217,7 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
       actual_sha256 == kActualPayloadSha256;
   test.expect(actual_identity_gate,
               label + " matches pinned actual O-proj payload SHA256");
-  std::cout << "FP8_M1_O_PROJ_CS_ACTUAL_FIXTURE:"
+  std::cout << log_prefix << "_ACTUAL_FIXTURE:"
             << " checkpoint_path=" << actual_checkpoint
             << " absolute_payload_offset=" << kActualPayloadOffset
             << " payload_bytes=" << host_weights.size()
@@ -18936,13 +19235,15 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   }
   const bool actual_direct_gate = run_direct_diff(actual_label);
   const OProjCsTiming actual_timing =
-      actual_direct_gate ? benchmark_fixture("actual_checkpoint")
+      actual_direct_gate
+          ? benchmark_fixture("actual_checkpoint", resident_grid64)
                          : OProjCsTiming{};
-  constexpr double kRequiredActualSpeedup = 1.005;
+  const double kRequiredActualSpeedup = resident_grid64 ? 1.02 : 1.005;
   constexpr double kRequiredStressSpeedup = 1.0;
-  constexpr double kRequiredProjected64LayerDeltaMs = 0.10;
-  constexpr double kRequiredThreeProcessMedianProjected64LayerDeltaMs =
-      0.125;
+  const double kRequiredProjected64LayerDeltaMs =
+      resident_grid64 ? 0.30 : 0.10;
+  const double kRequiredThreeProcessMedianProjected64LayerDeltaMs =
+      resident_grid64 ? 0.40 : 0.125;
   const bool actual_timing_gate =
       actual_timing.ready && actual_timing.every_round_nonregressing &&
       std::isfinite(actual_timing.paired_median_speedup) &&
@@ -18951,10 +19252,11 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
       actual_timing.projected_64_layer_delta_ms >=
           kRequiredProjected64LayerDeltaMs;
   const bool actual_gate =
-      actual_identity_gate && actual_direct_gate && actual_timing_gate;
+      actual_identity_gate && actual_sidecar_identity_gate &&
+      actual_direct_gate && actual_timing_gate;
   test.expect(actual_gate,
               label + " clears the first frozen actual-process gate");
-  std::cout << "PERF_FP8_M1_O_PROJ_CS_ACTUAL:"
+  std::cout << perf_prefix << "_ACTUAL:"
             << " public_median_ms=" << actual_timing.public_median_ms
             << " candidate_median_ms="
             << actual_timing.candidate_median_ms
@@ -18966,6 +19268,9 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             << actual_timing.projected_64_layer_delta_ms
             << " every_round_nonregressing="
             << (actual_timing.every_round_nonregressing ? "true" : "false")
+            << (resident_grid64
+                    ? " required_each_actual_round=improving"
+                    : "")
             << " required_speedup=" << kRequiredActualSpeedup
             << " required_projected_64_layer_delta_ms="
             << kRequiredProjected64LayerDeltaMs
@@ -18973,7 +19278,7 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             << (actual_direct_gate ? "PASS" : "FAIL")
             << " gate=" << (actual_gate ? "PASS" : "FAIL") << '\n';
   if (!actual_gate) {
-    std::cout << "PERF_FP8_M1_O_PROJ_CS_STOP_LOSS:"
+    std::cout << perf_prefix << "_STOP_LOSS:"
               << " reason=first_frozen_actual_process_failed"
               << " stress_timing=NOT_RUN gate=FAIL\n";
     return;
@@ -18986,7 +19291,8 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
   }
   const bool stress_retest_direct_gate = run_direct_diff(stress_label);
   const OProjCsTiming stress_timing =
-      stress_retest_direct_gate ? benchmark_fixture("same_bank_stress")
+      stress_retest_direct_gate
+          ? benchmark_fixture("same_bank_stress", false)
                                 : OProjCsTiming{};
   const bool stress_timing_gate =
       stress_timing.ready && stress_timing.every_round_nonregressing &&
@@ -18996,10 +19302,14 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
                             stress_retest_direct_gate && stress_timing_gate;
   test.expect(process_gate,
               label + " clears the frozen single-process selection gate");
-  std::cout << "PERF_FP8_M1_O_PROJ_CS_SELECTED:"
+  std::cout << perf_prefix << "_SELECTED:"
             << " baseline=current_public_aosoa4_default_cache"
-            << " candidate=test_only_aosoa4_sidecar_cs"
-            << " topology=1024x256"
+            << (resident_grid64
+                    ? " candidate=test_only_same_production_kernel_resident_grid64"
+                    : " candidate=test_only_aosoa4_sidecar_cs")
+            << (resident_grid64
+                    ? " topology=public1024x256_candidate64x256"
+                    : " topology=1024x256")
             << " warmup_pairs=" << kWarmupIterations
             << " prime=B-C-C-B"
             << " rounds=" << kMeasurementRounds
@@ -19030,7 +19340,9 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             << (stress_timing.every_round_nonregressing ? "true" : "false")
             << " required_actual_speedup=" << kRequiredActualSpeedup
             << " required_stress_speedup=" << kRequiredStressSpeedup
-            << " required_each_round_speedup=1"
+            << (resident_grid64
+                    ? " required_each_actual_round_speedup_gt=1 required_each_stress_round_speedup_ge=1"
+                    : " required_each_round_speedup=1")
             << " required_actual_projected_64_layer_delta_ms="
             << kRequiredProjected64LayerDeltaMs
             << " required_three_process_median_projected_64_layer_delta_ms="
@@ -19038,8 +19350,24 @@ void run_fp8_m1_output_projection_aosoa4_cs_screen(
             << " three_process_median_gate=pending_external_aggregation"
             << " actual_payload_hash="
             << (actual_identity_gate ? "PASS" : "FAIL")
+            << (resident_grid64 ? " actual_sidecar_hash=" : "")
+            << (resident_grid64
+                    ? (actual_sidecar_identity_gate ? "PASS" : "FAIL")
+                    : "")
             << " focused_gate=" << (focused_gate ? "PASS" : "FAIL")
             << " gate=" << (process_gate ? "PASS" : "FAIL") << '\n';
+}
+
+void run_fp8_m1_output_projection_aosoa4_cs_screen(
+    TestContext& test, cudaStream_t stream) {
+  run_fp8_m1_output_projection_aosoa4_screen(
+      test, stream, Fp8M1OProjAosoa4ScreenMode::kCacheStreaming);
+}
+
+void run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(
+    TestContext& test, cudaStream_t stream) {
+  run_fp8_m1_output_projection_aosoa4_screen(
+      test, stream, Fp8M1OProjAosoa4ScreenMode::kResidentGrid64);
 }
 
 void run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(
@@ -49171,6 +49499,21 @@ int main() {
     std::cout << "NVFP4 LM-head cache-policy screen passed\n";
     return 0;
   }
+  if (decode_fp8_o_proj_resident_grid64_performance_enabled()) {
+    run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(test,
+                                                               stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy Decode FP8 O-proj resident-grid64 stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode FP8 O-proj resident-grid64 assertion(s) "
+                   "failed\n";
+      return 1;
+    }
+    std::cout << "Decode FP8 O-proj resident-grid64 screen passed\n";
+    return 0;
+  }
   if (decode_fp8_o_proj_cs_performance_enabled()) {
     run_fp8_m1_output_projection_aosoa4_cs_screen(test, stream);
     (void)test.cuda_ok(cudaStreamDestroy(stream),
@@ -49349,6 +49692,7 @@ int main() {
   run_optional_fp8_m1_row_quad_performance(test, stream);
   run_optional_fp8_m1_swizzled_codebook_performance(test, stream);
   run_fp8_m1_output_projection_aosoa4_cs_screen(test, stream);
+  run_fp8_m1_output_projection_aosoa4_resident_grid64_screen(test, stream);
   run_optional_fp8_m1_row_quad_aosoa4_preswizzled_performance(test,
                                                                 stream);
   run_fp8_m1_kv_pair_correctness_and_optional_performance(test, stream);

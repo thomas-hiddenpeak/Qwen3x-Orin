@@ -13864,6 +13864,45 @@ int launch_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_test_cuda(
       output, cuda_stream);
 }
 
+int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_test_cuda(
+    const std::uint8_t* const sidecar_weights, const float weight_scale,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != kFp8OutputProjectionRows ||
+      columns != kFp8OutputProjectionColumns) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_launch(
+      sidecar_weights, weight_scale, activation, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  constexpr std::size_t kSidecarBytes =
+      kFp8OutputProjectionRows * kFp8OutputProjectionColumns;
+  constexpr std::size_t kActivationBytes =
+      kFp8OutputProjectionColumns * sizeof(std::uint16_t);
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(sidecar_weights) &&
+      pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(output);
+  if (!aligned ||
+      ranges_overlap(sidecar_weights, kSidecarBytes,
+                     activation, kActivationBytes)) {
+    return invalid_value();
+  }
+
+  constexpr unsigned int kResidentGridBlocks = 64U;
+  static_assert((kFp8OutputProjectionRowQuads % kResidentGridBlocks) == 0U);
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_row_quad_aosoa4_preswizzled_test_kernel
+      <<<kResidentGridBlocks, kThreads, 0U, stream>>>(
+          reinterpret_cast<const uint4*>(sidecar_weights), weight_scale,
+          activation, rows, columns, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
     const std::uint8_t* const aosoa4_preswizzled_weights,
     const float weight_scale, const std::uint16_t* const activation,
@@ -13943,6 +13982,17 @@ int query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
   *maximum_threads_per_block = attributes.maxThreadsPerBlock;
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_fp8_w8a16_m1_output_projection_aosoa4_resident_grid64_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
+      registers_per_thread, static_shared_bytes, local_bytes,
+      maximum_threads_per_block, active_blocks_per_sm);
 }
 
 int query_sm87_fp8_w8a16_m1_output_projection_aosoa4_cs_resources_test_cuda(
