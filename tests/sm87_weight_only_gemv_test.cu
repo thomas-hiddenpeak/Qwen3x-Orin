@@ -76,7 +76,21 @@ launch_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_test_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
+    const std::uint8_t* aosoa4_preswizzled_weights, float weight_scale,
+    const std::uint16_t* activation,
+    const std::uint16_t* residual_left, std::size_t rows,
+    std::size_t columns, std::uint16_t* residual_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 query_sm87_fp8_w8a16_m1_row_quad_aosoa4_preswizzled_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -553,6 +567,23 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_tes
 
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_prerounded_residual_norm_gate_up_silu_dead_up_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_prerounded_residual_norm_gate_up_silu_dead_up_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
@@ -5431,6 +5462,13 @@ nvfp4_m1_gate_up_activation_staged_performance_enabled() noexcept {
 nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool decode_residual_chain_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_RESIDUAL_CHAIN_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -34329,7 +34367,8 @@ struct NvFp4GateUpDeadUpTiming {
 
 void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     TestContext& test, cudaStream_t stream) {
-  if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled()) {
+  if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled() &&
+      !decode_residual_chain_performance_enabled()) {
     std::cout
         << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
            "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
@@ -34988,6 +35027,520 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                              cudaStreamSynchronize(stream),
                              fixture_label + " upload synchronize");
       };
+
+  if (decode_residual_chain_performance_enabled()) {
+    constexpr std::size_t kOutputRows = 5'120U;
+    constexpr std::size_t kOutputColumns = 6'144U;
+    constexpr std::size_t kOutputWeightBytes =
+        kOutputRows * kOutputColumns;
+    constexpr std::uint64_t kOutputWeightOffset = 3'569'011'232ULL;
+    constexpr std::uint64_t kOutputScaleOffset = 126'532ULL;
+    constexpr std::uint32_t kExpectedOutputScaleBits = 0x3b36db6eU;
+    constexpr std::string_view kOutputWeightSha256 =
+        "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9";
+    constexpr std::string_view kOutputScaleSha256 =
+        "5ca44a7624bfdd927b145a51f20f36e4af5f571c8e9d3badc472103b8dbbb6cd";
+    constexpr int kChainWarmupIterations = 10;
+    constexpr int kChainMeasuredIterations = 64;
+    constexpr int kChainMeasurementRounds = 5;
+    constexpr float kRequiredDeltaMilliseconds = 0.5F / 64.0F;
+    constexpr double kRequiredChainSpeedup = 1.010;
+    const std::string chain_label =
+        "Decode O-proj residual epilogue plus pre-rounded dead-up gate/up";
+
+    std::vector<std::uint8_t> host_output_weights(kOutputWeightBytes);
+    std::array<std::uint8_t, 4U> output_scale_bytes{};
+    bool chain_ready = read_slice(
+        kOutputWeightOffset, host_output_weights.data(),
+        host_output_weights.size(), "layer-0 self_attn.o_proj.weight");
+    chain_ready = chain_ready &&
+                  read_slice(kOutputScaleOffset, output_scale_bytes.data(),
+                             output_scale_bytes.size(),
+                             "layer-0 self_attn.o_proj.weight_scale");
+    if (!chain_ready) {
+      return;
+    }
+    const std::uint32_t output_scale_bits =
+        little_endian_u32(output_scale_bytes);
+    float output_weight_scale = 0.0F;
+    std::memcpy(&output_weight_scale, &output_scale_bits,
+                sizeof(output_weight_scale));
+    const std::string output_weight_hash = hash_bytes(host_output_weights);
+    const std::string output_scale_hash =
+        q3x::core::sha256(std::string_view(
+                              reinterpret_cast<const char*>(
+                                  output_scale_bytes.data()),
+                              output_scale_bytes.size()))
+            .hex();
+    const bool output_payload_gate =
+        output_weight_hash == kOutputWeightSha256 &&
+        output_scale_hash == kOutputScaleSha256 &&
+        output_scale_bits == kExpectedOutputScaleBits &&
+        std::isfinite(output_weight_scale) && output_weight_scale >= 0.0F;
+    test.expect(output_payload_gate,
+                chain_label + " pins the actual output-projection payload");
+    if (!output_payload_gate) {
+      return;
+    }
+
+    std::vector<std::uint8_t> host_output_sidecar;
+    const bool sidecar_gate =
+        build_fp8_m1_aosoa4_preswizzled_sidecar(
+            host_output_weights, kOutputRows, kOutputColumns, 0U, 0U,
+            host_output_sidecar) &&
+        host_output_sidecar.size() == kOutputWeightBytes;
+    test.expect(sidecar_gate,
+                chain_label + " builds the exact AoSoA4 sidecar");
+    if (!sidecar_gate) {
+      return;
+    }
+
+    std::vector<std::uint16_t> host_output_activation(kOutputColumns);
+    for (std::size_t index = 0U; index < host_output_activation.size();
+         ++index) {
+      const int centered =
+          static_cast<int>((index * 37U + (index >> 2U) * 13U + 11U) %
+                           251U) -
+          125;
+      host_output_activation[index] =
+          encode_bf16(static_cast<float>(centered) / 512.0F);
+    }
+
+    Fp8M1Aosoa4PreswizzledResources output_candidate_resources{};
+    NvFp4M1DownDualKernelResources gate_candidate_resources{};
+    chain_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_resources_test_cuda(
+                &output_candidate_resources.registers_per_thread,
+                &output_candidate_resources.static_shared_bytes,
+                &output_candidate_resources.local_bytes,
+                &output_candidate_resources.maximum_threads_per_block,
+                &output_candidate_resources.active_blocks_per_sm)),
+        chain_label + " query output residual-epilogue resources");
+    chain_ready = chain_ready && test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_prerounded_residual_norm_gate_up_silu_dead_up_resources_test_cuda(
+                &gate_candidate_resources.registers_per_thread,
+                &gate_candidate_resources.static_shared_bytes,
+                &gate_candidate_resources.local_bytes,
+                &gate_candidate_resources.maximum_threads_per_block,
+                &gate_candidate_resources.active_blocks_per_sm)),
+        chain_label + " query pre-rounded gate/up resources");
+    const bool output_resource_gate =
+        chain_ready &&
+        output_candidate_resources.registers_per_thread > 0 &&
+        output_candidate_resources.registers_per_thread <= 64 &&
+        output_candidate_resources.static_shared_bytes <= 1'152U &&
+        output_candidate_resources.local_bytes == 0U &&
+        output_candidate_resources.maximum_threads_per_block == 256 &&
+        output_candidate_resources.active_blocks_per_sm >= 4;
+    const bool gate_resource_gate =
+        chain_ready && gate_candidate_resources.registers_per_thread > 0 &&
+        gate_candidate_resources.registers_per_thread <= 64 &&
+        gate_candidate_resources.static_shared_bytes == 13'632U &&
+        gate_candidate_resources.local_bytes == 0U &&
+        gate_candidate_resources.maximum_threads_per_block >= 512 &&
+        gate_candidate_resources.active_blocks_per_sm >= 2;
+    const bool resource_gate =
+        output_resource_gate && gate_resource_gate;
+    test.expect(resource_gate, chain_label + " clears both resource gates");
+    std::cout << "PERF_DECODE_RESIDUAL_CHAIN_RESOURCES:"
+              << " output_registers="
+              << output_candidate_resources.registers_per_thread
+              << " output_shared="
+              << output_candidate_resources.static_shared_bytes
+              << " output_local=" << output_candidate_resources.local_bytes
+              << " output_active="
+              << output_candidate_resources.active_blocks_per_sm
+              << " gate_registers="
+              << gate_candidate_resources.registers_per_thread
+              << " gate_shared="
+              << gate_candidate_resources.static_shared_bytes
+              << " gate_local=" << gate_candidate_resources.local_bytes
+              << " gate_active="
+              << gate_candidate_resources.active_blocks_per_sm
+              << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+    if (!resource_gate) {
+      return;
+    }
+
+    DeviceBuffer<std::uint8_t> output_sidecar;
+    DeviceBuffer<std::uint16_t> output_activation;
+    DeviceBuffer<std::uint16_t> baseline_raw_output;
+    DeviceBuffer<std::uint16_t> replay_residual_storage;
+    DeviceBuffer<std::uint16_t> replay_gate_storage;
+    chain_ready = test.cuda_ok(
+        output_sidecar.allocate(host_output_sidecar.size()),
+        chain_label + " allocate output sidecar");
+    chain_ready = chain_ready && test.cuda_ok(
+        output_activation.allocate(host_output_activation.size()),
+        chain_label + " allocate output activation");
+    chain_ready = chain_ready && test.cuda_ok(
+        baseline_raw_output.allocate(kOutputRows),
+        chain_label + " allocate baseline raw output");
+    chain_ready = chain_ready && test.cuda_ok(
+        replay_residual_storage.allocate(kColumns + 2U * kGuardElements),
+        chain_label + " allocate replay residual");
+    chain_ready = chain_ready && test.cuda_ok(
+        replay_gate_storage.allocate(guarded_count),
+        chain_label + " allocate replay gate");
+    chain_ready = chain_ready && upload_fixture(chain_label);
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemcpyAsync(output_sidecar.get(), host_output_sidecar.data(),
+                        host_output_sidecar.size(), cudaMemcpyHostToDevice,
+                        stream),
+        chain_label + " upload output sidecar");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemcpyAsync(output_activation.get(),
+                        host_output_activation.data(),
+                        host_output_activation.size() *
+                            sizeof(std::uint16_t),
+                        cudaMemcpyHostToDevice, stream),
+        chain_label + " upload output activation");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), chain_label + " upload synchronize");
+    if (!chain_ready) {
+      return;
+    }
+
+    std::uint16_t* const replay_residual =
+        replay_residual_storage.get() + kGuardElements;
+    std::uint16_t* const replay_gate =
+        replay_gate_storage.get() + kGuardElements;
+    const auto launch_chain_baseline = [&]() noexcept {
+      int status = q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_bf16_cuda(
+              output_sidecar.get(), output_weight_scale,
+              output_activation.get(), kOutputRows, kOutputColumns,
+              baseline_raw_output.get(), static_cast<void*>(stream));
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+              gate_packed.get(), gate_scales.get(), gate_scale2,
+              up_packed.get(), up_scales.get(), up_scale2,
+              residual_left.get(), baseline_raw_output.get(),
+              norm_weight.get(), kNormEpsilon, kRows, kColumns,
+              baseline_residual, baseline_gate, baseline_up,
+              static_cast<void*>(stream));
+    };
+    const auto launch_chain_candidate_to =
+        [&](std::uint16_t* const residual_destination,
+            std::uint16_t* const gate_destination) noexcept {
+          int status = q3x::kernels::
+              launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_residual_epilogue_test_cuda(
+                  output_sidecar.get(), output_weight_scale,
+                  output_activation.get(), residual_left.get(), kOutputRows,
+                  kOutputColumns, residual_destination,
+                  static_cast<void*>(stream));
+          if (status != static_cast<int>(cudaSuccess)) {
+            return status;
+          }
+          return q3x::kernels::
+              launch_sm87_nvfp4_w4a16_prerounded_residual_norm_gate_up_silu_dead_up_test_cuda(
+                  gate_packed.get(), gate_scales.get(), gate_scale2,
+                  up_packed.get(), up_scales.get(), up_scale2,
+                  residual_destination, norm_weight.get(), kNormEpsilon,
+                  kRows, kColumns, gate_destination, candidate_up,
+                  static_cast<void*>(stream));
+        };
+    const auto launch_chain_candidate = [&]() noexcept {
+      return launch_chain_candidate_to(candidate_residual, candidate_gate);
+    };
+
+    chain_ready = test.cuda_ok(
+        cudaMemsetAsync(baseline_residual_storage.get(), 0x31U,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        chain_label + " poison baseline residual");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_residual_storage.get(), 0x42U,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        chain_label + " poison candidate residual");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(replay_residual_storage.get(), 0x53U,
+                        (kColumns + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        chain_label + " poison replay residual");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(baseline_gate_storage.get(), 0x64U,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        chain_label + " poison baseline gate");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_gate_storage.get(), 0x75U,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        chain_label + " poison candidate gate");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(replay_gate_storage.get(), 0x86U,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        chain_label + " poison replay gate");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(baseline_up_storage.get(), 0x97U,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        chain_label + " poison baseline up workspace");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaMemsetAsync(candidate_up_storage.get(), 0xa8U,
+                        guarded_count * sizeof(std::uint16_t), stream),
+        chain_label + " poison candidate up workspace");
+    chain_ready = chain_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_chain_baseline()),
+        chain_label + " launch baseline correctness");
+    chain_ready = chain_ready && test.cuda_ok(
+        static_cast<cudaError_t>(launch_chain_candidate()),
+        chain_label + " launch candidate correctness");
+
+    std::vector<std::uint16_t> observed_baseline_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_candidate_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_replay_residual(
+        kColumns + 2U * kGuardElements);
+    std::vector<std::uint16_t> observed_baseline_gate(guarded_count);
+    std::vector<std::uint16_t> observed_candidate_gate(guarded_count);
+    std::vector<std::uint16_t> observed_replay_gate(guarded_count);
+    std::vector<std::uint16_t> observed_baseline_up(guarded_count);
+    std::vector<std::uint16_t> observed_candidate_up(guarded_count);
+    const auto copy_bf16 =
+        [&](std::vector<std::uint16_t>& destination,
+            const DeviceBuffer<std::uint16_t>& source,
+            const std::string& operation) {
+          return test.cuda_ok(
+              cudaMemcpyAsync(destination.data(), source.get(),
+                              destination.size() * sizeof(std::uint16_t),
+                              cudaMemcpyDeviceToHost, stream),
+              operation);
+        };
+    chain_ready = chain_ready && copy_bf16(
+        observed_baseline_residual, baseline_residual_storage,
+        chain_label + " copy baseline residual");
+    chain_ready = chain_ready && copy_bf16(
+        observed_candidate_residual, candidate_residual_storage,
+        chain_label + " copy candidate residual");
+    chain_ready = chain_ready && copy_bf16(
+        observed_baseline_gate, baseline_gate_storage,
+        chain_label + " copy baseline gate");
+    chain_ready = chain_ready && copy_bf16(
+        observed_candidate_gate, candidate_gate_storage,
+        chain_label + " copy candidate gate");
+    chain_ready = chain_ready && copy_bf16(
+        observed_baseline_up, baseline_up_storage,
+        chain_label + " copy baseline up workspace");
+    chain_ready = chain_ready && copy_bf16(
+        observed_candidate_up, candidate_up_storage,
+        chain_label + " copy candidate up workspace");
+    chain_ready = chain_ready && test.cuda_ok(
+        static_cast<cudaError_t>(
+            launch_chain_candidate_to(replay_residual, replay_gate)),
+        chain_label + " launch candidate replay");
+    chain_ready = chain_ready && copy_bf16(
+        observed_replay_residual, replay_residual_storage,
+        chain_label + " copy replay residual");
+    chain_ready = chain_ready && copy_bf16(
+        observed_replay_gate, replay_gate_storage,
+        chain_label + " copy replay gate");
+    chain_ready = chain_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream),
+        chain_label + " correctness synchronize");
+    if (!chain_ready) {
+      return;
+    }
+
+    std::size_t residual_mismatches = 0U;
+    std::size_t gate_mismatches = 0U;
+    std::size_t replay_residual_mismatches = 0U;
+    std::size_t replay_gate_mismatches = 0U;
+    bool finite_outputs = true;
+    for (std::size_t index = 0U; index < kColumns; ++index) {
+      const std::size_t guarded = kGuardElements + index;
+      residual_mismatches +=
+          observed_baseline_residual[guarded] !=
+          observed_candidate_residual[guarded];
+      replay_residual_mismatches +=
+          observed_candidate_residual[guarded] !=
+          observed_replay_residual[guarded];
+      finite_outputs =
+          finite_outputs &&
+          std::isfinite(decode_bf16(observed_candidate_residual[guarded]));
+    }
+    for (std::size_t row = 0U; row < kRows; ++row) {
+      const std::size_t guarded = kGuardElements + row;
+      gate_mismatches += observed_baseline_gate[guarded] !=
+                         observed_candidate_gate[guarded];
+      replay_gate_mismatches += observed_candidate_gate[guarded] !=
+                                observed_replay_gate[guarded];
+      finite_outputs =
+          finite_outputs &&
+          std::isfinite(decode_bf16(observed_candidate_gate[guarded]));
+    }
+    const auto guards_intact =
+        [&](const std::vector<std::uint16_t>& values,
+            const std::uint16_t canary) {
+          return std::all_of(values.begin(),
+                             values.begin() + kGuardElements,
+                             [canary](const std::uint16_t value) {
+                               return value == canary;
+                             }) &&
+                 std::all_of(values.end() - kGuardElements, values.end(),
+                             [canary](const std::uint16_t value) {
+                               return value == canary;
+                             });
+        };
+    const bool guards_gate =
+        guards_intact(observed_baseline_residual, 0x3131U) &&
+        guards_intact(observed_candidate_residual, 0x4242U) &&
+        guards_intact(observed_replay_residual, 0x5353U) &&
+        guards_intact(observed_baseline_gate, 0x6464U) &&
+        guards_intact(observed_candidate_gate, 0x7575U) &&
+        guards_intact(observed_replay_gate, 0x8686U);
+    const bool workspace_gate =
+        std::all_of(observed_baseline_up.begin(),
+                    observed_baseline_up.end(),
+                    [](const std::uint16_t value) {
+                      return value == 0x9797U;
+                    }) &&
+        std::all_of(observed_candidate_up.begin(),
+                    observed_candidate_up.end(),
+                    [](const std::uint16_t value) {
+                      return value == 0xa8a8U;
+                    });
+    const bool correctness_gate =
+        residual_mismatches == 0U && gate_mismatches == 0U &&
+        replay_residual_mismatches == 0U &&
+        replay_gate_mismatches == 0U && finite_outputs && guards_gate &&
+        workspace_gate;
+    test.expect(correctness_gate,
+                chain_label + " is bitwise, finite, guarded, and replayable");
+    std::cout << "DECODE_RESIDUAL_CHAIN_DIFF:"
+              << " residual_mismatches=" << residual_mismatches << '/'
+              << kColumns << " gate_mismatches=" << gate_mismatches << '/'
+              << kRows
+              << " replay_residual_mismatches="
+              << replay_residual_mismatches << '/' << kColumns
+              << " replay_gate_mismatches=" << replay_gate_mismatches << '/'
+              << kRows
+              << " finite_outputs="
+              << (finite_outputs ? "true" : "false")
+              << " guards=" << (guards_gate ? "PASS" : "FAIL")
+              << " workspaces_untouched="
+              << (workspace_gate ? "PASS" : "FAIL")
+              << " gate=" << (correctness_gate ? "PASS" : "FAIL") << '\n';
+    if (!correctness_gate) {
+      return;
+    }
+
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kChainWarmupIterations && timing_ready; ++iteration) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_chain_baseline()),
+          chain_label + " baseline warmup");
+      timing_ready = timing_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_chain_candidate()),
+          chain_label + " candidate warmup");
+    }
+    timing_ready = timing_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream), chain_label + " warmup synchronize");
+    constexpr std::size_t kChainTimedPasses =
+        2U * static_cast<std::size_t>(kChainMeasurementRounds);
+    std::array<float, kChainTimedPasses> baseline_passes{};
+    std::array<float, kChainTimedPasses> candidate_passes{};
+    std::array<float, kChainMeasurementRounds> paired_deltas{};
+    bool all_rounds_improve = timing_ready;
+    for (int round = 0;
+         round < kChainMeasurementRounds && timing_ready; ++round) {
+      const std::string round_label =
+          chain_label + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(
+          test, stream, launch_chain_baseline, kChainMeasuredIterations,
+          round_label + " B1");
+      const float c1 = measure_small_m_tile(
+          test, stream, launch_chain_candidate, kChainMeasuredIterations,
+          round_label + " C1");
+      const float c2 = measure_small_m_tile(
+          test, stream, launch_chain_candidate, kChainMeasuredIterations,
+          round_label + " C2");
+      const float b2 = measure_small_m_tile(
+          test, stream, launch_chain_baseline, kChainMeasuredIterations,
+          round_label + " B2");
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      baseline_passes[pass] = b1;
+      baseline_passes[pass + 1U] = b2;
+      candidate_passes[pass] = c1;
+      candidate_passes[pass + 1U] = c2;
+      const bool finite = std::isfinite(b1) && b1 > 0.0F &&
+                          std::isfinite(c1) && c1 > 0.0F &&
+                          std::isfinite(c2) && c2 > 0.0F &&
+                          std::isfinite(b2) && b2 > 0.0F;
+      const float paired_baseline = 0.5F * (b1 + b2);
+      const float paired_candidate = 0.5F * (c1 + c2);
+      paired_deltas[static_cast<std::size_t>(round)] =
+          paired_baseline - paired_candidate;
+      const bool round_improves =
+          finite && c1 < b1 && c2 < b2 &&
+          paired_candidate < paired_baseline;
+      timing_ready = timing_ready && finite;
+      all_rounds_improve = all_rounds_improve && round_improves;
+      std::cout << "PERF_DECODE_RESIDUAL_CHAIN_ROUND:"
+                << " fixture=actual_checkpoint"
+                << " round=" << round + 1 << " order=B-C-C-B"
+                << " logical_chains_per_pass="
+                << kChainMeasuredIterations
+                << " baseline1_ms=" << b1 << " candidate1_ms=" << c1
+                << " candidate2_ms=" << c2 << " baseline2_ms=" << b2
+                << " paired_delta_ms="
+                << paired_deltas[static_cast<std::size_t>(round)]
+                << " gate=" << (round_improves ? "PASS" : "FAIL")
+                << '\n';
+    }
+    const float baseline_median =
+        timing_ready ? median_fp8_kv_pair_timing(baseline_passes)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const float candidate_median =
+        timing_ready ? median_fp8_kv_pair_timing(candidate_passes)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const float delta_median =
+        timing_ready ? median_fp8_kv_pair_timing(paired_deltas)
+                     : std::numeric_limits<float>::quiet_NaN();
+    const double speedup =
+        static_cast<double>(baseline_median) /
+        static_cast<double>(candidate_median);
+    const double projected_decode_delta =
+        64.0 * static_cast<double>(delta_median);
+    const bool timing_gate =
+        timing_ready && all_rounds_improve &&
+        delta_median >= kRequiredDeltaMilliseconds &&
+        std::isfinite(speedup) && speedup >= kRequiredChainSpeedup;
+    const bool selected_gate =
+        header_gate && pinned_payload_gate && output_payload_gate &&
+        resource_gate && correctness_gate && timing_gate;
+    test.expect(selected_gate,
+                chain_label + " clears the actual-checkpoint stop-loss");
+    std::cout << "PERF_DECODE_RESIDUAL_CHAIN_SELECTED:"
+              << " fixture=actual_checkpoint"
+              << " output_scale_bits=" << output_scale_bits
+              << " output_scale=" << output_weight_scale
+              << " output_weight_sha256=" << output_weight_hash
+              << " output_scale_sha256=" << output_scale_hash
+              << " baseline_two_kernel_median_ms=" << baseline_median
+              << " candidate_two_kernel_median_ms=" << candidate_median
+              << " median_delta_ms_per_layer=" << delta_median
+              << " projected_64_layer_delta_ms="
+              << projected_decode_delta
+              << " speedup=" << speedup
+              << " all_rounds_improve="
+              << (all_rounds_improve ? "true" : "false")
+              << " required_delta_ms_per_layer="
+              << kRequiredDeltaMilliseconds
+              << " required_projected_64_layer_delta_ms=0.5"
+              << " required_speedup=" << kRequiredChainSpeedup
+              << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+    return;
+  }
 
   const auto check_correctness = [&](const std::string& fixture_label) {
     constexpr std::array<std::uint8_t, 7U> kGuardBytes{{
@@ -39237,6 +39790,18 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (decode_residual_chain_performance_enabled()) {
+    run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode residual-chain stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode residual-chain assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode residual-chain screen passed\n";
+    return 0;
   }
   run_fp8_m32_wmma_invalid_capture_contract(test, stream);
   run_nvfp4_m32_wmma_invalid_capture_contract(test, stream);
