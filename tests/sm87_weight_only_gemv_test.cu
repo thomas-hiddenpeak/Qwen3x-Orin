@@ -42257,7 +42257,8 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
   constexpr int kIterations = 64;
   constexpr int kRounds = 5;
   constexpr float kEpsilon = 1.0e-6F;
-  constexpr float kRequiredProjectedSavingMs = 0.5F;
+  constexpr float kOriginalCombinedRequiredSavingMs = 0.5F;
+  constexpr float kRequiredDownProjectedSavingMs = 0.25F;
   constexpr std::size_t kEligibleGateUpLayers = 64U;
   constexpr std::size_t kEligibleDownLayers = 53U;
   constexpr std::size_t kEligibleProjectionCount =
@@ -42521,41 +42522,46 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
   }
 
   std::array<NvFp4M1DownDualKernelResources, 4U> resources{};
-  ready = test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+  const bool gate_public_resource_ready =
+      static_cast<cudaError_t>(q3x::kernels::
       query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
           &resources[0U].registers_per_thread,
           &resources[0U].static_shared_bytes, &resources[0U].local_bytes,
           &resources[0U].maximum_threads_per_block,
-          &resources[0U].active_blocks_per_sm)),
-                       label + " query gate public resources");
-  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+          &resources[0U].active_blocks_per_sm)) == cudaSuccess;
+  const bool gate_scale6_resource_ready =
+      static_cast<cudaError_t>(q3x::kernels::
       query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale6_resources_test_cuda(
           &resources[1U].registers_per_thread,
           &resources[1U].static_shared_bytes, &resources[1U].local_bytes,
           &resources[1U].maximum_threads_per_block,
-          &resources[1U].active_blocks_per_sm)),
-                                label + " query gate scale6 resources");
-  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
-      query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
-          &resources[2U].registers_per_thread,
-          &resources[2U].static_shared_bytes, &resources[2U].local_bytes,
-          &resources[2U].maximum_threads_per_block,
-          &resources[2U].active_blocks_per_sm)),
-                                label + " query down public resources");
-  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
-      query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
-          &resources[3U].registers_per_thread,
-          &resources[3U].static_shared_bytes, &resources[3U].local_bytes,
-          &resources[3U].maximum_threads_per_block,
-          &resources[3U].active_blocks_per_sm)),
-                                label + " query down scale6 resources");
-  const bool null_queries_rejected =
+          &resources[1U].active_blocks_per_sm)) == cudaSuccess;
+  const bool down_public_resource_ready =
+      test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+                       query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
+                           &resources[2U].registers_per_thread,
+                           &resources[2U].static_shared_bytes,
+                           &resources[2U].local_bytes,
+                           &resources[2U].maximum_threads_per_block,
+                           &resources[2U].active_blocks_per_sm)),
+                   label + " query down public resources");
+  const bool down_scale6_resource_ready =
+      test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+                       query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
+                           &resources[3U].registers_per_thread,
+                           &resources[3U].static_shared_bytes,
+                           &resources[3U].local_bytes,
+                           &resources[3U].maximum_threads_per_block,
+                           &resources[3U].active_blocks_per_sm)),
+                   label + " query down scale6 resources");
+  const bool gate_null_query_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale6_resources_test_cuda(
               nullptr, &resources[1U].static_shared_bytes,
               &resources[1U].local_bytes,
               &resources[1U].maximum_threads_per_block,
-              &resources[1U].active_blocks_per_sm)) == cudaErrorInvalidValue &&
+              &resources[1U].active_blocks_per_sm)) == cudaErrorInvalidValue;
+  const bool down_null_query_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
               nullptr, &resources[3U].static_shared_bytes,
@@ -42564,23 +42570,30 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
               &resources[3U].active_blocks_per_sm)) == cudaErrorInvalidValue;
   int device = 0;
   int multiprocessors = 0;
-  ready = ready && test.cuda_ok(cudaGetDevice(&device), label + " get device") &&
-          test.cuda_ok(cudaDeviceGetAttribute(&multiprocessors,
-                                              cudaDevAttrMultiProcessorCount,
-                                              device),
-                       label + " get SM count");
+  const bool device_ready =
+      test.cuda_ok(cudaGetDevice(&device), label + " get device") &&
+      test.cuda_ok(cudaDeviceGetAttribute(&multiprocessors,
+                                          cudaDevAttrMultiProcessorCount,
+                                          device),
+                   label + " get SM count");
   const auto resources_ok = [&](const NvFp4M1DownDualKernelResources& value) {
     return value.registers_per_thread <= 64 && value.local_bytes == 0U &&
            value.maximum_threads_per_block >= 512 &&
            value.active_blocks_per_sm >= 2 &&
            value.active_blocks_per_sm * multiprocessors >= 32;
   };
-  const bool resource_gate = ready && null_queries_rejected &&
-                             std::all_of(resources.begin(), resources.end(),
-                                         resources_ok) &&
-                             resources[0U].static_shared_bytes == 13'632U &&
-                             resources[2U].static_shared_bytes == 35'904U;
-  test.expect(resource_gate, label + " clears 64r/0local/2CTA resources");
+  const bool gate_resource_info =
+      gate_public_resource_ready && gate_scale6_resource_ready &&
+      gate_null_query_rejected && resources_ok(resources[0U]) &&
+      resources_ok(resources[1U]) &&
+      resources[0U].static_shared_bytes == 13'632U;
+  const bool down_resource_gate =
+      down_public_resource_ready && down_scale6_resource_ready &&
+      device_ready && down_null_query_rejected && resources_ok(resources[2U]) &&
+      resources_ok(resources[3U]) &&
+      resources[2U].static_shared_bytes == 35'904U;
+  test.expect(down_resource_gate,
+              label + " down clears 64r/0local/2CTA resources");
   std::cout << "DECODE_SCALE6_RESOURCES: gate_public="
             << resources[0U].registers_per_thread << 'r' << '/'
             << resources[0U].static_shared_bytes << "B gate_scale6="
@@ -42590,12 +42603,19 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
             << resources[2U].static_shared_bytes << "B down_scale6="
             << resources[3U].registers_per_thread << 'r' << '/'
             << resources[3U].static_shared_bytes
-            << "B null_queries_rejected="
-            << (null_queries_rejected ? "true" : "false")
-            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
-  if (!resource_gate) {
+            << "B gate_null_query_rejected="
+            << (gate_null_query_rejected ? "true" : "false")
+            << " down_null_query_rejected="
+            << (down_null_query_rejected ? "true" : "false")
+            << " gate_up_resource_info="
+            << (gate_resource_info ? "PASS" : "FAIL")
+            << " gate_up_disposition=REJECT"
+            << " down_gate=" << (down_resource_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!down_resource_gate) {
     return;
   }
+  ready = true;
 
   const auto p8 = [](const std::uintptr_t value) {
     return reinterpret_cast<const std::uint8_t*>(value);
@@ -42683,6 +42703,162 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
             << (graph_gate ? "true" : "false")
             << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
   if (!graph_gate) {
+    return;
+  }
+
+  const auto down_scale6_fake_status =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scale6,
+          const unsigned int scale_base,
+          const std::uint16_t* const activation,
+          const std::uint16_t* const residual_left,
+          const std::uint16_t* const norm_weight,
+          const std::size_t rows, const std::size_t columns,
+          std::uint16_t* const raw, std::uint16_t* const residual,
+          std::uint16_t* const normalized) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+                packed, scale6, scale_base, scale2[2U], activation,
+                residual_left, norm_weight, kEpsilon, rows, columns, raw,
+                residual, normalized, static_cast<void*>(stream));
+      };
+  const auto* const fake_down_packed = p8(0x20'0000'0000ULL);
+  const auto* const fake_down_sidecar = p8(0x21'0000'0000ULL);
+  const auto* const fake_down_activation = p16(0x22'0000'0000ULL);
+  const auto* const fake_down_left = p16(0x23'0000'0000ULL);
+  const auto* const fake_down_norm = p16(0x24'0000'0000ULL);
+  auto* const fake_down_raw = out16(0x25'0000'0000ULL);
+  auto* const fake_down_residual = out16(0x26'0000'0000ULL);
+  auto* const fake_down_normalized = out16(0x27'0000'0000ULL);
+  std::size_t down_invalid_cases = 0U;
+  bool down_invalid_gate = true;
+  const auto expect_down_invalid_zero_node =
+      [&](const auto& invalid_launch, const std::string& reason) {
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " begin down scale6 invalid capture: " + reason);
+        int status = static_cast<int>(cudaErrorUnknown);
+        if (capture_ready) {
+          status = invalid_launch();
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " end down scale6 invalid capture: " +
+                               reason) &&
+              capture_ready;
+        }
+        std::size_t nodes = 0U;
+        if (capture_ready && graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                           label + " query down scale6 invalid nodes: " +
+                               reason) &&
+              capture_ready;
+        }
+        if (graph != nullptr) {
+          capture_ready =
+              test.cuda_ok(cudaGraphDestroy(graph),
+                           label + " destroy down scale6 invalid graph: " +
+                               reason) &&
+              capture_ready;
+        }
+        const cudaError_t last_error = cudaGetLastError();
+        const cudaError_t stream_status = cudaStreamQuery(stream);
+        const bool stream_clean = last_error == cudaSuccess &&
+                                  stream_status == cudaSuccess;
+        const bool case_gate =
+            capture_ready && graph != nullptr &&
+            status == static_cast<int>(cudaErrorInvalidValue) &&
+            nodes == 0U && stream_clean;
+        test.expect(case_gate,
+                    label + " rejects down scale6 before enqueue: " + reason);
+        down_invalid_gate = down_invalid_gate && case_gate;
+        ++down_invalid_cases;
+        std::cout << "DECODE_SCALE6_DOWN_INVALID: case=" << reason
+                  << " status=" << status << " graph_nodes=" << nodes
+                  << " stream_clean=" << (stream_clean ? "true" : "false")
+                  << " gate=" << (case_gate ? "PASS" : "FAIL") << '\n';
+      };
+
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar, 193U,
+            fake_down_activation, fake_down_left, fake_down_norm, kDownRows,
+            kDownColumns, fake_down_raw, fake_down_residual,
+            fake_down_normalized);
+      },
+      "scale base 193");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar, 66U,
+            fake_down_activation, fake_down_left, fake_down_norm,
+            kDownRows - 1U, kDownColumns, fake_down_raw, fake_down_residual,
+            fake_down_normalized);
+      },
+      "wrong rows");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar, 66U,
+            fake_down_activation, fake_down_left, fake_down_norm, kDownRows,
+            kDownColumns + 16U, fake_down_raw, fake_down_residual,
+            fake_down_normalized);
+      },
+      "wrong columns");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            nullptr, fake_down_sidecar, 66U, fake_down_activation,
+            fake_down_left, fake_down_norm, kDownRows, kDownColumns,
+            fake_down_raw, fake_down_residual, fake_down_normalized);
+      },
+      "null packed weights");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, nullptr, 66U, fake_down_activation,
+            fake_down_left, fake_down_norm, kDownRows, kDownColumns,
+            fake_down_raw, fake_down_residual, fake_down_normalized);
+      },
+      "null scale6 sidecar");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar, 66U, nullptr,
+            fake_down_left, fake_down_norm, kDownRows, kDownColumns,
+            fake_down_raw, fake_down_residual, fake_down_normalized);
+      },
+      "null activation");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar + 1U, 66U,
+            fake_down_activation, fake_down_left, fake_down_norm, kDownRows,
+            kDownColumns, fake_down_raw, fake_down_residual,
+            fake_down_normalized);
+      },
+      "misaligned scale6 sidecar");
+  expect_down_invalid_zero_node(
+      [&]() noexcept {
+        return down_scale6_fake_status(
+            fake_down_packed, fake_down_sidecar, 66U,
+            fake_down_activation, fake_down_left, fake_down_norm, kDownRows,
+            kDownColumns, fake_down_raw, fake_down_raw,
+            fake_down_normalized);
+      },
+      "raw and residual outputs overlap");
+  test.expect(down_invalid_gate && down_invalid_cases == 8U,
+              label + " clears down scale6 invalid zero-node contract");
+  std::cout << "DECODE_SCALE6_DOWN_INVALID_SELECTED: cases="
+            << down_invalid_cases << " zero_nodes=true stream_clean=true"
+            << " valid_fake_addresses_executed=false"
+            << " gate="
+            << (down_invalid_gate && down_invalid_cases == 8U ? "PASS"
+                                                               : "FAIL")
+            << '\n';
+  if (!down_invalid_gate || down_invalid_cases != 8U) {
     return;
   }
 
@@ -42909,7 +43085,9 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
     float median_delta_ms = 0.0F;
   };
   std::array<std::array<Timing, 2U>, 2U> timings{};
-  std::array<bool, 2U> correctness{};
+  std::array<bool, 2U> gate_exploration_correctness{};
+  std::array<bool, 2U> down_correctness{};
+  std::vector<std::uint16_t> finite_actual_public_down_residual;
   const auto benchmark = [&](const std::string& route, const auto& baseline,
                              const auto& candidate) {
     Timing result;
@@ -42974,6 +43152,13 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
   for (std::size_t i = 0U; i < observed_outputs.size(); ++i) {
     observed_outputs[i].resize(output_counts[i] + 2U * kOutputGuardElements);
   }
+  std::vector<std::uint8_t> observed_down_packed(kPackedCount);
+  std::vector<std::uint8_t> observed_down_scales(kScaleCount);
+  std::vector<std::uint8_t> observed_down_sidecar(
+      kSidecarBytes + 2U * kSidecarGuardBytes);
+  std::vector<std::uint16_t> observed_down_activation(kDownColumns);
+  std::vector<std::uint16_t> observed_down_left(kDownRows);
+  std::vector<std::uint16_t> observed_down_norm(kDownRows);
   const auto copy_outputs = [&]() {
     bool ok = true;
     for (std::size_t i = 0U; i < outputs.size(); ++i) {
@@ -43026,6 +43211,101 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
     }
     return true;
   };
+  const auto guards_intact_in =
+      [&](const std::size_t index,
+          const std::array<std::vector<std::uint16_t>, kOutputCount>& values) {
+        const std::uint16_t canary = static_cast<std::uint16_t>(
+            static_cast<unsigned int>(kOutputPoison[index]) * 0x0101U);
+        for (std::size_t i = 0U; i < kOutputGuardElements; ++i) {
+          if (values[index][i] != canary ||
+              values[index][kOutputGuardElements + output_counts[index] +
+                            i] != canary) {
+            return false;
+          }
+        }
+        return true;
+      };
+  const auto down_inputs_unchanged =
+      [&](const std::vector<std::uint8_t>& expected_packed,
+          const std::vector<std::uint8_t>& expected_scales,
+          const NvFp4Scale6HostSidecar& expected_sidecar,
+          const std::vector<std::uint16_t>& expected_left,
+          const std::vector<std::uint16_t>& expected_norm,
+          const std::string& fixture_label) {
+        bool ok = test.cuda_ok(
+            cudaMemcpyAsync(observed_down_packed.data(),
+                            device_packed[2U].get(), kPackedCount,
+                            cudaMemcpyDeviceToHost, stream),
+            label + " observe " + fixture_label + " down packed weight");
+        ok = test.cuda_ok(
+                 cudaMemcpyAsync(observed_down_scales.data(),
+                                 device_scales[2U].get(), kScaleCount,
+                                 cudaMemcpyDeviceToHost, stream),
+                 label + " observe " + fixture_label +
+                     " down canonical scale") &&
+             ok;
+        ok = test.cuda_ok(
+                 cudaMemcpyAsync(observed_down_sidecar.data(),
+                                 device_sidecar_storage[2U].get(),
+                                 observed_down_sidecar.size(),
+                                 cudaMemcpyDeviceToHost, stream),
+                 label + " observe " + fixture_label +
+                     " guarded down sidecar") &&
+             ok;
+        ok = test.cuda_ok(
+                 cudaMemcpyAsync(observed_down_activation.data(),
+                                 down_activation.get(),
+                                 kDownColumns * sizeof(std::uint16_t),
+                                 cudaMemcpyDeviceToHost, stream),
+                 label + " observe " + fixture_label +
+                     " down activation") &&
+             ok;
+        ok = test.cuda_ok(
+                 cudaMemcpyAsync(observed_down_left.data(), down_left.get(),
+                                 kDownRows * sizeof(std::uint16_t),
+                                 cudaMemcpyDeviceToHost, stream),
+                 label + " observe " + fixture_label +
+                     " down residual input") &&
+             ok;
+        ok = test.cuda_ok(
+                 cudaMemcpyAsync(observed_down_norm.data(),
+                                 device_down_norm.get(),
+                                 kDownRows * sizeof(std::uint16_t),
+                                 cudaMemcpyDeviceToHost, stream),
+                 label + " observe " + fixture_label +
+                     " down norm weight") &&
+             ok;
+        ok = test.cuda_ok(cudaStreamSynchronize(stream),
+                          label + " " + fixture_label +
+                              " down input observation synchronize") &&
+             ok;
+        const std::uint8_t sidecar_canary = 0xd2U;
+        const bool sidecar_unchanged =
+            observed_down_sidecar.size() ==
+                expected_sidecar.bytes.size() +
+                    2U * kSidecarGuardBytes &&
+            std::all_of(observed_down_sidecar.begin(),
+                        observed_down_sidecar.begin() +
+                            kSidecarGuardBytes,
+                        [sidecar_canary](const std::uint8_t value) {
+                          return value == sidecar_canary;
+                        }) &&
+            std::equal(expected_sidecar.bytes.begin(),
+                       expected_sidecar.bytes.end(),
+                       observed_down_sidecar.begin() +
+                           kSidecarGuardBytes) &&
+            std::all_of(observed_down_sidecar.end() -
+                            kSidecarGuardBytes,
+                        observed_down_sidecar.end(),
+                        [sidecar_canary](const std::uint8_t value) {
+                          return value == sidecar_canary;
+                        });
+        return ok && observed_down_packed == expected_packed &&
+               observed_down_scales == expected_scales &&
+               observed_down_activation == host_down_activation &&
+               observed_down_left == expected_left &&
+               observed_down_norm == expected_norm && sidecar_unchanged;
+      };
 
   for (std::size_t fixture_index = 0U; fixture_index < fixtures.size();
        ++fixture_index) {
@@ -43077,9 +43357,10 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
     if (!ready) {
       return;
     }
-    const std::size_t direct_mismatches =
+    const std::size_t direct_gate_mismatches =
         mismatch_count(kGatePublicResidual, kGateScale6Residual) +
-        mismatch_count(kGatePublicOutput, kGateScale6Output) +
+        mismatch_count(kGatePublicOutput, kGateScale6Output);
+    const std::size_t direct_down_mismatches =
         mismatch_count(kDownPublicRaw, kDownScale6Raw) +
         mismatch_count(kDownPublicResidual, kDownScale6Residual) +
         mismatch_count(kDownPublicNorm, kDownScale6Norm);
@@ -43090,22 +43371,45 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
             test.cuda_ok(cudaGraphLaunch(down_replay.executable, stream),
                          label + " " + fixture_label + " down replay") &&
             copy_outputs();
-    std::size_t replay_mismatches = 0U;
-    bool guards = true;
-    bool finite = true;
+    std::size_t gate_replay_mismatches = 0U;
+    std::size_t down_replay_mismatches = 0U;
+    bool gate_finite = true;
+    bool down_finite = true;
     for (std::size_t i = 0U; i < outputs.size(); ++i) {
-      guards = guards && guards_intact(i);
-      const bool candidate = (i >= kGateScale6Residual &&
-                              i <= kGateScale6Workspace) ||
-                             i >= kDownScale6Raw;
-      if (candidate && i != kGateScale6Workspace) {
+      const bool gate_candidate =
+          i >= kGateScale6Residual && i < kDownPublicRaw &&
+          i != kGateScale6Workspace;
+      const bool down_candidate = i >= kDownScale6Raw;
+      if (gate_candidate || down_candidate) {
         for (std::size_t j = 0U; j < output_counts[i]; ++j) {
           const std::size_t guarded = kOutputGuardElements + j;
-          replay_mismatches += direct_outputs[i][guarded] !=
-                               observed_outputs[i][guarded];
-          finite = finite && is_bf16_finite(observed_outputs[i][guarded]);
+          const bool mismatch = direct_outputs[i][guarded] !=
+                                observed_outputs[i][guarded];
+          if (gate_candidate) {
+            gate_replay_mismatches += mismatch;
+            gate_finite =
+                gate_finite && is_bf16_finite(observed_outputs[i][guarded]);
+          } else {
+            down_replay_mismatches += mismatch;
+            down_finite =
+                down_finite && is_bf16_finite(observed_outputs[i][guarded]);
+          }
         }
       }
+    }
+    bool direct_gate_guards = true;
+    bool replay_gate_guards = true;
+    for (std::size_t i = kGatePublicResidual; i < kDownPublicRaw; ++i) {
+      direct_gate_guards = direct_gate_guards &&
+                           guards_intact_in(i, direct_outputs);
+      replay_gate_guards = replay_gate_guards && guards_intact(i);
+    }
+    bool direct_down_guards = true;
+    bool replay_down_guards = true;
+    for (std::size_t i = kDownPublicRaw; i < kOutputCount; ++i) {
+      direct_down_guards = direct_down_guards &&
+                           guards_intact_in(i, direct_outputs);
+      replay_down_guards = replay_down_guards && guards_intact(i);
     }
     const auto workspace_untouched = [&](const std::size_t index,
                                          const auto& values) {
@@ -43120,19 +43424,20 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
         workspace_untouched(kGatePublicWorkspace, direct_outputs) &&
         workspace_untouched(kGateScale6Workspace, direct_outputs) &&
         workspace_untouched(kGateScale6Workspace, observed_outputs);
-    bool sidecars_immutable = ready;
+    std::array<bool, 3U> sidecars_immutable{{ready, ready, ready}};
     for (std::size_t i = 0U; i < 3U; ++i) {
       std::vector<std::uint8_t> observed(kSidecarBytes +
                                          2U * kSidecarGuardBytes);
-      sidecars_immutable =
+      sidecars_immutable[i] =
           test.cuda_ok(cudaMemcpy(observed.data(),
                                   device_sidecar_storage[i].get(),
                                   observed.size(), cudaMemcpyDeviceToHost),
-                       label + " copy guarded sidecar") &&
-          sidecars_immutable;
+                       label + " copy guarded sidecar " +
+                           std::to_string(i)) &&
+          sidecars_immutable[i];
       const std::uint8_t canary = static_cast<std::uint8_t>(0xd0U + i);
-      sidecars_immutable =
-          sidecars_immutable &&
+      sidecars_immutable[i] =
+          sidecars_immutable[i] &&
           std::all_of(observed.begin(),
                       observed.begin() + kSidecarGuardBytes,
                       [canary](const std::uint8_t value) {
@@ -43146,25 +43451,51 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
                         return value == canary;
                       });
     }
-    correctness[fixture_index] = ready && direct_mismatches == 0U &&
-                                 replay_mismatches == 0U && guards && finite &&
-                                 workspaces_untouched && sidecars_immutable;
-    test.expect(correctness[fixture_index],
+    const bool down_input_gate = down_inputs_unchanged(
+        (*fixture.packed)[2U], (*fixture.scales)[2U],
+        (*fixture.sidecars)[2U], host_down_left, down_norm, fixture_label);
+    gate_exploration_correctness[fixture_index] =
+        ready && direct_gate_mismatches == 0U &&
+        gate_replay_mismatches == 0U && direct_gate_guards &&
+        replay_gate_guards && gate_finite && workspaces_untouched &&
+        sidecars_immutable[0U] && sidecars_immutable[1U];
+    down_correctness[fixture_index] =
+        ready && direct_down_mismatches == 0U &&
+        down_replay_mismatches == 0U && direct_down_guards &&
+        replay_down_guards && down_finite && sidecars_immutable[2U] &&
+        down_input_gate;
+    test.expect(down_correctness[fixture_index],
                 label + " " + fixture_label +
-                    " bitwise/Graph/guards/immutability");
+                    " down bitwise/Graph/guards/input immutability");
     std::cout << "DECODE_SCALE6_DIFF: fixture=" << fixture_label
-              << " direct_mismatches=" << direct_mismatches
-              << " replay_mismatches=" << replay_mismatches
-              << " finite=" << (finite ? "true" : "false")
-              << " guards=" << (guards ? "intact" : "BAD")
-              << " sidecars_immutable="
-              << (sidecars_immutable ? "true" : "false")
+              << " gate_direct_mismatches=" << direct_gate_mismatches
+              << " down_direct_mismatches=" << direct_down_mismatches
+              << " gate_replay_mismatches=" << gate_replay_mismatches
+              << " down_replay_mismatches=" << down_replay_mismatches
+              << " gate_finite=" << (gate_finite ? "true" : "false")
+              << " down_finite=" << (down_finite ? "true" : "false")
+              << " down_guards="
+              << (direct_down_guards && replay_down_guards ? "intact"
+                                                           : "BAD")
+              << " down_sidecar_immutable="
+              << (sidecars_immutable[2U] ? "true" : "false")
+              << " down_inputs_immutable="
+              << (down_input_gate ? "true" : "false")
               << " dead_up_untouched="
               << (workspaces_untouched ? "true" : "false")
-              << " gate="
-              << (correctness[fixture_index] ? "PASS" : "FAIL") << '\n';
-    if (!correctness[fixture_index]) {
+              << " gate_up_exploration_correctness="
+              << (gate_exploration_correctness[fixture_index] ? "PASS"
+                                                               : "FAIL")
+              << " gate_up_disposition=REJECT"
+              << " down_gate="
+              << (down_correctness[fixture_index] ? "PASS" : "FAIL")
+              << '\n';
+    if (!down_correctness[fixture_index]) {
       return;
+    }
+    if (fixture_index == 0U) {
+      finite_actual_public_down_residual =
+          direct_outputs[kDownPublicResidual];
     }
     timings[fixture_index][0U] = benchmark(
         fixture_label + "/gate", launch_gate_public, launch_gate_scale6);
@@ -43172,18 +43503,274 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
         fixture_label + "/down", launch_down_public, launch_down_scale6);
   }
 
+  const auto guarded_down_at = [&](const std::vector<std::uint16_t>& values,
+                                   const std::size_t index) {
+    return values[kOutputGuardElements + index];
+  };
+  const auto run_down_nonfinite_fixture =
+      [&](const std::vector<std::uint16_t>& left_values,
+          const std::vector<std::uint16_t>& norm_values,
+          const std::string& fixture_label, const auto& semantic_check) {
+        bool fixture_ready = test.cuda_ok(
+            cudaMemcpyAsync(device_packed[2U].get(),
+                            actual_packed[2U].data(), kPackedCount,
+                            cudaMemcpyHostToDevice, stream),
+            label + " upload " + fixture_label + " actual down packed");
+        fixture_ready =
+            test.cuda_ok(cudaMemcpyAsync(
+                             device_scales[2U].get(),
+                             actual_scales[2U].data(), kScaleCount,
+                             cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_label +
+                             " actual down canonical scale") &&
+            fixture_ready;
+        fixture_ready =
+            test.cuda_ok(cudaMemsetAsync(device_sidecar_storage[2U].get(),
+                                        0xd2, observed_down_sidecar.size(),
+                                        stream),
+                         label + " poison " + fixture_label +
+                             " guarded down sidecar") &&
+            fixture_ready;
+        fixture_ready =
+            test.cuda_ok(cudaMemcpyAsync(sidecar(2U),
+                                        actual_sidecars[2U].bytes.data(),
+                                        kSidecarBytes,
+                                        cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_label +
+                             " actual down scale6 sidecar") &&
+            fixture_ready;
+        fixture_ready =
+            test.cuda_ok(cudaMemcpyAsync(
+                             down_activation.get(),
+                             host_down_activation.data(),
+                             kDownColumns * sizeof(std::uint16_t),
+                             cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_label +
+                             " down activation") &&
+            fixture_ready;
+        fixture_ready =
+            test.cuda_ok(cudaMemcpyAsync(
+                             down_left.get(), left_values.data(),
+                             kDownRows * sizeof(std::uint16_t),
+                             cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_label +
+                             " down residual input") &&
+            fixture_ready;
+        fixture_ready =
+            test.cuda_ok(cudaMemcpyAsync(
+                             device_down_norm.get(), norm_values.data(),
+                             kDownRows * sizeof(std::uint16_t),
+                             cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_label +
+                             " down norm weight") &&
+            fixture_ready;
+        fixture_ready = fixture_ready && poison_outputs(false) &&
+                        test.cuda_ok(
+                            static_cast<cudaError_t>(launch_down_public_to(
+                                kDownPublicRaw, kDownPublicResidual,
+                                kDownPublicNorm)),
+                            label + " launch " + fixture_label +
+                                " public down") &&
+                        test.cuda_ok(
+                            static_cast<cudaError_t>(launch_down_scale6()),
+                            label + " launch " + fixture_label +
+                                " scale6 down") &&
+                        copy_outputs();
+        if (!fixture_ready) {
+          return false;
+        }
+        const std::size_t raw_mismatches =
+            mismatch_count(kDownPublicRaw, kDownScale6Raw);
+        const std::size_t residual_mismatches =
+            mismatch_count(kDownPublicResidual, kDownScale6Residual);
+        const std::size_t norm_mismatches =
+            mismatch_count(kDownPublicNorm, kDownScale6Norm);
+        bool direct_guards = true;
+        for (std::size_t i = kDownPublicRaw; i < kOutputCount; ++i) {
+          direct_guards = direct_guards && guards_intact(i);
+        }
+        const auto direct_outputs = observed_outputs;
+        fixture_ready = poison_outputs(true) &&
+                        test.cuda_ok(cudaGraphLaunch(
+                                         down_replay.executable, stream),
+                                     label + " launch " + fixture_label +
+                                         " scale6 down Graph replay") &&
+                        copy_outputs();
+        if (!fixture_ready) {
+          return false;
+        }
+        std::size_t replay_mismatches = 0U;
+        for (std::size_t i = kDownScale6Raw; i < kOutputCount; ++i) {
+          for (std::size_t j = 0U; j < output_counts[i]; ++j) {
+            const std::size_t guarded = kOutputGuardElements + j;
+            replay_mismatches += direct_outputs[i][guarded] !=
+                                 observed_outputs[i][guarded];
+          }
+        }
+        bool replay_guards = true;
+        for (std::size_t i = kDownPublicRaw; i < kOutputCount; ++i) {
+          replay_guards = replay_guards && guards_intact(i);
+        }
+        const bool inputs_immutable = down_inputs_unchanged(
+            actual_packed[2U], actual_scales[2U], actual_sidecars[2U],
+            left_values, norm_values, fixture_label);
+        const bool semantic_gate = semantic_check(
+            direct_outputs[kDownPublicResidual],
+            direct_outputs[kDownPublicNorm],
+            direct_outputs[kDownScale6Residual],
+            direct_outputs[kDownScale6Norm]);
+        const bool fixture_gate =
+            raw_mismatches == 0U && residual_mismatches == 0U &&
+            norm_mismatches == 0U && replay_mismatches == 0U &&
+            direct_guards && replay_guards && inputs_immutable &&
+            semantic_gate;
+        test.expect(fixture_gate,
+                    label + " " + fixture_label +
+                        " down preserves bits/Graph/class/sign/inputs");
+        std::cout << "DECODE_SCALE6_DOWN_NONFINITE: fixture="
+                  << fixture_label << " actual_scale_base=66"
+                  << " raw_mismatches=" << raw_mismatches << '/'
+                  << kDownRows << " residual_mismatches="
+                  << residual_mismatches << '/' << kDownRows
+                  << " norm_mismatches=" << norm_mismatches << '/'
+                  << kDownRows << " graph_replay_mismatches="
+                  << replay_mismatches << '/' << 3U * kDownRows
+                  << " class_sign="
+                  << (semantic_gate ? "PASS" : "FAIL")
+                  << " guards="
+                  << (direct_guards && replay_guards ? "intact" : "BAD")
+                  << " inputs_immutable="
+                  << (inputs_immutable ? "true" : "false")
+                  << " gate=" << (fixture_gate ? "PASS" : "FAIL")
+                  << '\n';
+        return fixture_gate;
+      };
+
+  std::vector<std::uint16_t> residual_nonfinite_left = host_down_left;
+  residual_nonfinite_left[0U] = 0x7f80U;
+  residual_nonfinite_left[1U] = 0xff80U;
+  residual_nonfinite_left[2U] = 0x7fc1U;
+  residual_nonfinite_left[3U] = 0xffc1U;
+  const bool residual_nonfinite_gate = run_down_nonfinite_fixture(
+      residual_nonfinite_left, down_norm, "residual_signed_nonfinite",
+      [&](const std::vector<std::uint16_t>& public_residual_bits,
+          const std::vector<std::uint16_t>& public_norm_bits,
+          const std::vector<std::uint16_t>& scale6_residual_bits,
+          const std::vector<std::uint16_t>& scale6_norm_bits) {
+        bool class_sign =
+            guarded_down_at(public_residual_bits, 0U) == 0x7f80U &&
+            guarded_down_at(scale6_residual_bits, 0U) == 0x7f80U &&
+            guarded_down_at(public_residual_bits, 1U) == 0xff80U &&
+            guarded_down_at(scale6_residual_bits, 1U) == 0xff80U;
+        for (std::size_t index = 2U; index < 4U; ++index) {
+          const std::uint16_t public_bits =
+              guarded_down_at(public_residual_bits, index);
+          const std::uint16_t scale6_bits =
+              guarded_down_at(scale6_residual_bits, index);
+          class_sign = class_sign && is_bf16_nan(public_bits) &&
+                       is_bf16_nan(scale6_bits) &&
+                       ((public_bits ^ scale6_bits) & 0x8000U) == 0U;
+        }
+        for (std::size_t index = 0U; index < kDownRows; ++index) {
+          const std::uint16_t public_bits =
+              guarded_down_at(public_norm_bits, index);
+          const std::uint16_t scale6_bits =
+              guarded_down_at(scale6_norm_bits, index);
+          class_sign = class_sign && is_bf16_nan(public_bits) &&
+                       is_bf16_nan(scale6_bits) &&
+                       ((public_bits ^ scale6_bits) & 0x8000U) == 0U;
+        }
+        return class_sign;
+      });
+
+  std::array<std::size_t, 4U> norm_nonfinite_indices{};
+  std::size_t norm_nonfinite_count = 0U;
+  for (std::size_t index = 0U;
+       index < kDownRows &&
+       norm_nonfinite_count < norm_nonfinite_indices.size();
+       ++index) {
+    const std::uint16_t bits =
+        guarded_down_at(finite_actual_public_down_residual, index);
+    if (is_bf16_finite(bits) && (bits & 0x7fffU) != 0U) {
+      norm_nonfinite_indices[norm_nonfinite_count++] = index;
+    }
+  }
+  bool norm_nonfinite_gate =
+      norm_nonfinite_count == norm_nonfinite_indices.size();
+  std::vector<std::uint16_t> norm_nonfinite_weight = down_norm;
+  if (norm_nonfinite_gate) {
+    norm_nonfinite_weight[norm_nonfinite_indices[0U]] = 0x7f80U;
+    norm_nonfinite_weight[norm_nonfinite_indices[1U]] = 0xff80U;
+    norm_nonfinite_weight[norm_nonfinite_indices[2U]] = 0x7fc1U;
+    norm_nonfinite_weight[norm_nonfinite_indices[3U]] = 0xffc1U;
+    norm_nonfinite_gate = run_down_nonfinite_fixture(
+        host_down_left, norm_nonfinite_weight,
+        "norm_weight_signed_nonfinite",
+        [&](const std::vector<std::uint16_t>& public_residual_bits,
+            const std::vector<std::uint16_t>& public_norm_bits,
+            const std::vector<std::uint16_t>& scale6_residual_bits,
+            const std::vector<std::uint16_t>& scale6_norm_bits) {
+          bool class_sign = true;
+          for (std::size_t special = 0U; special < 4U; ++special) {
+            const std::size_t index = norm_nonfinite_indices[special];
+            const std::uint16_t public_residual_at_index =
+                guarded_down_at(public_residual_bits, index);
+            const std::uint16_t scale6_residual_at_index =
+                guarded_down_at(scale6_residual_bits, index);
+            const std::uint16_t public_bits =
+                guarded_down_at(public_norm_bits, index);
+            const std::uint16_t scale6_bits =
+                guarded_down_at(scale6_norm_bits, index);
+            class_sign =
+                class_sign &&
+                public_residual_at_index == scale6_residual_at_index &&
+                ((public_bits ^ scale6_bits) & 0x8000U) == 0U;
+            if (special < 2U) {
+              class_sign = class_sign && !is_bf16_finite(public_bits) &&
+                           !is_bf16_nan(public_bits) &&
+                           !is_bf16_finite(scale6_bits) &&
+                           !is_bf16_nan(scale6_bits);
+              const bool residual_negative =
+                  (public_residual_at_index & 0x8000U) != 0U;
+              const bool expected_negative =
+                  special == 0U ? residual_negative : !residual_negative;
+              class_sign =
+                  class_sign &&
+                  (((public_bits & 0x8000U) != 0U) == expected_negative) &&
+                  (((scale6_bits & 0x8000U) != 0U) == expected_negative);
+            } else {
+              class_sign = class_sign && is_bf16_nan(public_bits) &&
+                           is_bf16_nan(scale6_bits);
+            }
+          }
+          return class_sign;
+        });
+  }
+  test.expect(norm_nonfinite_count == norm_nonfinite_indices.size(),
+              label +
+                  " selects finite nonzero actual residuals for norm fixture");
+  const bool down_nonfinite_gate =
+      residual_nonfinite_gate && norm_nonfinite_gate;
+  test.expect(down_nonfinite_gate,
+              label + " clears down scale6 signed Inf/NaN gate");
+
   const float combined_projected_saving_ms =
       static_cast<float>(kEligibleGateUpLayers) *
           timings[0U][0U].median_delta_ms +
       static_cast<float>(kEligibleDownLayers) *
           timings[0U][1U].median_delta_ms;
-  const bool selection_gate =
-      correctness[0U] && correctness[1U] && timings[0U][0U].gate &&
+  const bool every_route_fixture_round_nonregression =
+      timings[0U][0U].gate && timings[0U][1U].gate &&
+      timings[1U][0U].gate && timings[1U][1U].gate;
+  const bool every_down_fixture_round_nonregression =
+      timings[0U][1U].gate && timings[1U][1U].gate;
+  const bool original_combined_gate =
+      gate_exploration_correctness[0U] &&
+      gate_exploration_correctness[1U] && down_correctness[0U] &&
+      down_correctness[1U] && timings[0U][0U].gate &&
       timings[0U][1U].gate && timings[1U][0U].gate &&
       timings[1U][1U].gate && std::isfinite(combined_projected_saving_ms) &&
-      combined_projected_saving_ms >= kRequiredProjectedSavingMs;
-  test.expect(selection_gate,
-              label + " clears mixed-model projected 0.5 ms/token gate");
+      combined_projected_saving_ms >= kOriginalCombinedRequiredSavingMs;
   std::cout << "PERF_DECODE_SCALE6_SELECTED: baseline=current_public_cs"
             << " candidate=test_only_scale6"
             << " actual_gate_speedup=" << timings[0U][0U].median_speedup
@@ -43197,11 +43784,52 @@ void run_optional_nvfp4_m1_scale6_sidecar_closeout(
             << " canonical_down_fallback_layers="
             << 64U - kEligibleDownLayers
             << " required_projected_delta_ms="
-            << kRequiredProjectedSavingMs
-            << " every_route_fixture_round_nonregression=true"
+            << kOriginalCombinedRequiredSavingMs
+            << " every_route_fixture_round_nonregression="
+            << (every_route_fixture_round_nonregression ? "true" : "false")
             << " timing_outputs=shared_candidate_buffers"
             << " pack_h2d_graph_setup=outside_cuda_events"
-            << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
+            << " measured_gate="
+            << (original_combined_gate ? "PASS" : "FAIL")
+            << " disposition=REJECT"
+            << " gate=REJECT\n";
+
+  const float down_projected_saving_ms =
+      static_cast<float>(kEligibleDownLayers) *
+      timings[0U][1U].median_delta_ms;
+  const bool down_only_gate =
+      down_correctness[0U] && down_correctness[1U] &&
+      every_down_fixture_round_nonregression && down_nonfinite_gate &&
+      std::isfinite(timings[0U][1U].median_speedup) &&
+      timings[0U][1U].median_speedup >= 1.005F &&
+      std::isfinite(timings[1U][1U].median_speedup) &&
+      timings[1U][1U].median_speedup >= 1.0F &&
+      std::isfinite(down_projected_saving_ms) &&
+      down_projected_saving_ms >= kRequiredDownProjectedSavingMs;
+  std::cout << "PERF_DECODE_SCALE6_DOWN_SELECTED:"
+            << " baseline=current_public_cs"
+            << " candidate=test_only_scale6_down"
+            << " actual_median_speedup="
+            << timings[0U][1U].median_speedup
+            << " stress_median_speedup="
+            << timings[1U][1U].median_speedup
+            << " actual_delta_ms_per_layer="
+            << timings[0U][1U].median_delta_ms
+            << " projected_53_layer_delta_ms="
+            << down_projected_saving_ms
+            << " required_actual_median_speedup=1.005"
+            << " required_stress_median_speedup=1"
+            << " required_each_actual_stress_round=1"
+            << " required_projected_53_layer_delta_ms="
+            << kRequiredDownProjectedSavingMs
+            << " every_down_fixture_round_nonregression="
+            << (every_down_fixture_round_nonregression ? "true" : "false")
+            << " signed_nonfinite="
+            << (down_nonfinite_gate ? "PASS" : "FAIL")
+            << " gate_up_disposition=REJECT"
+            << " gate=" << (down_only_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(down_only_gate,
+              label + " clears independent 53-layer down-only gate");
 }
 
 }  // namespace
