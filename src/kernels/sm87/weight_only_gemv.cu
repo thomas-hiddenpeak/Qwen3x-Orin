@@ -67,6 +67,9 @@ constexpr unsigned int kFp8FullAttentionKvRowPairs =
     static_cast<unsigned int>(kFp8KvPairRows / 2U);
 constexpr unsigned int kFp8FullAttentionAosoa4PackBlocks =
     kFp8FullAttentionQRowQuads + kFp8FullAttentionKvRowPairs;
+constexpr unsigned int kFp8FullAttentionCta512Threads = 2U * kThreads;
+constexpr unsigned int kFp8FullAttentionCta512Blocks =
+    kFp8FullAttentionBlocks / 2U;
 constexpr std::size_t kFp8QkvRows = 10'240U;
 constexpr std::size_t kFp8ZRows = 6'144U;
 constexpr std::size_t kFp8QkvZColumns = 5'120U;
@@ -109,6 +112,10 @@ static_assert(kFp8FullAttentionQRowQuads ==
               kFp8FullAttentionBlocks +
                   kFp8FullAttentionKvFirstBlock);
 static_assert(kFp8FullAttentionKvRowPairs == kFp8FullAttentionKvBlocks);
+static_assert(kFp8FullAttentionCta512Threads == 512U);
+static_assert((kFp8FullAttentionBlocks % 2U) == 0U);
+static_assert((kFp8FullAttentionKvFirstBlock % 2U) == 0U);
+static_assert((kFp8FullAttentionKvBlocks % 2U) == 0U);
 
 [[nodiscard]] bool multiply_overflows(const std::size_t left,
                                       const std::size_t right) noexcept {
@@ -2279,7 +2286,7 @@ fp8_w8a16_gemv_bf16_complete_projection_pair_row_pair_body(
 // pair. The accumulator updates, warp/block reductions, scaling, and BF16-RNE
 // publication order are unchanged. Only four canonical U32 loads plus their
 // runtime swizzles become one aligned uint4 sidecar load.
-template <bool ProjectionPair>
+template <bool ProjectionPair, bool DualHalfCta = false>
 __device__ __forceinline__ void
 fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_no_tail_test_body(
     const uint4* const sidecar_weights, const float first_weight_scale,
@@ -2295,8 +2302,10 @@ fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_no_tail_test_body(
   float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
   float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
 
+  const unsigned int logical_tid =
+      DualHalfCta ? threadIdx.x & (kThreads - 1U) : threadIdx.x;
   for (std::size_t first_column =
-           static_cast<std::size_t>(threadIdx.x) *
+           static_cast<std::size_t>(logical_tid) *
            kFp8VectorValuesPerLane;
        first_column < kFp8KvPairColumns;
        first_column += kFp8VectorColumnsPerBlock) {
@@ -2353,14 +2362,20 @@ fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_no_tail_test_body(
   const unsigned int warp_sum_lane =
       threadIdx.x & (kWarpSize - 1U);
   if (warp_sum_lane == 0U) {
-    const unsigned int warp_sum_warp = threadIdx.x / kWarpSize;
+    unsigned int warp_sum_warp = threadIdx.x / kWarpSize;
+    if constexpr (DualHalfCta) {
+      warp_sum_warp &= kWarpsPerBlock - 1U;
+    }
     warp_sums[0U][warp_sum_warp] = sum0;
     warp_sums[1U][warp_sum_warp] = sum1;
     warp_sums[2U][warp_sum_warp] = sum2;
     warp_sums[3U][warp_sum_warp] = sum3;
   }
   __syncthreads();
-  const unsigned int block_sum_warp = threadIdx.x / kWarpSize;
+  unsigned int block_sum_warp = threadIdx.x / kWarpSize;
+  if constexpr (DualHalfCta) {
+    block_sum_warp &= kWarpsPerBlock - 1U;
+  }
   if (block_sum_warp == 0U) {
     const unsigned int block_sum_lane =
         threadIdx.x & (kWarpSize - 1U);
@@ -2533,6 +2548,55 @@ fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_test_kernel(
         kv_sidecar_weights, key_weight_scale, value_weight_scale,
         activation, row_pair, row0, key_output, value_output,
         decoded_weights, warp_sums[scratch_slot]);
+  }
+}
+
+// Test-only 512-thread coarsening of the sidecar candidate. Each aligned
+// 256-thread half is one logical worker from the 2,048-worker production map.
+// The even partition boundaries guarantee that both halves execute the same
+// number of logical bodies, so every body-wide barrier remains CTA-safe.
+__global__ __launch_bounds__(kFp8FullAttentionCta512Threads, 2) void
+fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_cta512_test_kernel(
+    const uint4* const q_sidecar_weights, const float q_weight_scale,
+    const uint4* const kv_sidecar_weights, const float key_weight_scale,
+    const float value_weight_scale,
+    const std::uint16_t* const activation,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output) {
+  __shared__ float decoded_weights[kFp8EncodedValueCount];
+  __shared__ float warp_sums[2U][2U][4U][kWarpsPerBlock];
+  if (threadIdx.x < kThreads) {
+    const std::uint8_t code = static_cast<std::uint8_t>(threadIdx.x);
+    decoded_weights[fp8_swizzled_codebook_slot(code)] = decode_e4m3fn(code);
+  }
+  __syncthreads();
+
+  const unsigned int half = threadIdx.x / kThreads;
+  const unsigned int logical_worker = 2U * blockIdx.x + half;
+  unsigned int scratch_slot = 0U;
+  for (unsigned int row_quad = logical_worker;
+       row_quad < kFp8FullAttentionQRowQuads;
+       row_quad += kFp8FullAttentionBlocks) {
+    fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_no_tail_test_body<
+        false, true>(q_sidecar_weights, q_weight_scale, q_weight_scale,
+                     activation, row_quad,
+                     4U * static_cast<std::size_t>(row_quad), q_output,
+                     q_output, decoded_weights,
+                     warp_sums[half][scratch_slot]);
+    scratch_slot ^= 1U;
+  }
+
+  if (logical_worker >= kFp8FullAttentionKvFirstBlock &&
+      logical_worker <
+          kFp8FullAttentionKvFirstBlock + kFp8FullAttentionKvBlocks) {
+    const unsigned int row_pair =
+        logical_worker - kFp8FullAttentionKvFirstBlock;
+    const std::size_t row0 = 2U * static_cast<std::size_t>(row_pair);
+    fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_no_tail_test_body<true,
+                                                                  true>(
+        kv_sidecar_weights, key_weight_scale, value_weight_scale,
+        activation, row_pair, row0, key_output, value_output,
+        decoded_weights, warp_sums[half][scratch_slot]);
   }
 }
 
@@ -14037,6 +14101,45 @@ int launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_test_cuda(
+    const std::uint8_t* const q_sidecar, const float q_weight_scale,
+    const std::uint8_t* const kv_sidecar, const float key_weight_scale,
+    const float value_weight_scale,
+    const std::uint16_t* const activation, const std::size_t q_rows,
+    const std::size_t kv_rows, const std::size_t columns,
+    std::uint16_t* const q_output, std::uint16_t* const key_output,
+    std::uint16_t* const value_output, void* const cuda_stream) noexcept {
+  const int validation =
+      validate_fp8_q_kv_aosoa4_preswizzled_test_launch(
+          q_sidecar, q_weight_scale, kv_sidecar, key_weight_scale,
+          value_weight_scale, activation, q_rows, kv_rows, columns,
+          q_output, key_output, value_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(q_sidecar) &&
+      pointer_is_aligned<alignof(uint4)>(kv_sidecar) &&
+      pointer_is_aligned<alignof(std::uint64_t)>(activation) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(q_output) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(key_output) &&
+      pointer_is_aligned<alignof(std::uint16_t)>(value_output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_cta512_test_kernel
+      <<<kFp8FullAttentionCta512Blocks,
+         kFp8FullAttentionCta512Threads, 0U, stream>>>(
+          reinterpret_cast<const uint4*>(q_sidecar), q_weight_scale,
+          reinterpret_cast<const uint4*>(kv_sidecar), key_weight_scale,
+          value_weight_scale, activation, q_output, key_output,
+          value_output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_pack_test_cuda(
     const std::uint8_t* const canonical_q,
     const std::uint8_t* const canonical_key,
@@ -14093,6 +14196,40 @@ int query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
       &active_blocks,
       fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_test_kernel,
       static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_cta512_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      fp8_w8a16_gemv_bf16_q_kv_aosoa4_preswizzled_cta512_test_kernel,
+      static_cast<int>(kFp8FullAttentionCta512Threads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }

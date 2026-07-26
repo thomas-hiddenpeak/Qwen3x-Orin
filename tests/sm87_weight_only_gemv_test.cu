@@ -256,6 +256,21 @@ query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_test_cuda(
+    const std::uint8_t* q_sidecar_weights, float q_weight_scale,
+    const std::uint8_t* kv_sidecar_weights, float key_weight_scale,
+    float value_weight_scale, const std::uint16_t* activation,
+    std::size_t q_rows, std::size_t kv_rows, std::size_t columns,
+    std::uint16_t* q_output, std::uint16_t* key_output,
+    std::uint16_t* value_output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -5956,6 +5971,14 @@ fp8_m1_q_kv_reduction_scratch_ping_pong_performance_enabled() noexcept {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool
+decode_fp8_q_kv_aosoa4_cta512_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_CTA512_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
@@ -9435,10 +9458,15 @@ void run_optional_fp8_m1_q_kv_reduction_scratch_ping_pong_performance(
 
 void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
                                        cudaStream_t stream) {
-  if (!decode_fp8_q_kv_aosoa4_performance_enabled()) {
+  const bool standalone_mode =
+      decode_fp8_q_kv_aosoa4_performance_enabled();
+  const bool cta512_mode =
+      decode_fp8_q_kv_aosoa4_cta512_performance_enabled();
+  if (!standalone_mode && !cta512_mode) {
     std::cout
         << "SKIP: Decode FP8 Q+K/V AoSoA4/preswizzled sidecar screen; "
-           "set Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_PERF=1 together "
+           "set Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_PERF=1 or "
+           "Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_CTA512_PERF=1 together "
            "with Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE to enable\n";
     return;
   }
@@ -9462,8 +9490,18 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
   constexpr float kQScale = 0.000706264F;
   constexpr float kKeyScale = 0.00044686455F;
   constexpr float kValueScale = 0.0004752023F;
+  const std::string candidate_name =
+      cta512_mode ? "aosoa4_preswizzled_cta512"
+                  : "aosoa4_preswizzled_standalone";
   const std::string label =
-      "Decode FP8 Q12288+K/V1024 K5120 AoSoA4/preswizzled sidecar";
+      "Decode FP8 Q12288+K/V1024 K5120 " + candidate_name;
+  const std::size_t candidate_static_shared_bytes =
+      cta512_mode ? 1'536U : 1'280U;
+  const int candidate_maximum_threads_per_block =
+      cta512_mode ? 512 : 256;
+  const int candidate_active_blocks_per_sm = cta512_mode ? 2 : 4;
+  const unsigned int candidate_grid_x = cta512_mode ? 1'024U : 2'048U;
+  const unsigned int candidate_block_x = cta512_mode ? 512U : 256U;
 
   const q3x::core::Sha256FileResult binary_identity =
       q3x::core::sha256_file("/proc/self/exe");
@@ -9474,6 +9512,23 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
 
   Fp8KvPairKernelResources production_resources{};
   Fp8KvPairKernelResources candidate_resources{};
+  const auto query_candidate_resources =
+      [&](int* const registers_per_thread,
+          std::size_t* const static_shared_bytes,
+          std::size_t* const local_bytes,
+          int* const maximum_threads_per_block,
+          int* const active_blocks_per_sm) {
+        if (cta512_mode) {
+          return q3x::kernels::
+              query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_resources_test_cuda(
+                  registers_per_thread, static_shared_bytes, local_bytes,
+                  maximum_threads_per_block, active_blocks_per_sm);
+        }
+        return q3x::kernels::
+            query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
+                registers_per_thread, static_shared_bytes, local_bytes,
+                maximum_threads_per_block, active_blocks_per_sm);
+      };
   bool ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
@@ -9484,37 +9539,40 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
               &production_resources.active_blocks_per_sm)),
       label + " query production resources");
   ready = test.cuda_ok(
-              static_cast<cudaError_t>(q3x::kernels::
-                  query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
-                      &candidate_resources.registers_per_thread,
-                      &candidate_resources.static_shared_bytes,
-                      &candidate_resources.local_bytes,
-                      &candidate_resources.maximum_threads_per_block,
-                      &candidate_resources.active_blocks_per_sm)),
+              static_cast<cudaError_t>(query_candidate_resources(
+                  &candidate_resources.registers_per_thread,
+                  &candidate_resources.static_shared_bytes,
+                  &candidate_resources.local_bytes,
+                  &candidate_resources.maximum_threads_per_block,
+                  &candidate_resources.active_blocks_per_sm)),
               label + " query candidate resources") &&
           ready;
   const bool null_resource_gate =
-      static_cast<cudaError_t>(q3x::kernels::
-          query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
-              nullptr, &candidate_resources.static_shared_bytes,
-              &candidate_resources.local_bytes,
-              &candidate_resources.maximum_threads_per_block,
-              &candidate_resources.active_blocks_per_sm)) ==
+      static_cast<cudaError_t>(query_candidate_resources(
+          nullptr, &candidate_resources.static_shared_bytes,
+          &candidate_resources.local_bytes,
+          &candidate_resources.maximum_threads_per_block,
+          &candidate_resources.active_blocks_per_sm)) ==
       cudaErrorInvalidValue;
   const bool resource_gate =
       ready && production_resources.registers_per_thread == 64 &&
       candidate_resources.registers_per_thread == 64 &&
       production_resources.static_shared_bytes == 1'280U &&
-      candidate_resources.static_shared_bytes == 1'280U &&
+      candidate_resources.static_shared_bytes ==
+          candidate_static_shared_bytes &&
       production_resources.local_bytes == 0U &&
       candidate_resources.local_bytes == 0U &&
       production_resources.maximum_threads_per_block == 256 &&
-      candidate_resources.maximum_threads_per_block == 256 &&
+      candidate_resources.maximum_threads_per_block ==
+          candidate_maximum_threads_per_block &&
       production_resources.active_blocks_per_sm == 4 &&
-      candidate_resources.active_blocks_per_sm == 4 && null_resource_gate;
+      candidate_resources.active_blocks_per_sm ==
+          candidate_active_blocks_per_sm &&
+      null_resource_gate;
   test.expect(resource_gate,
               label + " preserves the production occupancy/spill contract");
-  std::cout << "FP8_M1_Q_KV_AOSOA4_RESOURCES:"
+  std::cout << "FP8_M1_Q_KV_AOSOA4_RESOURCES: candidate="
+            << candidate_name
             << " production_registers="
             << production_resources.registers_per_thread
             << " candidate_registers="
@@ -9808,14 +9866,40 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
         kColumns, q_output, key_output, value_output,
         static_cast<void*>(stream));
   };
+  const auto launch_candidate_raw =
+      [&](const std::uint8_t* const q_sidecar_weights,
+          const float launch_q_scale,
+          const std::uint8_t* const kv_sidecar_weights,
+          const float launch_key_scale, const float launch_value_scale,
+          const std::uint16_t* const launch_activation,
+          const std::size_t launch_q_rows,
+          const std::size_t launch_kv_rows,
+          const std::size_t launch_columns,
+          std::uint16_t* const q_output,
+          std::uint16_t* const key_output,
+          std::uint16_t* const value_output) {
+        if (cta512_mode) {
+          return q3x::kernels::
+              launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_cta512_test_cuda(
+                  q_sidecar_weights, launch_q_scale, kv_sidecar_weights,
+                  launch_key_scale, launch_value_scale, launch_activation,
+                  launch_q_rows, launch_kv_rows, launch_columns, q_output,
+                  key_output, value_output, static_cast<void*>(stream));
+        }
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
+                q_sidecar_weights, launch_q_scale, kv_sidecar_weights,
+                launch_key_scale, launch_value_scale, launch_activation,
+                launch_q_rows, launch_kv_rows, launch_columns, q_output,
+                key_output, value_output, static_cast<void*>(stream));
+      };
   const auto launch_candidate = [&](std::uint16_t* const q_output,
                                     std::uint16_t* const key_output,
                                     std::uint16_t* const value_output) {
-    return q3x::kernels::
-        launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
-            q_sidecar.get(), q_scale, kv_sidecar.get(), key_scale,
-            value_scale, activation.get(), kQRows, kKvRows, kColumns,
-            q_output, key_output, value_output, static_cast<void*>(stream));
+    return launch_candidate_raw(
+        q_sidecar.get(), q_scale, kv_sidecar.get(), key_scale, value_scale,
+        activation.get(), kQRows, kKvRows, kColumns, q_output, key_output,
+        value_output);
   };
   const auto initialize_guarded_outputs = [&](const std::string& fixture) {
     bool initialized = test.cuda_ok(
@@ -10037,7 +10121,8 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
                                guards_intact && inputs_preserved;
         test.expect(diff_gate,
                     fixture + " is bitwise guarded and input-preserving");
-        std::cout << "FP8_M1_Q_KV_AOSOA4_DIFF: fixture=" << fixture
+        std::cout << "FP8_M1_Q_KV_AOSOA4_DIFF: candidate="
+                  << candidate_name << " fixture=" << fixture
                   << " q_mismatches=" << q_mismatches << '/' << kQRows
                   << " key_mismatches=" << key_mismatches << '/'
                   << kKvRows << " value_mismatches=" << value_mismatches
@@ -10105,9 +10190,9 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
       production_capture.second == 1U && candidate_capture.second == 1U &&
       production_params.func != candidate_params.func &&
       production_params.gridDim.x == 2'048U &&
-      candidate_params.gridDim.x == production_params.gridDim.x &&
+      candidate_params.gridDim.x == candidate_grid_x &&
       production_params.blockDim.x == 256U &&
-      candidate_params.blockDim.x == production_params.blockDim.x &&
+      candidate_params.blockDim.x == candidate_block_x &&
       production_params.sharedMemBytes == 0U &&
       candidate_params.sharedMemBytes == 0U;
   if (graph_ready) {
@@ -10228,7 +10313,12 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
             << " distinct_function="
             << (production_params.func != candidate_params.func ? "true"
                                                                  : "false")
-            << " grid=2048 block=256 replay_mismatches="
+            << " candidate=" << candidate_name
+            << " production_grid=" << production_params.gridDim.x
+            << " production_block=" << production_params.blockDim.x
+            << " candidate_grid=" << candidate_params.gridDim.x
+            << " candidate_block=" << candidate_params.blockDim.x
+            << " replay_mismatches="
             << graph_mismatches
             << " guards=" << (graph_guard_gate ? "intact" : "BAD")
             << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
@@ -10362,12 +10452,10 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
     int status = static_cast<int>(cudaErrorUnknown);
     if (invalid_ready) {
       const InvalidArguments& args = invalid_case.arguments;
-      status = q3x::kernels::
-          launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
-              args.q_sidecar, args.q_scale, args.kv_sidecar, args.key_scale,
-              args.value_scale, args.activation, args.q_rows, args.kv_rows,
-              args.columns, args.q_output, args.key_output, args.value_output,
-              static_cast<void*>(stream));
+      status = launch_candidate_raw(
+          args.q_sidecar, args.q_scale, args.kv_sidecar, args.key_scale,
+          args.value_scale, args.activation, args.q_rows, args.kv_rows,
+          args.columns, args.q_output, args.key_output, args.value_output);
       invalid_ready = test.cuda_ok(
                           cudaStreamEndCapture(stream, &invalid_graph),
                           case_label + " end capture") &&
@@ -10397,8 +10485,9 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
   invalid_gate = invalid_gate && stream_clean && invalid_failures == 0U;
   test.expect(invalid_gate,
               label + " freezes invalid-value fail-before-enqueue behavior");
-  std::cout << "FP8_M1_Q_KV_AOSOA4_INVALID: cases="
-            << invalid_cases.size() << " failures=" << invalid_failures
+  std::cout << "FP8_M1_Q_KV_AOSOA4_INVALID: candidate="
+            << candidate_name << " cases=" << invalid_cases.size()
+            << " failures=" << invalid_failures
             << " zero_nodes=true stream_clean="
             << (stream_clean ? "true" : "false")
             << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
@@ -10504,7 +10593,8 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
       const bool round_gate = finite && paired_speedup >= 1.0F;
       every_round_nonregressing = every_round_nonregressing && round_gate;
       timing_ready = timing_ready && finite;
-      std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ROUND: fixture=" << fixture
+      std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ROUND: candidate="
+                << candidate_name << " fixture=" << fixture
                 << " round=" << round + 1 << " order="
                 << (production_first ? "B-C-C-B" : "C-B-B-C")
                 << " launches_per_pass=" << kMeasuredIterations
@@ -10552,8 +10642,8 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
       actual_diff_gate && graph_gate && invalid_gate && actual_timing_gate;
   test.expect(actual_gate,
               label + " clears the frozen first actual-process hard gate");
-  std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ACTUAL:"
-            << " production_median_ms="
+  std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ACTUAL: candidate="
+            << candidate_name << " production_median_ms="
             << actual_timing.production_median_ms
             << " candidate_median_ms=" << actual_timing.candidate_median_ms
             << " paired_median_speedup="
@@ -10573,7 +10663,8 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
                                                                : "FAIL")
             << " gate=" << (actual_gate ? "PASS" : "FAIL") << '\n';
   if (!actual_gate) {
-    std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_STOP_LOSS:"
+    std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_STOP_LOSS: candidate="
+              << candidate_name
               << " reason=first_frozen_actual_process_failed"
               << " stress_timing=NOT_RUN production_integration=NOT_RUN"
               << " end_to_end=NOT_RUN gate=FAIL\n";
@@ -10649,8 +10740,8 @@ void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
               label + " clears actual and same-bank process gates");
   std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_SELECTED:"
             << " baseline=production_canonical_ping_pong"
-            << " candidate=test_only_aosoa4_preswizzled_sidecar"
-            << " topology=2048x256"
+            << " candidate=test_only_" << candidate_name
+            << " topology=" << candidate_grid_x << 'x' << candidate_block_x
             << " actual_production_median_ms="
             << actual_timing.production_median_ms
             << " actual_candidate_median_ms="
