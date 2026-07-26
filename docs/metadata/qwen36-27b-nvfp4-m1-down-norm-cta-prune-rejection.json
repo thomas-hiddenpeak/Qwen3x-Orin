@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-down-norm-post-sync-cta-prune",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_commit": "77931b863dd8674317aed473c3de97552290a886",
+    "base_tree": "dec4421a7c6867b740f751da088ad4e87cf4e4bf",
+    "base_subject": "perf: promote Decode FP8 output sidecar",
+    "candidate_commit": null,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_kernel_selected": "unchanged unpruned template instance",
+    "candidate_scope": "test-only kernel template instance and synthetic screening harness"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "current_hot_milliseconds_per_token": 109.7585,
+    "current_single_request_tokens_per_second": 9.110911683,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.7585,
+    "profile_note": "The earlier post-GDN profile ranked fused NVFP4 down at 20.913505 ms per Decode step. That profile predates the FP8 output-sidecar production promotion, so it is context rather than a current attribution claim."
+  },
+  "candidate": {
+    "shape_n_by_k": [5120, 17408],
+    "phase": "exact M1 Decode fused down projection, residual add, and centered RMSNorm",
+    "baseline": "production cooperative 64-CTA kernel; after its grid sync all 64 CTAs repeat the RMS reduction and only CTAs 0 through 19 publish normalized 256-row slices",
+    "mechanism": "retain the complete 64-CTA projection, BF16 raw and residual boundaries, and cooperative grid sync, then return CTAs 20 through 63 before the repeated centered-RMS reduction",
+    "surviving_normalization_ctas": 20,
+    "pruned_post_sync_ctas": 44,
+    "grid_reduction_attempted": false,
+    "numerical_contract": "projection mapping, accumulation order, raw BF16 rounding, residual BF16 rounding, grid synchronization, RMS summation order within every surviving CTA, inverse RMS, gamma, and normalized BF16 rounding remain unchanged",
+    "fixture_scope": "deterministic packed-weight pattern with checkpoint-like and same-bank-stress scale distributions plus mixed finite activation, residual, and norm-weight inputs",
+    "actual_checkpoint_payload_read": false
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "build": "CUDA architecture 87 test binary",
+    "comparison_scope": "one same-process, same-binary synthetic exact-shape screen",
+    "clock_note": "The retained synthetic log does not embed independent clock, thermal, or power readbacks."
+  },
+  "resources": {
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4
+    },
+    "required": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "minimum_active_ctas_per_sm": 4
+    },
+    "gate": "pass"
+  },
+  "cuda_graph": {
+    "baseline": {
+      "total_nodes": 1,
+      "kernel_nodes": 1,
+      "grid": [64, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0
+    },
+    "candidate": {
+      "total_nodes": 1,
+      "kernel_nodes": 1,
+      "grid": [64, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0
+    },
+    "baseline_candidate_functions_distinct": true,
+    "candidate_fallback_detected": false,
+    "gate": "pass"
+  },
+  "correctness": {
+    "checkpoint_like": {
+      "raw_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "raw_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "output_guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "production fused baseline versus direct test-only post-grid-sync CTA-pruned candidate",
+    "warmup_launches_per_route": 10,
+    "rounds": 5,
+    "order_each_round": "B-C-C-B",
+    "measured_launches_per_pass": 80,
+    "minimum_each_round_speedup": 1.0,
+    "minimum_paired_round_median_speedup_each_distribution": 1.002,
+    "selection_statistic": "median of the five paired per-round (B1+B2)/(C1+C2) speedups",
+    "stop_loss": "reject before actual-checkpoint, NCU, model-oracle, and end-to-end work if either synthetic distribution misses its frozen median gate"
+  },
+  "performance": {
+    "checkpoint_like": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.320355, "candidate_1_ms": 0.319761, "candidate_2_ms": 0.319846, "baseline_2_ms": 0.320278, "paired_speedup": 1.00160, "nonregression": "pass"},
+        {"round": 2, "baseline_1_ms": 0.320482, "candidate_1_ms": 0.320056, "candidate_2_ms": 0.319788, "baseline_2_ms": 0.320304, "paired_speedup": 1.00147, "nonregression": "pass"},
+        {"round": 3, "baseline_1_ms": 0.320500, "candidate_1_ms": 0.320128, "candidate_2_ms": 0.320259, "baseline_2_ms": 0.320472, "paired_speedup": 1.00091, "nonregression": "pass"},
+        {"round": 4, "baseline_1_ms": 0.320425, "candidate_1_ms": 0.320183, "candidate_2_ms": 0.320121, "baseline_2_ms": 0.320370, "paired_speedup": 1.00077, "nonregression": "pass"},
+        {"round": 5, "baseline_1_ms": 0.320672, "candidate_1_ms": 0.320146, "candidate_2_ms": 0.319954, "baseline_2_ms": 0.320295, "paired_speedup": 1.00135, "nonregression": "pass"}
+      ],
+      "baseline_pass_median_ms": 0.320397,
+      "candidate_pass_median_ms": 0.320088,
+      "pass_median_speedup": 1.00097,
+      "paired_round_median_speedup": 1.00135,
+      "required_paired_round_median_speedup": 1.002,
+      "every_round_nonregression": "pass",
+      "isolated_delta_ms": -0.000309,
+      "isolated_latency_reduction_percent": 0.096443,
+      "arithmetic_64_layer_delta_ms_per_token": -0.019776,
+      "gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.321373, "candidate_1_ms": 0.320881, "candidate_2_ms": 0.321258, "baseline_2_ms": 0.321313, "paired_speedup": 1.00085, "nonregression": "pass"},
+        {"round": 2, "baseline_1_ms": 0.321568, "candidate_1_ms": 0.320940, "candidate_2_ms": 0.321092, "baseline_2_ms": 0.321152, "paired_speedup": 1.00107, "nonregression": "pass"},
+        {"round": 3, "baseline_1_ms": 0.321404, "candidate_1_ms": 0.321112, "candidate_2_ms": 0.321961, "baseline_2_ms": 0.325700, "paired_speedup": 1.00627, "nonregression": "pass"},
+        {"round": 4, "baseline_1_ms": 0.325686, "candidate_1_ms": 0.324504, "candidate_2_ms": 0.324416, "baseline_2_ms": 0.323458, "paired_speedup": 1.00035, "nonregression": "pass"},
+        {"round": 5, "baseline_1_ms": 0.321362, "candidate_1_ms": 0.320769, "candidate_2_ms": 0.321015, "baseline_2_ms": 0.321540, "paired_speedup": 1.00174, "nonregression": "pass"}
+      ],
+      "baseline_pass_median_ms": 0.321472,
+      "candidate_pass_median_ms": 0.321102,
+      "pass_median_speedup": 1.00115,
+      "paired_round_median_speedup": 1.00107,
+      "required_paired_round_median_speedup": 1.002,
+      "every_round_nonregression": "pass",
+      "isolated_delta_ms": -0.000370,
+      "isolated_latency_reduction_percent": 0.115096,
+      "arithmetic_64_layer_delta_ms_per_token": -0.023680,
+      "gate": "fail"
+    },
+    "all_fixtures_gate": "fail"
+  },
+  "sass": {
+    "production_before_and_candidate_build_normalized_sha256": "17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5",
+    "production_instruction_count": 1280,
+    "candidate_instruction_count": 1280,
+    "candidate_complete_normalized_sha256": "ba4478a1c7e321ee1cc7b732b36d801b627cbb0d3931da6b17d199ec836a62e6",
+    "interpretation": "The candidate preserves the production resource and instruction-count envelope. The only intended semantic change is the CTA-uniform exit after the cooperative grid sync; the measured benefit remains below the frozen gate."
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "Both synthetic distributions are bit-exact and every paired round is non-regressing, but checkpoint-like reaches only 1.00135x and same-bank stress only 1.00107x against the required 1.002x paired median.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "closed_scope": "post-grid-sync exit of the 44 CTAs that do not publish normalized output, while preserving the 64-CTA projection and cooperative barrier",
+    "mechanism_interpretation": "Eliminating redundant post-sync reductions saves only about 0.10 percent per fused kernel; the arithmetic 64-layer effect is roughly 0.02 ms/token, too small to justify deeper validation or production complexity.",
+    "stop_loss_triggered": true,
+    "not_run": [
+      "actual checkpoint weight and block-scale payload",
+      "Nsight Compute",
+      "Nsight Systems",
+      "multi-process confirmation",
+      "full-model oracle",
+      "P19/C32/max26 end-to-end benchmark"
+    ]
+  },
+  "cleanup": {
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "source_and_test_match_base": true,
+    "production_function_must_match_base_after_cleanup": true
+  },
+  "artifacts": [
+    {
+      "role": "authoritative synthetic screen log",
+      "path": "/tmp/q3x-down-cta-prune.XXTj2T/synthetic-screen.log",
+      "bytes": 60245,
+      "lines": 349,
+      "sha256": "8c95df120f13d68453eac69d5db778b7069e13aca16e9465ce50a5a0bae4dae3",
+      "expected_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "candidate test binary",
+      "path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5087776,
+      "sha256": "1be30f6078d98a480e4981ead2aee5d3ceeff623c6e49c679658752b4aefd579",
+      "checked_in": false
+    },
+    {
+      "role": "candidate full SASS dump",
+      "path": "/tmp/q3x-down-cta-prune.XXTj2T/candidate.sass",
+      "bytes": 24052517,
+      "lines": 192095,
+      "sha256": "4209464862c0a34e50742908bc3066365ae81449cb48ca30ae2a0d76b8d24d43",
+      "checked_in": false
+    },
+    {
+      "role": "frozen baseline test binary",
+      "path": "/tmp/q3x-down-cta-prune.XXTj2T/baseline-test",
+      "bytes": 5086336,
+      "sha256": "dbc32dab63a7f0f7821d7d5158339bce270d1424429bd0ad21adb5691b5a321d",
+      "checked_in": false
+    },
+    {
+      "role": "frozen production baseline object",
+      "path": "/tmp/q3x-down-cta-prune.odB668/weight_only_gemv.baseline.o",
+      "bytes": 2576696,
+      "sha256": "515bae17981a1d15299c75140790b5302652183e0b5ff7ce890a0a71f34fd8e9",
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "capture a fresh P19/C32/max26 production Decode profile after the FP8 output-sidecar promotion, then re-rank phase-local kernel opportunities from that current timeline",
+    "do_not_restore": "Do not restore this CTA-prune candidate or continue to actual-checkpoint and end-to-end gates without a materially different mechanism."
+  },
+  "limitations": [
+    "This is a synthetic mechanism screen, not an actual-checkpoint measurement.",
+    "The retained log proves same-process relative timings but does not embed independent clock, thermal, power, or energy evidence.",
+    "The 64-layer deltas are arithmetic projections from one isolated fused-kernel pass and are not achieved end-to-end savings.",
+    "No causal NCU counter study or fresh post-sidecar Decode profile is attached to the rejection.",
+    "The expected nonzero test exit reflects the two frozen performance-gate failures and overall selection failure, not a correctness, resource, or Graph failure."
+  ]
+}

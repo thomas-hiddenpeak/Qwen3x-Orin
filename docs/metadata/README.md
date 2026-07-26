@@ -579,6 +579,13 @@ The diagnostic Phase 3 records are:
   The mirrored hot Decode value is
   109.7585 ms/token, or 9.1109 token/s, while the record also exposes the
   non-amortized 1.875-GiB residency and roughly 467-ms cold pack cost.
+- [`qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json`](qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json),
+  which closes the synthetic exact-M1 fused-down post-grid-sync CTA-prune
+  screen. Resources, distinct one-node `64x256` Graphs, both distributions,
+  all three BF16 outputs, guards, and inputs pass, and every timing round
+  non-regresses. Paired medians reach only 1.00135x checkpoint-like and
+  1.00107x same-bank stress against the frozen 1.002x gate, so stop-loss skips
+  actual checkpoint, NCU, model-oracle, and end-to-end work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

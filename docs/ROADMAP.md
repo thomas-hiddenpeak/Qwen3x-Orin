@@ -819,11 +819,20 @@ The tradeoff is explicit: 2,013,265,920 persistent bytes (1.875 GiB) and
 437.460/497.171 ms of cold construction in the timed candidate processes,
 about 467 ms on average. The hot number excludes that startup work. The
 single-request milestone remains 9.7585 ms/token away from 100 ms and needs a
-further 8.89% latency reduction. Continue incrementally with the bounded NVFP4
-down CTA-prune screen, then capture a fresh Decode profile and re-rank the
-remaining phase-local hotspots. Prefill resumes after the 100-ms/10-token/s
+further 8.89% latency reduction. The immediate bounded item is the NVFP4 down
+CTA-prune screen described next. Prefill resumes after the 100-ms/10-token/s
 Decode gate, and closed gate/up load-shape branches remain closed. See the
 [production sidecar benchmark](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json).
+
+That post-grid-sync CTA-prune screen is now closed. It is bit-exact, preserves
+the `64x256` cooperative shape and production resources, and non-regresses in
+all ten paired rounds, but checkpoint-like/stress medians reach only
+1.00135x/1.00107x against 1.002x. The roughly 0.02-ms/token arithmetic ceiling
+triggers stop-loss before actual checkpoint, NCU, model-oracle, or end-to-end
+work. The candidate is removed. Next capture a fresh production
+P19/C32/max26 Decode profile after the output-sidecar promotion and re-rank
+current-timeline hotspots. See the
+[CTA-prune rejection](metadata/qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json).
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks

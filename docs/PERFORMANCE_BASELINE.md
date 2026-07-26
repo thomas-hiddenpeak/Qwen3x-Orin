@@ -4755,8 +4755,29 @@ ID, text, `im_end`, and 44-step replay with all 64 sidecars attached and a
 460.648-ms cold pack.
 
 This is a narrow persistent weight-format sidecar, not a runtime double/triple
-buffer or Prefill/Decode overlap. The next bounded Decode item is NVFP4 down
-CTA pruning, followed by a fresh production profile and hotspot re-ranking.
+buffer or Prefill/Decode overlap. The immediately following NVFP4 down CTA-
+prune screen is closed below; a fresh production profile and hotspot
+re-ranking now follow it.
 Full binary and log hashes, aggregation arithmetic, validation scope, memory
 policy, and limitations are in the
 [production benchmark record](metadata/qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json).
+
+## Decode NVFP4 M1 down/norm post-sync CTA-prune rejection
+
+The test-only exact `[5120,17408]` candidate keeps the complete 64-CTA
+projection, BF16 raw/residual boundaries, and cooperative grid sync, then
+returns CTAs 20–63 before the repeated RMS reduction because only CTAs 0–19
+publish normalized slices. It retains 64 registers/thread, 35,904 B shared,
+zero local, and four active CTAs/SM. Production and candidate are distinct
+single-node `64x256` Graphs. Both checkpoint-like and same-bank synthetic
+fixtures match raw/residual/normalized at `0/5,120`, with intact guards and
+preserved inputs.
+
+Five 80-launch `B-C-C-B` rounds all non-regress, but paired medians are only
+1.00135x and 1.00107x versus the required 1.002x. Pass medians move merely
+0.320397→0.320088 and 0.321472→0.321102 ms, an arithmetic 64-layer saving of
+about 0.020–0.024 ms/token rather than an achieved end-to-end result. Stop-loss
+therefore rejects and removes the candidate without actual checkpoint, NCU,
+Nsys, model-oracle, or P19 timing. The next step is a fresh production Decode
+profile after the output-sidecar promotion. Full evidence is in the
+[CTA-prune rejection record](metadata/qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json).
