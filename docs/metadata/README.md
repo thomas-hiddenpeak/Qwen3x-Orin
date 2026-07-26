@@ -840,6 +840,20 @@ The diagnostic Phase 3 records are:
   serial one-stream schedule, and the **107.889500 ms/token / 9.268742556
   token/s** anchor are unchanged pending promotion, full suites/model oracles,
   whole-model B-C-C-B timing, and fresh Nsight Systems closure.
+- [`qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json`](qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json),
+  which records the subsequent exact Q24/KV4/D256 S1-S64 production
+  promotion. The public and direct warp-position launchers resolve to one
+  `24x256` Function while the shared-tree predecessor remains test-only;
+  bitwise output/probability, Graph, resource, Release, verified ASan/UBSan,
+  and C1/C8/C16/C32 model gates pass. Two production micro processes project
+  0.385729-0.386008 ms/token over 16 layers, while the independent whole-model
+  P19/C32/max26 `B1-C1-C2-B2` result directly moves the mirrored hot Decode
+  mean from 107.9395 to **107.3140 ms/token**, establishing **9.318448665
+  token/s**. Fresh Nsight Systems closes all 25 single-stream Decode ranges,
+  finds 400 production and zero predecessor launches, and directionally cuts
+  the target symbol from 0.7896896 to 0.2024768 ms/token. The formal gap is
+  now **7.314 ms/token / 0.681551335 token/s**; Prefill remains deferred and no
+  system double/triple buffering or Prefill/Decode overlap is claimed.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -1,0 +1,708 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark",
+  "status": "production-promoted-single-request-decode-target-not-yet-met",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "selection_commit": "9f83ce5447620a1b2a517ec46f84ff249c43bd3a",
+    "selection_tree": "61beb23dcdbbffbf8988bcb7fb43bd7e4a9bbdc3",
+    "selection_subject": "bench: screen Decode GQA warp-position scores",
+    "selection_record_commit": "0d5e5f3d60400a75bb0bb5136efc89c4cef01eab",
+    "selection_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-selection.json",
+    "production_commit": "3ba9c40ec5d46dd53c70b7eb18c7437c229d1a7e",
+    "production_tree": "a1458f2c9f069119aaea6f13d03781eca2cd766e",
+    "production_subject": "perf: promote Decode GQA warp-position scores",
+    "production_parent_commit": "0d5e5f3d60400a75bb0bb5136efc89c4cef01eab",
+    "kernel_source_blob": "f8ea84c664335ed645e33f5a76950c6ec4097167",
+    "cuda_test_blob": "3c62ae60184daebf8e98cf14d41a86b1458d30d2",
+    "preceding_anchor_commit": "9aab3c34f2b40dcea8a395c873d67297723051d4",
+    "preceding_anchor_record": "qwen36-27b-decode-streaming-production-benchmark.json",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measurement_identity": "B is the frozen executable that established the preceding 107.889500-ms/token production anchor. C is the Release executable frozen after production commit 3ba9c40. The four whole-model processes alternate B1-C1-C2-B2 and use their own load, warmup, and five measured rounds."
+  },
+  "binaries": {
+    "old_anchor_baseline": {
+      "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/qwen3x-orin.candidate",
+      "historical_role": "candidate in the preceding streaming-load promotion; baseline for this promotion",
+      "bytes": 4478256,
+      "sha256": "e3e025b0fe3bf2b74490d5a8ad7c47d1aa73fd070ca17a2663d2f0fab7786824",
+      "elf_build_id": "dbcf92a891766ee80aece5ce7f0d53e1629e162d",
+      "checked_in": false
+    },
+    "production_candidate": {
+      "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/qwen3x-orin.candidate",
+      "bytes": 4821312,
+      "sha256": "3e1217112e8f0f30a618979ee6c0435a858c8ce3e60a1e78466044418d47ae2b",
+      "elf_build_id": "8ed86cd267fce5979b61ab24f1eb56cefb2efd7e",
+      "checked_in": false
+    },
+    "production_model_oracle": {
+      "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/q3x_reference_engine_e2e_test.candidate",
+      "bytes": 4745512,
+      "sha256": "aa01b25b6377d2fd0adcd3c9e5ecf613ff0c257e7d6e13bc1deb179a351bfe8a",
+      "elf_build_id": "57434eb1856686280e82774b89e5cb485e7b79ee",
+      "checked_in": false
+    },
+    "production_decode_device_test": {
+      "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/q3x_decode_ops_cuda_test.candidate",
+      "bytes": 719624,
+      "sha256": "fbb76ace060d44921ebb8cfd801edc5c3f77dcffab55a040673f18b3ba47a193",
+      "elf_build_id": "43d70de68a98e73139616e5cc5d26819ce45accb",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": 1300500000,
+    "emc_bwmgr_devfreq_hz": 3200000000,
+    "clock_scope": "The formal microbenchmark and whole-model promotion sequence were run in the project's fixed-frequency MAXN workflow. This record does not establish thermal-soak, power, or energy behavior."
+  },
+  "implementation": {
+    "phase": "single-token full-attention Decode",
+    "operation": "fused causal GQA score, softmax, FP32 probability publication, BF16-rounded attention value, and sigmoid gate",
+    "fixed_shape": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "maximum_sequence_length": 64,
+      "full_attention_layers": 16
+    },
+    "predecessor": "one 256-thread CTA per query head; each sequence position uses the original block-wide shared-memory reduction tree",
+    "production": "one 256-thread CTA per query head; eight warps concurrently own score positions and advance in strides of eight",
+    "mechanism": {
+      "warp_position_mapping": "warp = threadIdx.x / 32; position = warp, warp + 8, ... while position < sequence_length",
+      "bitwise_score_order": "Each lane constructs the same 256-product predecessor tree in 128,64,32 group order; guarded shuffle-down additions reproduce the 16,8,4,2,1 tail.",
+      "synchronization_change": "The score phase replaces each position's CTA-wide shared reduction/barrier sequence with warp-local shuffles and one CTA barrier after all warps publish scores.",
+      "unchanged_contract": [
+        "FP32 score scaling",
+        "shared-memory softmax maximum and denominator trees",
+        "FP32 probability scratch publication",
+        "value-cache traversal and FMA order",
+        "explicit BF16 encode/decode boundary before sigmoid gating",
+        "signed sigmoid branch and final BF16-RNE output"
+      ]
+    },
+    "production_dispatch": "The public exact Q24/KV4/D256 S1-S64 launcher now selects the warp-position body.",
+    "rollback_contract": "The shared-tree predecessor remains reachable only through a direct test launcher and resource query.",
+    "direct_test_contract": "The direct warp-position hook resolves to the same production kernel Function as the public launcher.",
+    "public_abi_changed": false,
+    "launch_count_changed": false,
+    "persistent_memory_overhead_bytes": 0,
+    "workspace_layout_changed": false,
+    "prefill_dispatch_changed": false,
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap_added": false,
+      "prefill_decode_overlap_added": false
+    }
+  },
+  "production_identity_and_resources": {
+    "topology": {
+      "grid": [
+        24,
+        1,
+        1
+      ],
+      "block": [
+        256,
+        1,
+        1
+      ],
+      "dynamic_shared_bytes": 0,
+      "one_kernel_node_per_launch": true
+    },
+    "predecessor": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 1280,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 6
+    },
+    "production": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 1280,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 6
+    },
+    "direct_warp_hook": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 1280,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 6
+    },
+    "cuda_graph": {
+      "predecessor_nodes": 1,
+      "production_nodes": 1,
+      "direct_nodes": 1,
+      "predecessor_function_distinct": true,
+      "production_and_direct_function_same": true,
+      "real_buffer_replay_bitwise": true,
+      "gate": "pass"
+    },
+    "resource_envelope_unchanged": true,
+    "sass": {
+      "extraction_source": "/tmp/q3x-gqa-warp-production.3ba9c40/q3x_decode_ops_cuda_test.candidate",
+      "production": {
+        "raw_function_section_sha256": "1358f7b462b803e3a837cf9ed33e5d6351caf4cf977107b8e2ffe979f88292c8",
+        "raw_instruction_rows_sha256": "e174e60021cd250efdf4b0727b49ec3dc380d3fc0f10393b0cd63fed459535ac",
+        "normalized_function_sha256": "ead8b5295d3d24b75b7d1582ff65d0366c124d4f726b97b6c43799da247f932b",
+        "canonical_encoding64_sha256": "960d1ae9924c67696049b3cf1ed20130675dc0361c65aea891461575b84c7a56",
+        "instruction_count": 864,
+        "bar_instruction_points": 20,
+        "shfl_down_instruction_points": 6,
+        "stl_instruction_points": 0,
+        "ldl_instruction_points": 0
+      },
+      "predecessor": {
+        "raw_function_section_sha256": "58df5bf7658b820a52d457eda23d2b14cfe0a38cc9942e974a9acde7daa17f37",
+        "raw_instruction_rows_sha256": "a0b20865a26228f1059c81077813e8277cc5f9a1a76903665b7e6d12b7cef2ad",
+        "normalized_function_sha256": "5e97e5a6cdf4d72d78d1f04bf917cf71df775740eb87594006143395c785330b",
+        "canonical_encoding64_sha256": "6ca8895709005e8655d3751daa03dbd23db271e1f0e53eecc81153c4f73b8c7b",
+        "instruction_count": 840,
+        "bar_instruction_points": 29,
+        "shfl_down_instruction_points": 0,
+        "stl_instruction_points": 0,
+        "ldl_instruction_points": 0
+      },
+      "interpretation": "The production body intentionally has 24 more static instructions but replaces nine static BAR instruction points with six SHFL.DOWN points. Both bodies remain zero-spill and preserve six-CTA residency.",
+      "normalization_note": "The raw Function section, raw instruction rows, address/control-normalized instruction text, and canonical lowercase 64-bit encoding/control-word streams are hashed separately; hashes are not compared across different normalization classes."
+    },
+    "gate": "pass"
+  },
+  "production_microbenchmark": {
+    "status": "pass",
+    "environment_variable": "Q3X_RUN_GQA_SIGMOID_WARP_POSITIONS_PERF=1",
+    "command": "Q3X_RUN_GQA_SIGMOID_WARP_POSITIONS_PERF=1 ./build/orin-release/q3x_decode_ops_cuda_test",
+    "comparison": "retained shared-tree predecessor B versus public production warp-position route C",
+    "same_binary": true,
+    "same_stream": true,
+    "shared_output_and_probability_addresses": true,
+    "independent_processes": 2,
+    "warmup_launches_per_route_per_cell": 10,
+    "individual_sequence_lengths": [
+      20,
+      32,
+      44
+    ],
+    "chain_sequence_lengths_inclusive": [
+      20,
+      44
+    ],
+    "chain_kernels": 25,
+    "rounds_per_cell": 5,
+    "round_order": [
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B"
+    ],
+    "processes": [
+      {
+        "process": 1,
+        "individual": {
+          "S20": {
+            "paired_median_speedup": 2.83061,
+            "paired_median_delta_ms": 0.0148888,
+            "rounds_nonregressing": "5/5"
+          },
+          "S32": {
+            "paired_median_speedup": 3.66365,
+            "paired_median_delta_ms": 0.0242926,
+            "rounds_nonregressing": "5/5"
+          },
+          "S44": {
+            "paired_median_speedup": 4.19479,
+            "paired_median_delta_ms": 0.0336254,
+            "rounds_nonregressing": "5/5"
+          }
+        },
+        "chain": {
+          "predecessor_median_ms": 0.833280,
+          "production_median_ms": 0.230643,
+          "paired_median_speedup": 3.61320,
+          "paired_median_delta_ms": 0.602702,
+          "paired_median_delta_ms_per_layer": 0.0241081,
+          "projected_16_layer_delta_ms_per_token": 0.385729,
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        "all_individual_and_chain_rounds_nonregressing": "20/20",
+        "terminal_line": "CUDA decode-op reference tests passed",
+        "log": {
+          "local_path": "/tmp/q3x-gqa-warp-production.20260726.process1.log",
+          "bytes": 9084,
+          "lines": 47,
+          "sha256": "e00ff5feed56d9743bb670b8b800c39ba6296b3c9812cb7ef54395ec1b214a0d",
+          "exit_code": 0
+        }
+      },
+      {
+        "process": 2,
+        "individual": {
+          "S20": {
+            "paired_median_speedup": 2.87042,
+            "paired_median_delta_ms": 0.0150090,
+            "rounds_nonregressing": "5/5"
+          },
+          "S32": {
+            "paired_median_speedup": 3.70805,
+            "paired_median_delta_ms": 0.0244336,
+            "rounds_nonregressing": "5/5"
+          },
+          "S44": {
+            "paired_median_speedup": 4.20641,
+            "paired_median_delta_ms": 0.0336704,
+            "rounds_nonregressing": "5/5"
+          }
+        },
+        "chain": {
+          "predecessor_median_ms": 0.834467,
+          "production_median_ms": 0.231218,
+          "paired_median_speedup": 3.60815,
+          "paired_median_delta_ms": 0.603138,
+          "paired_median_delta_ms_per_layer": 0.0241255,
+          "projected_16_layer_delta_ms_per_token": 0.386008,
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        "all_individual_and_chain_rounds_nonregressing": "20/20",
+        "terminal_line": "CUDA decode-op reference tests passed",
+        "log": {
+          "local_path": "/tmp/q3x-gqa-warp-production.20260726.process2.log",
+          "bytes": 9073,
+          "lines": 47,
+          "sha256": "4b4d9a81b3bafd6dc3129477a6b09234517bb70ccfb2463dcf8c17548859615c",
+          "exit_code": 0
+        }
+      }
+    ],
+    "summary": {
+      "processes_passing": "2/2",
+      "all_timed_rounds_nonregressing": "40/40",
+      "chain_paired_median_speedup_range": [
+        3.60815,
+        3.61320
+      ],
+      "projected_16_layer_delta_ms_per_token_range": [
+        0.385729,
+        0.386008
+      ],
+      "projection_note": "The 16-layer numbers are arithmetic projections from the isolated synthetic chain, not the achieved whole-model delta."
+    },
+    "default_test_log": {
+      "local_path": "/tmp/q3x-gqa-warp-production-default.20260726.log",
+      "bytes": 3179,
+      "lines": 23,
+      "sha256": "7eb8d3bd4a61d1f868ad1fae0df174e8cbef5e14a32e8e306882a0222a6eaaad",
+      "terminal_line": "CUDA decode-op reference tests passed",
+      "status": "pass"
+    }
+  },
+  "release_validation": {
+    "release_ctest": {
+      "build": "build/orin-release",
+      "selected": 52,
+      "passed": 51,
+      "failed": 0,
+      "skipped": 1,
+      "not_failed_including_skip": 52,
+      "status": "pass",
+      "logs": {
+        "last_test": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/ctest-release.log",
+          "bytes": 118970,
+          "lines": 1526,
+          "sha256": "2f67f71784ea22c084f3885d0dc39209c2aa0ed2156a9a30cd40c914640841a4"
+        },
+        "console": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/ctest-release-console.log",
+          "bytes": 6911,
+          "lines": 117,
+          "sha256": "1ab0e9c33f928e60099417048e22a00f6ebacaa36a4810279c35701af9bf0683",
+          "terminal_summary": "100% tests passed, 0 tests failed out of 52; tokenizer skipped"
+        }
+      }
+    },
+    "verified_asan_ubsan_ctest": {
+      "build": "build-sanitize",
+      "selected": 51,
+      "passed": 50,
+      "failed": 0,
+      "skipped": 1,
+      "not_failed_including_skip": 51,
+      "instrumentation": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "status": "pass",
+      "device_scope_limit": "Host ASan/UBSan does not instrument CUDA device execution.",
+      "log": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/ctest-sanitize.log",
+        "bytes": 117824,
+        "lines": 1511,
+        "sha256": "b6557fa8ad0c856e249a094907b90644347f28d82295004aecac588887ec6630"
+      }
+    },
+    "production_contract": {
+      "exact_sequence_lengths": [
+        1,
+        16,
+        20,
+        32,
+        44,
+        64
+      ],
+      "bf16_output_bitwise": true,
+      "fp32_probability_scratch_bitwise": true,
+      "input_preservation": true,
+      "invalid_zero_node_cases": {
+        "production": 11,
+        "direct_warp_hook": 11,
+        "total": 22
+      },
+      "resource_query_null_output_cases": {
+        "predecessor": 5,
+        "production": 5,
+        "direct_warp_hook": 5,
+        "total": 15
+      },
+      "real_buffer_graph_replay": true,
+      "gate": "pass"
+    },
+    "model_oracles": {
+      "command_template": "q3x_reference_engine_e2e_test MODEL_DIR sm87 {1|8|16|32}",
+      "chunks_passed": [
+        1,
+        8,
+        16,
+        32
+      ],
+      "shared_result": {
+        "status": "pass",
+        "prompt_ids": 19,
+        "generated_ids": 26,
+        "exact_text": true,
+        "stop_reason": "im_end",
+        "steps": 44,
+        "projection_backend": "sm87_weight_only",
+        "startup_overlap": true,
+        "fp8_output_sidecar_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920
+      },
+      "logs": {
+        "C1": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/oracle.C1.log",
+          "bytes": 401,
+          "lines": 1,
+          "sha256": "3827b6c2fec06579dda4771bf1103c005c06dd99f1887c8f4f9b7146f88e4163"
+        },
+        "C8": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/oracle.C8.log",
+          "bytes": 403,
+          "lines": 1,
+          "sha256": "f0a5d0145cb60cea21fbc1766ccef235efe912006f51eff48085f09636969276"
+        },
+        "C16": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/oracle.C16.log",
+          "bytes": 402,
+          "lines": 1,
+          "sha256": "06c0b4b94c89658b26f8e5e172e08678ceec7a0e5788d6599a9738384b318cf3"
+        },
+        "C32": {
+          "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/oracle.C32.log",
+          "bytes": 401,
+          "lines": 1,
+          "sha256": "c097f7ae265afd3e4e689164a1ee88496058669c156fdb3d96912e66a3f58cd5"
+        }
+      }
+    }
+  },
+  "end_to_end_benchmark": {
+    "status": "pass",
+    "protocol": {
+      "scope": "hot serial single-request Decode",
+      "process_order": [
+        "B1",
+        "C1",
+        "C2",
+        "B2"
+      ],
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_intervals_per_generation": 25,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "projection_backend": "sm87_weight_only"
+    },
+    "runs": {
+      "B1": {
+        "subsequent_token_ms": 107.893,
+        "decode_after_first_ms": 2697.016,
+        "ttft_ms": 427.077,
+        "total_generation_ms": 3124.060,
+        "prompt_prefix_ms": 319.493,
+        "finish_prefill_ms": 107.590
+      },
+      "C1": {
+        "subsequent_token_ms": 107.336,
+        "decode_after_first_ms": 2683.313,
+        "ttft_ms": 424.847,
+        "total_generation_ms": 3108.123,
+        "prompt_prefix_ms": 317.503,
+        "finish_prefill_ms": 107.330
+      },
+      "C2": {
+        "subsequent_token_ms": 107.292,
+        "decode_after_first_ms": 2682.232,
+        "ttft_ms": 425.205,
+        "total_generation_ms": 3107.474,
+        "prompt_prefix_ms": 317.931,
+        "finish_prefill_ms": 107.274
+      },
+      "B2": {
+        "subsequent_token_ms": 107.986,
+        "decode_after_first_ms": 2699.216,
+        "ttft_ms": 427.473,
+        "total_generation_ms": 3126.790,
+        "prompt_prefix_ms": 319.787,
+        "finish_prefill_ms": 107.704
+      }
+    },
+    "mirrored_aggregate": {
+      "baseline_subsequent_ms": 107.939500,
+      "candidate_subsequent_ms": 107.314000,
+      "subsequent_delta_ms": -0.625500,
+      "subsequent_speedup": 1.005828690,
+      "candidate_tokens_per_second": 9.318448665,
+      "pair1_subsequent_delta_ms": -0.557,
+      "pair2_subsequent_delta_ms": -0.694,
+      "c1_less_than_b1": true,
+      "c2_less_than_b2": true,
+      "baseline_decode_after_first_ms": 2698.116000,
+      "candidate_decode_after_first_ms": 2682.772500,
+      "decode_after_first_delta_ms": -15.343500,
+      "decode_after_first_speedup": 1.005719270,
+      "baseline_ttft_ms": 427.275000,
+      "candidate_ttft_ms": 425.026000,
+      "ttft_delta_ms": -2.249000,
+      "ttft_speedup": 1.005291441,
+      "baseline_total_generation_ms": 3125.425000,
+      "candidate_total_generation_ms": 3107.798500,
+      "total_generation_delta_ms": -17.626500,
+      "total_generation_speedup": 1.005671700,
+      "baseline_prompt_prefix_ms": 319.640000,
+      "candidate_prompt_prefix_ms": 317.717000,
+      "prompt_prefix_delta_ms": -1.923000,
+      "baseline_finish_prefill_ms": 107.647000,
+      "candidate_finish_prefill_ms": 107.302000,
+      "finish_prefill_delta_ms": -0.345000
+    },
+    "functional_canonicalization": {
+      "rows_per_process": 29,
+      "bytes_per_canonical_file": 1881,
+      "sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "all_four_equal": true,
+      "matches_historical_golden": true
+    },
+    "completeness": {
+      "lines_per_log": 163,
+      "sample_count_each": 5,
+      "later_token_intervals_each_process": 125,
+      "sample_4_later_token_values_each": 25,
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "all_four_logs_complete": true,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/whole-model.B1.log",
+        "bytes": 8127,
+        "lines": 163,
+        "sha256": "7b9750a635eb298b418c26aed312bd8127de59eb1d58f52dab5479866917f878"
+      },
+      "C1": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/whole-model.C1.log",
+        "bytes": 8127,
+        "lines": 163,
+        "sha256": "399d5a5a28519e1f8f6ab478b4b7fad745ab06b03dc665e7bfa6d0ebfd07bc86"
+      },
+      "C2": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/whole-model.C2.log",
+        "bytes": 8139,
+        "lines": 163,
+        "sha256": "744420e46b843133beff7d8de10cf40481807383b8555c8069163dba724583c4"
+      },
+      "B2": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/whole-model.B2.log",
+        "bytes": 8127,
+        "lines": 163,
+        "sha256": "19de69deb9067b70e93ef9a0f2fbb263cb3b7534111d04c2bf6774012e9f9e3b"
+      }
+    }
+  },
+  "nsight_systems_gate": {
+    "status": "pass",
+    "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT RUNNER generate MODEL --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+    "exact_generation": {
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44
+    },
+    "phases": {
+      "q3x.prefill.prefix_tile": {
+        "ranges": 1,
+        "kernel_rows": 1635,
+        "raw_ns": 316562304,
+        "union_ns": 316562304,
+        "span_ns": 319532768,
+        "idle_ns": 2970464,
+        "overlap_ns": 0,
+        "streams": 1
+      },
+      "q3x.prefill.finish": {
+        "ranges": 1,
+        "kernel_rows": 389,
+        "raw_ns": 126605664,
+        "union_ns": 126605664,
+        "span_ns": 127607392,
+        "idle_ns": 1001728,
+        "overlap_ns": 0,
+        "streams": 1
+      },
+      "q3x.decode.step": {
+        "ranges": 25,
+        "kernel_rows": 9725,
+        "kernel_rows_per_range": 389,
+        "raw_ns": 2781044896,
+        "union_ns": 2781044896,
+        "span_ns": 2796374784,
+        "idle_ns": 15329888,
+        "idle_percent_of_span": 0.548205773,
+        "overlap_ns": 0,
+        "streams": 1
+      },
+      "q3x.generation": {
+        "ranges": 1,
+        "kernel_rows": 11749,
+        "raw_ns": 3224212864,
+        "union_ns": 3224212864,
+        "span_ns": 3243660768,
+        "idle_ns": 19447904,
+        "overlap_ns": 0,
+        "streams": 1
+      }
+    },
+    "dispatch_closure": {
+      "production_gqa_sigmoid_warp_position_kernel_count": 400,
+      "production_gqa_sigmoid_launches_per_decode_step": 16,
+      "shared_tree_predecessor_kernel_count": 0,
+      "selected_gate_up_kernel_count": 1600,
+      "selected_down_kernel_count": 1600,
+      "gate_up_and_down_rollback_or_default_kernel_count": 0,
+      "decode_rows_equal_25_times_389": true,
+      "generation_rows_equal_prefix_plus_finish_plus_decode": true,
+      "single_stream": true,
+      "raw_equals_union": true,
+      "kernel_overlap_ns": 0,
+      "gate": "pass"
+    },
+    "target_kernel_attribution": {
+      "current_profile": {
+        "kernel_instances": 400,
+        "raw_ns": 5061920,
+        "average_ns_per_call": 12654.8,
+        "raw_ms_per_decode_token": 0.2024768
+      },
+      "preceding_formal_profile": {
+        "record": "qwen36-27b-decode-streaming-production-benchmark.json",
+        "analysis_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate-analysis.json",
+        "kernel_instances": 400,
+        "raw_ns": 19742240,
+        "average_ns_per_call": 49355.6,
+        "raw_ms_per_decode_token": 0.7896896
+      },
+      "directional_symbol_speedup": 3.900148560,
+      "directional_raw_delta_ms_per_decode_token": -0.5872128,
+      "current_preprocess_raw_ns": 2534528,
+      "preceding_preprocess_raw_ns": 2534816,
+      "preprocess_directional_change_percent": -0.011361771,
+      "interpretation": "The exact production symbol replacement and 3.90015x profile-local kernel reduction support attribution. Timing across independent profiler traces is directional and does not replace the unprofiled mirrored end-to-end benchmark."
+    },
+    "artifacts": {
+      "console_log": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate.log",
+        "bytes": 3247,
+        "lines": 58,
+        "sha256": "e0eb568b34282eafc1c7706a0754c62bb7b366e6d6f7463f81fb8ff51b3f941d"
+      },
+      "report": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-p19-c32-max26.nsys-rep",
+        "bytes": 938580,
+        "sha256": "d848b49db6495512be2a30a34f32ad53ff3d2f8ebe0bdbc2e76a4eedce89bf7c"
+      },
+      "sqlite": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-p19-c32-max26.sqlite",
+        "bytes": 2654208,
+        "sha256": "9a228e19f1252e579067f36c0bedd6c5407a8188e89620c3b24e143ad8fad9e6"
+      },
+      "stats_log": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-stats.log",
+        "bytes": 33020,
+        "lines": 158,
+        "sha256": "64536b235d573ce664a30cf77fb565f2ca597b4838e68260871c6e686dedd326"
+      },
+      "analysis": {
+        "local_path": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-analysis.json",
+        "bytes": 22707,
+        "lines": 565,
+        "sha256": "28a5bd5a234aa0a98021ea81cceabc0b70dc43a48558208d4db8fd757ca89ca2"
+      }
+    }
+  },
+  "decision": {
+    "result": "promote exact Q24/KV4/D256 S1-S64 fused GQA/sigmoid warp-position score phase",
+    "prior_active_anchor_ms_per_token": 107.889500,
+    "prior_active_anchor_tokens_per_second": 9.268742556,
+    "achieved_hot_single_request_ms_per_token": 107.314000,
+    "achieved_hot_single_request_tokens_per_second": 9.318448665,
+    "delta_from_prior_active_anchor_ms_per_token": -0.575500,
+    "same_run_mirrored_baseline_ms_per_token": 107.939500,
+    "same_run_mirrored_candidate_delta_ms_per_token": -0.625500,
+    "same_run_mirrored_speedup": 1.005828690,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.314000,
+    "remaining_tokens_per_second": 0.681551335,
+    "remaining_relative_latency_reduction_percent": 6.815513577,
+    "target_met": false,
+    "next_priority": "Continue bounded single-request Decode optimization. Dedicated Prefill optimization remains deferred until the 100-ms/token and 10-token/s stage target is met."
+  },
+  "claim_limits": [
+    "The achieved anchor is hot single-request Decode on one fixed-clock Orin and excludes model load.",
+    "The 107.314000-ms/token anchor is the directly measured C1/C2 mirrored mean, not an arithmetic subtraction of the isolated microbenchmark projection.",
+    "This is not a multi-request throughput, tail-latency, power, energy, or dedicated Prefill claim.",
+    "No double buffering, triple buffering, additional stream, or Prefill/Decode overlap was introduced.",
+    "The 0.385729-0.386008-ms/token microbenchmark range is an isolated synthetic 16-layer projection and is not the measured 0.625500-ms/token same-run whole-model delta.",
+    "The 3.90015x Nsight Systems target-symbol comparison is directional across independent traces and is supporting attribution, not an end-to-end speed claim."
+  ]
+}
