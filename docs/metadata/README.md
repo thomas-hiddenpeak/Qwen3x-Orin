@@ -824,6 +824,22 @@ The diagnostic Phase 3 records are:
   work. The next independent cell is attention preprocess/GQA cooperative
   fusion; production, Prefill, and the **107.889500 ms/token / 9.268742556
   token/s** anchor remain unchanged.
+- [`qwen36-27b-decode-gqa-sigmoid-warp-positions-selection.json`](qwen36-27b-decode-gqa-sigmoid-warp-positions-selection.json),
+  which selects the test-only exact Q24/KV4/D256, S1-S64 fused GQA/sigmoid
+  warp-position score path for production integration. Eight warps per
+  query-head CTA process score positions in parallel while reproducing the
+  original 256-product reduction tree bitwise; softmax, FP32 probability
+  publication, value accumulation, the BF16 intermediate, and sigmoid gate
+  remain unchanged. BF16 output and FP32 probabilities match at S1/S16/S20/
+  S32/S44/S64, real-buffer Graph replay remains one distinct `24x256` node,
+  and both routes retain `40r/1,280B/0local/0stack/6CTA-SM`. Two independent
+  S20-S44 chain processes improve all 40 individual-plus-chain rounds, reach
+  3.60462x-3.60602x, and project **0.386042-0.386268 ms/token** over 16
+  full-attention layers against the frozen 0.20-ms gate. This remains an
+  isolated synthetic test-only projection: production dispatch, Prefill, the
+  serial one-stream schedule, and the **107.889500 ms/token / 9.268742556
+  token/s** anchor are unchanged pending promotion, full suites/model oracles,
+  whole-model B-C-C-B timing, and fresh Nsight Systems closure.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gqa-sigmoid-warp-positions-selection",
+  "status": "selected-test-only-for-production-integration",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "44bf72e06659239e0ce4197f6daa2970bdb7e29f",
+    "base_tree": "edfbc927bb03130c1491307f8c80caecd0bc7625",
+    "base_subject": "docs: reject Decode attention CTA coarsening",
+    "candidate_commit": "9f83ce5447620a1b2a517ec46f84ff249c43bd3a",
+    "candidate_tree": "61beb23dcdbbffbf8988bcb7fb43bd7e4a9bbdc3",
+    "candidate_subject": "bench: screen Decode GQA warp-position scores",
+    "kernel_source_blob": "1f7af5ecec0bf2d55fe72d18920bd5f3c2d4a2e4",
+    "cuda_test_blob": "d2295bd6bf17fc17fc9ca17720c917dcfd0f5a77",
+    "candidate_scope": "test-only exact-shape fused GQA/sigmoid warp-position score kernel, launcher, resource query, correctness/Graph contract, and opt-in performance screen",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_selector_changed": false,
+    "production_kernel_changed": false,
+    "production_source_body_unchanged_from_base": true,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-streaming-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.889500,
+    "formal_anchor_tokens_per_second": 9.268742556,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "target_met": false,
+    "anchor_changed_by_this_selection": false
+  },
+  "candidate": {
+    "phase": "single-token full-attention Decode",
+    "operation": "fused causal GQA score, softmax, FP32 probability publication, BF16-rounded attention value, and sigmoid gate",
+    "fixed_shape": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "supported_sequence_length_inclusive": [1, 64],
+      "screened_hot_sequence_chain_inclusive": [20, 44],
+      "full_attention_layers": 16
+    },
+    "production_predecessor": "one 256-thread CTA per query head; each sequence position uses the original block-wide shared-memory reduction tree for its score",
+    "test_only_candidate": "one 256-thread CTA per query head; eight warps own up to eight score positions concurrently and advance through the sequence in strides of eight",
+    "mechanism": {
+      "warp_position_mapping": "warp = threadIdx.x / 32; position = warp, warp + 8, ... while position < sequence_length",
+      "bitwise_exact_score_tree": "Each lane constructs the same 256-product predecessor tree in the same 128,64,32 group order, then guarded shuffle-down additions reproduce the 16,8,4,2,1 tail.",
+      "synchronization_change": "The score phase replaces the predecessor's per-position CTA-wide shared reduction and barriers with warp-local shuffles plus one CTA barrier after all warps publish their positions.",
+      "unchanged_after_score": [
+        "FP32 score scaling",
+        "shared-memory softmax maximum and denominator trees",
+        "FP32 probability values and probabilities_scratch publication",
+        "value-cache traversal and FMA order",
+        "explicit BF16 encode/decode boundary before sigmoid gating",
+        "signed sigmoid branch and final BF16-RNE output"
+      ]
+    },
+    "topology": {
+      "production_grid": [24, 1, 1],
+      "candidate_grid": [24, 1, 1],
+      "production_block": [256, 1, 1],
+      "candidate_block": [256, 1, 1],
+      "warps_per_cta": 8,
+      "dynamic_shared_bytes": 0,
+      "launches_per_layer": {"production": 1, "candidate": 1}
+    },
+    "persistent_memory_overhead_bytes": 0,
+    "timing_output_and_probability_addresses_shared_between_routes": true
+  },
+  "fixture": {
+    "kind": "deterministic mixed-sign finite BF16 synthetic Q, K, V, and gate tensors",
+    "attention_scale": 0.0625,
+    "query_elements": 6144,
+    "maximum_key_elements": 45056,
+    "maximum_value_elements": 45056,
+    "maximum_probability_elements": 1056,
+    "checkpoint_payload_used": false,
+    "same_input_payloads_used_by_both_routes": true
+  },
+  "correctness_and_contract": {
+    "exact_reference": "generic causal GQA reference followed by the separate sigmoid-gate reference",
+    "exact_sequence_lengths": [1, 16, 20, 32, 44, 64],
+    "bf16_final_output": {
+      "elements_per_sequence_case": 6144,
+      "candidate_matches_reference_bitwise": true,
+      "gate": "pass"
+    },
+    "fp32_probability_scratch": {
+      "elements_formula": "24 * sequence_length",
+      "candidate_matches_reference_bitwise": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "sequence_length": 44,
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "functions_distinct": true,
+      "grid": [24, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "real_buffer_instantiate_and_replay": true,
+      "bf16_output_replay_bitwise": true,
+      "fp32_probability_replay_bitwise": true,
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 11,
+      "coverage": [
+        "sequence length 0",
+        "sequence length 65",
+        "negative attention scale",
+        "NaN attention scale",
+        "short probability scratch",
+        "six independently null data pointers"
+      ],
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "resource_query_null_outputs": {
+      "cases": 10,
+      "all_status_cuda_error_invalid_value": true,
+      "gate": "pass"
+    },
+    "timing_inputs_preserved": true,
+    "combined_gate": "pass"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 1280,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block_at_least": 256,
+      "active_ctas_per_sm": 6
+    },
+    "candidate": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 1280,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block_at_least": 256,
+      "active_ctas_per_sm": 6
+    },
+    "resource_envelope_unchanged": true,
+    "gate": "pass"
+  },
+  "static_identity": {
+    "production_source_body_unchanged_at_candidate_commit": true,
+    "production_predecessor": {
+      "normalized_raw_function_body_sha256": "26eee3c2562f06096ffcae1fcac70abd029c2ddf7cba8fac629fa3a41e4a3f62",
+      "provenance": "independent extraction from the retained predecessor body",
+      "canonical_encoding64_identity_claimed": false
+    },
+    "candidate": {
+      "canonical_encoding64_sha256": null,
+      "instruction_count": null,
+      "status": "not reliably frozen with the two performance logs"
+    },
+    "limitation": "The record-time build path was subsequently overwritten by an uncommitted production-integration rebuild. Candidate canonical SASS identity and instruction census are therefore intentionally not reconstructed or inferred from the later binary. Dynamic resource, correctness, Graph, and timing evidence remains recorded from the two successful screen logs."
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_GQA_SIGMOID_WARP_POSITIONS_PERF=1",
+    "executable": "./build/orin-release/q3x_decode_ops_cuda_test",
+    "comparison": "current production shared-tree fused GQA/sigmoid kernel versus the test-only warp-position score candidate in one process, binary, stream, fixture, probability address, and output address",
+    "independent_processes": 2,
+    "warmup_launches_per_route_per_cell": 10,
+    "individual_sequence_lengths": [20, 32, 44],
+    "individual_launches_per_timed_pass": 80,
+    "chain_sequence_lengths_inclusive": [20, 44],
+    "kernels_per_chain": 25,
+    "chains_per_timed_pass": 20,
+    "kernel_launches_per_chain_timed_pass": 500,
+    "rounds_per_cell": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "paired_speedup": "(production_pass_1 + production_pass_2) / (candidate_pass_1 + candidate_pass_2)",
+    "paired_delta_ms": "0.5 * ((production_pass_1 + production_pass_2) - (candidate_pass_1 + candidate_pass_2))",
+    "selection_statistic": "median of five paired per-round values within each process",
+    "gates": {
+      "minimum_each_individual_round_speedup": 1.0,
+      "minimum_each_chain_round_speedup": 1.0,
+      "minimum_chain_paired_median_speedup": 1.10,
+      "minimum_paired_median_delta_ms_per_layer": 0.0125,
+      "minimum_projected_16_layer_delta_ms_per_token": 0.20
+    }
+  },
+  "formal_processes": [
+    {
+      "process": 1,
+      "individual_cells": [
+        {
+          "sequence_length": 20,
+          "paired_median_speedup": 2.86051,
+          "paired_median_delta_ms": 0.0149958,
+          "round_speedup_range": [2.85720, 2.86340],
+          "round_delta_ms_range": [0.0149910, 0.0150138],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        {
+          "sequence_length": 32,
+          "paired_median_speedup": 3.70046,
+          "paired_median_delta_ms": 0.0244332,
+          "round_speedup_range": [3.68974, 3.70820],
+          "round_delta_ms_range": [0.0244156, 0.0244410],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        {
+          "sequence_length": 44,
+          "paired_median_speedup": 4.21061,
+          "paired_median_delta_ms": 0.0337230,
+          "round_speedup_range": [4.20359, 4.21743],
+          "round_delta_ms_range": [0.0337090, 0.0337254],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        }
+      ],
+      "sequence_chain": {
+        "production_chain_median_ms": 0.835110,
+        "candidate_chain_median_ms": 0.231567,
+        "paired_median_speedup": 3.60602,
+        "paired_median_chain_delta_ms": 0.603543,
+        "paired_median_delta_ms_per_layer": 0.0241417,
+        "projected_16_layer_delta_ms_per_token": 0.386268,
+        "round_speedup_range": [3.60419, 3.60946],
+        "round_delta_ms_range": [0.603375, 0.603770],
+        "rounds_nonregressing": "5/5",
+        "gate": "pass"
+      },
+      "all_individual_and_chain_rounds_nonregressing": "20/20",
+      "process_exit_code": 0,
+      "terminal_line": "CUDA decode-op reference tests passed",
+      "overall_gate": "pass"
+    },
+    {
+      "process": 2,
+      "individual_cells": [
+        {
+          "sequence_length": 20,
+          "paired_median_speedup": 2.86353,
+          "paired_median_delta_ms": 0.0150148,
+          "round_speedup_range": [2.85201, 2.87606],
+          "round_delta_ms_range": [0.0149394, 0.0150404],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        {
+          "sequence_length": 32,
+          "paired_median_speedup": 3.68503,
+          "paired_median_delta_ms": 0.0243930,
+          "round_speedup_range": [3.67203, 3.68829],
+          "round_delta_ms_range": [0.0243438, 0.0244038],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        },
+        {
+          "sequence_length": 44,
+          "paired_median_speedup": 4.21422,
+          "paired_median_delta_ms": 0.0337100,
+          "round_speedup_range": [4.20809, 4.23269],
+          "round_delta_ms_range": [0.0336862, 0.0337706],
+          "rounds_nonregressing": "5/5",
+          "gate": "pass"
+        }
+      ],
+      "sequence_chain": {
+        "production_chain_median_ms": 0.834781,
+        "candidate_chain_median_ms": 0.231569,
+        "paired_median_speedup": 3.60462,
+        "paired_median_chain_delta_ms": 0.603190,
+        "paired_median_delta_ms_per_layer": 0.0241276,
+        "projected_16_layer_delta_ms_per_token": 0.386042,
+        "round_speedup_range": [3.60396, 3.60890],
+        "round_delta_ms_range": [0.602997, 0.603469],
+        "rounds_nonregressing": "5/5",
+        "gate": "pass"
+      },
+      "all_individual_and_chain_rounds_nonregressing": "20/20",
+      "process_exit_code": 0,
+      "terminal_line": "CUDA decode-op reference tests passed",
+      "overall_gate": "pass"
+    }
+  ],
+  "selection_summary": {
+    "processes_passing_all_frozen_gates": "2/2",
+    "all_timed_individual_and_chain_rounds_nonregressing": "40/40",
+    "chain_paired_median_speedup_range": [3.60462, 3.60602],
+    "paired_median_delta_ms_per_layer_range": [0.0241276, 0.0241417],
+    "projected_16_layer_delta_ms_per_token_range": [0.386042, 0.386268],
+    "selected_for_production_integration": true,
+    "production_integrated_at_candidate_commit": false,
+    "end_to_end_projection_achieved": false
+  },
+  "validation": {
+    "two_complete_default_plus_opt_in_processes": "pass",
+    "json_parse": "pass",
+    "candidate_source_retained_for_reproducibility": true
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.889500,
+    "formal_anchor_after_ms_per_token": 107.889500,
+    "formal_tokens_per_second": 9.268742556,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "recorded_test_binary": {
+      "local_path": "build/orin-release/q3x_decode_ops_cuda_test",
+      "bytes": 719040,
+      "sha256": "941b84a2037d5b7a2c32d933d6827b9b889baf2e9dc58fea9a74cb7f8f774c69",
+      "build_id": "38e4566a910fd546569277e0abf797cad894a74d",
+      "identity_collection": "collected from the build path after the two successful screen processes and before a later uncommitted integration rebuild overwrote that path",
+      "identity_printed_inside_logs": false,
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-gqa-sigmoid-warp-positions.20260726.process1.log",
+      "bytes": 8695,
+      "lines": 46,
+      "sha256": "8ddcb932af88c928fff3d404307c21a4a92826a6e410d594527eefa510162627",
+      "exit_code": 0,
+      "checked_in": false
+    },
+    "formal_process_2_log": {
+      "local_path": "/tmp/q3x-gqa-sigmoid-warp-positions.20260726.process2.log",
+      "bytes": 8697,
+      "lines": 46,
+      "sha256": "972355f890cbeaca5adfec7363011472a772a6ba7d57db6c3673916d69b250b0",
+      "exit_code": 0,
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_GQA_SIGMOID_WARP_POSITIONS_PERF=1 ./build/orin-release/q3x_decode_ops_cuda_test"
+  },
+  "decision": {
+    "selected_for_production_integration": true,
+    "reason": "Both independent processes pass every frozen relative and absolute gate; all 40 individual and chain rounds improve; BF16 final output and FP32 probability scratch are bitwise exact at six boundary and hot lengths; real-buffer one-node Graph replay, invalid zero-node, input-preservation, and unchanged zero-spill resource gates pass.",
+    "next_steps": [
+      "promote the warp-position score phase while retaining the shared-tree predecessor as a direct rollback comparator",
+      "prove public production and direct candidate Graph identity while the predecessor remains distinct",
+      "run complete Release and sanitizer suites plus full-model C1/C8/C16/C32 exact oracles",
+      "run independent-process whole-model P19/C32/max26 B-C-C-B timing",
+      "refresh Nsight Systems Decode attribution before changing the formal anchor"
+    ],
+    "scope_limits": [
+      "The 0.386042-0.386268 ms/token values are arithmetic projections from a deterministic synthetic isolated kernel chain, not achieved end-to-end savings.",
+      "No production dispatcher selected the candidate at commit 9f83ce5.",
+      "No full-model, end-to-end, Nsight Systems, Nsight Compute, thermal, power, or cross-device result was run for this selection.",
+      "The focused candidate contract did not add dedicated signed Inf/NaN, alias, alignment, or output-canary coverage; production integration must close the applicable public contract.",
+      "Candidate canonical SASS identity was not reliably frozen with the logs and is not inferred from the later overwritten build artifact.",
+      "Prefill, the serial one-stream schedule, and the 107.889500 ms/token / 9.268742556 token/s formal anchor remain unchanged."
+    ]
+  }
+}
