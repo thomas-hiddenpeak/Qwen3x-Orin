@@ -5627,3 +5627,56 @@ invalid-contract, model, end-to-end, and profiler work. Production remains at
 the evict-first streaming (`.cs`) policy rather than repeating `.cg`.
 Complete evidence is in the
 [rejection record](metadata/qwen36-27b-decode-gate-up-cache-global-rejection.json).
+
+## Selected test-only Decode gate/up streaming loads
+
+Commit `4aa74f2` closes the bounded follow-up to the rejected `.cg` screen. The
+test-only candidate changes only the one-pass packed-weight U32 and block-scale
+U8 loads in the production-shaped `32x512` residual/RMSNorm/gate/up/SiLU
+dead-up kernel to evict-first streaming (`.cs`). Runtime dispatch, the
+production symbol, arithmetic and BF16 boundaries, launch count, stream, and
+Prefill are unchanged.
+
+Static isolation passes. The frozen production kernel remains 2,704 normalized
+64-bit encoding words with SASS SHA-256
+`38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d`.
+The candidate also has 2,704 words and hashes to
+`2176900d654384440b638338cbbfe7e3ae2a02d59643d1ce30aa882fb47d4ae3`;
+exactly eight `LDG.E` instructions become `LDG.E.EF`, and four `LDG.E.U8`
+instructions become `LDG.E.EF.U8`, while all 25 `LDG.E.U16` instructions are
+unchanged. Both routes retain 64 registers/thread, 13,632 B static shared
+memory, zero local memory, 512 threads/block, and two active CTAs/SM.
+
+Actual-checkpoint and same-bank-stress finite gates each report 0/5,120
+residual, 0/17,408 final-gate, and 0/22,528 CUDA Graph replay mismatches. The
+candidate preserves all seven inputs, leaves the dead-up buffer under distinct
+direct/replay poisons untouched, and keeps every output guard intact. The
+signed Inf/NaN direct-launch gate reports 0/5,120 residual mismatches,
+0/17,408 final-gate mismatches, and correct class/sign for all 17,408 NaN
+outputs. The focused CTest also validates distinct one-node `32x512`, zero
+dynamic-shared Graph topology; the real checkpoint and stress paths capture,
+instantiate, and replay successfully.
+
+The formal same-binary closeout primes both routes, then uses ten warmups and
+five 64-launch paired rounds per fixture, alternating `B-C-C-B` and `C-B-B-C`
+order:
+
+| Fixture | Baseline pass median | Candidate pass median | Paired median | Every round non-regress | Result |
+| --- | ---: | ---: | ---: | --- | --- |
+| Actual layer-0 checkpoint | 0.589491 ms | 0.584337 ms | **1.00895x** | yes | pass |
+| Same-bank stress | 0.595607 ms | 0.590388 ms | **1.00882x** | yes | pass |
+
+All ten closeout rounds are non-regressing. The selected actual-checkpoint
+paired delta is 0.00523198 ms/layer and projects to 0.334846 ms/token over 64
+layers, above the 0.25-ms phase-local threshold. The exact test binary hashes
+to `db1dc7d50068f5203a30103d3a70e75baa7cbf39ee91640002b3c3ac28b688af`;
+the independent closeout process exits zero, and its log is
+`/tmp/q3x-decode-cache-policy.8mr8So/gate-up-cs-closeout.log` with SHA-256
+`12d96816c6e0a454b519132d9b02d41782ce9f7b6e32d22a991094ac078170be`.
+
+This is a **test-only selection**, not a production or end-to-end result. No
+runtime path calls the candidate, so the achieved production anchor remains
+**108.2645 ms/token and 9.236638048 token/s**. Production integration, full
+model oracles, formal end-to-end benchmarking, and profiler closure remain
+required before changing that anchor. Complete evidence is in the
+[selection record](metadata/qwen36-27b-decode-gate-up-streaming-selection.json).
