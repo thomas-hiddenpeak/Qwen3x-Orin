@@ -592,6 +592,26 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cg_resources_test_c
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_prerounded_residual_norm_gate_up_silu_dead_up_test_cuda(
     const std::uint8_t* gate_packed_weights,
     const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
@@ -5496,6 +5516,13 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool decode_gate_up_cg_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_CG_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool decode_gate_up_cs_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_CS_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -34396,7 +34423,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     TestContext& test, cudaStream_t stream) {
   if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled() &&
       !decode_residual_chain_performance_enabled() &&
-      !decode_gate_up_cg_performance_enabled()) {
+      !decode_gate_up_cg_performance_enabled() &&
+      !decode_gate_up_cs_performance_enabled()) {
     std::cout
         << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
            "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
@@ -35056,24 +35084,48 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                              fixture_label + " upload synchronize");
       };
 
-  if (decode_gate_up_cg_performance_enabled()) {
+  if (decode_gate_up_cg_performance_enabled() ||
+      decode_gate_up_cs_performance_enabled()) {
     constexpr int kCacheWarmupIterations = 10;
     constexpr int kCacheMeasuredIterations = 64;
     constexpr int kCacheMeasurementRounds = 5;
     constexpr float kRequiredDeltaMilliseconds = 0.25F / 64.0F;
     constexpr double kRequiredSpeedup = 1.005;
+    const bool cache_global_policy =
+        decode_gate_up_cg_performance_enabled();
+    const bool streaming_policy = decode_gate_up_cs_performance_enabled();
+    const bool single_policy = cache_global_policy != streaming_policy;
+    test.expect(single_policy,
+                "Decode gate/up cache screen selects exactly one policy");
+    if (!single_policy) {
+      return;
+    }
+    const char* const policy_name =
+        streaming_policy ? "packed_and_scale_cs" : "packed_and_scale_cg";
     const std::string cache_label =
-        "Decode gate/up packed-weight/block-scale cache-global screen";
+        streaming_policy
+            ? "Decode gate/up packed-weight/block-scale streaming screen"
+            : "Decode gate/up packed-weight/block-scale cache-global screen";
 
     NvFp4M1DownDualKernelResources cache_candidate_resources{};
+    const int cache_resource_status =
+        streaming_policy
+            ? q3x::kernels::
+                  query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+                      &cache_candidate_resources.registers_per_thread,
+                      &cache_candidate_resources.static_shared_bytes,
+                      &cache_candidate_resources.local_bytes,
+                      &cache_candidate_resources.maximum_threads_per_block,
+                      &cache_candidate_resources.active_blocks_per_sm)
+            : q3x::kernels::
+                  query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cg_resources_test_cuda(
+                      &cache_candidate_resources.registers_per_thread,
+                      &cache_candidate_resources.static_shared_bytes,
+                      &cache_candidate_resources.local_bytes,
+                      &cache_candidate_resources.maximum_threads_per_block,
+                      &cache_candidate_resources.active_blocks_per_sm);
     bool cache_ready = test.cuda_ok(
-        static_cast<cudaError_t>(q3x::kernels::
-            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cg_resources_test_cuda(
-                &cache_candidate_resources.registers_per_thread,
-                &cache_candidate_resources.static_shared_bytes,
-                &cache_candidate_resources.local_bytes,
-                &cache_candidate_resources.maximum_threads_per_block,
-                &cache_candidate_resources.active_blocks_per_sm)),
+        static_cast<cudaError_t>(cache_resource_status),
         cache_label + " query candidate resources");
     const bool cache_resource_gate =
         cache_ready && dead_up_resource_gate &&
@@ -35086,7 +35138,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         cache_candidate_resources.active_blocks_per_sm >= 2;
     test.expect(cache_resource_gate,
                 cache_label + " preserves the production resource envelope");
-    std::cout << "PERF_DECODE_GATE_UP_CG_RESOURCES:"
+    std::cout << "PERF_DECODE_GATE_UP_CACHE_POLICY_RESOURCES:"
               << " baseline_registers="
               << residual_norm_dead_up_resources.registers_per_thread
               << " baseline_shared="
@@ -35103,7 +35155,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               << cache_candidate_resources.local_bytes
               << " candidate_active="
               << cache_candidate_resources.active_blocks_per_sm
-              << " policy=packed_and_scale_cg"
+              << " policy=" << policy_name
               << " gate=" << (cache_resource_gate ? "PASS" : "FAIL")
               << '\n';
     if (!cache_resource_gate) {
@@ -35146,6 +35198,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const auto launch_cache_candidate_to =
         [&](std::uint16_t* const residual, std::uint16_t* const gate,
             std::uint16_t* const up) noexcept {
+          if (streaming_policy) {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+                    gate_packed.get(), gate_scales.get(), gate_scale2,
+                    up_packed.get(), up_scales.get(), up_scale2,
+                    residual_left.get(), residual_right.get(),
+                    norm_weight.get(), kNormEpsilon, kRows, kColumns,
+                    residual, gate, up, static_cast<void*>(stream));
+          }
           return q3x::kernels::
               launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cg_test_cuda(
                   gate_packed.get(), gate_scales.get(), gate_scale2,
@@ -35337,7 +35398,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         cache_guards_gate && cache_workspace_gate;
     test.expect(cache_correctness_gate,
                 cache_label + " is bitwise, finite, guarded, and replayable");
-    std::cout << "DECODE_GATE_UP_CG_DIFF:"
+    std::cout << "DECODE_GATE_UP_CACHE_POLICY_DIFF:"
+              << " policy=" << policy_name
               << " residual_mismatches=" << residual_mismatches << '/'
               << kColumns << " gate_mismatches=" << gate_mismatches << '/'
               << kRows << " replay_residual_mismatches="
@@ -35407,7 +35469,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
           paired_candidate < paired_baseline;
       timing_ready = timing_ready && finite;
       all_rounds_improve = all_rounds_improve && round_improves;
-      std::cout << "PERF_DECODE_GATE_UP_CG_ROUND:"
+      std::cout << "PERF_DECODE_GATE_UP_CACHE_POLICY_ROUND:"
+                << " policy=" << policy_name
                 << " fixture=actual_checkpoint"
                 << " round=" << round + 1 << " order=B-C-C-B"
                 << " logical_kernels_per_pass=" << kCacheMeasuredIterations
@@ -35440,7 +35503,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         cache_resource_gate && cache_correctness_gate && timing_gate;
     test.expect(selected_gate,
                 cache_label + " clears the actual-checkpoint stop-loss");
-    std::cout << "PERF_DECODE_GATE_UP_CG_SELECTED:"
+    std::cout << "PERF_DECODE_GATE_UP_CACHE_POLICY_SELECTED:"
+              << " policy=" << policy_name
               << " fixture=actual_checkpoint"
               << " baseline_median_ms=" << baseline_median
               << " candidate_median_ms=" << candidate_median
@@ -40232,7 +40296,8 @@ int main() {
     std::cout << "Decode residual-chain screen passed\n";
     return 0;
   }
-  if (decode_gate_up_cg_performance_enabled()) {
+  if (decode_gate_up_cg_performance_enabled() ||
+      decode_gate_up_cs_performance_enabled()) {
     run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
     (void)test.cuda_ok(cudaStreamDestroy(stream),
                        "destroy Decode gate/up cache-policy stream");
