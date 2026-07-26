@@ -1128,6 +1128,148 @@ __global__ void gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
+// Test-only fixed-shape candidate. The score phase assigns each sequence
+// position to one warp and reproduces the production shared-memory reduction
+// order exactly: 128, 64, 32, 16, 8, 4, 2, 1. The remaining softmax, value,
+// BF16 boundary, probability-scratch, and sigmoid-gate phases intentionally
+// match gqa_sigmoid_gate_24_4_256_kernel.
+__global__ void gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::size_t sequence_length,
+    const float attention_scale,
+    float* const probabilities_scratch,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output) {
+  __shared__ float partial[kThreads];
+  __shared__ float probabilities[kFusedGqaMaximumSequenceLength];
+
+  const std::size_t query_head = static_cast<std::size_t>(blockIdx.x);
+  const std::size_t queries_per_kv =
+      kFusedGqaQueryHeads / kFusedGqaKvHeads;
+  const std::size_t kv_head = query_head / queries_per_kv;
+  const std::size_t query_offset =
+      query_head * kFusedGqaHeadDimension;
+
+  const unsigned int warp = threadIdx.x >> 5U;
+  const unsigned int lane = threadIdx.x & 31U;
+  for (std::size_t position = warp; position < sequence_length;
+       position += kWarpPositionAttentionScoreWarpsPerBlock) {
+    const std::size_t key_offset =
+        (position * kFusedGqaKvHeads + kv_head) * kFusedGqaHeadDimension;
+
+    float sum = fmaf(decode_bf16_device(query[query_offset + lane]),
+                     decode_bf16_device(key_cache[key_offset + lane]), 0.0F);
+    float rhs =
+        fmaf(decode_bf16_device(query[query_offset + lane + 128U]),
+             decode_bf16_device(key_cache[key_offset + lane + 128U]), 0.0F);
+    sum += rhs;
+
+    float sibling =
+        fmaf(decode_bf16_device(query[query_offset + lane + 64U]),
+             decode_bf16_device(key_cache[key_offset + lane + 64U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 192U]),
+               decode_bf16_device(key_cache[key_offset + lane + 192U]),
+               0.0F);
+    sibling += rhs;
+    sum += sibling;
+
+    sibling =
+        fmaf(decode_bf16_device(query[query_offset + lane + 32U]),
+             decode_bf16_device(key_cache[key_offset + lane + 32U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 160U]),
+               decode_bf16_device(key_cache[key_offset + lane + 160U]),
+               0.0F);
+    sibling += rhs;
+    float upper =
+        fmaf(decode_bf16_device(query[query_offset + lane + 96U]),
+             decode_bf16_device(key_cache[key_offset + lane + 96U]), 0.0F);
+    rhs = fmaf(decode_bf16_device(query[query_offset + lane + 224U]),
+               decode_bf16_device(key_cache[key_offset + lane + 224U]),
+               0.0F);
+    upper += rhs;
+    sibling += upper;
+    sum += sibling;
+
+#pragma unroll
+    for (unsigned int stride = 16U; stride != 0U; stride >>= 1U) {
+      rhs = __shfl_down_sync(0xffffffffU, sum, stride);
+      if (lane < stride) {
+        sum += rhs;
+      }
+    }
+    if (lane == 0U) {
+      probabilities[position] = sum * attention_scale;
+    }
+  }
+  __syncthreads();
+
+  float maximum = -__int_as_float(0x7f800000);
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    maximum = fmaxf(maximum, probabilities[position]);
+  }
+  partial[threadIdx.x] = maximum;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] =
+          fmaxf(partial[threadIdx.x], partial[threadIdx.x + stride]);
+    }
+    __syncthreads();
+  }
+  maximum = partial[0];
+
+  float denominator = 0.0F;
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    denominator += expf(probabilities[position] - maximum);
+  }
+  partial[threadIdx.x] = denominator;
+  __syncthreads();
+  for (unsigned int stride = kThreads / 2U; stride != 0U; stride >>= 1U) {
+    if (threadIdx.x < stride) {
+      partial[threadIdx.x] += partial[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  denominator = partial[0];
+
+  const std::size_t probability_offset = query_head * sequence_length;
+  for (std::size_t position = threadIdx.x; position < sequence_length;
+       position += blockDim.x) {
+    const float probability =
+        expf(probabilities[position] - maximum) / denominator;
+    probabilities[position] = probability;
+    probabilities_scratch[probability_offset + position] = probability;
+  }
+  __syncthreads();
+
+  for (std::size_t dimension = threadIdx.x;
+       dimension < kFusedGqaHeadDimension;
+       dimension += blockDim.x) {
+    float value = 0.0F;
+    for (std::size_t position = 0U; position < sequence_length; ++position) {
+      const std::size_t value_offset =
+          (position * kFusedGqaKvHeads + kv_head) * kFusedGqaHeadDimension;
+      value = fmaf(probabilities[position],
+                   decode_bf16_device(
+                       value_cache[value_offset + dimension]),
+                   value);
+    }
+    const std::uint16_t encoded_value = encode_bf16_device(value);
+    const float gate_value =
+        decode_bf16_device(gate[query_offset + dimension]);
+    const float sigmoid =
+        gate_value >= 0.0F
+            ? 1.0F / (1.0F + expf(-gate_value))
+            : expf(gate_value) / (1.0F + expf(gate_value));
+    output[query_offset + dimension] = encode_bf16_device(
+        decode_bf16_device(encoded_value) * sigmoid);
+  }
+}
+
 [[nodiscard]] bool valid_attention_dimensions(
     const std::size_t query_head_count,
     const std::size_t kv_head_count,
@@ -1504,6 +1646,102 @@ int query_attention_scores_warp_positions_24_4_256_test_cuda_resources(
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks, attention_scores_warp_positions_24_4_256_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::size_t sequence_length,
+    const float attention_scale,
+    float* const probabilities_scratch,
+    const std::size_t scratch_elements,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (sequence_length == 0U ||
+      sequence_length > kFusedGqaMaximumSequenceLength ||
+      !std::isfinite(attention_scale) || attention_scale < 0.0F ||
+      scratch_elements < kFusedGqaQueryHeads * sequence_length ||
+      query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      probabilities_scratch == nullptr || gate == nullptr ||
+      output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel
+      <<<kFusedGqaQueryHeads, kThreads, 0U, stream>>>(
+          query, key_cache, value_cache, sequence_length, attention_scale,
+          probabilities_scratch, gate, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_gqa_attention_sigmoid_gate_24_4_256_resources_test_cuda(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes, gqa_sigmoid_gate_24_4_256_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, gqa_sigmoid_gate_24_4_256_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
