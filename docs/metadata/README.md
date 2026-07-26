@@ -686,6 +686,15 @@ The diagnostic Phase 3 records are:
   leaves production and the formal 109.056-ms/token / 9.169600939-token/s
   anchor unchanged. A naive contiguous `16x1024` mapping was not tested and
   is outside this rejection.
+- [`qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json`](qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json),
+  which closes the test-only production-ping-pong QKV grid-cap screen. The
+  exact same kernel and SASS change only from production QKV1536/Z768 to
+  QKV1024/Z768; exhaustive finite/code, replay/race-signature, NaN, source,
+  invalid, null-query, resource, and frozen actual/stress correctness gates
+  pass. The actual-checkpoint median reaches 1.0047x against 1.005x, while
+  stress reaches 0.998787x and regresses in all five rounds. First-process
+  stop-loss restores the test policy and leaves production and the formal
+  109.056-ms/token / 9.169600939-token/s anchor unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection",
+  "status": "rejected-test-only-decode-fp8-m1-qkv-z-ping-pong-qkv-grid-cap-1024",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1",
+  "source": {
+    "base_commit": "2529a31721a9e52a8effcaa2a2ed1a500abb6b9e",
+    "base_tree": "811a6e9f636f0e3e58caa449bee22090f61d8f34",
+    "base_subject": "docs: reject Decode gate-up 16x1024 coarsen",
+    "branch": "main",
+    "candidate_commit": null,
+    "candidate_scope": "temporary test-only policy selecting QKV grid cap 1024 through the existing direct grid-cap launcher",
+    "production_source_changed": false,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_runner_changed": false
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "formal_milliseconds_per_token": 109.056,
+    "formal_tokens_per_second": 9.169600939,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.056,
+    "profile_context": {
+      "source": "qwen36-27b-post-down-cta-coarsen-decode-phase-profile",
+      "qkv_z_milliseconds_per_decode_step": 22.96322432,
+      "qkv_z_raw_share_percent": 21.066614,
+      "qkv_z_instances_per_decode_step": 48
+    },
+    "claim_boundary": "This rejected microbenchmark does not change the formal end-to-end anchor."
+  },
+  "candidate": {
+    "phase": "exact M1 FP8 linear-attention QKV then Z two-phase reduction-scratch ping-pong",
+    "qkv_shape_n_by_k": [10240, 5120],
+    "z_shape_n_by_k": [6144, 5120],
+    "production_topology": {
+      "qkv_grid_cap": 1536,
+      "z_grid_cap": 768,
+      "physical_grid_blocks": 1536,
+      "threads_per_block": 256
+    },
+    "candidate_topology": {
+      "qkv_grid_cap": 1024,
+      "z_grid_cap": 768,
+      "physical_grid_blocks": 1024,
+      "threads_per_block": 256
+    },
+    "implementation": "the exact same production reduction-scratch ping-pong kernel and compiled SASS",
+    "production_kernel": "fp8_w8a16_gemv_bf16_qkv_z_two_phase_reduction_scratch_ping_pong_kernel",
+    "reduction_scratch_slots": 2,
+    "tail_barrier_present": false,
+    "only_measured_change": "reduce the runtime QKV grid cap from 1536 to 1024 while retaining the Z cap at 768",
+    "arithmetic_contract": "weight decode, activation decode, FFMA order, reduction-scratch ping-pong, phase order, scale application, and BF16-RNE output order are unchanged",
+    "runtime_double_or_triple_buffer": "two-slot CTA-local reduction scratch only; no executor-level buffering, cross-kernel overlap, or Prefill/Decode overlap"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "build": "Release, CUDA architecture 87",
+    "comparison_scope": "one same-process, same-binary screen",
+    "clock_evidence": "the retained default and performance logs do not embed an independent clock, thermal, power-mode, or energy readback"
+  },
+  "production_identity_and_resources": {
+    "public_launcher_captured": true,
+    "performance_launcher_captured": true,
+    "ping_pong_test_hook_captured": true,
+    "public_performance_and_hook_same_function_grid_block_shared": true,
+    "production_grid": [1536, 1, 1],
+    "production_block": [256, 1, 1],
+    "dynamic_shared_bytes": 0,
+    "registers_per_thread": 64,
+    "static_shared_bytes": 1280,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 4,
+    "null_resource_destination_rejected": true,
+    "invalid_contract": "pass",
+    "same_kernel_and_sass_for_baseline_and_candidate": true,
+    "historical_production_sass_reference": {
+      "source": "qwen36-27b-fp8-m1-qkv-z-reduction-scratch-ping-pong-benchmark",
+      "normalized_section_sha256": "46e3f218deb005bb3feea4e23dc57bde7aa3695a756beb27754bc9847a48b602",
+      "section_64bit_words": 2416,
+      "note": "This is the promoted production record's canonical identity; no separate candidate function exists in this grid-cap screen."
+    },
+    "gate": "pass"
+  },
+  "correctness": {
+    "exhaustive_finite": {
+      "finite_e4m3_codes": 254,
+      "packed_byte_positions": 4,
+      "matrices": ["qkv", "z"],
+      "requested_caps": [512, 1024, 1536, 4096],
+      "qkv_mismatches_per_cell": "0/10240",
+      "z_mismatches_per_cell": "0/6144",
+      "replay_mismatches_per_cell": "0/16384",
+      "output_guards": "intact",
+      "input_preservation_checked_at_cap": 512,
+      "gate": "pass"
+    },
+    "full_code_coverage": {
+      "qkv_codes_per_byte_position": 256,
+      "z_codes_per_byte_position": 256,
+      "byte_positions": [0, 1, 2, 3],
+      "gate": "pass"
+    },
+    "reduction_scratch_race_signature": {
+      "requested_caps": [512, 1024, 1536, 4096],
+      "executions_per_cap": 2,
+      "replay_after_first_per_cap": 1,
+      "qkv_mismatches_per_cap": "0/10240",
+      "z_mismatches_per_cap": "0/6144",
+      "replay_mismatches_per_cap": "0/16384",
+      "output_guards": "intact",
+      "gate": "pass"
+    },
+    "isolated_nan_classification": {
+      "tested_cap": 1536,
+      "raw_codes": [127, 255],
+      "both_matrices_and_all_four_byte_positions": true,
+      "classified_outputs": 16,
+      "unexpected_nonfinite": 0,
+      "bitwise_replay_and_guards": true,
+      "class_and_sign": true,
+      "gate": "pass"
+    },
+    "frozen_actual_checkpoint_cap1024": {
+      "qkv_mismatches": "0/10240",
+      "z_mismatches": "0/6144",
+      "replay_mismatches": "0/16384",
+      "nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "input_preservation": "not checked in this frozen cell; independently checked by the exhaustive cap-512 contract",
+      "gate": "pass"
+    },
+    "frozen_same_bank_stress_cap1024": {
+      "qkv_mismatches": "0/10240",
+      "z_mismatches": "0/6144",
+      "replay_mismatches": "0/16384",
+      "nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "input_preservation": "not checked in this frozen cell; independently checked by the exhaustive cap-512 contract",
+      "gate": "pass"
+    },
+    "gate": "pass"
+  },
+  "fixtures": {
+    "actual_checkpoint": {
+      "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+      "qkv_tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "qkv_offset": 3485125152,
+      "qkv_bytes": 52428800,
+      "qkv_sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7",
+      "z_tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+      "z_offset": 3537553952,
+      "z_bytes": 31457280,
+      "z_sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae",
+      "activation_bytes": 10240,
+      "activation_sha256": "3951f547a99d8a6ddec339f7819060a8548b0fb61255906d66a53c46e046c530",
+      "payload_identity_gate": "pass"
+    },
+    "same_bank_stress": {
+      "qkv_sha256": "aa467ce071f25080ac1243b25b94bc91fd0deb39cdc399d1d45aa33e9128fd7a",
+      "z_sha256": "f8f20970aab246d523b4f940b3b8ae2453d05f5ee78dce57cd48a6fe5465405f",
+      "activation_sha256": "3951f547a99d8a6ddec339f7819060a8548b0fb61255906d66a53c46e046c530",
+      "payload_identity_gate": "pass"
+    }
+  },
+  "performance_protocol": {
+    "comparison": "production ping-pong QKV1536/Z768 versus the same production function at test-only QKV1024/Z768",
+    "running_binary_sha256": "80898ecdb7b9bbb2264f9a64f68dda902ee33f5473e48556dee5d0fd98e6acaf",
+    "running_binary_build_id": "e1096bfdb5957ca7195b6168d13ae7af82149ad1",
+    "warmup_logical_launches_per_route": 10,
+    "logical_qkv_z_pairs_per_timed_pass": 80,
+    "rounds": 5,
+    "order_each_round": "B-C-C-B",
+    "selection_statistic": "median of ten baseline timed-pass means divided by the median of ten candidate timed-pass means",
+    "minimum_actual_checkpoint_speedup": 1.005,
+    "minimum_same_bank_stress_speedup": 1.0,
+    "stop_loss": "reject after process 1 if either frozen fixture misses its threshold; skip replication and production work"
+  },
+  "performance": {
+    "initial_same_process_sweep": {
+      "cap": 1024,
+      "actual_checkpoint_speedup": 1.0043,
+      "same_bank_stress_speedup": 0.998711,
+      "worst_distribution_speedup": 0.998711,
+      "geometric_speedup": 1.0015,
+      "role": "screening observation only; the separate frozen retest below is authoritative"
+    },
+    "frozen_actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.467042, "candidate_1_ms": 0.464846, "candidate_2_ms": 0.465009, "baseline_2_ms": 0.466962, "derived_paired_speedup": 1.004461986},
+        {"round": 2, "baseline_1_ms": 0.467344, "candidate_1_ms": 0.465066, "candidate_2_ms": 0.464723, "baseline_2_ms": 0.466917, "derived_paired_speedup": 1.004809693},
+        {"round": 3, "baseline_1_ms": 0.466998, "candidate_1_ms": 0.464877, "candidate_2_ms": 0.465084, "baseline_2_ms": 0.466903, "derived_paired_speedup": 1.004236737},
+        {"round": 4, "baseline_1_ms": 0.467125, "candidate_1_ms": 0.464919, "candidate_2_ms": 0.464785, "baseline_2_ms": 0.467140, "derived_paired_speedup": 1.004905863},
+        {"round": 5, "baseline_1_ms": 0.467212, "candidate_1_ms": 0.464957, "candidate_2_ms": 0.464770, "baseline_2_ms": 0.467231, "derived_paired_speedup": 1.005072457}
+      ],
+      "baseline_pass_median_ms": 0.467083,
+      "candidate_pass_median_ms": 0.464898,
+      "median_pass_speedup": 1.0047,
+      "uplift_percent": 0.470083,
+      "required_speedup": 1.005,
+      "paired_rounds_improving": 5,
+      "gate": "fail"
+    },
+    "frozen_same_bank_stress": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.432404, "candidate_1_ms": 0.432923, "candidate_2_ms": 0.432870, "baseline_2_ms": 0.432421, "derived_paired_speedup": 0.998881950},
+        {"round": 2, "baseline_1_ms": 0.432457, "candidate_1_ms": 0.432900, "candidate_2_ms": 0.432753, "baseline_2_ms": 0.432332, "derived_paired_speedup": 0.999001910},
+        {"round": 3, "baseline_1_ms": 0.432459, "candidate_1_ms": 0.432933, "candidate_2_ms": 0.432880, "baseline_2_ms": 0.432288, "derived_paired_speedup": 0.998768787},
+        {"round": 4, "baseline_1_ms": 0.432282, "candidate_1_ms": 0.432948, "candidate_2_ms": 0.432900, "baseline_2_ms": 0.432654, "derived_paired_speedup": 0.998946697},
+        {"round": 5, "baseline_1_ms": 0.432345, "candidate_1_ms": 0.432910, "candidate_2_ms": 0.432757, "baseline_2_ms": 0.432315, "derived_paired_speedup": 0.998836735}
+      ],
+      "baseline_pass_median_ms": 0.432375,
+      "candidate_pass_median_ms": 0.432900,
+      "median_pass_speedup": 0.998787,
+      "uplift_percent": -0.121330,
+      "required_speedup": 1.0,
+      "paired_rounds_regressing": 5,
+      "gate": "fail"
+    },
+    "frozen_distribution_gate": "fail"
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "The same-kernel QKV1024/Z768 route is exact and resource-neutral. Its actual-checkpoint median reaches only 1.0047x against 1.005x, while same-bank stress falls to 0.998787x and all five stress rounds regress.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "production_topology_after_rejection": "QKV1536/Z768",
+    "stop_loss_triggered_after_process": 1,
+    "closed_scope": "runtime QKV grid cap 1024 with Z cap 768 on the existing production reduction-scratch ping-pong kernel",
+    "not_run": [
+      "multi-process confirmation",
+      "production integration",
+      "full-model oracle",
+      "P19/C32/max26 end-to-end benchmark",
+      "Nsight Systems",
+      "Nsight Compute"
+    ],
+    "formal_anchor_after_rejection": {
+      "milliseconds_per_token": 109.056,
+      "tokens_per_second": 9.169600939,
+      "remaining_milliseconds_per_token": 9.056
+    }
+  },
+  "cleanup": {
+    "production_source_was_modified_for_candidate": false,
+    "temporary_candidate_test_policy_present": false,
+    "source_blob_sha1": "cb01ee9ccc5e2cd835cd59a3319eabe8bbcc6f51",
+    "test_blob_sha1": "9130ee9fcf560df28ad1f706681065631862a6b3",
+    "source_and_test_match_base_commit": true,
+    "production_route": "unchanged QKV1536/Z768",
+    "post_cleanup_gpu_rerun": "not run; cleanup is proved by exact source/test blob identity with the base commit"
+  },
+  "artifacts": [
+    {
+      "role": "frozen candidate test binary",
+      "path": "/tmp/q3x-qkv-gridcap-screen.Rbscio/q3x_sm87_weight_only_gemv_test.candidate",
+      "bytes": 5298184,
+      "sha256": "80898ecdb7b9bbb2264f9a64f68dda902ee33f5473e48556dee5d0fd98e6acaf",
+      "build_id": "e1096bfdb5957ca7195b6168d13ae7af82149ad1",
+      "checked_in": false
+    },
+    {
+      "role": "candidate-binary default device-test log",
+      "path": "/tmp/q3x-qkv-gridcap-screen.Rbscio/default.log",
+      "bytes": 57604,
+      "lines": 336,
+      "sha256": "68cb344e434fcca7e30c964eb60544c9db403ae0e2f8ba041b1d7206d9ef4741",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "authoritative same-process screen log",
+      "path": "/tmp/q3x-qkv-gridcap-screen.Rbscio/screen-process-1.log",
+      "bytes": 79162,
+      "lines": 397,
+      "sha256": "c613fc04facbb7674e561dfc26321a2d7a3c698493cee71795b5a965f4ff36fb",
+      "expected_exit_code": 1,
+      "checked_in": false
+    }
+  ],
+  "follow_up": {
+    "next_priority": "require a materially different phase-local gate/up or QKV/Z mechanism rather than another simple CTA-width or QKV grid-cap sweep",
+    "do_not_restore": "Do not restore production ping-pong QKV cap 1024 with Z cap 768 without a materially different mechanism and newly frozen gates."
+  },
+  "limitations": [
+    "The performance result is one same-binary process on one Jetson AGX Orin; stop-loss intentionally omits replication.",
+    "The retained logs identify the device but do not contain independent frequency, thermal, power-mode, or energy readbacks.",
+    "The candidate changes only the runtime grid cap and has no distinct kernel or SASS body, so no candidate-specific disassembly artifact exists.",
+    "Input preservation is checked in the exhaustive cap-512 cell, not repeated in each frozen actual/stress cap-1024 cell.",
+    "The expected nonzero screen exit is the frozen performance-policy failure, not a correctness, resource, source, or binary-identity failure.",
+    "No end-to-end latency or throughput movement is claimed; 109.056 ms/token and 9.169600939 token/s remain authoritative."
+  ]
+}

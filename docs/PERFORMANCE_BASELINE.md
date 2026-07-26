@@ -5234,3 +5234,58 @@ token/s**, still 9.056 ms/token from the stage target. Complete rounds,
 payload identities, artifact hashes, cleanup proof, and scope limits are in
 the
 [16x1024 rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection.json).
+
+## Decode FP8 M1 QKV/Z ping-pong QKV-grid-cap 1024 rejection
+
+This bounded screen keeps the exact production QKV/Z reduction-scratch
+ping-pong function and compiled SASS, changing only its test policy from
+QKV1536/Z768 to QKV1024/Z768. The block remains 256 threads, the Z cap remains
+768, and the two CTA-local scratch slots, arithmetic order, phase order, BF16
+boundaries, public ABI, and production dispatch are unchanged. This is not an
+executor-level double buffer and adds no cross-kernel or Prefill/Decode
+overlap.
+
+The shared production kernel remains at 64 registers/thread, 1,280 B static
+shared memory, zero local memory, 256 maximum threads/block, and four active
+CTAs/SM. Public, performance, and test launchers resolve to the same function;
+the production Graph contract remains `1536x256`, null resource queries are
+rejected, and invalid calls pass. Because the candidate is only a runtime cap
+on the same function, it has no distinct SASS body. The promoted production
+2,416-word encoding remains the canonical reference at SHA-256
+`46e3f218deb005bb3feea4e23dc57bde7aa3695a756beb27754bc9847a48b602`.
+
+Finite exhaustive coverage spans 254 E4M3 codes, four packed byte positions,
+both matrices, and requested caps 512/1024/1536/4096. Full 256-code coverage,
+the two-execution/replay race signature at all four caps, and isolated signed
+NaN class/sign coverage pass. Frozen actual-checkpoint and same-bank-stress
+cap-1024 cells each report 0/10,240 QKV, 0/6,144 Z, and 0/16,384 replay
+mismatches, finite outputs, and intact output guards. Input preservation was
+checked independently in the exhaustive cap-512 contract, not repeated in
+the two frozen performance cells.
+
+The frozen candidate ELF is 5,298,184 bytes, SHA-256
+`80898ecdb7b9bbb2264f9a64f68dda902ee33f5473e48556dee5d0fd98e6acaf`,
+and Build ID `e1096bfdb5957ca7195b6168d13ae7af82149ad1`. One same-binary process
+used ten warmups per route, 80 logical QKV/Z pairs per timed pass, and five
+`B-C-C-B` rounds per fixture. The selection statistic is the median of ten
+baseline pass means divided by the median of ten candidate pass means:
+
+| Fixture | Production pass median | Candidate pass median | Frozen speedup | Gate | Round behavior | Result |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Actual layer-0 checkpoint | 0.467083 ms | 0.464898 ms | 1.0047x | 1.005x | 5/5 improve | fail |
+| Same-bank stress | 0.432375 ms | 0.432900 ms | 0.998787x | 1.000x | 5/5 regress | fail |
+
+An initial sweep was directionally consistent at 1.0043x actual and
+0.998711x stress, but the separate frozen retest is authoritative. The
+expected nonzero screen exit is solely the performance-policy rejection:
+source identity, resources, and correctness pass. Stop-loss ends work after
+process 1, so there is no replication, production integration, full-model
+oracle, end-to-end benchmark, Nsys, or NCU result. The retained logs do not
+contain independent clock, thermal, power-mode, or energy readbacks.
+
+The temporary test policy is removed and source/test blobs match base commit
+`2529a317`; production stays QKV1536/Z768. The formal single-request anchor
+therefore remains **109.056 ms/token and 9.169600939 token/s**, still
+**9.056 ms/token** from the 100-ms stage target. Complete rounds, fixture and
+artifact identities, cleanup proof, and claim limits are in the
+[QKV grid-cap 1024 rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json).

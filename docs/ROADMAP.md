@@ -953,18 +953,32 @@ only this `b`/`b+16` balanced-tail mapping; a naive contiguous `16x1024`
 mapping was not tested. See the
 [16x1024 rejection record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-1024-rejection.json).
 
+The bounded production-ping-pong QKV grid-cap screen is also closed. Its
+test-only policy runs the exact same kernel and SASS at QKV1024/Z768 instead
+of production QKV1536/Z768; the 256-thread block, two CTA-local scratch slots,
+Z cap, ABI, and production route do not change. Source identity, resource,
+invalid-call, exhaustive finite/code, replay/race-signature, isolated NaN,
+and frozen actual/stress correctness gates pass. The authoritative
+same-binary process reaches 1.0047x on the actual checkpoint against a 1.005x
+gate, while stress reaches 0.998787x and all five stress rounds regress.
+First-process stop-loss restores the test policy and skips replication,
+production, model-oracle, end-to-end, Nsys, and NCU work. Production and the
+formal **109.056 ms/token / 9.169600939 token/s** anchor remain unchanged. See
+the
+[QKV grid-cap 1024 rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json).
+
 The next bounded Decode work should therefore require a materially different
-gate/up or QKV/Z mechanism rather than further CTA-width coarsening; those rows
-remain 38.834222 and 22.963224 ms/step, ahead of Down. Production and the
-formal **109.056 ms/token / 9.169600939 token/s** anchor are unchanged. Do not
-restore closed branches or prioritize general batch-one buffering: Prefill and
-Decode are logically split for tuning, but the measured request is still
-causally serialized on one stream, with no double/triple buffer, independent
-phase executors, or kernel overlap.
+gate/up or QKV/Z mechanism rather than further CTA-width coarsening or a
+simple grid-cap sweep; those rows remain 38.834222 and 22.963224 ms/step,
+ahead of Down. Do not restore closed branches or prioritize general batch-one
+buffering: Prefill and Decode are logically split for tuning, but the measured
+request is still causally serialized on one stream, with no double/triple
+buffer, independent phase executors, or kernel overlap.
 
 Closed gate/up row-pair balanced-tail/shared-pipeline/AoSoA4/`16x1024`
-variants, the down CTA-prune, and the QKV/Z sidecar remain closed. The
-100-ms/token and 10-token/s gate still precedes the larger Prefill program.
+variants, the down CTA-prune, the QKV/Z sidecar, and production-ping-pong
+QKV1024/Z768 grid-cap policy remain closed. The 100-ms/token and 10-token/s
+gate still precedes the larger Prefill program.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
