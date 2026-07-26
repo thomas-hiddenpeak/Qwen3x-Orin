@@ -1080,6 +1080,27 @@ share the selected route. Continue bounded Decode optimization toward 100
 ms/token before starting the larger dedicated Prefill stage. See the
 [palette-v2 production benchmark](metadata/qwen36-27b-decode-projection-palette-v2-production-benchmark.json).
 
+The P1 gate/up scale-only Row-Quad AoSoA4 candidate is now a stop-loss
+rejection. Its isolated 64-layer projection is only **0.0523529 ms/token**
+against the frozen **0.50-ms/token** gate, so it does not advance to a full-
+model run and does not change production or the formal anchor. The active
+anchor therefore remains **106.763000 ms/token / 9.366540843 token/s**, still
+**6.763000 ms/token** above the 100-ms target.
+
+The P1 test-only FP8 attention O-projection CTA512 candidate is now a stop-loss
+rejection. Correctness passes, but the public path measures **0.176767
+ms/layer** versus **0.192815 ms/layer** for the candidate, for a paired speedup
+of only **0.915945** and a projected 64-layer regression of **1.03662
+ms/token**. The first process therefore stops at the micro gate without a
+full-model run; production remains unchanged and the formal anchor stays at
+**106.763000 ms/token / 9.366540843 token/s**.
+
+Reorder the next priority from the latest production profile instead of
+prespecifying an implementation. Screen structural Decode candidates with a
+credible **at least 0.3--0.5 ms/token** contribution first, and advance to a
+full-model run only after the micro gate passes. Continue this incremental
+progression toward **100 ms/token / 10 token/s**.
+
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
 followed by same-binary actual-payload gates.

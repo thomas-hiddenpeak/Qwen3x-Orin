@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-m1-gate-up-scale-aosoa4-sidecar-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-scale-aosoa4-sidecar",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_head": "9eda27e58e39b4cde212b6b81ea8a5a07df1c256",
+    "base_tree": "aa241ff5ad376c34eb660e8867a62832347ece4e",
+    "base_subject": "docs: record Decode palette v2 production gain",
+    "branch": "main",
+    "candidate_commit": "edc828504942ffc7cbd98a35e7acb3e56d04e7a9",
+    "candidate_tree": "4e27575076b9e10983bfc49fe200c22db18ca950",
+    "candidate_subject": "bench: screen Decode gate-up scale AoSoA4",
+    "kernel_source_candidate_blob": "7092d2811d2940f24d4738a0a2c68692ee87d263",
+    "cuda_test_candidate_blob": "4ee29d8b5adee7f5b7439579b6527886023d33ba",
+    "candidate_scope": "committed test-only CUDA candidate and isolated device-test harness",
+    "candidate_present_as_uncommitted_test_only_at_measurement_time": true,
+    "candidate_retained_on_main_for_reproducibility": true,
+    "candidate_reachable_from_production": false,
+    "production_dispatch_changed": false,
+    "production_runner_changed": false,
+    "public_abi_changed": false,
+    "prefill_route_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "related_records": {
+    "current_production_anchor": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "different_packed_weight_aosoa4_rejection": "qwen36-27b-nvfp4-m1-gate-up-aosoa4-sidecar-rejection.json",
+    "different_scale6_sidecar_rejection": "qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json"
+  },
+  "current_stage_target": {
+    "formal_anchor_milliseconds_per_token": 106.763,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 6.763,
+    "remaining_tokens_per_second": 0.633459157,
+    "target_met": false,
+    "anchor_changed_by_this_candidate": false
+  },
+  "candidate": {
+    "name": "Gate/Up scale-only Row-Quad AoSoA4 sidecar",
+    "scope": "one combined single-token residual/RMSNorm/gate/up/SiLU dead-up kernel for the 17408x5120 NVFP4 Gate/Up pair",
+    "shape_n_by_k": [17408, 5120],
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "logical_kernels_per_layer": 1,
+    "packed_weight_layout": "unchanged canonical packed NVFP4 weights",
+    "canonical_scale_layout": "row-major uint8 E4M3 block scales with 320 scale columns per row",
+    "sidecar_layout": "row_quad_scale_column_row4: dst[row_quad][scale_column][row_in_quad] stores the four adjacent-row scale bytes in one little-endian uint32",
+    "row_quads": 4352,
+    "scale_columns": 320,
+    "scale_bytes_per_projection": 5570560,
+    "sidecar_bytes_per_projection": 5570560,
+    "sidecar_byte_reduction": 0,
+    "load_change": "one streaming uint32 scale load replaces four strided streaming uint8 scale loads for each adjacent row quartet",
+    "unchanged_contract": "packed-weight loads, row mapping, scale XOR pairing, activation indexing, FMA and reduction order, BF16 rounding boundaries, residual/RMSNorm order, and SiLU publication remain unchanged",
+    "alignment_contract": "the test-only sidecar pointers require uint32 alignment",
+    "production_status": "not promoted"
+  },
+  "memory_if_productionized": {
+    "canonical_scales_retained_for_prefill_and_fallback": true,
+    "sidecar_bytes_per_projection": 5570560,
+    "gate_up_sidecar_bytes_per_layer": 11141120,
+    "gate_up_sidecar_bytes_for_64_layers": 713031680,
+    "gate_up_sidecar_gib_for_64_layers": 0.6640625,
+    "allocation_status": "not_allocated",
+    "interpretation": "0.6640625 GiB would be additive because canonical scales must remain available; the failed first-process gate stopped before full-model allocation"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "runtime_device_name": "Orin",
+    "build_type": "Release",
+    "request_concurrency": 1,
+    "streams": 1,
+    "comparison_scope": "one same-binary process on one stream"
+  },
+  "checkpoint_fixture": {
+    "actual_checkpoint": {
+      "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+      "data_base": 126512,
+      "gate_weight_offset": 6757009952,
+      "up_weight_offset": 6801574432,
+      "gate_scale_offset": 3606039072,
+      "up_scale_offset": 3611609632,
+      "gate_scale2_offset": 126548,
+      "up_scale2_offset": 126556,
+      "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+      "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+      "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+      "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+      "scale2_bits_decimal": 958298600,
+      "scale2_bits_hex": "0x391e79e8",
+      "weights_and_scales": "hash-pinned real checkpoint payload",
+      "activation_residual_and_norm_inputs": "deterministic synthetic fixture"
+    },
+    "same_bank_stress": {
+      "weights_scales_and_dynamic_inputs": "deterministic synthetic stress fixture"
+    }
+  },
+  "resources": {
+    "production_baseline": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "production_cs_equal": true
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "null_query_rejected": true
+    },
+    "gate": "pass"
+  },
+  "correctness": {
+    "actual_checkpoint": {
+      "layout_round_trip": "pass",
+      "gate_sidecar_sha256": "2878733275afb6101e36d4123c171f40cc3a89c03164f7a59ffbbe073de63721",
+      "up_sidecar_sha256": "25c81f037fe6d83b59f37afd52fc180052bdb542431962266e4894af19c4d12f",
+      "residual_mismatches": "0/5120",
+      "gate_mismatches": "0/17408",
+      "finite": true,
+      "guards": "pass",
+      "workspaces_untouched": "pass",
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "layout_round_trip": "pass",
+      "gate_sidecar_sha256": "c3697f12856b20be173734683e02c4af5b408156cd3b09d66db18580db34fbc9",
+      "up_sidecar_sha256": "74417e734a435177e5c45d160fa8aae78fa4b66214ab5246ded905c1a5bcb3dc",
+      "residual_mismatches": "0/5120",
+      "gate_mismatches": "0/17408",
+      "finite": true,
+      "guards": "pass",
+      "workspaces_untouched": "pass",
+      "gate": "pass"
+    },
+    "overall_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_SM87_DECODE_GATE_UP_SCALE_AOSOA4_PERF=1",
+    "same_binary": true,
+    "same_process": true,
+    "same_nonblocking_stream": true,
+    "warmup_launches_per_implementation": 10,
+    "logical_kernel_launches_per_timed_pass": 64,
+    "rounds_per_fixture": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "baseline": "selected production streaming-cache residual/RMSNorm/gate/up/SiLU dead-up kernel with canonical scales",
+    "candidate": "test-only scale-AoSoA4 twin with canonical packed weights",
+    "frozen_gates": {
+      "each_actual_round_speedup_strictly_greater_than": 1.0,
+      "actual_paired_median_speedup_at_least": 1.02,
+      "projected_64_layer_delta_ms_at_least": 0.5,
+      "stress_paired_median_speedup_at_least": 1.0
+    },
+    "stop_loss": "Stop after process 1 when either aggregate actual gate fails; skip later processes, production integration, full-model sidecar allocation, model oracle, end-to-end timing, Nsys, and loader work."
+  },
+  "formal_process_1": {
+    "exit_code": 1,
+    "exit_interpretation": "expected performance-gate rejection after binary identity, pinned payload, resource, layout, correctness, finite, guard, workspace, and per-round non-regression gates passed",
+    "failed_assertions": 1,
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "baseline_1_ms": 0.589294, "candidate_1_ms": 0.588558, "candidate_2_ms": 0.588494, "baseline_2_ms": 0.589395, "paired_speedup": 1.00139, "paired_delta_ms": 0.000818014, "gate": "pass"},
+        {"round": 2, "order": "C-B-B-C", "baseline_1_ms": 0.589625, "candidate_1_ms": 0.588284, "candidate_2_ms": 0.588569, "baseline_2_ms": 0.588982, "paired_speedup": 1.00149, "paired_delta_ms": 0.000876307, "gate": "pass"},
+        {"round": 3, "order": "B-C-C-B", "baseline_1_ms": 0.589126, "candidate_1_ms": 0.588674, "candidate_2_ms": 0.588889, "baseline_2_ms": 0.589728, "paired_speedup": 1.00110, "paired_delta_ms": 0.000644803, "gate": "pass"},
+        {"round": 4, "order": "C-B-B-C", "baseline_1_ms": 0.589774, "candidate_1_ms": 0.588584, "candidate_2_ms": 0.588805, "baseline_2_ms": 0.590109, "paired_speedup": 1.00212, "paired_delta_ms": 0.00124699, "gate": "pass"},
+        {"round": 5, "order": "B-C-C-B", "baseline_1_ms": 0.589025, "candidate_1_ms": 0.588843, "candidate_2_ms": 0.588544, "baseline_2_ms": 0.589477, "paired_speedup": 1.00095, "paired_delta_ms": 0.000558019, "gate": "pass"}
+      ],
+      "baseline_pass_median_ms_per_layer": 0.589436,
+      "candidate_pass_median_ms_per_layer": 0.588577,
+      "paired_round_median_speedup": 1.00139,
+      "paired_round_median_delta_ms_per_layer": 0.000818014,
+      "projected_64_layer_delta_ms_per_token": 0.0523529,
+      "every_round_strictly_positive": true,
+      "speedup_gate": "fail",
+      "projected_delta_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "baseline_1_ms": 0.594775, "candidate_1_ms": 0.591960, "candidate_2_ms": 0.592021, "baseline_2_ms": 0.594595, "paired_speedup": 1.00455, "paired_delta_ms": 0.00269479, "gate": "pass"},
+        {"round": 2, "order": "C-B-B-C", "baseline_1_ms": 0.594656, "candidate_1_ms": 0.592197, "candidate_2_ms": 0.592252, "baseline_2_ms": 0.594095, "paired_speedup": 1.00363, "paired_delta_ms": 0.00215054, "gate": "pass"},
+        {"round": 3, "order": "B-C-C-B", "baseline_1_ms": 0.594974, "candidate_1_ms": 0.592062, "candidate_2_ms": 0.592430, "baseline_2_ms": 0.594851, "paired_speedup": 1.00450, "paired_delta_ms": 0.00266653, "gate": "pass"},
+        {"round": 4, "order": "C-B-B-C", "baseline_1_ms": 0.594647, "candidate_1_ms": 0.592308, "candidate_2_ms": 0.592276, "baseline_2_ms": 0.594571, "paired_speedup": 1.00391, "paired_delta_ms": 0.00231731, "gate": "pass"},
+        {"round": 5, "order": "B-C-C-B", "baseline_1_ms": 0.595352, "candidate_1_ms": 0.592400, "candidate_2_ms": 0.592309, "baseline_2_ms": 0.594729, "paired_speedup": 1.00453, "paired_delta_ms": 0.00268525, "gate": "pass"}
+      ],
+      "baseline_pass_median_ms_per_layer": 0.594692,
+      "candidate_pass_median_ms_per_layer": 0.592264,
+      "paired_round_median_speedup": 1.00450,
+      "paired_round_median_delta_ms_per_layer": 0.00266653,
+      "every_round_strictly_positive": true,
+      "speedup_gate": "pass",
+      "overall_gate": "pass"
+    },
+    "selected_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered_after_process": 1,
+    "reason": "the actual-checkpoint median is only 1.00139x versus the frozen 1.02x requirement and its 64-layer projection is only 0.0523529 ms/token versus 0.50 ms/token",
+    "processes_2_and_3": "not_run",
+    "full_model_sidecar_allocation": "not_run",
+    "loader_and_model_integration": "not_run",
+    "model_oracle": "not_run",
+    "end_to_end_timing": "not_run",
+    "nsight_systems": "not_run"
+  },
+  "production_impact": {
+    "candidate_promoted": false,
+    "production_dispatch_unchanged": true,
+    "production_abi_unchanged": true,
+    "production_memory_increase_bytes": 0,
+    "formal_anchor_unchanged": true,
+    "formal_anchor_milliseconds_per_token": 106.763,
+    "formal_anchor_tokens_per_second": 9.366540843
+  },
+  "artifacts": {
+    "formal_binary": {
+      "path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7324096,
+      "sha256": "d1b992a09521dd57381ccfd0b2b38b254d460da082fbe03c72b74180df73d521",
+      "elf_build_id": "7a3313a20a5f92c8f933f84496f610917fd8b876",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "path": "/tmp/q3x-gateup-scale-aosoa4.P1.final.log",
+      "bytes": 6844,
+      "lines": 26,
+      "sha256": "f2404ad88b4de8a380587dafc9d151aab84a44aece2b5d9a364dbf4b1e84682e",
+      "expected_exit_code": 1,
+      "terminal_line": "1 Decode gate/up scale AoSoA4 assertion(s) failed",
+      "checked_in": false
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "The scale-only layout is bit-exact and improves every measured round, but the actual-checkpoint gain is too small to clear either frozen promotion threshold and cannot justify an additive 0.6640625-GiB full-model sidecar.",
+    "closed_scope": "same-size row-quad AoSoA4 repacking of Gate/Up block-scale bytes while retaining canonical packed weights",
+    "candidate_remains_test_only": true,
+    "follow_up": "Return to higher-ceiling Decode work; revisit Gate/Up scale layout only with a materially different byte-reduction or compute-overlap mechanism."
+  },
+  "claim_limits": [
+    "This is a one-process isolated-kernel rejection on one Jetson AGX Orin, not an end-to-end or cross-device performance claim.",
+    "The actual fixture pins real checkpoint Gate/Up weights, block scales, and scale2 values, while activations, residuals, and norm inputs are deterministic synthetic data.",
+    "The 0.0523529-ms/token value is a 64-layer arithmetic projection from the isolated median delta, not measured whole-model latency.",
+    "The hypothetical 0.6640625-GiB sidecar inventory was neither allocated nor integrated.",
+    "Stress qualification cannot override failure of the authoritative actual-checkpoint speedup and projected-delta gates."
+  ]
+}

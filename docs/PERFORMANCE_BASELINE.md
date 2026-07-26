@@ -6088,3 +6088,98 @@ M1 route. The next priority remains incremental Decode work toward 100
 ms/token; the larger dedicated Prefill program follows that gate. Complete
 commands, hashes, process results, startup cost, and claim limits are in the
 [palette-v2 production benchmark](metadata/qwen36-27b-decode-projection-palette-v2-production-benchmark.json).
+
+## Rejected Decode NVFP4 M1 Gate/Up scale-only Row-Quad AoSoA4 P1
+
+The next bounded P1 screen changed only the block-scale layout of the current
+exact-M1 `32x512` residual/RMSNorm/gate/up/SiLU dead-up route. Four adjacent
+rows at one scale column are packed into one Row-Quad AoSoA4 U32, replacing
+four strided U8 scale loads with one test-only U32 load. Packed weights retain
+the current production streaming policy; arithmetic order, BF16 boundaries,
+topology, launch count, stream, production dispatch, and Prefill remain
+unchanged. This is an isolated kernel screen using pinned layer-0 checkpoint
+weights with synthetic activation and residual inputs, not a full-checkpoint
+activation, model-oracle, or end-to-end measurement.
+
+The actual-checkpoint and same-bank-stress fixtures pass bitwise correctness,
+finite-output, output-guard, scale-layout round-trip, and untouched dead-up
+workspace checks. The formal P1 process uses ten warmups and five paired
+64-launch rounds, alternating `B-C-C-B` and `C-B-B-C` order. Its frozen gates
+require at least 1.02x on actual checkpoint weights, 1.00x on stress, strict
+positive improvement in every round, and a projected 64-layer saving of at
+least 0.50 ms/token:
+
+| Fixture | Production pass median | Candidate pass median | Paired median | Delta/layer | Projected 64-layer delta | Improving rounds | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Layer-0 checkpoint weights + synthetic activation/residual | 0.589436 ms | 0.588577 ms | **1.00139x** | 0.000818014 ms | **0.0523529 ms/token** | 5/5 | **fail relative and absolute gates** |
+| Same-bank stress | — | — | **1.0045x** | — | — | — | pass |
+
+All five actual-checkpoint paired rounds are directionally positive, but the
+gain is only 0.139%, far below the required 2%, and its 64-layer projection
+reaches only about one tenth of the 0.50-ms/token floor. The scale-only
+Row-Quad AoSoA4 mechanism is therefore rejected at P1. Stop-loss ends this
+branch without P2, P3, full-model end-to-end, Nsys, or production-integration
+work; the small phase-local projection is not an achieved Decode reduction.
+
+No production path changes, so the formal hot single-request Decode anchor
+remains **106.763000 ms/token and 9.366540843 token/s**. This result does not
+alter the current production palette or the remaining distance to the
+100-ms/token and 10-token/s target.
+
+## Rejected Decode FP8 M1 O-proj CTA512 dual-worker/shared-activation P1
+
+The next isolated P1 screen tested whether the exact-M1 `[5120,6144]` FP8
+output projection benefits from doubling its CTA from the production 256
+threads to 512 threads. The candidate assigns two projection workers to each
+CTA and stages one shared copy of the 6,144-element BF16 activation for both
+workers. It retains the production AoSoA4/preswizzled weight sidecar,
+arithmetic, BF16 output boundary, launch count, stream, and output shape. This
+is a real checkpoint-weight plus synthetic-activation kernel screen, not a
+model-oracle or end-to-end measurement.
+
+The formal binary is
+`/tmp/q3x-o-proj-cta512-worktree/build/orin-release/q3x_sm87_weight_only_gemv_test`,
+7,323,352 bytes with SHA-256
+`b303d4fcf2ff5dcda3207dd02e0f5cd4245f1aac57cce36945b61a1c51e27cc7`.
+Its 14-line, 3,221-byte P1 log is `/tmp/q3x-o-proj-cta512.P1.log`, with
+SHA-256
+`f65d42a42e035fd2858a2182964db62251ea1530aa05ad3c337283f3596720ab`.
+The pinned layer-0 payload starts at byte 3,569,011,232, spans 31,457,280
+bytes, and hashes to
+`e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9`;
+the equal-size AoSoA4 sidecar hashes to
+`20f6875f163aefa869d7c96c436fdc63f90171793a88a0f1b3fefca55531782b`.
+
+The resource and correctness gates pass:
+
+| Route | Threads | Registers/thread | Static shared | Active CTAs/SM | Local memory |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Production | 256 | 64 | 1,152 B | 4 | 0 B |
+| CTA512 candidate | 512 | 64 | 13,568 B | 2 | 0 B |
+
+All 5,120 candidate outputs match production bitwise. Both output guards pass,
+and the sidecar plus synthetic activation remain immutable. The formal first
+process then uses five 64-launch paired rounds in alternating `B-C-C-B` and
+`C-B-B-C` order:
+
+| Round | Paired speedup | Paired delta/layer | Result |
+| --- | ---: | ---: | --- |
+| 1 | 0.913742x | -0.0166838 ms | fail |
+| 2 | 0.915945x | -0.0161972 ms | fail |
+| 3 | 0.914051x | -0.0166215 ms | fail |
+| 4 | 0.923278x | -0.0147860 ms | fail |
+| 5 | 0.924904x | -0.0143918 ms | fail |
+
+Every round regresses. Production and candidate pass medians are 0.176767 and
+0.192815 ms/layer, respectively; the paired median is **0.915945x**, with a
+**-0.0161972-ms/layer** delta. Across 64 layers this projects to a
+**-1.03662-ms/token delta**, a 1.03662-ms/token regression. The candidate
+therefore fails all three frozen performance requirements: at least 1.02x
+actual-checkpoint speedup, at least 0.30 ms/token projected saving, and strict
+improvement in every round.
+
+First-process stop-loss rejects the CTA512 dual-worker/shared-activation
+mechanism. Stress timing, P2, P3, full-model validation, end-to-end timing,
+and Nsys were not run. No production path changes, so the formal hot
+single-request Decode anchor remains **106.763000 ms/token and 9.366540843
+token/s**.

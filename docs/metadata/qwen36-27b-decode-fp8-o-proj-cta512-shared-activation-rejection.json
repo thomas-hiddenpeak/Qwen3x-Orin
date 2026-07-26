@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-fp8-o-proj-cta512-shared-activation-rejection",
+  "status": "rejected-test-only-decode-fp8-o-proj-cta512-shared-activation",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "9eda27e58e39b4cde212b6b81ea8a5a07df1c256",
+    "base_tree": "aa241ff5ad376c34eb660e8867a62832347ece4e",
+    "base_subject": "docs: record Decode palette v2 production gain",
+    "branch": "main",
+    "measurement_source_commit": "ef58e7b30af9474a1684c5174a9a05445daeef63",
+    "measurement_source_tree": "3bfa380cf4ec3c06a857cb5cdf140be4213ba080",
+    "measurement_source_subject": "bench: screen Decode O-proj CTA512 sharing",
+    "main_integration_commit": "d2950a74f50965b20294eb10c61da7b9f614eb8a",
+    "main_integration_tree": "ecd8d12cf08b84f76e8fb65894a12b12d5a0569a",
+    "main_integration_subject": "bench: screen Decode O-proj CTA512 sharing",
+    "candidate_retained_on_main_for_reproducibility": true,
+    "candidate_worktree": "/tmp/q3x-o-proj-cta512-worktree",
+    "kernel_source_base_blob": "b310b80770672031dfd38f0122bdcb1d31891f96",
+    "kernel_source_candidate_blob": "0c42ec98b75ac01fe7363964c9912f730f7a7db5",
+    "cuda_test_base_blob": "d7c463d3898c72a0cf6ac8e23f1b4cbfa506b672",
+    "cuda_test_candidate_blob": "766e790b37dbfa9d18b51769648869c5ea041e51",
+    "candidate_scope": "test-only exact-M1 FP8 output-projection kernel, launcher, resource query, and opt-in P1 screen",
+    "candidate_source_and_test_are_test_only": true,
+    "candidate_reachable_from_production_dispatch": false,
+    "production_kernel_body_changed": false,
+    "production_launcher_changed": false,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 6.763000,
+    "remaining_tokens_per_second": 0.633459157,
+    "target_met": false,
+    "anchor_changed_by_this_rejection": false
+  },
+  "candidate": {
+    "phase": "64 attention output-projection calls per Decode token",
+    "token_count": 1,
+    "operation": "production FP8 self-attention output projection",
+    "shape_n_by_k": [5120, 6144],
+    "decode_layers": 64,
+    "sidecar_layout": "AoSoA4 plus code^(code>>5) byte preswizzle",
+    "sidecar_bytes_per_layer": 31457280,
+    "baseline": "current public production AoSoA4/preswizzled output-projection kernel",
+    "test_only_candidate": "a distinct 512-thread kernel containing two independent 256-thread mathematical workers that share one staged BF16 activation",
+    "topology": {
+      "public_grid": [1024, 1, 1],
+      "public_block": [256, 1, 1],
+      "candidate_grid": [640, 1, 1],
+      "candidate_block": [512, 1, 1],
+      "candidate_workers_per_cta": 2,
+      "threads_per_worker": 256,
+      "row_quads_per_candidate_cta": 2
+    },
+    "shared_activation": {
+      "elements": 6144,
+      "element_type": "BF16",
+      "payload_bytes": 12288,
+      "copy_count_per_candidate_cta": 1,
+      "consumers": 2
+    },
+    "launches_per_layer": {"baseline": 1, "candidate": 1},
+    "unchanged": [
+      "AoSoA4/preswizzled sidecar representation and bytes",
+      "FP8 codebook, per-row accumulator order, warp and block reductions, weight-scale multiplication, and BF16-RNE publication",
+      "output shape, launch count, timing output address, and CUDA stream",
+      "all production runtime, ABI, dispatch, and Prefill paths"
+    ],
+    "timing_output_address_same_between_routes": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "stream_count": 1,
+    "formal_log_embeds_clock_thermal_or_power_state": false
+  },
+  "fixtures": {
+    "actual_checkpoint": {
+      "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+      "layer": 0,
+      "tensor": "model.language_model.layers.0.self_attn.o_proj.weight",
+      "absolute_offset": 3569011232,
+      "canonical_bytes": 31457280,
+      "canonical_sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9",
+      "sidecar_bytes": 31457280,
+      "sidecar_sha256": "20f6875f163aefa869d7c96c436fdc63f90171793a88a0f1b3fefca55531782b",
+      "canonical_and_sidecar_identity_gate": "pass"
+    },
+    "synthetic_activation": {
+      "elements": 6144,
+      "element_type": "BF16",
+      "generator": "BF16_RNE((((column*29 + (column>>3)*7 + 11) % 127) - 63) / 512)",
+      "weight_scale": 0.015625,
+      "immutable_gate": "pass"
+    },
+    "scope": "real pinned layer-0 checkpoint weights with a synthetic activation and screen-local weight scale; this is not a full-model activation fixture"
+  },
+  "resources": {
+    "public": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13568,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "candidate_limits": {
+      "registers_per_thread_at_most": 64,
+      "static_shared_bytes_exactly": 13568,
+      "active_ctas_per_sm_at_least": 2
+    },
+    "stack_bytes_queried": false,
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "actual_checkpoint_direct": {
+      "mismatches": "0/5120",
+      "public_output_guards": "pass",
+      "candidate_output_guards": "pass",
+      "sidecar_immutable": "pass",
+      "activation_immutable": "pass",
+      "gate": "pass"
+    },
+    "not_exercised_before_stop_loss": [
+      "same-bank-stress correctness and timing",
+      "candidate CUDA Graph capture and replay",
+      "invalid-call zero-node matrix",
+      "signed nonfinite fixture",
+      "full-model oracle"
+    ]
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CTA512_SHARED_ACTIVATION_PERF=1",
+    "comparison": "current public 1024x256 kernel versus test-only 640x512 two-worker/shared-activation kernel in one binary, process, stream, actual sidecar, synthetic activation, scale, and timing output address",
+    "independent_processes_planned": 3,
+    "independent_processes_completed": 1,
+    "actual_checkpoint_timing_first": true,
+    "warmup_pairs": 10,
+    "unmeasured_prime": null,
+    "measured_launches_per_pass": 64,
+    "rounds": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "pass_median": "median of ten timed-pass means for each route",
+    "paired_statistic": "median of five per-round values; each round pairs the mean of its two public passes with the mean of its two candidate passes",
+    "required_actual_each_round_speedup_strictly_greater_than": 1.0,
+    "required_actual_paired_median_speedup": 1.02,
+    "required_actual_projected_64_layer_delta_ms_per_token": 0.30,
+    "required_three_process_median_projected_64_layer_delta_ms_per_token": 0.40,
+    "stress_timing_runs_only_after_actual_gate": true
+  },
+  "formal_process_1": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "public_1_ms": 0.176819, "candidate_1_ms": 0.192608, "candidate_2_ms": 0.194227, "public_2_ms": 0.176648, "paired_speedup": 0.913742, "paired_delta_ms_per_layer": -0.0166838, "gate": "fail"},
+        {"round": 2, "order": "C-B-B-C", "public_1_ms": 0.176407, "candidate_1_ms": 0.193144, "candidate_2_ms": 0.192254, "public_2_ms": 0.176597, "paired_speedup": 0.915945, "paired_delta_ms_per_layer": -0.0161972, "gate": "fail"},
+        {"round": 3, "order": "B-C-C-B", "public_1_ms": 0.176729, "candidate_1_ms": 0.193210, "candidate_2_ms": 0.193566, "public_2_ms": 0.176805, "paired_speedup": 0.914051, "paired_delta_ms_per_layer": -0.0166215, "gate": "fail"},
+        {"round": 4, "order": "C-B-B-C", "public_1_ms": 0.179529, "candidate_1_ms": 0.193022, "candidate_2_ms": 0.192420, "public_2_ms": 0.176341, "paired_speedup": 0.923278, "paired_delta_ms_per_layer": -0.0147860, "gate": "fail"},
+        {"round": 5, "order": "B-C-C-B", "public_1_ms": 0.177427, "candidate_1_ms": 0.191843, "candidate_2_ms": 0.191444, "public_2_ms": 0.177077, "paired_speedup": 0.924904, "paired_delta_ms_per_layer": -0.0143918, "gate": "fail"}
+      ],
+      "public_pass_median_ms_per_layer": 0.176767,
+      "candidate_pass_median_ms_per_layer": 0.192815,
+      "paired_median_speedup": 0.915945,
+      "paired_median_delta_ms_per_layer": -0.0161972,
+      "projected_64_layer_delta_ms_per_token": -1.03662,
+      "rounds_improving": "0/5",
+      "every_round_improvement_gate": "fail",
+      "relative_speedup_gate": "fail",
+      "per_process_projected_delta_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "same_bank_stress": "not-run-after-actual-stop-loss",
+    "overall_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "The CTA512 candidate regressed in all five actual-checkpoint-weight rounds. Its 0.915945x paired median adds 0.0161972 ms in the isolated layer cell and projects to a 1.03662-ms/token loss over 64 layers.",
+    "stress": "not-run",
+    "process_2": "not-run",
+    "process_3": "not-run",
+    "three_process_median_gate": "not-run",
+    "p2": "not-run",
+    "p3": "not-run",
+    "production_integration": "not-run",
+    "full_model_oracle": "not-run",
+    "whole_model_end_to_end": "not-run",
+    "candidate_nsight_systems": "not-run",
+    "decision": "reject the CTA512 dual-worker/shared-activation mechanism and retain the public 1024x256 production route"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "formal_process_1_exit_code": 1,
+    "formal_process_1_exit_interpretation": "expected frozen performance-gate rejection after resource, actual payload/sidecar identity, bitwise, guard, and input-immutability gates passed",
+    "default_release_suite": "not-run-as-part-of-this-isolated-p1-screen"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 106.763000,
+    "formal_anchor_after_ms_per_token": 106.763000,
+    "formal_tokens_per_second": 9.366540843,
+    "runtime_changed": false,
+    "production_abi_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-o-proj-cta512-worktree/build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7323352,
+      "sha256": "b303d4fcf2ff5dcda3207dd02e0f5cd4245f1aac57cce36945b61a1c51e27cc7",
+      "build_id": "80176258ce6bc8d967987dba28a736b7723936ed",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-o-proj-cta512.P1.log",
+      "bytes": 3221,
+      "lines": 14,
+      "sha256": "f65d42a42e035fd2858a2182964db62251ea1530aa05ad3c337283f3596720ab",
+      "exit_code": 1,
+      "result": "expected frozen performance-gate rejection",
+      "checked_in": false
+    },
+    "formal_command": "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CTA512_SHARED_ACTIVATION_PERF=1 Q3X_FP8_M1_O_PROJ_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors /tmp/q3x-o-proj-cta512-worktree/build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "claim_limits": [
+    "This result is an isolated same-binary layer-0 kernel screen using real checkpoint weights, a derived AoSoA4/preswizzled sidecar, a synthetic BF16 activation, and a screen-local weight scale; it is not a full-model activation or end-to-end result.",
+    "The -1.03662-ms/token value is an arithmetic 64-layer projection from one isolated microbenchmark, not an achieved whole-model Decode regression.",
+    "Stress, processes 2 and 3, P2, P3, the three-process median gate, full-model validation, production integration, end-to-end timing, and Nsys were not run after the first-process stop-loss.",
+    "No candidate SASS was extracted for this P1 record; resources and source/test blob identities are recorded without a static instruction-census claim.",
+    "Production ABI, runtime dispatch, the 106.763000-ms/token and 9.366540843-token/s anchor, the serial one-stream schedule, and Prefill remain unchanged."
+  ]
+}

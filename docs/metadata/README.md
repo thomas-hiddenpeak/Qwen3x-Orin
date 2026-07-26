@@ -992,6 +992,33 @@ The diagnostic Phase 3 records are:
   11-layer canonical down dispatch; its profiled timing remains supporting
   attribution and is not used to establish this E2E anchor.
 
+- [`qwen36-27b-decode-nvfp4-m1-gate-up-scale-aosoa4-sidecar-rejection.json`](qwen36-27b-decode-nvfp4-m1-gate-up-scale-aosoa4-sidecar-rejection.json),
+  which records the bounded rejection of a test-only, scale-only Row-Quad
+  AoSoA4 Gate/Up sidecar while canonical packed weights remain unchanged. All
+  ten actual/stress rounds improve and both fixtures remain bit-exact, finite,
+  guarded, and workspace-safe, but the real-checkpoint median reaches only
+  1.00139x and a projected 0.0523529 ms/token across 64 layers, missing the
+  frozen 1.02x and 0.50-ms/token promotion gates; stress reaches 1.00450x and
+  passes its 1.00x qualification gate. Productionizing the same-size sidecars
+  would add 0.6640625 GiB while retaining canonical scales, so the process-1
+  stop-loss skips replication, allocation, loader/model integration, E2E, and
+  Nsys work. Production dispatch and ABI remain unchanged, and the formal
+  Decode anchor remains 106.763 ms/token and 9.366540843 token/s.
+
+- [`qwen36-27b-decode-fp8-o-proj-cta512-shared-activation-rejection.json`](qwen36-27b-decode-fp8-o-proj-cta512-shared-activation-rejection.json),
+  which rejects a test-only exact-M1 FP8 output-projection CTA512 candidate.
+  Two independent 256-thread workers share one staged 6,144-element BF16
+  activation per CTA; production retains its `1024x256` route, while the
+  candidate uses `640x512`. On pinned layer-0 checkpoint weights with a
+  synthetic activation, resources, 0/5,120 bitwise correctness, guards, and
+  input immutability pass. All five actual-checkpoint rounds regress: public
+  and candidate medians are 0.176767 and 0.192815 ms/layer, the paired median
+  is 0.915945x, and the -0.0161972-ms/layer delta projects to a
+  **1.03662-ms/token loss** over 64 layers. First-process stop-loss therefore
+  skips stress, P2/P3, model, E2E, and Nsys work. Source and test hooks remain
+  test-only, production ABI/dispatch are unchanged, and the formal Decode
+  anchor remains **106.763 ms/token and 9.366540843 token/s**.
+
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
 quantization fields; index counts; representative shapes read from the first
