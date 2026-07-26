@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-short-position-cuda-graph-cache-p2-selection",
+  "status": "selected-test-only-short-position-decode-graph-cache-p2-production-not-integrated-target-not-met",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "13fda299f6d75400ac7820fdc75333f382472279",
+    "base_tree": "582ecfb4baefe5eb3b5c2ebbb7888f1227036d66",
+    "base_subject": "docs: select fixed-position Decode CUDA Graph",
+    "feature_commit": "f95dbf4de6167f704ce4571ce87a7b50a30473c5",
+    "feature_tree": "32706fa5ee4e8163e1510d3d07945fd3e4914322",
+    "feature_subject": "bench: validate short-position Decode Graph cache",
+    "feature_parent_commit": "13fda299f6d75400ac7820fdc75333f382472279",
+    "branch": "experiment/decode-graph-p2-cache",
+    "blobs_at_feature_commit": {
+      "cmake": "f4be954d1eb3f806162b0a69f6607c6d3c02d5ea",
+      "reference_engine_header": "957e3366920ef71d14d66ea27348caddec94b582",
+      "reference_runner_header": "7e2ba6608b97a52f7ffeb6d01d59d07df037e962",
+      "reference_engine_source": "57f6ef591273d78c624ce4f1a5007c1670da960b",
+      "reference_runner_source": "8dbc15dfee1c250ff19066c2c0bd565a810f5a82",
+      "p2_perf_test": "e58f3d934f602dede7eedcee319b1d241eb173d8"
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_production_anchor_ms_per_token": 106.763000,
+    "formal_production_anchor_tokens_per_second": 9.366540843,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "screened_graph_ms_per_token": 105.978481,
+    "screened_graph_tokens_per_second": 9.435878,
+    "screened_arithmetic_improvement_from_formal_anchor_ms_per_token": 0.784519,
+    "screened_arithmetic_speedup_from_formal_anchor": 1.007403,
+    "formal_anchor_comparison_is_cross_process_projection": true,
+    "remaining_to_100ms_for_screened_result_ms": 5.978481,
+    "remaining_speedup_required_for_screened_result": 1.059785,
+    "formal_anchor_changed_by_this_test_only_candidate": false,
+    "target_met": false,
+    "reason": "P2 validates a bounded cache and generation dispatcher behind a test-only explicit preparation/opt-in surface; ordinary production generation still prepares no graphs and uses the serial Decode callback."
+  },
+  "candidate": {
+    "name": "P19-P43 position-specialized full predicted-only Decode GraphExec cache P2",
+    "device_scope": "SM87",
+    "projection_backend": "sm87_weight_only",
+    "production_window_first_position": 19,
+    "production_window_last_position": 43,
+    "production_window_slots": 25,
+    "runner_slot_capacity": 64,
+    "boundary_fixture_position": 63,
+    "boundary_fixture_in_production_resource_gate": false,
+    "capture_input_token_id": 0,
+    "capture_contract": "At an explicitly selected logical position, capture, inspect, instantiate, upload, and synchronize the existing full Decode enqueue sequence without launching it or committing request state.",
+    "replay_contract": "At the runner's current position, update the prepared GraphExec embedding root for the actual token, launch once, synchronize, validate the host greedy result, and commit through the existing step boundary.",
+    "dynamic_input": "cudaGraphExecKernelNodeSetParams updates token_id * 5120 on the source graph's unique embedding root before each replay.",
+    "fixed_inputs": "Each slot specializes position-dependent KV addresses, RoPE position, and attention sequence length.",
+    "owned_per_slot": [
+      "source cudaGraph_t",
+      "cudaGraphExec_t",
+      "source embedding cudaGraphNode_t",
+      "embedding launch descriptor",
+      "topology and preparation statistics"
+    ],
+    "replacement_publish_rule": "A recaptured slot replaces the old handles only after instantiate, upload, and stream synchronization all succeed; failure retains the old handles but the runner remains subject to its normal poisoned-until-reset failure contract.",
+    "default_generate_behavior_changed": false,
+    "default_graph_preparation_added": false,
+    "prefill_changed": false,
+    "compute_kernel_changed": false,
+    "kernel_launch_order_changed": false,
+    "request_arena_layout_changed": false,
+    "persistent_weight_memory_changed": false,
+    "public_test_only_abi_added": true,
+    "production_status": "not integrated"
+  },
+  "execution_model": {
+    "request_concurrency": 1,
+    "runners": 1,
+    "decode_streams": 1,
+    "graph_launches_per_cached_token": 1,
+    "kernels_inside_each_graph": 389,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "prefill_decode_logical_plans_separate": true,
+    "prefill_decode_executors_separate": false,
+    "prefill_decode_overlap_added": false,
+    "interpretation": "The cache removes repeated host submission for each position-specialized serial DAG. It adds neither inter-kernel overlap nor request/phase buffering."
+  },
+  "topology_gate": {
+    "positions_checked": [
+      "every position P19-P43",
+      "boundary fixture P63"
+    ],
+    "total_nodes_per_slot": 390,
+    "kernel_nodes_per_slot": 389,
+    "memcpy_nodes_per_slot": 1,
+    "other_nodes_per_slot": 0,
+    "root_nodes_per_slot": 1,
+    "unique_root": "embedding gather kernel",
+    "uncached_boundary_position": 64,
+    "uncached_boundary_slot_absent": true,
+    "gate": "pass"
+  },
+  "correctness_gate": {
+    "oracle_prompt": "用一句话解释 CUDA 是什么。",
+    "prompt_token_ids": [
+      248045, 846, 198, 95826, 110827, 98682, 52965, 220, 98661, 1710,
+      248046, 198, 248045, 74455, 198, 248068, 271, 248069, 271
+    ],
+    "generated_token_ids": [
+      77517, 220, 95761, 32449, 220, 97039, 101692, 119548, 97792,
+      125574, 102027, 103725, 3709, 109238, 97327, 21966, 220, 127361,
+      130111, 95860, 103806, 108751, 97792, 97995, 1710, 248046
+    ],
+    "generated_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+    "stop_reason": "im_end",
+    "serial_steps": 44,
+    "continuous_decode_steps": 25,
+    "graph_replays": 25,
+    "graph_serial_fallbacks": 0,
+    "compared_arena_bytes": 89162240,
+    "continuous_generation_semantics_exact": true,
+    "continuous_complete_arena_exact": true,
+    "preparation_complete_arena_exact": true,
+    "prepare_position_unchanged_immediately_per_slot": true,
+    "pinned_mid_chain": {
+      "position_31": {
+        "input_token_id": 3709,
+        "prediction": 109238,
+        "exact": true
+      },
+      "position_32": {
+        "input_token_id": 109238,
+        "prediction": 97327,
+        "exact": true
+      }
+    },
+    "serial_fallbacks": {
+      "empty_cache_predicted_only": {
+        "graph_replays": 0,
+        "serial_fallbacks": 25,
+        "generation_and_complete_arena_exact": true
+      },
+      "full_statistics": {
+        "graph_replays": 0,
+        "serial_fallbacks": 25,
+        "all_logits_fields_and_complete_arena_exact": true
+      },
+      "trace": {
+        "graph_replays": 0,
+        "serial_fallbacks": 25,
+        "all_trace_digests_steps_and_complete_arena_exact": true
+      },
+      "reference_backend_two_token_generation": {
+        "cache_off_replays": 0,
+        "cache_off_fallbacks": 0,
+        "cache_on_replays": 0,
+        "cache_on_fallbacks": 1,
+        "non_timing_semantics_exact": true
+      }
+    },
+    "boundary": {
+      "prompt": "51 space-separated copies of hello",
+      "rendered_prompt_tokens": 63,
+      "seed_prediction": 9419,
+      "p63_serial_prediction": 0,
+      "p63_graph_prediction": 0,
+      "p63_cache_hit": true,
+      "p64_slot_present": false,
+      "p64_serial_prediction": 59720,
+      "p64_dispatcher_fallback_prediction": 59720,
+      "p64_dispatcher_replays": 0,
+      "p64_dispatcher_fallbacks": 1,
+      "final_sequence_length": 65,
+      "preparation_complete_arena_exact": true,
+      "serial_graph_complete_arena_exact": true
+    },
+    "fail_fast": "Any topology, pinned prediction, generation field, trace digest, immediate preparation-position, fallback-counter, or complete-arena mismatch stops before the hot timing gate.",
+    "gate": "pass"
+  },
+  "cold_preparation_and_resource_gate": {
+    "gate_scope": "Only the selected production window P19-P43, 25 slots; P63 is an additional correctness fixture measured separately.",
+    "capture_enqueue_sum_ms": 23.407761,
+    "topology_inspection_sum_ms": 1.117999,
+    "instantiate_sum_ms": 53.014902,
+    "upload_ready_sum_ms": 5.730543,
+    "per_slot_total_sum_ms": 83.275077,
+    "wall_ms": 83.475048,
+    "maximum_wall_ms": 1000.0,
+    "cuda_free_bytes_before": 39875891200,
+    "cuda_free_bytes_after": 39737454592,
+    "observed_cuda_free_drop_bytes": 138436608,
+    "maximum_observed_cuda_free_drop_bytes": 268435456,
+    "host_private_bytes_before": 151552000,
+    "host_private_bytes_after": 216567808,
+    "host_private_increase_bytes": 65015808,
+    "host_private_is_diagnostic_not_hard_gate": true,
+    "boundary_fixture": {
+      "position": 63,
+      "prepare_total_ms": 4.091190,
+      "observed_incremental_cuda_free_drop_bytes": 6619136,
+      "observed_cache_plus_boundary_cuda_free_drop_bytes": 145055744
+    },
+    "snapshot_buffers": {
+      "count": 3,
+      "bytes_each": 89162240,
+      "total_bytes": 267486720,
+      "allocated_before_cuda_free_baseline": true,
+      "included_in_cache_delta": false
+    },
+    "measurement_limitations": [
+      "Jetson CPU and GPU share physical DRAM, so host-private and cudaMemGetInfo deltas must not be added together.",
+      "cudaMemGetInfo is a device-wide observed free-memory delta and can vary with CUDA and operating-system retained allocations.",
+      "The P63 incremental reading is diagnostic and occurs after an arena comparison synchronization.",
+      "No 64-slot resource or preparation-time claim is made."
+    ],
+    "cold_time_gate": "pass",
+    "memory_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_SM87_DECODE_GRAPH_P2_PERF=1",
+    "command": "taskset -c 11 env Q3X_RUN_SM87_DECODE_GRAPH_P2_PERF=1 Q3X_DECODE_GRAPH_P2_MODEL_DIR=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 ctest --test-dir /tmp/q3x-decode-graph-p2-build-release -V -R '^reference_decode_graph_p2_perf$' --output-log /tmp/q3x-decode-graph-p2.final.log",
+    "same_binary": true,
+    "same_process": true,
+    "same_runner": true,
+    "same_complete_baseline_arena": true,
+    "arena_restore_synchronized_outside_timing": true,
+    "sample_scope": "decode_after_first_milliseconds divided by 25; every token includes embedding-node parameter update for Graph, Graph or serial launch, D2H, stream synchronization, greedy validation, and request-state commit.",
+    "warmup": {
+      "recorded": false,
+      "order": ["serial", "graph", "graph", "serial"]
+    },
+    "measured_rounds": 5,
+    "round_order": ["serial", "graph", "graph", "serial"],
+    "rounds": [
+      {
+        "serial_first_ms_per_token": 106.990572,
+        "graph_first_ms_per_token": 105.989002,
+        "graph_second_ms_per_token": 105.967959,
+        "serial_second_ms_per_token": 106.896371,
+        "serial_pair_ms_per_token": 106.943472,
+        "graph_pair_ms_per_token": 105.978481,
+        "paired_delta_ms_per_token": 0.964991
+      },
+      {
+        "serial_first_ms_per_token": 106.895659,
+        "graph_first_ms_per_token": 106.040752,
+        "graph_second_ms_per_token": 105.976917,
+        "serial_second_ms_per_token": 106.882692,
+        "serial_pair_ms_per_token": 106.889175,
+        "graph_pair_ms_per_token": 106.008835,
+        "paired_delta_ms_per_token": 0.880341
+      },
+      {
+        "serial_first_ms_per_token": 106.893873,
+        "graph_first_ms_per_token": 105.970526,
+        "graph_second_ms_per_token": 105.959724,
+        "serial_second_ms_per_token": 107.008928,
+        "serial_pair_ms_per_token": 106.951401,
+        "graph_pair_ms_per_token": 105.965125,
+        "paired_delta_ms_per_token": 0.986276
+      },
+      {
+        "serial_first_ms_per_token": 106.893386,
+        "graph_first_ms_per_token": 105.978791,
+        "graph_second_ms_per_token": 105.971195,
+        "serial_second_ms_per_token": 106.895196,
+        "serial_pair_ms_per_token": 106.894291,
+        "graph_pair_ms_per_token": 105.974993,
+        "paired_delta_ms_per_token": 0.919298
+      },
+      {
+        "serial_first_ms_per_token": 106.941931,
+        "graph_first_ms_per_token": 105.969769,
+        "graph_second_ms_per_token": 108.944786,
+        "serial_second_ms_per_token": 109.733538,
+        "serial_pair_ms_per_token": 108.337734,
+        "graph_pair_ms_per_token": 107.457277,
+        "paired_delta_ms_per_token": 0.880457,
+        "environmental_note": "Both second-half arms are elevated relative to the other rounds; the paired round remains positive and the median estimator rejects the high pair."
+      }
+    ],
+    "serial_pair_median_ms_per_token": 106.943472,
+    "graph_pair_median_ms_per_token": 105.978481,
+    "paired_delta_median_ms_per_token": 0.919298,
+    "difference_of_pair_medians_ms_per_token": 0.964991,
+    "median_speedup": 1.009106,
+    "graph_tokens_per_second": 9.435878,
+    "winning_rounds": "5/5",
+    "first_distinct_slot_chain": {
+      "serial_ms_per_token": 106.908192,
+      "graph_ms_per_token": 106.069056,
+      "delta_ms_per_token": 0.839136,
+      "minimum_diagnostic_delta_ms_per_token": 0.70,
+      "status": "pass-diagnostic"
+    },
+    "frozen_hot_gates": {
+      "median_saving_at_least_ms_per_token": 0.70,
+      "winning_rounds_required": "5/5"
+    },
+    "hot_performance_gate": "pass",
+    "target_100ms_met": false
+  },
+  "final_feature_commit_process": {
+    "status": "pass",
+    "wall_seconds": 199.77,
+    "binary": {
+      "local_path": "/tmp/q3x-decode-graph-p2-build-release/q3x_reference_decode_graph_p2_perf_test",
+      "bytes": 5033904,
+      "sha256": "542add513947295451ba0660848100cd1ea7d087ddc47e76c0d3a05654f74720",
+      "elf_build_id": "dc2458064588a22665877c40e73f659c5161cbb7",
+      "checked_in": false
+    },
+    "log": {
+      "local_path": "/tmp/q3x-decode-graph-p2.final.log",
+      "bytes": 7277,
+      "lines": 154,
+      "sha256": "b4d135b479b89e1435e4893549fc0cb8d248aa163bcb91bee881d64d65c22f6f",
+      "terminal_metric": "decode_graph_p2.status=pass",
+      "ctest_exit_code": 0
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "kernel": "Linux 6.8.12-1021-tegra",
+    "driver_version": "595.78",
+    "cuda_compiler": "CUDA 13.3 build 37862127_0",
+    "cmake_version": "3.28.3",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz_before_final_process": 1300500000,
+    "cpu_affinity_for_final_process": 11,
+    "pre_run_gpu_temperature_celsius": 66.281,
+    "pre_run_cpu_temperature_celsius": 73.843,
+    "claim_scope": "One named fixed-clock device and one hot single-request workload; no cross-device, power, energy, thermal-soak, or multi-request claim."
+  },
+  "release_validation": {
+    "build": {
+      "command": "cmake --build /tmp/q3x-decode-graph-p2-build-release -j2",
+      "status": "pass"
+    },
+    "ctest": {
+      "command": "ctest --test-dir /tmp/q3x-decode-graph-p2-build-release --output-on-failure --output-log /tmp/q3x-decode-graph-p2.ctest.log",
+      "tests_total": 58,
+      "tests_failed": 0,
+      "tests_skipped": 3,
+      "model_e2e_prefill_chunks_passed": [1, 8, 16, 32],
+      "p1_p2_default_opt_out_skip_code": 77,
+      "wall_seconds": 362.87,
+      "status": "pass",
+      "log": {
+        "local_path": "/tmp/q3x-decode-graph-p2.ctest.log",
+        "bytes": 8041,
+        "lines": 140,
+        "sha256": "0703806cf432c49d7a290a126c0b6ed02572880822e584a2469d10d7ddd817c1"
+      }
+    },
+    "diff_check": "pass",
+    "independent_code_audits": 2,
+    "audit_blockers": 0
+  },
+  "decision": {
+    "p2": "select the short-position CUDA Graph cache mechanism and its strict test-only continuous-generation/fallback/resource screen",
+    "production": "do not yet change ordinary generation or the formal production anchor; implement an internal bounded cache manager before promotion",
+    "production_integration_requirements": [
+      "Prepare the selected P19-P43 window outside request timing.",
+      "Use all-or-nothing multi-slot publication or rollback on preparation failure.",
+      "Keep incompatible options, reference backend, cache misses, and P64 on the exact serial path.",
+      "Never retry serially after a Graph update, launch, or synchronization failure for the same token.",
+      "Hide the test-only public opt-in behind an internal production policy.",
+      "Re-run exact generation, cold resource, and fixed-core B-C-C-B gates on the production entry point before changing the formal anchor."
+    ],
+    "after_integration": "First run current-production B-C-C-B and NCU on the integrated entry point. Only if production reproduces the screened result does its remaining gap become approximately 5.98 ms/token. Then rank NVFP4 gate/up, FP8 QKV/Z, and NVFP4 down from the new counters, and implement only a counters-supported mechanism with a credible at-least-0.5-ms/token ceiling; the current Nsys exposure ranking alone does not prove a work partition or load-path cause.",
+    "prefill": "Remain focused on the 100-ms Decode stage target first; resume the larger Prefill program after Decode reaches the target or the high-value Decode mechanisms are exhausted."
+  },
+  "limitations": [
+    "This is a test-only prepared-cache screen, not a production cache manager or a new formal benchmark anchor.",
+    "The implementation has no multi-slot rollback, clear, eviction, retry, cancellation, or multi-request ownership policy.",
+    "Only P19-P43 are performance/resource-screened; P63 exists solely for P63-hit/P64-miss correctness, and no 64-slot resource claim is made.",
+    "One runner, one fixed RequestState arena, one stream, and one request are exercised; graphs are not shared across arenas or runners.",
+    "Graph replay preserves the serial kernel DAG and does not add double buffering, triple buffering, or Prefill/Decode overlap.",
+    "The screened 105.978481-ms/token result remains 5.978481 ms above target and reaches 9.435878 rather than 10 token/s."
+  ]
+}

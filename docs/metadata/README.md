@@ -1084,6 +1084,26 @@ The diagnostic Phase 3 records are:
   **106.763 ms/token / 9.366540843 token/s**. The next bounded step is a
   position-specialized GraphExec cache covering continuous P19-P43 Decode,
   with exact state/fallback gates plus cold-time and memory budgets.
+- [`qwen36-27b-decode-short-position-cuda-graph-cache-p2-selection.json`](qwen36-27b-decode-short-position-cuda-graph-cache-p2-selection.json),
+  which extends the proven P1 mechanism to a test-only 25-slot P19-P43
+  GraphExec cache and exercises it through the real continuous generation
+  dispatcher. All 25 predictions, final text/stop semantics, P31/P32 pinned
+  transitions, and the complete 89,162,240-byte arena match serial execution.
+  Empty-cache, full-statistics, trace, reference-backend, and P64 cache-miss
+  paths take exact serial fallbacks; the separate P63 fixture predicts `0`
+  through Graph and P64 predicts `59720` through the real dispatcher fallback.
+  The exact feature-commit process has **106.943472 ms/token** serial and
+  **105.978481 ms/token** Graph pair medians, a 0.964991-ms difference, while
+  the median of paired per-round savings is **0.919298 ms/token** and all
+  **5/5** rounds improve. The first distinct-slot chain saves 0.839136
+  ms/token. The production-window cache prepares in 83.475048 ms and has a
+  138,436,608-byte
+  observed CUDA free-memory drop; adding the out-of-window P63 fixture brings
+  the diagnostic total to 145,055,744 bytes. P2 therefore passes its exact,
+  hot, cold, and resource gates, but remains default-off pending a transactional
+  internal production cache manager. It reaches **9.435878 token/s**, not the
+  10-token/s target, so the formal production anchor remains **106.763 ms/token
+  / 9.366540843 token/s**.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
