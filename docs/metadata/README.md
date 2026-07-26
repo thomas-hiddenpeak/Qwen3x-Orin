@@ -798,6 +798,19 @@ The diagnostic Phase 3 records are:
   stop-loss skips stress timing and later gates. Production, the serial
   one-stream schedule, Prefill, and the **107.889500 ms/token / 9.268742556
   token/s** anchor remain unchanged.
+- [`qwen36-27b-decode-fp8-q-kv-aosoa4-sidecar-rejection.json`](qwen36-27b-decode-fp8-q-kv-aosoa4-sidecar-rejection.json),
+  which closes the standalone layout-only full-attention FP8 Q plus K/V
+  AoSoA4/preswizzled sidecar screen at the unchanged `2048x256` topology.
+  Actual-checkpoint correctness, byte-exact GPU packing, resources, guarded
+  Graph replay, and 25 invalid cases pass. Process 1 projects a 0.229120-ms/token
+  reduction and also clears five stress rounds, but process 2 projects only a
+  0.196940-ms/token reduction, below the frozen 0.20-ms/token absolute gate.
+  Stop-loss
+  skips process-2 stress, a third process, the unallocated 1.09375-GiB
+  production sidecar, integration, and end-to-end work. The test substrate is
+  retained for a materially distinct sidecar plus CTA-persistence/coarsening
+  screen; production, Prefill, and the **107.889500 ms/token / 9.268742556
+  token/s** anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
