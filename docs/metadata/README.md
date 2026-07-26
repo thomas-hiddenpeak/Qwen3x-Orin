@@ -854,6 +854,20 @@ The diagnostic Phase 3 records are:
   the target symbol from 0.7896896 to 0.2024768 ms/token. The formal gap is
   now **7.314 ms/token / 0.681551335 token/s**; Prefill remains deferred and no
   system double/triple buffering or Prefill/Decode overlap is claimed.
+- [`qwen36-27b-decode-fp8-qkv-z-bf16-ab-causal-conv-epilogue-rejection.json`](qwen36-27b-decode-fp8-qkv-z-bf16-ab-causal-conv-epilogue-rejection.json),
+  which closes the test-only 48-layer QKV/Z/A/B causal-convolution epilogue
+  screen. Four sequential steps over five state arrays are bitwise exact;
+  guards, input preservation, 28 zero-node invalid cases, the `2 -> 1` Graph
+  replay, and the unchanged `64r/1,280B/0local/0stack/4CTA-SM` envelope pass.
+  The candidate nevertheless regresses in all five formal rounds: its
+  48-layer median is 26.9566 ms versus 21.5568 ms for production composite
+  plus standalone convolution, or **0.800019x and a 5.38834-ms/token loss**.
+  Static evidence explains the placement failure: 232 instructions are added
+  to all 1,536 projection CTAs while the removed 224-instruction standalone
+  kernel uses only 40 CTAs and accounts for about 0.284 ms/token. Process 2,
+  production integration, end-to-end timing, and candidate Nsys are skipped;
+  the **107.314000 ms/token / 9.318448665 token/s** anchor remains unchanged,
+  and the next bounded Decode cell is standalone preprocess warp-tree work.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

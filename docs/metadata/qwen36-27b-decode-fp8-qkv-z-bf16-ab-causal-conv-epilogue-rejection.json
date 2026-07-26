@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-fp8-qkv-z-bf16-ab-causal-conv-epilogue-rejection",
+  "status": "rejected-test-only-epilogue-fusion",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "e42af1e56a7ef73beded1de05fd77f93c67ce619",
+    "base_tree": "5bd6c9046d66191320dd6fc40988260738d0d66d",
+    "base_subject": "docs: record Decode GQA production gain",
+    "candidate_commit": "9c37534d20ec0f92ccf0f797a820141f4f5df990",
+    "candidate_tree": "41827dd373c30be8c0f2bdf8bda84cee3fb782b8",
+    "candidate_subject": "bench: screen Decode QKV causal-conv epilogue",
+    "kernel_source_blob": "b5223743aea97a3d08fa64235726f29b4d253b21",
+    "cuda_test_blob": "12cf7ddc5587283288e93ceb65f4501c7a6002ba",
+    "candidate_scope": "test-only exact-M1 Decode FP8 QKV/Z plus BF16 A/B composite with width-4 causal-convolution/SiLU/history-update epilogue and its default/formal screen",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_dispatch_changed": false,
+    "production_kernel_body_changed": false,
+    "production_source_body_unchanged_from_base": true,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.314000,
+    "formal_anchor_tokens_per_second": 9.318448665,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.314000,
+    "remaining_tokens_per_second": 0.681551335,
+    "target_met": false,
+    "anchor_changed_by_this_rejection": false
+  },
+  "candidate": {
+    "phase": "48 linear-attention Decode layers",
+    "baseline": "one production QKV/Z/A/B composite launch followed by one standalone causal-convolution/SiLU/history-update launch per layer",
+    "test_only_route": "one QKV/Z/A/B composite launch whose QKV row-quad epilogue performs the exact rounded-BF16 causal-convolution, SiLU, and history update",
+    "fixed_shapes": {
+      "qkv_rows": 10240,
+      "z_rows": 6144,
+      "a_rows": 48,
+      "b_rows": 48,
+      "columns": 5120,
+      "conv_history_width": 3,
+      "conv_kernel_width": 4,
+      "layers_per_token": 48
+    },
+    "topology": {
+      "baseline_projection_grid": [1536, 1, 1],
+      "baseline_standalone_conv_grid": [40, 1, 1],
+      "candidate_grid": [1536, 1, 1],
+      "block": [256, 1, 1],
+      "baseline_kernel_nodes_per_layer": 2,
+      "candidate_kernel_nodes_per_layer": 1,
+      "candidate_launches_removed_per_token_if_selected": 48
+    },
+    "arithmetic_contract": "The candidate consumes the production composite's rounded BF16 QKV outputs, preserves the reference four-tap FP32 FMA order, applies the same SiLU expression and BF16-RNE output, and updates the three-slot BF16 history in the same order.",
+    "timing_output_addresses_same_between_routes": true,
+    "timing_history_address_same_between_routes": true,
+    "timing_history_reset_to_same_seed_before_each_pass": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "correctness_and_contract": {
+    "sequential_state_test": {
+      "steps": 4,
+      "state_arrays": 5,
+      "state_components": ["convolved_qkv", "z", "a", "b", "causal_conv_history"],
+      "qkv_mismatches_each_step": "0/10240",
+      "z_mismatches_each_step": "0/6144",
+      "a_mismatches_each_step": "0/48",
+      "b_mismatches_each_step": "0/48",
+      "history_mismatches_each_step": "0/30720",
+      "bitwise_exact": true,
+      "baseline_and_candidate_guards_each_step": "intact",
+      "gate": "pass"
+    },
+    "inputs_preserved": {
+      "qkv_weights": true,
+      "z_weights": true,
+      "a_weights": true,
+      "b_weights": true,
+      "activation": true,
+      "conv_weight": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "baseline_nodes": 2,
+      "baseline_kernel_nodes": 2,
+      "baseline_root_nodes": 1,
+      "candidate_nodes": 1,
+      "candidate_kernel_nodes": 1,
+      "candidate_root_nodes": 1,
+      "functions_distinct": true,
+      "replay_steps": 2,
+      "replay_mismatches": 0,
+      "guards": "intact",
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 28,
+      "failures": 0,
+      "alias_cases": 6,
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "resource_query_null_destinations": {
+      "cases": 5,
+      "all_status_cuda_error_invalid_value": true,
+      "gate": "pass"
+    },
+    "combined_default_gate": "pass"
+  },
+  "resources": {
+    "production_projection": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1280,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1280,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4
+    },
+    "standalone_causal_conv_static_context": {
+      "registers_per_thread": 22
+    },
+    "candidate_matches_production_envelope": true,
+    "gate": "pass"
+  },
+  "static_identity": {
+    "normalization": "Each target cuobjdump Function body has its mangled Function-name line removed; canonical encoding64 then extracts every lowercase 0x-prefixed 64-bit instruction/control word in order, one per line, before SHA-256.",
+    "production_projection": {
+      "kernel": "fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel",
+      "instructions": 1752,
+      "encoding_words": 3504,
+      "canonical_encoding64_sha256": "c7b810b4effa7223274c28e7569f9218f451f9c96bce24ba4b179b1c95596a8d",
+      "raw_function_body_bytes": 441582,
+      "raw_function_body_lines": 3508,
+      "raw_function_body_sha256": "79247900c3060663b4bd550340191a4a70c0c3ef115923dc6f64bc2dda437925",
+      "unchanged_from_pre_candidate_production": true
+    },
+    "candidate": {
+      "kernel": "fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_causal_conv_epilogue_test_kernel",
+      "instructions": 1984,
+      "encoding_words": 3968,
+      "canonical_encoding64_sha256": "0a6872f68f58d6020308b0a9f15ef42200f05cba010e1f867236b9f62122b1ca",
+      "raw_function_body_bytes": 500046,
+      "raw_function_body_lines": 3972,
+      "raw_function_body_sha256": "4b27c4a7a2ec7df2a4a6186f0bd7d08449f9c2d65dc766db3afece8c11fa41de",
+      "instruction_delta_from_production": 232
+    },
+    "standalone_causal_conv": {
+      "kernel": "causal_conv1d_silu_update_kernel",
+      "instructions": 224,
+      "encoding_words": 448,
+      "canonical_encoding64_sha256": "6c1ad70bf364efb66fe971357d304fe2b5eb1625021d5952fc762bfe06865965",
+      "raw_function_body_bytes": 55896,
+      "raw_function_body_lines": 472,
+      "raw_function_body_sha256": "295181f45a84e9d5e815ae0b447e893c0651e827faffa765a56cc44b21c70a4d"
+    },
+    "interpretation": "The candidate adds 232 static instructions to a kernel launched with 1,536 CTAs, approximately the standalone convolution's entire 224-instruction body, while the removed standalone work uses only 40 CTAs. Equal occupancy therefore does not imply that this epilogue placement is cheap."
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_SM87_DECODE_QKV_CAUSAL_CONV_EPILOGUE_PERF=1",
+    "executable": "./build/orin-release/q3x_sm87_weight_only_gemv_test",
+    "comparison": "production QKV/Z/A/B composite plus standalone reference causal convolution versus test-only single-node causal-convolution epilogue in one binary, process, stream, output address, history address, and deterministic synthetic fixture",
+    "independent_processes_planned": 2,
+    "independent_processes_completed": 1,
+    "warmup_chains_per_route": 2,
+    "layers_per_chain": 48,
+    "logical_chains_per_timed_pass": 8,
+    "rounds": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "pass_median": "median of ten timed-pass means for each route",
+    "paired_statistic": "median of five per-round values; each round pairs the mean of its two baseline passes with the mean of its two candidate passes",
+    "required_each_round_delta_ms_positive": true,
+    "required_projected_48_layer_delta_ms_per_token": 0.20,
+    "stop_loss": "Stop after process 1 and skip production integration, whole-model end-to-end timing, and candidate Nsys when any round regresses or the projected 48-layer saving misses 0.20 ms/token."
+  },
+  "formal_process_1": {
+    "rounds": [
+      {"round": 1, "order": "B-C-C-B", "baseline_pass1_ms": 21.5582, "candidate_pass1_ms": 26.9412, "candidate_pass2_ms": 26.9613, "baseline_pass2_ms": 21.5512, "paired_speedup": 0.799767, "paired_delta_ms_per_token": -5.39654, "gate": "fail"},
+      {"round": 2, "order": "C-B-B-C", "baseline_pass1_ms": 21.5522, "candidate_pass1_ms": 27.0923, "candidate_pass2_ms": 27.1230, "baseline_pass2_ms": 21.7695, "paired_speedup": 0.799069, "paired_delta_ms_per_token": -5.44675, "gate": "fail"},
+      {"round": 3, "order": "B-C-C-B", "baseline_pass1_ms": 21.6373, "candidate_pass1_ms": 26.9774, "candidate_pass2_ms": 26.9666, "baseline_pass2_ms": 21.5553, "paired_speedup": 0.800695, "paired_delta_ms_per_token": -5.37564, "gate": "fail"},
+      {"round": 4, "order": "C-B-B-C", "baseline_pass1_ms": 21.5645, "candidate_pass1_ms": 26.9407, "candidate_pass2_ms": 26.9393, "baseline_pass2_ms": 21.5523, "paired_speedup": 0.800238, "paired_delta_ms_per_token": -5.38157, "gate": "fail"},
+      {"round": 5, "order": "B-C-C-B", "baseline_pass1_ms": 21.5600, "candidate_pass1_ms": 26.9519, "candidate_pass2_ms": 26.9367, "baseline_pass2_ms": 21.5519, "paired_speedup": 0.800019, "paired_delta_ms_per_token": -5.38834, "gate": "fail"}
+    ],
+    "baseline_pass_median_ms_per_48_layer_chain": 21.5568,
+    "candidate_pass_median_ms_per_48_layer_chain": 26.9566,
+    "paired_median_speedup": 0.800019,
+    "paired_median_delta_ms_per_token": -5.38834,
+    "round_delta_ms_range": [-5.44675, -5.37564],
+    "rounds_nonregressing": "0/5",
+    "every_round_positive_gate": "fail",
+    "projected_absolute_delta_gate": "fail",
+    "overall_gate": "fail"
+  },
+  "causal_diagnosis": {
+    "current_production_profile_source": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-analysis.json",
+    "profile_decode_ranges": 25,
+    "standalone_conv_instances": 1200,
+    "standalone_conv_instances_per_decode_step": 48,
+    "standalone_conv_raw_ns": 7091808,
+    "standalone_conv_raw_ms_per_decode_step": 0.28367232,
+    "candidate_measured_regression_ms_per_token": 5.38834,
+    "interpretation": "The approximately 0.284-ms/token removable standalone-convolution ceiling cannot repay stretching the 1,536-CTA projection kernel with the convolution epilogue. The measured placement loss is about nineteen times that isolated raw-time ceiling, so launch elimination alone is the wrong objective for this mapping."
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "All five paired rounds regress. The candidate median is 26.9566 ms versus 21.5568 ms for the two-kernel baseline across 48 layers, giving 0.800019x and a 5.38834-ms/token loss.",
+    "process_2": "not-run-after-process-1-gate-failure",
+    "production_integration": "not-run",
+    "whole_model_end_to_end": "not-run",
+    "candidate_nsight_systems": "not-run",
+    "decision": "reject this exact projection-epilogue placement and retain production"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_test_exit_code": 0,
+    "default_contract": "pass",
+    "formal_process_1_exit_code": 1,
+    "formal_process_1_exit_interpretation": "expected performance-gate failure after correctness, resource, Graph, invalid-call, and input-preservation gates passed"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.314000,
+    "formal_anchor_after_ms_per_token": 107.314000,
+    "formal_tokens_per_second": 9.318448665,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7036200,
+      "sha256": "d5a3075a9a8c4bc29c5ae4d751abb7a433225a8be18e339a0da4baf7bf8ec4b8",
+      "build_id": "c9b5399e884aaabc21b7eb243ec7e70447c4ef6e",
+      "checked_in": false
+    },
+    "default_log": {
+      "local_path": "/tmp/q3x-qkv-causal-conv-default.log",
+      "bytes": 64737,
+      "lines": 370,
+      "sha256": "00ddf7d22d98148de706e25f062e97d4d837228c15c7c9bb7fb222fc4f9edaf1",
+      "exit_code": 0,
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-qkv-causal-conv-epilogue.20260726.process1.log",
+      "bytes": 4006,
+      "lines": 18,
+      "sha256": "de2d02660f548464cb2f90ace5d40e5f2f75b4700fd28fc737b0ed0fb5111f6f",
+      "exit_code": 1,
+      "result": "expected frozen performance-gate rejection",
+      "checked_in": false
+    }
+  },
+  "next_priority": {
+    "candidate": "standalone attention-preprocess warp-tree reduction",
+    "reason": "Keep the next Decode cell bounded and phase-local without expanding work across the 1,536-CTA QKV projection. Prefill remains deferred until the Decode 100-ms/token and 10-token/s target is reached."
+  },
+  "claim_limits": [
+    "This rejection applies to the exact 1,536-CTA QKV/Z/A/B causal-convolution epilogue placement, not to every causal-convolution optimization or fusion topology.",
+    "The 5.38834-ms/token value is an isolated 48-layer same-binary chain regression, not a candidate whole-model result.",
+    "The 0.28367232-ms/token standalone-convolution value is raw kernel time from the preceding production Nsys capture and is used only as an optimization ceiling.",
+    "No process 2, production integration, candidate whole-model end-to-end benchmark, or candidate Nsys capture was run after first-process stop-loss.",
+    "Production, the 107.314000-ms/token anchor, the serial one-stream schedule, and Prefill state remain unchanged."
+  ]
+}
