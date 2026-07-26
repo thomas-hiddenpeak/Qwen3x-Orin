@@ -5065,3 +5065,100 @@ pinned full-model oracle, fixed-frequency mirrored end-to-end measurement,
 and a fresh Decode trace. Complete rounds, payload identities, binary/log/SASS
 hashes, and claim limits are in the
 [down CTA-coarsening selection record](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json).
+
+## Decode NVFP4 M1 down 32x512 CTA-coarsening production promotion
+
+Commit `0372d41` (tree `aa341b9`) promotes the selected exact
+`[5120,17408]` down/residual/centered-RMSNorm route. The production cooperative
+launch is now `32x512`; the distinct `64x256` implementation remains only as a
+test predecessor. The change preserves 512 projection warps, 64
+registers/thread, 35,904 B static shared memory, zero local memory, and 32
+resident warps/SM. Two active CTAs on each of 16 SMs give a resident capacity
+of exactly 32 CTAs, equal to the cooperative grid and therefore without extra
+residency margin. It adds no allocation, stream, system double/triple buffer,
+or Prefill/Decode overlap.
+
+The final production screen uses three independent processes, ten warmups per
+route, and five 64-launch `B-C-C-B` rounds for both the pinned actual payload
+and same-bank stress:
+
+| Fixture | Process 1 | Process 2 | Process 3 | Cross-process median | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Actual checkpoint | 1.01511x | 1.01184x | 1.01419x | 1.01419x | pass |
+| Same-bank stress | 1.01975x | 1.01416x | 1.01544x | 1.01544x | pass |
+
+All 30 paired rounds improve. Raw-down, residual, normalized output, and
+deterministic replay remain bitwise equal on both finite fixtures; the split
+residual-only and norm-weight-only signed Inf/NaN cases preserve output class
+and sign. Guards and inputs are intact. Production and predecessor capture as
+distinct one-node Graphs at `32x512` and `64x256`; all nine invalid calls
+capture zero nodes. Default validation ends in `SM87 weight-only GEMV tests
+passed`, all four focused CTests pass, and the pinned full-model oracle
+reproduces 19 prompt IDs, 26 generated IDs, exact text, `im_end`, and 44
+steps. The promoted canonical encoding SHA-256 is
+`fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8`;
+the predecessor remains
+`fe10e377d8377678ad6fe3dcc43b86011476f839171bd5ffacc7d6584f6c2922`.
+
+The median actual pass-median difference is 0.004303 ms/layer. Its linear
+64-layer value is **0.275392 ms/token**, an isolated arithmetic projection and
+not an end-to-end claim.
+
+The fixed-clock end-to-end gate first encountered a baseline inference that
+completed but whose stdout was truncated. It is excluded as an incomplete
+formal sample, and the complete sequence restarts from B1:
+
+| Process | Subsequent token | Decode after first | TTFT | Total generation |
+| --- | ---: | ---: | ---: | ---: |
+| B1 predecessor | 109.431 ms | 2,735.798 ms | 428.921 ms | 3,164.748 ms |
+| C1 production | 109.066 ms | 2,726.918 ms | 428.227 ms | 3,155.146 ms |
+| C2 production | 109.165 ms | 2,728.960 ms | 428.556 ms | 3,157.503 ms |
+| B2 predecessor | 109.316 ms | 2,732.469 ms | 428.502 ms | 3,161.081 ms |
+
+Both mirrored pairs improve. The mean of complete process medians moves from
+109.3735 to 109.1155 ms/token, a **0.258-ms** same-run reduction or
+1.002364x speedup. Decode-after-first falls 6.1945 ms across the 25 subsequent
+steps. Functional canonicalization is byte-identical for all four processes
+at SHA-256
+`f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8`.
+
+This relative win promotes the implementation, but it does not raise the
+absolute release claim: the fresh 109.1155-ms candidate is 0.0595 ms slower
+than the previous formal 109.056-ms result. The conservative anchor therefore
+remains **109.056 ms/token and 9.169600939 token/s**, leaving 9.056 ms/token
+to the 100-ms stage target. Applying the same-run -0.258-ms delta to the old
+anchor gives **108.798 ms/token and 9.191345429 token/s only as planning
+normalization**; those values were not measured and must not be cited as
+achieved.
+
+The fresh Nsys capture closes all 25 Decode ranges over 10,925 distinct kernel
+rows, exactly 437 per step. Raw time equals interval union at 2,725.072960 ms;
+the associated span is 2,740.776000 ms with 15.703040 ms idle (0.572941%) and
+zero overlap on stream 18. Prefix, finish, and Decode leaves also close the
+generation range exactly at 12,997 rows and 3,171.275488 ms.
+
+| Rank | Decode group | Launches | Per Decode step | Raw share | Delta vs prior profile |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | NVFP4 residual/norm/gate/up/SiLU `32x512` | 1,600 | 38.834222 ms | 35.626773% | +0.061431 ms |
+| 2 | FP8 linear-attention QKV/Z | 1,200 | 22.963224 ms | 21.066614% | +0.064521 ms |
+| 3 | NVFP4 down/residual/norm `32x512` | 1,600 | 20.813704 ms | 19.094630% | -0.079035 ms |
+| 4 | FP8 output AoSoA4/preswizzled | 1,600 | 11.506221 ms | 10.555883% | -0.066236 ms |
+| 5 | FP8 full-attention Q+K/V | 400 | 6.872178 ms | 6.304582% | +0.020013 ms |
+| 6 | NVFP4 language head | 25 | 4.380984 ms | 4.019144% | -0.001544 ms |
+
+Production Down appears exactly 1,600 times at `32x512`, or 64 launches in
+every Decode step. The predecessor symbol and every down `64x256` topology are
+absent. The Down row moves directionally lower by 0.079035 ms/step, but total
+Decode raw time changes by only +0.002021 ms/step across separate profiler
+processes. This is a topology and hotspot result, not causal attribution for
+unchanged rows and not a replacement release benchmark.
+
+The refreshed order remains gate/up, QKV/Z, Down, then output; the top three
+account for 75.788017% of Decode raw time. Continue with a materially new
+gate/up or QKV/Z mechanism before returning to blind Down CTA tuning. The
+single-stream, zero-overlap trace exposes too little idle time to prioritize a
+general same-request double/triple-buffer rewrite. Full artifacts and claim
+boundaries are retained in the
+[production benchmark](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark.json)
+and
+[post-promotion Decode profile](metadata/qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json).

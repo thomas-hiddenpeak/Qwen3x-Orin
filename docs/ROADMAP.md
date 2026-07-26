@@ -906,6 +906,47 @@ The immediate next step is bounded production integration, full-model and
 end-to-end validation, then a fresh Decode trace. See the
 [down CTA-coarsening selection](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json).
 
+That promotion is now complete at `0372d41` (tree `aa341b9`). Production uses
+the selected `32x512` down/residual/centered-RMSNorm cooperative route; the
+distinct `64x256` function is retained only as a test predecessor. Three final
+same-binary processes report actual-checkpoint medians of
+1.01511x/1.01184x/1.01419x and stress medians of
+1.01975x/1.01416x/1.01544x, with all 30 rounds improving. Default, four-test
+CTest, pinned model-oracle, finite/replay, split nonfinite, guards, inputs,
+resource, Graph, invalid-call, and SASS gates pass. The 0.275392-ms/token
+64-layer micro projection remains arithmetic only.
+
+The valid fixed-clock end-to-end sequence is `B1-C1-C2-B2` at
+109.431/109.066/109.165/109.316 ms/token. An earlier baseline inference
+completed but had truncated stdout; it is excluded, and the sequence was
+restarted from B1. Both complete mirrored pairs improve; their aggregate moves
+from 109.3735 to 109.1155 ms/token, a same-run -0.258-ms delta, while all four
+functional canonical files have SHA-256 `f66b837e...`. Because the fresh
+candidate absolute median is still 0.0595 ms slower than the older formal
+109.056-ms result, the conservative achieved anchor remains **109.056
+ms/token and 9.1696 token/s**. The 108.798-ms/9.191345-token/s value obtained
+by applying the same-run delta to the old anchor is planning normalization,
+not a measurement.
+
+Fresh production profiling closes 25 Decode ranges over 10,925 distinct rows
+on one stream, with raw equal to union at 2,725.072960 ms, zero overlap, and
+0.572941% span idle. Generation closes exactly over 12,997 leaf rows. Down
+`32x512` is present 1,600 times, exactly 64 per step, at 20.813704 ms/step and
+19.094630%; the predecessor and every down `64x256` launch are absent. The row
+is directionally 0.079035 ms/step lower than the previous trace, while total
+raw time is effectively flat (+0.002021 ms/step) under separate-run drift.
+See the
+[production benchmark](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark.json)
+and
+[post-promotion profile](metadata/qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json).
+
+The next bounded Decode work should prefer a materially new gate/up or QKV/Z
+mechanism; those rows are now 38.834222 and 22.963224 ms/step, ahead of Down.
+Do not restore closed branches or prioritize general batch-one buffering:
+Prefill and Decode are logically split for tuning, but the measured request is
+still causally serialized on one stream, with no double/triple buffer,
+independent phase executors, or kernel overlap.
+
 Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants, the down CTA-
 prune, and the QKV/Z sidecar remain closed. The 100-ms/token and 10-token/s gate
 still precedes the larger Prefill program.

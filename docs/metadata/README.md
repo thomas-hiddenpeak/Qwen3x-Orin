@@ -645,6 +645,35 @@ The diagnostic Phase 3 records are:
   Graph, invalid-call, and production-SASS-identity gates pass. The isolated
   0.246464-ms/token 64-layer value is arithmetic only; the formal anchor
   remains 109.056 ms/token and 9.1696 token/s pending production integration.
+- [`qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark.json`](qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark.json),
+  which records the final `0372d41` production promotion at tree `aa341b9`.
+  Three independent same-binary processes report actual-checkpoint paired
+  medians of 1.01511x/1.01184x/1.01419x and stress medians of
+  1.01975x/1.01416x/1.01544x; all 30 rounds improve. Default validation, the
+  four focused CTests, the pinned full-model oracle, finite/replay, split
+  nonfinite, guard, input, Graph, invalid-call, resource, and SASS gates pass.
+  The complete fixed-clock `B1-C1-C2-B2` sequence moves its same-run mirrored
+  median from 109.3735 to 109.1155 ms/token, a 0.258-ms reduction, and both
+  pairs improve with canonical SHA-256 `f66b837e...` equal four ways. An
+  earlier baseline inference completed but produced truncated stdout; it is
+  excluded and the formal sequence restarts at B1. Because 109.1155 is still
+  0.0595 ms slower than the older 109.056-ms formal result, the conservative
+  release anchor remains **109.056 ms/token and 9.1696 token/s**. Applying the
+  same-run delta to that anchor yields 108.798 ms/token and 9.191345 token/s
+  only as a non-measured planning normalization, never as an achieved result.
+- [`qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json`](qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json),
+  which closes the fresh production trace over 25 Decode ranges and 10,925
+  distinct kernel rows, exactly 437 per range. Raw equals union at
+  2,725.072960 ms on one stream, overlap is zero, and the associated span has
+  only 0.572941% idle. The generation range closes exactly over prefix,
+  finish, and Decode leaves at 12,997 rows and 3,171.275488 ms. Production
+  down `32x512` appears 1,600 times, exactly 64 per Decode step, at
+  20.813704 ms/step and 19.094630% of raw time; every named or topological
+  `64x256` predecessor count is zero. Against the prior profile the Down row
+  is directionally 0.079035 ms/step lower, while total Decode raw time is
+  effectively flat (+0.002021 ms/step) because separate-run drift moves other
+  rows. The trace explicitly remains serial, single-stream, and without a
+  system double/triple buffer or independent Prefill/Decode executors.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

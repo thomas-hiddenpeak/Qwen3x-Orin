@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-down-cta-coarsen-production-benchmark",
+  "status": "production-promoted-relative-win-formal-anchor-conservative",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "candidate_commit": "0372d41b6785aba1095f22bd245b2b95682d0440",
+    "candidate_tree": "aa341b9528fe280e6a30e98bff44cd6bfd716d81",
+    "candidate_subject": "perf: promote Decode down CTA coarsen",
+    "selection_commit": "94b06d7417f50ef7b3e908cbd12d7e294d761882",
+    "selection_tree": "fb59a23615eb20a2a2e246005f3c9c2202e4c9f4",
+    "selection_subject": "perf: select Decode down CTA coarsen",
+    "selection_record": "docs/metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json",
+    "measurement_identity": "The production test, model oracle, and candidate runtime were built from candidate_tree; candidate_commit records that exact implementation-and-test tree.",
+    "baseline_identity": "The frozen baseline runtime is the preceding gate/up-promoted production binary. The candidate runtime differs by the final production down CTA-coarsening integration.",
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "binaries": {
+      "end_to_end_baseline": {
+        "path": "/tmp/q3x-down-promotion.6beBwu/qwen3x-orin.baseline",
+        "bytes": 4200816,
+        "sha256": "21481a684288e1ac802a817b7f8390d778ea1a356e9279f527a7fc13bfc47d32",
+        "elf_build_id": "afb64b388cd5f9ae2e951a1c480cc6a3f8d8eff9",
+        "checked_in": false
+      },
+      "end_to_end_candidate": {
+        "path": "/tmp/q3x-down-promotion.6beBwu/qwen3x-orin.candidate",
+        "bytes": 4267776,
+        "sha256": "f058f0a6f3183a41af16abe1af813d2fcacd11db25d69e96d4b4c4a2c3cf268d",
+        "elf_build_id": "70771bd810e50da7f64991822e000d699c5e365c",
+        "checked_in": false
+      },
+      "production_formal_microbenchmark": {
+        "path": "/tmp/q3x-down-promotion.6beBwu/q3x_sm87_weight_only_gemv_test.production",
+        "bytes": 5298008,
+        "sha256": "3eb178e2fa16952d09ab29595abe820184b7d8a5aa7544757d291f9bd288f333",
+        "elf_build_id": "ad921377a0803da81c7ff392af6e556871473c2c",
+        "checked_in": false
+      },
+      "model_oracle": {
+        "path": "/tmp/q3x-down-promotion.6beBwu/q3x_reference_engine_e2e_test.candidate",
+        "bytes": 4127008,
+        "sha256": "db5a6ae53ddfd180f15fd7b80d85fdcb1e39fa0564515a6c015507e9c21bf80b",
+        "checked_in": false
+      },
+      "selection_freeze": {
+        "path": "/tmp/q3x-down-promotion.6beBwu/q3x_sm87_weight_only_gemv_test.selection",
+        "bytes": 5298272,
+        "sha256": "5be8e2124445d0b5843ff333da6c68a341b62451fa3ef7e024e54ce41175f643",
+        "elf_build_id": "5d25ecd01bf818b8b7488c6bd3c3146204939360",
+        "checked_in": false
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "projection_backend": "sm87_weight_only",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": {"minimum": 1300500000, "maximum": 1300500000, "before": 1300500000, "after": 1300500000},
+    "emc_bwmgr_devfreq_hz": {"minimum": 3200000000, "maximum": 3200000000, "before": 3200000000, "after": 3200000000},
+    "clock_scope": "Direct readbacks bound first-order clock drift but do not establish thermal-soak, power, or energy stability."
+  },
+  "implementation": {
+    "phase": "exact M1 Decode NVFP4 down projection, residual add, and centered RMSNorm",
+    "shape_n_by_k": [5120, 17408],
+    "predecessor_topology": {"grid": [64, 1, 1], "block": [256, 1, 1], "warps_per_block": 8, "total_projection_warps": 512, "active_ctas_per_sm": 4, "resident_warps_per_sm": 32},
+    "production_topology": {"grid": [32, 1, 1], "block": [512, 1, 1], "warps_per_block": 16, "total_projection_warps": 512, "active_ctas_per_sm": 2, "resident_warps_per_sm": 32},
+    "mechanism": "Regroup the same 512 global projection warps into 32 CTAs of 16 warps rather than 64 CTAs of eight warps. This halves complete activation staging and redundant post-grid-sync centered-RMSNorm reductions while preserving 32 resident warps/SM.",
+    "arithmetic_contract": "Projection mapping and FFMA order, raw-down BF16-RNE, residual FP32 add and BF16-RNE, grid synchronization, 256-lane centered-RMSNorm reduction, gamma multiplication, and normalized BF16-RNE remain bitwise aligned with the predecessor.",
+    "production_dispatch_change": "The public exact [5120,17408] M1 down/residual/norm route now selects 32x512. The 64x256 implementation remains only as a same-binary predecessor oracle in tests.",
+    "memory_overhead_bytes": 0,
+    "additional_persistent_or_workspace_buffers": 0,
+    "additional_streams": 0,
+    "double_buffered": false,
+    "triple_buffered": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_route_changed": false,
+    "prefill_decode_logically_separate": true,
+    "prefill_decode_independent_executors": false,
+    "single_request_execution": "single-stream dependency-serialized"
+  },
+  "production_formal_screen": {
+    "protocol": {
+      "comparison": "same Release binary and stream, retained 64x256 predecessor B versus public 32x512 production C",
+      "independent_processes": 3,
+      "fixtures": ["actual_checkpoint", "same_bank_stress"],
+      "warmup_launches_per_route": 10,
+      "rounds_per_fixture_per_process": 5,
+      "logical_launches_per_timed_pass": 64,
+      "order_each_round": "B-C-C-B",
+      "paired_round_statistic": "(B1+B2)/(C1+C2)",
+      "actual_required_median_speedup": 1.005,
+      "stress_required_median_speedup": 1.0,
+      "required_each_round_speedup": 1.0
+    },
+    "actual_checkpoint": {
+      "processes": [
+        {"process": 1, "predecessor_pass_median_ms": 0.320938, "production_pass_median_ms": 0.316103, "paired_round_median_speedup": 1.01511, "gate": "pass"},
+        {"process": 2, "predecessor_pass_median_ms": 0.320964, "production_pass_median_ms": 0.317348, "paired_round_median_speedup": 1.01184, "gate": "pass"},
+        {"process": 3, "predecessor_pass_median_ms": 0.316434, "production_pass_median_ms": 0.312131, "paired_round_median_speedup": 1.01419, "gate": "pass"}
+      ],
+      "process_paired_round_median_speedups": [1.01511, 1.01184, 1.01419],
+      "cross_process_median_speedup": 1.01419,
+      "all_15_rounds_nonregression": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "processes": [
+        {"process": 1, "predecessor_pass_median_ms": 0.32296, "production_pass_median_ms": 0.317832, "paired_round_median_speedup": 1.01975, "gate": "pass"},
+        {"process": 2, "predecessor_pass_median_ms": 0.322105, "production_pass_median_ms": 0.317755, "paired_round_median_speedup": 1.01416, "gate": "pass"},
+        {"process": 3, "predecessor_pass_median_ms": 0.317335, "production_pass_median_ms": 0.312605, "paired_round_median_speedup": 1.01544, "gate": "pass"}
+      ],
+      "process_paired_round_median_speedups": [1.01975, 1.01416, 1.01544],
+      "cross_process_median_speedup": 1.01544,
+      "all_15_rounds_nonregression": true,
+      "gate": "pass"
+    },
+    "all_30_rounds_nonregression": true,
+    "projection_only_arithmetic": {
+      "actual_pass_median_deltas_ms_per_layer": [0.004835, 0.003616, 0.004303],
+      "median_actual_pass_median_delta_ms_per_layer": 0.004303,
+      "dense_mlp_layers": 64,
+      "ideal_arithmetic_delta_ms_per_token": 0.275392,
+      "formula": "median(0.004835,0.003616,0.004303)*64",
+      "achieved_end_to_end_result": false
+    },
+    "resources": {
+      "production_registers_per_thread": 64,
+      "production_static_shared_bytes": 35904,
+      "production_local_bytes": 0,
+      "production_maximum_threads_per_block": 512,
+      "production_active_ctas_per_sm": 2,
+      "production_resident_grid_capacity": 32,
+      "grid_equals_resident_capacity": true,
+      "null_resource_query_rejected": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production": {"nodes": 1, "grid": [32, 1, 1], "block": [512, 1, 1], "dynamic_shared_bytes": 0},
+      "predecessor": {"nodes": 1, "grid": [64, 1, 1], "block": [256, 1, 1], "dynamic_shared_bytes": 0},
+      "functions_distinct": true,
+      "invalid_cases": 9,
+      "invalid_nodes_each": 0,
+      "gate": "pass"
+    },
+    "bitwise": {
+      "finite_fixtures": ["actual_checkpoint", "same_bank_stress"],
+      "raw_down_mismatches_each": "0/5120",
+      "residual_mismatches_each": "0/5120",
+      "normalized_mismatches_each": "0/5120",
+      "production_replay_mismatches_each": "0/15360",
+      "guards": "intact",
+      "inputs_preserved": true,
+      "split_nonfinite_fixtures": ["residual_signed_nonfinite", "norm_weight_signed_nonfinite"],
+      "nonfinite_three_output_and_replay_mismatches_each": 0,
+      "nonfinite_class_and_sign": true,
+      "gate": "pass"
+    },
+    "sass": {
+      "production_32x512": {"instruction_count": 1280, "encoding_words": 2560, "function_body_sha256": "825cc3451177cf34a9e99a8e74325610989721f5680af8371fb4f104e2c9ab27", "canonical_encoding_sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8", "local_spill_evidence": false},
+      "predecessor_64x256": {"instruction_count": 1280, "encoding_words": 2560, "function_body_sha256": "17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5", "canonical_encoding_sha256": "fe10e377d8377678ad6fe3dcc43b86011476f839171bd5ffacc7d6584f6c2922", "local_spill_evidence": false},
+      "functions_distinct": true
+    },
+    "logs": [
+      {"process": 1, "path": "/tmp/q3x-down-promotion.6beBwu/formal-process-1.log", "bytes": 62643, "sha256": "60ffee8bf51f8dd6de634d4234f9d5089729d6a894e072773758eef2ecefc152", "terminal_line": "SM87 weight-only GEMV tests passed"},
+      {"process": 2, "path": "/tmp/q3x-down-promotion.6beBwu/formal-process-2.log", "bytes": 62645, "sha256": "ebe737e8d8e878fe1e34489812d9ec431b5828e5ecb1db2938172c589a19c026", "terminal_line": "SM87 weight-only GEMV tests passed"},
+      {"process": 3, "path": "/tmp/q3x-down-promotion.6beBwu/formal-process-3.log", "bytes": 62647, "sha256": "e92665b21cde0864990b774bd265186935c5e4b89f2bd370ce361f47c62bc340", "terminal_line": "SM87 weight-only GEMV tests passed"}
+    ],
+    "overall_gate": "pass"
+  },
+  "release_validation": {
+    "default_test": {"path": "/tmp/q3x-down-promotion.6beBwu/default-test.log", "bytes": 57604, "sha256": "68cb344e434fcca7e30c964eb60544c9db403ae0e2f8ba041b1d7206d9ef4741", "terminal_line": "SM87 weight-only GEMV tests passed", "status": "pass"},
+    "focused_ctest": {"selected": 4, "passed": 4, "failed": 0, "tests": ["sm87_weight_only_gemv", "projection_backend_dispatch", "reference_runner_host", "model_weights_host"], "log": {"path": "/tmp/q3x-down-promotion.6beBwu/focused-ctest.log", "bytes": 738, "sha256": "add64ac8942009611158788a72cc8091e145e2ac90351647bc94bbe8d49c6711"}, "status": "pass"},
+    "model_oracle": {"path": "/tmp/q3x-down-promotion.6beBwu/model-oracle.log", "bytes": 403, "sha256": "295975ce1b36aad90291a1ee77cf39d6e3489674b254830fa29f277ba4812863", "prompt_ids": 19, "generated_ids": 26, "exact_text": true, "stop_reason": "im_end", "steps": 44, "projection_backend": "sm87_weight_only", "status": "pass"}
+  },
+  "end_to_end_benchmark": {
+    "workload": {"scope": "hot single-request Decode", "prompt": "用一句话解释 CUDA 是什么。", "rendered_prompt_tokens": 19, "max_new_tokens": 26, "decode_intervals": 25, "max_sequence_length": 64, "prefill_chunk_size": 32, "warmup_rounds_per_process": 1, "measured_rounds_per_process": 5, "valid_process_order": "B1-C1-C2-B2"},
+    "excluded_presequence_attempt": {"route": "B", "inference_completed": true, "stdout_complete": false, "formal_sample_complete": false, "included_in_arithmetic": false, "reason": "The first baseline inference completed, but its stdout was truncated and therefore was not a complete formal sample. Measurement restarted from a fresh complete B1; only the subsequent B1-C1-C2-B2 files are authoritative.", "retained_complete_log": false},
+    "functional_canonicalization": {"B1_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8", "C1_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8", "C2_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8", "B2_sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8", "all_four_equal": true},
+    "process_medians_ms": {
+      "B1": {"subsequent_token": 109.431, "decode_after_first": 2735.798, "time_to_first_token": 428.921, "total_generation": 3164.748},
+      "C1": {"subsequent_token": 109.066, "decode_after_first": 2726.918, "time_to_first_token": 428.227, "total_generation": 3155.146},
+      "C2": {"subsequent_token": 109.165, "decode_after_first": 2728.96, "time_to_first_token": 428.556, "total_generation": 3157.503},
+      "B2": {"subsequent_token": 109.316, "decode_after_first": 2732.469, "time_to_first_token": 428.502, "total_generation": 3161.081}
+    },
+    "mirrored_aggregate": {
+      "method": "arithmetic mean of the two complete process medians on each side",
+      "baseline_subsequent_token_ms": 109.3735,
+      "candidate_subsequent_token_ms": 109.1155,
+      "subsequent_token_delta_ms": -0.258,
+      "subsequent_token_speedup": 1.002364467,
+      "candidate_run_tokens_per_second": 9.164600813,
+      "baseline_decode_after_first_ms": 2734.1335,
+      "candidate_decode_after_first_ms": 2727.939,
+      "decode_after_first_delta_ms": -6.1945,
+      "baseline_time_to_first_token_ms": 428.7115,
+      "candidate_time_to_first_token_ms": 428.3915,
+      "time_to_first_token_delta_ms": -0.32,
+      "baseline_total_generation_ms": 3162.9145,
+      "candidate_total_generation_ms": 3156.3245,
+      "total_generation_delta_ms": -6.59,
+      "pair_1_subsequent_delta_ms": -0.365,
+      "pair_2_subsequent_delta_ms": -0.151,
+      "both_mirrored_subsequent_token_pairs_improve": true,
+      "both_mirrored_decode_after_first_pairs_improve": true
+    },
+    "logs": {
+      "B1": {"path": "/tmp/q3x-down-promotion.6beBwu/e2e-b1.log", "bytes": 8134, "sha256": "0f466a0699e077ae6436fcfe556a0a1f8215aabf41a7e7f19910b7970bae0fa8"},
+      "C1": {"path": "/tmp/q3x-down-promotion.6beBwu/e2e-c1.log", "bytes": 8141, "sha256": "7de4697fb4ec5313c48663fe24d87dba58a28483b3b4457524c2482482118c42"},
+      "C2": {"path": "/tmp/q3x-down-promotion.6beBwu/e2e-c2.log", "bytes": 8133, "sha256": "99bec79dc14ba7b89dfe709f3050408556f8a1501e7686b901edbec1cdb9098e"},
+      "B2": {"path": "/tmp/q3x-down-promotion.6beBwu/e2e-b2.log", "bytes": 8133, "sha256": "bce2b1afd0e6fbd8e90b926ad45e8114a20df7ca3970044b75b674903399351c"}
+    }
+  },
+  "decision": {
+    "implementation_result": "promote and retain the exact M1 Decode down/residual/centered-RMSNorm 32x512 route",
+    "same_run_relative_result": "pass: both mirrored pairs improve and the candidate aggregate is 0.258 ms/token lower than its same-run baseline",
+    "previous_formal_anchor_ms_per_token": 109.056,
+    "previous_formal_anchor_tokens_per_second": 9.169600939,
+    "fresh_candidate_absolute_ms_per_token": 109.1155,
+    "fresh_candidate_minus_previous_anchor_ms_per_token": 0.0595,
+    "formal_anchor_updated": false,
+    "formal_hot_decode_ms_per_token": 109.056,
+    "formal_single_request_tokens_per_second": 9.169600939,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 9.056,
+    "planning_normalization": {"method": "apply the same-run -0.258-ms relative delta to the previous 109.056-ms formal anchor", "latency_ms_per_token": 108.798, "tokens_per_second": 9.191345429, "measured_end_to_end_result": false, "may_be_called_achieved": false},
+    "anchor_policy": "The fresh candidate process is 0.0595 ms slower than the prior formal absolute anchor despite winning its own same-run comparison. Preserve 109.056 ms/token and 9.169600939 token/s as the conservative release anchor; use 108.798 only for planning.",
+    "next_priority": "Continue incremental Decode work from the fresh profile. Prefer a materially new mechanism for the remaining gate/up or QKV/Z hotspots; do not infer a large general-buffering opportunity from a single-stream zero-overlap trace."
+  },
+  "artifacts": [
+    {"role": "default environment before", "path": "/tmp/q3x-down-promotion.6beBwu/default-environment-before.log", "bytes": 792, "sha256": "782285ba5b8bbea7c2a1f20023d16d67fbf1bd7bcba94af1cc52ab5fa54ab339", "checked_in": false},
+    {"role": "formal environment before", "path": "/tmp/q3x-down-promotion.6beBwu/formal-environment-before.log", "bytes": 1731, "sha256": "58f7256de7549892d4e9deb01e0680dc560c37ca4b45c330f7902464942ead4b", "checked_in": false},
+    {"role": "formal environment after", "path": "/tmp/q3x-down-promotion.6beBwu/formal-environment-after.log", "bytes": 173, "sha256": "6a721c5047b5049e639d9aed1e3aa3050085bf902b19a963ca4bddff6108a2cd", "checked_in": false},
+    {"role": "end-to-end environment before", "path": "/tmp/q3x-down-promotion.6beBwu/e2e-environment-before.log", "bytes": 1827, "sha256": "c27a652a995e8b6dffb52a02047f5a09de69e23254e20cdf7aaf438d6d0ed74c", "checked_in": false},
+    {"role": "end-to-end environment after", "path": "/tmp/q3x-down-promotion.6beBwu/e2e-environment-after.log", "bytes": 2025, "sha256": "fb9ba8035ffb4e189e933534307ef86086bc77fa432b815754564d3dd226b655", "checked_in": false},
+    {"role": "production resource dump", "path": "/tmp/q3x-down-promotion.6beBwu/production-test.resource-usage.log", "bytes": 36927, "sha256": "0da39a30355a2aeb51490cdfea64ca8ca6d71c45a2d256e62eb38be589292e5d", "checked_in": false},
+    {"role": "production full SASS dump", "path": "/tmp/q3x-down-promotion.6beBwu/production-test.sass", "bytes": 24393477, "sha256": "fde9a862b441e08dfd83fd8419324ec8bf21ab479642840557a95aa43e74175d", "checked_in": false},
+    {"role": "production function body", "path": "/tmp/q3x-down-promotion.6beBwu/production.body", "bytes": 322638, "sha256": "825cc3451177cf34a9e99a8e74325610989721f5680af8371fb4f104e2c9ab27", "checked_in": false},
+    {"role": "production canonical encoding", "path": "/tmp/q3x-down-promotion.6beBwu/production.encoding64", "bytes": 48640, "sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8", "checked_in": false},
+    {"role": "predecessor function body", "path": "/tmp/q3x-down-promotion.6beBwu/predecessor.body", "bytes": 322638, "sha256": "17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5", "checked_in": false},
+    {"role": "predecessor canonical encoding", "path": "/tmp/q3x-down-promotion.6beBwu/predecessor.encoding64", "bytes": 48640, "sha256": "fe10e377d8377678ad6fe3dcc43b86011476f839171bd5ffacc7d6584f6c2922", "checked_in": false},
+    {"role": "measurement source commit", "path": "/tmp/q3x-down-promotion.6beBwu/source-commit.txt", "bytes": 41, "sha256": "bced90f52adca4241bed0df8a75fafb751d1402ec81ee6ca2a5964b2bf1b12a2", "checked_in": false}
+  ],
+  "limitations": [
+    "The formal release anchor remains 109.056 ms/token and 9.169600939 token/s; 108.798 ms/token and 9.191345429 token/s are planning normalization values, not achieved measurements.",
+    "The same-run 0.258-ms reduction is a short four-process fixed-frequency comparison, not a thermal-soak, tail-latency, power, energy, cross-device, or multi-request result.",
+    "The incomplete pre-sequence baseline attempt has no complete retained sample and is excluded. Only the restarted B1-C1-C2-B2 sequence is used.",
+    "TTFT is recorded as a guardrail and does not establish a Prefill optimization claim.",
+    "No double/triple buffer, independent Prefill/Decode executor, multi-stream overlap, or multi-request scheduler was added."
+  ]
+}
