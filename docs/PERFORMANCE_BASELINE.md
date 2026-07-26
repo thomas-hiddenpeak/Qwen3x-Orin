@@ -6183,3 +6183,69 @@ mechanism. Stress timing, P2, P3, full-model validation, end-to-end timing,
 and Nsys were not run. No production path changes, so the formal hot
 single-request Decode anchor remains **106.763000 ms/token and 9.366540843
 token/s**.
+
+## Rejected Decode NVFP4 M1 Gate/Up exact-BF16 SiLU FP32 lookup P1
+
+This P1 screen replaces only the production dead-up epilogue expression
+`gate / (1 + expf(-gate))` with a global FP32 lookup indexed by all 16 raw bits
+of the independently rounded BF16 gate. The cold initialization covers all
+65,536 inputs and occupies **262,144 bytes**; initialization is outside warmup
+and timing. Residual/RMSNorm, canonical NVFP4 weights and scales, both
+projection phases, BF16 rounding boundaries, final multiplication by rounded
+up, `32x512` topology, launch count, stream, and production dispatch are
+unchanged.
+
+The final Release binary is 7,464,992 bytes with SHA-256
+`4d6e61bc198ab16980d03e79e1210ae5051f8193309440a52e00b959e643f0f5`.
+Its 374-line hardened default log passes and hashes to
+`a061853b352aec35a6d619fee9fbb9d493f08e80b7f2098d8480a4fc99317307`.
+The authoritative 28-line focused P1 log is
+`/tmp/q3x-gateup-silu-table.hardened-P1.log`, 6,632 bytes with SHA-256
+`135f0ff4ec06345a168b3ae2bf6890015fcfa84625b25c88ff2a8786c2b7f266`.
+The earlier `/tmp/q3x-gateup-silu-table.P1.log` is exploratory and supplies no
+formal decision or anchor value. All 65,536 table FP32 values match an
+independent direct device function bitwise, invalid initialization is rejected,
+and the table remains immutable. For both actual-checkpoint and
+same-bank-stress fixtures, residual mismatches are 0/5,120 and final-gate
+mismatches are 0/17,408; outputs are finite, guards pass, all weights, scales,
+residual, and norm inputs remain unchanged, and both dead-up workspaces remain
+untouched.
+
+The resource envelope is unchanged:
+
+| Route | Grid/block | Registers/thread | Static shared | Local memory | Active CTAs/SM |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Production streaming dead-up | `32x512` | 64 | 13,632 B | 0 B | 2 |
+| FP32 SiLU table candidate | `32x512` | 64 | 13,632 B | 0 B | 2 |
+
+The formal process uses ten warmups and five paired 64-launch rounds per
+fixture, alternating `B-C-C-B` and `C-B-B-C`. Its frozen gates require at least
+1.01x on actual checkpoint weights, 1.00x on stress, strict improvement in
+every round, and at least 0.30 ms/token projected over 64 layers:
+
+| Fixture | Production pass median | Candidate pass median | Paired median | Median delta/layer | Projected 64-layer delta | Regressing rounds | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Layer-0 checkpoint weights + synthetic dynamic inputs | 0.594244 ms | 0.594725 ms | **0.999793x** | -0.000123262 ms | **-0.00788879 ms/token** | 4/5 | **fail** |
+| Same-bank stress | 0.598240 ms | 0.598310 ms | **1.00011x** | 0.0000650287 ms | — | 2/5 | **fail every-round gate** |
+
+The hardened actual projection is negative and effectively noise-level: four
+of five rounds reverse direction. Stress reverses in two rounds, so neither
+fixture clears the full frozen contract. The pass-median difference and median
+paired-round delta are distinct statistics and are not recomputed from one
+another.
+
+Static same-binary disassembly confirms the intended substitution. The
+production dead-up function has 2,704 static instruction rows with
+MUFU.EX2/RCP/RSQ/LDG/STG counts of 1/2/2/37/6; the table candidate has 2,624
+rows and counts of 0/1/2/38/6. Thus one extra global load really does replace
+the SiLU EX2/RCP work, but it provides no measurable benefit inside the much
+larger bandwidth-dominated projection. This is static attribution, not NCU
+counter evidence.
+
+First-process stop-loss rejects this exact global FP32 lookup. P2/P3,
+candidate-specific Graph expansion, model oracles, end-to-end timing, Nsys,
+NCU, and production integration were not run. The -0.00788879-ms value is an
+isolated arithmetic projection, not achieved Decode latency. Production memory
+does not include the table, and the hot single-request anchor remains
+**106.763000 ms/token and 9.366540843 token/s**. Full evidence and per-round
+values are in the [machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection.json).

@@ -100,6 +100,7 @@ constexpr std::size_t kLinearAttentionConvKernelWidth = 4U;
 constexpr std::size_t kNvFp4GroupSize = registry::kNvFp4GroupSize;
 constexpr std::size_t kNvFp4ValuesPerByte = 2U;
 constexpr std::size_t kNvFp4EncodedValueCount = 16U;
+constexpr std::size_t kBf16SiluLookupTableElements = 1U << 16U;
 constexpr std::size_t kNvFp4PackedValuesPerScale =
     kNvFp4GroupSize / kNvFp4ValuesPerByte;
 constexpr std::size_t kNvFp4VectorPackedBytesPerLane = 4U;
@@ -10508,6 +10509,112 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_cache_polic
   }
 }
 
+// Test-only cold initialization and independent direct-reference kernels for
+// the exact BF16-domain SiLU lookup screen. Both kernels intentionally spell
+// out the selected device expression independently so the test can compare
+// all 65,536 FP32 results bit-for-bit without relying on a host math library.
+__global__ void bf16_silu_lookup_table_init_test_kernel(float* const table) {
+  const std::uint32_t index =
+      blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < kBf16SiluLookupTableElements) {
+    const float gate = decode_bf16(static_cast<std::uint16_t>(index));
+    table[index] = gate / (1.0F + expf(-gate));
+  }
+}
+
+__global__ void bf16_silu_direct_reference_test_kernel(
+    float* const output) {
+  const std::uint32_t index =
+      blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < kBf16SiluLookupTableElements) {
+    const float gate = decode_bf16(static_cast<std::uint16_t>(index));
+    output[index] = gate / (1.0F + expf(-gate));
+  }
+}
+
+// Test-only exact-M1 candidate. This is a distinct copy of the currently
+// selected 32x512 streaming dead-up path: residual/RMSNorm, both rounded
+// projection phases, CTA-local BF16 staging, topology, and publication are
+// unchanged. Only the SiLU epilogue consumes the cold-initialized table using
+// the staged gate's raw BF16 bits instead of issuing expf/div instructions.
+__global__ __launch_bounds__(512, 2) void
+nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_silu_table_test_kernel(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_block_scales,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_block_scales,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const float* const silu_table,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output) {
+  constexpr unsigned int kCoarsenedThreads = 512U;
+  constexpr unsigned int kCoarsenedWarps = 16U;
+  constexpr unsigned int kCoarsenedBlocks = 32U;
+  constexpr std::uint32_t kRows = 17'408U;
+  constexpr std::uint32_t kColumns = 5'120U;
+  constexpr std::uint32_t kActivationVectorCount = kColumns / 8U;
+  constexpr std::uint32_t kRowStride =
+      kCoarsenedBlocks * kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kRowsPerCtaPerStride = kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kMaximumRowsPerCta = 576U;
+  static_assert(kCoarsenedThreads == kCoarsenedWarps * kWarpSize);
+  static_assert(kRowStride ==
+                kNvFp4M1RowQuadMaximumBlocks * kWarpsPerBlock * 4U);
+
+  __shared__ ulonglong2 staged_activation[kActivationVectorCount];
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float norm_partial_or_decoded_scales[kFp8EncodedValueCount];
+  __shared__ std::uint16_t staged_gate[kMaximumRowsPerCta];
+  __shared__ std::uint16_t staged_up[kMaximumRowsPerCta];
+  auto staged_activation_bf16 =
+      reinterpret_cast<std::uint16_t*>(staged_activation);
+  stage_residual_centered_rms_norm_bf16_coarsened_512(
+      residual_left, residual_right, norm_weight, epsilon, residual_output,
+      staged_activation_bf16, norm_partial_or_decoded_scales);
+
+  if (threadIdx.x < kFp8EncodedValueCount) {
+    norm_partial_or_decoded_scales[threadIdx.x] =
+        decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
+
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+#pragma unroll 1
+  for (unsigned int pair_phase = 0U; pair_phase < 2U; ++pair_phase) {
+    nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_coarsened_512_cache_policy_phase<
+        NvFp4TestCachePolicy::kStreaming>(
+        pair_phase == 0U ? gate_packed_weights : up_packed_weights,
+        pair_phase == 0U ? gate_block_scales : up_block_scales,
+        pair_phase == 0U ? gate_weight_scale_2 : up_weight_scale_2,
+        pair_phase == 0U ? staged_gate : staged_up, staged_activation,
+        decoded_weights, norm_partial_or_decoded_scales, lane, warp);
+  }
+
+  __syncthreads();
+  for (std::uint32_t local_row = threadIdx.x;;
+       local_row += kCoarsenedThreads) {
+    const std::uint32_t row =
+        static_cast<std::uint32_t>(blockIdx.x) * kRowsPerCtaPerStride +
+        (local_row / kRowsPerCtaPerStride) * kRowStride +
+        local_row % kRowsPerCtaPerStride;
+    if (row >= kRows) {
+      break;
+    }
+    const std::uint16_t gate_bits = staged_gate[local_row];
+    const float up = decode_bf16(staged_up[local_row]);
+    gate_output[row] = encode_bf16_rne(silu_table[gate_bits] * up);
+  }
+}
+
 // Test-only dead-up twin consuming row-quad AoSoA4 scale sidecars. The
 // selected production kernel and ABI remain untouched while this candidate
 // isolates the scale-load transaction shape.
@@ -13418,6 +13525,30 @@ void launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_cs_test_uncheck
           gate_packed_weights, gate_block_scales, gate_weight_scale_2,
           up_packed_weights, up_block_scales, up_weight_scale_2,
           residual_left, residual_right, norm_weight, epsilon,
+          residual_output, gate_output);
+}
+
+void launch_nvfp4_residual_norm_gate_up_silu_dead_up_silu_table_test_unchecked(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_block_scales,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_block_scales,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const float* const silu_table,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kCoarsenedBlocks = 32U;
+  constexpr unsigned int kCoarsenedThreads = 512U;
+  nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_silu_table_test_kernel
+      <<<kCoarsenedBlocks, kCoarsenedThreads, 0U, stream>>>(
+          gate_packed_weights, gate_block_scales, gate_weight_scale_2,
+          up_packed_weights, up_block_scales, up_weight_scale_2,
+          residual_left, residual_right, norm_weight, epsilon, silu_table,
           residual_output, gate_output);
 }
 
@@ -16971,6 +17102,133 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_bf16_silu_lookup_table_init_test_cuda(
+    float* const table, const std::size_t elements,
+    void* const cuda_stream) noexcept {
+  constexpr unsigned int kThreadsPerBlock = 256U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kBf16SiluLookupTableElements /
+                                kThreadsPerBlock);
+  constexpr std::size_t kTableBytes =
+      kBf16SiluLookupTableElements * sizeof(float);
+  static_assert((kBf16SiluLookupTableElements % kThreadsPerBlock) == 0U);
+  if (table == nullptr || elements != kBf16SiluLookupTableElements ||
+      !pointer_is_aligned<alignof(float)>(table) ||
+      byte_range_overflows(table, kTableBytes)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_silu_lookup_table_init_test_kernel
+      <<<kBlocks, kThreadsPerBlock, 0U, stream>>>(table);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_bf16_silu_direct_reference_test_cuda(
+    float* const output, const std::size_t elements,
+    void* const cuda_stream) noexcept {
+  constexpr unsigned int kThreadsPerBlock = 256U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kBf16SiluLookupTableElements /
+                                kThreadsPerBlock);
+  constexpr std::size_t kTableBytes =
+      kBf16SiluLookupTableElements * sizeof(float);
+  static_assert((kBf16SiluLookupTableElements % kThreadsPerBlock) == 0U);
+  if (output == nullptr || elements != kBf16SiluLookupTableElements ||
+      !pointer_is_aligned<alignof(float)>(output) ||
+      byte_range_overflows(output, kTableBytes)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bf16_silu_direct_reference_test_kernel
+      <<<kBlocks, kThreadsPerBlock, 0U, stream>>>(output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_silu_table_test_cuda(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_block_scales,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_block_scales,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    const float* const silu_table,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_workspace,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_residual_norm_gate_up_silu_launch(
+      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
+      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, rows, columns, residual_output,
+      gate_output, up_workspace);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  constexpr std::size_t kTableBytes =
+      kBf16SiluLookupTableElements * sizeof(float);
+  const bool supported_shape = rows == 17'408U && columns == 5'120U;
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(gate_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      pointer_is_aligned<alignof(float)>(silu_table) &&
+      (reinterpret_cast<std::uintptr_t>(residual_left) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_right) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(norm_weight) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(gate_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_workspace) %
+       alignof(std::uint16_t)) == 0U;
+  if (!supported_shape || silu_table == nullptr || !aligned ||
+      byte_range_overflows(silu_table, kTableBytes)) {
+    return invalid_value();
+  }
+
+  const std::size_t packed_bytes =
+      rows * (columns / kNvFp4ValuesPerByte);
+  const std::size_t scale_bytes = rows * (columns / kNvFp4GroupSize);
+  const std::size_t input_bytes = columns * sizeof(std::uint16_t);
+  const std::size_t output_bytes = rows * sizeof(std::uint16_t);
+  if (ranges_overlap(silu_table, kTableBytes, gate_packed_weights,
+                     packed_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, gate_block_scales,
+                     scale_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, up_packed_weights,
+                     packed_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, up_block_scales,
+                     scale_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, residual_left, input_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, residual_right, input_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, norm_weight, input_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, residual_output,
+                     input_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, gate_output, output_bytes) ||
+      ranges_overlap(silu_table, kTableBytes, up_workspace, output_bytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_residual_norm_gate_up_silu_dead_up_silu_table_test_unchecked(
+      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
+      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, silu_table, residual_output,
+      gate_output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only row-quad AoSoA4 block-scale entry point. Each sidecar has the
 // same byte count as its canonical scale tensor, so the established overlap
 // and size validation applies unchanged; the extra alignment check covers
@@ -19273,6 +19531,40 @@ int query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_te
       &active_blocks,
       nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_cache_policy_test_kernel<
           NvFp4TestCachePolicy::kStreaming>,
+      512, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_silu_table_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_silu_table_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_silu_table_test_kernel,
       512, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

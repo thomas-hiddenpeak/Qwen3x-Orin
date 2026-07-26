@@ -822,6 +822,34 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_c
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int launch_sm87_bf16_silu_lookup_table_init_test_cuda(
+    float* table, std::size_t elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int launch_sm87_bf16_silu_direct_reference_test_cuda(
+    float* output, std::size_t elements,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_silu_table_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns, const float* silu_table,
+    std::uint16_t* residual_output, std::uint16_t* gate_output,
+    std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_silu_table_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_cuda(
     const std::uint8_t* gate_packed_weights,
@@ -5833,6 +5861,14 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 decode_gate_up_scale_aosoa4_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_SCALE_AOSOA4_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_gate_up_silu_table_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_SILU_TABLE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -40700,7 +40736,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       !decode_residual_chain_performance_enabled() &&
       !decode_gate_up_cg_performance_enabled() &&
       !decode_gate_up_cs_performance_enabled() &&
-      !decode_gate_up_scale_aosoa4_performance_enabled()) {
+      !decode_gate_up_scale_aosoa4_performance_enabled() &&
+      !decode_gate_up_silu_table_performance_enabled()) {
     std::cout
         << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
            "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
@@ -41445,6 +41482,603 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                              cudaStreamSynchronize(stream),
                              fixture_label + " upload synchronize");
       };
+
+  if (decode_gate_up_silu_table_performance_enabled()) {
+    constexpr std::size_t kSiluTableElements = 1U << 16U;
+    constexpr int kSiluTableWarmupIterations = 10;
+    constexpr int kSiluTableMeasuredIterations = 64;
+    constexpr int kSiluTableMeasurementRounds = 5;
+    constexpr double kRequiredActualSpeedup = 1.01;
+    constexpr double kRequiredStressSpeedup = 1.000;
+    constexpr double kRequiredEachRoundSpeedup = 1.000;
+    constexpr double kRequiredProjectedDeltaMilliseconds = 0.30;
+    const std::string table_label =
+        "Decode gate/up exact BF16 SiLU FP32 table screen";
+
+    NvFp4M1DownDualKernelResources table_resources{};
+    bool table_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_silu_table_resources_test_cuda(
+                &table_resources.registers_per_thread,
+                &table_resources.static_shared_bytes,
+                &table_resources.local_bytes,
+                &table_resources.maximum_threads_per_block,
+                &table_resources.active_blocks_per_sm)),
+        table_label + " query resources");
+    const bool null_query_rejected =
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_silu_table_resources_test_cuda(
+                nullptr, &table_resources.static_shared_bytes,
+                &table_resources.local_bytes,
+                &table_resources.maximum_threads_per_block,
+                &table_resources.active_blocks_per_sm)) ==
+        cudaErrorInvalidValue;
+    const bool table_resource_gate =
+        table_ready && dead_up_resource_gate &&
+        table_resources.registers_per_thread <= 64 &&
+        table_resources.static_shared_bytes == 13'632U &&
+        table_resources.local_bytes == 0U &&
+        table_resources.maximum_threads_per_block >= 512 &&
+        table_resources.active_blocks_per_sm >= 2 &&
+        null_query_rejected;
+    test.expect(table_resource_gate,
+                table_label + " preserves the dead-up resource envelope");
+    std::cout << "PERF_DECODE_GATE_UP_SILU_TABLE_RESOURCES:"
+              << " baseline_registers="
+              << residual_norm_dead_up_resources.registers_per_thread
+              << " candidate_registers="
+              << table_resources.registers_per_thread
+              << " candidate_shared="
+              << table_resources.static_shared_bytes
+              << " candidate_local=" << table_resources.local_bytes
+              << " candidate_max_threads="
+              << table_resources.maximum_threads_per_block
+              << " candidate_active="
+              << table_resources.active_blocks_per_sm
+              << " null_query_rejected="
+              << (null_query_rejected ? "true" : "false")
+              << " limits=64r,13632shared,0local,active2"
+              << " gate=" << (table_resource_gate ? "PASS" : "FAIL")
+              << '\n';
+    if (!table_resource_gate) {
+      return;
+    }
+
+    DeviceBuffer<float> silu_table;
+    DeviceBuffer<float> silu_direct_reference;
+    table_ready = test.cuda_ok(silu_table.allocate(kSiluTableElements),
+                               table_label + " allocate table");
+    table_ready = table_ready && test.cuda_ok(
+        silu_direct_reference.allocate(kSiluTableElements),
+        table_label + " allocate direct reference");
+    if (!table_ready) {
+      return;
+    }
+    const bool invalid_init_gate =
+        static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_bf16_silu_lookup_table_init_test_cuda(
+                nullptr, kSiluTableElements, static_cast<void*>(stream))) ==
+            cudaErrorInvalidValue &&
+        static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_bf16_silu_lookup_table_init_test_cuda(
+                silu_table.get(), kSiluTableElements - 1U,
+                static_cast<void*>(stream))) == cudaErrorInvalidValue &&
+        static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_bf16_silu_direct_reference_test_cuda(
+                nullptr, kSiluTableElements, static_cast<void*>(stream))) ==
+            cudaErrorInvalidValue;
+    test.expect(invalid_init_gate,
+                table_label + " rejects invalid table initialization");
+    table_ready = table_ready && invalid_init_gate && test.cuda_ok(
+        static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_bf16_silu_lookup_table_init_test_cuda(
+                silu_table.get(), kSiluTableElements,
+                static_cast<void*>(stream))),
+        table_label + " initialize table");
+    table_ready = table_ready && test.cuda_ok(
+        static_cast<cudaError_t>(
+            q3x::kernels::launch_sm87_bf16_silu_direct_reference_test_cuda(
+                silu_direct_reference.get(), kSiluTableElements,
+                static_cast<void*>(stream))),
+        table_label + " build direct reference");
+    std::vector<float> host_silu_table(kSiluTableElements);
+    std::vector<float> host_silu_direct_reference(kSiluTableElements);
+    table_ready = table_ready && test.cuda_ok(
+        cudaMemcpyAsync(host_silu_table.data(), silu_table.get(),
+                        kSiluTableElements * sizeof(float),
+                        cudaMemcpyDeviceToHost, stream),
+        table_label + " copy table");
+    table_ready = table_ready && test.cuda_ok(
+        cudaMemcpyAsync(host_silu_direct_reference.data(),
+                        silu_direct_reference.get(),
+                        kSiluTableElements * sizeof(float),
+                        cudaMemcpyDeviceToHost, stream),
+        table_label + " copy direct reference");
+    table_ready = table_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream),
+        table_label + " table/reference synchronize");
+    if (!table_ready) {
+      return;
+    }
+    std::size_t table_bit_mismatches = 0U;
+    for (std::size_t index = 0U; index < kSiluTableElements; ++index) {
+      table_bit_mismatches +=
+          std::memcmp(&host_silu_table[index],
+                      &host_silu_direct_reference[index],
+                      sizeof(float)) != 0;
+    }
+    const bool table_exact_gate = table_bit_mismatches == 0U;
+    test.expect(table_exact_gate,
+                table_label + " matches all BF16-domain FP32 SiLU bits");
+    std::cout << "DECODE_GATE_UP_SILU_TABLE_EXHAUSTIVE:"
+              << " entries=" << kSiluTableElements
+              << " fp32_bit_mismatches=" << table_bit_mismatches
+              << " invalid_init="
+              << (invalid_init_gate ? "PASS" : "FAIL")
+              << " gate=" << (table_exact_gate ? "PASS" : "FAIL")
+              << '\n';
+    if (!table_exact_gate) {
+      return;
+    }
+
+    const auto launch_table_baseline = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+              gate_packed.get(), gate_scales.get(), gate_scale2,
+              up_packed.get(), up_scales.get(), up_scale2,
+              residual_left.get(), residual_right.get(), norm_weight.get(),
+              kNormEpsilon, kRows, kColumns, baseline_residual,
+              baseline_gate, baseline_up, static_cast<void*>(stream));
+    };
+    const auto launch_table_candidate = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_silu_table_test_cuda(
+              gate_packed.get(), gate_scales.get(), gate_scale2,
+              up_packed.get(), up_scales.get(), up_scale2,
+              residual_left.get(), residual_right.get(), norm_weight.get(),
+              kNormEpsilon, kRows, kColumns, silu_table.get(),
+              candidate_residual, candidate_gate, candidate_up,
+              static_cast<void*>(stream));
+    };
+
+    std::array<float, 2U> baseline_medians{};
+    std::array<float, 2U> candidate_medians{};
+    std::array<float, 2U> paired_speedup_medians{};
+    std::array<float, 2U> paired_delta_medians{};
+    std::array<bool, 2U> correctness_gates{};
+    std::array<bool, 2U> input_preservation_gates{};
+    std::array<bool, 2U> every_round_nonregression{};
+    for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
+      const bool actual = fixture == 0U;
+      if (!actual) {
+        for (std::size_t index = 0U; index < kPackedCount; ++index) {
+          const std::uint8_t gate_low = static_cast<std::uint8_t>(
+              (index * 5U + (index >> 3U) * 3U + 1U) & 0x0fU);
+          const std::uint8_t gate_high = static_cast<std::uint8_t>(
+              (index * 7U + (index >> 2U) * 5U + 9U) & 0x0fU);
+          const std::uint8_t up_low = static_cast<std::uint8_t>(
+              (index * 11U + (index >> 4U) * 7U + 3U) & 0x0fU);
+          const std::uint8_t up_high = static_cast<std::uint8_t>(
+              (index * 13U + (index >> 1U) * 3U + 5U) & 0x0fU);
+          host_gate_packed[index] =
+              static_cast<std::uint8_t>(gate_low | (gate_high << 4U));
+          host_up_packed[index] =
+              static_cast<std::uint8_t>(up_low | (up_high << 4U));
+        }
+        fill_nvfp4_m1_exact_shape_scale_distribution(
+            host_gate_scales, kScaleColumns,
+            NvFp4M1ScaleDistribution::kSameBankStress);
+        fill_nvfp4_m1_exact_shape_scale_distribution(
+            host_up_scales, kScaleColumns,
+            NvFp4M1ScaleDistribution::kSameBankStress);
+        std::rotate(host_up_scales.begin(), host_up_scales.begin() + 1U,
+                    host_up_scales.end());
+      }
+      const char* const fixture_name =
+          actual ? "actual_checkpoint" : "same_bank_stress";
+      const std::string fixture_label =
+          table_label + " " + fixture_name;
+      table_ready = upload_fixture(fixture_label);
+      if (!table_ready) {
+        return;
+      }
+
+      table_ready = test.cuda_ok(
+          cudaMemsetAsync(baseline_residual_storage.get(), 0x31,
+                          (kColumns + 2U * kGuardElements) *
+                              sizeof(std::uint16_t),
+                          stream),
+          fixture_label + " poison baseline residual");
+      table_ready = table_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_residual_storage.get(), 0x42,
+                          (kColumns + 2U * kGuardElements) *
+                              sizeof(std::uint16_t),
+                          stream),
+          fixture_label + " poison candidate residual");
+      table_ready = table_ready && test.cuda_ok(
+          cudaMemsetAsync(baseline_gate_storage.get(), 0x53,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison baseline gate");
+      table_ready = table_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_gate_storage.get(), 0x64,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison candidate gate");
+      table_ready = table_ready && test.cuda_ok(
+          cudaMemsetAsync(baseline_up_storage.get(), 0x75,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison baseline workspace");
+      table_ready = table_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_up_storage.get(), 0x86,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison candidate workspace");
+      table_ready = table_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_table_baseline()),
+          fixture_label + " launch baseline correctness");
+      table_ready = table_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_table_candidate()),
+          fixture_label + " launch candidate correctness");
+
+      std::vector<std::uint16_t> observed_baseline_residual(
+          kColumns + 2U * kGuardElements);
+      std::vector<std::uint16_t> observed_candidate_residual(
+          kColumns + 2U * kGuardElements);
+      std::vector<std::uint16_t> observed_baseline_gate(guarded_count);
+      std::vector<std::uint16_t> observed_candidate_gate(guarded_count);
+      std::vector<std::uint16_t> observed_baseline_up(guarded_count);
+      std::vector<std::uint16_t> observed_candidate_up(guarded_count);
+      const auto copy_output =
+          [&](std::vector<std::uint16_t>& destination,
+              const DeviceBuffer<std::uint16_t>& source,
+              const std::string& operation) {
+            return test.cuda_ok(
+                cudaMemcpyAsync(destination.data(), source.get(),
+                                destination.size() * sizeof(std::uint16_t),
+                                cudaMemcpyDeviceToHost, stream),
+                operation);
+          };
+      table_ready = table_ready && copy_output(
+          observed_baseline_residual, baseline_residual_storage,
+          fixture_label + " copy baseline residual");
+      table_ready = table_ready && copy_output(
+          observed_candidate_residual, candidate_residual_storage,
+          fixture_label + " copy candidate residual");
+      table_ready = table_ready && copy_output(
+          observed_baseline_gate, baseline_gate_storage,
+          fixture_label + " copy baseline gate");
+      table_ready = table_ready && copy_output(
+          observed_candidate_gate, candidate_gate_storage,
+          fixture_label + " copy candidate gate");
+      table_ready = table_ready && copy_output(
+          observed_baseline_up, baseline_up_storage,
+          fixture_label + " copy baseline workspace");
+      table_ready = table_ready && copy_output(
+          observed_candidate_up, candidate_up_storage,
+          fixture_label + " copy candidate workspace");
+      table_ready = table_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream),
+          fixture_label + " correctness synchronize");
+      if (!table_ready) {
+        return;
+      }
+
+      std::size_t residual_mismatches = 0U;
+      std::size_t gate_mismatches = 0U;
+      bool finite = true;
+      for (std::size_t column = 0U; column < kColumns; ++column) {
+        const std::size_t guarded = kGuardElements + column;
+        residual_mismatches += observed_baseline_residual[guarded] !=
+                               observed_candidate_residual[guarded];
+        finite = finite && std::isfinite(
+                               decode_bf16(observed_candidate_residual[guarded]));
+      }
+      for (std::size_t row = 0U; row < kRows; ++row) {
+        const std::size_t guarded = kGuardElements + row;
+        gate_mismatches += observed_baseline_gate[guarded] !=
+                           observed_candidate_gate[guarded];
+        finite = finite && std::isfinite(
+                               decode_bf16(observed_candidate_gate[guarded]));
+      }
+      const auto guards_intact =
+          [&](const std::vector<std::uint16_t>& values,
+              const std::uint16_t canary) {
+            return std::all_of(
+                       values.begin(), values.begin() + kGuardElements,
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       }) &&
+                   std::all_of(
+                       values.end() - kGuardElements, values.end(),
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       });
+          };
+      const bool guards_gate =
+          guards_intact(observed_baseline_residual, 0x3131U) &&
+          guards_intact(observed_candidate_residual, 0x4242U) &&
+          guards_intact(observed_baseline_gate, 0x5353U) &&
+          guards_intact(observed_candidate_gate, 0x6464U);
+      const bool workspace_gate =
+          std::all_of(observed_baseline_up.begin(),
+                      observed_baseline_up.end(),
+                      [](const std::uint16_t value) {
+                        return value == 0x7575U;
+                      }) &&
+          std::all_of(observed_candidate_up.begin(),
+                      observed_candidate_up.end(),
+                      [](const std::uint16_t value) {
+                        return value == 0x8686U;
+                      });
+      correctness_gates[fixture] =
+          residual_mismatches == 0U && gate_mismatches == 0U && finite &&
+          guards_gate && workspace_gate;
+      test.expect(correctness_gates[fixture],
+                  fixture_label +
+                      " is bitwise, finite, guarded, and leaves up untouched");
+      std::cout << "DECODE_GATE_UP_SILU_TABLE_DIFF: fixture="
+                << fixture_name << " residual_mismatches="
+                << residual_mismatches << '/' << kColumns
+                << " gate_mismatches=" << gate_mismatches << '/' << kRows
+                << " finite=" << (finite ? "true" : "false")
+                << " guards=" << (guards_gate ? "PASS" : "FAIL")
+                << " workspaces_untouched="
+                << (workspace_gate ? "PASS" : "FAIL")
+                << " gate="
+                << (correctness_gates[fixture] ? "PASS" : "FAIL") << '\n';
+      if (!correctness_gates[fixture]) {
+        return;
+      }
+
+      for (int iteration = 0;
+           iteration < kSiluTableWarmupIterations && table_ready;
+           ++iteration) {
+        table_ready = test.cuda_ok(
+            static_cast<cudaError_t>(launch_table_baseline()),
+            fixture_label + " baseline warmup");
+        table_ready = table_ready && test.cuda_ok(
+            static_cast<cudaError_t>(launch_table_candidate()),
+            fixture_label + " candidate warmup");
+      }
+      table_ready = table_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream), fixture_label + " warmup sync");
+      constexpr std::size_t kTimedPasses =
+          2U * static_cast<std::size_t>(kSiluTableMeasurementRounds);
+      std::array<float, kTimedPasses> baseline_passes{};
+      std::array<float, kTimedPasses> candidate_passes{};
+      std::array<float, kSiluTableMeasurementRounds> paired_speedups{};
+      std::array<float, kSiluTableMeasurementRounds> paired_deltas{};
+      bool all_rounds = table_ready;
+      for (int round = 0;
+           round < kSiluTableMeasurementRounds && table_ready; ++round) {
+        const std::string round_label =
+            fixture_label + " round=" + std::to_string(round + 1);
+        const bool baseline_outer = round % 2 == 0;
+        float b1 = 0.0F;
+        float b2 = 0.0F;
+        float c1 = 0.0F;
+        float c2 = 0.0F;
+        if (baseline_outer) {
+          b1 = measure_small_m_tile(test, stream, launch_table_baseline,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " B1");
+          c1 = measure_small_m_tile(test, stream, launch_table_candidate,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " C1");
+          c2 = measure_small_m_tile(test, stream, launch_table_candidate,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " C2");
+          b2 = measure_small_m_tile(test, stream, launch_table_baseline,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " B2");
+        } else {
+          c1 = measure_small_m_tile(test, stream, launch_table_candidate,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " C1");
+          b1 = measure_small_m_tile(test, stream, launch_table_baseline,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " B1");
+          b2 = measure_small_m_tile(test, stream, launch_table_baseline,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " B2");
+          c2 = measure_small_m_tile(test, stream, launch_table_candidate,
+                                    kSiluTableMeasuredIterations,
+                                    round_label + " C2");
+        }
+        const std::size_t pass = 2U * static_cast<std::size_t>(round);
+        baseline_passes[pass] = b1;
+        baseline_passes[pass + 1U] = b2;
+        candidate_passes[pass] = c1;
+        candidate_passes[pass + 1U] = c2;
+        const bool round_finite =
+            std::isfinite(b1) && b1 > 0.0F && std::isfinite(c1) &&
+            c1 > 0.0F && std::isfinite(c2) && c2 > 0.0F &&
+            std::isfinite(b2) && b2 > 0.0F;
+        const float paired_baseline = 0.5F * (b1 + b2);
+        const float paired_candidate = 0.5F * (c1 + c2);
+        paired_speedups[static_cast<std::size_t>(round)] =
+            paired_baseline / paired_candidate;
+        paired_deltas[static_cast<std::size_t>(round)] =
+            paired_baseline - paired_candidate;
+        const bool round_gate =
+            round_finite &&
+            static_cast<double>(
+                paired_speedups[static_cast<std::size_t>(round)]) >
+                kRequiredEachRoundSpeedup;
+        all_rounds = all_rounds && round_gate;
+        table_ready = table_ready && round_finite;
+        std::cout << "PERF_DECODE_GATE_UP_SILU_TABLE_ROUND: fixture="
+                  << fixture_name << " round=" << round + 1 << " order="
+                  << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+                  << " launches_per_pass=" << kSiluTableMeasuredIterations
+                  << " baseline1_ms=" << b1
+                  << " candidate1_ms=" << c1
+                  << " candidate2_ms=" << c2
+                  << " baseline2_ms=" << b2
+                  << " paired_speedup="
+                  << paired_speedups[static_cast<std::size_t>(round)]
+                  << " paired_delta_ms="
+                  << paired_deltas[static_cast<std::size_t>(round)]
+                  << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+      }
+      baseline_medians[fixture] =
+          table_ready ? median_fp8_kv_pair_timing(baseline_passes)
+                      : std::numeric_limits<float>::quiet_NaN();
+      candidate_medians[fixture] =
+          table_ready ? median_fp8_kv_pair_timing(candidate_passes)
+                      : std::numeric_limits<float>::quiet_NaN();
+      paired_speedup_medians[fixture] =
+          table_ready ? median_fp8_kv_pair_timing(paired_speedups)
+                      : std::numeric_limits<float>::quiet_NaN();
+      paired_delta_medians[fixture] =
+          table_ready ? median_fp8_kv_pair_timing(paired_deltas)
+                      : std::numeric_limits<float>::quiet_NaN();
+      every_round_nonregression[fixture] = all_rounds;
+
+      std::vector<std::uint8_t> observed_gate_packed(kPackedCount);
+      std::vector<std::uint8_t> observed_up_packed(kPackedCount);
+      std::vector<std::uint8_t> observed_gate_scales(kScaleCount);
+      std::vector<std::uint8_t> observed_up_scales(kScaleCount);
+      std::vector<std::uint16_t> observed_residual_left(kColumns);
+      std::vector<std::uint16_t> observed_residual_right(kColumns);
+      std::vector<std::uint16_t> observed_norm_weight(kColumns);
+      bool input_ready = test.cuda_ok(
+          cudaMemcpyAsync(observed_gate_packed.data(), gate_packed.get(),
+                          observed_gate_packed.size(), cudaMemcpyDeviceToHost,
+                          stream),
+          fixture_label + " copy preserved gate weights");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_up_packed.data(), up_packed.get(),
+                          observed_up_packed.size(), cudaMemcpyDeviceToHost,
+                          stream),
+          fixture_label + " copy preserved up weights");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_gate_scales.data(), gate_scales.get(),
+                          observed_gate_scales.size(), cudaMemcpyDeviceToHost,
+                          stream),
+          fixture_label + " copy preserved gate scales");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_up_scales.data(), up_scales.get(),
+                          observed_up_scales.size(), cudaMemcpyDeviceToHost,
+                          stream),
+          fixture_label + " copy preserved up scales");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_residual_left.data(), residual_left.get(),
+                          observed_residual_left.size() *
+                              sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved residual left");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_residual_right.data(),
+                          residual_right.get(),
+                          observed_residual_right.size() *
+                              sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved residual right");
+      input_ready = input_ready && test.cuda_ok(
+          cudaMemcpyAsync(observed_norm_weight.data(), norm_weight.get(),
+                          observed_norm_weight.size() *
+                              sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          fixture_label + " copy preserved norm weight");
+      input_ready = input_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream),
+          fixture_label + " input preservation synchronize");
+      input_preservation_gates[fixture] =
+          input_ready && observed_gate_packed == host_gate_packed &&
+          observed_up_packed == host_up_packed &&
+          observed_gate_scales == host_gate_scales &&
+          observed_up_scales == host_up_scales &&
+          observed_residual_left == host_residual_left &&
+          observed_residual_right == host_residual_right &&
+          observed_norm_weight == host_norm_weight;
+      test.expect(input_preservation_gates[fixture],
+                  fixture_label + " preserves all kernel inputs");
+      std::cout << "DECODE_GATE_UP_SILU_TABLE_INPUTS: fixture="
+                << fixture_name << " weights_scales_residual_norm_preserved="
+                << (input_preservation_gates[fixture] ? "true" : "false")
+                << " gate="
+                << (input_preservation_gates[fixture] ? "PASS" : "FAIL")
+                << '\n';
+    }
+
+    std::vector<float> host_silu_table_after(kSiluTableElements);
+    table_ready = table_ready && test.cuda_ok(
+        cudaMemcpyAsync(host_silu_table_after.data(), silu_table.get(),
+                        kSiluTableElements * sizeof(float),
+                        cudaMemcpyDeviceToHost, stream),
+        table_label + " copy table after timing");
+    table_ready = table_ready && test.cuda_ok(
+        cudaStreamSynchronize(stream),
+        table_label + " table immutability synchronize");
+    const bool table_immutable =
+        table_ready &&
+        std::memcmp(host_silu_table.data(), host_silu_table_after.data(),
+                    kSiluTableElements * sizeof(float)) == 0;
+    test.expect(table_immutable, table_label + " keeps table immutable");
+
+    std::array<bool, 2U> timing_gates{};
+    for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
+      const double required =
+          fixture == 0U ? kRequiredActualSpeedup : kRequiredStressSpeedup;
+      timing_gates[fixture] =
+          correctness_gates[fixture] && every_round_nonregression[fixture] &&
+          std::isfinite(paired_speedup_medians[fixture]) &&
+          static_cast<double>(paired_speedup_medians[fixture]) >= required;
+      std::cout << "PERF_DECODE_GATE_UP_SILU_TABLE: fixture="
+                << (fixture == 0U ? "actual_checkpoint"
+                                  : "same_bank_stress")
+                << " baseline_pass_median_ms=" << baseline_medians[fixture]
+                << " candidate_pass_median_ms="
+                << candidate_medians[fixture]
+                << " paired_round_median_speedup="
+                << paired_speedup_medians[fixture]
+                << " paired_round_median_delta_ms="
+                << paired_delta_medians[fixture]
+                << " required_speedup=" << required
+                << " every_round_nonregression="
+                << (every_round_nonregression[fixture] ? "true" : "false")
+                << " gate=" << (timing_gates[fixture] ? "PASS" : "FAIL")
+                << '\n';
+    }
+    const double projected_delta_ms =
+        64.0 * static_cast<double>(paired_delta_medians[0U]);
+    const bool projected_delta_gate =
+        std::isfinite(projected_delta_ms) &&
+        projected_delta_ms >= kRequiredProjectedDeltaMilliseconds;
+    const bool selected_gate =
+        header_gate && pinned_payload_gate && binary_identity_gate &&
+        table_resource_gate && table_exact_gate && table_immutable &&
+        correctness_gates[0U] && correctness_gates[1U] &&
+        input_preservation_gates[0U] && input_preservation_gates[1U] &&
+        timing_gates[0U] && timing_gates[1U] && projected_delta_gate;
+    test.expect(selected_gate,
+                table_label + " clears the isolated promotion screen");
+    std::cout << "PERF_DECODE_GATE_UP_SILU_TABLE_SELECTED:"
+              << " table_elements=" << kSiluTableElements
+              << " table_bytes=" << kSiluTableElements * sizeof(float)
+              << " actual_paired_median_speedup="
+              << paired_speedup_medians[0U]
+              << " stress_paired_median_speedup="
+              << paired_speedup_medians[1U]
+              << " projected_64_layer_delta_ms=" << projected_delta_ms
+              << " required_projected_64_layer_delta_ms="
+              << kRequiredProjectedDeltaMilliseconds
+              << " table_immutable="
+              << (table_immutable ? "true" : "false")
+              << " inputs_preserved="
+              << (input_preservation_gates[0U] &&
+                          input_preservation_gates[1U]
+                      ? "true"
+                      : "false")
+              << " production_dispatch_unchanged=true"
+              << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+    if (!selected_gate) {
+      std::cout << "PERF_DECODE_GATE_UP_SILU_TABLE_STOP_LOSS:"
+                << " reason=first_process_gate_failed"
+                << " later_processes=NOT_RUN model_e2e_nsys=NOT_RUN"
+                << " gate=FAIL\n";
+    }
+    return;
+  }
 
   if (decode_gate_up_scale_aosoa4_performance_enabled()) {
     constexpr int kSidecarWarmupIterations = 10;
@@ -52504,6 +53138,19 @@ int main() {
       return 1;
     }
     std::cout << "Decode residual-chain screen passed\n";
+    return 0;
+  }
+  if (decode_gate_up_silu_table_performance_enabled()) {
+    run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode gate/up SiLU table stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode gate/up SiLU table assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode gate/up SiLU table P1 passed; run independent "
+                 "P2/P3 before production promotion\n";
     return 0;
   }
   if (decode_gate_up_scale_aosoa4_performance_enabled()) {

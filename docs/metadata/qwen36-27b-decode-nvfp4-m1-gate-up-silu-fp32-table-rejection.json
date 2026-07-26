@@ -1,0 +1,461 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-silu-fp32-table-p1",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "a022007020d7379b2a05d401d26d6f29c3cdac97",
+    "base_tree": "530506416233d62d9056e5fa6e34f3572990ac36",
+    "base_subject": "docs: record Decode candidate stop losses",
+    "branch": "experiment/gateup-silu-table",
+    "candidate_commit": null,
+    "candidate_scope": "uncommitted test-only CUDA function, launch/resource query, exhaustive lookup oracle, and optional same-binary P1 harness in an isolated worktree",
+    "kernel_source_base_blob": "bfe0c60429d351d99c45f07113ff38d0701aed00",
+    "kernel_source_candidate_blob": "13a9d4ff696e099f2695e2ed75be424f0ab49084",
+    "cuda_test_base_blob": "b5e20d7bfa2192006a04c593f39f150c08aad8ac",
+    "cuda_test_candidate_blob": "686bf61c63a72db68f60b68cce72feac6224c7a3",
+    "candidate_diff": {
+      "kernel_source_insertions": 292,
+      "kernel_source_deletions": 0,
+      "cuda_test_insertions": 648,
+      "cuda_test_deletions": 1
+    },
+    "candidate_retained_in_isolated_worktree": true,
+    "candidate_reachable_from_production": false,
+    "production_dispatch_changed": false,
+    "production_runner_changed": false,
+    "public_abi_changed": false,
+    "prefill_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "related_records": {
+    "current_production_anchor": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "production_gate_up_route": "qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json",
+    "different_weight_product_table_rejection": "qwen36-27b-nvfp4-m1-full-product-table-rejection.json",
+    "preceding_p1_rejections": [
+      "qwen36-27b-decode-nvfp4-m1-gate-up-scale-aosoa4-sidecar-rejection.json",
+      "qwen36-27b-decode-fp8-o-proj-cta512-shared-activation-rejection.json"
+    ]
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 6.763000,
+    "remaining_tokens_per_second": 0.633459157,
+    "target_met": false,
+    "anchor_changed_by_this_candidate": false
+  },
+  "candidate": {
+    "name": "exact BF16-domain SiLU FP32 lookup table",
+    "phase": "Decode",
+    "token_count": 1,
+    "scope": "runner-only residual add, centered RMSNorm, exact NVFP4 gate/up projections, and SiLU with dead up publication",
+    "shape_n_by_k": [
+      17408,
+      5120
+    ],
+    "baseline": "production-selected streaming-cache 32x512 residual/RMSNorm/gate/up/SiLU dead-up kernel",
+    "test_only_change": "Index a cold-initialized global FP32 table with the raw bits of the independently rounded BF16 gate value instead of evaluating gate / (1 + expf(-gate)) in the epilogue.",
+    "unchanged_contract": [
+      "post-attention residual and centered-RMSNorm arithmetic",
+      "canonical packed NVFP4 weights and E4M3FN block scales",
+      "streaming cache policy",
+      "gate and up projection FMA and reduction order",
+      "independent gate and up BF16-RNE boundaries",
+      "CTA-local staged gate and up values",
+      "final FP32 SiLU-times-rounded-up multiplication and BF16-RNE publication",
+      "32x512 topology, launch count, stream, residual output, and untouched dead-up workspace"
+    ],
+    "table": {
+      "index": "all 16 raw bits of the rounded BF16 gate value",
+      "elements": 65536,
+      "element_type": "FP32",
+      "bytes": 262144,
+      "value": "decode_bf16(index) / (1 + expf(-decode_bf16(index)))",
+      "initialization": "test-only 256x256 CUDA kernel before warmup and timing",
+      "initialization_in_timed_region": false,
+      "immutable_during_timing": true,
+      "production_memory_allocated": false
+    },
+    "environment_variable": "Q3X_RUN_SM87_DECODE_GATE_UP_SILU_TABLE_PERF",
+    "production_status": "not promoted"
+  },
+  "environment": {
+    "device": "Orin",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "request_concurrency": 1,
+    "streams": 1,
+    "clock_readback_in_formal_log": false,
+    "measurement_scope": "one same-binary isolated-kernel P1 process"
+  },
+  "checkpoint_fixture": {
+    "actual_checkpoint": {
+      "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+      "data_base": 126512,
+      "gate_weight_offset": 6757009952,
+      "up_weight_offset": 6801574432,
+      "gate_scale_offset": 3606039072,
+      "up_scale_offset": 3611609632,
+      "gate_scale2_offset": 126548,
+      "up_scale2_offset": 126556,
+      "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+      "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+      "gate_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+      "up_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+      "scale2_bits_decimal": 958298600,
+      "weights_and_scales": "hash-pinned real layer-0 checkpoint payload",
+      "activation_residual_and_norm_inputs": "deterministic synthetic fixture"
+    },
+    "same_bank_stress": {
+      "weights_scales_and_dynamic_inputs": "deterministic synthetic stress fixture"
+    }
+  },
+  "resources": {
+    "production_baseline": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "candidate": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "null_query_rejected": true
+    },
+    "candidate_preserves_production_envelope": true,
+    "gate": "pass"
+  },
+  "correctness": {
+    "exhaustive_bf16_domain_table": {
+      "entries": 65536,
+      "candidate_vs_independent_device_direct_reference_fp32_bit_mismatches": 0,
+      "invalid_initialization_cases": "pass",
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "finite": true,
+      "guards": "pass",
+      "baseline_and_candidate_up_workspaces_untouched": true,
+      "weights_scales_residual_and_norm_inputs_preserved": true,
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "finite": true,
+      "guards": "pass",
+      "baseline_and_candidate_up_workspaces_untouched": true,
+      "weights_scales_residual_and_norm_inputs_preserved": true,
+      "gate": "pass"
+    },
+    "table_immutable_after_all_timing": true,
+    "overall_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "same_binary": true,
+    "same_process": true,
+    "same_nonblocking_stream": true,
+    "warmup_launches_per_route_and_fixture": 10,
+    "logical_launches_per_timed_pass": 64,
+    "rounds_per_fixture": 5,
+    "round_order": [
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B"
+    ],
+    "baseline": "public production streaming-cache dead-up route",
+    "candidate": "test-only exact clone with global FP32 SiLU lookup",
+    "frozen_gates": {
+      "actual_paired_median_speedup_at_least": 1.01,
+      "stress_paired_median_speedup_at_least": 1.0,
+      "each_round_speedup_strictly_greater_than": 1.0,
+      "projected_64_layer_delta_ms_at_least": 0.30
+    },
+    "stop_loss": "Stop after process 1 when any aggregate or every-round gate fails; skip P2/P3, model oracle, end-to-end, Nsys, and production integration."
+  },
+  "formal_process_1": {
+    "exit_code": 1,
+    "exit_interpretation": "expected single selected performance assertion after binary identity, pinned payload, resource, exhaustive table, output correctness, guard, workspace, and table-immutability gates passed",
+    "failed_assertions": 1,
+    "actual_checkpoint": {
+      "rounds": [
+        {
+          "round": 1,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.59402,
+          "candidate_1_ms": 0.594961,
+          "candidate_2_ms": 0.593778,
+          "baseline_2_ms": 0.594571,
+          "paired_speedup": 0.999876,
+          "paired_delta_ms_per_layer": -0.0000735521,
+          "gate": "fail"
+        },
+        {
+          "round": 2,
+          "order": "C-B-B-C",
+          "baseline_1_ms": 0.594252,
+          "candidate_1_ms": 0.594474,
+          "candidate_2_ms": 0.594822,
+          "baseline_2_ms": 0.594038,
+          "paired_speedup": 0.999154,
+          "paired_delta_ms_per_layer": -0.000503242,
+          "gate": "fail"
+        },
+        {
+          "round": 3,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.594745,
+          "candidate_1_ms": 0.594819,
+          "candidate_2_ms": 0.594501,
+          "baseline_2_ms": 0.594909,
+          "paired_speedup": 1.00028,
+          "paired_delta_ms_per_layer": 0.000166953,
+          "gate": "pass"
+        },
+        {
+          "round": 4,
+          "order": "C-B-B-C",
+          "baseline_1_ms": 0.594052,
+          "candidate_1_ms": 0.59465,
+          "candidate_2_ms": 0.594801,
+          "baseline_2_ms": 0.594235,
+          "paired_speedup": 0.999021,
+          "paired_delta_ms_per_layer": -0.00058198,
+          "gate": "fail"
+        },
+        {
+          "round": 5,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.594708,
+          "candidate_1_ms": 0.594032,
+          "candidate_2_ms": 0.594914,
+          "baseline_2_ms": 0.593992,
+          "paired_speedup": 0.999793,
+          "paired_delta_ms_per_layer": -0.000123262,
+          "gate": "fail"
+        }
+      ],
+      "baseline_pass_median_ms_per_layer": 0.594244,
+      "candidate_pass_median_ms_per_layer": 0.594725,
+      "paired_round_median_speedup": 0.999793,
+      "paired_round_median_delta_ms_per_layer": -0.000123262,
+      "projected_64_layer_delta_ms_per_token": -0.00788879,
+      "rounds_strictly_improving": 1,
+      "rounds_regressing": 4,
+      "every_round_strictly_improving": false,
+      "speedup_gate": "fail",
+      "every_round_gate": "fail",
+      "projected_delta_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "same_bank_stress": {
+      "rounds": [
+        {
+          "round": 1,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.598179,
+          "candidate_1_ms": 0.598102,
+          "candidate_2_ms": 0.598211,
+          "baseline_2_ms": 0.598264,
+          "paired_speedup": 1.00011,
+          "paired_delta_ms_per_layer": 0.0000650287,
+          "gate": "pass"
+        },
+        {
+          "round": 2,
+          "order": "C-B-B-C",
+          "baseline_1_ms": 0.598216,
+          "candidate_1_ms": 0.598138,
+          "candidate_2_ms": 0.598347,
+          "baseline_2_ms": 0.59868,
+          "paired_speedup": 1.00034,
+          "paired_delta_ms_per_layer": 0.000205278,
+          "gate": "pass"
+        },
+        {
+          "round": 3,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.597883,
+          "candidate_1_ms": 0.597826,
+          "candidate_2_ms": 0.598272,
+          "baseline_2_ms": 0.59794,
+          "paired_speedup": 0.99977,
+          "paired_delta_ms_per_layer": -0.000137568,
+          "gate": "fail"
+        },
+        {
+          "round": 4,
+          "order": "C-B-B-C",
+          "baseline_1_ms": 0.598763,
+          "candidate_1_ms": 0.598392,
+          "candidate_2_ms": 0.5985,
+          "baseline_2_ms": 0.597973,
+          "paired_speedup": 0.999869,
+          "paired_delta_ms_per_layer": -0.0000784993,
+          "gate": "fail"
+        },
+        {
+          "round": 5,
+          "order": "B-C-C-B",
+          "baseline_1_ms": 0.598586,
+          "candidate_1_ms": 0.598449,
+          "candidate_2_ms": 0.598422,
+          "baseline_2_ms": 0.598557,
+          "paired_speedup": 1.00023,
+          "paired_delta_ms_per_layer": 0.000136495,
+          "gate": "pass"
+        }
+      ],
+      "baseline_pass_median_ms_per_layer": 0.598240,
+      "candidate_pass_median_ms_per_layer": 0.598310,
+      "paired_round_median_speedup": 1.00011,
+      "paired_round_median_delta_ms_per_layer": 0.0000650287,
+      "rounds_strictly_improving": 3,
+      "rounds_regressing": 2,
+      "every_round_strictly_improving": false,
+      "speedup_gate": "pass",
+      "every_round_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "selected_gate": "fail"
+  },
+  "performance_interpretation": {
+    "actual_projected_delta_ms_per_token": -0.00788879,
+    "required_projected_delta_ms_per_token": 0.30,
+    "shortfall_ms_per_token": 0.30788879,
+    "candidate_pass_median_minus_baseline_pass_median_ms_per_layer": 0.000481,
+    "summary_statistic_note": "The pass-median difference and median paired-round delta are distinct statistics and must not be substituted for one another.",
+    "result": "The candidate is statistically near noise with a negative actual-checkpoint median projection, includes direction reversals in both fixtures, and has no credible path to the positive 0.30-ms/token P1 floor."
+  },
+  "sass_attribution": {
+    "binary": "hardened final Release binary",
+    "method_scope": "static same-binary function disassembly; no Nsight Compute counters",
+    "production_dead_up_shared_pair": {
+      "static_instruction_rows": 2704,
+      "opcode_counts": {
+        "MUFU_EX2": 1,
+        "RCP": 2,
+        "RSQ": 2,
+        "LDG": 37,
+        "STG": 6
+      }
+    },
+    "candidate_silu_table": {
+      "static_instruction_rows": 2624,
+      "opcode_counts": {
+        "MUFU_EX2": 0,
+        "RCP": 1,
+        "RSQ": 2,
+        "LDG": 38,
+        "STG": 6
+      }
+    },
+    "delta": {
+      "static_instruction_rows": -80,
+      "MUFU_EX2": -1,
+      "RCP": -1,
+      "RSQ": 0,
+      "LDG": 1,
+      "STG": 0
+    },
+    "interpretation": "The candidate really replaces the SiLU EX2/RCP sequence with one additional global load, but that local instruction substitution has no measurable benefit inside the bandwidth-dominated gate/up projections."
+  },
+  "stop_loss": {
+    "triggered_after_process": 1,
+    "reason": "Actual checkpoint reaches only 0.999793x against 1.01x, projects a 0.00788879-ms/token regression instead of a 0.30-ms/token saving, and regresses in four rounds; stress also regresses in two rounds.",
+    "processes_2_and_3": "not_run",
+    "candidate_specific_graph_matrix": "not_run",
+    "model_oracle": "not_run",
+    "end_to_end_timing": "not_run",
+    "nsight_systems": "not_run",
+    "nsight_compute": "not_run",
+    "production_integration": "not_run"
+  },
+  "decision": {
+    "result": "reject",
+    "closed_scope": "A 65,536-entry global FP32 SiLU table indexed by exact rounded BF16 gate bits in the production-shaped Decode gate/up dead-up epilogue.",
+    "reason": "Correctness, resources, and the intended SASS substitution pass, but the hardened actual result regresses at 0.999793x with four round reversals; stress has two reversals. The 256-KiB table therefore has no measured performance justification.",
+    "candidate_remains_test_only": true,
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "reopen_when": "Reopen SiLU epilogue work only with a materially different mechanism and a source- or profile-backed ceiling of at least 0.30 ms/token; do not repeat a global exact-BF16 FP32 lookup without new evidence."
+  },
+  "production_impact": {
+    "candidate_promoted": false,
+    "production_dispatch_unchanged": true,
+    "production_runner_unchanged": true,
+    "production_abi_unchanged": true,
+    "production_memory_increase_bytes": 0,
+    "production_launch_count_changed": false,
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "formal_binary": {
+      "local_path": "/tmp/q3x-gateup-silu-table-worktree/build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7464992,
+      "sha256": "4d6e61bc198ab16980d03e79e1210ae5051f8193309440a52e00b959e643f0f5",
+      "elf_build_id": "3554247c4c4a2e8d831cc7fb10eaae7006b842ae",
+      "checked_in": false
+    },
+    "hardened_default_log": {
+      "local_path": "/tmp/q3x-gateup-silu-table.hardened-default.log",
+      "bytes": 65752,
+      "lines": 374,
+      "sha256": "a061853b352aec35a6d619fee9fbb9d493f08e80b7f2098d8480a4fc99317307",
+      "exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-gateup-silu-table.hardened-P1.log",
+      "bytes": 6632,
+      "lines": 28,
+      "sha256": "135f0ff4ec06345a168b3ae2bf6890015fcfa84625b25c88ff2a8786c2b7f266",
+      "exit_code": 1,
+      "terminal_line": "1 Decode gate/up SiLU table assertion(s) failed",
+      "checked_in": false
+    },
+    "superseded_exploratory_process_1_log": {
+      "local_path": "/tmp/q3x-gateup-silu-table.P1.log",
+      "bytes": 71895,
+      "lines": 397,
+      "sha256": "583946bb6e089f8d00f39db21c5e30a2eb626fd5d5ce5efd4fb89fd6dd2830ca",
+      "decision_use": "none; superseded by the hardened focused P1 process",
+      "checked_in": false
+    }
+  },
+  "claim_limits": [
+    "This is a one-process isolated-kernel P1 rejection on one Orin, not an end-to-end, Decode-throughput, TTFT, serving, power, or cross-device result.",
+    "The actual fixture uses pinned real checkpoint Gate/Up weights and scales with deterministic synthetic activation, residual, and norm inputs.",
+    "The -0.00788879-ms/token value is a 64-layer arithmetic projection from the hardened paired-round median delta, not measured whole-model latency.",
+    "No formal clock readback is present in the retained P1 log; the same-binary paired ordering is the available noise control.",
+    "The exhaustive 65,536-entry bitwise gate compares two independently emitted device functions using the same selected CUDA expression; it is not a host-libm equivalence claim.",
+    "The table was allocated and initialized only by the test harness and contributes zero production memory because the candidate was not integrated.",
+    "The earlier /tmp/q3x-gateup-silu-table.P1.log is exploratory and has no decision or anchor role; only the hardened focused P1 log supplies the formal numbers.",
+    "P2/P3, candidate-specific Graph expansion, model oracles, end-to-end timing, Nsys, and NCU were intentionally skipped after P1 stop-loss.",
+    "Production and the 106.763000-ms/token / 9.366540843-token/s anchor remain unchanged."
+  ]
+}

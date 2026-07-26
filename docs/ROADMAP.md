@@ -1095,6 +1095,18 @@ ms/token**. The first process therefore stops at the micro gate without a
 full-model run; production remains unchanged and the formal anchor stays at
 **106.763000 ms/token / 9.366540843 token/s**.
 
+The exact-BF16 SiLU FP32 lookup is also closed at P1. Its 256-KiB table and
+production-shaped `32x512` kernel pass exhaustive 65,536-entry FP32-bit,
+output, guard, workspace, and unchanged-resource gates, but actual-checkpoint
+timing reaches only **0.999793x** and projects a **0.00788879-ms/token
+regression** over 64 layers versus the required **1.01x / +0.30 ms/token**.
+Four of five actual rounds and two of five stress rounds regress. SASS confirms
+that one LDG replaces the SiLU EX2/RCP work, but the bandwidth-dominated
+projection sees no measurable gain. P2/P3, model E2E, and Nsys are skipped;
+production and the **106.763000 ms/token / 9.366540843 token/s** anchor remain
+unchanged. Do not reopen the same global exact-BF16 lookup without a materially
+different mechanism and a credible at-least-0.30-ms/token ceiling.
+
 Reorder the next priority from the latest production profile instead of
 prespecifying an implementation. Screen structural Decode candidates with a
 credible **at least 0.3--0.5 ms/token** contribution first, and advance to a

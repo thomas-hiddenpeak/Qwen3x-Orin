@@ -1036,6 +1036,21 @@ The diagnostic Phase 3 records are:
   mechanism that removes real computation or global traffic and has a ceiling
   of at least 0.3 ms/token; the formal anchor remains **106.763 ms/token and
   9.366540843 token/s**.
+- [`qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection.json`](qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection.json),
+  which rejects a test-only exact-BF16 SiLU FP32 lookup in the production-shaped
+  `32x512` Gate/Up dead-up epilogue. Its cold-initialized 65,536-entry table is
+  262,144 bytes; all table values match an independent device direct reference
+  bitwise, both actual/stress outputs are exact, and the candidate preserves 64
+  registers, 13,632 shared bytes, zero local bytes, and two CTAs/SM. Performance
+  is effectively flat and slightly negative: hardened actual production/candidate
+  medians are 0.594244/0.594725 ms/layer, paired speedup is 0.999793x, and the
+  64-layer projection is a **0.00788879-ms/token regression** against the
+  +0.30-ms gate, with 4/5 rounds regressing. Stress reaches 1.00011x but also
+  has two reversals. Static SASS confirms one extra LDG replaces the SiLU
+  EX2/RCP sequence, but the bandwidth-dominated projection does not benefit.
+  P1 stop-loss skips P2/P3, model E2E, Nsys, and production integration. The
+  formal anchor remains
+  **106.763 ms/token and 9.366540843 token/s**.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
