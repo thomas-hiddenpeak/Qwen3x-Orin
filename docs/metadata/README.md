@@ -776,6 +776,17 @@ The diagnostic Phase 3 records are:
   Nsys closure were therefore not run. Production, the serial one-stream
   schedule, Prefill, and the **107.889500 ms/token / 9.268742556 token/s**
   anchor remain unchanged.
+- [`qwen36-27b-decode-fp8-o-proj-streaming-rejection.json`](qwen36-27b-decode-fp8-o-proj-streaming-rejection.json),
+  which closes the test-only evict-first sidecar-load screen for the production
+  FP8 output projection. Production and candidate each retain 2,048 normalized
+  SASS words and identical `64r/1,152B/0local/4CTA-SM` resources; eight
+  sidecar `LDG.E.128` loads become `LDG.E.EF.128`, while eight activation
+  `LDG.E.64` loads remain. Correctness, guards, input immutability, Graph
+  replay, and eleven invalid cases pass, but all five actual-checkpoint rounds
+  regress. The 0.985003x median projects to a 0.175823-ms/token loss over 64
+  layers, so first-process stop-loss skips stress timing and later gates.
+  Production, the serial one-stream schedule, Prefill, and the **107.889500
+  ms/token / 9.268742556 token/s** anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

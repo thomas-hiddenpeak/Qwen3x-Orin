@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-fp8-o-proj-streaming-rejection",
+  "status": "rejected-test-only-decode-fp8-o-proj-streaming-candidate",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "3eecb823e6338c7b81078b9bdc633be885b4a623",
+    "base_tree": "7c30f092aff61e620f35e92f9483744ec046066a",
+    "base_subject": "docs: reject Decode linear QKV streaming loads",
+    "candidate_commit": "3952b64df41929dafaf580dc034160e2b590cee0",
+    "candidate_tree": "ff2bb8e963485b8fc54c4c6b69c627353cfa9d46",
+    "candidate_subject": "bench: screen Decode O-projection streaming loads",
+    "active_anchor_record_commit": "994d480422a744489dc597c7c3fe2ea67fd9bf96",
+    "candidate_scope": "test-only FP8 AoSoA4 sidecar streaming kernel, launcher, resource query, and opt-in first-process screen",
+    "candidate_retained_for_reproducibility": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_ms_per_token": 107.889500,
+    "formal_anchor_tokens_per_second": 9.268742556,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "target_met": false
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "operation": "production FP8 self-attention output projection",
+    "shape_n_by_k": [5120, 6144],
+    "decode_layers": 64,
+    "baseline": "current public production AoSoA4/preswizzled sidecar kernel with compiler-default cache policy",
+    "test_only_candidate": "the same kernel body with evict-first streaming policy only on each aligned uint4 sidecar-weight load",
+    "grid": [1024, 1, 1],
+    "block": [256, 1, 1],
+    "sidecar_bytes_per_layer": 31457280,
+    "canonical_weights_retained": true,
+    "new_sidecar_or_runtime_pack_added": false,
+    "launches_per_layer": {"baseline": 1, "candidate": 1},
+    "only_source_policy_change": "the AoSoA4 uint4 sidecar load uses __ldcs",
+    "unchanged": [
+      "activation global loads retain compiler-default cache policy",
+      "FP8 codebook, arithmetic, reduction order, and BF16-RNE publication",
+      "persistent AoSoA4/preswizzled sidecar layout",
+      "1024x256 topology, launch count, output address, and stream",
+      "all production and Prefill dispatch"
+    ],
+    "timing_output_addresses_identical_between_baseline_and_candidate": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "power_mode_checked_before_run": "MAXN",
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "stream_count": 1,
+    "formal_log_embeds_clock_state": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "layer": 0,
+    "tensor": "model.language_model.layers.0.self_attn.o_proj.weight",
+    "absolute_offset": 3569011232,
+    "bytes": 31457280,
+    "sha256": "e49a9f770a84cfcf7c2eb60f041aa7f1af8b84f5ab6323d3b8a9151588ff2bb9",
+    "payload_hash_gate": "pass"
+  },
+  "static_identity": {
+    "normalization": "target cuobjdump Function section reduced to one lowercase 0x-prefixed 64-bit encoding/control word per line before SHA-256",
+    "production": {
+      "encoding_words": 2048,
+      "normalized_bytes": 38912,
+      "sha256": "2f34439fe274eda16c845582962b12a1c95d82880ee99d5e95b0b3e664c1b392",
+      "sidecar_weight_loads": {"LDG.E.128": 8},
+      "activation_loads": {"LDG.E.64": 8}
+    },
+    "candidate": {
+      "encoding_words": 2048,
+      "normalized_bytes": 38912,
+      "sha256": "5e7646106ff3ba428ce757efbae06fdda585dca5f76a90aff83f75e470f8ded2",
+      "sidecar_weight_loads": {"LDG.E.EF.128": 8},
+      "activation_loads": {"LDG.E.64": 8}
+    },
+    "production_identity_preserved": true,
+    "target_load_policy_and_activation_census_gate": "pass"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 1152,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "same_bank_stress_direct": {
+      "mismatches": "0/5120",
+      "public_output_guards": "pass",
+      "candidate_output_guards": "pass",
+      "sidecar_payload_and_guards": "pass",
+      "activation_payload_and_guards": "pass",
+      "gate": "pass"
+    },
+    "actual_checkpoint_direct": {
+      "mismatches": "0/5120",
+      "public_output_guards": "pass",
+      "candidate_output_guards": "pass",
+      "sidecar_payload_and_guards": "pass",
+      "activation_payload_and_guards": "pass",
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "public_nodes": 1,
+      "candidate_nodes": 1,
+      "public_root_nodes": 1,
+      "candidate_root_nodes": 1,
+      "grid": [1024, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "candidate_function_distinct": true,
+      "candidate_replay_mismatches": "0/5120",
+      "candidate_replay_guards": "pass",
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 11,
+      "coverage": "null pointers, wrong exact shapes, required alignments, and complete-span sidecar/activation/output aliases",
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes": 0,
+      "gate": "pass"
+    },
+    "known_nonblocking_scope_limit": "the direct diff did not add a separate BF16-finite assertion; both routes were bitwise equal on actual and stress fixtures"
+  },
+  "benchmark_protocol": {
+    "actual_checkpoint_first": true,
+    "warmup_pairs": 10,
+    "unmeasured_prime": "B-C-C-B",
+    "measured_launches_per_pass": 64,
+    "rounds": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "required_actual_speedup": 1.005,
+    "required_each_round_speedup": 1.0,
+    "required_per_process_projected_64_layer_delta_ms": 0.10,
+    "required_three_process_median_projected_64_layer_delta_ms": 0.125,
+    "stress_timing_runs_only_after_actual_gate": true
+  },
+  "formal_first_process": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "public1_ms": 0.179526, "candidate1_ms": 0.182537, "candidate2_ms": 0.182396, "public2_ms": 0.179503, "paired_speedup": 0.983820, "paired_delta_ms": -0.00295225, "gate": "fail"},
+        {"round": 2, "order": "C-B-B-C", "public1_ms": 0.179856, "candidate1_ms": 0.182489, "candidate2_ms": 0.182315, "public2_ms": 0.179588, "paired_speedup": 0.985313, "paired_delta_ms": -0.00267902, "gate": "fail"},
+        {"round": 3, "order": "B-C-C-B", "public1_ms": 0.180097, "candidate1_ms": 0.183506, "candidate2_ms": 0.183326, "public2_ms": 0.180642, "paired_speedup": 0.983390, "paired_delta_ms": -0.00304651, "gate": "fail"},
+        {"round": 4, "order": "C-B-B-C", "public1_ms": 0.180340, "candidate1_ms": 0.183325, "candidate2_ms": 0.183051, "public2_ms": 0.180542, "paired_speedup": 0.985003, "paired_delta_ms": -0.00274724, "gate": "fail"},
+        {"round": 5, "order": "B-C-C-B", "public1_ms": 0.180444, "candidate1_ms": 0.183124, "candidate2_ms": 0.183296, "public2_ms": 0.180483, "paired_speedup": 0.985008, "paired_delta_ms": -0.00274676, "gate": "fail"}
+      ],
+      "public_pass_median_ms": 0.180218,
+      "candidate_pass_median_ms": 0.183088,
+      "paired_median_speedup": 0.985003,
+      "paired_median_delta_ms_per_layer": -0.00274724,
+      "projected_64_layer_delta_ms": -0.175823,
+      "rounds_nonregressing": "0/5",
+      "relative_speedup_gate": "fail",
+      "per_process_absolute_delta_gate": "fail"
+    },
+    "stress_timing": "not_run_after_actual_stop_loss",
+    "overall_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "The candidate regressed in all five actual-checkpoint rounds; its 0.985003x median projects to a 0.175823-ms/token loss over 64 layers.",
+    "stress_timing_run": false,
+    "additional_formal_processes_run": 0,
+    "three_process_median_gate_run": false,
+    "production_integration_attempted": false,
+    "full_model_end_to_end_run": false,
+    "nsight_systems_run": false,
+    "decision": "reject this isolated output-projection streaming-load mechanism and move to the next bounded Decode cell"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_release_ctest": {"tests_total": 56, "passed": 51, "skipped": 5, "failed": 0},
+    "formal_opt_in_process": "expected nonzero exit because the frozen performance gate failed"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.889500,
+    "formal_anchor_after_ms_per_token": 107.889500,
+    "formal_tokens_per_second": 9.268742556,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 6206376,
+      "sha256": "decec4b61edd7e74cdc3906e20792471cba94d61a8687ab430ea9d8bb539c58e",
+      "build_id": "23e3dddaf3637419cc326eca2c6de049eef23426",
+      "checked_in": false
+    },
+    "formal_log": {
+      "local_path": "/tmp/q3x-fp8-o-proj-cs-screen.20260726/process1.log",
+      "bytes": 4470,
+      "sha256": "f21829288fe2c91c941c57e8b1f8dcc7d639d8aa817aae3b6058bc8aefc24ca9",
+      "checked_in": false
+    },
+    "full_sass_dump": {
+      "local_path": "/tmp/q3x-o-proj-cs-final-full.sass",
+      "bytes": 28174426,
+      "sha256": "3b3a5f8a0d51246ca5d5045f8a063a2dcb4ec488fba2713b05b7e0c6893ec10c",
+      "checked_in": false
+    },
+    "production_normalized_sass": {
+      "local_path": "/tmp/q3x-o-proj-cs-final-production.encoding64.normalized",
+      "bytes": 38912,
+      "sha256": "2f34439fe274eda16c845582962b12a1c95d82880ee99d5e95b0b3e664c1b392",
+      "checked_in": false
+    },
+    "candidate_normalized_sass": {
+      "local_path": "/tmp/q3x-o-proj-cs-final-candidate.encoding64.normalized",
+      "bytes": 38912,
+      "sha256": "5e7646106ff3ba428ce757efbae06fdda585dca5f76a90aff83f75e470f8ded2",
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_SM87_DECODE_FP8_O_PROJ_CS_PERF=1 Q3X_FP8_M1_O_PROJ_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "claim_limits": [
+    "The -0.175823-ms/token value is an arithmetic projection from one layer-0 isolated microbenchmark, not an achieved end-to-end Decode regression.",
+    "Stress timing and the second and third formal processes were not run after the first-process stop-loss failure.",
+    "No candidate full-model end-to-end or Nsight Systems result exists.",
+    "The production runtime, formal anchor, serial one-stream schedule, and Prefill state are unchanged."
+  ]
+}

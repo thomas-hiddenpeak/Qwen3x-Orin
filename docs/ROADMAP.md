@@ -242,6 +242,15 @@ Deliverables:
   production integration, end-to-end benchmark, and Nsys closure are skipped.
   The 107.889500-ms/token / 9.268742556-token/s anchor, serial one-stream
   schedule, and not-yet-started dedicated Prefill phase remain unchanged.
+- [measured and rejected by first-process stop-loss] Apply evict-first
+  streaming policy only to the eight aligned 128-bit weight loads in the
+  production FP8 output-projection AoSoA4 sidecar kernel. Actual and stress
+  correctness, guards, immutable inputs, resources, Graph replay, and eleven
+  fail-before-enqueue cases pass, but the actual candidate regresses in all
+  five rounds to 0.985003x. Its 64-layer projection is a 0.175823-ms/token
+  loss, so stress timing, later processes, production integration, E2E, and
+  Nsys are skipped. The production anchor and serial/Prefill state remain
+  unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

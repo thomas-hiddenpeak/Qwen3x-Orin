@@ -5940,3 +5940,59 @@ buffering or cross-kernel overlap, and dedicated Prefill optimization has not
 started. The frozen binary, Build ID, exact per-round values, payload hashes,
 SASS identities, and retained 7,258-byte log are recorded in the
 [linear QKV/Z streaming rejection record](metadata/qwen36-27b-decode-fp8-linear-qkv-streaming-rejection.json).
+
+## Rejected Decode FP8 output-projection streaming loads
+
+The next bounded cell kept the production `[5120,6144]` output projection's
+existing 31,457,280-byte AoSoA4/preswizzled sidecar, `1024x256` topology,
+arithmetic, BF16 boundary, and activation cache policy unchanged. A distinct
+test-only twin applied evict-first streaming policy only to the aligned
+128-bit sidecar-weight loads. No new pack, sidecar, launch, stream, or
+production dispatch was introduced.
+
+Static extraction preserves the production image at 2,048 normalized 64-bit
+words with SHA-256
+`2f34439fe274eda16c845582962b12a1c95d82880ee99d5e95b0b3e664c1b392`;
+the candidate also has 2,048 words and hashes to
+`5e7646106ff3ba428ce757efbae06fdda585dca5f76a90aff83f75e470f8ded2`.
+Production has eight `LDG.E.128` sidecar loads, while the candidate has eight
+`LDG.E.EF.128`; both retain eight activation `LDG.E.64` loads. Each route uses
+64 registers/thread, 1,152 B static shared memory, zero stack/local memory,
+and four active CTAs/SM.
+
+Actual-checkpoint and same-bank direct comparisons are bitwise exact over all
+5,120 outputs, preserve both output guards and both immutable input buffers,
+and retain the pinned 31,457,280-byte payload hashes. Public and candidate
+routes capture as distinct single-root, single-kernel `1024x256` CUDA Graphs;
+candidate replay is exact and guarded. Eleven null, shape, alignment, and
+complete-span alias cases all fail before enqueue with zero captured nodes.
+The complete default Release suite reports 51 passed and five skipped tests
+out of 56.
+
+The frozen actual-checkpoint process uses ten alternating warmup pairs, an
+unmeasured `B-C-C-B` prime, and five 64-launch rounds in alternating
+`B-C-C-B`/`C-B-B-C` order, with both routes writing the same output address:
+
+| Round | Order | Public pair | Candidate pair | Paired speedup | Delta/layer |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | B-C-C-B | 0.1795145 ms | 0.1824665 ms | 0.983820x | -0.00295225 ms |
+| 2 | C-B-B-C | 0.1797220 ms | 0.1824020 ms | 0.985313x | -0.00267902 ms |
+| 3 | B-C-C-B | 0.1803695 ms | 0.1834160 ms | 0.983390x | -0.00304651 ms |
+| 4 | C-B-B-C | 0.1804410 ms | 0.1831880 ms | 0.985003x | -0.00274724 ms |
+| 5 | B-C-C-B | 0.1804635 ms | 0.1832100 ms | 0.985008x | -0.00274676 ms |
+
+The pass medians are 0.180218 ms for public and 0.183088 ms for the
+candidate. The paired median is **0.985003x**, and all five rounds regress.
+Its -0.00274724-ms/layer delta projects to **-0.175823 ms/token** over 64
+layers: an arithmetic phase-local loss, not an end-to-end measurement. This
+fails the predeclared 1.005x, every-round, and 0.10-ms/token first-process
+gates. Stop-loss therefore skips stress timing, the other two processes, the
+external 0.125-ms/token median gate, production integration, end-to-end
+benchmarking, and Nsys closure.
+
+The formal hot P19/C32/max26 anchor remains **107.889500 ms/token and
+9.268742556 token/s**, still 7.889500 ms/token and 0.731257444 token/s short of
+the stage target. Decode remains serial on one stream without double/triple
+buffering or cross-kernel overlap, and dedicated Prefill optimization has not
+started. Complete commands, hashes, rounds, gates, and claim limits are in the
+[output-projection streaming rejection record](metadata/qwen36-27b-decode-fp8-o-proj-streaming-rejection.json).
