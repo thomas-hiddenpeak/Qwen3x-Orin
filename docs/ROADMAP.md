@@ -251,6 +251,13 @@ Deliverables:
   loss, so stress timing, later processes, production integration, E2E, and
   Nsys are skipped. The production anchor and serial/Prefill state remain
   unchanged.
+- [measured and rejected by first-process stop-loss] Apply streaming policy
+  only to the eight packed-weight and four block-scale loads in the exact
+  activation-staged NVFP4 LM head. Bounded/actual correctness, signed NaNs,
+  resources, Graph replay, 17 invalid cases, guards, and 715 MB input hashes
+  pass, but the candidate regresses in all five actual rounds to 0.993515x,
+  adding 0.0286746 ms/token. Stress timing, later processes, production, E2E,
+  and Nsys are skipped; the anchor and serial/Prefill state remain unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

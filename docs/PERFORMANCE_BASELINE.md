@@ -5996,3 +5996,55 @@ the stage target. Decode remains serial on one stream without double/triple
 buffering or cross-kernel overlap, and dedicated Prefill optimization has not
 started. Complete commands, hashes, rounds, gates, and claim limits are in the
 [output-projection streaming rejection record](metadata/qwen36-27b-decode-fp8-o-proj-streaming-rejection.json).
+
+## Rejected Decode NVFP4 LM-head streaming loads
+
+The final isolated streaming-load cell in this sequence cloned the production
+activation-staged NVFP4 LM-head `[248320,5120]` kernel as a test-only twin.
+Only eight packed-weight U32 loads and four block-scale U8 loads use
+evict-first policy; the eight activation `LDG.E.64` loads, 10,240-byte shared
+activation staging, arithmetic, reduction order, scale2, BF16-RNE boundary,
+and `64x256` topology remain unchanged. The 715,161,600-byte encoded payload
+is the existing checkpoint representation, not a new sidecar.
+
+Production retains 1,584 normalized 64-bit SASS words and SHA-256
+`9896967392032afdf31fc3593b777323225d2689d4070d3bdb7a5204204fc855`.
+The candidate also has 1,584 words and hashes to
+`a1bc4c089436377dea1868c8db6f9dcaf550e115e5d16a8513971816357e6234`.
+Its target loads become eight `LDG.E.EF` plus four `LDG.E.EF.U8`, while both
+routes retain eight activation `LDG.E.64` loads. Each uses 64 registers/thread,
+11,328 B static shared memory, zero stack/local memory, and four CTAs/SM.
+
+Bounded checkpoint-like, same-bank, and signed-NaN fixtures pass bitwise,
+classification, finite, and guard gates. Public and direct production Graph
+nodes are identical and distinct from the candidate; an intentionally odd
+block-scale pointer remains a valid positive contract. Seventeen shape, null,
+scale2, alignment, alias, and overflow cases fail before enqueue with a clean
+stream. On the pinned shard-3 payload, all 248,320 direct and replay outputs
+match bitwise, are finite and guarded, and full 635,699,200-byte weight plus
+79,462,400-byte scale readbacks retain their hashes while activation and all
+input guards remain exact.
+
+The frozen process then uses ten alternating warmup pairs, an unmeasured
+`B-C-C-B` prime, and five 64-launch rounds, always writing one timing output:
+
+| Round | Order | Paired speedup | Delta/token |
+| --- | --- | ---: | ---: |
+| 1 | B-C-C-B | 0.993659x | -0.0280323 ms |
+| 2 | C-B-B-C | 0.992887x | -0.0314708 ms |
+| 3 | B-C-C-B | 0.993515x | -0.0286746 ms |
+| 4 | C-B-B-C | 0.993680x | -0.0279393 ms |
+| 5 | B-C-C-B | 0.993477x | -0.0288420 ms |
+
+The public and candidate pass medians are 4.39286 and 4.42124 ms. All five
+rounds regress; the paired median is **0.993515x**, a **0.0286746-ms/token
+loss**. This fails the predeclared 1.005x, every-round, and 0.20-ms/token
+first-process gates. Stop-loss skips stress timing, the other two processes,
+the external 0.25-ms/token median gate, production integration, E2E, and Nsys.
+
+The formal hot P19/C32/max26 anchor remains **107.889500 ms/token and
+9.268742556 token/s**, still 7.889500 ms/token and 0.731257444 token/s short of
+the stage target. Decode remains serial on one stream without double/triple
+buffering or cross-kernel overlap, and dedicated Prefill optimization has not
+started. Complete evidence is in the
+[LM-head streaming rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-streaming-rejection.json).

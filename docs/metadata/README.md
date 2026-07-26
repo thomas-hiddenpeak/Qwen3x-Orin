@@ -787,6 +787,17 @@ The diagnostic Phase 3 records are:
   layers, so first-process stop-loss skips stress timing and later gates.
   Production, the serial one-stream schedule, Prefill, and the **107.889500
   ms/token / 9.268742556 token/s** anchor remain unchanged.
+- [`qwen36-27b-decode-nvfp4-lm-head-streaming-rejection.json`](qwen36-27b-decode-nvfp4-lm-head-streaming-rejection.json),
+  which closes the test-only packed-weight/block-scale streaming screen for the
+  activation-staged NVFP4 LM head. Production and candidate each retain 1,584
+  normalized SASS words and identical `64r/11,328B/0local/4CTA-SM`
+  resources. Bounded and actual correctness, signed NaNs, Graph replay, 17
+  invalid cases, guards, full payload hashes, and activation exactness pass,
+  but all five actual rounds regress. The 0.993515x median adds 0.0286746
+  ms/token, so first-process
+  stop-loss skips stress timing and later gates. Production, the serial
+  one-stream schedule, Prefill, and the **107.889500 ms/token / 9.268742556
+  token/s** anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

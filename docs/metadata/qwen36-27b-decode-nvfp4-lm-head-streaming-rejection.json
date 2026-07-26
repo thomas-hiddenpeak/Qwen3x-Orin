@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-lm-head-streaming-rejection",
+  "status": "rejected-test-only-decode-nvfp4-lm-head-streaming-candidate",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "7277d16b41dd12a8364208574b062db1c9a90426",
+    "base_tree": "984936dabe1efafaac90439736e4c482fba0e7a9",
+    "base_subject": "docs: reject Decode O-projection streaming loads",
+    "candidate_commit": "76d76f8c659e0d0655ec4ef6994d14b08fce0484",
+    "candidate_tree": "4622a52394b3dec4470e5b142483b0ff287d1494",
+    "candidate_subject": "bench: screen Decode NVFP4 LM-head streaming loads",
+    "active_anchor_record_commit": "994d480422a744489dc597c7c3fe2ea67fd9bf96",
+    "candidate_scope": "test-only NVFP4 LM-head packed-weight/block-scale streaming twin plus bounded and exact opt-in screen",
+    "candidate_retained_for_reproducibility": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_ms_per_token": 107.889500,
+    "formal_anchor_tokens_per_second": 9.268742556,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "target_met": false
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "operation": "production activation-staged NVFP4 LM head",
+    "shape_n_by_k": [248320, 5120],
+    "bounded_correctness_shape_n_by_k": [2048, 512],
+    "calls_per_token": 1,
+    "baseline": "current public activation-staged LM-head kernel with compiler-default payload cache policy",
+    "test_only_candidate": "an isolated arithmetic twin using evict-first streaming policy for packed weights and block scales only",
+    "grid": [64, 1, 1],
+    "block": [256, 1, 1],
+    "packed_weight_bytes": 635699200,
+    "block_scale_bytes": 79462400,
+    "encoded_payload_bytes": 715161600,
+    "only_source_policy_changes": [
+      "eight packed-weight U32 loads use __ldcs",
+      "four block-scale U8 loads use __ldcs"
+    ],
+    "unchanged": [
+      "eight activation global loads retain compiler-default cache policy",
+      "activation shared staging, NVFP4/FP8 codebooks, XOR exchange, arithmetic, reduction order, scale2, and BF16-RNE publication",
+      "64x256 topology, launch count, output address, and stream",
+      "all production and Prefill dispatch"
+    ],
+    "timing_output_addresses_identical_between_baseline_and_candidate": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "power_mode_checked_before_run": "MAXN",
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "stream_count": 1,
+    "formal_log_embeds_clock_state": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors",
+    "file_bytes": 1970287640,
+    "safetensors_header_bytes": 7096,
+    "safetensors_data_base": 7104,
+    "weight": {
+      "tensor": "lm_head.weight",
+      "absolute_offset": 1067201560,
+      "bytes": 635699200,
+      "sha256": "746c1d13e9cf69bfca6f5901a7dec5a7f2b252359696644a1ee55953b9680205"
+    },
+    "block_scales": {
+      "tensor": "lm_head.weight_scale",
+      "absolute_offset": 849458200,
+      "bytes": 79462400,
+      "sha256": "e20faadf62bd2b3bf88f2fc9fbf4f42462fdfdd0f4bc9f23d7eaabcc1b697f9b"
+    },
+    "weight_scale_2": {
+      "tensor": "lm_head.weight_scale_2",
+      "absolute_offset": 7108,
+      "bytes": 4,
+      "little_endian_bits": "0x390db6dc",
+      "decoded_float": 0.000135149
+    },
+    "payload_hash_gate": "pass"
+  },
+  "static_identity": {
+    "normalization": "target cuobjdump Function section reduced to one lowercase 0x-prefixed 64-bit encoding/control word per line before SHA-256",
+    "production": {
+      "encoding_words": 1584,
+      "normalized_bytes": 30096,
+      "sha256": "9896967392032afdf31fc3593b777323225d2689d4070d3bdb7a5204204fc855",
+      "loads": {"packed_weight_LDG.E": 8, "block_scale_LDG.E.U8": 4, "activation_LDG.E.64": 8}
+    },
+    "candidate": {
+      "encoding_words": 1584,
+      "normalized_bytes": 30096,
+      "sha256": "a1bc4c089436377dea1868c8db6f9dcaf550e115e5d16a8513971816357e6234",
+      "loads": {"packed_weight_LDG.E.EF": 8, "block_scale_LDG.E.EF.U8": 4, "activation_LDG.E.64": 8}
+    },
+    "production_identity_preserved": true,
+    "target_load_policy_and_activation_census_gate": "pass"
+  },
+  "resources": {
+    "production": {"registers_per_thread": 64, "static_shared_bytes": 11328, "local_bytes": 0, "stack_bytes": 0, "maximum_threads_per_block": 256, "active_blocks_per_sm": 4},
+    "candidate": {"registers_per_thread": 64, "static_shared_bytes": 11328, "local_bytes": 0, "stack_bytes": 0, "maximum_threads_per_block": 256, "active_blocks_per_sm": 4},
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "bounded": {
+      "checkpoint_like_mismatches": "0/2048",
+      "same_bank_mismatches": "0/2048",
+      "signed_nan_classified_outputs": 4,
+      "signed_nan_bitwise_mismatches": "0/4",
+      "unexpected_nonfinite_outputs": 0,
+      "output_guards": "pass",
+      "gate": "pass"
+    },
+    "fake_pointer_cuda_graph": {
+      "public_nodes": 1,
+      "direct_production_nodes": 1,
+      "candidate_nodes": 1,
+      "odd_scale_positive_contract_nodes": 1,
+      "public_equals_direct_function": true,
+      "candidate_function_distinct": true,
+      "grid": [64, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 17,
+      "coverage": "near-miss shapes, null pointers, negative/NaN/Inf scale2, required alignments, output aliases, and overflowing ranges",
+      "odd_block_scale_alignment_positive_contract": "pass",
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes": 0,
+      "stream_clean": true,
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "candidate_mismatches": "0/248320",
+      "candidate_graph_replay_mismatches": "0/248320",
+      "outputs_finite": true,
+      "output_guards": "pass",
+      "weight_and_scale_hashes_activation_exactness_and_guards": "pass",
+      "graph_nodes": 1,
+      "graph_root_nodes": 1,
+      "graph_identity": "pass",
+      "gate": "pass"
+    }
+  },
+  "benchmark_protocol": {
+    "actual_checkpoint_first": true,
+    "warmup_pairs": 10,
+    "unmeasured_prime": "B-C-C-B",
+    "measured_launches_per_pass": 64,
+    "rounds": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "required_actual_speedup": 1.005,
+    "required_each_round_speedup": 1.0,
+    "required_actual_delta_ms_per_token": 0.20,
+    "required_three_process_median_actual_delta_ms_per_token": 0.25,
+    "stress_timing_runs_only_after_actual_gate": true
+  },
+  "formal_first_process": {
+    "actual_checkpoint": {
+      "rounds": [
+        {"round": 1, "order": "B-C-C-B", "public1_ms": 4.39319, "candidate1_ms": 4.42108, "candidate2_ms": 4.42072, "public2_ms": 4.39253, "paired_speedup": 0.993659, "paired_delta_ms": -0.0280323, "gate": "fail"},
+        {"round": 2, "order": "C-B-B-C", "public1_ms": 4.39390, "candidate1_ms": 4.42752, "candidate2_ms": 4.42184, "public2_ms": 4.39253, "paired_speedup": 0.992887, "paired_delta_ms": -0.0314708, "gate": "fail"},
+        {"round": 3, "order": "B-C-C-B", "public1_ms": 4.39198, "candidate1_ms": 4.42094, "candidate2_ms": 4.42220, "public2_ms": 4.39381, "paired_speedup": 0.993515, "paired_delta_ms": -0.0286746, "gate": "fail"},
+        {"round": 4, "order": "C-B-B-C", "public1_ms": 4.39185, "candidate1_ms": 4.42023, "candidate2_ms": 4.42071, "public2_ms": 4.39322, "paired_speedup": 0.993680, "paired_delta_ms": -0.0279393, "gate": "fail"},
+        {"round": 5, "order": "B-C-C-B", "public1_ms": 4.39387, "candidate1_ms": 4.42141, "candidate2_ms": 4.42175, "public2_ms": 4.39161, "paired_speedup": 0.993477, "paired_delta_ms": -0.0288420, "gate": "fail"}
+      ],
+      "public_pass_median_ms": 4.39286,
+      "candidate_pass_median_ms": 4.42124,
+      "paired_median_speedup": 0.993515,
+      "paired_median_delta_ms_per_token": -0.0286746,
+      "rounds_nonregressing": "0/5",
+      "relative_speedup_gate": "fail",
+      "absolute_delta_gate": "fail"
+    },
+    "stress_timing": "not_run_after_actual_stop_loss",
+    "overall_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "The candidate regressed in all five actual-checkpoint rounds; its 0.993515x median increases the once-per-token LM-head time by 0.0286746 ms.",
+    "stress_timing_run": false,
+    "additional_formal_processes_run": 0,
+    "three_process_median_gate_run": false,
+    "production_integration_attempted": false,
+    "full_model_end_to_end_run": false,
+    "nsight_systems_run": false,
+    "decision": "reject this isolated NVFP4 LM-head streaming-load mechanism and move to a materially different Decode cell"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_release_ctest": {"tests_total": 56, "passed": 51, "skipped": 5, "failed": 0},
+    "formal_opt_in_process": "expected nonzero exit because the frozen performance gate failed"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.889500,
+    "formal_anchor_after_ms_per_token": 107.889500,
+    "formal_tokens_per_second": 9.268742556,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {"local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test", "bytes": 6282112, "sha256": "5cd64f8d84948f8be65f8f26914605b03ef7ec9706b6b0d67d70b25396ff1d61", "build_id": "7df17dffff8ec6241de8f52b993adf6a6462b2ed", "checked_in": false},
+    "formal_log": {"local_path": "/tmp/q3x-nvfp4-lm-head-cs-screen.20260726/process1.log", "bytes": 4600, "sha256": "c85af9d230805615c6422f5c13c4f7b56a558c43a8c938cd476a085a5aadfc40", "checked_in": false},
+    "full_sass_dump": {"local_path": "/tmp/q3x-lm-head-cs-final-full.sass", "bytes": 28576201, "sha256": "faafe91140d5b320263998fb5f504e8333105fe81caf56b7d6907d8aaa00ccf8", "checked_in": false},
+    "production_normalized_sass": {"local_path": "/tmp/q3x-lm-head-cs-final-production.encoding64.normalized", "bytes": 30096, "sha256": "9896967392032afdf31fc3593b777323225d2689d4070d3bdb7a5204204fc855", "checked_in": false},
+    "candidate_normalized_sass": {"local_path": "/tmp/q3x-lm-head-cs-final-candidate.encoding64.normalized", "bytes": 30096, "sha256": "a1bc4c089436377dea1868c8db6f9dcaf550e115e5d16a8513971816357e6234", "checked_in": false},
+    "command": "Q3X_RUN_SM87_NVFP4_M1_LM_HEAD_CS_PERF=1 Q3X_NVFP4_M1_LM_HEAD_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors ./build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "claim_limits": [
+    "The -0.0286746-ms/token value is an isolated once-per-token LM-head microbenchmark delta, not an achieved end-to-end Decode regression.",
+    "Stress timing and the second and third formal processes were not run after the first-process stop-loss failure.",
+    "No candidate full-model end-to-end or Nsight Systems result exists.",
+    "The production runtime, formal anchor, serial one-stream schedule, and Prefill state are unchanged."
+  ]
+}
