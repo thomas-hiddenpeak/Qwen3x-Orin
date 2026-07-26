@@ -1,0 +1,536 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-streaming-production-benchmark",
+  "status": "production-promoted-exact-m1-single-request-decode-target-not-yet-met",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "gate_up_selection_commit": "4aa74f25d608895f00f8b302d1869d7a3f755f31",
+    "gate_up_selection_record": "qwen36-27b-decode-gate-up-streaming-selection.json",
+    "down_selection_commit": "527f9a7ba1dde602822c235f335a42000e550ff3",
+    "down_selection_record": "qwen36-27b-decode-down-streaming-selection.json",
+    "production_commit": "9aab3c34f2b40dcea8a395c873d67297723051d4",
+    "production_tree": "89a3ef0b92f374758b6557fdd63ee26d2050e95f",
+    "production_subject": "perf: promote Decode streaming-load kernels",
+    "rollback_coverage_commit": "072ea5ee38489f827070e8bbe94a9f0d49c7652c",
+    "rollback_coverage_tree": "8b737d5fecf5834b493f162a7f0115242be0af21",
+    "rollback_coverage_subject": "test: restore Decode rollback coverage",
+    "preceding_anchor_commit": "f64abc2722c31294d023c9371aed82b4db40d863",
+    "preceding_anchor_record": "qwen36-27b-fp8-m1-qkv-z-bf16-ab-tail-composite-production-benchmark.json",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measurement_identity": "The baseline is the frozen executable that established the preceding 108.2645-ms/token anchor. The candidate and oracle were frozen after the production implementation. The later rollback-coverage fix changes tests only and cannot alter either frozen production binary."
+  },
+  "binaries": {
+    "end_to_end_baseline": {
+      "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/qwen3x-orin.baseline",
+      "bytes": 4338184,
+      "sha256": "6e96b12e84d24428517138b83ab98640fff0fb9cf5afbb36dd5317d9b1d97e53",
+      "elf_build_id": "4ef7bd98e8bbc5ec70828b785528b6d9ca2164b4",
+      "checked_in": false
+    },
+    "end_to_end_candidate": {
+      "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/qwen3x-orin.candidate",
+      "bytes": 4478256,
+      "sha256": "e3e025b0fe3bf2b74490d5a8ad7c47d1aa73fd070ca17a2663d2f0fab7786824",
+      "elf_build_id": "dbcf92a891766ee80aece5ce7f0d53e1629e162d",
+      "checked_in": false
+    },
+    "model_oracle_baseline": {
+      "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/q3x_reference_engine_e2e_test.baseline",
+      "bytes": 4262752,
+      "sha256": "53cdbc2a73977a4d36200dadff6d96815865d8e6fe54c961bcedbbf9bfa8f228",
+      "elf_build_id": "a328b73504a5221b34fa058fd6de8e860e6ddc4f",
+      "checked_in": false
+    },
+    "model_oracle_candidate": {
+      "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/q3x_reference_engine_e2e_test.candidate",
+      "bytes": 4403024,
+      "sha256": "9d15a89f7f41c44faccfc121fdf828cd8b8618c67e72448b78a02911c3d83801",
+      "elf_build_id": "91b7ff624334c9a81cb0bcd4422e31c6b463978d",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz_before_and_after": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz_before_and_after": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "clock_scope": "Direct min/max/current readbacks before and after establish the requested fixed-frequency state. They do not establish thermal-soak, power, or energy behavior."
+  },
+  "implementation": {
+    "scope": "exact M1 NVFP4 gate/up dead-up and down/residual/norm projection paths",
+    "gate_up_shape_n_by_k": [17408, 5120],
+    "down_shape_n_by_k": [5120, 17408],
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "mechanism": "Change only one-pass packed-weight U32 and block-scale U8 loads from compiler-default cache policy to evict-first streaming .cs on the two selected exact-shape kernels.",
+    "arithmetic_changed": false,
+    "bf16_publication_boundaries_changed": false,
+    "launch_count_changed": false,
+    "workspace_layout_changed": false,
+    "fallbacks_changed": false,
+    "public_route_selects_streaming_kernel": true,
+    "test_cs_route_selects_same_streaming_kernel": true,
+    "test_default_rollback_route_retained": true,
+    "cuda_graph_function_identity": "public == cs != default rollback",
+    "m2_through_m32_prefix_tile_routes_changed": false,
+    "prefill_changed_by_this_promotion": false,
+    "next_prefill_optimization_phase_started": false,
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap_added": false,
+      "prefill_decode_overlap_added": false
+    }
+  },
+  "production_identity_and_resources": {
+    "gate_up": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes_per_thread": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "public_resources_equal_cs_resources": true,
+      "default_rollback_preserves_old_resource_envelope": true,
+      "default_normalized_sass": {
+        "section_64bit_words": 2704,
+        "sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d"
+      },
+      "selected_normalized_sass": {
+        "section_64bit_words": 2704,
+        "sha256": "2176900d654384440b638338cbbfe7e3ae2a02d59643d1ce30aa882fb47d4ae3"
+      }
+    },
+    "down": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes_per_thread": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_grid_capacity": 32,
+      "cooperative_launch": true,
+      "public_resources_equal_cs_resources": true,
+      "default_rollback_preserves_old_resource_envelope": true,
+      "default_normalized_sass": {
+        "section_64bit_words": 2560,
+        "sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8"
+      },
+      "selected_normalized_sass": {
+        "section_64bit_words": 2576,
+        "sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
+        "compiler_scheduling_artifact_retained": true
+      }
+    },
+    "sass_normalization": "cuobjdump Function section normalized to one lowercase 0x-prefixed 64-bit encoding/control word per line before SHA-256",
+    "gate": "pass"
+  },
+  "production_micro_closeout": {
+    "status": "pass",
+    "protocol": {
+      "comparison": "compiler-default rollback B versus public selected streaming route C",
+      "same_binary": true,
+      "same_stream": true,
+      "timing_output_addresses_shared_between_b_and_c": true,
+      "correctness_outputs_disjoint_and_guarded": true,
+      "warmup_launches_per_route": 10,
+      "measured_launches_per_timed_pass": 64,
+      "measurement_rounds_per_fixture": 5,
+      "order": "alternating B-C-C-B and C-B-B-C where implemented"
+    },
+    "gate_up": {
+      "actual_default_pass_median_ms": 0.594817,
+      "actual_public_selected_pass_median_ms": 0.589816,
+      "actual_paired_median_speedup": 1.00843,
+      "stress_default_pass_median_ms": 0.599774,
+      "stress_public_selected_pass_median_ms": 0.594668,
+      "stress_paired_median_speedup": 1.00860,
+      "actual_delta_ms_per_layer": 0.00497234,
+      "projected_64_layer_delta_ms_per_token": 0.318230,
+      "required_projected_delta_ms_per_token": 0.25,
+      "all_rounds_nonregressing": true,
+      "finite_graph_replay": "pass",
+      "nonfinite_bitwise_and_class_sign": "pass",
+      "log": {
+        "local_path": "/tmp/q3x-decode-streaming-production-closeout.xfKHF0/gate-cs-production-coverage-fix.log",
+        "bytes": 32404,
+        "sha256": "3760ff8042fe2cf57a5e55223c4dd459ef63fa71aff6a9c30a08675b3c2293ea"
+      }
+    },
+    "down": {
+      "actual_default_pass_median_ms": 0.315761,
+      "actual_public_selected_pass_median_ms": 0.312179,
+      "actual_paired_median_speedup": 1.00922,
+      "stress_default_pass_median_ms": 0.315599,
+      "stress_public_selected_pass_median_ms": 0.311696,
+      "stress_paired_median_speedup": 1.01262,
+      "actual_delta_ms_per_layer": 0.00288898,
+      "projected_64_layer_delta_ms_per_token": 0.184895,
+      "required_projected_delta_ms_per_token": 0.169,
+      "all_rounds_nonregressing": true,
+      "finite_graph_replay": "pass",
+      "nonfinite_bitwise_and_class_sign": "pass",
+      "log": {
+        "local_path": "/tmp/q3x-decode-streaming-production-closeout.xfKHF0/down-cs-production.log",
+        "bytes": 5402,
+        "sha256": "85e85bd1fc0c110d581b4c8eb7942f98eac241b79b493d2b645ee5d26647d945"
+      }
+    },
+    "combined_projected_64_layer_delta_ms_per_token": 0.503125,
+    "combined_projection_note": "This is the arithmetic sum of two isolated microbenchmark projections. It is not an achieved whole-engine latency reduction."
+  },
+  "validation": {
+    "default_ctest_gate": {
+      "status": "pass",
+      "test": "q3x_sm87_weight_only_gemv_test default configuration",
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "log": {
+        "local_path": "/tmp/q3x-decode-streaming-production-closeout.xfKHF0/default.log",
+        "bytes": 59459,
+        "sha256": "ebcce1a4a61547714cc0f9a52531dd80925c8a436ecbe167d183aa7acfa1acc2"
+      }
+    },
+    "model_oracles": {
+      "command_template": "q3x_reference_engine_e2e_test MODEL_DIR sm87 {1|8|16|32}",
+      "chunks_passed": [1, 8, 16, 32],
+      "shared_result": {
+        "status": "pass",
+        "prompt_ids": 19,
+        "generated_ids": 26,
+        "exact_text": true,
+        "stop_reason": "im_end",
+        "steps": 44,
+        "projection_backend": "sm87_weight_only",
+        "startup_overlap": true,
+        "fp8_output_sidecar_layers": 64,
+        "fp8_output_sidecar_bytes": 2013265920
+      },
+      "logs": {
+        "C1": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/oracle-c1.log",
+          "bytes": 403,
+          "sha256": "18f729ba56e9419fdc724e0b73fbc8bbf12e27a78f0036055ab4a33acf186096"
+        },
+        "C8": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/oracle-c8.log",
+          "bytes": 403,
+          "sha256": "fe606796275c29ba030079771b4abbcde14b6955b6573867eca9022af2b15b64"
+        },
+        "C16": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/oracle-c16.log",
+          "bytes": 398,
+          "sha256": "1797aa24253d7416d51f37c9324180e0b19ae3eab429767ac4db11b5b86c9fe8"
+        },
+        "C32": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/oracle-c32.log",
+          "bytes": 402,
+          "sha256": "f61dac00b8dafc6ebef065d3dfccb3213c6fb25d589ecab44924f9c3feb2acd6"
+        }
+      }
+    }
+  },
+  "end_to_end_benchmark": {
+    "status": "pass",
+    "protocol": {
+      "scope": "hot serial single-request Decode",
+      "process_order": ["B1", "C1", "C2", "B2"],
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_intervals_per_generation": 25,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "projection_backend": "sm87_weight_only"
+    },
+    "runs": {
+      "B1": {
+        "subsequent_token_ms": 108.301,
+        "decode_after_first_ms": 2707.365,
+        "ttft_ms": 427.540,
+        "total_generation_ms": 3134.839
+      },
+      "C1": {
+        "subsequent_token_ms": 107.919,
+        "decode_after_first_ms": 2696.961,
+        "ttft_ms": 426.966,
+        "total_generation_ms": 3124.021
+      },
+      "C2": {
+        "subsequent_token_ms": 107.860,
+        "decode_after_first_ms": 2696.277,
+        "ttft_ms": 426.954,
+        "total_generation_ms": 3123.198
+      },
+      "B2": {
+        "subsequent_token_ms": 108.138,
+        "decode_after_first_ms": 2702.793,
+        "ttft_ms": 427.258,
+        "total_generation_ms": 3130.060
+      }
+    },
+    "mirrored_aggregate": {
+      "baseline_subsequent_ms": 108.219500,
+      "candidate_subsequent_ms": 107.889500,
+      "subsequent_delta_ms": -0.330000,
+      "subsequent_speedup": 1.003058685,
+      "candidate_tokens_per_second": 9.268742556,
+      "pair1_subsequent_delta_ms": -0.382,
+      "pair2_subsequent_delta_ms": -0.278,
+      "c1_less_than_b1": true,
+      "c2_less_than_b2": true,
+      "baseline_decode_after_first_ms": 2705.079,
+      "candidate_decode_after_first_ms": 2696.619,
+      "decode_after_first_delta_ms": -8.460,
+      "baseline_ttft_ms": 427.399,
+      "candidate_ttft_ms": 426.960,
+      "ttft_delta_ms": -0.439,
+      "baseline_total_generation_ms": 3132.4495,
+      "candidate_total_generation_ms": 3123.6095,
+      "total_generation_delta_ms": -8.8400
+    },
+    "functional_canonicalization": {
+      "rows_per_process": 29,
+      "sha256": "f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8",
+      "all_four_equal": true,
+      "matches_historical_golden": true
+    },
+    "completeness": {
+      "lines_per_log": 163,
+      "sample_count_each": 5,
+      "later_token_intervals_each_process": 125,
+      "sample_4_later_token_values_each": 25,
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {
+        "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/e2e-b1.log",
+        "bytes": 8134,
+        "sha256": "bfd2fcfef05642463114a182483851d59b56d6f4b73a38e449475ea1ed6b69ca"
+      },
+      "C1": {
+        "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/e2e-c1.log",
+        "bytes": 8133,
+        "sha256": "1ff0a7ad9c71aaf28569a17e27294bda8926a31edd52d509d0fa3efa65c4cafe"
+      },
+      "C2": {
+        "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/e2e-c2.log",
+        "bytes": 8141,
+        "sha256": "2ed9d965cbd729a64d3820a2b360b53d96e6ff8ca30be6b04cf8942c3e58978e"
+      },
+      "B2": {
+        "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/e2e-b2.log",
+        "bytes": 8141,
+        "sha256": "5f5ec07ad63b4a12616d9bb71c2359d5bd51c3eaff24d0a3917468a2742e3b45"
+      }
+    }
+  },
+  "nsight_systems_gate": {
+    "status": "pass",
+    "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o REPORT RUNNER generate MODEL --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges",
+    "exact_generation_each": {
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44
+    },
+    "baseline": {
+      "phases": {
+        "q3x.prefill.prefix_tile": {
+          "ranges": 1,
+          "kernel_rows": 1635,
+          "raw_ns": 318779456,
+          "span_ns": 321748064,
+          "overlap_ns": 0
+        },
+        "q3x.prefill.finish": {
+          "ranges": 1,
+          "kernel_rows": 389,
+          "raw_ns": 125514400,
+          "span_ns": 126479936,
+          "overlap_ns": 0
+        },
+        "q3x.decode.step": {
+          "ranges": 25,
+          "kernel_rows": 9725,
+          "kernel_rows_per_range": 389,
+          "raw_ns": 2698913984,
+          "union_ns": 2698913984,
+          "span_ns": 2712885856,
+          "idle_ns": 13971872,
+          "overlap_ns": 0,
+          "streams": 1
+        },
+        "q3x.generation": {
+          "ranges": 1,
+          "kernel_rows": 11749,
+          "raw_ns": 3143207840,
+          "union_ns": 3143207840,
+          "span_ns": 3161233696,
+          "overlap_ns": 0,
+          "streams": 1
+        }
+      },
+      "dispatch_counts": {
+        "default_gate_up": 1600,
+        "selected_gate_up": 0,
+        "default_down": 1600,
+        "selected_down": 0
+      },
+      "artifacts": {
+        "analysis": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-baseline-analysis.json",
+          "bytes": 22648,
+          "sha256": "aa24b1654cef09f59d874739dd73d74178fe0bb43b3353f279d7fa9afc668d83"
+        },
+        "report": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-baseline-p19-c32-max26.nsys-rep",
+          "bytes": 942815,
+          "sha256": "fbcef97971d7823a1d9fa173f48ce1a09b545c26212d58c12362a67d169e1dd7"
+        },
+        "sqlite": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-baseline-p19-c32-max26.sqlite",
+          "bytes": 2662400,
+          "sha256": "d2ac7abf3c803d556b627ddec0fbcf4a74bb8d469c950909b9ed7ae5fed72ca1"
+        },
+        "console_log": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-baseline.log",
+          "bytes": 3246,
+          "sha256": "6e1cbb396c24f998bf9259f8dc2c4c6768468f5f1b332992d9002ff0d951e2d6"
+        },
+        "stats_log": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-baseline-stats.log",
+          "bytes": 33173,
+          "sha256": "79958547e7fef670f182123193eb8ada1ff77a614d7ef34c27694dda6b3f4100"
+        }
+      }
+    },
+    "candidate": {
+      "phases": {
+        "q3x.prefill.prefix_tile": {
+          "ranges": 1,
+          "kernel_rows": 1635,
+          "raw_ns": 318914176,
+          "span_ns": 321868608,
+          "overlap_ns": 0
+        },
+        "q3x.prefill.finish": {
+          "ranges": 1,
+          "kernel_rows": 389,
+          "raw_ns": 126279264,
+          "span_ns": 127251328,
+          "overlap_ns": 0
+        },
+        "q3x.decode.step": {
+          "ranges": 25,
+          "kernel_rows": 9725,
+          "kernel_rows_per_range": 389,
+          "raw_ns": 2697822048,
+          "union_ns": 2697822048,
+          "span_ns": 2712339936,
+          "idle_ns": 14517888,
+          "overlap_ns": 0,
+          "streams": 1
+        },
+        "q3x.generation": {
+          "ranges": 1,
+          "kernel_rows": 11749,
+          "raw_ns": 3143015488,
+          "union_ns": 3143015488,
+          "span_ns": 3161580576,
+          "overlap_ns": 0,
+          "streams": 1
+        }
+      },
+      "dispatch_counts": {
+        "default_gate_up": 0,
+        "selected_gate_up": 1600,
+        "default_down": 0,
+        "selected_down": 1600
+      },
+      "artifacts": {
+        "analysis": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate-analysis.json",
+          "bytes": 22733,
+          "sha256": "f3f95db18b2254fd305b0bd99165c70f26656804defe9847b6351e5c015bb1d5"
+        },
+        "report": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate-p19-c32-max26.nsys-rep",
+          "bytes": 942603,
+          "sha256": "a2ffd9df6640a6ad45a35c3caf93af2b59c5d966acd08143610e54e56e453b1b"
+        },
+        "sqlite": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate-p19-c32-max26.sqlite",
+          "bytes": 2654208,
+          "sha256": "f42bdf2c8ee30d84a492e0d9e6015ccb03ed61f12871c2d231c4b535426029a9"
+        },
+        "console_log": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate.log",
+          "bytes": 3254,
+          "sha256": "fb0380780ff018ec6dab5180bdab625eb3607abca4b26d5346264f61c7034f93"
+        },
+        "stats_log": {
+          "local_path": "/tmp/q3x-decode-streaming-production.zj7JmQ/nsys-candidate-stats.log",
+          "bytes": 33178,
+          "sha256": "a1a5ddb686a17b5e5033e3dbffc01343c3d4e698eff6ec43e0b9b256afb6cef7"
+        }
+      }
+    },
+    "closure": {
+      "same_decode_range_count": true,
+      "same_decode_kernel_rows": true,
+      "same_generation_kernel_rows": true,
+      "baseline_default_selected_zero": true,
+      "candidate_selected_default_zero": true,
+      "single_stream_each": true,
+      "raw_equals_union_each": true,
+      "kernel_overlap_each_ns": 0,
+      "interpretation": "The exact symbol replacement establishes production dispatch closure. Separately profiled timing is supporting attribution and does not replace the unprofiled mirrored end-to-end benchmark."
+    }
+  },
+  "decision": {
+    "result": "promote exact M1 gate/up and down packed-weight/block-scale streaming loads",
+    "prior_active_anchor_ms_per_token": 108.2645,
+    "prior_active_anchor_tokens_per_second": 9.236638048,
+    "achieved_hot_single_request_ms_per_token": 107.889500,
+    "achieved_hot_single_request_tokens_per_second": 9.268742556,
+    "delta_from_prior_active_anchor_ms_per_token": -0.375000,
+    "same_run_mirrored_baseline_ms_per_token": 108.219500,
+    "same_run_mirrored_candidate_delta_ms_per_token": -0.330000,
+    "same_run_mirrored_speedup": 1.003058685,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "remaining_relative_latency_reduction_percent": 7.312574440,
+    "target_met": false,
+    "next_priority": "Continue bounded single-request Decode optimization. Dedicated Prefill optimization remains deferred until the 100-ms/token and 10-token/s stage target is met."
+  },
+  "claim_limits": [
+    "The achieved anchor is hot single-request Decode on one fixed-clock Orin and excludes model load.",
+    "This is not a multi-request throughput, tail-latency, power, energy, or dedicated Prefill claim.",
+    "No double buffering, triple buffering, additional stream, or kernel overlap was introduced.",
+    "The 0.503125-ms/token microbenchmark sum is phase-local arithmetic and is not the measured end-to-end improvement."
+  ]
+}

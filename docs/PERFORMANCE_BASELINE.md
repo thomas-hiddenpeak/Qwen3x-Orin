@@ -74,6 +74,9 @@ in
 The promoted long-context GQA attention-score kernel and its separate Prefill
 and Decode evidence are recorded in
 [`qwen36-27b-prefill-attention-score-warp-positions-benchmark.json`](metadata/qwen36-27b-prefill-attention-score-warp-positions-benchmark.json).
+The production promotion of the selected Decode gate/up and down streaming
+loads is recorded in
+[`qwen36-27b-decode-streaming-production-benchmark.json`](metadata/qwen36-27b-decode-streaming-production-benchmark.json).
 
 ## Method
 
@@ -5748,3 +5751,83 @@ been benchmarked end to end. The achieved production anchor therefore remains
 oracles, independent-process end-to-end A/B, and profiler closure remain
 required before changing it. Complete evidence is in the
 [selection record](metadata/qwen36-27b-decode-down-streaming-selection.json).
+
+## Decode gate/up and down streaming-load production promotion
+
+Production commit `9aab3c3` promotes the selected evict-first streaming
+(`.cs`) policy for the one-pass packed-weight and block-scale loads in both
+exact M1 Decode NVFP4 projections: residual/norm/gate/up/SiLU dead-up
+`[17408,5120]` and cooperative down/residual/RMSNorm `[5120,17408]`.
+Arithmetic, BF16 publication boundaries, `32x512` topology, launch count,
+workspace layout, stream policy, and all non-exact fallbacks remain unchanged.
+Coverage fix `072ea5e` restores full finite, CUDA Graph replay, and signed
+Inf/NaN exercise of the explicit compiler-default rollback launchers in the
+production test closure. Captured Graph identity and resource gates prove
+`public == selected .cs != default rollback` for both kernels; the rollback
+paths are test-only.
+
+The final production closeouts compare default rollback B against the public
+selected route C, with timing routes writing the same output addresses:
+
+| Exact route | Actual B/C pass medians | Actual paired median | Stress paired median | Projected 64-layer delta | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Gate/up dead-up | 0.594817 / 0.589816 ms | 1.00843x | 1.00860x | 0.318230 ms/token | pass |
+| Down/residual/norm | 0.315761 / 0.312179 ms | 1.00922x | 1.01262x | 0.184895 ms/token | pass |
+| Arithmetic sum | — | — | — | **0.503125 ms/token** | diagnostic only |
+
+The sum is an isolated microbenchmark projection, not a whole-engine claim.
+Static extraction retains the selected SASS identities. Gate/up default and
+selected each contain 2,704 normalized 64-bit words, hashing respectively to
+`38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d`
+and
+`2176900d654384440b638338cbbfe7e3ae2a02d59643d1ce30aa882fb47d4ae3`.
+Down default contains 2,560 words at
+`fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8`;
+the selected down route retains the known compiler scheduling artifact at
+2,576 words and
+`46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6`.
+
+The default device test passes. Direct pinned-model oracles at C1, C8, C16,
+and C32 all match 19 prompt IDs, 26 generated IDs, exact text, `im_end`, and
+44 steps. The formal fixed-clock gate then uses four independently loaded
+engines in strict `B1-C1-C2-B2` order, one warmup and five measured
+P19/C32/max26 generations per process:
+
+| Process | Subsequent token | Decode after first | TTFT | Total generation |
+| --- | ---: | ---: | ---: | ---: |
+| B1 | 108.301 ms | 2,707.365 ms | 427.540 ms | 3,134.839 ms |
+| C1 | 107.919 ms | 2,696.961 ms | 426.966 ms | 3,124.021 ms |
+| C2 | 107.860 ms | 2,696.277 ms | 426.954 ms | 3,123.198 ms |
+| B2 | 108.138 ms | 2,702.793 ms | 427.258 ms | 3,130.060 ms |
+
+The mirrored baseline/candidate subsequent-token medians are 108.219500 and
+**107.889500 ms/token**, a 0.330000-ms reduction or 1.003058685x speedup.
+Both independent pairs improve (`0.382` and `0.278` ms). Decode-after-first
+falls from 2,705.079 to 2,696.619 ms, TTFT from 427.399 to 426.960 ms, and
+total generation from 3,132.4495 to 3,123.6095 ms. Every process reports
+`status=ok`, five measured samples, 125 pooled subsequent-token intervals,
+25 values in sample 4, and no persistent device-memory drop. All four retain
+the exact 29-row functional canonical SHA-256
+`f66b837ed8f5b17f1307b424062c432c7ed02befdc97d99147f34c7675decee8`.
+
+Matched baseline and candidate Nsys captures each close 25 Decode ranges over
+9,725 kernel rows (389 per range) and 11,749 generation rows. Both use one
+stream, raw time equals interval union, and kernel overlap is zero. Baseline
+contains the compiler-default gate/up and down kernels exactly 1,600 times
+each and no selected kernels; candidate contains the selected streaming
+kernels exactly 1,600 times each and no default kernels. Both console logs
+retain the exact P19/26-token text, `im_end`, and 44-step result. This proves
+dispatch replacement, but the separately profiled timings do not replace the
+unprofiled mirrored end-to-end gate.
+
+The previous active anchor was **108.2645 ms/token and 9.236638048 token/s**.
+The new achieved hot single-request anchor is therefore **107.889500 ms/token
+and 9.268742556 token/s**. It remains **7.889500 ms/token and 0.731257444
+token/s short** of the 100-ms/10-token/s stage target, so the target is not
+met. This remains a serial single-request path: no double or triple buffering,
+additional stream, or cross-kernel overlap was added. Dedicated Prefill
+work for the next optimization phase has not begun; this promotion changes no
+Prefill tile path. The next priority remains bounded Decode work until the
+stage target is reached. Complete hashes, commands, gates, and scope limits
+are in the
+[production benchmark](metadata/qwen36-27b-decode-streaming-production-benchmark.json).
