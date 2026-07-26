@@ -37459,8 +37459,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   bool residual_norm_dead_up_nonfinite_correctness = false;
   std::array<NvFp4GateUpDeadUpTiming, 2U>
       residual_norm_dead_up_cs_timings{};
-  std::array<bool, 2U> residual_norm_dead_up_cs_correctness{};
-  bool residual_norm_dead_up_cs_nonfinite_correctness = false;
+  std::array<bool, 2U> residual_norm_dead_up_default_correctness{};
+  bool residual_norm_dead_up_default_nonfinite_correctness = false;
   for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
     const bool actual = fixture == 0U;
     if (!actual) {
@@ -37515,10 +37515,10 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             fixture_label, launch_residual_norm_dead_up_candidate,
             "production_runner_dead_up_shared_pair", false);
     if (decode_gate_up_cs_performance_enabled()) {
-      residual_norm_dead_up_cs_correctness[fixture] =
+      residual_norm_dead_up_default_correctness[fixture] =
           check_residual_norm_correctness(
-              fixture_label, launch_residual_norm_dead_up_candidate,
-              "public_selected_runner_dead_up_packed_scale_cs", false);
+              fixture_label, launch_residual_norm_dead_up_default_rollback,
+              "default_rollback_runner_dead_up", false);
     }
     residual_norm_reduction_direct_correctness[fixture] =
         check_residual_norm_reduction_direct_correctness(
@@ -37567,12 +37567,12 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               launch_residual_norm_dead_up_candidate,
               "production_runner_dead_up_shared_pair", false);
       if (decode_gate_up_cs_performance_enabled()) {
-        residual_norm_dead_up_cs_nonfinite_correctness =
+        residual_norm_dead_up_default_nonfinite_correctness =
             upload_residual_fixture(nonfinite_label) &&
             check_residual_norm_reduction_direct_correctness(
                 nonfinite_label, true,
-                launch_residual_norm_dead_up_candidate,
-                "public_selected_runner_dead_up_packed_scale_cs", false);
+                launch_residual_norm_dead_up_default_rollback,
+                "default_rollback_runner_dead_up", false);
       }
       host_residual_left = finite_residual_left;
       host_residual_right = finite_residual_right;
@@ -37836,7 +37836,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       }
       const double required_median = fixture == 0U ? 1.005 : 1.0;
       const bool cell_gate =
-          residual_norm_dead_up_cs_correctness[fixture] &&
+          residual_norm_dead_up_correctness[fixture] &&
+          residual_norm_dead_up_default_correctness[fixture] &&
           std::isfinite(timing.production_pass_median_milliseconds) &&
           std::isfinite(timing.candidate_pass_median_milliseconds) &&
           std::isfinite(timing.paired_round_median_speedup) &&
@@ -37873,7 +37874,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const bool cache_policy_selected_gate =
         header_gate && pinned_payload_gate && dead_up_resource_gate &&
         cache_policy_cell_gates[0U] && cache_policy_cell_gates[1U] &&
-        residual_norm_dead_up_cs_nonfinite_correctness &&
+        residual_norm_dead_up_nonfinite_correctness &&
+        residual_norm_dead_up_default_nonfinite_correctness &&
         absolute_delta_gate;
     std::cout << "PERF_DECODE_GATE_UP_CS_CLOSEOUT_SELECTED:"
               << " policy=packed_and_scale_cs"
@@ -37888,14 +37890,18 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               << " projected_64_layer_delta_ms="
               << projected_delta_ms_per_token
               << " required_projected_64_layer_delta_ms=0.25"
-              << " finite_graph_replay_gate="
-              << (residual_norm_dead_up_cs_correctness[0U] &&
-                          residual_norm_dead_up_cs_correctness[1U]
+              << " finite_public_default_graph_replay_gate="
+              << (residual_norm_dead_up_correctness[0U] &&
+                          residual_norm_dead_up_correctness[1U] &&
+                          residual_norm_dead_up_default_correctness[0U] &&
+                          residual_norm_dead_up_default_correctness[1U]
                       ? "PASS"
                       : "FAIL")
-              << " nonfinite_bitwise_gate="
-              << (residual_norm_dead_up_cs_nonfinite_correctness ? "PASS"
-                                                                : "FAIL")
+              << " nonfinite_public_default_bitwise_gate="
+              << (residual_norm_dead_up_nonfinite_correctness &&
+                          residual_norm_dead_up_default_nonfinite_correctness
+                      ? "PASS"
+                      : "FAIL")
               << " gate="
               << (cache_policy_selected_gate ? "PASS" : "FAIL") << '\n';
     test.expect(cache_policy_selected_gate,
