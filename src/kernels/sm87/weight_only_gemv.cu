@@ -6999,10 +6999,10 @@ nvfp4_scale6_raw_scale_codes_for_lane(
   const unsigned int shift = first_bit & 31U;
   const std::uint32_t low_word =
       __shfl_sync(kFullWarpMask, resident_word, first_word);
+  const std::uint32_t high_word =
+      __shfl_sync(kFullWarpMask, resident_word, first_word + 1U);
   std::uint32_t packed_deltas = low_word >> shift;
   if (shift > 8U) {
-    const std::uint32_t high_word =
-        __shfl_sync(kFullWarpMask, resident_word, first_word + 1U);
     packed_deltas |= high_word << (32U - shift);
   }
   packed_deltas &= 0x00ff'ffffU;
