@@ -111,6 +111,11 @@ template <typename Weight>
   return nullptr;
 }
 
+[[nodiscard]] NvFp4LinearWeight* nvfp4_down_projection(
+    DecoderLayerWeights& layer) noexcept {
+  return std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
 }  // namespace
 
 class ModelWeightBinder {
@@ -649,6 +654,120 @@ bool ModelWeights::attach_fp8_m1_output_projection_sidecars(
             kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
     outputs[layer_index]->m1_aosoa4_preswizzled_weight =
         reinterpret_cast<const std::uint8_t*>(layer_address);
+  }
+  return true;
+}
+
+bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const NvFp4DownScale6SidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 32U;
+  constexpr unsigned int kMaximumScaleBase = 192U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  // A canonical empty call is an explicit atomic detach. Nonempty calls use
+  // an exact compact arena so every owned byte belongs to one descriptor.
+  if (descriptor_count == 0U) {
+    if (arena != nullptr || arena_bytes != 0U || descriptors != nullptr) {
+      return false;
+    }
+    for (DecoderLayerWeights& layer : layers_) {
+      if (NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+          down != nullptr) {
+        down->down_scale6_sidecar = nullptr;
+        down->down_scale6_base = 0U;
+      }
+    }
+    return true;
+  }
+
+  if (arena == nullptr || descriptors == nullptr ||
+      descriptor_count > kQwen36DenseLayerCount ||
+      descriptor_count >
+          std::numeric_limits<std::size_t>::max() /
+              kNvFp4DownScale6SidecarBytesPerProjection ||
+      arena_bytes !=
+          descriptor_count * kNvFp4DownScale6SidecarBytesPerProjection) {
+    return false;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if ((arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  std::array<bool, kQwen36DenseLayerCount> seen_layers{};
+  std::array<NvFp4LinearWeight*, kQwen36DenseLayerCount> targets{};
+  std::array<const std::uint8_t*, kQwen36DenseLayerCount>
+      validated_sidecars{};
+  std::array<unsigned int, kQwen36DenseLayerCount> validated_bases{};
+  std::array<std::uintptr_t, kQwen36DenseLayerCount> range_begins{};
+  std::array<std::uintptr_t, kQwen36DenseLayerCount> range_ends{};
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const NvFp4DownScale6SidecarDescriptor& descriptor = descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen_layers[descriptor.layer_index] || descriptor.sidecar == nullptr ||
+        descriptor.bytes !=
+            kNvFp4DownScale6SidecarBytesPerProjection ||
+        descriptor.scale_base > kMaximumScaleBase ||
+        descriptor.output_size != kNvFp4DownScale6Rows ||
+        descriptor.input_size != kNvFp4DownScale6Columns) {
+      return false;
+    }
+
+    NvFp4LinearWeight* const down =
+        nvfp4_down_projection(layers_[descriptor.layer_index]);
+    if (!has_valid_nvfp4_payload(down) ||
+        down->output_size != kNvFp4DownScale6Rows ||
+        down->input_size != kNvFp4DownScale6Columns) {
+      return false;
+    }
+
+    const std::uintptr_t sidecar_address =
+        reinterpret_cast<std::uintptr_t>(descriptor.sidecar);
+    if ((sidecar_address % kRequiredAlignment) != 0U ||
+        sidecar_address < arena_address || sidecar_address >= arena_end ||
+        descriptor.bytes > kPointerMaximum ||
+        sidecar_address > kPointerMaximum - descriptor.bytes) {
+      return false;
+    }
+    const std::uintptr_t sidecar_end = sidecar_address + descriptor.bytes;
+    if (sidecar_end > arena_end) {
+      return false;
+    }
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (sidecar_address < range_ends[prior] &&
+          range_begins[prior] < sidecar_end) {
+        return false;
+      }
+    }
+
+    seen_layers[descriptor.layer_index] = true;
+    targets[index] = down;
+    validated_sidecars[index] = descriptor.sidecar;
+    validated_bases[index] = descriptor.scale_base;
+    range_begins[index] = sidecar_address;
+    range_ends[index] = sidecar_end;
+  }
+
+  // No operation below can fail. Clear the prior sparse set and install the
+  // completely validated replacement as one observable state transition.
+  for (DecoderLayerWeights& layer : layers_) {
+    if (NvFp4LinearWeight* const down = nvfp4_down_projection(layer);
+        down != nullptr) {
+      down->down_scale6_sidecar = nullptr;
+      down->down_scale6_base = 0U;
+    }
+  }
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    targets[index]->down_scale6_sidecar = validated_sidecars[index];
+    targets[index]->down_scale6_base = validated_bases[index];
   }
   return true;
 }

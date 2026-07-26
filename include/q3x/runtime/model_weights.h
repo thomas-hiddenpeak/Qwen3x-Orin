@@ -25,6 +25,23 @@ inline constexpr std::size_t
     kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes =
         kQwen36DenseLayerCount *
         kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
+inline constexpr std::size_t kNvFp4DownScale6Rows = 5'120U;
+inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
+inline constexpr std::size_t
+    kNvFp4DownScale6SidecarBytesPerProjection = 4'177'920U;
+
+// One descriptor for an exact Decode down-projection scale6 sidecar. The
+// descriptor array must remain valid only for the attach call because its
+// fields are copied. The pointed-to arena is non-owning and must outlive
+// ModelWeights and every queued kernel that consumes an attached sidecar.
+struct NvFp4DownScale6SidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* sidecar = nullptr;
+  std::size_t bytes = 0U;
+  unsigned int scale_base = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
 
 struct Bf16VectorWeight {
   const std::uint16_t* data = nullptr;
@@ -62,6 +79,8 @@ struct NvFp4LinearWeight {
   float input_scale = 0.0F;
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
+  const std::uint8_t* down_scale6_sidecar = nullptr;
+  unsigned int down_scale6_base = 0U;
 };
 
 // The active alternative is selected strictly from the payload weight dtype:
@@ -260,6 +279,20 @@ class ModelWeights {
   // must outlive this ModelWeights view and all queued kernels using it.
   [[nodiscard]] bool attach_fp8_m1_output_projection_sidecars(
       const std::uint8_t* arena, std::size_t bytes) noexcept;
+
+  // Atomically attaches a sparse set of exact [5120,17408] NVFP4 down
+  // scale6 sidecars. descriptor_count is derived from checkpoint eligibility
+  // rather than fixed to a model-wide count. Every descriptor, target down
+  // projection, 32-byte alignment, scale base, sidecar range, and arena span
+  // is validated before any existing attachment is changed. On success the
+  // supplied set replaces all prior down-scale6 attachments; on failure the
+  // previous set remains intact. Descriptor fields are copied during the
+  // call; only the arena must outlive this view and every queued kernel using
+  // an attached pointer.
+  [[nodiscard]] bool attach_nvfp4_down_scale6_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const NvFp4DownScale6SidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
 
  private:
   friend class ModelWeightBinder;

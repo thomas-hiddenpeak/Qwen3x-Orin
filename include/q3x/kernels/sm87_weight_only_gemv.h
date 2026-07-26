@@ -166,6 +166,33 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
     std::uint16_t* normalized_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Production scale6 twin of the exact down/residual/centered-RMSNorm launch.
+// scale6_sidecar contains 4,177,920 bytes: 128 six-bit scale deltas in each
+// 96-byte row-quad/K512 tile. scale_base reconstructs the canonical E4M3FN
+// code and must be at most 192. The sidecar requires 32-byte alignment; every
+// shape, output boundary, alias, and cooperative launch contract otherwise
+// matches launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* scale6_sidecar, unsigned int scale_base,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output,
+    std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Static-resource query for the exact production scale6 Function selected by
+// the launcher above.
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 // Fused checkpoint gate/up projection for the exact NVFP4 [17408, 5120] M=1
 // shape. Both projections first round independently to BF16. gate_output is
 // then overwritten with BF16(SiLU(rounded_gate) * rounded_up), while up_output

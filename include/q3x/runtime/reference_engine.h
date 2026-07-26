@@ -120,6 +120,7 @@ struct ReferenceEngineLoadStats {
   double weight_bind_milliseconds = 0.0;
   double request_state_milliseconds = 0.0;
   double fp8_output_sidecar_milliseconds = 0.0;
+  double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   double total_milliseconds = 0.0;
   ResidentLoadStats resident;
@@ -135,6 +136,17 @@ struct ReferenceEngineLoadStats {
   // Optional allocation/memory-gate failures retain the canonical M1 route
   // and record a stable reason here instead of failing engine creation.
   std::string fp8_output_sidecar_fallback_reason;
+  // The down-only scale6 inventory is derived from all 64 canonical NVFP4
+  // block-scale tensors. Eligible layers receive compact sidecars; fallback
+  // layers retain their canonical scales. bytes is nonzero only when the
+  // complete eligible inventory was attached successfully.
+  bool nvfp4_down_scale6_sidecars_enabled = false;
+  std::size_t nvfp4_down_scale6_sidecar_eligible_layers = 0U;
+  std::size_t nvfp4_down_scale6_sidecar_fallback_layers = 0U;
+  std::uint64_t nvfp4_down_scale6_sidecar_bytes = 0U;
+  // Empty when the optional SM87 sidecar inventory was attached or was not
+  // requested. Admission/allocation failures preserve canonical execution.
+  std::string nvfp4_down_scale6_sidecar_fallback_reason;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

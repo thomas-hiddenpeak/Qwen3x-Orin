@@ -14086,8 +14086,9 @@ int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
 
 // Production exact-M1 linear-attention input projection. The established
 // QKV/Z work is unchanged; 24 otherwise-light tail CTAs also compute two
-// adjacent BF16 A/B rows while sharing each activation load. All four output
-// tensors retain their predecessor BF16 arithmetic and publication points.
+// adjacent BF16 A/B rows while sharing each activation load. Canonical FP8
+// QKV/Z weight words use the selected evict-first streaming policy while all
+// four tensors retain their predecessor arithmetic and publication points.
 int launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
     const std::uint8_t* const z_weights, const float z_weight_scale,
@@ -14113,7 +14114,7 @@ int launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_fp8_qkv_z_bf16_ab_pair_tail_composite_unchecked(
+  launch_fp8_qkv_z_bf16_ab_pair_tail_composite_cs_test_unchecked(
       qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
       b_weights, activation, columns, qkv_output, z_output, a_output,
       b_output, stream);
@@ -14640,10 +14641,26 @@ int launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_test_cuda(
     const std::size_t columns, std::uint16_t* const qkv_output,
     std::uint16_t* const z_output, std::uint16_t* const a_output,
     std::uint16_t* const b_output, void* const cuda_stream) noexcept {
-  return launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+  const int validation = validate_fp8_qkv_z_bf16_ab_launch(
       qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
       b_weights, activation, qkv_rows, z_rows, ab_rows, columns, qkv_output,
-      z_output, a_output, b_output, cuda_stream);
+      z_output, a_output, b_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!fp8_qkv_z_bf16_ab_launch_is_aligned(
+          qkv_weights, z_weights, a_weights, b_weights, activation,
+          qkv_output, z_output, a_output, b_output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_qkv_z_bf16_ab_pair_tail_composite_unchecked(
+      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
+      b_weights, activation, columns, qkv_output, z_output, a_output,
+      b_output, stream);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cuda(
@@ -17465,6 +17482,26 @@ int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const scale6_sidecar,
+    const unsigned int scale_base, const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const raw_down_output,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const normalized_output,
+    void* const cuda_stream) noexcept {
+  // Keep the retained test ABI and the production route on the exact same
+  // validation and cooperative-kernel Function.
+  return launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+      packed_weights, scale6_sidecar, scale_base, weight_scale_2, activation,
+      residual_left, norm_weight, epsilon, rows, columns, raw_down_output,
+      residual_output, normalized_output, cuda_stream);
+}
+
 int query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
     int* const registers_per_thread,
     std::size_t* const static_shared_bytes,
@@ -17631,6 +17668,18 @@ int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
   *maximum_threads_per_block = attributes.maxThreadsPerBlock;
   *active_blocks_per_sm = active_blocks;
   return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  return
+      query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
+          registers_per_thread, static_shared_bytes, local_bytes,
+          maximum_threads_per_block, active_blocks_per_sm);
 }
 
 int launch_sm87_nvfp4_w4a16_down_residual_norm_predecessor_test_cuda(

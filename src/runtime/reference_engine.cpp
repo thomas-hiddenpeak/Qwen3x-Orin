@@ -6,6 +6,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +58,64 @@ struct Sm87Fp8OutputSidecarPreparation {
   std::string fallback_reason;
 };
 
+struct Sm87NvFp4DownScale6Sidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+  std::vector<NvFp4DownScale6SidecarDescriptor> descriptors;
+
+  Sm87NvFp4DownScale6Sidecars() noexcept = default;
+  Sm87NvFp4DownScale6Sidecars(
+      const Sm87NvFp4DownScale6Sidecars&) = delete;
+  Sm87NvFp4DownScale6Sidecars& operator=(
+      const Sm87NvFp4DownScale6Sidecars&) = delete;
+
+  ~Sm87NvFp4DownScale6Sidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+    descriptors.clear();
+  }
+};
+
+struct Sm87NvFp4DownScale6Preparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t eligible_layers = 0U;
+  std::size_t fallback_layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+  std::string fallback_reason;
+};
+
+constexpr std::size_t kNvFp4DownScale6GroupSize = 16U;
+constexpr std::size_t kNvFp4DownScale6ColumnsPerTile = 512U;
+constexpr std::size_t kNvFp4DownScale6RowsPerQuad = 4U;
+constexpr std::size_t kNvFp4DownScale6BytesPerTile = 96U;
+constexpr unsigned int kNvFp4DownScale6MaximumBase = 192U;
+constexpr std::size_t kNvFp4DownScale6RequiredAlignment = 32U;
+constexpr std::size_t kNvFp4DownCanonicalScaleBytesPerLayer =
+    kNvFp4DownScale6Rows *
+    (kNvFp4DownScale6Columns / kNvFp4DownScale6GroupSize);
+constexpr std::size_t kNvFp4DownDerivedScale6BytesPerLayer =
+    (kNvFp4DownScale6Rows / kNvFp4DownScale6RowsPerQuad) *
+    (kNvFp4DownScale6Columns / kNvFp4DownScale6ColumnsPerTile) *
+    kNvFp4DownScale6BytesPerTile;
+static_assert(kNvFp4DownDerivedScale6BytesPerLayer ==
+              kNvFp4DownScale6SidecarBytesPerProjection);
+static_assert((kNvFp4DownScale6SidecarBytesPerProjection %
+               kNvFp4DownScale6RequiredAlignment) == 0U);
+
+struct NvFp4DownScale6LayerPlan {
+  std::size_t layer_index = 0U;
+  const NvFp4LinearWeight* down = nullptr;
+  unsigned int scale_base = 0U;
+};
+
 [[nodiscard]] const Fp8LinearWeight* attention_output_projection(
     const DecoderLayerWeights& layer) noexcept {
   if (const auto* const linear =
@@ -68,6 +127,140 @@ struct Sm87Fp8OutputSidecarPreparation {
     return std::get_if<Fp8LinearWeight>(&full->o_proj);
   }
   return nullptr;
+}
+
+[[nodiscard]] const NvFp4LinearWeight* exact_nvfp4_down_projection(
+    const DecoderLayerWeights& layer) noexcept {
+  if (!supports_nvfp4_down_residual_norm_fusion(
+          ProjectionBackend::kSm87WeightOnly, layer.mlp.down_proj)) {
+    return nullptr;
+  }
+  return std::get_if<NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
+[[nodiscard]] bool derive_nvfp4_down_scale6_base(
+    const std::vector<std::uint8_t>& canonical_scales,
+    unsigned int& scale_base) noexcept {
+  if (canonical_scales.size() !=
+      kNvFp4DownCanonicalScaleBytesPerLayer) {
+    return false;
+  }
+  std::uint8_t minimum = std::numeric_limits<std::uint8_t>::max();
+  std::uint8_t maximum = 0U;
+  for (const std::uint8_t scale : canonical_scales) {
+    minimum = std::min(minimum, scale);
+    maximum = std::max(maximum, scale);
+  }
+  scale_base = std::min<unsigned int>(minimum,
+                                      kNvFp4DownScale6MaximumBase);
+  return static_cast<unsigned int>(maximum) - scale_base <= 63U;
+}
+
+[[nodiscard]] bool pack_nvfp4_down_scale6_sidecar(
+    const std::vector<std::uint8_t>& canonical_scales,
+    const unsigned int scale_base,
+    std::vector<std::uint8_t>& packed) noexcept {
+  if (canonical_scales.size() !=
+          kNvFp4DownCanonicalScaleBytesPerLayer ||
+      packed.size() != kNvFp4DownScale6SidecarBytesPerProjection ||
+      scale_base > kNvFp4DownScale6MaximumBase) {
+    return false;
+  }
+  std::fill(packed.begin(), packed.end(), 0U);
+  constexpr std::size_t kScaleColumns =
+      kNvFp4DownScale6Columns / kNvFp4DownScale6GroupSize;
+  constexpr std::size_t kRowQuads =
+      kNvFp4DownScale6Rows / kNvFp4DownScale6RowsPerQuad;
+  constexpr std::size_t kTilesPerRowQuad =
+      kNvFp4DownScale6Columns / kNvFp4DownScale6ColumnsPerTile;
+  for (std::size_t row_quad = 0U; row_quad < kRowQuads; ++row_quad) {
+    for (std::size_t tile = 0U; tile < kTilesPerRowQuad; ++tile) {
+      const std::size_t tile_byte =
+          (row_quad * kTilesPerRowQuad + tile) *
+          kNvFp4DownScale6BytesPerTile;
+      for (std::size_t lane_pair = 0U; lane_pair < 16U; ++lane_pair) {
+        for (std::size_t phase = 0U; phase < 2U; ++phase) {
+          for (std::size_t row = 0U; row < 4U; ++row) {
+            const std::size_t code =
+                8U * lane_pair + 4U * phase + row;
+            const std::size_t canonical_column =
+                32U * tile + lane_pair + 16U * phase;
+            const unsigned int scale = canonical_scales[
+                (4U * row_quad + row) * kScaleColumns +
+                canonical_column];
+            if (scale < scale_base || scale - scale_base > 63U) {
+              return false;
+            }
+            const unsigned int delta = scale - scale_base;
+            const std::size_t first_bit = code * 6U;
+            const std::size_t byte = tile_byte + first_bit / 8U;
+            const unsigned int shift =
+                static_cast<unsigned int>(first_bit % 8U);
+            const unsigned int payload = delta << shift;
+            packed[byte] |= static_cast<std::uint8_t>(payload);
+            if (shift > 2U) {
+              packed[byte + 1U] |=
+                  static_cast<std::uint8_t>(payload >> 8U);
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool verify_nvfp4_down_scale6_sidecar(
+    const std::vector<std::uint8_t>& canonical_scales,
+    const unsigned int scale_base,
+    const std::vector<std::uint8_t>& packed) noexcept {
+  if (canonical_scales.size() !=
+          kNvFp4DownCanonicalScaleBytesPerLayer ||
+      packed.size() != kNvFp4DownScale6SidecarBytesPerProjection ||
+      scale_base > kNvFp4DownScale6MaximumBase) {
+    return false;
+  }
+  constexpr std::size_t kScaleColumns =
+      kNvFp4DownScale6Columns / kNvFp4DownScale6GroupSize;
+  constexpr std::size_t kRowQuads =
+      kNvFp4DownScale6Rows / kNvFp4DownScale6RowsPerQuad;
+  constexpr std::size_t kTilesPerRowQuad =
+      kNvFp4DownScale6Columns / kNvFp4DownScale6ColumnsPerTile;
+  for (std::size_t row_quad = 0U; row_quad < kRowQuads; ++row_quad) {
+    for (std::size_t tile = 0U; tile < kTilesPerRowQuad; ++tile) {
+      const std::size_t tile_byte =
+          (row_quad * kTilesPerRowQuad + tile) *
+          kNvFp4DownScale6BytesPerTile;
+      for (std::size_t lane_pair = 0U; lane_pair < 16U; ++lane_pair) {
+        for (std::size_t phase = 0U; phase < 2U; ++phase) {
+          for (std::size_t row = 0U; row < 4U; ++row) {
+            const std::size_t code =
+                8U * lane_pair + 4U * phase + row;
+            const std::size_t first_bit = code * 6U;
+            const std::size_t byte = tile_byte + first_bit / 8U;
+            const unsigned int shift =
+                static_cast<unsigned int>(first_bit % 8U);
+            unsigned int window = packed[byte];
+            if (shift > 2U) {
+              window |= static_cast<unsigned int>(packed[byte + 1U])
+                        << 8U;
+            }
+            const unsigned int reconstructed =
+                scale_base + ((window >> shift) & 63U);
+            const std::size_t canonical_column =
+                32U * tile + lane_pair + 16U * phase;
+            const unsigned int canonical = canonical_scales[
+                (4U * row_quad + row) * kScaleColumns +
+                canonical_column];
+            if (reconstructed != canonical) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] double elapsed_milliseconds(
@@ -542,15 +735,230 @@ prepare_sm87_fp8_output_projection_sidecars(
   return result;
 }
 
+[[nodiscard]] Sm87NvFp4DownScale6Preparation
+prepare_sm87_nvfp4_down_scale6_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87NvFp4DownScale6Sidecars& owner) {
+  Sm87NvFp4DownScale6Preparation result;
+  if (owner.data != nullptr || owner.bytes != 0U ||
+      !owner.descriptors.empty()) {
+    result.hard_failure = true;
+    result.message =
+        "NVFP4 down scale6 sidecar owner was not empty before prepare";
+    return result;
+  }
+
+  // Phase one validates the complete 64-layer inventory and derives the
+  // compact descriptor count before any device allocation or ModelWeights
+  // mutation. A layer that is not an exact NVFP4 down projection, or whose
+  // raw E4M3 code span cannot fit one base plus six-bit deltas, remains on the
+  // canonical route rather than disabling eligible peers.
+  std::vector<std::uint8_t> canonical_scales(
+      kNvFp4DownCanonicalScaleBytesPerLayer);
+  std::vector<NvFp4DownScale6LayerPlan> plans;
+  plans.reserve(kQwen36DenseLayerCount);
+  (void)cudaGetLastError();
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const NvFp4LinearWeight* const down =
+        exact_nvfp4_down_projection(model_weights.layer(layer_index));
+    if (down == nullptr) {
+      continue;
+    }
+    const cudaError_t status = cudaMemcpy(
+        canonical_scales.data(), down->block_scale,
+        kNvFp4DownCanonicalScaleBytesPerLayer, cudaMemcpyDeviceToHost);
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "cudaMemcpy failed while scanning NVFP4 down scales at layer " +
+          std::to_string(layer_index);
+      return result;
+    }
+    unsigned int scale_base = 0U;
+    if (derive_nvfp4_down_scale6_base(canonical_scales, scale_base)) {
+      plans.push_back({layer_index, down, scale_base});
+    }
+  }
+  result.eligible_layers = plans.size();
+  result.fallback_layers = kQwen36DenseLayerCount - plans.size();
+  if (plans.empty()) {
+    result.fallback_reason = "no_eligible_nvfp4_down_scale6_layers";
+    return result;
+  }
+  if (plans.size() >
+      std::numeric_limits<std::size_t>::max() /
+          kNvFp4DownScale6SidecarBytesPerProjection) {
+    result.hard_failure = true;
+    result.message = "NVFP4 down scale6 sidecar byte count overflowed";
+    return result;
+  }
+  const std::size_t arena_bytes =
+      plans.size() * kNvFp4DownScale6SidecarBytesPerProjection;
+
+  // Allocate all host staging before the device admission check. A host
+  // allocation exception is handled by the engine's existing allocation
+  // diagnostic, while an optional CUDA capacity miss remains a canonical
+  // fallback with no partially owned device arena.
+  std::vector<std::uint8_t> packed(
+      kNvFp4DownScale6SidecarBytesPerProjection);
+  std::vector<NvFp4DownScale6SidecarDescriptor> descriptors;
+  descriptors.reserve(plans.size());
+
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before NVFP4 down scale6 sidecar prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  const std::uint64_t arena_u64 = static_cast<std::uint64_t>(arena_bytes);
+  if (arena_u64 > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - arena_u64) {
+    result.fallback_reason = "insufficient_device_memory_margin";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, arena_bytes);
+  if (status == cudaErrorMemoryAllocation) {
+    (void)cudaGetLastError();
+    result.fallback_reason = "cuda_memory_allocation";
+    return result;
+  }
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed while creating NVFP4 down scale6 sidecars";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = arena_bytes;
+  if ((reinterpret_cast<std::uintptr_t>(owner.data) %
+       kNvFp4DownScale6RequiredAlignment) != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "cudaMalloc returned a misaligned NVFP4 down scale6 arena";
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status =
+      cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed after NVFP4 down scale6 sidecar allocation";
+    owner.release();
+    return result;
+  }
+  if (static_cast<std::uint64_t>(remaining_free_bytes) <
+      minimum_free_bytes_after_prepare) {
+    result.fallback_reason =
+        "insufficient_device_memory_margin_after_allocation";
+    owner.release();
+    return result;
+  }
+
+  // Phase two rereads every eligible canonical tensor, verifies that its
+  // immutable code span still matches phase one, packs and independently
+  // reconstructs every six-bit code, then copies the complete compact arena.
+  // ModelWeights is attached only after every layer succeeds.
+  for (std::size_t descriptor_index = 0U;
+       descriptor_index < plans.size(); ++descriptor_index) {
+    const NvFp4DownScale6LayerPlan& plan = plans[descriptor_index];
+    status = cudaMemcpy(canonical_scales.data(), plan.down->block_scale,
+                        kNvFp4DownCanonicalScaleBytesPerLayer,
+                        cudaMemcpyDeviceToHost);
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "cudaMemcpy failed while packing NVFP4 down scales at layer " +
+          std::to_string(plan.layer_index);
+      owner.release();
+      return result;
+    }
+    unsigned int verified_base = 0U;
+    if (!derive_nvfp4_down_scale6_base(canonical_scales, verified_base) ||
+        verified_base != plan.scale_base ||
+        !pack_nvfp4_down_scale6_sidecar(
+            canonical_scales, plan.scale_base, packed) ||
+        !verify_nvfp4_down_scale6_sidecar(
+            canonical_scales, plan.scale_base, packed)) {
+      result.hard_failure = true;
+      result.message =
+          "NVFP4 down scale6 pack validation failed at layer " +
+          std::to_string(plan.layer_index);
+      owner.release();
+      return result;
+    }
+    std::uint8_t* const destination =
+        owner.data +
+        descriptor_index * kNvFp4DownScale6SidecarBytesPerProjection;
+    if ((reinterpret_cast<std::uintptr_t>(destination) %
+         kNvFp4DownScale6RequiredAlignment) != 0U) {
+      result.hard_failure = true;
+      result.message =
+          "NVFP4 down scale6 layer destination was misaligned";
+      owner.release();
+      return result;
+    }
+    status = cudaMemcpy(destination, packed.data(), packed.size(),
+                        cudaMemcpyHostToDevice);
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "cudaMemcpy failed while uploading NVFP4 down scale6 layer " +
+          std::to_string(plan.layer_index);
+      owner.release();
+      return result;
+    }
+    descriptors.push_back(
+        {plan.layer_index, destination,
+         kNvFp4DownScale6SidecarBytesPerProjection, plan.scale_base,
+         kNvFp4DownScale6Rows, kNvFp4DownScale6Columns});
+  }
+
+  owner.descriptors = std::move(descriptors);
+  if (!model_weights.attach_nvfp4_down_scale6_sidecars(
+          owner.data, owner.bytes, owner.descriptors.data(),
+          owner.descriptors.size())) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the complete NVFP4 down scale6 arena";
+    owner.release();
+    return result;
+  }
+
+  result.enabled = true;
+  result.bytes = arena_u64;
+  return result;
+}
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> output sidecars ->
-  // resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> down scale6 sidecars ->
+  // output sidecars -> resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
+  Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -690,6 +1098,34 @@ struct ReferenceEngine::Impl {
         impl->load.fp8_output_sidecar_bytes = preparation.bytes;
         impl->load.fp8_output_sidecar_fallback_reason =
             preparation.fallback_reason;
+
+        const Clock::time_point down_scale6_begin = Clock::now();
+        const Sm87NvFp4DownScale6Preparation down_scale6_preparation =
+            prepare_sm87_nvfp4_down_scale6_sidecars(
+                *impl->model_weights,
+                options.request_options.min_free_bytes_after_create,
+                impl->nvfp4_down_scale6_sidecars);
+        impl->load.nvfp4_down_scale6_sidecar_milliseconds =
+            elapsed_milliseconds(down_scale6_begin);
+        if (down_scale6_preparation.hard_failure) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              "nvfp4_down_scale6_sidecar_prepare",
+              down_scale6_preparation.message);
+          result.diagnostic.cuda_error =
+              down_scale6_preparation.cuda_error;
+          return result;
+        }
+        impl->load.nvfp4_down_scale6_sidecars_enabled =
+            down_scale6_preparation.enabled;
+        impl->load.nvfp4_down_scale6_sidecar_eligible_layers =
+            down_scale6_preparation.eligible_layers;
+        impl->load.nvfp4_down_scale6_sidecar_fallback_layers =
+            down_scale6_preparation.fallback_layers;
+        impl->load.nvfp4_down_scale6_sidecar_bytes =
+            down_scale6_preparation.bytes;
+        impl->load.nvfp4_down_scale6_sidecar_fallback_reason =
+            down_scale6_preparation.fallback_reason;
       }
 
       {

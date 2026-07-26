@@ -708,6 +708,8 @@ void PrintGeneration(
          << "load.request_state_ms=" << load.request_state_milliseconds << '\n'
          << "load.fp8_output_sidecar_ms="
          << load.fp8_output_sidecar_milliseconds << '\n'
+         << "load.nvfp4_down_scale6_sidecar_ms="
+         << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -718,6 +720,16 @@ void PrintGeneration(
          << load.fp8_output_sidecar_bytes << '\n'
          << "load.fp8_output_sidecar_fallback_reason="
          << load.fp8_output_sidecar_fallback_reason << '\n'
+         << "load.nvfp4_down_scale6_sidecars_enabled="
+         << (load.nvfp4_down_scale6_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.nvfp4_down_scale6_sidecar_eligible_layers="
+         << load.nvfp4_down_scale6_sidecar_eligible_layers << '\n'
+         << "load.nvfp4_down_scale6_sidecar_fallback_layers="
+         << load.nvfp4_down_scale6_sidecar_fallback_layers << '\n'
+         << "load.nvfp4_down_scale6_sidecar_bytes="
+         << load.nvfp4_down_scale6_sidecar_bytes << '\n'
+         << "load.nvfp4_down_scale6_sidecar_fallback_reason="
+         << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.bytes_read=" << load.resident.bytes_read << '\n'
@@ -874,6 +886,8 @@ void PrintBenchmarkReport(
          << '\n'
          << "load.fp8_output_sidecar_ms="
          << load.fp8_output_sidecar_milliseconds << '\n'
+         << "load.nvfp4_down_scale6_sidecar_ms="
+         << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -884,6 +898,16 @@ void PrintBenchmarkReport(
          << load.fp8_output_sidecar_bytes << '\n'
          << "load.fp8_output_sidecar_fallback_reason="
          << load.fp8_output_sidecar_fallback_reason << '\n'
+         << "load.nvfp4_down_scale6_sidecars_enabled="
+         << (load.nvfp4_down_scale6_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.nvfp4_down_scale6_sidecar_eligible_layers="
+         << load.nvfp4_down_scale6_sidecar_eligible_layers << '\n'
+         << "load.nvfp4_down_scale6_sidecar_fallback_layers="
+         << load.nvfp4_down_scale6_sidecar_fallback_layers << '\n'
+         << "load.nvfp4_down_scale6_sidecar_bytes="
+         << load.nvfp4_down_scale6_sidecar_bytes << '\n'
+         << "load.nvfp4_down_scale6_sidecar_fallback_reason="
+         << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.sha256_backend="

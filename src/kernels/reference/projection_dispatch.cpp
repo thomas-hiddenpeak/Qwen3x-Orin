@@ -1409,6 +1409,15 @@ int launch_mlp_down_residual_norm_to_bf16_cuda(
 
   if (plan.aligned_nvfp4_fusion) {
     const auto& down = std::get<NvFp4LinearWeight>(down_weight);
+    if (down.down_scale6_sidecar != nullptr) {
+      return kernels::
+          launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
+              down.packed_weight, down.down_scale6_sidecar,
+              down.down_scale6_base, down.weight_scale_2, activation,
+              residual_left, norm_weight, epsilon, down.output_size,
+              down.input_size, raw_down_output, residual_output,
+              normalized_output, cuda_stream);
+    }
     return kernels::
         launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
             down.packed_weight, down.block_scale, down.weight_scale_2,
