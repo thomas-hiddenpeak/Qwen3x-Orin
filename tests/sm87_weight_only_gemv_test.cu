@@ -151,6 +151,23 @@ query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cuda(
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
+    const std::uint8_t* qkv_weights, float qkv_weight_scale,
+    const std::uint8_t* z_weights, float z_weight_scale,
+    const std::uint16_t* a_weights, const std::uint16_t* b_weights,
+    const std::uint16_t* activation, std::size_t qkv_rows,
+    std::size_t z_rows, std::size_t ab_rows, std::size_t columns,
+    std::uint16_t* qkv_output, std::uint16_t* z_output,
+    std::uint16_t* a_output, std::uint16_t* b_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_m1_qkv_z_tail_barrier_grid_cap_test_cuda(
     const std::uint8_t* qkv_weights, float qkv_weight_scale,
     const std::uint8_t* z_weights, float z_weight_scale,
@@ -5842,6 +5859,13 @@ fp8_m1_qkv_z_reduction_scratch_ping_pong_performance_enabled() noexcept {
 fp8_m1_qkv_z_bf16_ab_tail_composite_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_FP8_M1_QKV_Z_BF16_AB_TAIL_COMPOSITE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool decode_fp8_linear_qkv_cs_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_FP8_LINEAR_QKV_CS_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -12170,7 +12194,47 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " require_zero_local=true"
             << " require_active_blocks_ge=4"
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
-  if (!ready) {
+
+  int cs_registers_per_thread = -1;
+  std::size_t cs_static_shared_bytes =
+      std::numeric_limits<std::size_t>::max();
+  std::size_t cs_local_bytes = std::numeric_limits<std::size_t>::max();
+  int cs_maximum_threads_per_block = -1;
+  int cs_active_blocks_per_sm = -1;
+  const bool cs_resource_ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_resources_test_cuda(
+              &cs_registers_per_thread, &cs_static_shared_bytes,
+              &cs_local_bytes, &cs_maximum_threads_per_block,
+              &cs_active_blocks_per_sm)),
+      label + " query FP8-weight streaming candidate resources");
+  const bool cs_resource_gate =
+      cs_resource_ready && cs_registers_per_thread <= 64 &&
+      cs_static_shared_bytes == 1'280U && cs_local_bytes == 0U &&
+      cs_maximum_threads_per_block == 256 && cs_active_blocks_per_sm >= 4;
+  test.expect(cs_resource_gate,
+              label + " FP8-weight streaming candidate preserves occupancy");
+  const bool cs_resource_null_gate =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_resources_test_cuda(
+              nullptr, &cs_static_shared_bytes, &cs_local_bytes,
+              &cs_maximum_threads_per_block, &cs_active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  test.expect(cs_resource_null_gate,
+              label + " FP8-weight streaming resource query rejects null");
+  std::cout << "FP8_M1_LINEAR_QKV_CS_RESOURCES:"
+            << " registers_per_thread=" << cs_registers_per_thread
+            << " static_shared_bytes=" << cs_static_shared_bytes
+            << " local_bytes=" << cs_local_bytes
+            << " maximum_threads_per_block="
+            << cs_maximum_threads_per_block
+            << " active_blocks_per_sm=" << cs_active_blocks_per_sm
+            << " require_registers_le=64"
+            << " require_static_shared_eq=1280"
+            << " require_zero_local=true"
+            << " require_active_blocks_ge=4"
+            << " gate=" << (cs_resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready || !cs_resource_ready) {
     return;
   }
 
@@ -12300,8 +12364,28 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
         output_pointer(baseline_storage, 3U), static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+        qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+        z_weight_scale, a_weights.get(), b_weights.get(), activation.get(),
+        kQkvRows, kZRows, kAbRows, kColumns,
+        output_pointer(candidate_storage, 0U),
+        output_pointer(candidate_storage, 1U),
+        output_pointer(candidate_storage, 2U),
+        output_pointer(candidate_storage, 3U), static_cast<void*>(stream));
+  };
+  const auto launch_cs_baseline = [&]() noexcept -> int {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+        qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+        z_weight_scale, a_weights.get(), b_weights.get(), activation.get(),
+        kQkvRows, kZRows, kAbRows, kColumns,
+        output_pointer(baseline_storage, 0U),
+        output_pointer(baseline_storage, 1U),
+        output_pointer(baseline_storage, 2U),
+        output_pointer(baseline_storage, 3U), static_cast<void*>(stream));
+  };
+  const auto launch_cs_candidate = [&]() noexcept -> int {
     return q3x::kernels::
-        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_test_cuda(
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
             qkv_weights.get(), qkv_weight_scale, z_weights.get(),
             z_weight_scale, a_weights.get(), b_weights.get(),
             activation.get(), kQkvRows, kZRows, kAbRows, kColumns,
@@ -12442,11 +12526,206 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     return bitwise && baseline_guards && candidate_guards;
   };
 
+  const auto run_cs_direct_diff = [&](const std::string& fixture_label) {
+    bool diff_ready = poison_outputs(baseline_storage, 0xc3U,
+                                     fixture_label + " public");
+    diff_ready = poison_outputs(candidate_storage, 0x3cU,
+                                fixture_label + " streaming") &&
+                 diff_ready;
+    diff_ready = test.cuda_ok(static_cast<cudaError_t>(launch_cs_baseline()),
+                              fixture_label + " launch public composite") &&
+                 diff_ready;
+    diff_ready =
+        test.cuda_ok(static_cast<cudaError_t>(launch_cs_candidate()),
+                     fixture_label + " launch FP8-weight streaming") &&
+        diff_ready;
+    diff_ready = copy_outputs(baseline_storage, baseline_outputs,
+                              fixture_label + " public") &&
+                 diff_ready;
+    diff_ready = copy_outputs(candidate_storage, candidate_outputs,
+                              fixture_label + " streaming") &&
+                 diff_ready;
+    if (!diff_ready) {
+      return false;
+    }
+    const auto mismatches =
+        count_output_mismatches(candidate_outputs, baseline_outputs);
+    const bool baseline_guards = guards_intact(baseline_outputs, 0xc3U);
+    const bool candidate_guards = guards_intact(candidate_outputs, 0x3cU);
+    const bool bitwise = all_zero(mismatches);
+    test.expect(bitwise,
+                fixture_label + " streaming matches public four outputs");
+    test.expect(baseline_guards && candidate_guards,
+                fixture_label + " streaming preserves output guards");
+    std::cout << "FP8_M1_LINEAR_QKV_CS_DIFF: fixture=" << fixture_label
+              << " qkv_mismatches=" << mismatches[0U] << '/' << kQkvRows
+              << " z_mismatches=" << mismatches[1U] << '/' << kZRows
+              << " a_mismatches=" << mismatches[2U] << '/' << kAbRows
+              << " b_mismatches=" << mismatches[3U] << '/' << kAbRows
+              << " public_guards="
+              << (baseline_guards ? "intact" : "BAD")
+              << " streaming_guards="
+              << (candidate_guards ? "intact" : "BAD")
+              << " gate="
+              << (bitwise && baseline_guards && candidate_guards ? "PASS"
+                                                                  : "FAIL")
+              << '\n';
+    return bitwise && baseline_guards && candidate_guards;
+  };
+
+  struct LinearQkvCsTiming {
+    bool ready = false;
+    bool every_round_nonregressing = false;
+    float baseline_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float candidate_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float paired_median_speedup = std::numeric_limits<float>::quiet_NaN();
+    float paired_median_delta_ms = std::numeric_limits<float>::quiet_NaN();
+    double projected_48_layer_delta_ms =
+        std::numeric_limits<double>::quiet_NaN();
+  };
+  const auto benchmark_cs_fixture = [&](const std::string& fixture_label) {
+    constexpr int kWarmupIterations = 10;
+    constexpr int kMeasuredIterations = 64;
+    constexpr int kMeasurementRounds = 5;
+    constexpr std::size_t kTimedPasses =
+        2U * static_cast<std::size_t>(kMeasurementRounds);
+    LinearQkvCsTiming result{};
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kWarmupIterations && timing_ready; ++iteration) {
+      timing_ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_candidate()),
+          fixture_label + " public warmup");
+      timing_ready =
+          test.cuda_ok(static_cast<cudaError_t>(launch_cs_candidate()),
+                       fixture_label + " streaming warmup") &&
+          timing_ready;
+    }
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       fixture_label + " unmeasured prime B1") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_cs_candidate()),
+                       fixture_label + " unmeasured prime C1") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_cs_candidate()),
+                       fixture_label + " unmeasured prime C2") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       fixture_label + " unmeasured prime B2") &&
+                   timing_ready;
+    timing_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                fixture_label + " warmup synchronize") &&
+                   timing_ready;
+
+    std::array<float, kTimedPasses> baseline_passes{};
+    std::array<float, kTimedPasses> candidate_passes{};
+    std::array<float, kMeasurementRounds> paired_speedups{};
+    std::array<float, kMeasurementRounds> paired_deltas{};
+    bool every_round_nonregressing = timing_ready;
+    for (int round = 0; round < kMeasurementRounds && timing_ready; ++round) {
+      const bool baseline_first = (round & 1) == 0;
+      const std::string round_label =
+          fixture_label + " round=" + std::to_string(round + 1);
+      float baseline1 = std::numeric_limits<float>::quiet_NaN();
+      float baseline2 = std::numeric_limits<float>::quiet_NaN();
+      float candidate1 = std::numeric_limits<float>::quiet_NaN();
+      float candidate2 = std::numeric_limits<float>::quiet_NaN();
+      if (baseline_first) {
+        baseline1 = measure_small_m_tile(test, stream, launch_candidate,
+                                         kMeasuredIterations,
+                                         round_label + " B1");
+        candidate1 = measure_small_m_tile(test, stream, launch_cs_candidate,
+                                          kMeasuredIterations,
+                                          round_label + " C1");
+        candidate2 = measure_small_m_tile(test, stream, launch_cs_candidate,
+                                          kMeasuredIterations,
+                                          round_label + " C2");
+        baseline2 = measure_small_m_tile(test, stream, launch_candidate,
+                                         kMeasuredIterations,
+                                         round_label + " B2");
+      } else {
+        candidate1 = measure_small_m_tile(test, stream, launch_cs_candidate,
+                                          kMeasuredIterations,
+                                          round_label + " C1");
+        baseline1 = measure_small_m_tile(test, stream, launch_candidate,
+                                         kMeasuredIterations,
+                                         round_label + " B1");
+        baseline2 = measure_small_m_tile(test, stream, launch_candidate,
+                                         kMeasuredIterations,
+                                         round_label + " B2");
+        candidate2 = measure_small_m_tile(test, stream, launch_cs_candidate,
+                                          kMeasuredIterations,
+                                          round_label + " C2");
+      }
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      baseline_passes[pass] = baseline1;
+      baseline_passes[pass + 1U] = baseline2;
+      candidate_passes[pass] = candidate1;
+      candidate_passes[pass + 1U] = candidate2;
+      const bool finite =
+          std::isfinite(baseline1) && std::isfinite(baseline2) &&
+          std::isfinite(candidate1) && std::isfinite(candidate2) &&
+          baseline1 > 0.0F && baseline2 > 0.0F && candidate1 > 0.0F &&
+          candidate2 > 0.0F;
+      timing_ready = timing_ready && finite;
+      const float paired_baseline = 0.5F * (baseline1 + baseline2);
+      const float paired_candidate = 0.5F * (candidate1 + candidate2);
+      const float paired_speedup = paired_baseline / paired_candidate;
+      const float paired_delta = paired_baseline - paired_candidate;
+      paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
+      paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
+      const bool round_nonregressing = finite && paired_speedup >= 1.0F;
+      every_round_nonregressing =
+          every_round_nonregressing && round_nonregressing;
+      std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_ROUND: fixture="
+                << fixture_label << " round=" << round + 1
+                << " order=" << (baseline_first ? "B-C-C-B" : "C-B-B-C")
+                << " logical_chains_per_pass=" << kMeasuredIterations
+                << " baseline_pass1_ms=" << baseline1
+                << " candidate_pass1_ms=" << candidate1
+                << " candidate_pass2_ms=" << candidate2
+                << " baseline_pass2_ms=" << baseline2
+                << " paired_speedup=" << paired_speedup
+                << " paired_delta_ms=" << paired_delta
+                << " gate=" << (round_nonregressing ? "PASS" : "FAIL")
+                << '\n';
+    }
+    result.ready = timing_ready;
+    result.every_round_nonregressing = every_round_nonregressing;
+    if (timing_ready) {
+      result.baseline_median_ms =
+          median_fp8_kv_pair_timing(baseline_passes);
+      result.candidate_median_ms =
+          median_fp8_kv_pair_timing(candidate_passes);
+      result.paired_median_speedup =
+          median_fp8_kv_pair_timing(paired_speedups);
+      result.paired_median_delta_ms =
+          median_fp8_kv_pair_timing(paired_deltas);
+      result.projected_48_layer_delta_ms =
+          static_cast<double>(result.paired_median_delta_ms) *
+          static_cast<double>(kAbRows);
+    }
+    return result;
+  };
+
+  const bool cs_performance_enabled =
+      decode_fp8_linear_qkv_cs_performance_enabled();
+
   if (!upload_fixture(label + " synthetic same-bank")) {
     return;
   }
   const bool synthetic_bitwise_gate =
       run_direct_diff(label + " synthetic same-bank");
+  const bool synthetic_cs_bitwise_gate =
+      run_cs_direct_diff(label + " synthetic same-bank");
+  LinearQkvCsTiming stress_cs_timing{};
+  if (cs_performance_enabled && synthetic_cs_bitwise_gate) {
+    stress_cs_timing = benchmark_cs_fixture("same_bank_stress");
+  }
 
   struct CapturedRoute {
     bool ready = false;
@@ -12514,6 +12793,10 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       capture_route(launch_baseline, label + " baseline graph");
   CapturedRoute candidate_graph =
       capture_route(launch_candidate, label + " candidate graph");
+  CapturedRoute cs_public_graph =
+      capture_route(launch_cs_baseline, label + " streaming public graph");
+  CapturedRoute cs_candidate_graph = capture_route(
+      launch_cs_candidate, label + " FP8-weight streaming graph");
   const auto exact_topology = [](const cudaKernelNodeParams& params,
                                  const unsigned int grid_x,
                                  const unsigned int grid_y,
@@ -12549,10 +12832,28 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
           candidate_graph.kernel_params.front().func != params.func;
     }
   }
+  const bool cs_public_graph_gate =
+      cs_public_graph.ready && cs_public_graph.total_nodes == 1U &&
+      cs_public_graph.root_nodes == 1U &&
+      cs_public_graph.kernel_params.size() == 1U &&
+      exact_topology(cs_public_graph.kernel_params.front(), 1'536U, 1U, 1U);
+  const bool cs_candidate_graph_gate =
+      cs_candidate_graph.ready && cs_candidate_graph.total_nodes == 1U &&
+      cs_candidate_graph.root_nodes == 1U &&
+      cs_candidate_graph.kernel_params.size() == 1U &&
+      exact_topology(cs_candidate_graph.kernel_params.front(), 1'536U, 1U,
+                     1U);
+  const bool cs_candidate_distinct =
+      cs_public_graph_gate && cs_candidate_graph_gate &&
+      cs_public_graph.kernel_params.front().func !=
+          cs_candidate_graph.kernel_params.front().func;
   test.expect(baseline_graph_gate,
               label + " baseline graph is the ordered two-kernel chain");
   test.expect(candidate_graph_gate && candidate_distinct,
               label + " candidate graph is one distinct 1536x256 kernel");
+  test.expect(cs_public_graph_gate && cs_candidate_graph_gate &&
+                  cs_candidate_distinct,
+              label + " streaming screen captures distinct one-node routes");
 
   bool graph_replay_gate = false;
   cudaGraphExec_t candidate_graph_exec = nullptr;
@@ -12582,9 +12883,47 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     test.expect(graph_replay_gate,
                 label + " graph replay is four-output bitwise and guarded");
   }
+
+  bool cs_graph_replay_gate = false;
+  cudaGraphExec_t cs_candidate_graph_exec = nullptr;
+  bool cs_graph_replay_ready = cs_candidate_graph_gate &&
+                               cs_candidate_distinct &&
+                               synthetic_cs_bitwise_gate;
+  if (cs_graph_replay_ready) {
+    cs_graph_replay_ready = test.cuda_ok(
+        cudaGraphInstantiate(&cs_candidate_graph_exec,
+                             cs_candidate_graph.graph, nullptr, nullptr, 0U),
+        label + " instantiate FP8-weight streaming graph");
+  }
+  if (cs_graph_replay_ready) {
+    cs_graph_replay_ready =
+        poison_outputs(candidate_storage, 0x69U,
+                       label + " FP8-weight streaming graph replay");
+    cs_graph_replay_ready =
+        test.cuda_ok(cudaGraphLaunch(cs_candidate_graph_exec, stream),
+                     label + " launch FP8-weight streaming graph") &&
+        cs_graph_replay_ready;
+    cs_graph_replay_ready =
+        copy_outputs(candidate_storage, graph_outputs,
+                     label + " FP8-weight streaming graph replay") &&
+        cs_graph_replay_ready;
+  }
+  if (cs_graph_replay_ready) {
+    const auto graph_mismatches =
+        count_output_mismatches(graph_outputs, baseline_outputs);
+    const bool graph_guards = guards_intact(graph_outputs, 0x69U);
+    cs_graph_replay_gate = all_zero(graph_mismatches) && graph_guards;
+    test.expect(cs_graph_replay_gate,
+                label + " FP8-weight streaming Graph replay is bitwise");
+  }
   if (candidate_graph_exec != nullptr) {
     (void)test.cuda_ok(cudaGraphExecDestroy(candidate_graph_exec),
                        label + " destroy candidate graph executable");
+  }
+  if (cs_candidate_graph_exec != nullptr) {
+    (void)test.cuda_ok(
+        cudaGraphExecDestroy(cs_candidate_graph_exec),
+        label + " destroy FP8-weight streaming graph executable");
   }
   if (baseline_graph.graph != nullptr) {
     (void)test.cuda_ok(cudaGraphDestroy(baseline_graph.graph),
@@ -12593,6 +12932,14 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
   if (candidate_graph.graph != nullptr) {
     (void)test.cuda_ok(cudaGraphDestroy(candidate_graph.graph),
                        label + " destroy candidate graph");
+  }
+  if (cs_public_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(cs_public_graph.graph),
+                       label + " destroy streaming public graph");
+  }
+  if (cs_candidate_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(cs_candidate_graph.graph),
+                       label + " destroy FP8-weight streaming graph");
   }
   std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_GRAPH:"
             << " baseline_total_nodes=" << baseline_graph.total_nodes
@@ -12610,6 +12957,26 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " gate="
             << (baseline_graph_gate && candidate_graph_gate &&
                         candidate_distinct && graph_replay_gate
+                    ? "PASS"
+                    : "FAIL")
+            << '\n';
+  std::cout << "FP8_M1_LINEAR_QKV_CS_GRAPH:"
+            << " public_total_nodes=" << cs_public_graph.total_nodes
+            << " public_kernel_nodes="
+            << cs_public_graph.kernel_params.size()
+            << " public_root_nodes=" << cs_public_graph.root_nodes
+            << " candidate_total_nodes=" << cs_candidate_graph.total_nodes
+            << " candidate_kernel_nodes="
+            << cs_candidate_graph.kernel_params.size()
+            << " candidate_root_nodes=" << cs_candidate_graph.root_nodes
+            << " candidate_distinct="
+            << (cs_candidate_distinct ? "true" : "false")
+            << " graph_replay="
+            << (cs_graph_replay_gate ? "bitwise_guarded" : "FAIL")
+            << " grid=1536 block=256"
+            << " gate="
+            << (cs_public_graph_gate && cs_candidate_graph_gate &&
+                        cs_candidate_distinct && cs_graph_replay_gate
                     ? "PASS"
                     : "FAIL")
             << '\n';
@@ -12691,10 +13058,93 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " captured_nodes=" << invalid_nodes
             << " gate=" << (invalid_graph_gate ? "PASS" : "FAIL") << '\n';
 
+  cudaGraph_t cs_invalid_graph = nullptr;
+  bool cs_invalid_ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " FP8-weight streaming invalid begin capture");
+  std::array<int, 4U> cs_invalid_statuses{};
+  if (cs_invalid_ready) {
+    cs_invalid_statuses[0U] = q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
+            qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+            z_weight_scale, nullptr, b_weights.get(), activation.get(),
+            kQkvRows, kZRows, kAbRows, kColumns,
+            output_pointer(candidate_storage, 0U),
+            output_pointer(candidate_storage, 1U),
+            output_pointer(candidate_storage, 2U),
+            output_pointer(candidate_storage, 3U),
+            static_cast<void*>(stream));
+    cs_invalid_statuses[1U] = q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
+            qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+            z_weight_scale, a_weights.get(), b_weights.get(),
+            activation.get(), kQkvRows, kZRows, kAbRows - 1U, kColumns,
+            output_pointer(candidate_storage, 0U),
+            output_pointer(candidate_storage, 1U),
+            output_pointer(candidate_storage, 2U),
+            output_pointer(candidate_storage, 3U),
+            static_cast<void*>(stream));
+    cs_invalid_statuses[2U] = q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
+            qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+            z_weight_scale, a_weights.get(), b_weights.get(),
+            activation.get(), kQkvRows, kZRows, kAbRows, kColumns,
+            output_pointer(candidate_storage, 0U),
+            output_pointer(candidate_storage, 1U),
+            output_pointer(candidate_storage, 0U),
+            output_pointer(candidate_storage, 3U),
+            static_cast<void*>(stream));
+    cs_invalid_statuses[3U] = q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
+            qkv_weights.get(), -qkv_weight_scale, z_weights.get(),
+            z_weight_scale, a_weights.get(), b_weights.get(),
+            activation.get(), kQkvRows, kZRows, kAbRows, kColumns,
+            output_pointer(candidate_storage, 0U),
+            output_pointer(candidate_storage, 1U),
+            output_pointer(candidate_storage, 2U),
+            output_pointer(candidate_storage, 3U),
+            static_cast<void*>(stream));
+    cs_invalid_ready = test.cuda_ok(
+                           cudaStreamEndCapture(stream, &cs_invalid_graph),
+                           label + " FP8-weight streaming invalid end capture") &&
+                       cs_invalid_ready;
+  }
+  std::size_t cs_invalid_nodes = 0U;
+  if (cs_invalid_ready) {
+    cs_invalid_ready = test.cuda_ok(
+                           cudaGraphGetNodes(cs_invalid_graph, nullptr,
+                                             &cs_invalid_nodes),
+                           label + " FP8-weight streaming invalid count") &&
+                       cs_invalid_ready;
+  }
+  if (cs_invalid_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(cs_invalid_graph),
+                       label + " FP8-weight streaming invalid destroy");
+  }
+  const bool cs_invalid_status_gate = std::all_of(
+      cs_invalid_statuses.begin(), cs_invalid_statuses.end(),
+      [](const int status) {
+        return status == static_cast<int>(cudaErrorInvalidValue);
+      });
+  const bool cs_invalid_graph_gate =
+      cs_invalid_ready && cs_invalid_status_gate && cs_invalid_nodes == 0U;
+  test.expect(cs_invalid_graph_gate,
+              label + " FP8-weight streaming invalid calls capture no node");
+  std::cout << "FP8_M1_LINEAR_QKV_CS_INVALID: cases=4"
+            << " invalid_statuses="
+            << (cs_invalid_status_gate ? "all_invalid_value" : "BAD")
+            << " captured_nodes=" << cs_invalid_nodes
+            << " gate=" << (cs_invalid_graph_gate ? "PASS" : "FAIL")
+            << '\n';
+
   const bool default_gate =
       resource_gate && resource_null_gate && synthetic_bitwise_gate &&
       baseline_graph_gate && candidate_graph_gate && candidate_distinct &&
-      graph_replay_gate && invalid_graph_gate;
+      graph_replay_gate && invalid_graph_gate && cs_resource_gate &&
+      cs_resource_null_gate && synthetic_cs_bitwise_gate &&
+      cs_public_graph_gate && cs_candidate_graph_gate &&
+      cs_candidate_distinct && cs_graph_replay_gate &&
+      cs_invalid_graph_gate;
   test.expect(default_gate,
               label + " clears the default focused selection screen");
   std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_DEFAULT:"
@@ -12710,11 +13160,39 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " resources=" << (resource_gate ? "PASS" : "FAIL")
             << " gate=" << (default_gate ? "PASS" : "FAIL") << '\n';
 
-  if (!fp8_m1_qkv_z_bf16_ab_tail_composite_performance_enabled()) {
+  std::cout << "FP8_M1_LINEAR_QKV_CS_DEFAULT:"
+            << " synthetic_bitwise_guard="
+            << (synthetic_cs_bitwise_gate ? "PASS" : "FAIL")
+            << " graph="
+            << (cs_public_graph_gate && cs_candidate_graph_gate &&
+                        cs_candidate_distinct && cs_graph_replay_gate
+                    ? "PASS"
+                    : "FAIL")
+            << " invalid_zero_node="
+            << (cs_invalid_graph_gate ? "PASS" : "FAIL")
+            << " resources=" << (cs_resource_gate ? "PASS" : "FAIL")
+            << " fp8_weight_load_policy=streaming"
+            << " activation_policy=production_default"
+            << " ab_weight_policy=production_default"
+            << " scale_loads=none_scalar_kernel_arguments"
+            << " gate="
+            << (cs_resource_gate && cs_resource_null_gate &&
+                        synthetic_cs_bitwise_gate && cs_public_graph_gate &&
+                        cs_candidate_graph_gate && cs_candidate_distinct &&
+                        cs_graph_replay_gate && cs_invalid_graph_gate
+                    ? "PASS"
+                    : "FAIL")
+            << '\n';
+
+  const bool predecessor_composite_performance_enabled =
+      fp8_m1_qkv_z_bf16_ab_tail_composite_performance_enabled();
+  if (!predecessor_composite_performance_enabled &&
+      !cs_performance_enabled) {
     std::cout
         << "SKIP: actual-checkpoint FP8 M1 QKV/Z plus BF16 A/B composite "
-           "B-C-C-B gate; set "
+           "performance gates; set "
            "Q3X_RUN_SM87_FP8_M1_QKV_Z_BF16_AB_TAIL_COMPOSITE_PERF=1 "
+           "or Q3X_RUN_SM87_DECODE_FP8_LINEAR_QKV_CS_PERF=1 "
            "with Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_FILE and "
            "Q3X_FP8_M1_QKV_Z_ACTUAL_CHECKPOINT_OFFSETS\n";
     return;
@@ -12911,6 +13389,83 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
   }
   const bool actual_bitwise_gate =
       run_direct_diff(label + " actual checkpoint");
+
+  if (cs_performance_enabled) {
+    constexpr double kRequiredActualSpeedup = 1.005;
+    constexpr double kRequiredStressSpeedup = 1.0;
+    constexpr double kRequiredPerProcessProjectedDeltaMs = 0.20;
+    constexpr double kRequiredThreeProcessMedianProjectedDeltaMs = 0.25;
+    const bool actual_cs_bitwise_gate =
+        run_cs_direct_diff(label + " actual checkpoint");
+    const LinearQkvCsTiming actual_cs_timing =
+        actual_cs_bitwise_gate ? benchmark_cs_fixture("actual_checkpoint")
+                               : LinearQkvCsTiming{};
+    const bool actual_cs_timing_gate =
+        actual_cs_timing.ready &&
+        actual_cs_timing.every_round_nonregressing &&
+        std::isfinite(actual_cs_timing.paired_median_speedup) &&
+        actual_cs_timing.paired_median_speedup >= kRequiredActualSpeedup &&
+        std::isfinite(actual_cs_timing.projected_48_layer_delta_ms) &&
+        actual_cs_timing.projected_48_layer_delta_ms >=
+            kRequiredPerProcessProjectedDeltaMs;
+    const bool stress_cs_timing_gate =
+        stress_cs_timing.ready &&
+        stress_cs_timing.every_round_nonregressing &&
+        std::isfinite(stress_cs_timing.paired_median_speedup) &&
+        stress_cs_timing.paired_median_speedup >= kRequiredStressSpeedup;
+    const bool cs_process_gate =
+        default_gate && payload_hash_gate && synthetic_cs_bitwise_gate &&
+        actual_cs_bitwise_gate && actual_cs_timing_gate &&
+        stress_cs_timing_gate;
+    test.expect(cs_process_gate,
+                label + " FP8-weight streaming process clears frozen gate");
+    std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_SELECTED:"
+              << " baseline=public_tail_composite_default_cache"
+              << " candidate=test_only_qkv_z_fp8_weight_cs"
+              << " actual_baseline_median_ms="
+              << actual_cs_timing.baseline_median_ms
+              << " actual_candidate_median_ms="
+              << actual_cs_timing.candidate_median_ms
+              << " actual_paired_median_speedup="
+              << actual_cs_timing.paired_median_speedup
+              << " actual_paired_median_delta_ms="
+              << actual_cs_timing.paired_median_delta_ms
+              << " actual_projected_48_layer_delta_ms="
+              << actual_cs_timing.projected_48_layer_delta_ms
+              << " actual_every_round_nonregressing="
+              << (actual_cs_timing.every_round_nonregressing ? "true"
+                                                              : "false")
+              << " stress_baseline_median_ms="
+              << stress_cs_timing.baseline_median_ms
+              << " stress_candidate_median_ms="
+              << stress_cs_timing.candidate_median_ms
+              << " stress_paired_median_speedup="
+              << stress_cs_timing.paired_median_speedup
+              << " stress_paired_median_delta_ms="
+              << stress_cs_timing.paired_median_delta_ms
+              << " stress_every_round_nonregressing="
+              << (stress_cs_timing.every_round_nonregressing ? "true"
+                                                              : "false")
+              << " required_actual_speedup=" << kRequiredActualSpeedup
+              << " required_stress_speedup=" << kRequiredStressSpeedup
+              << " required_each_round_speedup=1"
+              << " required_per_process_projected_48_layer_delta_ms="
+              << kRequiredPerProcessProjectedDeltaMs
+              << " required_three_process_median_projected_48_layer_delta_ms="
+              << kRequiredThreeProcessMedianProjectedDeltaMs
+              << " three_process_median_gate=pending_external_aggregation"
+              << " actual_bitwise_guard="
+              << (actual_cs_bitwise_gate ? "PASS" : "FAIL")
+              << " stress_bitwise_guard="
+              << (synthetic_cs_bitwise_gate ? "PASS" : "FAIL")
+              << " payload_hashes=" << (payload_hash_gate ? "PASS" : "FAIL")
+              << " default_gate=" << (default_gate ? "PASS" : "FAIL")
+              << " gate=" << (cs_process_gate ? "PASS" : "FAIL") << '\n';
+  }
+
+  if (!predecessor_composite_performance_enabled) {
+    return;
+  }
 
   constexpr int kWarmupIterations = 10;
   constexpr int kMeasuredIterations = 80;
@@ -43861,6 +44416,18 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (decode_fp8_linear_qkv_cs_performance_enabled()) {
+    run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode FP8 linear QKV cache-policy stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode FP8 linear QKV cache-policy assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode FP8 linear QKV cache-policy screen passed\n";
+    return 0;
   }
   if (decode_nvfp4_scale6_sidecar_performance_enabled()) {
     run_optional_nvfp4_m1_scale6_sidecar_closeout(test, stream);
