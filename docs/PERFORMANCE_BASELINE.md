@@ -5584,3 +5584,46 @@ production path calls it. The achieved anchor remains **108.2645 ms/token and
 cache policy of one-pass packed-weight/block-scale loads in the dominant
 NVFP4 projections. Complete evidence is in the
 [rejection record](metadata/qwen36-27b-decode-o-proj-prerounded-residual-chain-rejection.json).
+
+## Rejected Decode gate/up cache-global loads
+
+Commit 2623339 adds a test-only twin of the production runner-only `32x512`
+residual/RMSNorm/gate/up/SiLU dead-up kernel. The candidate changes only the
+one-pass packed-weight U32 and block-scale U8 loads from the compiler-default
+cache policy to cache-global (`.cg`); arithmetic, BF16 boundaries, shared
+staging, topology, launch count, stream, runtime dispatch, and Prefill remain
+unchanged.
+
+The static isolation gate passes. Production remains byte-identical at 2,704
+encoding words and SASS SHA-256 `38e45f53...228b5d`. The candidate also has
+2,704 words and changes exactly eight `LDG.E` instructions to
+`LDG.E.STRONG.GPU` plus four `LDG.E.U8` instructions to
+`LDG.E.U8.STRONG.GPU`; all other global/shared load counts match and there are
+no local loads or stores. Both kernels use 64 registers/thread, 13,632 B
+shared, zero local/stack, 512 threads, and two active CTAs/SM.
+
+Actual checkpoint correctness reports zero residual mismatches over 5,120
+elements, zero gate mismatches over 17,408 elements, and zero candidate replay
+mismatches over all 22,528 outputs. Outputs are finite, all guards pass, and
+the baseline, candidate, and replay dead-up workspaces remain untouched.
+
+The first fixed-clock process uses ten warmups and five 64-kernel rounds in
+strict B1-C1-C2-B2 order:
+
+| Round | B1 | C1 | C2 | B2 | Paired delta | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.596318 ms | 0.600479 ms | 0.610862 ms | 0.608900 ms | -0.00306123 ms | fail |
+| 2 | 0.600843 ms | 0.599312 ms | 0.596852 ms | 0.596765 ms | +0.000722229 ms | fail |
+| 3 | 0.596629 ms | 0.596790 ms | 0.597003 ms | 0.596520 ms | -0.000321746 ms | fail |
+| 4 | 0.596133 ms | 0.596524 ms | 0.596677 ms | 0.596116 ms | -0.000476003 ms | fail |
+| 5 | 0.595873 ms | 0.596580 ms | 0.596425 ms | 0.595859 ms | -0.000636578 ms | fail |
+
+The baseline/candidate pass medians are 0.596419 and 0.596821 ms/layer:
+**0.999327x**, with a -0.000476003-ms median paired delta and a projected
+**0.0304642-ms/token regression** over 64 layers. No round improves in both
+directions. First-process stop-loss therefore skips stress, nonfinite, Graph,
+invalid-contract, model, end-to-end, and profiler work. Production remains at
+**108.2645 ms/token and 9.236638048 token/s**. The next independent cell tests
+the evict-first streaming (`.cs`) policy rather than repeating `.cg`.
+Complete evidence is in the
+[rejection record](metadata/qwen36-27b-decode-gate-up-cache-global-rejection.json).

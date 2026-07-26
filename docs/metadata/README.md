@@ -745,6 +745,15 @@ The diagnostic Phase 3 records are:
   0.994944x, projecting a 0.235329-ms/token loss. First-process stop-loss
   therefore leaves production dispatch, Prefill, and the 108.2645-ms/token
   anchor unchanged.
+- [`qwen36-27b-decode-gate-up-cache-global-rejection.json`](qwen36-27b-decode-gate-up-cache-global-rejection.json),
+  which closes the test-only cache-global (`.cg`) screen for the production
+  Decode gate/up dead-up kernel. Production SASS remains byte-identical and
+  the candidate changes exactly the eight packed-weight and four block-scale
+  load qualifiers while preserving resources and bitwise outputs. The first
+  fixed-clock actual-checkpoint process nevertheless reaches only 0.999327x,
+  with no fully improving round and a projected 0.0304642-ms/token regression,
+  so stop-loss leaves the production anchor unchanged and routes the next cell
+  to the independent evict-first streaming policy.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

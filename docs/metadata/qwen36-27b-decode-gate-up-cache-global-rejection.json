@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gate-up-cache-global-rejection",
+  "status": "rejected-test-only-decode-gate-up-cache-global-candidate",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_head": "570184e",
+    "base_subject": "docs: reject Decode residual handoff",
+    "candidate_commit": "26233397486669824ee2100eeb483c8e76005010",
+    "candidate_subject": "bench: screen Decode gate-up cache-global loads",
+    "test_only_probe_retained": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "clocks_locked": true,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "cpu_hz": 2201600000,
+    "active_gpu_tpcs": 8,
+    "fan_pwm": 255
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "operation": "production runner-only residual/RMSNorm/gate/up/SiLU dead-up kernel",
+    "shape_n_by_k": [17408, 5120],
+    "baseline_grid_block": [32, 512],
+    "candidate_grid_block": [32, 512],
+    "launch_count": {
+      "baseline": 1,
+      "candidate": 1
+    },
+    "only_change": "packed NVFP4 weight U32 and block-scale U8 global loads use cache-global rather than the compiler default",
+    "candidate_cache_policy": "ld.global.cg",
+    "candidate_sass_policy": "STRONG.GPU",
+    "unchanged": [
+      "residual add and BF16 boundary",
+      "centered RMSNorm arithmetic and reduction tree",
+      "decoded E2M1 and E4M3 codebooks",
+      "gate and up FMA order and independent BF16 boundaries",
+      "CTA-local dead-up staging and SiLU epilogue",
+      "activation, residual, norm-weight, shared-memory, and output loads/stores",
+      "grid, block, shared-memory layout, occupancy, launch count, and stream"
+    ],
+    "production_route_ever_selected_candidate": false,
+    "prefill_changed": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_data_base": 126512,
+    "gate_projection": {
+      "absolute_offset": 6757009952,
+      "bytes": 44564480,
+      "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+      "block_scale_absolute_offset": 3606039072,
+      "block_scale_bytes": 5570560,
+      "block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+      "weight_scale_2_bits": 958298600
+    },
+    "up_projection": {
+      "absolute_offset": 6801574432,
+      "bytes": 44564480,
+      "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+      "block_scale_absolute_offset": 3611609632,
+      "block_scale_bytes": 5570560,
+      "block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+      "weight_scale_2_bits": 958298600
+    },
+    "payload_identity_gate": "pass"
+  },
+  "static_identity": {
+    "production": {
+      "encoding_words": 2704,
+      "encoding_sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d",
+      "global_loads": {
+        "LDG.E": 8,
+        "LDG.E.U8": 4,
+        "LDG.E.U16": 25
+      },
+      "shared_loads": {
+        "LDS": 80,
+        "LDS.128": 2,
+        "LDS.U16": 7
+      },
+      "unchanged_from_frozen_production": true
+    },
+    "candidate": {
+      "encoding_words": 2704,
+      "encoding_sha256": "84e458ce5be8a57730025350dc0f0508f03c3ed17f66996a6cad08333f51e204",
+      "global_loads": {
+        "LDG.E.STRONG.GPU": 8,
+        "LDG.E.U8.STRONG.GPU": 4,
+        "LDG.E.U16": 25
+      },
+      "shared_loads": {
+        "LDS": 80,
+        "LDS.128": 2,
+        "LDS.U16": 7
+      },
+      "ldl_count": 0,
+      "stl_count": 0,
+      "only_target_load_qualifiers_changed": true
+    },
+    "gate": "pass"
+  },
+  "resources": {
+    "baseline": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_blocks_per_sm": 2
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_blocks_per_sm": 2
+    },
+    "gate": "pass"
+  },
+  "correctness": {
+    "fixture": "actual checkpoint weights with deterministic finite BF16 residual-left, residual-right, and norm weights",
+    "rounded_residual_mismatches": {
+      "count": 0,
+      "elements": 5120
+    },
+    "final_gate_mismatches": {
+      "count": 0,
+      "elements": 17408
+    },
+    "candidate_replay_mismatches": {
+      "rounded_residual": 0,
+      "final_gate": 0,
+      "elements": 22528
+    },
+    "finite_outputs": true,
+    "all_output_guards_intact": true,
+    "baseline_up_workspace_untouched": true,
+    "candidate_up_workspace_untouched": true,
+    "candidate_replay_up_workspace_untouched": true,
+    "gate": "pass",
+    "deferred_after_stop_loss": [
+      "same-bank stress",
+      "signed Inf and NaN",
+      "CUDA Graph topology and replay",
+      "invalid-call zero-node matrix",
+      "full-model C1/C8/C16/C32 oracle",
+      "end-to-end benchmark",
+      "Nsight Systems closure"
+    ]
+  },
+  "benchmark_protocol": {
+    "order": "B1-C1-C2-B2",
+    "warmup_kernels_per_route": 10,
+    "measured_kernels_per_pass": 64,
+    "rounds": 5,
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_stream": true,
+    "required_speedup": 1.005,
+    "required_delta_ms_per_layer": 0.00390625,
+    "required_projected_64_layer_delta_ms": 0.25,
+    "required_each_round": "candidate1 < baseline1 and candidate2 < baseline2"
+  },
+  "formal_screen": {
+    "fixture": "actual_checkpoint",
+    "rounds": [
+      {
+        "round": 1,
+        "baseline1_ms": 0.596318,
+        "candidate1_ms": 0.600479,
+        "candidate2_ms": 0.610862,
+        "baseline2_ms": 0.608900,
+        "paired_delta_ms": -0.00306123,
+        "gate": "fail"
+      },
+      {
+        "round": 2,
+        "baseline1_ms": 0.600843,
+        "candidate1_ms": 0.599312,
+        "candidate2_ms": 0.596852,
+        "baseline2_ms": 0.596765,
+        "paired_delta_ms": 0.000722229,
+        "gate": "fail"
+      },
+      {
+        "round": 3,
+        "baseline1_ms": 0.596629,
+        "candidate1_ms": 0.596790,
+        "candidate2_ms": 0.597003,
+        "baseline2_ms": 0.596520,
+        "paired_delta_ms": -0.000321746,
+        "gate": "fail"
+      },
+      {
+        "round": 4,
+        "baseline1_ms": 0.596133,
+        "candidate1_ms": 0.596524,
+        "candidate2_ms": 0.596677,
+        "baseline2_ms": 0.596116,
+        "paired_delta_ms": -0.000476003,
+        "gate": "fail"
+      },
+      {
+        "round": 5,
+        "baseline1_ms": 0.595873,
+        "candidate1_ms": 0.596580,
+        "candidate2_ms": 0.596425,
+        "baseline2_ms": 0.595859,
+        "paired_delta_ms": -0.000636578,
+        "gate": "fail"
+      }
+    ],
+    "baseline_pass_median_ms": 0.596419,
+    "candidate_pass_median_ms": 0.596821,
+    "median_delta_ms_per_layer": -0.000476003,
+    "projected_64_layer_delta_ms": -0.0304642,
+    "speedup": 0.999327,
+    "rounds_passing_both_directional_checks": 0,
+    "all_rounds_improve": false,
+    "gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "the actual-checkpoint candidate is slower at the aggregate median, four of five paired deltas are negative, no round improves in both directions, and both absolute and relative promotion gates fail",
+    "repeat_process_run": false,
+    "stress_run": false,
+    "production_integration_attempted": false,
+    "model_oracle_run": false,
+    "end_to_end_run": false,
+    "nsys_run": false,
+    "decision": "reject cache-global for gate/up and independently screen the streaming evict-first policy next"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_sm87_weight_only_gemv_ctest": {
+      "passed": 1,
+      "failed": 0,
+      "seconds": 2.25
+    },
+    "git_diff_check": "pass",
+    "clang_format": "unavailable on host"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 108.2645,
+    "formal_anchor_after_ms_per_token": 108.2645,
+    "formal_tokens_per_second": 9.236638048,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/q3x_sm87_weight_only_gemv_test.cg",
+      "bytes": 5646232,
+      "sha256": "c97da84ae7281fb39f410cfface9526aa039c47621b3f07c02995dbb9946b281",
+      "build_id": "f2b131a716436781e05cb4a41505e4f9fb094510",
+      "checked_in": false
+    },
+    "environment_log": {
+      "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/environment.log",
+      "bytes": 2042,
+      "sha256": "0552935f17aedff98f9d1f3dbfc3e23b1a6fedae81cd7f41dc2a0218a932b1ce",
+      "checked_in": false
+    },
+    "static_log": {
+      "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/gate-up-cg-static.log",
+      "bytes": 1584,
+      "sha256": "b63c222991b3cfd7a9b7112a13b024914247ada0e399f1dddb95012cadca0580",
+      "checked_in": false
+    },
+    "formal_log": {
+      "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/gate-up-cg-screen.log",
+      "bytes": 3938,
+      "sha256": "8c20b9c7d7baad66c0ec159989b43f0879592c26dce6411000cf00302fafacee",
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_SM87_DECODE_GATE_UP_CG_PERF=1 Q3X_NVFP4_GATE_UP_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test"
+  }
+}
