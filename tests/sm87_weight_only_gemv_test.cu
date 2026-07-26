@@ -556,6 +556,22 @@ query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output, std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_dead_raw_inline_residual_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_down_residual_norm_predecessor_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activation,
@@ -5688,6 +5704,14 @@ nvfp4_m1_down_residual_norm_performance_enabled() noexcept {
 [[nodiscard]] bool decode_down_cs_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_DOWN_CS_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_down_dead_raw_inline_residual_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_DOWN_DEAD_RAW_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -47311,7 +47335,11 @@ void run_optional_performance(TestContext& test, cudaStream_t stream) {
 
 void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     TestContext& test, cudaStream_t stream) {
-  if (!decode_down_cs_performance_enabled()) {
+  const bool dead_raw_candidate =
+      decode_down_dead_raw_inline_residual_performance_enabled();
+  if (!decode_down_cs_performance_enabled() && !dead_raw_candidate) {
+    std::cout << "SKIP: Decode down dead-raw inline-residual screen; set "
+                 "Q3X_RUN_SM87_DECODE_DOWN_DEAD_RAW_PERF=1 to enable\n";
     return;
   }
 
@@ -47340,8 +47368,11 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019";
   constexpr std::string_view kNormWeightSha256 =
       "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d";
-  const std::string label =
-      "Decode down packed/scale .cs closeout exact 5120x17408";
+  const std::string label = dead_raw_candidate
+                                ? "Decode down dead-raw inline-residual exact "
+                                  "5120x17408"
+                                : "Decode down packed/scale .cs closeout exact "
+                                  "5120x17408";
 
   NvFp4M1DownDualKernelResources production_resources{};
   NvFp4M1DownDualKernelResources candidate_resources{};
@@ -47355,15 +47386,25 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
               &production_resources.maximum_threads_per_block,
               &production_resources.active_blocks_per_sm)),
       label + " query production resources");
-  ready = ready && test.cuda_ok(
-                       static_cast<cudaError_t>(q3x::kernels::
-                           query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
-                               &candidate_resources.registers_per_thread,
-                               &candidate_resources.static_shared_bytes,
-                               &candidate_resources.local_bytes,
-                               &candidate_resources.maximum_threads_per_block,
-                               &candidate_resources.active_blocks_per_sm)),
-                       label + " query .cs candidate resources");
+  const int candidate_resource_status =
+      dead_raw_candidate
+          ? q3x::kernels::
+                query_sm87_nvfp4_w4a16_m1_down_residual_norm_dead_raw_inline_residual_resources_test_cuda(
+                    &candidate_resources.registers_per_thread,
+                    &candidate_resources.static_shared_bytes,
+                    &candidate_resources.local_bytes,
+                    &candidate_resources.maximum_threads_per_block,
+                    &candidate_resources.active_blocks_per_sm)
+          : q3x::kernels::
+                query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
+                    &candidate_resources.registers_per_thread,
+                    &candidate_resources.static_shared_bytes,
+                    &candidate_resources.local_bytes,
+                    &candidate_resources.maximum_threads_per_block,
+                    &candidate_resources.active_blocks_per_sm);
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(
+                                    candidate_resource_status),
+                                label + " query candidate resources");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(q3x::kernels::
                            query_sm87_nvfp4_w4a16_m1_down_residual_norm_default_resources_test_cuda(
@@ -47388,14 +47429,22 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                                               cudaDevAttrMultiProcessorCount,
                                               device),
                        label + " query multiprocessor count");
+  const int null_query_status =
+      dead_raw_candidate
+          ? q3x::kernels::
+                query_sm87_nvfp4_w4a16_m1_down_residual_norm_dead_raw_inline_residual_resources_test_cuda(
+                    nullptr, &candidate_resources.static_shared_bytes,
+                    &candidate_resources.local_bytes,
+                    &candidate_resources.maximum_threads_per_block,
+                    &candidate_resources.active_blocks_per_sm)
+          : q3x::kernels::
+                query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
+                    nullptr, &candidate_resources.static_shared_bytes,
+                    &candidate_resources.local_bytes,
+                    &candidate_resources.maximum_threads_per_block,
+                    &candidate_resources.active_blocks_per_sm);
   const bool null_query_rejected =
-      static_cast<cudaError_t>(q3x::kernels::
-          query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
-              nullptr, &candidate_resources.static_shared_bytes,
-              &candidate_resources.local_bytes,
-              &candidate_resources.maximum_threads_per_block,
-              &candidate_resources.active_blocks_per_sm)) ==
-      cudaErrorInvalidValue;
+      static_cast<cudaError_t>(null_query_status) == cudaErrorInvalidValue;
   const bool default_null_query_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_down_residual_norm_default_resources_test_cuda(
@@ -47413,14 +47462,18 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
            lhs.maximum_threads_per_block == rhs.maximum_threads_per_block &&
            lhs.active_blocks_per_sm == rhs.active_blocks_per_sm;
   };
-  const bool resource_gate =
+  const bool common_resource_gate =
       ready && cooperative_launch != 0 && multiprocessor_count > 0 &&
       production_resources.registers_per_thread == 64 &&
       production_resources.static_shared_bytes == 35'904U &&
       production_resources.local_bytes == 0U &&
       production_resources.maximum_threads_per_block >= 512 &&
       production_resources.active_blocks_per_sm >= 2 &&
-      resources_equal(production_resources, candidate_resources) &&
+      candidate_resources.registers_per_thread <= 64 &&
+      candidate_resources.static_shared_bytes == 35'904U &&
+      candidate_resources.local_bytes == 0U &&
+      candidate_resources.maximum_threads_per_block >= 512 &&
+      candidate_resources.active_blocks_per_sm >= 2 &&
       default_resources.registers_per_thread == 64 &&
       default_resources.static_shared_bytes == 35'904U &&
       default_resources.local_bytes == 0U &&
@@ -47429,10 +47482,15 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       candidate_resources.active_blocks_per_sm >= 2 &&
       multiprocessor_count * candidate_resources.active_blocks_per_sm >= 32 &&
       null_query_rejected && default_null_query_rejected;
+  const bool resource_gate =
+      common_resource_gate &&
+      (dead_raw_candidate ||
+       resources_equal(production_resources, candidate_resources));
   test.expect(resource_gate,
               label +
-                  " production equals .cs and default rollback preserves the cooperative 32x512 envelope");
-  std::cout << "DECODE_DOWN_CS_RESOURCES:"
+                  " production/candidate preserve the cooperative 32x512 envelope");
+  std::cout << (dead_raw_candidate ? "DECODE_DOWN_DEAD_RAW_RESOURCES:"
+                                   : "DECODE_DOWN_CS_RESOURCES:")
             << " production_registers="
             << production_resources.registers_per_thread
             << " candidate_registers="
@@ -47448,7 +47506,9 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
             << production_resources.active_blocks_per_sm
             << " candidate_active_ctas_per_sm="
             << candidate_resources.active_blocks_per_sm
-            << " production_cs_equal="
+            << (dead_raw_candidate
+                    ? " production_candidate_equal_resources="
+                    : " production_cs_equal=")
             << (resources_equal(production_resources, candidate_resources)
                     ? "true"
                     : "false")
@@ -47488,6 +47548,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   struct CapturedDownKernel {
     bool ready = false;
     std::size_t nodes = 0U;
+    std::size_t roots = 0U;
     cudaKernelNodeParams parameters{};
   };
   const auto capture_single_kernel =
@@ -47511,6 +47572,11 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                             cudaGraphGetNodes(graph, nullptr, &captured.nodes),
                             label + " query " + route + " nodes") &&
                         captured_ok;
+          captured_ok = test.cuda_ok(
+                            cudaGraphGetRootNodes(graph, nullptr,
+                                                  &captured.roots),
+                            label + " query " + route + " roots") &&
+                        captured_ok;
         }
         if (captured_ok && captured.nodes == 1U) {
           cudaGraphNode_t node = nullptr;
@@ -47525,7 +47591,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                                node, &captured.parameters),
                            label + " get " + route + " parameters");
         }
-        captured.ready = captured_ok && captured.nodes == 1U;
+        captured.ready = captured_ok && captured.nodes == 1U &&
+                         captured.roots == 1U;
         if (graph != nullptr) {
           (void)test.cuda_ok(cudaGraphDestroy(graph),
                              label + " destroy " + route + " graph");
@@ -47543,13 +47610,23 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       "production");
   const CapturedDownKernel candidate_graph = capture_single_kernel(
       [&]() noexcept {
-        return q3x::kernels::
-            launch_sm87_nvfp4_w4a16_down_residual_norm_cs_test_cuda(
-                fake_packed, fake_scales, 1.0F / 64.0F, fake_activation,
-                fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
-                fake_residual, fake_normalized, static_cast<void*>(stream));
+        return dead_raw_candidate
+                   ? q3x::kernels::
+                         launch_sm87_nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_cuda(
+                             fake_packed, fake_scales, 1.0F / 64.0F,
+                             fake_activation, fake_left, fake_weight,
+                             kEpsilon, kRows, kColumns, fake_raw,
+                             fake_residual, fake_normalized,
+                             static_cast<void*>(stream))
+                   : q3x::kernels::
+                         launch_sm87_nvfp4_w4a16_down_residual_norm_cs_test_cuda(
+                             fake_packed, fake_scales, 1.0F / 64.0F,
+                             fake_activation, fake_left, fake_weight,
+                             kEpsilon, kRows, kColumns, fake_raw,
+                             fake_residual, fake_normalized,
+                             static_cast<void*>(stream));
       },
-      ".cs candidate");
+      dead_raw_candidate ? "dead-raw candidate" : ".cs candidate");
   const CapturedDownKernel default_graph = capture_single_kernel(
       [&]() noexcept {
         return q3x::kernels::
@@ -47572,15 +47649,21 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   const bool graph_gate =
       exact_topology(production_graph) && exact_topology(candidate_graph) &&
       exact_topology(default_graph) &&
-      production_graph.parameters.func == candidate_graph.parameters.func &&
+      (dead_raw_candidate
+           ? production_graph.parameters.func != candidate_graph.parameters.func
+           : production_graph.parameters.func == candidate_graph.parameters.func) &&
       production_graph.parameters.func != default_graph.parameters.func;
   test.expect(graph_gate,
               label +
-                  " captures public == .cs != default one-node 32x512 functions");
-  std::cout << "DECODE_DOWN_CS_GRAPH: production_nodes="
+                  " captures one-node 32x512 production/candidate functions");
+  std::cout << (dead_raw_candidate ? "DECODE_DOWN_DEAD_RAW_GRAPH: production_nodes="
+                                   : "DECODE_DOWN_CS_GRAPH: production_nodes=")
             << production_graph.nodes
+            << " production_roots=" << production_graph.roots
             << " candidate_nodes=" << candidate_graph.nodes
+            << " candidate_roots=" << candidate_graph.roots
             << " default_nodes=" << default_graph.nodes
+            << " default_roots=" << default_graph.roots
             << " production_grid=" << production_graph.parameters.gridDim.x
             << " candidate_grid=" << candidate_graph.parameters.gridDim.x
             << " default_grid=" << default_graph.parameters.gridDim.x
@@ -47589,11 +47672,17 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
             << " default_block=" << default_graph.parameters.blockDim.x
             << " dynamic_shared="
             << candidate_graph.parameters.sharedMemBytes
-            << " public_cs_same_func="
-            << (production_graph.parameters.func ==
-                        candidate_graph.parameters.func
-                    ? "true"
-                    : "false")
+            << (dead_raw_candidate ? " production_candidate_distinct_func="
+                                   : " public_cs_same_func=")
+            << (dead_raw_candidate
+                    ? (production_graph.parameters.func !=
+                               candidate_graph.parameters.func
+                           ? "true"
+                           : "false")
+                    : (production_graph.parameters.func ==
+                               candidate_graph.parameters.func
+                           ? "true"
+                           : "false"))
             << " default_distinct_func="
             << (production_graph.parameters.func !=
                         default_graph.parameters.func
@@ -47604,13 +47693,293 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     return;
   }
 
+  bool invalid_gate = true;
+  std::size_t invalid_cases = 0U;
+  const auto candidate_status =
+      [&](const std::uint8_t* const packed_arg,
+          const std::uint8_t* const scales_arg, const float scale2_arg,
+          const std::uint16_t* const activation_arg,
+          const std::uint16_t* const left_arg,
+          const std::uint16_t* const weight_arg, const float epsilon_arg,
+          const std::size_t rows_arg, const std::size_t columns_arg,
+          std::uint16_t* const raw_arg,
+          std::uint16_t* const residual_arg,
+          std::uint16_t* const normalized_arg) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_cuda(
+                packed_arg, scales_arg, scale2_arg, activation_arg, left_arg,
+                weight_arg, epsilon_arg, rows_arg, columns_arg, raw_arg,
+                residual_arg, normalized_arg, static_cast<void*>(stream));
+      };
+  const auto expect_invalid_zero_node =
+      [&](const auto& launch, const std::string& reason) {
+        cudaGraph_t graph = nullptr;
+        bool ok = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            label + " begin invalid capture " + reason);
+        int status = static_cast<int>(cudaErrorUnknown);
+        if (ok) {
+          status = launch();
+          ok = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                            label + " end invalid capture " + reason) &&
+               ok;
+        }
+        std::size_t nodes = 0U;
+        if (ok && graph != nullptr) {
+          ok = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                            label + " count invalid nodes " + reason) &&
+               ok;
+        }
+        const bool case_gate =
+            ok && status == static_cast<int>(cudaErrorInvalidValue) &&
+            nodes == 0U;
+        test.expect(case_gate, label + " rejects before enqueue " + reason);
+        invalid_gate = invalid_gate && case_gate;
+        ++invalid_cases;
+        if (graph != nullptr) {
+          (void)test.cuda_ok(cudaGraphDestroy(graph),
+                             label + " destroy invalid graph " + reason);
+        }
+      };
+  if (dead_raw_candidate) {
+    constexpr float kFakeScale2 = 1.0F / 64.0F;
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows - 1U, kColumns,
+              fake_raw, fake_residual, fake_normalized);
+        },
+        "near-miss rows");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns + 16U,
+              fake_raw, fake_residual, fake_normalized);
+        },
+        "near-miss columns");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales,
+              std::numeric_limits<float>::quiet_NaN(), fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "NaN weight scale");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, 0.0F, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "nonpositive epsilon");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              nullptr, fake_scales, kFakeScale2, fake_activation, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "null packed weights");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, nullptr, kFakeScale2, fake_activation, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "null block scales");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, nullptr, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "null activation");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation, nullptr,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "null residual input");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, nullptr, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "null norm weight");
+    for (std::size_t output = 0U; output < 3U; ++output) {
+      expect_invalid_zero_node(
+          [&, output]() noexcept {
+            auto* raw = fake_raw;
+            auto* residual = fake_residual;
+            auto* normalized = fake_normalized;
+            (output == 0U ? raw : (output == 1U ? residual : normalized)) =
+                nullptr;
+            return candidate_status(
+                fake_packed, fake_scales, kFakeScale2, fake_activation,
+                fake_left, fake_weight, kEpsilon, kRows, kColumns, raw,
+                residual, normalized);
+          },
+          "null output " + std::to_string(output));
+    }
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2,
+              reinterpret_cast<const std::uint16_t*>(
+                  reinterpret_cast<std::uintptr_t>(fake_activation) + 2U),
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "unaligned activation");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              reinterpret_cast<const std::uint8_t*>(
+                  reinterpret_cast<std::uintptr_t>(fake_packed) + 1U),
+              fake_scales, kFakeScale2, fake_activation, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "unaligned packed weights");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              reinterpret_cast<const std::uint16_t*>(
+                  reinterpret_cast<std::uintptr_t>(fake_left) + 1U),
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "unaligned residual input");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left,
+              reinterpret_cast<const std::uint16_t*>(
+                  reinterpret_cast<std::uintptr_t>(fake_weight) + 1U),
+              kEpsilon, kRows, kColumns, fake_raw, fake_residual,
+              fake_normalized);
+        },
+        "unaligned norm weight");
+    for (std::size_t output = 0U; output < 3U; ++output) {
+      expect_invalid_zero_node(
+          [&, output]() noexcept {
+            auto* raw = fake_raw;
+            auto* residual = fake_residual;
+            auto* normalized = fake_normalized;
+            auto*& selected =
+                output == 0U ? raw : (output == 1U ? residual : normalized);
+            selected = reinterpret_cast<std::uint16_t*>(
+                reinterpret_cast<std::uintptr_t>(selected) + 1U);
+            return candidate_status(
+                fake_packed, fake_scales, kFakeScale2, fake_activation,
+                fake_left, fake_weight, kEpsilon, kRows, kColumns, raw,
+                residual, normalized);
+          },
+          "unaligned output " + std::to_string(output));
+    }
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_raw, fake_normalized);
+        },
+        "raw/residual output overlap");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_residual);
+        },
+        "residual/normalized output overlap");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              reinterpret_cast<std::uint16_t*>(
+                  const_cast<std::uint8_t*>(fake_packed)),
+              fake_normalized);
+        },
+        "residual output aliases packed weights");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns,
+              const_cast<std::uint16_t*>(fake_left), fake_residual,
+              fake_normalized);
+        },
+        "raw output aliases residual input");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              reinterpret_cast<const std::uint8_t*>(
+                  std::numeric_limits<std::uintptr_t>::max() - 3U),
+              fake_scales, kFakeScale2, fake_activation, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "overflowing packed-weight range");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              reinterpret_cast<std::uint16_t*>(
+                  std::numeric_limits<std::uintptr_t>::max() - 1U),
+              fake_normalized);
+        },
+        "overflowing residual-output range");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, -1.0F, fake_activation, fake_left,
+              fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+              fake_residual, fake_normalized);
+        },
+        "negative weight scale");
+    expect_invalid_zero_node(
+        [&]() noexcept {
+          return candidate_status(
+              fake_packed, fake_scales, kFakeScale2, fake_activation,
+              fake_left, fake_weight,
+              std::numeric_limits<float>::infinity(), kRows, kColumns,
+              fake_raw, fake_residual, fake_normalized);
+        },
+        "infinite epsilon");
+    test.expect(invalid_gate && invalid_cases == 27U,
+                label + " clears invalid zero-node contract");
+    std::cout << "DECODE_DOWN_DEAD_RAW_INVALID: cases=" << invalid_cases
+              << " zero_nodes=" << (invalid_gate ? "true" : "false")
+              << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
+    if (!invalid_gate) {
+      return;
+    }
+  }
+
   const char* const checkpoint_value =
       std::getenv("Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE");
   const bool source_set =
       checkpoint_value != nullptr && checkpoint_value[0] != '\0';
   test.expect(source_set, label + " requires actual checkpoint shard");
   if (!source_set) {
-    std::cout << "DECODE_DOWN_CS_CHECKPOINT: source=missing"
+    std::cout << (dead_raw_candidate
+                      ? "DECODE_DOWN_DEAD_RAW_CHECKPOINT: source=missing"
+                      : "DECODE_DOWN_CS_CHECKPOINT: source=missing")
               << " required_env=Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE"
               << " gate=FAIL\n";
     return;
@@ -47710,7 +48079,9 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       actual_scale2 > 0.0F;
   test.expect(pinned_payload_gate,
               label + " pins actual down and norm payloads");
-  std::cout << "DECODE_DOWN_CS_CHECKPOINT: source=actual"
+  std::cout << (dead_raw_candidate
+                    ? "DECODE_DOWN_DEAD_RAW_CHECKPOINT: source=actual"
+                    : "DECODE_DOWN_CS_CHECKPOINT: source=actual")
             << " path=" << checkpoint_path
             << " file_bytes=" << checkpoint_size
             << " weight_sha256=" << weight_hash
@@ -47819,31 +48190,58 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   std::uint16_t* const candidate_norm =
       candidate_norm_storage.get() + kGuardElements;
   const auto launch_baseline = [&]() noexcept -> int {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
-            packed.get(), scales.get(), actual_scale2, activation.get(),
-            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
-            baseline_raw, baseline_residual, baseline_norm,
-            static_cast<void*>(stream));
+    return dead_raw_candidate
+               ? q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         baseline_raw, baseline_residual, baseline_norm,
+                         static_cast<void*>(stream))
+               : q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         baseline_raw, baseline_residual, baseline_norm,
+                         static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept -> int {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
-            packed.get(), scales.get(), actual_scale2, activation.get(),
-            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
-            candidate_raw, candidate_residual, candidate_norm,
-            static_cast<void*>(stream));
+    return dead_raw_candidate
+               ? q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_dead_raw_inline_residual_test_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         candidate_raw, candidate_residual, candidate_norm,
+                         static_cast<void*>(stream))
+               : q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         candidate_raw, candidate_residual, candidate_norm,
+                         static_cast<void*>(stream));
   };
   // Use identical destination addresses for the sub-percent timing A/B so
   // output-cache state or allocator placement cannot masquerade as a load
   // policy gain. Correctness continues to use disjoint guarded buffers.
   const auto launch_timing_baseline = [&]() noexcept -> int {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
-            packed.get(), scales.get(), actual_scale2, activation.get(),
-            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
-            candidate_raw, candidate_residual, candidate_norm,
-            static_cast<void*>(stream));
+    return dead_raw_candidate
+               ? q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         candidate_raw, candidate_residual, candidate_norm,
+                         static_cast<void*>(stream))
+               : q3x::kernels::
+                     launch_sm87_nvfp4_w4a16_down_residual_norm_default_test_cuda(
+                         packed.get(), scales.get(), actual_scale2,
+                         activation.get(), residual_left.get(),
+                         norm_weight.get(), kEpsilon, kRows, kColumns,
+                         candidate_raw, candidate_residual, candidate_norm,
+                         static_cast<void*>(stream));
   };
   const std::size_t guarded_count = kRows + 2U * kGuardElements;
   const auto poison = [&](DeviceBuffer<std::uint16_t>& storage,
@@ -47996,6 +48394,13 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
         }
         return true;
       };
+  const auto all_equal = [](const std::vector<std::uint16_t>& values,
+                            const std::uint16_t expected) {
+    return std::all_of(values.begin(), values.end(),
+                       [expected](const std::uint16_t value) {
+                         return value == expected;
+                       });
+  };
   std::vector<std::uint8_t> observed_packed_input(kPackedCount);
   std::vector<std::uint8_t> observed_scale_input(kScaleCount);
   std::vector<std::uint16_t> observed_activation_input(kColumns);
@@ -48004,6 +48409,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   const auto inputs_unchanged =
       [&](const std::vector<std::uint8_t>& expected_packed,
           const std::vector<std::uint8_t>& expected_scales,
+          const std::vector<std::uint16_t>& expected_activation,
           const std::vector<std::uint16_t>& expected_residual,
           const std::vector<std::uint16_t>& expected_norm,
           const std::string& fixture) {
@@ -48039,7 +48445,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
                                     " input observation synchronize");
         return ok && observed_packed_input == expected_packed &&
                observed_scale_input == expected_scales &&
-               observed_activation_input == host_activation &&
+               observed_activation_input == expected_activation &&
                observed_residual_input == expected_residual &&
                observed_norm_input == expected_norm;
       };
@@ -48057,6 +48463,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   std::array<bool, 2U> fixture_gates{};
   std::array<float, 2U> fixture_paired_medians{};
   std::array<float, kMeasurementRounds> actual_paired_deltas{};
+  bool dead_actual_absolute_gate = true;
+  float dead_actual_projected_delta = 0.0F;
   std::vector<std::uint16_t> finite_actual_baseline_residual;
 
   for (std::size_t fixture_index = 0U; fixture_index < fixtures.size();
@@ -48119,7 +48527,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     for (std::size_t index = 0U; index < kRows; ++index) {
       const std::size_t guarded = kGuardElements + index;
       finite_outputs =
-          finite_outputs && is_bf16_finite(candidate_raw_host[guarded]) &&
+          finite_outputs &&
+          (dead_raw_candidate || is_bf16_finite(candidate_raw_host[guarded])) &&
           is_bf16_finite(candidate_residual_host[guarded]) &&
           is_bf16_finite(candidate_norm_host[guarded]);
     }
@@ -48146,20 +48555,33 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
         guards_intact(candidate_residual_host, 0xe5e5U) &&
         guards_intact(candidate_norm_host, 0xf6f6U);
     const bool input_gate = inputs_unchanged(
-        *fixture.packed_values, *fixture.scale_values, host_left,
+        *fixture.packed_values, *fixture.scale_values, host_activation,
+        host_left,
         actual_norm_weight, fixture_name);
+    const bool raw_contract_gate =
+        dead_raw_candidate ? all_equal(first_candidate_raw, 0xd4d4U) &&
+                                 all_equal(candidate_raw_host, 0xd4d4U)
+                           : raw_mismatches == 0U;
     const bool correctness_gate =
-        raw_mismatches == 0U && residual_mismatches == 0U &&
+        raw_contract_gate && residual_mismatches == 0U &&
         norm_mismatches == 0U && replay_mismatches == 0U &&
         baseline_guards && candidate_guards && replay_guards && input_gate &&
         finite_outputs;
     test.expect(correctness_gate,
                 label + " " + fixture_name +
                     " preserves bits/replay/guards/inputs");
-    std::cout << "DECODE_DOWN_CS_DIFF: fixture=" << fixture_name
-              << " baseline=default_rollback_32x512"
-              << " candidate=public_selected_cs_32x512"
+    std::cout << (dead_raw_candidate ? "DECODE_DOWN_DEAD_RAW_DIFF: fixture="
+                                     : "DECODE_DOWN_CS_DIFF: fixture=")
+              << fixture_name
+              << " baseline="
+              << (dead_raw_candidate ? "production_32x512"
+                                     : "default_rollback_32x512")
+              << " candidate="
+              << (dead_raw_candidate ? "dead_raw_inline_residual_32x512"
+                                     : "public_selected_cs_32x512")
               << " raw_mismatches=" << raw_mismatches << '/' << kRows
+              << " candidate_raw_untouched="
+              << (raw_contract_gate ? "true" : "false")
               << " residual_mismatches=" << residual_mismatches << '/'
               << kRows << " norm_mismatches=" << norm_mismatches << '/'
               << kRows << " replay_mismatches=" << replay_mismatches << '/'
@@ -48259,7 +48681,10 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
           std::isfinite(b1) && b1 > 0.0F && std::isfinite(b2) && b2 > 0.0F &&
           std::isfinite(c1) && c1 > 0.0F && std::isfinite(c2) && c2 > 0.0F &&
           std::isfinite(paired_speedup) && std::isfinite(paired_delta);
-      const bool round_gate = finite && paired_speedup >= 1.0F;
+      const bool round_gate =
+          finite &&
+          (dead_raw_candidate ? paired_speedup > 1.0F
+                              : paired_speedup >= 1.0F);
       every_round_nonregression = every_round_nonregression && round_gate;
       const std::size_t pass = 2U * static_cast<std::size_t>(round);
       baseline_passes[pass] = b1;
@@ -48268,7 +48693,10 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       candidate_passes[pass + 1U] = c2;
       paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
       paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
-      std::cout << "PERF_DECODE_DOWN_CS_ROUND: fixture=" << fixture_name
+      std::cout << (dead_raw_candidate
+                        ? "PERF_DECODE_DOWN_DEAD_RAW_ROUND: fixture="
+                        : "PERF_DECODE_DOWN_CS_ROUND: fixture=")
+                << fixture_name
                 << " round=" << round + 1
                 << " order="
                 << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
@@ -48296,7 +48724,10 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     fixture_gates[fixture_index] = correctness_gate && timing_gate;
     test.expect(fixture_gates[fixture_index],
                 label + " " + fixture_name + " clears cache-policy gate");
-    std::cout << "PERF_DECODE_DOWN_CS: fixture=" << fixture_name
+    std::cout << (dead_raw_candidate
+                      ? "PERF_DECODE_DOWN_DEAD_RAW: fixture="
+                      : "PERF_DECODE_DOWN_CS: fixture=")
+              << fixture_name
               << " baseline_pass_median_ms=" << baseline_median
               << " candidate_pass_median_ms=" << candidate_median
               << " paired_round_median_speedup=" << paired_median
@@ -48308,6 +48739,29 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
               << " correctness=" << (correctness_gate ? "PASS" : "FAIL")
               << " gate="
               << (fixture_gates[fixture_index] ? "PASS" : "FAIL") << '\n';
+    if (dead_raw_candidate && fixture_index == 0U) {
+      dead_actual_projected_delta =
+          64.0F * median_fp8_kv_pair_timing(actual_paired_deltas);
+      dead_actual_absolute_gate =
+          std::isfinite(dead_actual_projected_delta) &&
+          dead_actual_projected_delta >= kRequiredProjectedDeltaMilliseconds;
+      test.expect(dead_actual_absolute_gate,
+                  label + " clears actual projected absolute delta gate");
+      std::cout << "PERF_DECODE_DOWN_DEAD_RAW_ABSOLUTE_DELTA:"
+                << " projected_64_layer_delta_ms="
+                << dead_actual_projected_delta
+                << " required_projected_64_layer_delta_ms="
+                << kRequiredProjectedDeltaMilliseconds
+                << " gate="
+                << (dead_actual_absolute_gate ? "PASS" : "FAIL") << '\n';
+      if (!fixture_gates[fixture_index] || !dead_actual_absolute_gate) {
+        std::cout << "PERF_DECODE_DOWN_DEAD_RAW_STOP:"
+                     " stage=process1_actual"
+                     " reason=actual_relative_or_absolute_gate_failed"
+                     " stress=SKIP nonfinite=SKIP gate=FAIL\n";
+        return;
+      }
+    }
   }
 
   const float actual_delta_milliseconds_per_layer =
@@ -48318,29 +48772,42 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
       std::isfinite(projected_delta_milliseconds_per_token) &&
       projected_delta_milliseconds_per_token >=
           kRequiredProjectedDeltaMilliseconds;
-  test.expect(absolute_delta_gate,
-              label + " clears projected 64-layer absolute delta gate");
-  std::cout << "PERF_DECODE_DOWN_CS_ABSOLUTE_DELTA:"
-            << " actual_delta_ms_per_layer="
-            << actual_delta_milliseconds_per_layer
-            << " projected_64_layer_delta_ms="
-            << projected_delta_milliseconds_per_token
-            << " required_projected_64_layer_delta_ms="
-            << kRequiredProjectedDeltaMilliseconds
-            << " gate=" << (absolute_delta_gate ? "PASS" : "FAIL") << '\n';
+  if (!dead_raw_candidate) {
+    test.expect(absolute_delta_gate,
+                label + " clears projected 64-layer absolute delta gate");
+    std::cout << "PERF_DECODE_DOWN_CS_ABSOLUTE_DELTA:"
+              << " actual_delta_ms_per_layer="
+              << actual_delta_milliseconds_per_layer
+              << " projected_64_layer_delta_ms="
+              << projected_delta_milliseconds_per_token
+              << " required_projected_64_layer_delta_ms="
+              << kRequiredProjectedDeltaMilliseconds
+              << " gate=" << (absolute_delta_gate ? "PASS" : "FAIL")
+              << '\n';
+  }
 
   const auto guarded_at = [&](const std::vector<std::uint16_t>& values,
                               const std::size_t index) {
     return values[kGuardElements + index];
   };
   const auto run_nonfinite_fixture =
-      [&](const std::vector<std::uint16_t>& left_values,
+      [&](const std::vector<std::uint16_t>& activation_values,
+          const std::vector<std::uint16_t>& left_values,
           const std::vector<std::uint16_t>& norm_values,
           const std::string& fixture, const auto& semantic_check) {
         bool fixture_ready = test.cuda_ok(
             cudaMemcpyAsync(packed.get(), actual_packed.data(), kPackedCount,
                             cudaMemcpyHostToDevice, stream),
             label + " upload " + fixture + " actual packed");
+        fixture_ready = fixture_ready && test.cuda_ok(
+                                             cudaMemcpyAsync(
+                                                 activation.get(),
+                                                 activation_values.data(),
+                                                 kColumns * sizeof(std::uint16_t),
+                                                 cudaMemcpyHostToDevice,
+                                                 stream),
+                                             label + " upload " + fixture +
+                                                 " activation input");
         fixture_ready = fixture_ready && test.cuda_ok(
                                              cudaMemcpyAsync(
                                                  scales.get(),
@@ -48428,19 +48895,30 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
             guards_intact(candidate_residual_host, 0xe5e5U) &&
             guards_intact(candidate_norm_host, 0xf6f6U);
         const bool input_gate = inputs_unchanged(
-            actual_packed, actual_scales, left_values, norm_values, fixture);
+            actual_packed, actual_scales, activation_values, left_values,
+            norm_values, fixture);
         const bool semantic_gate = semantic_check(
             baseline_residual_host, baseline_norm_host,
             candidate_residual_host, candidate_norm_host);
+        const bool raw_contract_gate =
+            dead_raw_candidate
+                ? all_equal(first_candidate_raw, 0xd4d4U) &&
+                      all_equal(candidate_raw_host, 0xd4d4U)
+                : raw_mismatches == 0U;
         const bool fixture_gate =
-            raw_mismatches == 0U && residual_mismatches == 0U &&
+            raw_contract_gate && residual_mismatches == 0U &&
             norm_mismatches == 0U && replay_mismatches == 0U && guards &&
             replay_guards && input_gate && semantic_gate;
         test.expect(fixture_gate,
                     label + " " + fixture +
                         " preserves bits/Graph replay/class/sign");
-        std::cout << "DECODE_DOWN_CS_NONFINITE: fixture=" << fixture
+        std::cout << (dead_raw_candidate
+                          ? "DECODE_DOWN_DEAD_RAW_NONFINITE: fixture="
+                          : "DECODE_DOWN_CS_NONFINITE: fixture=")
+                  << fixture
                   << " raw_mismatches=" << raw_mismatches << '/' << kRows
+                  << " candidate_raw_untouched="
+                  << (raw_contract_gate ? "true" : "false")
                   << " residual_mismatches=" << residual_mismatches << '/'
                   << kRows << " norm_mismatches=" << norm_mismatches << '/'
                   << kRows << " graph_replay_mismatches="
@@ -48461,7 +48939,7 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   residual_nonfinite_left[2U] = 0x7fc1U;
   residual_nonfinite_left[3U] = 0xffc1U;
   const bool residual_nonfinite_gate = run_nonfinite_fixture(
-      residual_nonfinite_left, actual_norm_weight,
+      host_activation, residual_nonfinite_left, actual_norm_weight,
       "residual_signed_nonfinite",
       [&](const std::vector<std::uint16_t>& baseline_residual_bits,
           const std::vector<std::uint16_t>& baseline_norm_bits,
@@ -48513,7 +48991,8 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
     norm_nonfinite_weight[norm_nonfinite_indices[2U]] = 0x7fc1U;
     norm_nonfinite_weight[norm_nonfinite_indices[3U]] = 0xffc1U;
     norm_nonfinite_gate = run_nonfinite_fixture(
-        host_left, norm_nonfinite_weight, "norm_weight_signed_nonfinite",
+        host_activation, host_left, norm_nonfinite_weight,
+        "norm_weight_signed_nonfinite",
         [&](const std::vector<std::uint16_t>& baseline_residual_bits,
             const std::vector<std::uint16_t>& baseline_norm_bits,
             const std::vector<std::uint16_t>& candidate_residual_bits,
@@ -48557,18 +49036,69 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
   test.expect(norm_nonfinite_count == norm_nonfinite_indices.size(),
               label +
                   " selects finite nonzero residuals for norm-only fixture");
+  bool dual_nan_bitwise_gate = true;
+  if (dead_raw_candidate) {
+    std::vector<std::uint16_t> dual_nan_activation = host_activation;
+    std::vector<std::uint16_t> dual_nan_left = host_left;
+    // Force the computed down value and residual_left to be distinct NaNs.
+    // This is a dynamic bitwise diagnostic for the source/SASS operand-order
+    // audit; the dynamic result alone does not prove instruction order.
+    dual_nan_activation[0U] = 0x7fc5U;
+    dual_nan_left[0U] = 0xffc1U;
+    dual_nan_left[1U] = 0x7fc3U;
+    dual_nan_left[2U] = 0xffc7U;
+    dual_nan_left[3U] = 0x7fcbU;
+    dual_nan_bitwise_gate = run_nonfinite_fixture(
+        dual_nan_activation, dual_nan_left, actual_norm_weight,
+        "dual_nan_raw_residual_bitwise_diagnostic",
+        [&](const std::vector<std::uint16_t>& baseline_residual_bits,
+            const std::vector<std::uint16_t>& baseline_norm_bits,
+            const std::vector<std::uint16_t>& candidate_residual_bits,
+            const std::vector<std::uint16_t>& candidate_norm_bits) {
+          bool bitwise_parity = true;
+          for (std::size_t index = 0U; index < 4U; ++index) {
+            const std::uint16_t raw_bits =
+                guarded_at(baseline_raw_host, index);
+            const std::uint16_t baseline_bits =
+                guarded_at(baseline_residual_bits, index);
+            const std::uint16_t candidate_bits =
+                guarded_at(candidate_residual_bits, index);
+            bitwise_parity =
+                bitwise_parity && is_bf16_nan(raw_bits) &&
+                is_bf16_nan(dual_nan_left[index]) &&
+                raw_bits != dual_nan_left[index] &&
+                is_bf16_nan(baseline_bits) &&
+                baseline_bits == candidate_bits;
+          }
+          for (std::size_t index = 0U; index < kRows; ++index) {
+            bitwise_parity =
+                bitwise_parity &&
+                guarded_at(baseline_norm_bits, index) ==
+                    guarded_at(candidate_norm_bits, index) &&
+                is_bf16_nan(guarded_at(candidate_norm_bits, index));
+          }
+          return bitwise_parity;
+        });
+  }
   const bool nonfinite_gate =
-      residual_nonfinite_gate && norm_nonfinite_gate;
+      residual_nonfinite_gate && norm_nonfinite_gate &&
+      dual_nan_bitwise_gate;
   test.expect(nonfinite_gate,
               label + " clears split signed Inf/NaN gate");
 
   const bool selection_gate =
       resource_gate && graph_gate && pinned_payload_gate &&
       fixture_gates[0U] && fixture_gates[1U] && absolute_delta_gate &&
-      nonfinite_gate;
-  std::cout << "PERF_DECODE_DOWN_CS_SELECTED:"
-            << " baseline=default_rollback_32x512"
-            << " candidate=public_selected_cs_32x512"
+      nonfinite_gate && invalid_gate;
+  std::cout << (dead_raw_candidate
+                    ? "PERF_DECODE_DOWN_DEAD_RAW_SELECTED:"
+                    : "PERF_DECODE_DOWN_CS_SELECTED:")
+            << " baseline="
+            << (dead_raw_candidate ? "production_32x512"
+                                   : "default_rollback_32x512")
+            << " candidate="
+            << (dead_raw_candidate ? "dead_raw_inline_residual_32x512"
+                                   : "public_selected_cs_32x512")
             << " actual_paired_median_speedup="
             << fixture_paired_medians[0U]
             << " stress_paired_median_speedup="
@@ -48576,14 +49106,18 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
             << " projected_64_layer_delta_ms="
             << projected_delta_milliseconds_per_token
             << " required_actual=1.005 required_stress=1"
-            << " required_each_round=1"
+            << " required_each_round="
+            << (dead_raw_candidate ? ">1" : ">=1")
             << " required_projected_64_layer_delta_ms="
             << kRequiredProjectedDeltaMilliseconds
             << " graph_replay=PASS"
             << " nonfinite=" << (nonfinite_gate ? "PASS" : "FAIL")
             << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
   test.expect(selection_gate,
-              label + " clears independent down .cs closeout gate");
+              label +
+                  (dead_raw_candidate
+                       ? " clears independent dead-raw inline-residual gate"
+                       : " clears independent down .cs closeout gate"));
 }
 
 struct NvFp4Scale6HostSidecar {
@@ -50492,6 +51026,18 @@ int main() {
     std::cout << "Decode scale6 sidecar screen passed\n";
     return 0;
   }
+  if (decode_down_dead_raw_inline_residual_performance_enabled()) {
+    run_optional_nvfp4_m1_down_residual_norm_cs_closeout(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode down dead-raw stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode down dead-raw assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode down dead-raw screen passed\n";
+    return 0;
+  }
   if (decode_down_cs_performance_enabled()) {
     run_optional_nvfp4_m1_down_residual_norm_cs_closeout(test, stream);
     (void)test.cuda_ok(cudaStreamDestroy(stream),
@@ -50659,6 +51205,7 @@ int main() {
   run_nvfp4_m1_down_xor_dual_probe(test, stream);
   run_nvfp4_m1_down_activation_staged_probe(test, stream);
   run_nvfp4_m1_down_residual_norm_production_probe(test, stream);
+  run_optional_nvfp4_m1_down_residual_norm_cs_closeout(test, stream);
   run_optional_nvfp4_m1_down_residual_norm_cta_coarsen(test, stream);
   run_nvfp4_m1_k5120_xor_dual_probe(test, stream);
   run_nvfp4_m1_gate_up_pair_default_probe(test, stream);
