@@ -664,6 +664,41 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_c
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale6_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_scale6_sidecar, unsigned int gate_scale_base,
+    float gate_weight_scale_2, const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_scale6_sidecar, unsigned int up_scale_base,
+    float up_weight_scale_2, const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output, std::uint16_t* gate_output,
+    std::uint16_t* up_workspace, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale6_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* scale6_sidecar, unsigned int scale_base,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output, std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_prerounded_residual_norm_gate_up_silu_dead_up_test_cuda(
     const std::uint8_t* gate_packed_weights,
     const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
@@ -5522,6 +5557,13 @@ nvfp4_m1_down_residual_norm_performance_enabled() noexcept {
 [[nodiscard]] bool decode_down_cs_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_DOWN_CS_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool decode_nvfp4_scale6_sidecar_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_NVFP4_6BIT_SIDECAR_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -42003,6 +42045,1165 @@ void run_optional_nvfp4_m1_down_residual_norm_cs_closeout(
               label + " clears independent down .cs closeout gate");
 }
 
+struct NvFp4Scale6HostSidecar {
+  std::vector<std::uint8_t> bytes;
+  unsigned int base = 0U;
+  std::uint8_t minimum = 0U;
+  std::uint8_t maximum = 0U;
+};
+
+[[nodiscard]] bool pack_nvfp4_scale6_sidecar(
+    const std::vector<std::uint8_t>& canonical_scales,
+    const std::size_t rows, const std::size_t columns,
+    NvFp4Scale6HostSidecar& packed) {
+  constexpr std::size_t kColumnsPerTile = 512U;
+  constexpr std::size_t kBytesPerTile = 96U;
+  if (rows == 0U || columns == 0U || (rows % 4U) != 0U ||
+      (columns % kColumnsPerTile) != 0U ||
+      rows > std::numeric_limits<std::size_t>::max() / (columns / 16U) ||
+      canonical_scales.size() != rows * (columns / 16U)) {
+    return false;
+  }
+  const auto extrema =
+      std::minmax_element(canonical_scales.begin(), canonical_scales.end());
+  packed.minimum = *extrema.first;
+  packed.maximum = *extrema.second;
+  packed.base = std::min<unsigned int>(packed.minimum, 192U);
+  if (static_cast<unsigned int>(packed.maximum) - packed.base > 63U) {
+    return false;
+  }
+  const std::size_t row_quads = rows / 4U;
+  const std::size_t tiles_per_row_quad = columns / kColumnsPerTile;
+  if (row_quads > std::numeric_limits<std::size_t>::max() /
+                      tiles_per_row_quad ||
+      row_quads * tiles_per_row_quad >
+          std::numeric_limits<std::size_t>::max() / kBytesPerTile) {
+    return false;
+  }
+  packed.bytes.assign(row_quads * tiles_per_row_quad * kBytesPerTile, 0U);
+  const std::size_t scale_columns = columns / 16U;
+  for (std::size_t q = 0U; q < row_quads; ++q) {
+    for (std::size_t tile = 0U; tile < tiles_per_row_quad; ++tile) {
+      const std::size_t tile_byte =
+          (q * tiles_per_row_quad + tile) * kBytesPerTile;
+      for (std::size_t lane_pair = 0U; lane_pair < 16U; ++lane_pair) {
+        for (std::size_t phase = 0U; phase < 2U; ++phase) {
+          for (std::size_t row = 0U; row < 4U; ++row) {
+            const std::size_t code = 8U * lane_pair + 4U * phase + row;
+            const std::size_t canonical_column =
+                32U * tile + lane_pair + 16U * phase;
+            const std::uint8_t scale =
+                canonical_scales[(4U * q + row) * scale_columns +
+                                 canonical_column];
+            const unsigned int delta =
+                static_cast<unsigned int>(scale) - packed.base;
+            const std::size_t first_bit = code * 6U;
+            const std::size_t byte = tile_byte + first_bit / 8U;
+            const unsigned int shift =
+                static_cast<unsigned int>(first_bit % 8U);
+            const unsigned int payload = delta << shift;
+            packed.bytes[byte] |= static_cast<std::uint8_t>(payload);
+            if (shift > 2U) {
+              packed.bytes[byte + 1U] |=
+                  static_cast<std::uint8_t>(payload >> 8U);
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool unpack_nvfp4_scale6_sidecar(
+    const NvFp4Scale6HostSidecar& packed, const std::size_t rows,
+    const std::size_t columns, std::vector<std::uint8_t>& canonical_scales) {
+  constexpr std::size_t kColumnsPerTile = 512U;
+  constexpr std::size_t kBytesPerTile = 96U;
+  if (rows == 0U || columns == 0U || (rows % 4U) != 0U ||
+      (columns % kColumnsPerTile) != 0U || packed.base > 192U) {
+    return false;
+  }
+  const std::size_t row_quads = rows / 4U;
+  const std::size_t tiles_per_row_quad = columns / kColumnsPerTile;
+  if (packed.bytes.size() !=
+      row_quads * tiles_per_row_quad * kBytesPerTile) {
+    return false;
+  }
+  const std::size_t scale_columns = columns / 16U;
+  canonical_scales.assign(rows * scale_columns, 0U);
+  for (std::size_t q = 0U; q < row_quads; ++q) {
+    for (std::size_t tile = 0U; tile < tiles_per_row_quad; ++tile) {
+      const std::size_t tile_byte =
+          (q * tiles_per_row_quad + tile) * kBytesPerTile;
+      for (std::size_t lane_pair = 0U; lane_pair < 16U; ++lane_pair) {
+        for (std::size_t phase = 0U; phase < 2U; ++phase) {
+          for (std::size_t row = 0U; row < 4U; ++row) {
+            const std::size_t code = 8U * lane_pair + 4U * phase + row;
+            const std::size_t first_bit = code * 6U;
+            const std::size_t byte = tile_byte + first_bit / 8U;
+            const unsigned int shift =
+                static_cast<unsigned int>(first_bit % 8U);
+            unsigned int window = packed.bytes[byte];
+            if (shift > 2U) {
+              window |= static_cast<unsigned int>(packed.bytes[byte + 1U])
+                        << 8U;
+            }
+            const unsigned int scale = packed.base + ((window >> shift) & 63U);
+            if (scale > 255U) {
+              return false;
+            }
+            const std::size_t canonical_column =
+                32U * tile + lane_pair + 16U * phase;
+            canonical_scales[(4U * q + row) * scale_columns +
+                             canonical_column] =
+                static_cast<std::uint8_t>(scale);
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] std::string sha256_bytes(const void* const data,
+                                       const std::size_t bytes) {
+  return q3x::core::sha256(std::string_view(
+                               reinterpret_cast<const char*>(data), bytes))
+      .hex();
+}
+
+struct NvFp4Scale6CapturedGraph {
+  cudaGraph_t graph = nullptr;
+  cudaGraphExec_t executable = nullptr;
+  std::size_t nodes = 0U;
+  cudaKernelNodeParams parameters{};
+
+  NvFp4Scale6CapturedGraph() = default;
+  NvFp4Scale6CapturedGraph(const NvFp4Scale6CapturedGraph&) = delete;
+  NvFp4Scale6CapturedGraph& operator=(const NvFp4Scale6CapturedGraph&) =
+      delete;
+  ~NvFp4Scale6CapturedGraph() {
+    if (executable != nullptr) {
+      (void)cudaGraphExecDestroy(executable);
+    }
+    if (graph != nullptr) {
+      (void)cudaGraphDestroy(graph);
+    }
+  }
+};
+
+template <typename Launch>
+[[nodiscard]] bool capture_nvfp4_scale6_graph(
+    TestContext& test, cudaStream_t stream, const Launch& launch,
+    const bool instantiate, const std::string& label,
+    NvFp4Scale6CapturedGraph& captured) {
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin capture");
+  if (ready) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch()),
+                         label + " enqueue kernel") &&
+            ready;
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &captured.graph),
+                         label + " end capture") &&
+            ready;
+  }
+  ready = ready && captured.graph != nullptr &&
+          test.cuda_ok(cudaGraphGetNodes(captured.graph, nullptr,
+                                        &captured.nodes),
+                       label + " count nodes");
+  cudaGraphNode_t node = nullptr;
+  std::size_t capacity = 1U;
+  if (ready && captured.nodes == 1U) {
+    ready = test.cuda_ok(cudaGraphGetNodes(captured.graph, &node, &capacity),
+                         label + " get node") &&
+            capacity == 1U;
+  }
+  cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphNodeGetType(node, &type),
+                         label + " get node type") &&
+            type == cudaGraphNodeTypeKernel &&
+            test.cuda_ok(cudaGraphKernelNodeGetParams(
+                             node, &captured.parameters),
+                         label + " get kernel parameters");
+  }
+  if (ready && instantiate) {
+    ready = test.cuda_ok(cudaGraphInstantiate(&captured.executable,
+                                             captured.graph, nullptr,
+                                             nullptr, 0U),
+                         label + " instantiate");
+  }
+  return ready && captured.nodes == 1U &&
+         (!instantiate || captured.executable != nullptr);
+}
+
+void run_optional_nvfp4_m1_scale6_sidecar_closeout(
+    TestContext& test, cudaStream_t stream) {
+  if (!decode_nvfp4_scale6_sidecar_performance_enabled()) {
+    return;
+  }
+  constexpr std::size_t kGateRows = 17'408U;
+  constexpr std::size_t kGateColumns = 5'120U;
+  constexpr std::size_t kDownRows = 5'120U;
+  constexpr std::size_t kDownColumns = 17'408U;
+  constexpr std::size_t kPackedCount = kGateRows * kGateColumns / 2U;
+  constexpr std::size_t kScaleCount = kGateRows * kGateColumns / 16U;
+  constexpr std::size_t kSidecarBytes = 4'177'920U;
+  constexpr std::size_t kSidecarGuardBytes = 32U;
+  constexpr std::size_t kOutputGuardElements = 16U;
+  constexpr int kWarmups = 10;
+  constexpr int kIterations = 64;
+  constexpr int kRounds = 5;
+  constexpr float kEpsilon = 1.0e-6F;
+  constexpr float kRequiredProjectedSavingMs = 0.5F;
+  constexpr std::size_t kEligibleGateUpLayers = 64U;
+  constexpr std::size_t kEligibleDownLayers = 53U;
+  constexpr std::size_t kEligibleProjectionCount =
+      2U * kEligibleGateUpLayers + kEligibleDownLayers;
+  static_assert(kEligibleProjectionCount == 181U);
+  constexpr std::uint64_t kCheckpointBytes = 9'965'652'512ULL;
+  constexpr std::uint64_t kHeaderBytes = 126'504ULL;
+  constexpr std::uint64_t kGateWeightOffset = 6'757'009'952ULL;
+  constexpr std::uint64_t kUpWeightOffset = 6'801'574'432ULL;
+  constexpr std::uint64_t kDownWeightOffset = 6'712'445'472ULL;
+  constexpr std::uint64_t kGateScaleOffset = 3'606'039'072ULL;
+  constexpr std::uint64_t kUpScaleOffset = 3'611'609'632ULL;
+  constexpr std::uint64_t kDownScaleOffset = 3'600'468'512ULL;
+  constexpr std::uint64_t kGateScale2Offset = 126'548ULL;
+  constexpr std::uint64_t kUpScale2Offset = 126'556ULL;
+  constexpr std::uint64_t kDownScale2Offset = 126'540ULL;
+  // Layer-0 down is fused with the next layer's input RMSNorm weight.
+  constexpr std::uint64_t kNextLayerInputNormOffset = 2'544'010'432ULL;
+  constexpr std::string_view kGateWeightSha =
+      "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8";
+  constexpr std::string_view kUpWeightSha =
+      "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f";
+  constexpr std::string_view kDownWeightSha =
+      "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf";
+  constexpr std::string_view kGateScaleSha =
+      "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e";
+  constexpr std::string_view kUpScaleSha =
+      "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947";
+  constexpr std::string_view kDownScaleSha =
+      "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019";
+  constexpr std::string_view kNextLayerInputNormSha =
+      "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d";
+  constexpr std::array<std::string_view, 3U> kActualSidecarSha{{
+      "54905b291bdfb5e618a67db095f111e12dd0af382bfd39c68e1691a75de597af",
+      "74a49f8da5f4b4bf2e5b98c9567777ea93ebaf1bcab3fa05afd4000a58d393e2",
+      "250e205c06ad6bc4849e3a6ecafeee403bf5fb2bec116ebb301e0ae022144a45",
+  }};
+  constexpr std::string_view kStressSidecarSha =
+      "8de5829214f72a3f8d9572f5b51e61cd2cfefc0a061b83ab511d3fbfbc4b51a9";
+  const std::string label = "Decode NVFP4 six-bit block-scale sidecar";
+
+  std::vector<std::uint8_t> micro_scales(4U * (512U / 16U));
+  for (std::size_t pair = 0U; pair < 16U; ++pair) {
+    for (std::size_t phase = 0U; phase < 2U; ++phase) {
+      for (std::size_t row = 0U; row < 4U; ++row) {
+        const std::size_t code = 8U * pair + 4U * phase + row;
+        micro_scales[row * 32U + pair + 16U * phase] =
+            static_cast<std::uint8_t>(64U + (code & 63U));
+      }
+    }
+  }
+  NvFp4Scale6HostSidecar micro_sidecar;
+  std::vector<std::uint8_t> micro_unpacked;
+  NvFp4Scale6HostSidecar micro_repacked;
+  std::vector<std::uint8_t> invalid_span = micro_scales;
+  invalid_span[0U] = 32U;
+  invalid_span[1U] = 96U;
+  NvFp4Scale6HostSidecar rejected_sidecar;
+  const bool micro_gate =
+      pack_nvfp4_scale6_sidecar(micro_scales, 4U, 512U, micro_sidecar) &&
+      micro_sidecar.base == 64U && micro_sidecar.bytes.size() == 96U &&
+      sha256_bytes(micro_sidecar.bytes.data(), micro_sidecar.bytes.size()) ==
+          "042fcd619223958a55d9b166e293ee991b073364f282010888fc15ed30faa880" &&
+      unpack_nvfp4_scale6_sidecar(micro_sidecar, 4U, 512U,
+                                  micro_unpacked) &&
+      micro_unpacked == micro_scales &&
+      pack_nvfp4_scale6_sidecar(micro_unpacked, 4U, 512U,
+                                micro_repacked) &&
+      micro_repacked.base == micro_sidecar.base &&
+      micro_repacked.bytes == micro_sidecar.bytes &&
+      !pack_nvfp4_scale6_sidecar(invalid_span, 4U, 512U,
+                                 rejected_sidecar);
+  test.expect(micro_gate,
+              label + " host pack/unpack covers all 64 deltas exactly");
+  if (!micro_gate) {
+    return;
+  }
+
+  const char* const checkpoint_value =
+      std::getenv("Q3X_NVFP4_6BIT_ACTUAL_CHECKPOINT_FILE");
+  if (checkpoint_value == nullptr || checkpoint_value[0] == '\0') {
+    test.expect(false, label + " requires actual checkpoint shard");
+    std::cout << "DECODE_SCALE6_CHECKPOINT: source=missing"
+                 " required_env=Q3X_NVFP4_6BIT_ACTUAL_CHECKPOINT_FILE"
+                 " gate=FAIL\n";
+    return;
+  }
+  std::ifstream checkpoint(checkpoint_value, std::ios::binary);
+  checkpoint.seekg(0, std::ios::end);
+  const std::streamoff checkpoint_size = checkpoint.tellg();
+  bool ready = checkpoint.is_open() && checkpoint_size >= 0 &&
+               static_cast<std::uint64_t>(checkpoint_size) == kCheckpointBytes;
+  test.expect(ready, label + " opens and pins checkpoint shard size");
+  const auto read_slice = [&](const std::uint64_t offset, void* destination,
+                              const std::size_t bytes,
+                              const std::string& name) {
+    const bool range = ready && offset <= kCheckpointBytes &&
+                       bytes <= kCheckpointBytes - offset;
+    test.expect(range, label + " contains " + name);
+    if (!range) {
+      return false;
+    }
+    checkpoint.clear();
+    checkpoint.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+    checkpoint.read(reinterpret_cast<char*>(destination),
+                    static_cast<std::streamsize>(bytes));
+    const bool complete =
+        checkpoint.gcount() == static_cast<std::streamsize>(bytes);
+    test.expect(complete, label + " reads " + name);
+    return complete;
+  };
+  std::array<std::uint8_t, 8U> header{};
+  std::array<std::vector<std::uint8_t>, 3U> actual_packed{{
+      std::vector<std::uint8_t>(kPackedCount),
+      std::vector<std::uint8_t>(kPackedCount),
+      std::vector<std::uint8_t>(kPackedCount),
+  }};
+  std::array<std::vector<std::uint8_t>, 3U> actual_scales{{
+      std::vector<std::uint8_t>(kScaleCount),
+      std::vector<std::uint8_t>(kScaleCount),
+      std::vector<std::uint8_t>(kScaleCount),
+  }};
+  std::vector<std::uint16_t> down_norm(kDownRows);
+  std::array<std::array<std::uint8_t, 4U>, 3U> scale2_bytes{};
+  ready = read_slice(0U, header.data(), header.size(), "header length") &&
+          read_slice(kGateWeightOffset, actual_packed[0U].data(), kPackedCount,
+                     "gate weight") &&
+          read_slice(kUpWeightOffset, actual_packed[1U].data(), kPackedCount,
+                     "up weight") &&
+          read_slice(kDownWeightOffset, actual_packed[2U].data(), kPackedCount,
+                     "down weight") &&
+          read_slice(kGateScaleOffset, actual_scales[0U].data(), kScaleCount,
+                     "gate scales") &&
+          read_slice(kUpScaleOffset, actual_scales[1U].data(), kScaleCount,
+                     "up scales") &&
+          read_slice(kDownScaleOffset, actual_scales[2U].data(), kScaleCount,
+                     "down scales") &&
+          read_slice(kGateScale2Offset, scale2_bytes[0U].data(), 4U,
+                     "gate scale2") &&
+          read_slice(kUpScale2Offset, scale2_bytes[1U].data(), 4U,
+                     "up scale2") &&
+          read_slice(kDownScale2Offset, scale2_bytes[2U].data(), 4U,
+                     "down scale2") &&
+          read_slice(kNextLayerInputNormOffset, down_norm.data(),
+                     down_norm.size() * sizeof(std::uint16_t), "down norm");
+  std::uint64_t decoded_header = 0U;
+  for (std::size_t i = 0U; i < header.size(); ++i) {
+    decoded_header |= static_cast<std::uint64_t>(header[i]) << (8U * i);
+  }
+  std::array<float, 3U> scale2{};
+  std::array<std::uint32_t, 3U> scale2_bits{};
+  for (std::size_t i = 0U; i < scale2.size(); ++i) {
+    scale2_bits[i] = static_cast<std::uint32_t>(scale2_bytes[i][0U]) |
+                     (static_cast<std::uint32_t>(scale2_bytes[i][1U]) << 8U) |
+                     (static_cast<std::uint32_t>(scale2_bytes[i][2U]) << 16U) |
+                     (static_cast<std::uint32_t>(scale2_bytes[i][3U]) << 24U);
+    std::memcpy(&scale2[i], &scale2_bits[i], sizeof(float));
+  }
+  const bool payload_gate =
+      ready && decoded_header == kHeaderBytes &&
+      sha256_bytes(actual_packed[0U].data(), kPackedCount) == kGateWeightSha &&
+      sha256_bytes(actual_packed[1U].data(), kPackedCount) == kUpWeightSha &&
+      sha256_bytes(actual_packed[2U].data(), kPackedCount) == kDownWeightSha &&
+      sha256_bytes(actual_scales[0U].data(), kScaleCount) == kGateScaleSha &&
+      sha256_bytes(actual_scales[1U].data(), kScaleCount) == kUpScaleSha &&
+      sha256_bytes(actual_scales[2U].data(), kScaleCount) == kDownScaleSha &&
+      sha256_bytes(down_norm.data(), down_norm.size() * sizeof(std::uint16_t)) ==
+          kNextLayerInputNormSha &&
+      scale2_bits[0U] == 0x391e79e8U && scale2_bits[1U] == 0x391e79e8U &&
+      scale2_bits[2U] == 0x39b61862U &&
+      std::all_of(scale2.begin(), scale2.end(),
+                  [](const float value) {
+                    return std::isfinite(value) && value > 0.0F;
+                  });
+  test.expect(payload_gate, label + " pins all actual payloads");
+  if (!payload_gate) {
+    return;
+  }
+
+  std::array<NvFp4Scale6HostSidecar, 3U> actual_sidecars;
+  const std::array<std::size_t, 3U> rows{{kGateRows, kGateRows, kDownRows}};
+  const std::array<std::size_t, 3U> columns{{kGateColumns, kGateColumns,
+                                            kDownColumns}};
+  const std::array<unsigned int, 3U> expected_bases{{73U, 74U, 66U}};
+  const auto verify_pack = [&](const std::vector<std::uint8_t>& canonical,
+                               const std::size_t index,
+                               const std::string_view expected_sha,
+                               NvFp4Scale6HostSidecar& sidecar) {
+    std::vector<std::uint8_t> unpacked;
+    NvFp4Scale6HostSidecar repacked;
+    return pack_nvfp4_scale6_sidecar(canonical, rows[index], columns[index],
+                                     sidecar) &&
+           sidecar.base == expected_bases[index] &&
+           sidecar.bytes.size() == kSidecarBytes &&
+           sha256_bytes(sidecar.bytes.data(), sidecar.bytes.size()) ==
+               expected_sha &&
+           unpack_nvfp4_scale6_sidecar(sidecar, rows[index], columns[index],
+                                       unpacked) &&
+           unpacked == canonical &&
+           pack_nvfp4_scale6_sidecar(unpacked, rows[index], columns[index],
+                                     repacked) &&
+           repacked.base == sidecar.base && repacked.bytes == sidecar.bytes;
+  };
+  bool sidecar_gate = true;
+  for (std::size_t i = 0U; i < actual_sidecars.size(); ++i) {
+    sidecar_gate = verify_pack(actual_scales[i], i, kActualSidecarSha[i],
+                               actual_sidecars[i]) &&
+                   sidecar_gate;
+  }
+  std::array<std::vector<std::uint8_t>, 3U> stress_packed{{
+      std::vector<std::uint8_t>(kPackedCount),
+      std::vector<std::uint8_t>(kPackedCount),
+      std::vector<std::uint8_t>(kPackedCount),
+  }};
+  for (std::size_t i = 0U; i < kPackedCount; ++i) {
+    stress_packed[0U][i] = static_cast<std::uint8_t>(
+        ((i * 5U + (i >> 3U) * 3U + 1U) & 15U) |
+        (((i * 7U + (i >> 2U) * 5U + 9U) & 15U) << 4U));
+    stress_packed[1U][i] = static_cast<std::uint8_t>(
+        ((i * 11U + (i >> 4U) * 7U + 3U) & 15U) |
+        (((i * 13U + (i >> 1U) * 3U + 5U) & 15U) << 4U));
+    stress_packed[2U][i] = static_cast<std::uint8_t>(
+        ((i * 5U + (i >> 2U) * 3U + 1U) & 15U) |
+        (((i * 7U + (i >> 3U) * 5U + 9U) & 15U) << 4U));
+  }
+  std::array<std::vector<std::uint8_t>, 3U> stress_scales{{
+      std::vector<std::uint8_t>(kScaleCount),
+      std::vector<std::uint8_t>(kScaleCount),
+      std::vector<std::uint8_t>(kScaleCount),
+  }};
+  for (std::size_t tensor = 0U; tensor < stress_scales.size(); ++tensor) {
+    const std::size_t scale_columns = columns[tensor] / 16U;
+    for (std::size_t i = 0U; i < kScaleCount; ++i) {
+      const std::size_t row = i / scale_columns;
+      const std::size_t column = i - row * scale_columns;
+      stress_scales[tensor][i] = static_cast<std::uint8_t>(
+          expected_bases[tensor] + (((row + column) & 1U) != 0U ? 32U : 0U));
+    }
+  }
+  std::array<NvFp4Scale6HostSidecar, 3U> stress_sidecars;
+  for (std::size_t i = 0U; i < stress_sidecars.size(); ++i) {
+    sidecar_gate = verify_pack(stress_scales[i], i, kStressSidecarSha,
+                               stress_sidecars[i]) &&
+                   sidecar_gate;
+  }
+  test.expect(sidecar_gate,
+              label + " actual/stress pack-unpack-repack and SHA gate");
+  std::cout << "DECODE_SCALE6_PACK: actual_bases=73:74:66"
+            << " sidecar_bytes_per_projection=" << kSidecarBytes
+            << " layer_sidecar_bytes=" << 3U * kSidecarBytes
+            << " eligible_projection_count=" << kEligibleProjectionCount
+            << " additional_sidecar_gib="
+            << static_cast<double>(kEligibleProjectionCount * kSidecarBytes) /
+                   static_cast<double>(1ULL << 30U)
+            << " actual_sha=" << kActualSidecarSha[0U] << ':'
+            << kActualSidecarSha[1U] << ':' << kActualSidecarSha[2U]
+            << " stress_sha=" << kStressSidecarSha
+            << " gate=" << (sidecar_gate ? "PASS" : "FAIL") << '\n';
+  if (!sidecar_gate) {
+    return;
+  }
+
+  std::array<NvFp4M1DownDualKernelResources, 4U> resources{};
+  ready = test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+      query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_cuda(
+          &resources[0U].registers_per_thread,
+          &resources[0U].static_shared_bytes, &resources[0U].local_bytes,
+          &resources[0U].maximum_threads_per_block,
+          &resources[0U].active_blocks_per_sm)),
+                       label + " query gate public resources");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+      query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale6_resources_test_cuda(
+          &resources[1U].registers_per_thread,
+          &resources[1U].static_shared_bytes, &resources[1U].local_bytes,
+          &resources[1U].maximum_threads_per_block,
+          &resources[1U].active_blocks_per_sm)),
+                                label + " query gate scale6 resources");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+      query_sm87_nvfp4_w4a16_m1_down_residual_norm_cs_resources_test_cuda(
+          &resources[2U].registers_per_thread,
+          &resources[2U].static_shared_bytes, &resources[2U].local_bytes,
+          &resources[2U].maximum_threads_per_block,
+          &resources[2U].active_blocks_per_sm)),
+                                label + " query down public resources");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(q3x::kernels::
+      query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
+          &resources[3U].registers_per_thread,
+          &resources[3U].static_shared_bytes, &resources[3U].local_bytes,
+          &resources[3U].maximum_threads_per_block,
+          &resources[3U].active_blocks_per_sm)),
+                                label + " query down scale6 resources");
+  const bool null_queries_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale6_resources_test_cuda(
+              nullptr, &resources[1U].static_shared_bytes,
+              &resources[1U].local_bytes,
+              &resources[1U].maximum_threads_per_block,
+              &resources[1U].active_blocks_per_sm)) == cudaErrorInvalidValue &&
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_down_residual_norm_scale6_resources_test_cuda(
+              nullptr, &resources[3U].static_shared_bytes,
+              &resources[3U].local_bytes,
+              &resources[3U].maximum_threads_per_block,
+              &resources[3U].active_blocks_per_sm)) == cudaErrorInvalidValue;
+  int device = 0;
+  int multiprocessors = 0;
+  ready = ready && test.cuda_ok(cudaGetDevice(&device), label + " get device") &&
+          test.cuda_ok(cudaDeviceGetAttribute(&multiprocessors,
+                                              cudaDevAttrMultiProcessorCount,
+                                              device),
+                       label + " get SM count");
+  const auto resources_ok = [&](const NvFp4M1DownDualKernelResources& value) {
+    return value.registers_per_thread <= 64 && value.local_bytes == 0U &&
+           value.maximum_threads_per_block >= 512 &&
+           value.active_blocks_per_sm >= 2 &&
+           value.active_blocks_per_sm * multiprocessors >= 32;
+  };
+  const bool resource_gate = ready && null_queries_rejected &&
+                             std::all_of(resources.begin(), resources.end(),
+                                         resources_ok) &&
+                             resources[0U].static_shared_bytes == 13'632U &&
+                             resources[2U].static_shared_bytes == 35'904U;
+  test.expect(resource_gate, label + " clears 64r/0local/2CTA resources");
+  std::cout << "DECODE_SCALE6_RESOURCES: gate_public="
+            << resources[0U].registers_per_thread << 'r' << '/'
+            << resources[0U].static_shared_bytes << "B gate_scale6="
+            << resources[1U].registers_per_thread << 'r' << '/'
+            << resources[1U].static_shared_bytes << "B down_public="
+            << resources[2U].registers_per_thread << 'r' << '/'
+            << resources[2U].static_shared_bytes << "B down_scale6="
+            << resources[3U].registers_per_thread << 'r' << '/'
+            << resources[3U].static_shared_bytes
+            << "B null_queries_rejected="
+            << (null_queries_rejected ? "true" : "false")
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!resource_gate) {
+    return;
+  }
+
+  const auto p8 = [](const std::uintptr_t value) {
+    return reinterpret_cast<const std::uint8_t*>(value);
+  };
+  const auto p16 = [](const std::uintptr_t value) {
+    return reinterpret_cast<const std::uint16_t*>(value);
+  };
+  const auto out16 = [](const std::uintptr_t value) {
+    return reinterpret_cast<std::uint16_t*>(value);
+  };
+  NvFp4Scale6CapturedGraph gate_public_graph;
+  NvFp4Scale6CapturedGraph gate_scale6_graph;
+  NvFp4Scale6CapturedGraph down_public_graph;
+  NvFp4Scale6CapturedGraph down_scale6_graph;
+  const bool graph_captured =
+      capture_nvfp4_scale6_graph(
+          test, stream,
+          [&]() noexcept {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+                    p8(0x10'0000'0000ULL), p8(0x11'0000'0000ULL), scale2[0U],
+                    p8(0x12'0000'0000ULL), p8(0x13'0000'0000ULL), scale2[1U],
+                    p16(0x14'0000'0000ULL), p16(0x15'0000'0000ULL),
+                    p16(0x16'0000'0000ULL), kEpsilon, kGateRows,
+                    kGateColumns, out16(0x17'0000'0000ULL),
+                    out16(0x18'0000'0000ULL), out16(0x19'0000'0000ULL),
+                    static_cast<void*>(stream));
+          }, false, label + " gate public graph", gate_public_graph) &&
+      capture_nvfp4_scale6_graph(
+          test, stream,
+          [&]() noexcept {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale6_test_cuda(
+                    p8(0x10'0000'0000ULL), p8(0x11'0000'0000ULL), 73U,
+                    scale2[0U], p8(0x12'0000'0000ULL),
+                    p8(0x13'0000'0000ULL), 74U, scale2[1U],
+                    p16(0x14'0000'0000ULL), p16(0x15'0000'0000ULL),
+                    p16(0x16'0000'0000ULL), kEpsilon, kGateRows,
+                    kGateColumns, out16(0x17'0000'0000ULL),
+                    out16(0x18'0000'0000ULL), out16(0x19'0000'0000ULL),
+                    static_cast<void*>(stream));
+          }, false, label + " gate scale6 graph", gate_scale6_graph) &&
+      capture_nvfp4_scale6_graph(
+          test, stream,
+          [&]() noexcept {
+            return q3x::kernels::launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                p8(0x20'0000'0000ULL), p8(0x21'0000'0000ULL), scale2[2U],
+                p16(0x22'0000'0000ULL), p16(0x23'0000'0000ULL),
+                p16(0x24'0000'0000ULL), kEpsilon, kDownRows, kDownColumns,
+                out16(0x25'0000'0000ULL), out16(0x26'0000'0000ULL),
+                out16(0x27'0000'0000ULL), static_cast<void*>(stream));
+          }, false, label + " down public graph", down_public_graph) &&
+      capture_nvfp4_scale6_graph(
+          test, stream,
+          [&]() noexcept {
+            return q3x::kernels::launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+                p8(0x20'0000'0000ULL), p8(0x21'0000'0000ULL), 66U,
+                scale2[2U], p16(0x22'0000'0000ULL),
+                p16(0x23'0000'0000ULL), p16(0x24'0000'0000ULL), kEpsilon,
+                kDownRows, kDownColumns, out16(0x25'0000'0000ULL),
+                out16(0x26'0000'0000ULL), out16(0x27'0000'0000ULL),
+                static_cast<void*>(stream));
+          }, false, label + " down scale6 graph", down_scale6_graph);
+  const auto topology_ok = [](const NvFp4Scale6CapturedGraph& graph) {
+    return graph.nodes == 1U && graph.parameters.func != nullptr &&
+           graph.parameters.gridDim.x == 32U &&
+           graph.parameters.gridDim.y == 1U &&
+           graph.parameters.gridDim.z == 1U &&
+           graph.parameters.blockDim.x == 512U &&
+           graph.parameters.blockDim.y == 1U &&
+           graph.parameters.blockDim.z == 1U &&
+           graph.parameters.sharedMemBytes == 0U;
+  };
+  const bool graph_gate =
+      graph_captured && topology_ok(gate_public_graph) &&
+      topology_ok(gate_scale6_graph) && topology_ok(down_public_graph) &&
+      topology_ok(down_scale6_graph) &&
+      gate_public_graph.parameters.func != gate_scale6_graph.parameters.func &&
+      down_public_graph.parameters.func != down_scale6_graph.parameters.func;
+  test.expect(graph_gate,
+              label + " captures distinct one-node 32x512 routes");
+  std::cout << "DECODE_SCALE6_GRAPH: gate_nodes=" << gate_scale6_graph.nodes
+            << " down_nodes=" << down_scale6_graph.nodes
+            << " topology=32x512 dynamic_shared=0 distinct="
+            << (graph_gate ? "true" : "false")
+            << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+  if (!graph_gate) {
+    return;
+  }
+
+  std::array<DeviceBuffer<std::uint8_t>, 3U> device_packed;
+  std::array<DeviceBuffer<std::uint8_t>, 3U> device_scales;
+  std::array<DeviceBuffer<std::uint8_t>, 3U> device_sidecar_storage;
+  for (std::size_t i = 0U; i < 3U; ++i) {
+    ready = ready && test.cuda_ok(device_packed[i].allocate(kPackedCount),
+                                  label + " allocate packed " +
+                                      std::to_string(i));
+    ready = ready && test.cuda_ok(device_scales[i].allocate(kScaleCount),
+                                  label + " allocate scales " +
+                                      std::to_string(i));
+    ready = ready && test.cuda_ok(
+                         device_sidecar_storage[i].allocate(
+                             kSidecarBytes + 2U * kSidecarGuardBytes),
+                         label + " allocate guarded sidecar " +
+                             std::to_string(i));
+  }
+  DeviceBuffer<std::uint16_t> gate_left;
+  DeviceBuffer<std::uint16_t> gate_right;
+  DeviceBuffer<std::uint16_t> gate_norm;
+  DeviceBuffer<std::uint16_t> down_activation;
+  DeviceBuffer<std::uint16_t> down_left;
+  DeviceBuffer<std::uint16_t> device_down_norm;
+  ready = ready && test.cuda_ok(gate_left.allocate(kGateColumns),
+                                label + " allocate gate left") &&
+          test.cuda_ok(gate_right.allocate(kGateColumns),
+                       label + " allocate gate right") &&
+          test.cuda_ok(gate_norm.allocate(kGateColumns),
+                       label + " allocate gate norm") &&
+          test.cuda_ok(down_activation.allocate(kDownColumns),
+                       label + " allocate down activation") &&
+          test.cuda_ok(down_left.allocate(kDownRows),
+                       label + " allocate down left") &&
+          test.cuda_ok(device_down_norm.allocate(kDownRows),
+                       label + " allocate down norm");
+  enum OutputIndex : std::size_t {
+    kGatePublicResidual,
+    kGatePublicOutput,
+    kGatePublicWorkspace,
+    kGateScale6Residual,
+    kGateScale6Output,
+    kGateScale6Workspace,
+    kDownPublicRaw,
+    kDownPublicResidual,
+    kDownPublicNorm,
+    kDownScale6Raw,
+    kDownScale6Residual,
+    kDownScale6Norm,
+    kOutputCount
+  };
+  const std::array<std::size_t, kOutputCount> output_counts{{
+      kGateColumns, kGateRows, kGateRows, kGateColumns, kGateRows, kGateRows,
+      kDownRows, kDownRows, kDownRows, kDownRows, kDownRows, kDownRows,
+  }};
+  constexpr std::array<int, kOutputCount> kOutputPoison{{
+      0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+      0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+  }};
+  std::array<DeviceBuffer<std::uint16_t>, kOutputCount> outputs;
+  for (std::size_t i = 0U; i < outputs.size(); ++i) {
+    ready = ready && test.cuda_ok(
+                         outputs[i].allocate(output_counts[i] +
+                                             2U * kOutputGuardElements),
+                         label + " allocate guarded output " +
+                             std::to_string(i));
+  }
+  if (!ready) {
+    return;
+  }
+  const auto output = [&](const std::size_t index) {
+    return outputs[index].get() + kOutputGuardElements;
+  };
+  const auto sidecar = [&](const std::size_t index) {
+    return device_sidecar_storage[index].get() + kSidecarGuardBytes;
+  };
+
+  std::vector<std::uint16_t> host_gate_left(kGateColumns);
+  std::vector<std::uint16_t> host_gate_right(kGateColumns);
+  std::vector<std::uint16_t> host_gate_norm(kGateColumns);
+  std::vector<std::uint16_t> host_down_activation(kDownColumns);
+  std::vector<std::uint16_t> host_down_left(kDownRows);
+  for (std::size_t i = 0U; i < kGateColumns; ++i) {
+    host_gate_left[i] = encode_bf16(
+        static_cast<float>(static_cast<int>((i * 31U + 3U) % 257U) - 128) /
+        256.0F);
+    host_gate_right[i] = encode_bf16(
+        static_cast<float>(static_cast<int>((i * 17U + 19U) % 241U) - 120) /
+        384.0F);
+    host_gate_norm[i] = encode_bf16(
+        static_cast<float>(static_cast<int>((i * 11U + 23U) % 97U) - 48) /
+        512.0F);
+  }
+  for (std::size_t i = 0U; i < kDownColumns; ++i) {
+    host_down_activation[i] = encode_bf16(
+        static_cast<float>(static_cast<int>((i * 19U + 11U) % 127U) - 63) /
+        256.0F);
+  }
+  for (std::size_t i = 0U; i < kDownRows; ++i) {
+    host_down_left[i] = encode_bf16(
+        static_cast<float>(static_cast<int>((i * 23U + 3U) % 257U) - 128) /
+        128.0F);
+  }
+  ready = test.cuda_ok(cudaMemcpyAsync(
+                           gate_left.get(), host_gate_left.data(),
+                           kGateColumns * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload gate left") &&
+          test.cuda_ok(cudaMemcpyAsync(
+                           gate_right.get(), host_gate_right.data(),
+                           kGateColumns * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload gate right") &&
+          test.cuda_ok(cudaMemcpyAsync(
+                           gate_norm.get(), host_gate_norm.data(),
+                           kGateColumns * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload gate norm") &&
+          test.cuda_ok(cudaMemcpyAsync(
+                           down_activation.get(), host_down_activation.data(),
+                           kDownColumns * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload down activation") &&
+          test.cuda_ok(cudaMemcpyAsync(
+                           down_left.get(), host_down_left.data(),
+                           kDownRows * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload down left") &&
+          test.cuda_ok(cudaMemcpyAsync(
+                           device_down_norm.get(), down_norm.data(),
+                           kDownRows * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload down norm") &&
+          test.cuda_ok(cudaStreamSynchronize(stream),
+                       label + " input upload synchronize");
+  if (!ready) {
+    return;
+  }
+
+  const auto launch_gate_public_to = [&](const std::size_t residual,
+                                         const std::size_t gate,
+                                         const std::size_t workspace) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+            device_packed[0U].get(), device_scales[0U].get(), scale2[0U],
+            device_packed[1U].get(), device_scales[1U].get(), scale2[1U],
+            gate_left.get(), gate_right.get(), gate_norm.get(), kEpsilon,
+            kGateRows, kGateColumns, output(residual), output(gate),
+            output(workspace), static_cast<void*>(stream));
+  };
+  const auto launch_gate_scale6_to = [&](const std::size_t residual,
+                                         const std::size_t gate,
+                                         const std::size_t workspace) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale6_test_cuda(
+            device_packed[0U].get(), sidecar(0U), expected_bases[0U],
+            scale2[0U], device_packed[1U].get(), sidecar(1U),
+            expected_bases[1U], scale2[1U], gate_left.get(), gate_right.get(),
+            gate_norm.get(), kEpsilon, kGateRows, kGateColumns,
+            output(residual), output(gate), output(workspace),
+            static_cast<void*>(stream));
+  };
+  const auto launch_down_public_to = [&](const std::size_t raw,
+                                         const std::size_t residual,
+                                         const std::size_t norm) noexcept {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+        device_packed[2U].get(), device_scales[2U].get(), scale2[2U],
+        down_activation.get(), down_left.get(), device_down_norm.get(),
+        kEpsilon, kDownRows, kDownColumns, output(raw), output(residual),
+        output(norm), static_cast<void*>(stream));
+  };
+  const auto launch_down_scale6_to = [&](const std::size_t raw,
+                                         const std::size_t residual,
+                                         const std::size_t norm) noexcept {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_test_cuda(
+        device_packed[2U].get(), sidecar(2U), expected_bases[2U], scale2[2U],
+        down_activation.get(), down_left.get(), device_down_norm.get(),
+        kEpsilon, kDownRows, kDownColumns, output(raw), output(residual),
+        output(norm), static_cast<void*>(stream));
+  };
+  const auto launch_gate_public = [&]() noexcept {
+    return launch_gate_public_to(kGateScale6Residual, kGateScale6Output,
+                                 kGateScale6Workspace);
+  };
+  const auto launch_gate_scale6 = [&]() noexcept {
+    return launch_gate_scale6_to(kGateScale6Residual, kGateScale6Output,
+                                 kGateScale6Workspace);
+  };
+  const auto launch_down_public = [&]() noexcept {
+    return launch_down_public_to(kDownScale6Raw, kDownScale6Residual,
+                                 kDownScale6Norm);
+  };
+  const auto launch_down_scale6 = [&]() noexcept {
+    return launch_down_scale6_to(kDownScale6Raw, kDownScale6Residual,
+                                 kDownScale6Norm);
+  };
+  NvFp4Scale6CapturedGraph gate_replay;
+  NvFp4Scale6CapturedGraph down_replay;
+  const bool replay_graph_gate =
+      capture_nvfp4_scale6_graph(test, stream, launch_gate_scale6, true,
+                                 label + " gate replay", gate_replay) &&
+      capture_nvfp4_scale6_graph(test, stream, launch_down_scale6, true,
+                                 label + " down replay", down_replay);
+  test.expect(replay_graph_gate, label + " instantiates candidate Graphs");
+  if (!replay_graph_gate) {
+    return;
+  }
+
+  struct Fixture {
+    const char* name;
+    const std::array<std::vector<std::uint8_t>, 3U>* packed;
+    const std::array<std::vector<std::uint8_t>, 3U>* scales;
+    const std::array<NvFp4Scale6HostSidecar, 3U>* sidecars;
+  };
+  const std::array<Fixture, 2U> fixtures{{
+      {"actual_checkpoint", &actual_packed, &actual_scales, &actual_sidecars},
+      {"valid_same_bank_stress", &stress_packed, &stress_scales,
+       &stress_sidecars},
+  }};
+  struct Timing {
+    bool gate = false;
+    float median_speedup = 0.0F;
+    float median_delta_ms = 0.0F;
+  };
+  std::array<std::array<Timing, 2U>, 2U> timings{};
+  std::array<bool, 2U> correctness{};
+  const auto benchmark = [&](const std::string& route, const auto& baseline,
+                             const auto& candidate) {
+    Timing result;
+    bool ok = true;
+    for (int i = 0; i < kWarmups && ok; ++i) {
+      ok = test.cuda_ok(static_cast<cudaError_t>(baseline()),
+                        label + " " + route + " baseline warmup") &&
+           test.cuda_ok(static_cast<cudaError_t>(candidate()),
+                        label + " " + route + " candidate warmup");
+    }
+    ok = ok && test.cuda_ok(cudaStreamSynchronize(stream),
+                            label + " " + route + " warmup sync");
+    const float prime_b1 = measure_small_m_tile(
+        test, stream, baseline, kIterations, label + " " + route + " prime B1");
+    const float prime_c1 = measure_small_m_tile(
+        test, stream, candidate, kIterations, label + " " + route + " prime C1");
+    const float prime_c2 = measure_small_m_tile(
+        test, stream, candidate, kIterations, label + " " + route + " prime C2");
+    const float prime_b2 = measure_small_m_tile(
+        test, stream, baseline, kIterations, label + " " + route + " prime B2");
+    ok = ok && std::isfinite(prime_b1) && std::isfinite(prime_c1) &&
+         std::isfinite(prime_c2) && std::isfinite(prime_b2);
+    std::array<float, kRounds> speedups{};
+    std::array<float, kRounds> deltas{};
+    bool every_round = ok;
+    for (int round = 0; round < kRounds; ++round) {
+      float b1 = 0.0F, b2 = 0.0F, c1 = 0.0F, c2 = 0.0F;
+      const bool baseline_outer = (round % 2) == 0;
+      const auto measure = [&](const auto& launch, const std::string& pass) {
+        return measure_small_m_tile(test, stream, launch, kIterations,
+                                    label + " " + route + " " + pass);
+      };
+      if (baseline_outer) {
+        b1 = measure(baseline, "B1"); c1 = measure(candidate, "C1");
+        c2 = measure(candidate, "C2"); b2 = measure(baseline, "B2");
+      } else {
+        c1 = measure(candidate, "C1"); b1 = measure(baseline, "B1");
+        b2 = measure(baseline, "B2"); c2 = measure(candidate, "C2");
+      }
+      speedups[round] = (b1 + b2) / (c1 + c2);
+      deltas[round] = 0.5F * ((b1 + b2) - (c1 + c2));
+      const bool round_gate = std::isfinite(speedups[round]) &&
+                              std::isfinite(deltas[round]) &&
+                              speedups[round] >= 1.0F;
+      every_round = every_round && round_gate;
+      std::cout << "PERF_DECODE_SCALE6_ROUND: route=" << route
+                << " round=" << round + 1 << " order="
+                << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+                << " b1_ms=" << b1 << " c1_ms=" << c1
+                << " c2_ms=" << c2 << " b2_ms=" << b2
+                << " speedup=" << speedups[round]
+                << " delta_ms=" << deltas[round]
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    result.median_speedup = median_fp8_kv_pair_timing(speedups);
+    result.median_delta_ms = median_fp8_kv_pair_timing(deltas);
+    result.gate = every_round && result.median_speedup >= 1.0F;
+    return result;
+  };
+
+  std::array<std::vector<std::uint16_t>, kOutputCount> observed_outputs;
+  for (std::size_t i = 0U; i < observed_outputs.size(); ++i) {
+    observed_outputs[i].resize(output_counts[i] + 2U * kOutputGuardElements);
+  }
+  const auto copy_outputs = [&]() {
+    bool ok = true;
+    for (std::size_t i = 0U; i < outputs.size(); ++i) {
+      ok = test.cuda_ok(cudaMemcpyAsync(
+                            observed_outputs[i].data(), outputs[i].get(),
+                            observed_outputs[i].size() * sizeof(std::uint16_t),
+                            cudaMemcpyDeviceToHost, stream),
+                        label + " copy output " + std::to_string(i)) &&
+           ok;
+    }
+    return ok && test.cuda_ok(cudaStreamSynchronize(stream),
+                              label + " output copy synchronize");
+  };
+  const auto poison_outputs = [&](const bool candidate_only) {
+    bool ok = true;
+    for (std::size_t i = 0U; i < outputs.size(); ++i) {
+      const bool candidate = (i >= kGateScale6Residual &&
+                              i <= kGateScale6Workspace) ||
+                             i >= kDownScale6Raw;
+      if (!candidate_only || candidate) {
+        ok = test.cuda_ok(cudaMemsetAsync(
+                              outputs[i].get(), kOutputPoison[i],
+                              observed_outputs[i].size() *
+                                  sizeof(std::uint16_t),
+                              stream),
+                          label + " poison output " + std::to_string(i)) &&
+             ok;
+      }
+    }
+    return ok;
+  };
+  const auto mismatch_count = [&](const std::size_t expected,
+                                  const std::size_t actual) {
+    std::size_t mismatches = 0U;
+    for (std::size_t i = 0U; i < output_counts[expected]; ++i) {
+      mismatches += observed_outputs[expected][kOutputGuardElements + i] !=
+                    observed_outputs[actual][kOutputGuardElements + i];
+    }
+    return mismatches;
+  };
+  const auto guards_intact = [&](const std::size_t index) {
+    const std::uint16_t canary = static_cast<std::uint16_t>(
+        static_cast<unsigned int>(kOutputPoison[index]) * 0x0101U);
+    for (std::size_t i = 0U; i < kOutputGuardElements; ++i) {
+      if (observed_outputs[index][i] != canary ||
+          observed_outputs[index][kOutputGuardElements +
+                                  output_counts[index] + i] != canary) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  for (std::size_t fixture_index = 0U; fixture_index < fixtures.size();
+       ++fixture_index) {
+    const Fixture& fixture = fixtures[fixture_index];
+    const std::string fixture_label = fixture.name;
+    ready = true;
+    for (std::size_t i = 0U; i < 3U; ++i) {
+      ready = test.cuda_ok(cudaMemcpyAsync(
+                               device_packed[i].get(),
+                               (*fixture.packed)[i].data(), kPackedCount,
+                               cudaMemcpyHostToDevice, stream),
+                           label + " upload " + fixture_label + " packed") &&
+              ready;
+      ready = test.cuda_ok(cudaMemcpyAsync(
+                               device_scales[i].get(),
+                               (*fixture.scales)[i].data(), kScaleCount,
+                               cudaMemcpyHostToDevice, stream),
+                           label + " upload " + fixture_label + " scales") &&
+              ready;
+      ready = test.cuda_ok(cudaMemsetAsync(
+                               device_sidecar_storage[i].get(), 0xd0 + i,
+                               kSidecarBytes + 2U * kSidecarGuardBytes,
+                               stream),
+                           label + " poison " + fixture_label + " sidecar") &&
+              ready;
+      ready = test.cuda_ok(cudaMemcpyAsync(
+                               sidecar(i),
+                               (*fixture.sidecars)[i].bytes.data(),
+                               kSidecarBytes, cudaMemcpyHostToDevice, stream),
+                           label + " upload " + fixture_label + " sidecar") &&
+              ready;
+    }
+    ready = ready && poison_outputs(false) &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_gate_public_to(
+                             kGatePublicResidual, kGatePublicOutput,
+                             kGatePublicWorkspace)),
+                         label + " " + fixture_label + " gate public") &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_gate_scale6()),
+                         label + " " + fixture_label + " gate scale6") &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_down_public_to(
+                             kDownPublicRaw, kDownPublicResidual,
+                             kDownPublicNorm)),
+                         label + " " + fixture_label + " down public") &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_down_scale6()),
+                         label + " " + fixture_label + " down scale6") &&
+            test.cuda_ok(cudaStreamSynchronize(stream),
+                         label + " " + fixture_label + " direct sync") &&
+            copy_outputs();
+    if (!ready) {
+      return;
+    }
+    const std::size_t direct_mismatches =
+        mismatch_count(kGatePublicResidual, kGateScale6Residual) +
+        mismatch_count(kGatePublicOutput, kGateScale6Output) +
+        mismatch_count(kDownPublicRaw, kDownScale6Raw) +
+        mismatch_count(kDownPublicResidual, kDownScale6Residual) +
+        mismatch_count(kDownPublicNorm, kDownScale6Norm);
+    const auto direct_outputs = observed_outputs;
+    ready = poison_outputs(true) &&
+            test.cuda_ok(cudaGraphLaunch(gate_replay.executable, stream),
+                         label + " " + fixture_label + " gate replay") &&
+            test.cuda_ok(cudaGraphLaunch(down_replay.executable, stream),
+                         label + " " + fixture_label + " down replay") &&
+            copy_outputs();
+    std::size_t replay_mismatches = 0U;
+    bool guards = true;
+    bool finite = true;
+    for (std::size_t i = 0U; i < outputs.size(); ++i) {
+      guards = guards && guards_intact(i);
+      const bool candidate = (i >= kGateScale6Residual &&
+                              i <= kGateScale6Workspace) ||
+                             i >= kDownScale6Raw;
+      if (candidate && i != kGateScale6Workspace) {
+        for (std::size_t j = 0U; j < output_counts[i]; ++j) {
+          const std::size_t guarded = kOutputGuardElements + j;
+          replay_mismatches += direct_outputs[i][guarded] !=
+                               observed_outputs[i][guarded];
+          finite = finite && is_bf16_finite(observed_outputs[i][guarded]);
+        }
+      }
+    }
+    const auto workspace_untouched = [&](const std::size_t index,
+                                         const auto& values) {
+      const std::uint16_t canary = static_cast<std::uint16_t>(
+          static_cast<unsigned int>(kOutputPoison[index]) * 0x0101U);
+      return std::all_of(values[index].begin(), values[index].end(),
+                         [canary](const std::uint16_t value) {
+                           return value == canary;
+                         });
+    };
+    const bool workspaces_untouched =
+        workspace_untouched(kGatePublicWorkspace, direct_outputs) &&
+        workspace_untouched(kGateScale6Workspace, direct_outputs) &&
+        workspace_untouched(kGateScale6Workspace, observed_outputs);
+    bool sidecars_immutable = ready;
+    for (std::size_t i = 0U; i < 3U; ++i) {
+      std::vector<std::uint8_t> observed(kSidecarBytes +
+                                         2U * kSidecarGuardBytes);
+      sidecars_immutable =
+          test.cuda_ok(cudaMemcpy(observed.data(),
+                                  device_sidecar_storage[i].get(),
+                                  observed.size(), cudaMemcpyDeviceToHost),
+                       label + " copy guarded sidecar") &&
+          sidecars_immutable;
+      const std::uint8_t canary = static_cast<std::uint8_t>(0xd0U + i);
+      sidecars_immutable =
+          sidecars_immutable &&
+          std::all_of(observed.begin(),
+                      observed.begin() + kSidecarGuardBytes,
+                      [canary](const std::uint8_t value) {
+                        return value == canary;
+                      }) &&
+          std::equal((*fixture.sidecars)[i].bytes.begin(),
+                     (*fixture.sidecars)[i].bytes.end(),
+                     observed.begin() + kSidecarGuardBytes) &&
+          std::all_of(observed.end() - kSidecarGuardBytes, observed.end(),
+                      [canary](const std::uint8_t value) {
+                        return value == canary;
+                      });
+    }
+    correctness[fixture_index] = ready && direct_mismatches == 0U &&
+                                 replay_mismatches == 0U && guards && finite &&
+                                 workspaces_untouched && sidecars_immutable;
+    test.expect(correctness[fixture_index],
+                label + " " + fixture_label +
+                    " bitwise/Graph/guards/immutability");
+    std::cout << "DECODE_SCALE6_DIFF: fixture=" << fixture_label
+              << " direct_mismatches=" << direct_mismatches
+              << " replay_mismatches=" << replay_mismatches
+              << " finite=" << (finite ? "true" : "false")
+              << " guards=" << (guards ? "intact" : "BAD")
+              << " sidecars_immutable="
+              << (sidecars_immutable ? "true" : "false")
+              << " dead_up_untouched="
+              << (workspaces_untouched ? "true" : "false")
+              << " gate="
+              << (correctness[fixture_index] ? "PASS" : "FAIL") << '\n';
+    if (!correctness[fixture_index]) {
+      return;
+    }
+    timings[fixture_index][0U] = benchmark(
+        fixture_label + "/gate", launch_gate_public, launch_gate_scale6);
+    timings[fixture_index][1U] = benchmark(
+        fixture_label + "/down", launch_down_public, launch_down_scale6);
+  }
+
+  const float combined_projected_saving_ms =
+      static_cast<float>(kEligibleGateUpLayers) *
+          timings[0U][0U].median_delta_ms +
+      static_cast<float>(kEligibleDownLayers) *
+          timings[0U][1U].median_delta_ms;
+  const bool selection_gate =
+      correctness[0U] && correctness[1U] && timings[0U][0U].gate &&
+      timings[0U][1U].gate && timings[1U][0U].gate &&
+      timings[1U][1U].gate && std::isfinite(combined_projected_saving_ms) &&
+      combined_projected_saving_ms >= kRequiredProjectedSavingMs;
+  test.expect(selection_gate,
+              label + " clears mixed-model projected 0.5 ms/token gate");
+  std::cout << "PERF_DECODE_SCALE6_SELECTED: baseline=current_public_cs"
+            << " candidate=test_only_scale6"
+            << " actual_gate_speedup=" << timings[0U][0U].median_speedup
+            << " actual_down_speedup=" << timings[0U][1U].median_speedup
+            << " stress_gate_speedup=" << timings[1U][0U].median_speedup
+            << " stress_down_speedup=" << timings[1U][1U].median_speedup
+            << " projected_full_model_mixed_delta_ms="
+            << combined_projected_saving_ms
+            << " gate_up_layers=" << kEligibleGateUpLayers
+            << " scale6_down_layers=" << kEligibleDownLayers
+            << " canonical_down_fallback_layers="
+            << 64U - kEligibleDownLayers
+            << " required_projected_delta_ms="
+            << kRequiredProjectedSavingMs
+            << " every_route_fixture_round_nonregression=true"
+            << " timing_outputs=shared_candidate_buffers"
+            << " pack_h2d_graph_setup=outside_cuda_events"
+            << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
+}
+
 }  // namespace
 
 int main() {
@@ -42032,6 +43233,18 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (decode_nvfp4_scale6_sidecar_performance_enabled()) {
+    run_optional_nvfp4_m1_scale6_sidecar_closeout(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode scale6 sidecar stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode scale6 sidecar assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode scale6 sidecar screen passed\n";
+    return 0;
   }
   if (decode_down_cs_performance_enabled()) {
     run_optional_nvfp4_m1_down_residual_norm_cs_closeout(test, stream);
