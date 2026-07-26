@@ -6249,3 +6249,75 @@ isolated arithmetic projection, not achieved Decode latency. Production memory
 does not include the table, and the hot single-request anchor remains
 **106.763000 ms/token and 9.366540843 token/s**. Full evidence and per-round
 values are in the [machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection.json).
+
+## Rejected Decode NVFP4 LM-head RP2 schedule-major AoSoA2 P1
+
+This actual-first P1 evaluates a materially different, test-only LM-head row-
+pair schedule. The production baseline remains the public activation-staged
+NVFP4 `[248320,5120]` route over canonical weights and scales. The RP2
+candidate assigns 640 persistent warp owners across an `80x256` launch; each
+owner processes 194 logical row pairs. Same-size sidecars place the two rows'
+packed U32 words into one U64 and their U8 block scales into one U16 in owner-
+major execution order. The candidate retains the production arithmetic,
+reduction, scale2, BF16-RNE boundary, launch count, output address, and stream.
+
+The formal Release binary is
+`/tmp/q3x-lmhead-rp2-build/q3x_sm87_weight_only_gemv_test`, 7,612,176 bytes
+with SHA-256
+`d590c818c88acaae225247f11d6c01ebe4389d97bd3383d9b590c218946bf912`.
+The 19-line, 5,137-byte P1 log is `/tmp/q3x-lmhead-rp2.P1.log`, with SHA-256
+`496dac50cfd28dc8658c79a288b370976479d6b93369686a9eb5f74b680d8464`.
+It uses the pinned shard-3 LM-head payload: the 635,699,200-byte weight tensor
+hashes to
+`746c1d13e9cf69bfca6f5901a7dec5a7f2b252359696644a1ee55953b9680205`,
+and the 79,462,400-byte scale tensor hashes to
+`e20faadf62bd2b3bf88f2fc9fbf4f42462fdfdd0f4bc9f23d7eaabcc1b697f9b`.
+
+Every non-performance gate passes. The candidate stays within its frozen
+resource envelope:
+
+| Route | Grid/block | Registers/thread | Static shared | Local memory | Active CTAs/SM |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Production activation-staged baseline | `64x256` | 64 | 11,328 B | 0 B | 4 |
+| RP2 schedule-major AoSoA2 candidate | `80x256` | 48 | 11,328 B | 0 B | 5 |
+
+The host independently checks every byte of both sidecars. Weight and scale
+sidecar mismatch counts are respectively 0/635,699,200 and 0/79,462,400;
+their hashes are
+`f9c34ee54183745de53049ef24126a7910542b06ab2b9d9e043cb8a6727b5515`
+and
+`d9e1b57d53a9ddb6684eca803a00728448b734c0b2b96d7461101ed588c0b8f7`.
+The valid candidate captures exactly one `80x256` Graph node, while all 18
+candidate-invalid and 18 pack-invalid/alias cases capture zero nodes. Direct
+candidate and Graph replay outputs both match all 248,320 production BF16
+outputs bitwise. Outputs are finite, guards pass, canonical inputs and both
+sidecars remain immutable, and injected positive/negative E4M3FN NaN codes
+`0x7f` and `0xff` also match all 248,320 baseline outputs bitwise.
+
+The formal process uses ten warmup pairs and five 64-launch paired rounds,
+alternating `B-C-C-B` and `C-B-B-C`. Frozen gates require at least 1.075x
+actual-checkpoint speedup, at least 0.30 ms saved by the once-per-token LM-head
+call, and strict improvement in every round:
+
+| Round | Order | Baseline 1 | Candidate 1 | Candidate 2 | Baseline 2 | Paired speedup | Paired delta | Result |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | B-C-C-B | 5.20994 ms | 4.77344 ms | 4.76840 ms | 4.63467 ms | 1.03173x | +0.151387 ms | pass |
+| 2 | C-B-B-C | 4.83678 ms | 4.77307 ms | 4.78875 ms | 5.34279 ms | 1.06461x | +0.308878 ms | pass |
+| 3 | B-C-C-B | 4.87976 ms | 4.77362 ms | 4.74771 ms | 4.38912 ms | 0.973487x | -0.126222 ms | fail |
+| 4 | C-B-B-C | 4.39591 ms | 4.74684 ms | 4.74627 ms | 4.74935 ms | 0.963360x | -0.173916 ms | fail |
+| 5 | B-C-C-B | 4.38951 ms | 4.74649 ms | 4.74739 ms | 4.38924 ms | 0.924675x | -0.357563 ms | fail |
+
+Only two of five rounds improve. Baseline and candidate pass medians are
+4.69201 and 4.75805 ms, while the authoritative median of the paired-round
+statistics is **0.973487x** and **-0.126222 ms/token**. These pass medians and
+paired medians are distinct statistics. The negative paired result misses both
+the 1.075x relative gate and the +0.30-ms absolute gate, and three reversals
+fail the every-round requirement.
+
+First-process stop-loss therefore rejects this exact RP2 schedule and sidecar
+layout as a performance failure, not a resource or correctness failure.
+Same-bank stress, P2, P3, model oracles, full-model timing, profiling, and
+production integration were not run. Production allocates neither sidecar;
+dispatch, runtime, ABI, Prefill, and the hot single-request Decode anchor remain
+unchanged at **106.763000 ms/token and 9.366540843 token/s**. Full evidence is
+in the [machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json).

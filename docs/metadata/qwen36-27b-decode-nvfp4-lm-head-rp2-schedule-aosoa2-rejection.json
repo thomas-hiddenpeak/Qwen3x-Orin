@@ -1,0 +1,403 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection",
+  "status": "rejected-test-only-decode-nvfp4-lm-head-rp2-schedule-aosoa2-p1",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "e568ec2ddd0c95d6e12698fc628f1d9c7a3aa7ea",
+    "base_tree": "aa2a4a2ab90c452332fe5e5941dc7775ad965bfd",
+    "base_subject": "bench: reject Decode gate-up SiLU lookup",
+    "branch": "experiment/lmhead-rp2",
+    "candidate_commit": null,
+    "candidate_scope": "uncommitted test-only exact-shape RP2 schedule-major AoSoA2 packer, LM-head kernel, resource query, and actual-first same-binary P1 harness in an isolated worktree",
+    "kernel_source_base_blob": "13a9d4ff696e099f2695e2ed75be424f0ab49084",
+    "kernel_source_candidate_blob": "609053e95ee26f24bf841026120acd65c9fe0733",
+    "cuda_test_base_blob": "686bf61c63a72db68f60b68cce72feac6224c7a3",
+    "cuda_test_candidate_blob": "2f695459bacc162a4453654fe8a13adfa3695083",
+    "candidate_diff": {
+      "kernel_source_insertions": 377,
+      "kernel_source_deletions": 0,
+      "cuda_test_insertions": 1817,
+      "cuda_test_deletions": 0
+    },
+    "candidate_retained_in_isolated_worktree": true,
+    "candidate_reachable_from_production": false,
+    "production_dispatch_changed": false,
+    "production_runner_changed": false,
+    "public_abi_changed": false,
+    "prefill_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "related_records": {
+    "current_production_anchor": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "prior_lm_head_cache_policy_rejection": "qwen36-27b-decode-nvfp4-lm-head-streaming-rejection.json",
+    "preceding_p1_rejection": "qwen36-27b-decode-nvfp4-m1-gate-up-silu-fp32-table-rejection.json"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 6.763000,
+    "remaining_tokens_per_second": 0.633459157,
+    "target_met": false,
+    "anchor_changed_by_this_candidate": false
+  },
+  "candidate": {
+    "name": "LM-head RP2 schedule-major AoSoA2 row-pair sidecars",
+    "phase": "Decode",
+    "token_count": 1,
+    "shape_n_by_k": [248320, 5120],
+    "calls_per_token": 1,
+    "baseline": "current public production activation-staged NVFP4 LM-head route over canonical packed weights and block scales",
+    "test_only_change": "Reorder adjacent logical row pairs into persistent-owner schedule order so one warp consumes interleaved U64 weight words and U16 scale pairs while producing two rows per iteration.",
+    "schedule": {
+      "grid_blocks": 80,
+      "threads_per_block": 256,
+      "warps_per_block": 8,
+      "persistent_owners": 640,
+      "iterations_per_owner": 194,
+      "rows_per_iteration": 2,
+      "logical_rows_covered": 248320,
+      "weight_element": "U64: low U32 is row0, high U32 is row1 for the same packed-word column",
+      "scale_element": "U16: low U8 is row0, high U8 is row1 for the same scale column"
+    },
+    "sidecars": {
+      "weight_bytes": 635699200,
+      "scale_bytes": 79462400,
+      "total_bytes": 715161600,
+      "total_gib": 0.666046143,
+      "same_total_encoded_bytes_as_canonical_payload": true,
+      "canonical_payload_retained_by_candidate_screen": true,
+      "production_memory_increase_bytes": 0
+    },
+    "unchanged_contract": [
+      "the exact checkpoint weight, block-scale, and scale2 encodings",
+      "the staged 5,120-element BF16 activation",
+      "four FP32 accumulator chains and phase/half/value order for each row",
+      "warp reduction, scale2 multiplication, and BF16-RNE output publication",
+      "one kernel launch on the same nonblocking stream and the same output address",
+      "all production dispatch, runner, Prefill, ABI, model-loader, and arena behavior"
+    ],
+    "environment_variable": "Q3X_RUN_SM87_DECODE_NVFP4_LM_HEAD_RP2_PERF",
+    "production_status": "not promoted"
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "compute_capability": "8.7",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "request_concurrency": 1,
+    "streams": 1,
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_process": true,
+    "baseline_and_candidate_same_stream": true,
+    "clock_readback_in_formal_log": false,
+    "measurement_scope": "one same-binary isolated LM-head P1 process"
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors",
+    "file_bytes": 1970287640,
+    "safetensors_header_bytes": 7096,
+    "safetensors_data_base": 7104,
+    "weight": {
+      "tensor": "lm_head.weight",
+      "absolute_offset": 1067201560,
+      "bytes": 635699200,
+      "sha256": "746c1d13e9cf69bfca6f5901a7dec5a7f2b252359696644a1ee55953b9680205"
+    },
+    "block_scales": {
+      "tensor": "lm_head.weight_scale",
+      "absolute_offset": 849458200,
+      "bytes": 79462400,
+      "sha256": "e20faadf62bd2b3bf88f2fc9fbf4f42462fdfdd0f4bc9f23d7eaabcc1b697f9b"
+    },
+    "weight_scale_2": {
+      "tensor": "lm_head.weight_scale_2",
+      "absolute_offset": 7108,
+      "bytes": 4,
+      "little_endian_bits_decimal": 957200092,
+      "little_endian_bits_hex": "0x390db6dc",
+      "decoded_float": 0.000135149
+    },
+    "payload_hash_gate": "pass",
+    "activation": "deterministic synthetic BF16 fixture shared by baseline and candidate"
+  },
+  "layout_pack": {
+    "mapping": "destination pair owner*194+iteration maps to canonical logical pair iteration*640+owner; each sidecar element interleaves row0 and row1 for one K word/scale column",
+    "validation_scope": "every byte of both actual-checkpoint sidecars compared against an independent host mapping",
+    "actual_checkpoint": {
+      "weight_sidecar": {
+        "bytes": 635699200,
+        "mismatched_bytes": 0,
+        "observed_sha256": "f9c34ee54183745de53049ef24126a7910542b06ab2b9d9e043cb8a6727b5515",
+        "expected_sha256": "f9c34ee54183745de53049ef24126a7910542b06ab2b9d9e043cb8a6727b5515"
+      },
+      "scale_sidecar": {
+        "bytes": 79462400,
+        "mismatched_bytes": 0,
+        "observed_sha256": "d9e1b57d53a9ddb6684eca803a00728448b734c0b2b96d7461101ed588c0b8f7",
+        "expected_sha256": "d9e1b57d53a9ddb6684eca803a00728448b734c0b2b96d7461101ed588c0b8f7"
+      },
+      "gate": "pass"
+    },
+    "pack_invalid_zero_node": {
+      "cases": 18,
+      "coverage": "near-miss shapes, null pointers, required canonical/output alignment, all input/output and output/output aliases, and overflowing ranges",
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes": 0,
+      "stream_clean": true,
+      "gate": "pass"
+    }
+  },
+  "resources": {
+    "production_baseline_from_frozen_lm_head_record": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4
+    },
+    "candidate": {
+      "grid_blocks": 80,
+      "threads_per_block": 256,
+      "registers_per_thread": 48,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 5,
+      "null_query_rejected": true
+    },
+    "frozen_candidate_gate": {
+      "threads_per_block_exactly": 256,
+      "registers_per_thread_at_most": 51,
+      "static_shared_bytes_exactly": 11328,
+      "local_bytes_exactly": 0,
+      "active_blocks_per_sm_at_least": 5
+    },
+    "gate": "pass"
+  },
+  "correctness_and_contract": {
+    "fake_pointer_cuda_graph": {
+      "launch_status": 0,
+      "candidate_nodes": 1,
+      "grid": [80, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "candidate_invalid_zero_node": {
+      "cases": 18,
+      "coverage": "near-miss shapes, null pointers, negative/NaN/Inf scale2, required alignments, aliases, and overflowing ranges",
+      "all_status_cuda_error_invalid_value": true,
+      "captured_nodes": 0,
+      "stream_clean": true,
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "candidate_mismatches": "0/248320",
+      "candidate_graph_replay_mismatches": "0/248320",
+      "outputs_finite": true,
+      "output_guards": "pass",
+      "canonical_inputs_and_sidecars_immutable": true,
+      "graph_nodes": 1,
+      "graph_root_nodes": 1,
+      "graph_grid": [80, 1, 1],
+      "graph_block": [256, 1, 1],
+      "graph_dynamic_shared_bytes": 0,
+      "gate": "pass"
+    },
+    "signed_nan": [
+      {
+        "scale_code": "0x7f",
+        "candidate_mismatches": "0/248320",
+        "baseline_row0_is_nan": true,
+        "candidate_row0_is_nan": true,
+        "injected_codes_immutable": true,
+        "gate": "pass"
+      },
+      {
+        "scale_code": "0xff",
+        "candidate_mismatches": "0/248320",
+        "baseline_row0_is_nan": true,
+        "candidate_row0_is_nan": true,
+        "injected_codes_immutable": true,
+        "gate": "pass"
+      }
+    ],
+    "resources_mapping_graph_invalid_finite_guards_immutability_and_nan_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "actual_checkpoint_first": true,
+    "same_binary": true,
+    "same_process": true,
+    "same_nonblocking_stream": true,
+    "shared_timing_output_address": true,
+    "warmup_pairs": 10,
+    "measured_launches_per_pass": 64,
+    "rounds": 5,
+    "round_order": [
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B"
+    ],
+    "frozen_gates": {
+      "actual_paired_median_speedup_at_least": 1.075,
+      "actual_absolute_paired_median_delta_ms_at_least": 0.30,
+      "each_round_speedup_strictly_greater_than": 1.0,
+      "stress_paired_median_speedup_at_least": 1.0
+    },
+    "stop_loss": "Stop after the first actual-checkpoint process if any actual performance gate fails; do not run stress, P2, P3, model, or production work."
+  },
+  "formal_first_process": {
+    "actual_checkpoint": {
+      "rounds": [
+        {
+          "round": 1,
+          "order": "B-C-C-B",
+          "baseline1_ms": 5.20994,
+          "candidate1_ms": 4.77344,
+          "candidate2_ms": 4.7684,
+          "baseline2_ms": 4.63467,
+          "paired_speedup": 1.03173,
+          "paired_delta_ms": 0.151387,
+          "gate": "pass"
+        },
+        {
+          "round": 2,
+          "order": "C-B-B-C",
+          "baseline1_ms": 4.83678,
+          "candidate1_ms": 4.77307,
+          "candidate2_ms": 4.78875,
+          "baseline2_ms": 5.34279,
+          "paired_speedup": 1.06461,
+          "paired_delta_ms": 0.308878,
+          "gate": "pass"
+        },
+        {
+          "round": 3,
+          "order": "B-C-C-B",
+          "baseline1_ms": 4.87976,
+          "candidate1_ms": 4.77362,
+          "candidate2_ms": 4.74771,
+          "baseline2_ms": 4.38912,
+          "paired_speedup": 0.973487,
+          "paired_delta_ms": -0.126222,
+          "gate": "fail"
+        },
+        {
+          "round": 4,
+          "order": "C-B-B-C",
+          "baseline1_ms": 4.39591,
+          "candidate1_ms": 4.74684,
+          "candidate2_ms": 4.74627,
+          "baseline2_ms": 4.74935,
+          "paired_speedup": 0.96336,
+          "paired_delta_ms": -0.173916,
+          "gate": "fail"
+        },
+        {
+          "round": 5,
+          "order": "B-C-C-B",
+          "baseline1_ms": 4.38951,
+          "candidate1_ms": 4.74649,
+          "candidate2_ms": 4.74739,
+          "baseline2_ms": 4.38924,
+          "paired_speedup": 0.924675,
+          "paired_delta_ms": -0.357563,
+          "gate": "fail"
+        }
+      ],
+      "baseline_pass_median_ms": 4.69201,
+      "candidate_pass_median_ms": 4.75805,
+      "paired_median_speedup": 0.973487,
+      "paired_median_delta_ms_per_token": -0.126222,
+      "rounds_strictly_improving": "2/5",
+      "rounds_regressing": "3/5",
+      "relative_speedup_gate": "fail",
+      "absolute_delta_gate": "fail",
+      "every_round_gate": "fail",
+      "overall_gate": "fail"
+    },
+    "same_bank_stress": "not_run_after_actual_stop_loss",
+    "p2": "not_run_after_actual_stop_loss",
+    "p3": "not_run_after_actual_stop_loss",
+    "model": "not_run_after_actual_stop_loss"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "All non-performance gates passed, but only two of five actual-checkpoint rounds improved. The paired median was 0.973487x with a -0.126222-ms once-per-token LM-head delta, missing the frozen 1.075x, +0.30-ms, and every-round gates.",
+    "stress_timing_run": false,
+    "p2_run": false,
+    "p3_run": false,
+    "model_oracle_run": false,
+    "full_model_end_to_end_run": false,
+    "nsight_systems_run": false,
+    "production_integration_attempted": false,
+    "decision": "reject the exact RP2 schedule-major AoSoA2 row-pair sidecar mechanism at P1"
+  },
+  "decision": {
+    "result": "reject",
+    "classification": "performance-gate rejection; resource, mapping, Graph, invalid-contract, bitwise, finite, guard, immutability, and signed-NaN gates all pass",
+    "closed_scope": "The exact 80x256 persistent-owner RP2 kernel with same-size schedule-major U64/U16 AoSoA2 row-pair sidecars for the 248320x5120 Decode LM head.",
+    "reason": "The candidate is slower by the paired median and reverses direction in three of five actual rounds; it provides no evidence for the required 0.30-ms/token contribution.",
+    "candidate_remains_test_only": true,
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "reopen_when": "Only with a materially different LM-head mechanism and new source/profile evidence supporting at least 0.30 ms/token; do not repeat this exact row-pair schedule and sidecar layout."
+  },
+  "validation": {
+    "release_candidate_target_build": "pass",
+    "formal_opt_in_process_exit_code": 1,
+    "formal_opt_in_process_exit_interpretation": "expected nonzero exit because the frozen actual performance gate failed",
+    "terminal_line": "1 Decode NVFP4 LM-head RP2 P1 assertion(s) failed"
+  },
+  "production_impact": {
+    "candidate_promoted": false,
+    "production_dispatch_unchanged": true,
+    "production_runner_unchanged": true,
+    "production_abi_unchanged": true,
+    "production_memory_increase_bytes": 0,
+    "production_launch_count_changed": false,
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 106.763000,
+    "formal_anchor_tokens_per_second": 9.366540843,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "formal_binary": {
+      "local_path": "/tmp/q3x-lmhead-rp2-build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7612176,
+      "sha256": "d590c818c88acaae225247f11d6c01ebe4389d97bd3383d9b590c218946bf912",
+      "elf_build_id": "18c40a70acda55f076f63b73859e27dfd00ea5c9",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-lmhead-rp2.P1.log",
+      "bytes": 5137,
+      "lines": 19,
+      "sha256": "496dac50cfd28dc8658c79a288b370976479d6b93369686a9eb5f74b680d8464",
+      "exit_code": 1,
+      "terminal_line": "1 Decode NVFP4 LM-head RP2 P1 assertion(s) failed",
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_SM87_DECODE_NVFP4_LM_HEAD_RP2_PERF=1 Q3X_NVFP4_M1_LM_HEAD_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00003-of-00003.safetensors /tmp/q3x-lmhead-rp2-build/q3x_sm87_weight_only_gemv_test"
+  },
+  "claim_limits": [
+    "This is a one-process isolated once-per-token LM-head P1 rejection on one Orin, not an achieved end-to-end Decode, TTFT, serving-throughput, power, or cross-device result.",
+    "The -0.126222-ms value is the median paired-round difference for one LM-head call and is not subtracted from the 106.763000-ms/token production anchor.",
+    "The baseline and candidate pass medians are separate statistics from the median of the five paired-round speedups and deltas.",
+    "No formal clock readback is present in the retained P1 log; same-binary paired ordering is the available noise control.",
+    "Stress, P2, P3, model oracles, end-to-end timing, Nsys, NCU, and production integration were intentionally skipped after first-process stop-loss.",
+    "The candidate sidecars exist only in the isolated test process; production memory, loader behavior, dispatch, runtime, and the 106.763000-ms/token / 9.366540843-token/s anchor remain unchanged."
+  ]
+}

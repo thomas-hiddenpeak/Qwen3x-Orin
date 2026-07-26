@@ -1107,6 +1107,22 @@ production and the **106.763000 ms/token / 9.366540843 token/s** anchor remain
 unchanged. Do not reopen the same global exact-BF16 lookup without a materially
 different mechanism and a credible at-least-0.30-ms/token ceiling.
 
+The exact-shape LM-head RP2 schedule-major AoSoA2 candidate is now rejected by
+the same actual-first P1 discipline. Its `80x256` persistent-owner kernel and
+same-size U64/U16 row-pair sidecars pass the <=51-register, 11,328-byte shared,
+zero-local, five-CTA/SM resource gate; every sidecar byte maps exactly; all
+248,320 direct and Graph-replay BF16 outputs match the public activation-staged
+baseline; guards, input/sidecar immutability, invalid zero-node cases, and both
+`0x7f`/`0xff` signed-NaN fixtures pass. Performance does not: production and
+candidate pass medians are 4.69201/4.75805 ms, the paired median is
+**0.973487x** with a **-0.126222-ms/token** delta, and only 2/5 rounds improve
+against the frozen 1.075x, +0.30-ms, every-round gate. Stop-loss skips stress,
+P2/P3, model, profiling, and integration. Production remains unchanged and the
+formal anchor stays **106.763000 ms/token / 9.366540843 token/s**. Do not repeat
+this exact RP2 schedule/layout without a materially different mechanism and a
+credible >=0.30-ms/token ceiling. See the
+[RP2 rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json).
+
 Reorder the next priority from the latest production profile instead of
 prespecifying an implementation. Screen structural Decode candidates with a
 credible **at least 0.3--0.5 ms/token** contribution first, and advance to a

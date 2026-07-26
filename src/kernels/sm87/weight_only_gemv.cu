@@ -108,6 +108,26 @@ constexpr std::size_t kNvFp4VectorValuesPerLane =
     kNvFp4VectorPackedBytesPerLane * kNvFp4ValuesPerByte;
 constexpr std::size_t kNvFp4VectorColumnsPerWarp =
     kWarpSize * kNvFp4VectorValuesPerLane;
+constexpr std::size_t kNvFp4LmHeadRp2Rows = 248'320U;
+constexpr std::size_t kNvFp4LmHeadRp2Columns = 5'120U;
+constexpr unsigned int kNvFp4LmHeadRp2Blocks = 80U;
+constexpr unsigned int kNvFp4LmHeadRp2Owners =
+    kNvFp4LmHeadRp2Blocks * kWarpsPerBlock;
+constexpr unsigned int kNvFp4LmHeadRp2Iterations = 194U;
+constexpr std::size_t kNvFp4LmHeadRp2PackedWordsPerRow =
+    kNvFp4LmHeadRp2Columns /
+    (kNvFp4ValuesPerByte * sizeof(std::uint32_t));
+constexpr std::size_t kNvFp4LmHeadRp2ScaleColumns =
+    kNvFp4LmHeadRp2Columns / kNvFp4GroupSize;
+constexpr std::size_t kNvFp4LmHeadRp2WeightBytes =
+    kNvFp4LmHeadRp2Rows *
+    (kNvFp4LmHeadRp2Columns / kNvFp4ValuesPerByte);
+constexpr std::size_t kNvFp4LmHeadRp2ScaleBytes =
+    kNvFp4LmHeadRp2Rows * kNvFp4LmHeadRp2ScaleColumns;
+constexpr std::size_t kNvFp4LmHeadRp2ActivationBytes =
+    kNvFp4LmHeadRp2Columns * sizeof(std::uint16_t);
+constexpr std::size_t kNvFp4LmHeadRp2OutputBytes =
+    kNvFp4LmHeadRp2Rows * sizeof(std::uint16_t);
 
 static_assert(kFp8VectorColumnsPerBlock == registry::kFp8VectorColumns);
 static_assert(kNvFp4VectorColumnsPerWarp == registry::kNvFp4VectorColumns);
@@ -116,6 +136,13 @@ static_assert((kFp8OutputProjectionColumns % kFp8VectorValuesPerLane) == 0U);
 static_assert((kFp8FullAttentionQRows % 4U) == 0U);
 static_assert((kFp8KvPairRows % 2U) == 0U);
 static_assert((kFp8KvPairColumns % kFp8VectorValuesPerLane) == 0U);
+static_assert(kNvFp4LmHeadRp2Rows ==
+              2U * kNvFp4LmHeadRp2Owners *
+                  kNvFp4LmHeadRp2Iterations);
+static_assert(kNvFp4LmHeadRp2PackedWordsPerRow == 640U);
+static_assert(kNvFp4LmHeadRp2ScaleColumns == 320U);
+static_assert(kNvFp4LmHeadRp2WeightBytes == 635'699'200U);
+static_assert(kNvFp4LmHeadRp2ScaleBytes == 79'462'400U);
 static_assert(kFp8FullAttentionQRowQuads ==
               kFp8FullAttentionBlocks +
                   kFp8FullAttentionKvFirstBlock);
@@ -7717,6 +7744,204 @@ nvfp4_w4a16_gemv_bf16_scale_codebook_row_quad_k5120_activation_staged_kernel(
   }
 }
 
+// Test-only builder for the exact LM-head RP2 layout. Each warp owns one of
+// 640 persistent schedule slots and writes its 194 logical row pairs in
+// execution order. Adjacent canonical row words/scales become one aligned
+// U64/U16 element without changing any encoded bits or total payload bytes.
+__global__ __launch_bounds__(kThreads) void
+nvfp4_w4a16_lm_head_rp2_schedule_aosoa2_pack_test_kernel(
+    const std::uint8_t* const canonical_packed_weights,
+    const std::uint8_t* const canonical_block_scales,
+    std::uint64_t* const weight_sidecar,
+    std::uint16_t* const scale_sidecar) {
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int owner = blockIdx.x * kWarpsPerBlock + warp;
+
+#pragma unroll 1
+  for (unsigned int iteration = 0U;
+       iteration < kNvFp4LmHeadRp2Iterations; ++iteration) {
+    const unsigned int logical_pair =
+        iteration * kNvFp4LmHeadRp2Owners + owner;
+    const unsigned int row0 = 2U * logical_pair;
+    const std::size_t destination_pair =
+        static_cast<std::size_t>(owner) * kNvFp4LmHeadRp2Iterations +
+        iteration;
+    const auto* const row0_words =
+        reinterpret_cast<const std::uint32_t*>(canonical_packed_weights) +
+        static_cast<std::size_t>(row0) *
+            kNvFp4LmHeadRp2PackedWordsPerRow;
+    const auto* const row1_words =
+        row0_words + kNvFp4LmHeadRp2PackedWordsPerRow;
+    std::uint64_t* const destination_weights =
+        weight_sidecar +
+        destination_pair * kNvFp4LmHeadRp2PackedWordsPerRow;
+
+    for (unsigned int word = lane;
+         word < kNvFp4LmHeadRp2PackedWordsPerRow; word += kWarpSize) {
+      destination_weights[word] =
+          static_cast<std::uint64_t>(row0_words[word]) |
+          (static_cast<std::uint64_t>(row1_words[word]) << 32U);
+    }
+
+    const std::uint8_t* const row0_scales =
+        canonical_block_scales +
+        static_cast<std::size_t>(row0) * kNvFp4LmHeadRp2ScaleColumns;
+    const std::uint8_t* const row1_scales =
+        row0_scales + kNvFp4LmHeadRp2ScaleColumns;
+    std::uint16_t* const destination_scales =
+        scale_sidecar + destination_pair * kNvFp4LmHeadRp2ScaleColumns;
+    for (unsigned int scale_column = lane;
+         scale_column < kNvFp4LmHeadRp2ScaleColumns;
+         scale_column += kWarpSize) {
+      destination_scales[scale_column] = static_cast<std::uint16_t>(
+          static_cast<std::uint16_t>(row0_scales[scale_column]) |
+          (static_cast<std::uint16_t>(row1_scales[scale_column]) << 8U));
+    }
+  }
+}
+
+// Exact-shape LM-head RP2 candidate. The schedule-major sidecars let one warp
+// evaluate two adjacent rows with two U64 packed-weight loads and one U16
+// scale load per K=512 tile/lane. The four accumulator chains, phase/half/value
+// order, warp reduction, scale2 multiplication, and BF16-RNE publication of
+// each row intentionally mirror the selected production row-quad kernel.
+__global__ __launch_bounds__(kThreads, 5) void
+nvfp4_w4a16_gemv_bf16_lm_head_rp2_schedule_aosoa2_test_kernel(
+    const std::uint64_t* const weight_sidecar,
+    const std::uint16_t* const scale_sidecar,
+    const float weight_scale_2,
+    const std::uint16_t* const activation,
+    std::uint16_t* const output) {
+  constexpr unsigned int kPackedPhaseStride =
+      kNvFp4VectorColumnsPerWarp /
+      (kNvFp4ValuesPerByte * sizeof(std::uint32_t));
+  constexpr unsigned int kPackedTileStride = 2U * kPackedPhaseStride;
+  constexpr unsigned int kScalePhaseStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4GroupSize;
+  constexpr unsigned int kActivationWordCount =
+      kNvFp4LmHeadRp2Columns / 4U;
+  static_assert(kPackedPhaseStride == 32U);
+  static_assert(kPackedTileStride == 64U);
+  static_assert(kScalePhaseStride == 16U);
+
+  __shared__ ulonglong2 staged_activation
+      [kNvFp4LmHeadRp2Columns / 8U];
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float decoded_scales[kFp8EncodedValueCount];
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+  const auto* const activation_words =
+      reinterpret_cast<const std::uint64_t*>(activation);
+  auto* const staged_activation_words =
+      reinterpret_cast<std::uint64_t*>(staged_activation);
+  for (unsigned int word = threadIdx.x; word < kActivationWordCount;
+       word += kThreads) {
+    staged_activation_words[word] = activation_words[word];
+  }
+  decoded_scales[threadIdx.x] =
+      decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
+
+  const unsigned int owner = blockIdx.x * kWarpsPerBlock + warp;
+  const std::size_t owner_pair_base =
+      static_cast<std::size_t>(owner) * kNvFp4LmHeadRp2Iterations;
+
+#pragma unroll 1
+  for (unsigned int iteration = 0U;
+       iteration < kNvFp4LmHeadRp2Iterations; ++iteration) {
+    const std::size_t sidecar_pair = owner_pair_base + iteration;
+    const std::uint64_t* const pair_weights =
+        weight_sidecar +
+        sidecar_pair * kNvFp4LmHeadRp2PackedWordsPerRow;
+    const std::uint16_t* const pair_scales =
+        scale_sidecar + sidecar_pair * kNvFp4LmHeadRp2ScaleColumns;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+#pragma unroll 1
+    for (unsigned int packed_word = lane;
+         packed_word < kNvFp4LmHeadRp2PackedWordsPerRow;
+         packed_word += kPackedTileStride) {
+      const unsigned int scale_column =
+          packed_word / 2U + (lane & 1U) * kScalePhaseStride;
+      std::uint32_t local_raw_scale_codes = pair_scales[scale_column];
+      const std::uint32_t partner_raw_scale_codes = __shfl_xor_sync(
+          0xffff'ffffU, local_raw_scale_codes, 1);
+      const std::uint32_t odd_lane_mask = 0U - (lane & 1U);
+      const std::uint32_t phase0_raw_scale_codes =
+          (local_raw_scale_codes & ~odd_lane_mask) |
+          (partner_raw_scale_codes & odd_lane_mask);
+      local_raw_scale_codes ^=
+          partner_raw_scale_codes ^ phase0_raw_scale_codes;
+
+#pragma unroll
+      for (unsigned int phase = 0U; phase < 2U; ++phase) {
+        const std::uint32_t raw_scale_codes =
+            phase == 0U ? phase0_raw_scale_codes
+                        : local_raw_scale_codes;
+        const float block_scale0 =
+            decoded_scales[raw_scale_codes & 0xffU];
+        const float block_scale1 =
+            decoded_scales[(raw_scale_codes >> 8U) & 0xffU];
+        const unsigned int phase_word =
+            packed_word + phase * kPackedPhaseStride;
+        const std::uint64_t packed_pair = pair_weights[phase_word];
+        const std::uint32_t packed0 =
+            static_cast<std::uint32_t>(packed_pair);
+        const std::uint32_t packed1 =
+            static_cast<std::uint32_t>(packed_pair >> 32U);
+        const ulonglong2 packed_activations =
+            staged_activation[phase_word];
+
+#pragma unroll
+        for (unsigned int half = 0U; half < 2U; ++half) {
+          const std::uint64_t packed_activation =
+              half == 0U ? packed_activations.x : packed_activations.y;
+#pragma unroll
+          for (unsigned int value = 0U; value < 4U; ++value) {
+            const unsigned int packed_value = half * 4U + value;
+            const unsigned int shift = packed_value * 4U;
+            const std::uint16_t encoded_activation =
+                static_cast<std::uint16_t>(
+                    (packed_activation >> (value * 16U)) & 0xffffU);
+            const float decoded_activation =
+                decode_bf16(encoded_activation);
+            accumulators0[value] =
+                fmaf(decoded_weights[(packed0 >> shift) & 0x0fU] *
+                         block_scale0,
+                     decoded_activation, accumulators0[value]);
+            accumulators1[value] =
+                fmaf(decoded_weights[(packed1 >> shift) & 0x0fU] *
+                         block_scale1,
+                     decoded_activation, accumulators1[value]);
+          }
+        }
+      }
+    }
+
+    const unsigned int logical_pair =
+        iteration * kNvFp4LmHeadRp2Owners + owner;
+    const unsigned int row0 = 2U * logical_pair;
+    float sum = (accumulators0[0] + accumulators0[1]) +
+                (accumulators0[2] + accumulators0[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators1[0] + accumulators1[1]) +
+          (accumulators1[2] + accumulators1[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[row0 + 1U] = encode_bf16_rne(sum);
+    }
+  }
+}
+
 // One rolled phase of the gate/up pair kernel. Keeping the complete
 // accumulator lifetime inside this helper lets the second phase reuse the
 // first phase's registers while both phases share the CTA-staged activation
@@ -12491,6 +12716,78 @@ void launch_fp8_m1_output_row_group_grid_cap_unchecked(
       ranges_overlap(output, output_bytes, block_scales, scale_bytes) ||
       ranges_overlap(output, output_bytes, activation, activation_bytes)) {
     return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] int validate_nvfp4_lm_head_rp2_pack_test_launch(
+    const std::uint8_t* const canonical_packed_weights,
+    const std::uint8_t* const canonical_block_scales,
+    const std::size_t rows, const std::size_t columns,
+    std::uint8_t* const weight_sidecar,
+    std::uint8_t* const scale_sidecar) noexcept {
+  if (rows != kNvFp4LmHeadRp2Rows ||
+      columns != kNvFp4LmHeadRp2Columns ||
+      canonical_packed_weights == nullptr ||
+      canonical_block_scales == nullptr || weight_sidecar == nullptr ||
+      scale_sidecar == nullptr ||
+      !pointer_is_aligned<alignof(std::uint32_t)>(
+          canonical_packed_weights) ||
+      !pointer_is_aligned<alignof(std::uint64_t)>(weight_sidecar) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(scale_sidecar)) {
+    return invalid_value();
+  }
+
+  const void* const spans[]{canonical_packed_weights,
+                            canonical_block_scales, weight_sidecar,
+                            scale_sidecar};
+  constexpr std::size_t span_bytes[]{kNvFp4LmHeadRp2WeightBytes,
+                                     kNvFp4LmHeadRp2ScaleBytes,
+                                     kNvFp4LmHeadRp2WeightBytes,
+                                     kNvFp4LmHeadRp2ScaleBytes};
+  for (std::size_t first = 0U; first < 4U; ++first) {
+    for (std::size_t second = first + 1U; second < 4U; ++second) {
+      if (ranges_overlap(spans[first], span_bytes[first], spans[second],
+                         span_bytes[second])) {
+        return invalid_value();
+      }
+    }
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] int validate_nvfp4_lm_head_rp2_test_launch(
+    const std::uint8_t* const weight_sidecar,
+    const std::uint8_t* const scale_sidecar,
+    const float weight_scale_2,
+    const std::uint16_t* const activation,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const output) noexcept {
+  if (rows != kNvFp4LmHeadRp2Rows ||
+      columns != kNvFp4LmHeadRp2Columns ||
+      !std::isfinite(weight_scale_2) || weight_scale_2 < 0.0F ||
+      weight_sidecar == nullptr || scale_sidecar == nullptr ||
+      activation == nullptr || output == nullptr ||
+      !pointer_is_aligned<alignof(std::uint64_t)>(weight_sidecar) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(scale_sidecar) ||
+      !pointer_is_aligned<alignof(std::uint64_t)>(activation) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(output)) {
+    return invalid_value();
+  }
+
+  const void* const spans[]{weight_sidecar, scale_sidecar, activation,
+                            output};
+  constexpr std::size_t span_bytes[]{kNvFp4LmHeadRp2WeightBytes,
+                                     kNvFp4LmHeadRp2ScaleBytes,
+                                     kNvFp4LmHeadRp2ActivationBytes,
+                                     kNvFp4LmHeadRp2OutputBytes};
+  for (std::size_t first = 0U; first < 4U; ++first) {
+    for (std::size_t second = first + 1U; second < 4U; ++second) {
+      if (ranges_overlap(spans[first], span_bytes[first], spans[second],
+                         span_bytes[second])) {
+        return invalid_value();
+      }
+    }
   }
   return static_cast<int>(cudaSuccess);
 }
@@ -18871,6 +19168,86 @@ int query_sm87_nvfp4_w4a16_m1_lm_head_activation_staged_cs_resources_test_cuda(
       &active_blocks,
       nvfp4_w4a16_gemv_bf16_lm_head_activation_staged_cache_policy_test_kernel<
           248'320U, 5'120U, NvFp4TestCachePolicy::kStreaming>,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_lm_head_rp2_schedule_aosoa2_pack_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const std::size_t rows,
+    const std::size_t columns, std::uint8_t* const weight_sidecar,
+    std::uint8_t* const scale_sidecar, void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_lm_head_rp2_pack_test_launch(
+      packed_weights, block_scales, rows, columns, weight_sidecar,
+      scale_sidecar);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_w4a16_lm_head_rp2_schedule_aosoa2_pack_test_kernel
+      <<<kNvFp4LmHeadRp2Blocks, kThreads, 0U, stream>>>(
+          packed_weights, block_scales,
+          reinterpret_cast<std::uint64_t*>(weight_sidecar),
+          reinterpret_cast<std::uint16_t*>(scale_sidecar));
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_w4a16_lm_head_rp2_schedule_aosoa2_test_cuda(
+    const std::uint8_t* const weight_sidecar,
+    const std::uint8_t* const scale_sidecar, const float weight_scale_2,
+    const std::uint16_t* const activation, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_lm_head_rp2_test_launch(
+      weight_sidecar, scale_sidecar, weight_scale_2, activation, rows,
+      columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_w4a16_gemv_bf16_lm_head_rp2_schedule_aosoa2_test_kernel
+      <<<kNvFp4LmHeadRp2Blocks, kThreads, 0U, stream>>>(
+          reinterpret_cast<const std::uint64_t*>(weight_sidecar),
+          reinterpret_cast<const std::uint16_t*>(scale_sidecar),
+          weight_scale_2, activation, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_lm_head_rp2_schedule_aosoa2_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_lm_head_rp2_schedule_aosoa2_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_lm_head_rp2_schedule_aosoa2_test_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

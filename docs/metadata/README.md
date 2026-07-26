@@ -1051,6 +1051,20 @@ The diagnostic Phase 3 records are:
   P1 stop-loss skips P2/P3, model E2E, Nsys, and production integration. The
   formal anchor remains
   **106.763 ms/token and 9.366540843 token/s**.
+- [`qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json`](qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json),
+  which rejects the test-only exact-shape LM-head RP2 schedule-major AoSoA2
+  row-pair mechanism at the actual-first P1 gate. The candidate's `80x256`
+  kernel uses 48 registers, 11,328 shared bytes, zero local bytes, and reaches
+  five CTAs/SM. Full-byte mapping of the 635,699,200-byte weight sidecar and
+  79,462,400-byte scale sidecar passes; all 248,320 direct and Graph-replay
+  outputs are bit-exact, finite, guarded, and input/sidecar-safe; valid Graph,
+  invalid zero-node, and signed `0x7f`/`0xff` NaN contracts also pass. Only 2/5
+  actual rounds improve. Baseline/candidate pass medians are 4.69201/4.75805
+  ms, while the paired median is **0.973487x** with a
+  **-0.126222-ms/token** delta, failing the frozen 1.075x, +0.30-ms, and
+  every-round gates. Stop-loss skips stress, P2/P3, model, profiling, and
+  integration. Production remains unchanged, so the formal anchor stays
+  **106.763 ms/token and 9.366540843 token/s**.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
