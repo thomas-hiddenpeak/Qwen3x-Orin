@@ -1065,6 +1065,25 @@ The diagnostic Phase 3 records are:
   every-round gates. Stop-loss skips stress, P2/P3, model, profiling, and
   integration. Production remains unchanged, so the formal anchor stays
   **106.763 ms/token and 9.366540843 token/s**.
+- [`qwen36-27b-decode-fixed-position-cuda-graph-p1-selection.json`](qwen36-27b-decode-fixed-position-cuda-graph-p1-selection.json),
+  which validates host-launch amortization with a test-only full predicted-only
+  Decode CUDA Graph specialized to P19. The graph contains exactly 390 nodes:
+  the existing 389 serial kernels plus one greedy-result D2H, with only the
+  embedding root token offset updated before replay. Primary input `77517`
+  predicts `220`; alternate input `220` predicts the pinned independent oracle
+  `52965`; both serial/Graph pairs match over the complete 89,096,192-byte
+  request arena. The final feature-commit process measures **106.670894 ms**
+  serial versus **105.747733 ms** Graph, saving **0.918392 ms** at **5/5**
+  positive rounds and reaching **9.456467 token/s**. Three earlier passing
+  processes save 0.905752-0.934808 ms; a separate unbound process with one
+  111.131-ms Graph outlier is retained as a strict 4/5 environmental failure,
+  and no gate was lowered. An initial alternate-token failure is also retained:
+  it exposed a real default-stream/nonblocking-stream arena-restore race, fixed
+  by explicit synchronization outside timing. This P1 does not install a
+  production graph cache and does not meet 100 ms, so the formal anchor remains
+  **106.763 ms/token / 9.366540843 token/s**. The next bounded step is a
+  position-specialized GraphExec cache covering continuous P19-P43 Decode,
+  with exact state/fallback gates plus cold-time and memory budgets.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
