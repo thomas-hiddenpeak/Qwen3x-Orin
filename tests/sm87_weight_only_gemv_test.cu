@@ -232,6 +232,30 @@ query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_pack_test_cuda(
+    const std::uint8_t* canonical_q_weights,
+    const std::uint8_t* canonical_key_weights,
+    const std::uint8_t* canonical_value_weights, std::size_t q_rows,
+    std::size_t kv_rows, std::size_t columns,
+    std::uint8_t* q_sidecar_weights, std::uint8_t* kv_sidecar_weights,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
+    const std::uint8_t* q_sidecar_weights, float q_weight_scale,
+    const std::uint8_t* kv_sidecar_weights, float key_weight_scale,
+    float value_weight_scale, const std::uint16_t* activation,
+    std::size_t q_rows, std::size_t kv_rows, std::size_t columns,
+    std::uint16_t* q_output, std::uint16_t* key_output,
+    std::uint16_t* value_output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] bool use_sm87_fp8_m1_row_pair_shape_test(
     std::size_t rows, std::size_t columns) noexcept;
 
@@ -5925,6 +5949,13 @@ fp8_m1_q_kv_reduction_scratch_ping_pong_performance_enabled() noexcept {
          !(value[0] == '0' && value[1] == '\0');
 }
 
+[[nodiscard]] bool decode_fp8_q_kv_aosoa4_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
 [[nodiscard]] bool fp8_m2_grid_cap_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_M2_GRID_CAP_PERF");
@@ -9393,6 +9424,1251 @@ void run_optional_fp8_m1_q_kv_reduction_scratch_ping_pong_performance(
             << (race_signature_gate ? "PASS" : "FAIL")
             << " distribution_gates="
             << (distribution_gate ? "PASS" : "FAIL")
+            << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+}
+
+[[nodiscard]] bool build_fp8_m1_aosoa4_preswizzled_sidecar(
+    const std::vector<std::uint8_t>& weights, std::size_t rows,
+    std::size_t columns, std::size_t guard_bytes,
+    std::uint8_t guard_value,
+    std::vector<std::uint8_t>& guarded_sidecar);
+
+void run_decode_fp8_q_kv_aosoa4_screen(TestContext& test,
+                                       cudaStream_t stream) {
+  if (!decode_fp8_q_kv_aosoa4_performance_enabled()) {
+    std::cout
+        << "SKIP: Decode FP8 Q+K/V AoSoA4/preswizzled sidecar screen; "
+           "set Q3X_RUN_SM87_DECODE_FP8_Q_KV_AOSOA4_PERF=1 together "
+           "with Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE to enable\n";
+    return;
+  }
+
+  constexpr std::size_t kQRows = 12'288U;
+  constexpr std::size_t kKvRows = 1'024U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kQBytes = kQRows * kColumns;
+  constexpr std::size_t kKvBytes = kKvRows * kColumns;
+  constexpr std::size_t kKvSidecarBytes = 2U * kKvBytes;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr std::uint64_t kQOffset = 5'862'443'552ULL;
+  constexpr std::uint64_t kKeyOffset = 5'825'743'392ULL;
+  constexpr std::uint64_t kValueOffset = 5'925'358'112ULL;
+  constexpr std::string_view kQSha256 =
+      "6a688dbc61bfb33c1224c70b6c7b31e0429ad40d7d16d2107f5fa06dd1636d74";
+  constexpr std::string_view kKeySha256 =
+      "5f2b231009ca89447ac875a0f31bf9a22ef5d9e1ad900ad45bdbd3659bffa2e6";
+  constexpr std::string_view kValueSha256 =
+      "9c7a05577136027a738019bee827f2c8d48c6a04f53eac27657c3bacb5d7d607";
+  constexpr float kQScale = 0.000706264F;
+  constexpr float kKeyScale = 0.00044686455F;
+  constexpr float kValueScale = 0.0004752023F;
+  const std::string label =
+      "Decode FP8 Q12288+K/V1024 K5120 AoSoA4/preswizzled sidecar";
+
+  const q3x::core::Sha256FileResult binary_identity =
+      q3x::core::sha256_file("/proc/self/exe");
+  test.expect(binary_identity.ok(), label + " hashes the running binary");
+  if (!binary_identity.ok()) {
+    return;
+  }
+
+  Fp8KvPairKernelResources production_resources{};
+  Fp8KvPairKernelResources candidate_resources{};
+  bool ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_q_kv_reduction_scratch_ping_pong_resources_test_cuda(
+              &production_resources.registers_per_thread,
+              &production_resources.static_shared_bytes,
+              &production_resources.local_bytes,
+              &production_resources.maximum_threads_per_block,
+              &production_resources.active_blocks_per_sm)),
+      label + " query production resources");
+  ready = test.cuda_ok(
+              static_cast<cudaError_t>(q3x::kernels::
+                  query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
+                      &candidate_resources.registers_per_thread,
+                      &candidate_resources.static_shared_bytes,
+                      &candidate_resources.local_bytes,
+                      &candidate_resources.maximum_threads_per_block,
+                      &candidate_resources.active_blocks_per_sm)),
+              label + " query candidate resources") &&
+          ready;
+  const bool null_resource_gate =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_resources_test_cuda(
+              nullptr, &candidate_resources.static_shared_bytes,
+              &candidate_resources.local_bytes,
+              &candidate_resources.maximum_threads_per_block,
+              &candidate_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  const bool resource_gate =
+      ready && production_resources.registers_per_thread == 64 &&
+      candidate_resources.registers_per_thread == 64 &&
+      production_resources.static_shared_bytes == 1'280U &&
+      candidate_resources.static_shared_bytes == 1'280U &&
+      production_resources.local_bytes == 0U &&
+      candidate_resources.local_bytes == 0U &&
+      production_resources.maximum_threads_per_block == 256 &&
+      candidate_resources.maximum_threads_per_block == 256 &&
+      production_resources.active_blocks_per_sm == 4 &&
+      candidate_resources.active_blocks_per_sm == 4 && null_resource_gate;
+  test.expect(resource_gate,
+              label + " preserves the production occupancy/spill contract");
+  std::cout << "FP8_M1_Q_KV_AOSOA4_RESOURCES:"
+            << " production_registers="
+            << production_resources.registers_per_thread
+            << " candidate_registers="
+            << candidate_resources.registers_per_thread
+            << " production_static_shared_bytes="
+            << production_resources.static_shared_bytes
+            << " candidate_static_shared_bytes="
+            << candidate_resources.static_shared_bytes
+            << " production_local_bytes="
+            << production_resources.local_bytes
+            << " candidate_local_bytes=" << candidate_resources.local_bytes
+            << " production_active_ctas_per_sm="
+            << production_resources.active_blocks_per_sm
+            << " candidate_active_ctas_per_sm="
+            << candidate_resources.active_blocks_per_sm
+            << " null_query=" << (null_resource_gate ? "PASS" : "FAIL")
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  if (!ready) {
+    return;
+  }
+
+  const char* const checkpoint_value =
+      std::getenv("Q3X_FP8_M1_Q_KV_ACTUAL_CHECKPOINT_FILE");
+  const bool checkpoint_source_gate =
+      checkpoint_value != nullptr && checkpoint_value[0] != '\0';
+  test.expect(checkpoint_source_gate,
+              label + " requires the pinned actual checkpoint shard");
+  if (!checkpoint_source_gate) {
+    return;
+  }
+  const std::string checkpoint_file = checkpoint_value;
+  std::vector<std::uint8_t> host_q(kQBytes);
+  std::vector<std::uint8_t> host_key(kKvBytes);
+  std::vector<std::uint8_t> host_value(kKvBytes);
+  const auto read_slice = [&](const std::uint64_t offset,
+                              std::vector<std::uint8_t>& destination,
+                              const std::string& name) {
+    std::ifstream input(checkpoint_file, std::ios::binary);
+    if (!input.is_open()) {
+      test.expect(false, label + " opens checkpoint for " + name);
+      return false;
+    }
+    input.seekg(0, std::ios::end);
+    const std::streamoff file_size = input.tellg();
+    const bool range_gate =
+        file_size >= 0 && offset <= static_cast<std::uint64_t>(file_size) &&
+        destination.size() <=
+            static_cast<std::uint64_t>(file_size) - offset;
+    test.expect(range_gate, label + " checkpoint contains " + name);
+    if (!range_gate) {
+      return false;
+    }
+    input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+    input.read(reinterpret_cast<char*>(destination.data()),
+               static_cast<std::streamsize>(destination.size()));
+    const bool complete = input.gcount() ==
+                          static_cast<std::streamsize>(destination.size());
+    test.expect(complete, label + " reads complete " + name);
+    return complete;
+  };
+  ready = read_slice(kQOffset, host_q, "layer-3 Q weights");
+  ready = read_slice(kKeyOffset, host_key, "layer-3 K weights") && ready;
+  ready = read_slice(kValueOffset, host_value, "layer-3 V weights") && ready;
+  const std::string q_hash = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(host_q.data()), host_q.size())).hex();
+  const std::string key_hash = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(host_key.data()), host_key.size())).hex();
+  const std::string value_hash = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(host_value.data()), host_value.size())).hex();
+  const bool payload_identity_gate =
+      ready && q_hash == kQSha256 && key_hash == kKeySha256 &&
+      value_hash == kValueSha256;
+  test.expect(payload_identity_gate,
+              label + " matches all pinned Q/K/V payload hashes");
+  std::cout << "FP8_M1_Q_KV_AOSOA4_ACTUAL_FIXTURE: checkpoint_path="
+            << checkpoint_file << " q_offset=" << kQOffset
+            << " key_offset=" << kKeyOffset
+            << " value_offset=" << kValueOffset
+            << " q_bytes=" << host_q.size()
+            << " kv_bytes_each=" << host_key.size()
+            << " q_sha256=" << q_hash << " key_sha256=" << key_hash
+            << " value_sha256=" << value_hash
+            << " gate=" << (payload_identity_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!payload_identity_gate) {
+    return;
+  }
+
+  std::vector<std::uint8_t> expected_q_sidecar;
+  const bool q_sidecar_semantics =
+      build_fp8_m1_aosoa4_preswizzled_sidecar(
+          host_q, kQRows, kColumns, 0U, 0U, expected_q_sidecar) &&
+      expected_q_sidecar.size() == kQBytes;
+  std::vector<std::uint8_t> expected_kv_sidecar(kKvSidecarBytes);
+  bool kv_sidecar_semantics = true;
+  constexpr std::size_t kPackedColumns = kColumns / 4U;
+  for (std::size_t row_pair = 0U; row_pair < kKvRows / 2U;
+       ++row_pair) {
+    for (std::size_t packed_column = 0U;
+         packed_column < kPackedColumns; ++packed_column) {
+      std::array<std::uint32_t, 4U> words{};
+      const std::array<const std::uint8_t*, 4U> sources{{
+          host_key.data() + (2U * row_pair) * kColumns,
+          host_key.data() + (2U * row_pair + 1U) * kColumns,
+          host_value.data() + (2U * row_pair) * kColumns,
+          host_value.data() + (2U * row_pair + 1U) * kColumns,
+      }};
+      for (std::size_t component = 0U; component < 4U; ++component) {
+        std::uint32_t canonical = 0U;
+        std::memcpy(&canonical, sources[component] + 4U * packed_column,
+                    sizeof(canonical));
+        words[component] =
+            canonical ^ ((canonical >> 5U) & 0x0707'0707U);
+        for (std::size_t byte = 0U; byte < 4U; ++byte) {
+          const std::uint8_t code =
+              sources[component][4U * packed_column + byte];
+          const std::uint8_t slot =
+              static_cast<std::uint8_t>(code ^ (code >> 5U));
+          kv_sidecar_semantics =
+              kv_sidecar_semantics &&
+              slot == static_cast<std::uint8_t>(
+                          (words[component] >> (8U * byte)) & 0xffU);
+        }
+      }
+      const uint4 packed{words[0U], words[1U], words[2U], words[3U]};
+      std::memcpy(expected_kv_sidecar.data() +
+                      (row_pair * kPackedColumns + packed_column) *
+                          sizeof(uint4),
+                  &packed, sizeof(packed));
+    }
+  }
+  test.expect(q_sidecar_semantics && kv_sidecar_semantics,
+              label + " freezes all preswizzled byte semantics");
+  if (!q_sidecar_semantics || !kv_sidecar_semantics) {
+    return;
+  }
+
+  std::vector<std::uint16_t> host_activation(kColumns);
+  for (std::size_t column = 0U; column < kColumns; ++column) {
+    const int centered =
+        static_cast<int>((column * 17U + (column >> 3U) * 5U + 7U) %
+                         127U) -
+        63;
+    host_activation[column] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> q_weights;
+  DeviceBuffer<std::uint8_t> key_weights;
+  DeviceBuffer<std::uint8_t> value_weights;
+  DeviceBuffer<std::uint8_t> q_sidecar;
+  DeviceBuffer<std::uint8_t> kv_sidecar;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> production_q_storage;
+  DeviceBuffer<std::uint16_t> production_key_storage;
+  DeviceBuffer<std::uint16_t> production_value_storage;
+  DeviceBuffer<std::uint16_t> candidate_q_storage;
+  DeviceBuffer<std::uint16_t> candidate_key_storage;
+  DeviceBuffer<std::uint16_t> candidate_value_storage;
+  DeviceBuffer<std::uint16_t> timing_q;
+  DeviceBuffer<std::uint16_t> timing_key;
+  DeviceBuffer<std::uint16_t> timing_value;
+  ready = test.cuda_ok(q_weights.allocate(kQBytes), label + " allocate Q");
+  ready = test.cuda_ok(key_weights.allocate(kKvBytes), label + " allocate K") &&
+          ready;
+  ready = test.cuda_ok(value_weights.allocate(kKvBytes), label + " allocate V") &&
+          ready;
+  ready = test.cuda_ok(q_sidecar.allocate(kQBytes),
+                       label + " allocate Q sidecar") &&
+          ready;
+  ready = test.cuda_ok(kv_sidecar.allocate(kKvSidecarBytes),
+                       label + " allocate KV sidecar") &&
+          ready;
+  ready = test.cuda_ok(activation.allocate(kColumns),
+                       label + " allocate activation") &&
+          ready;
+  for (auto* const storage : {&production_q_storage, &candidate_q_storage}) {
+    ready = test.cuda_ok(storage->allocate(kQRows + 2U * kGuardElements),
+                         label + " allocate guarded Q output") &&
+            ready;
+  }
+  for (auto* const storage : {&production_key_storage,
+                              &production_value_storage,
+                              &candidate_key_storage,
+                              &candidate_value_storage}) {
+    ready = test.cuda_ok(storage->allocate(kKvRows + 2U * kGuardElements),
+                         label + " allocate guarded KV output") &&
+            ready;
+  }
+  ready = test.cuda_ok(timing_q.allocate(kQRows), label + " allocate timing Q") &&
+          ready;
+  ready = test.cuda_ok(timing_key.allocate(kKvRows),
+                       label + " allocate timing K") &&
+          ready;
+  ready = test.cuda_ok(timing_value.allocate(kKvRows),
+                       label + " allocate timing V") &&
+          ready;
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(q_weights.get(), host_q.data(), host_q.size(),
+                      cudaMemcpyHostToDevice, stream),
+      label + " upload Q");
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(key_weights.get(), host_key.data(),
+                              host_key.size(), cudaMemcpyHostToDevice, stream),
+              label + " upload K") &&
+          ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(value_weights.get(), host_value.data(),
+                              host_value.size(), cudaMemcpyHostToDevice,
+                              stream),
+              label + " upload V") &&
+          ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(activation.get(), host_activation.data(),
+                              host_activation.size() * sizeof(std::uint16_t),
+                              cudaMemcpyHostToDevice, stream),
+              label + " upload activation") &&
+          ready;
+  ready = test.cuda_ok(
+              static_cast<cudaError_t>(q3x::kernels::
+                  launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_pack_test_cuda(
+                      q_weights.get(), key_weights.get(), value_weights.get(),
+                      kQRows, kKvRows, kColumns, q_sidecar.get(),
+                      kv_sidecar.get(), static_cast<void*>(stream))),
+              label + " build sidecars") &&
+          ready;
+  std::vector<std::uint8_t> observed_q_sidecar(kQBytes);
+  std::vector<std::uint8_t> observed_kv_sidecar(kKvSidecarBytes);
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(observed_q_sidecar.data(), q_sidecar.get(),
+                              observed_q_sidecar.size(), cudaMemcpyDeviceToHost,
+                              stream),
+              label + " copy Q sidecar") &&
+          ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(observed_kv_sidecar.data(), kv_sidecar.get(),
+                              observed_kv_sidecar.size(),
+                              cudaMemcpyDeviceToHost, stream),
+              label + " copy KV sidecar") &&
+          ready;
+  ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                       label + " sidecar build synchronize") &&
+          ready;
+  const bool pack_gate =
+      ready && observed_q_sidecar == expected_q_sidecar &&
+      observed_kv_sidecar == expected_kv_sidecar;
+  test.expect(pack_gate,
+              label + " GPU pack is byte-exact against the CPU contract");
+  std::cout << "FP8_M1_Q_KV_AOSOA4_PACK: q_sidecar_bytes=" << kQBytes
+            << " kv_sidecar_bytes=" << kKvSidecarBytes
+            << " q_sidecar_sha256="
+            << q3x::core::sha256(std::string_view(
+                   reinterpret_cast<const char*>(observed_q_sidecar.data()),
+                   observed_q_sidecar.size())).hex()
+            << " kv_sidecar_sha256="
+            << q3x::core::sha256(std::string_view(
+                   reinterpret_cast<const char*>(observed_kv_sidecar.data()),
+                   observed_kv_sidecar.size())).hex()
+            << " cpu_gpu_byte_exact=" << (pack_gate ? "true" : "false")
+            << " gate=" << (pack_gate ? "PASS" : "FAIL") << '\n';
+  if (!pack_gate) {
+    return;
+  }
+
+  std::uint16_t* const production_q =
+      production_q_storage.get() + kGuardElements;
+  std::uint16_t* const production_key =
+      production_key_storage.get() + kGuardElements;
+  std::uint16_t* const production_value =
+      production_value_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_q =
+      candidate_q_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_key =
+      candidate_key_storage.get() + kGuardElements;
+  std::uint16_t* const candidate_value =
+      candidate_value_storage.get() + kGuardElements;
+  float q_scale = kQScale;
+  float key_scale = kKeyScale;
+  float value_scale = kValueScale;
+
+  const auto launch_production = [&](std::uint16_t* const q_output,
+                                     std::uint16_t* const key_output,
+                                     std::uint16_t* const value_output) {
+    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_q_kv_bf16_cuda(
+        q_weights.get(), q_scale, key_weights.get(), key_scale,
+        value_weights.get(), value_scale, activation.get(), kQRows, kKvRows,
+        kColumns, q_output, key_output, value_output,
+        static_cast<void*>(stream));
+  };
+  const auto launch_candidate = [&](std::uint16_t* const q_output,
+                                    std::uint16_t* const key_output,
+                                    std::uint16_t* const value_output) {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
+            q_sidecar.get(), q_scale, kv_sidecar.get(), key_scale,
+            value_scale, activation.get(), kQRows, kKvRows, kColumns,
+            q_output, key_output, value_output, static_cast<void*>(stream));
+  };
+  const auto initialize_guarded_outputs = [&](const std::string& fixture) {
+    bool initialized = test.cuda_ok(
+        cudaMemsetAsync(production_q_storage.get(), 0xa5,
+                        (kQRows + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        fixture + " poison production Q");
+    initialized = test.cuda_ok(
+                      cudaMemsetAsync(production_key_storage.get(), 0x5a,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      fixture + " poison production K") &&
+                  initialized;
+    initialized = test.cuda_ok(
+                      cudaMemsetAsync(production_value_storage.get(), 0x3c,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      fixture + " poison production V") &&
+                  initialized;
+    initialized = test.cuda_ok(
+                      cudaMemsetAsync(candidate_q_storage.get(), 0xa5,
+                                      (kQRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      fixture + " poison candidate Q") &&
+                  initialized;
+    initialized = test.cuda_ok(
+                      cudaMemsetAsync(candidate_key_storage.get(), 0x5a,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      fixture + " poison candidate K") &&
+                  initialized;
+    initialized = test.cuda_ok(
+                      cudaMemsetAsync(candidate_value_storage.get(), 0x3c,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      fixture + " poison candidate V") &&
+                  initialized;
+    return initialized;
+  };
+  const auto guards_match = [](const std::vector<std::uint16_t>& values,
+                               const std::size_t rows,
+                               const std::uint16_t canary) {
+    return std::all_of(values.begin(),
+                       values.begin() + kGuardElements,
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       }) &&
+           std::all_of(values.begin() + kGuardElements + rows,
+                       values.end(),
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       });
+  };
+  const auto run_direct_diff =
+      [&](const std::string& fixture,
+          const std::vector<std::uint8_t>& expected_q_sidecar_bytes,
+          const std::vector<std::uint8_t>& expected_kv_sidecar_bytes) {
+        bool diff_ready = initialize_guarded_outputs(fixture);
+        diff_ready = test.cuda_ok(
+                         static_cast<cudaError_t>(launch_production(
+                             production_q, production_key,
+                             production_value)),
+                         fixture + " launch production") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate(
+                             candidate_q, candidate_key, candidate_value)),
+                         fixture + " launch candidate") &&
+                     diff_ready;
+        std::vector<std::uint16_t> observed_production_q(
+            kQRows + 2U * kGuardElements);
+        std::vector<std::uint16_t> observed_production_key(
+            kKvRows + 2U * kGuardElements);
+        std::vector<std::uint16_t> observed_production_value(
+            kKvRows + 2U * kGuardElements);
+        std::vector<std::uint16_t> observed_candidate_q(
+            kQRows + 2U * kGuardElements);
+        std::vector<std::uint16_t> observed_candidate_key(
+            kKvRows + 2U * kGuardElements);
+        std::vector<std::uint16_t> observed_candidate_value(
+            kKvRows + 2U * kGuardElements);
+        const auto copy_output = [&](auto& destination, const auto& source,
+                                     const std::string& name) {
+          return test.cuda_ok(
+              cudaMemcpyAsync(destination.data(), source.get(),
+                              destination.size() * sizeof(std::uint16_t),
+                              cudaMemcpyDeviceToHost, stream),
+              fixture + " copy " + name);
+        };
+        diff_ready = copy_output(observed_production_q,
+                                 production_q_storage,
+                                 "production Q") &&
+                     diff_ready;
+        diff_ready = copy_output(observed_production_key,
+                                 production_key_storage,
+                                 "production K") &&
+                     diff_ready;
+        diff_ready = copy_output(observed_production_value,
+                                 production_value_storage,
+                                 "production V") &&
+                     diff_ready;
+        diff_ready = copy_output(observed_candidate_q, candidate_q_storage,
+                                 "candidate Q") &&
+                     diff_ready;
+        diff_ready = copy_output(observed_candidate_key,
+                                 candidate_key_storage,
+                                 "candidate K") &&
+                     diff_ready;
+        diff_ready = copy_output(observed_candidate_value,
+                                 candidate_value_storage,
+                                 "candidate V") &&
+                     diff_ready;
+        std::vector<std::uint8_t> preserved_q(host_q.size());
+        std::vector<std::uint8_t> preserved_key(host_key.size());
+        std::vector<std::uint8_t> preserved_value(host_value.size());
+        std::vector<std::uint8_t> preserved_q_sidecar(
+            expected_q_sidecar_bytes.size());
+        std::vector<std::uint8_t> preserved_kv_sidecar(
+            expected_kv_sidecar_bytes.size());
+        std::vector<std::uint16_t> preserved_activation(
+            host_activation.size());
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(preserved_q.data(), q_weights.get(),
+                                         preserved_q.size(),
+                                         cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve Q") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(preserved_key.data(),
+                                         key_weights.get(),
+                                         preserved_key.size(),
+                                         cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve K") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(preserved_value.data(),
+                                         value_weights.get(),
+                                         preserved_value.size(),
+                                         cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve V") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(preserved_q_sidecar.data(),
+                                         q_sidecar.get(),
+                                         preserved_q_sidecar.size(),
+                                         cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve Q sidecar") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(preserved_kv_sidecar.data(),
+                                         kv_sidecar.get(),
+                                         preserved_kv_sidecar.size(),
+                                         cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve KV sidecar") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(
+                         cudaMemcpyAsync(
+                             preserved_activation.data(), activation.get(),
+                             preserved_activation.size() *
+                                 sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         fixture + " preserve activation") &&
+                     diff_ready;
+        diff_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                  fixture + " synchronize") &&
+                     diff_ready;
+        if (!diff_ready) {
+          return false;
+        }
+        std::size_t q_mismatches = 0U;
+        std::size_t key_mismatches = 0U;
+        std::size_t value_mismatches = 0U;
+        std::size_t nonfinite = 0U;
+        for (std::size_t row = 0U; row < kQRows; ++row) {
+          const std::uint16_t production_bits =
+              observed_production_q[kGuardElements + row];
+          const std::uint16_t candidate_bits =
+              observed_candidate_q[kGuardElements + row];
+          q_mismatches += production_bits != candidate_bits ? 1U : 0U;
+          nonfinite += !is_bf16_finite(candidate_bits) ? 1U : 0U;
+        }
+        for (std::size_t row = 0U; row < kKvRows; ++row) {
+          const std::uint16_t production_key_bits =
+              observed_production_key[kGuardElements + row];
+          const std::uint16_t candidate_key_bits =
+              observed_candidate_key[kGuardElements + row];
+          const std::uint16_t production_value_bits =
+              observed_production_value[kGuardElements + row];
+          const std::uint16_t candidate_value_bits =
+              observed_candidate_value[kGuardElements + row];
+          key_mismatches +=
+              production_key_bits != candidate_key_bits ? 1U : 0U;
+          value_mismatches +=
+              production_value_bits != candidate_value_bits ? 1U : 0U;
+          nonfinite += !is_bf16_finite(candidate_key_bits) ? 1U : 0U;
+          nonfinite += !is_bf16_finite(candidate_value_bits) ? 1U : 0U;
+        }
+        const bool guards_intact =
+            guards_match(observed_production_q, kQRows, 0xa5a5U) &&
+            guards_match(observed_candidate_q, kQRows, 0xa5a5U) &&
+            guards_match(observed_production_key, kKvRows, 0x5a5aU) &&
+            guards_match(observed_candidate_key, kKvRows, 0x5a5aU) &&
+            guards_match(observed_production_value, kKvRows, 0x3c3cU) &&
+            guards_match(observed_candidate_value, kKvRows, 0x3c3cU);
+        const bool inputs_preserved =
+            preserved_q == host_q && preserved_key == host_key &&
+            preserved_value == host_value &&
+            preserved_q_sidecar == expected_q_sidecar_bytes &&
+            preserved_kv_sidecar == expected_kv_sidecar_bytes &&
+            preserved_activation == host_activation;
+        const bool diff_gate = q_mismatches == 0U && key_mismatches == 0U &&
+                               value_mismatches == 0U && nonfinite == 0U &&
+                               guards_intact && inputs_preserved;
+        test.expect(diff_gate,
+                    fixture + " is bitwise guarded and input-preserving");
+        std::cout << "FP8_M1_Q_KV_AOSOA4_DIFF: fixture=" << fixture
+                  << " q_mismatches=" << q_mismatches << '/' << kQRows
+                  << " key_mismatches=" << key_mismatches << '/'
+                  << kKvRows << " value_mismatches=" << value_mismatches
+                  << '/' << kKvRows << " nonfinite_outputs=" << nonfinite
+                  << " guards=" << (guards_intact ? "intact" : "BAD")
+                  << " inputs_preserved="
+                  << (inputs_preserved ? "true" : "false")
+                  << " gate=" << (diff_gate ? "PASS" : "FAIL") << '\n';
+        return diff_gate;
+      };
+
+  const bool actual_diff_gate = run_direct_diff(
+      "actual_checkpoint", observed_q_sidecar, observed_kv_sidecar);
+
+  cudaGraph_t production_graph = nullptr;
+  cudaGraph_t candidate_graph = nullptr;
+  cudaGraphExec_t candidate_graph_exec = nullptr;
+  cudaKernelNodeParams production_params{};
+  cudaKernelNodeParams candidate_params{};
+  const auto capture_graph = [&](const auto& launch, cudaGraph_t* const graph,
+                                 cudaKernelNodeParams* const params,
+                                 const std::string& name) {
+    bool capture_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        label + " " + name + " begin capture");
+    if (capture_ready) {
+      capture_ready = test.cuda_ok(static_cast<cudaError_t>(launch()),
+                                   label + " " + name + " launch") &&
+                      capture_ready;
+      capture_ready = test.cuda_ok(cudaStreamEndCapture(stream, graph),
+                                   label + " " + name + " end capture") &&
+                      capture_ready;
+    }
+    std::size_t nodes = 0U;
+    capture_ready =
+        capture_ready && *graph != nullptr &&
+        test.cuda_ok(cudaGraphGetNodes(*graph, nullptr, &nodes),
+                     label + " " + name + " count nodes");
+    if (capture_ready && nodes == 1U) {
+      cudaGraphNode_t node = nullptr;
+      std::size_t capacity = 1U;
+      capture_ready =
+          test.cuda_ok(cudaGraphGetNodes(*graph, &node, &capacity),
+                       label + " " + name + " get node") &&
+          capacity == 1U &&
+          test.cuda_ok(cudaGraphKernelNodeGetParams(node, params),
+                       label + " " + name + " params") &&
+          capture_ready;
+    }
+    return std::make_pair(capture_ready, nodes);
+  };
+  const auto production_capture = capture_graph(
+      [&]() {
+        return launch_production(production_q, production_key,
+                                 production_value);
+      },
+      &production_graph, &production_params, "production graph");
+  const auto candidate_capture = capture_graph(
+      [&]() {
+        return launch_candidate(candidate_q, candidate_key, candidate_value);
+      },
+      &candidate_graph, &candidate_params, "candidate graph");
+  bool graph_ready =
+      production_capture.first && candidate_capture.first &&
+      production_capture.second == 1U && candidate_capture.second == 1U &&
+      production_params.func != candidate_params.func &&
+      production_params.gridDim.x == 2'048U &&
+      candidate_params.gridDim.x == production_params.gridDim.x &&
+      production_params.blockDim.x == 256U &&
+      candidate_params.blockDim.x == production_params.blockDim.x &&
+      production_params.sharedMemBytes == 0U &&
+      candidate_params.sharedMemBytes == 0U;
+  if (graph_ready) {
+    graph_ready = test.cuda_ok(
+        cudaGraphInstantiate(&candidate_graph_exec, candidate_graph, nullptr,
+                             nullptr, 0U),
+        label + " instantiate candidate graph");
+  }
+  if (graph_ready) {
+    graph_ready = test.cuda_ok(
+        cudaMemsetAsync(candidate_q_storage.get(), 0x1b,
+                        (kQRows + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        label + " poison graph Q");
+    graph_ready = test.cuda_ok(
+                      cudaMemsetAsync(candidate_key_storage.get(), 0xe4,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      label + " poison graph K") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemsetAsync(candidate_value_storage.get(), 0x96,
+                                      (kKvRows + 2U * kGuardElements) *
+                                          sizeof(std::uint16_t),
+                                      stream),
+                      label + " poison graph V") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaGraphLaunch(candidate_graph_exec, stream),
+                      label + " replay candidate graph") &&
+                  graph_ready;
+  }
+  std::vector<std::uint16_t> graph_q(kQRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> graph_key(kKvRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> graph_value(kKvRows + 2U * kGuardElements);
+  std::vector<std::uint16_t> graph_baseline_q(kQRows);
+  std::vector<std::uint16_t> graph_baseline_key(kKvRows);
+  std::vector<std::uint16_t> graph_baseline_value(kKvRows);
+  if (graph_ready) {
+    graph_ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_production(
+            production_q, production_key, production_value)),
+        label + " graph replay baseline launch");
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_q.data(), candidate_q_storage.get(),
+                          graph_q.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph Q") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_key.data(), candidate_key_storage.get(),
+                          graph_key.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph K") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_value.data(), candidate_value_storage.get(),
+                          graph_value.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph V") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_baseline_q.data(), production_q,
+                          graph_baseline_q.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph baseline Q") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_baseline_key.data(), production_key,
+                          graph_baseline_key.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph baseline K") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(
+                      cudaMemcpyAsync(
+                          graph_baseline_value.data(), production_value,
+                          graph_baseline_value.size() * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+                      label + " copy graph baseline V") &&
+                  graph_ready;
+    graph_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                               label + " graph synchronize") &&
+                  graph_ready;
+  }
+  std::size_t graph_mismatches = 0U;
+  if (graph_ready) {
+    for (std::size_t row = 0U; row < kQRows; ++row) {
+      graph_mismatches +=
+          graph_q[kGuardElements + row] != graph_baseline_q[row] ? 1U : 0U;
+    }
+    for (std::size_t row = 0U; row < kKvRows; ++row) {
+      graph_mismatches +=
+          graph_key[kGuardElements + row] != graph_baseline_key[row] ? 1U
+                                                                     : 0U;
+      graph_mismatches +=
+          graph_value[kGuardElements + row] != graph_baseline_value[row] ? 1U
+                                                                         : 0U;
+    }
+  }
+  const bool graph_guard_gate =
+      graph_ready && guards_match(graph_q, kQRows, 0x1b1bU) &&
+      guards_match(graph_key, kKvRows, 0xe4e4U) &&
+      guards_match(graph_value, kKvRows, 0x9696U);
+  const bool graph_gate =
+      graph_ready && graph_mismatches == 0U && graph_guard_gate;
+  test.expect(graph_gate,
+              label + " Graph replay is distinct, bitwise, and guarded");
+  std::cout << "FP8_M1_Q_KV_AOSOA4_GRAPH: production_nodes="
+            << production_capture.second
+            << " candidate_nodes=" << candidate_capture.second
+            << " distinct_function="
+            << (production_params.func != candidate_params.func ? "true"
+                                                                 : "false")
+            << " grid=2048 block=256 replay_mismatches="
+            << graph_mismatches
+            << " guards=" << (graph_guard_gate ? "intact" : "BAD")
+            << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+  if (candidate_graph_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(candidate_graph_exec),
+                       label + " destroy candidate graph executable");
+  }
+  if (candidate_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(candidate_graph),
+                       label + " destroy candidate graph");
+  }
+  if (production_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(production_graph),
+                       label + " destroy production graph");
+  }
+
+  struct InvalidArguments {
+    const std::uint8_t* q_sidecar;
+    float q_scale;
+    const std::uint8_t* kv_sidecar;
+    float key_scale;
+    float value_scale;
+    const std::uint16_t* activation;
+    std::size_t q_rows;
+    std::size_t kv_rows;
+    std::size_t columns;
+    std::uint16_t* q_output;
+    std::uint16_t* key_output;
+    std::uint16_t* value_output;
+  };
+  struct InvalidCase {
+    std::string name;
+    InvalidArguments arguments;
+  };
+  const auto* const fake_q_sidecar =
+      reinterpret_cast<const std::uint8_t*>(0x1'0000'0000ULL);
+  const auto* const fake_kv_sidecar =
+      reinterpret_cast<const std::uint8_t*>(0x1'1000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x1'2000'0000ULL);
+  auto* const fake_q_output =
+      reinterpret_cast<std::uint16_t*>(0x1'3000'0000ULL);
+  auto* const fake_key_output =
+      reinterpret_cast<std::uint16_t*>(0x1'4000'0000ULL);
+  auto* const fake_value_output =
+      reinterpret_cast<std::uint16_t*>(0x1'5000'0000ULL);
+  const InvalidArguments valid_arguments{
+      fake_q_sidecar, 1.0F / 64.0F, fake_kv_sidecar, 1.0F / 96.0F,
+      1.0F / 128.0F, fake_activation, kQRows, kKvRows, kColumns,
+      fake_q_output, fake_key_output, fake_value_output,
+  };
+  std::vector<InvalidCase> invalid_cases;
+  const auto add_invalid = [&](std::string name, const auto& mutate) {
+    InvalidArguments arguments = valid_arguments;
+    mutate(arguments);
+    invalid_cases.push_back(InvalidCase{std::move(name), arguments});
+  };
+  add_invalid("bad_q_rows", [](auto& args) { --args.q_rows; });
+  add_invalid("bad_kv_rows", [](auto& args) { --args.kv_rows; });
+  add_invalid("bad_columns", [](auto& args) { --args.columns; });
+  add_invalid("null_q_sidecar", [](auto& args) { args.q_sidecar = nullptr; });
+  add_invalid("null_kv_sidecar",
+              [](auto& args) { args.kv_sidecar = nullptr; });
+  add_invalid("null_activation",
+              [](auto& args) { args.activation = nullptr; });
+  add_invalid("null_q_output", [](auto& args) { args.q_output = nullptr; });
+  add_invalid("null_key_output",
+              [](auto& args) { args.key_output = nullptr; });
+  add_invalid("null_value_output",
+              [](auto& args) { args.value_output = nullptr; });
+  add_invalid("q_scale_nan", [](auto& args) {
+    args.q_scale = std::numeric_limits<float>::quiet_NaN();
+  });
+  add_invalid("key_scale_inf", [](auto& args) {
+    args.key_scale = std::numeric_limits<float>::infinity();
+  });
+  add_invalid("value_scale_negative",
+              [](auto& args) { args.value_scale = -1.0F; });
+  add_invalid("misaligned_q_sidecar", [](auto& args) {
+    args.q_sidecar = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(args.q_sidecar) + 1U);
+  });
+  add_invalid("misaligned_kv_sidecar", [](auto& args) {
+    args.kv_sidecar = reinterpret_cast<const std::uint8_t*>(
+        reinterpret_cast<std::uintptr_t>(args.kv_sidecar) + 1U);
+  });
+  add_invalid("misaligned_activation", [](auto& args) {
+    args.activation = reinterpret_cast<const std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.activation) + 2U);
+  });
+  add_invalid("misaligned_q_output", [](auto& args) {
+    args.q_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.q_output) + 1U);
+  });
+  add_invalid("misaligned_key_output", [](auto& args) {
+    args.key_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.key_output) + 1U);
+  });
+  add_invalid("misaligned_value_output", [](auto& args) {
+    args.value_output = reinterpret_cast<std::uint16_t*>(
+        reinterpret_cast<std::uintptr_t>(args.value_output) + 1U);
+  });
+  add_invalid("q_key_output_alias",
+              [](auto& args) { args.key_output = args.q_output; });
+  add_invalid("q_value_output_alias",
+              [](auto& args) { args.value_output = args.q_output; });
+  add_invalid("key_value_output_alias",
+              [](auto& args) { args.value_output = args.key_output; });
+  add_invalid("q_output_q_sidecar_alias", [](auto& args) {
+    args.q_output = reinterpret_cast<std::uint16_t*>(
+        const_cast<std::uint8_t*>(args.q_sidecar));
+  });
+  add_invalid("key_output_kv_sidecar_alias", [](auto& args) {
+    args.key_output = reinterpret_cast<std::uint16_t*>(
+        const_cast<std::uint8_t*>(args.kv_sidecar));
+  });
+  add_invalid("value_output_activation_alias", [](auto& args) {
+    args.value_output = const_cast<std::uint16_t*>(args.activation);
+  });
+  add_invalid("sidecar_input_alias",
+              [](auto& args) { args.kv_sidecar = args.q_sidecar; });
+
+  bool invalid_gate = true;
+  std::size_t invalid_failures = 0U;
+  for (const InvalidCase& invalid_case : invalid_cases) {
+    const std::string case_label = label + " invalid " + invalid_case.name;
+    cudaGraph_t invalid_graph = nullptr;
+    bool invalid_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        case_label + " begin capture");
+    int status = static_cast<int>(cudaErrorUnknown);
+    if (invalid_ready) {
+      const InvalidArguments& args = invalid_case.arguments;
+      status = q3x::kernels::
+          launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_test_cuda(
+              args.q_sidecar, args.q_scale, args.kv_sidecar, args.key_scale,
+              args.value_scale, args.activation, args.q_rows, args.kv_rows,
+              args.columns, args.q_output, args.key_output, args.value_output,
+              static_cast<void*>(stream));
+      invalid_ready = test.cuda_ok(
+                          cudaStreamEndCapture(stream, &invalid_graph),
+                          case_label + " end capture") &&
+                      invalid_ready;
+    }
+    std::size_t nodes = 0U;
+    if (invalid_ready && invalid_graph != nullptr) {
+      invalid_ready = test.cuda_ok(
+                          cudaGraphGetNodes(invalid_graph, nullptr, &nodes),
+                          case_label + " count nodes") &&
+                      invalid_ready;
+    }
+    if (invalid_graph != nullptr) {
+      invalid_ready = test.cuda_ok(cudaGraphDestroy(invalid_graph),
+                                   case_label + " destroy graph") &&
+                      invalid_ready;
+    }
+    const bool case_gate =
+        invalid_ready && status == static_cast<int>(cudaErrorInvalidValue) &&
+        nodes == 0U;
+    invalid_gate = invalid_gate && case_gate;
+    invalid_failures += case_gate ? 0U : 1U;
+    test.expect(case_gate, case_label + " rejects before enqueue");
+  }
+  const bool stream_clean = test.cuda_ok(cudaStreamSynchronize(stream),
+                                         label + " invalid stream clean");
+  invalid_gate = invalid_gate && stream_clean && invalid_failures == 0U;
+  test.expect(invalid_gate,
+              label + " freezes invalid-value fail-before-enqueue behavior");
+  std::cout << "FP8_M1_Q_KV_AOSOA4_INVALID: cases="
+            << invalid_cases.size() << " failures=" << invalid_failures
+            << " zero_nodes=true stream_clean="
+            << (stream_clean ? "true" : "false")
+            << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
+
+  struct SidecarTiming {
+    bool ready = false;
+    bool every_round_nonregressing = false;
+    float production_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float candidate_median_ms = std::numeric_limits<float>::quiet_NaN();
+    float paired_median_speedup = std::numeric_limits<float>::quiet_NaN();
+    float paired_median_delta_ms = std::numeric_limits<float>::quiet_NaN();
+    double projected_16_layer_delta_ms =
+        std::numeric_limits<double>::quiet_NaN();
+  };
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 80;
+  constexpr int kMeasurementRounds = 5;
+  constexpr std::size_t kTimedPasses =
+      2U * static_cast<std::size_t>(kMeasurementRounds);
+  const auto launch_production_timing = [&]() {
+    return launch_production(timing_q.get(), timing_key.get(),
+                             timing_value.get());
+  };
+  const auto launch_candidate_timing = [&]() {
+    return launch_candidate(timing_q.get(), timing_key.get(),
+                            timing_value.get());
+  };
+  const auto benchmark_fixture = [&](const std::string& fixture) {
+    SidecarTiming timing{};
+    bool timing_ready = true;
+    for (int iteration = 0;
+         iteration < kWarmupIterations && timing_ready; ++iteration) {
+      if ((iteration & 1) == 0) {
+        timing_ready = test.cuda_ok(
+            static_cast<cudaError_t>(launch_production_timing()),
+            fixture + " production warmup");
+        timing_ready = test.cuda_ok(
+                           static_cast<cudaError_t>(
+                               launch_candidate_timing()),
+                           fixture + " candidate warmup") &&
+                       timing_ready;
+      } else {
+        timing_ready = test.cuda_ok(
+            static_cast<cudaError_t>(launch_candidate_timing()),
+            fixture + " candidate warmup");
+        timing_ready = test.cuda_ok(
+                           static_cast<cudaError_t>(
+                               launch_production_timing()),
+                           fixture + " production warmup") &&
+                       timing_ready;
+      }
+    }
+    timing_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                                fixture + " warmup synchronize") &&
+                   timing_ready;
+    std::array<float, kTimedPasses> production_passes{};
+    std::array<float, kTimedPasses> candidate_passes{};
+    std::array<float, kMeasurementRounds> paired_speedups{};
+    std::array<float, kMeasurementRounds> paired_deltas{};
+    bool every_round_nonregressing = timing_ready;
+    for (int round = 0; round < kMeasurementRounds && timing_ready; ++round) {
+      const bool production_first = (round & 1) == 0;
+      const std::string round_label =
+          fixture + " round=" + std::to_string(round + 1);
+      float b1 = std::numeric_limits<float>::quiet_NaN();
+      float b2 = std::numeric_limits<float>::quiet_NaN();
+      float c1 = std::numeric_limits<float>::quiet_NaN();
+      float c2 = std::numeric_limits<float>::quiet_NaN();
+      if (production_first) {
+        b1 = measure_small_m_tile(test, stream, launch_production_timing,
+                                  kMeasuredIterations, round_label + " B1");
+        c1 = measure_small_m_tile(test, stream, launch_candidate_timing,
+                                  kMeasuredIterations, round_label + " C1");
+        c2 = measure_small_m_tile(test, stream, launch_candidate_timing,
+                                  kMeasuredIterations, round_label + " C2");
+        b2 = measure_small_m_tile(test, stream, launch_production_timing,
+                                  kMeasuredIterations, round_label + " B2");
+      } else {
+        c1 = measure_small_m_tile(test, stream, launch_candidate_timing,
+                                  kMeasuredIterations, round_label + " C1");
+        b1 = measure_small_m_tile(test, stream, launch_production_timing,
+                                  kMeasuredIterations, round_label + " B1");
+        b2 = measure_small_m_tile(test, stream, launch_production_timing,
+                                  kMeasuredIterations, round_label + " B2");
+        c2 = measure_small_m_tile(test, stream, launch_candidate_timing,
+                                  kMeasuredIterations, round_label + " C2");
+      }
+      const bool finite =
+          std::isfinite(b1) && std::isfinite(b2) && std::isfinite(c1) &&
+          std::isfinite(c2) && b1 > 0.0F && b2 > 0.0F && c1 > 0.0F &&
+          c2 > 0.0F;
+      const float paired_production = 0.5F * (b1 + b2);
+      const float paired_candidate = 0.5F * (c1 + c2);
+      const float paired_speedup = paired_production / paired_candidate;
+      const float paired_delta = paired_production - paired_candidate;
+      const std::size_t pass = 2U * static_cast<std::size_t>(round);
+      production_passes[pass] = b1;
+      production_passes[pass + 1U] = b2;
+      candidate_passes[pass] = c1;
+      candidate_passes[pass + 1U] = c2;
+      paired_speedups[static_cast<std::size_t>(round)] = paired_speedup;
+      paired_deltas[static_cast<std::size_t>(round)] = paired_delta;
+      const bool round_gate = finite && paired_speedup >= 1.0F;
+      every_round_nonregressing = every_round_nonregressing && round_gate;
+      timing_ready = timing_ready && finite;
+      std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ROUND: fixture=" << fixture
+                << " round=" << round + 1 << " order="
+                << (production_first ? "B-C-C-B" : "C-B-B-C")
+                << " launches_per_pass=" << kMeasuredIterations
+                << " shared_output_address=true"
+                << " production_pass1_ms=" << b1
+                << " candidate_pass1_ms=" << c1
+                << " candidate_pass2_ms=" << c2
+                << " production_pass2_ms=" << b2
+                << " paired_speedup=" << paired_speedup
+                << " paired_delta_ms=" << paired_delta
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    timing.ready = timing_ready;
+    timing.every_round_nonregressing = every_round_nonregressing;
+    if (timing_ready) {
+      timing.production_median_ms =
+          median_fp8_kv_pair_timing(production_passes);
+      timing.candidate_median_ms =
+          median_fp8_kv_pair_timing(candidate_passes);
+      timing.paired_median_speedup =
+          median_fp8_kv_pair_timing(paired_speedups);
+      timing.paired_median_delta_ms =
+          median_fp8_kv_pair_timing(paired_deltas);
+      timing.projected_16_layer_delta_ms =
+          static_cast<double>(timing.paired_median_delta_ms) * 16.0;
+    }
+    return timing;
+  };
+
+  const SidecarTiming actual_timing = benchmark_fixture("actual_checkpoint");
+  constexpr double kRequiredActualSpeedup = 1.005;
+  constexpr double kRequiredPerLayerDeltaMs = 0.0125;
+  constexpr double kRequiredProjected16LayerDeltaMs = 0.20;
+  const bool actual_timing_gate =
+      actual_timing.ready && actual_timing.every_round_nonregressing &&
+      std::isfinite(actual_timing.paired_median_speedup) &&
+      actual_timing.paired_median_speedup >= kRequiredActualSpeedup &&
+      std::isfinite(actual_timing.paired_median_delta_ms) &&
+      actual_timing.paired_median_delta_ms >= kRequiredPerLayerDeltaMs &&
+      std::isfinite(actual_timing.projected_16_layer_delta_ms) &&
+      actual_timing.projected_16_layer_delta_ms >=
+          kRequiredProjected16LayerDeltaMs;
+  const bool actual_gate =
+      resource_gate && payload_identity_gate && pack_gate &&
+      actual_diff_gate && graph_gate && invalid_gate && actual_timing_gate;
+  test.expect(actual_gate,
+              label + " clears the frozen first actual-process hard gate");
+  std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_ACTUAL:"
+            << " production_median_ms="
+            << actual_timing.production_median_ms
+            << " candidate_median_ms=" << actual_timing.candidate_median_ms
+            << " paired_median_speedup="
+            << actual_timing.paired_median_speedup
+            << " paired_median_delta_ms="
+            << actual_timing.paired_median_delta_ms
+            << " projected_16_layer_delta_ms="
+            << actual_timing.projected_16_layer_delta_ms
+            << " every_round_nonregressing="
+            << (actual_timing.every_round_nonregressing ? "true" : "false")
+            << " required_speedup=" << kRequiredActualSpeedup
+            << " required_per_layer_delta_ms=" << kRequiredPerLayerDeltaMs
+            << " required_projected_16_layer_delta_ms="
+            << kRequiredProjected16LayerDeltaMs
+            << " bitwise_graph_invalid="
+            << (actual_diff_gate && graph_gate && invalid_gate ? "PASS"
+                                                               : "FAIL")
+            << " gate=" << (actual_gate ? "PASS" : "FAIL") << '\n';
+  if (!actual_gate) {
+    std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_STOP_LOSS:"
+              << " reason=first_frozen_actual_process_failed"
+              << " stress_timing=NOT_RUN production_integration=NOT_RUN"
+              << " end_to_end=NOT_RUN gate=FAIL\n";
+    return;
+  }
+
+  fill_fp8_m2_code_distribution(host_q, kQRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  fill_fp8_m2_code_distribution(host_key, kKvRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  fill_fp8_m2_code_distribution(host_value, kKvRows, kColumns,
+                                Fp8M2CodeDistribution::kSameBankStress);
+  std::reverse(host_value.begin(), host_value.end());
+  q_scale = 1.0F / 64.0F;
+  key_scale = 1.0F / 96.0F;
+  value_scale = 1.0F / 128.0F;
+  bool stress_ready = test.cuda_ok(
+      cudaMemcpyAsync(q_weights.get(), host_q.data(), host_q.size(),
+                      cudaMemcpyHostToDevice, stream),
+      label + " stress upload Q");
+  stress_ready = test.cuda_ok(
+                     cudaMemcpyAsync(key_weights.get(), host_key.data(),
+                                     host_key.size(), cudaMemcpyHostToDevice,
+                                     stream),
+                     label + " stress upload K") &&
+                 stress_ready;
+  stress_ready = test.cuda_ok(
+                     cudaMemcpyAsync(value_weights.get(), host_value.data(),
+                                     host_value.size(), cudaMemcpyHostToDevice,
+                                     stream),
+                     label + " stress upload V") &&
+                 stress_ready;
+  stress_ready = test.cuda_ok(
+                     static_cast<cudaError_t>(q3x::kernels::
+                         launch_sm87_fp8_w8a16_m1_q_kv_aosoa4_preswizzled_pack_test_cuda(
+                             q_weights.get(), key_weights.get(),
+                             value_weights.get(), kQRows, kKvRows, kColumns,
+                             q_sidecar.get(), kv_sidecar.get(),
+                             static_cast<void*>(stream))),
+                     label + " stress build sidecars") &&
+                 stress_ready;
+  std::vector<std::uint8_t> stress_q_sidecar(kQBytes);
+  std::vector<std::uint8_t> stress_kv_sidecar(kKvSidecarBytes);
+  stress_ready = test.cuda_ok(
+                     cudaMemcpyAsync(stress_q_sidecar.data(), q_sidecar.get(),
+                                     stress_q_sidecar.size(),
+                                     cudaMemcpyDeviceToHost, stream),
+                     label + " stress copy Q sidecar") &&
+                 stress_ready;
+  stress_ready = test.cuda_ok(
+                     cudaMemcpyAsync(stress_kv_sidecar.data(),
+                                     kv_sidecar.get(),
+                                     stress_kv_sidecar.size(),
+                                     cudaMemcpyDeviceToHost, stream),
+                     label + " stress copy KV sidecar") &&
+                 stress_ready;
+  stress_ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                              label + " stress upload synchronize") &&
+                 stress_ready;
+  const bool stress_diff_gate =
+      stress_ready && run_direct_diff("same_bank_stress", stress_q_sidecar,
+                                      stress_kv_sidecar);
+  const SidecarTiming stress_timing =
+      stress_diff_gate ? benchmark_fixture("same_bank_stress")
+                       : SidecarTiming{};
+  const bool stress_gate =
+      stress_diff_gate && stress_timing.ready &&
+      stress_timing.every_round_nonregressing &&
+      std::isfinite(stress_timing.paired_median_speedup) &&
+      stress_timing.paired_median_speedup >= 1.0F;
+  const bool selected_gate = actual_gate && stress_gate;
+  test.expect(selected_gate,
+              label + " clears actual and same-bank process gates");
+  std::cout << "PERF_FP8_M1_Q_KV_AOSOA4_SELECTED:"
+            << " baseline=production_canonical_ping_pong"
+            << " candidate=test_only_aosoa4_preswizzled_sidecar"
+            << " topology=2048x256"
+            << " actual_production_median_ms="
+            << actual_timing.production_median_ms
+            << " actual_candidate_median_ms="
+            << actual_timing.candidate_median_ms
+            << " actual_paired_median_speedup="
+            << actual_timing.paired_median_speedup
+            << " actual_paired_median_delta_ms="
+            << actual_timing.paired_median_delta_ms
+            << " actual_projected_16_layer_delta_ms="
+            << actual_timing.projected_16_layer_delta_ms
+            << " stress_production_median_ms="
+            << stress_timing.production_median_ms
+            << " stress_candidate_median_ms="
+            << stress_timing.candidate_median_ms
+            << " stress_paired_median_speedup="
+            << stress_timing.paired_median_speedup
+            << " stress_every_round_nonregressing="
+            << (stress_timing.every_round_nonregressing ? "true" : "false")
             << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
 }
 
@@ -46868,6 +48144,7 @@ int main() {
                                                                 stream);
   run_fp8_m1_kv_pair_correctness_and_optional_performance(test, stream);
   run_fp8_m1_q_kv_production_contract(test, stream);
+  run_decode_fp8_q_kv_aosoa4_screen(test, stream);
   run_optional_fp8_m1_q_kv_fusion_performance(test, stream);
   run_optional_fp8_m1_q_kv_reduction_scratch_ping_pong_performance(test,
                                                                     stream);
