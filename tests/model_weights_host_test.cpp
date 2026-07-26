@@ -672,6 +672,63 @@ void test_fp8_qkv_z_projection_pair_eligibility(TestContext& test) {
               "QKV/Z eligibility accepts finite zero scales");
 }
 
+void test_linear_attention_qkv_z_ab_projection_fusion_eligibility(
+    TestContext& test) {
+  std::uint8_t qkv_storage = 0U;
+  std::uint8_t z_storage = 0U;
+  std::uint16_t a_storage = 0U;
+  std::uint16_t b_storage = 0U;
+  float qkv_weight_scale_device = 1.0F;
+  float qkv_input_scale_device = 1.0F;
+  float z_weight_scale_device = 0.5F;
+  float z_input_scale_device = 0.25F;
+  const runtime::LinearWeight qkv = runtime::Fp8LinearWeight{
+      &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 10'240U, 5'120U};
+  const runtime::LinearWeight z = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, 0.25F, 6'144U, 5'120U};
+  const runtime::LinearWeight a = runtime::Bf16LinearWeight{
+      &a_storage, 48U, 5'120U};
+  const runtime::LinearWeight b = runtime::Bf16LinearWeight{
+      &b_storage, 48U, 5'120U};
+
+  test.expect(runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+                  runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a,
+                  b),
+              "SM87 accepts the exact linear-attention QKV/Z/A/B group");
+  test.expect(!runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+                  runtime::ProjectionBackend::kReference, qkv, z, a, b),
+              "reference backend rejects linear-attention QKV/Z/A/B fusion");
+
+  const runtime::LinearWeight near_miss_z = runtime::Fp8LinearWeight{
+      &z_storage, &z_weight_scale_device, &z_input_scale_device,
+      0.5F, 0.25F, 6'143U, 5'120U};
+  const runtime::LinearWeight near_miss_a = runtime::Bf16LinearWeight{
+      &a_storage, 48U, 5'119U};
+  test.expect(
+      !runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+          runtime::ProjectionBackend::kSm87WeightOnly, qkv, near_miss_z, a,
+          b) &&
+          !runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+              near_miss_a, b),
+      "linear-attention QKV/Z/A/B fusion rejects near-miss shapes");
+
+  const runtime::LinearWeight fp8_a = runtime::Fp8LinearWeight{
+      &qkv_storage, &qkv_weight_scale_device, &qkv_input_scale_device,
+      1.0F, 0.75F, 48U, 5'120U};
+  const runtime::LinearWeight bf16_qkv = runtime::Bf16LinearWeight{
+      &a_storage, 10'240U, 5'120U};
+  test.expect(
+      !runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+          runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, fp8_a, b) &&
+          !runtime::supports_linear_attention_qkv_z_ab_projection_fusion(
+              runtime::ProjectionBackend::kSm87WeightOnly, bf16_qkv, z, a,
+              b),
+      "linear-attention QKV/Z/A/B fusion enforces FP8/FP8/BF16/BF16 types");
+}
+
 void test_nvfp4_gate_up_silu_fusion_eligibility(TestContext& test) {
   std::uint8_t gate_packed = 0U;
   std::uint8_t gate_scales = 0U;
@@ -940,6 +997,7 @@ int main() {
   test_fp8_m1_output_projection_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);
+  test_linear_attention_qkv_z_ab_projection_fusion_eligibility(test);
   test_nvfp4_gate_up_silu_fusion_eligibility(test);
   test_source_and_tensor_failures(test);
   test_scalar_failures(test);

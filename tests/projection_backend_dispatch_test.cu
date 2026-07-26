@@ -2450,6 +2450,7 @@ void test_fp8_projection_pair_dispatch(TestContext& test) {
 void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
   constexpr std::size_t kQkvRows = 10'240U;
   constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kAbRows = 48U;
   constexpr std::size_t kColumns = 5'120U;
   constexpr float kQkvWeightScale = 1.0F / 64.0F;
   constexpr float kZWeightScale = 1.0F / 128.0F;
@@ -2461,10 +2462,14 @@ void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
   DeviceBuffer<std::uint8_t> z_weights;
   DeviceBuffer<std::uint8_t> misaligned_activation_storage;
   DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> a_weights;
+  DeviceBuffer<std::uint16_t> b_weights;
   DeviceBuffer<float> companion_scales;
   DeviceBuffer<float> scratch;
   DeviceBuffer<std::uint16_t> qkv_output;
   DeviceBuffer<std::uint16_t> z_output;
+  DeviceBuffer<std::uint16_t> a_output;
+  DeviceBuffer<std::uint16_t> b_output;
   bool ready = qkv_weights.allocate(
       test, kQkvRows * kColumns, "QKV/Z QKV FP8 weights");
   ready = ready && z_weights.allocate(
@@ -2474,14 +2479,22 @@ void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
                        "QKV/Z misaligned activation storage");
   ready = ready && activation.allocate(
                        test, 2U * kColumns, "QKV/Z FP8 activations");
+  ready = ready && a_weights.allocate(
+                       test, kAbRows * kColumns + 1U,
+                       "QKV/Z/A/B A weights");
+  ready = ready && b_weights.allocate(
+                       test, kAbRows * kColumns, "QKV/Z/A/B B weights");
   ready = ready && companion_scales.allocate(
-                       test, 4U, "QKV/Z FP8 companion scales");
+                       test, kQkvRows / 2U + 4U,
+                       "QKV/Z FP8 companion scales");
   ready = ready && scratch.allocate(
                        test, kQkvRows, "QKV/Z FP8 reference scratch");
   ready = ready && qkv_output.allocate(
                        test, 2U * kQkvRows, "QKV/Z QKV output");
   ready = ready && z_output.allocate(
                        test, 2U * kZRows, "QKV/Z Z output");
+  ready = ready && a_output.allocate(test, kAbRows, "QKV/Z/A/B A output");
+  ready = ready && b_output.allocate(test, kAbRows, "QKV/Z/A/B B output");
   if (!ready) {
     return;
   }
@@ -2523,11 +2536,133 @@ void test_fp8_qkv_z_projection_pair_dispatch(TestContext& test) {
   const runtime::LinearWeight z = runtime::Fp8LinearWeight{
       z_weights.get(), companion_scales.get() + 2U,
       companion_scales.get() + 3U, kZWeightScale, 1.0F, kZRows, kColumns};
+  const runtime::LinearWeight a = runtime::Bf16LinearWeight{
+      a_weights.get(), kAbRows, kColumns};
+  const runtime::LinearWeight b = runtime::Bf16LinearWeight{
+      b_weights.get(), kAbRows, kColumns};
   test.expect(runtime::supports_fp8_qkv_z_projection_pair(
                   runtime::ProjectionBackend::kSm87WeightOnly, qkv, z),
               "production FP8 QKV/Z pair selects the SM87 fast path");
 
-  int status = runtime::launch_projection_pair_tile_to_bf16_cuda(
+  std::size_t composite_total_nodes = 0U;
+  const std::size_t composite_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            activation.get(), qkv_output.get(), z_output.get(),
+            a_output.get(), b_output.get(), static_cast<void*>(stream));
+      },
+      "SM87 production linear-attention QKV/Z/A/B graph",
+      &composite_total_nodes);
+  test.expect(composite_total_nodes == 1U &&
+                  composite_kernel_nodes == 1U,
+              "linear-attention QKV/Z/A/B graph contains one fused kernel");
+
+  int status = runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+      misaligned_activation, qkv_output.get(), z_output.get(), a_output.get(),
+      b_output.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaErrorNotSupported,
+              "unaligned linear-attention QKV/Z/A/B returns not supported");
+
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            misaligned_activation, a_weights.get(), z_output.get(),
+            a_output.get(), b_output.get(), static_cast<void*>(stream));
+      },
+      "unaligned linear-attention QKV/Z/A/B with QKV output over A weight");
+
+  const auto* const odd_byte_a_weights =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<const std::uint8_t*>(a_weights.get()) + 1U);
+  const runtime::LinearWeight misaligned_a = runtime::Bf16LinearWeight{
+      odd_byte_a_weights, kAbRows, kColumns};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+            misaligned_a, b, activation.get(), qkv_output.get(),
+            z_output.get(), a_output.get(), b_output.get(),
+            static_cast<void*>(stream));
+      },
+      "linear-attention QKV/Z/A/B odd-byte A weight");
+
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            activation.get(),
+            reinterpret_cast<std::uint16_t*>(companion_scales.get()),
+            z_output.get(), a_output.get(), b_output.get(),
+            static_cast<void*>(stream));
+      },
+      "linear-attention QKV output over QKV weight scale");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            activation.get(), qkv_output.get(),
+            reinterpret_cast<std::uint16_t*>(companion_scales.get() + 1U),
+            a_output.get(), b_output.get(), static_cast<void*>(stream));
+      },
+      "linear-attention Z output over QKV input scale");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            activation.get(), qkv_output.get(), z_output.get(),
+            reinterpret_cast<std::uint16_t*>(companion_scales.get() + 2U),
+            b_output.get(), static_cast<void*>(stream));
+      },
+      "linear-attention A output over Z weight scale");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z, a, b,
+            activation.get(), qkv_output.get(), z_output.get(),
+            a_output.get(), reinterpret_cast<std::uint16_t*>(
+                                companion_scales.get() + 3U),
+            static_cast<void*>(stream));
+      },
+      "linear-attention B output over Z input scale");
+
+  const runtime::LinearWeight missing_a_payload =
+      runtime::Bf16LinearWeight{nullptr, kAbRows, kColumns};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
+            missing_a_payload, b, activation.get(), qkv_output.get(),
+            z_output.get(), a_output.get(), b_output.get(),
+            static_cast<void*>(stream));
+      },
+      "linear-attention QKV/Z/A/B missing A payload");
+
+  const runtime::LinearWeight missing_z_scale = runtime::Fp8LinearWeight{
+      z_weights.get(), nullptr, companion_scales.get() + 3U,
+      kZWeightScale, 1.0F, kZRows, kColumns};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+            missing_z_scale, a, b, activation.get(), qkv_output.get(),
+            z_output.get(), a_output.get(), b_output.get(),
+            static_cast<void*>(stream));
+      },
+      "linear-attention QKV/Z/A/B missing Z scale payload");
+
+  status = runtime::launch_projection_pair_tile_to_bf16_cuda(
       runtime::ProjectionBackend::kSm87WeightOnly, qkv, z,
       activation.get(), 1U, nullptr, 0U, qkv_output.get(), z_output.get());
   test.expect(static_cast<cudaError_t>(status) == cudaSuccess,

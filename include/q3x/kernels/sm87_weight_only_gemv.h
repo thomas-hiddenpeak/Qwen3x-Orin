@@ -79,6 +79,23 @@ launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
     std::size_t z_rows, std::size_t columns, std::uint16_t* qkv_output,
     std::uint16_t* z_output, void* cuda_stream = nullptr) noexcept;
 
+// Exact M=1 linear-attention input projection for FP8 QKV [10240, 5120],
+// FP8 Z [6144, 5120], and BF16 A/B [48, 5120]. Twenty-four light QKV tail
+// CTAs compute two adjacent A/B rows while sharing the activation load. QKV,
+// Z, A, and B outputs are bitwise-identical to the established QKV/Z then A/B
+// two-kernel chain. All four output spans must be mutually disjoint and must
+// not overlap any input. FP8 weights require 4-byte alignment, activation
+// 8-byte alignment, and BF16 weights and outputs 2-byte alignment.
+[[nodiscard]] int launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+    const std::uint8_t* qkv_weights, float qkv_weight_scale,
+    const std::uint8_t* z_weights, float z_weight_scale,
+    const std::uint16_t* a_weights, const std::uint16_t* b_weights,
+    const std::uint16_t* activation, std::size_t qkv_rows,
+    std::size_t z_rows, std::size_t ab_rows, std::size_t columns,
+    std::uint16_t* qkv_output, std::uint16_t* z_output,
+    std::uint16_t* a_output, std::uint16_t* b_output,
+    void* cuda_stream = nullptr) noexcept;
+
 // Fused checkpoint K/V projection for the exact FP8 [1024, 5120] M=1
 // shape. Both matrices consume the same activation while retaining the
 // single-projection BF16 result for every output row. Unsupported shapes or

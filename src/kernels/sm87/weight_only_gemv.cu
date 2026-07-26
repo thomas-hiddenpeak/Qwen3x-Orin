@@ -1372,7 +1372,7 @@ __device__ __forceinline__ void bf16_exact_shared_tree_reduce(
 // share one activation load. The original 256-thread shared reductions then
 // execute in A-row0/A-row1/B-row0/B-row1 order and remain bitwise exact.
 __global__ __launch_bounds__(kThreads, 4) void
-fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_test_kernel(
+fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
     const std::uint8_t* const z_weights, const float z_weight_scale,
     const std::uint16_t* const a_weights,
@@ -8850,7 +8850,7 @@ void launch_fp8_qkv_z_two_phase_unchecked(
           activation, columns, qkv_output, z_output);
 }
 
-void launch_fp8_qkv_z_bf16_ab_pair_tail_composite_test_unchecked(
+void launch_fp8_qkv_z_bf16_ab_pair_tail_composite_unchecked(
     const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
     const std::uint8_t* const z_weights, const float z_weight_scale,
     const std::uint16_t* const a_weights,
@@ -8859,7 +8859,7 @@ void launch_fp8_qkv_z_bf16_ab_pair_tail_composite_test_unchecked(
     std::uint16_t* const qkv_output, std::uint16_t* const z_output,
     std::uint16_t* const a_output, std::uint16_t* const b_output,
     cudaStream_t const stream) noexcept {
-  fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_test_kernel
+  fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel
       <<<kFp8QkvZProductionBlocks, kThreads, 0U, stream>>>(
           qkv_weights, qkv_weight_scale, z_weights, z_weight_scale,
           a_weights, b_weights, activation, columns, qkv_output, z_output,
@@ -10710,6 +10710,42 @@ int launch_sm87_fp8_w8a16_m1_output_projection_aosoa4_pack_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Production exact-M1 linear-attention input projection. The established
+// QKV/Z work is unchanged; 24 otherwise-light tail CTAs also compute two
+// adjacent BF16 A/B rows while sharing each activation load. All four output
+// tensors retain their predecessor BF16 arithmetic and publication points.
+int launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+    const std::uint8_t* const qkv_weights, const float qkv_weight_scale,
+    const std::uint8_t* const z_weights, const float z_weight_scale,
+    const std::uint16_t* const a_weights,
+    const std::uint16_t* const b_weights,
+    const std::uint16_t* const activation, const std::size_t qkv_rows,
+    const std::size_t z_rows, const std::size_t ab_rows,
+    const std::size_t columns, std::uint16_t* const qkv_output,
+    std::uint16_t* const z_output, std::uint16_t* const a_output,
+    std::uint16_t* const b_output, void* const cuda_stream) noexcept {
+  const int validation = validate_fp8_qkv_z_bf16_ab_launch(
+      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
+      b_weights, activation, qkv_rows, z_rows, ab_rows, columns, qkv_output,
+      z_output, a_output, b_output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!fp8_qkv_z_bf16_ab_launch_is_aligned(
+          qkv_weights, z_weights, a_weights, b_weights, activation,
+          qkv_output, z_output, a_output, b_output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_qkv_z_bf16_ab_pair_tail_composite_unchecked(
+      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
+      b_weights, activation, columns, qkv_output, z_output, a_output,
+      b_output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Production exact-shape FP8 QKV/Z projection. The fixed launch retains the
 // independently gated 1,536-CTA QKV and 768-CTA Z row-quad topologies while
 // sharing launch overhead and decoded-codebook setup between both phases. Its
@@ -11065,26 +11101,10 @@ int launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_test_cuda(
     const std::size_t columns, std::uint16_t* const qkv_output,
     std::uint16_t* const z_output, std::uint16_t* const a_output,
     std::uint16_t* const b_output, void* const cuda_stream) noexcept {
-  const int validation = validate_fp8_qkv_z_bf16_ab_launch(
+  return launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
       qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
       b_weights, activation, qkv_rows, z_rows, ab_rows, columns, qkv_output,
-      z_output, a_output, b_output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  if (!fp8_qkv_z_bf16_ab_launch_is_aligned(
-          qkv_weights, z_weights, a_weights, b_weights, activation,
-          qkv_output, z_output, a_output, b_output)) {
-    return invalid_value();
-  }
-
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  launch_fp8_qkv_z_bf16_ab_pair_tail_composite_test_unchecked(
-      qkv_weights, qkv_weight_scale, z_weights, z_weight_scale, a_weights,
-      b_weights, activation, columns, qkv_output, z_output, a_output,
-      b_output, stream);
-  return static_cast<int>(cudaGetLastError());
+      z_output, a_output, b_output, cuda_stream);
 }
 
 int query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cuda(
@@ -11101,14 +11121,14 @@ int query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cud
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_test_kernel);
+      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_test_kernel,
+      fp8_w8a16_gemv_bf16_qkv_z_bf16_ab_pair_tail_composite_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

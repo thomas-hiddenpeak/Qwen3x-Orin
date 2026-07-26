@@ -298,6 +298,54 @@ struct MlpGateUpSiluLaunchPlan {
   ProjectionTileSpans up;
 };
 
+struct LinearAttentionQkvZAbLaunchPlan {
+  ProjectionTileSpans qkv;
+  ProjectionTileSpans z;
+  ProjectionTileSpans a;
+  ProjectionTileSpans b;
+};
+
+[[nodiscard]] int validate_linear_attention_qkv_z_ab_direct_launch(
+    const ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight, const LinearWeight& a_weight,
+    const LinearWeight& b_weight, const std::uint16_t* const input,
+    std::uint16_t* const qkv_output, std::uint16_t* const z_output,
+    std::uint16_t* const a_output, std::uint16_t* const b_output,
+    LinearAttentionQkvZAbLaunchPlan* const plan) noexcept {
+  if (plan == nullptr) {
+    return invalid_value();
+  }
+  *plan = LinearAttentionQkvZAbLaunchPlan{};
+
+  const std::array<const LinearWeight*, 4U> weights{
+      &qkv_weight, &z_weight, &a_weight, &b_weight};
+  const std::array<std::uint16_t*, 4U> outputs{
+      qkv_output, z_output, a_output, b_output};
+  const std::array<ProjectionTileSpans*, 4U> spans{
+      &plan->qkv, &plan->z, &plan->a, &plan->b};
+  for (std::size_t index = 0U; index < weights.size(); ++index) {
+    const int validation = validate_projection_tile(
+        backend, *weights[index], input, 1U, nullptr, 0U, outputs[index],
+        spans[index], true);
+    if (validation != static_cast<int>(cudaSuccess)) {
+      return validation;
+    }
+  }
+
+  for (std::size_t first = 0U; first < weights.size(); ++first) {
+    for (std::size_t second = first + 1U; second < weights.size(); ++second) {
+      const int validation = validate_projection_pair_cross_ranges(
+          backend, *weights[first], *weights[second], input, nullptr,
+          outputs[first], outputs[second], *spans[first], *spans[second],
+          true);
+      if (validation != static_cast<int>(cudaSuccess)) {
+        return validation;
+      }
+    }
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 struct FullAttentionQKvLaunchPlan {
   bool aligned_fp8_fusion = false;
   ProjectionTileSpans q;
@@ -1029,6 +1077,64 @@ int launch_projection_pair_tile_to_bf16_cuda(
   return launch_projection_tile_to_bf16_cuda(
       backend, second_weight, input, token_count, fp32_scratch,
       scratch_elements, second_output, cuda_stream);
+}
+
+int launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight, const LinearWeight& a_weight,
+    const LinearWeight& b_weight, const std::uint16_t* const input,
+    std::uint16_t* const qkv_output, std::uint16_t* const z_output,
+    std::uint16_t* const a_output, std::uint16_t* const b_output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kQkvRows = 10'240U;
+  constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kAbRows = 48U;
+  constexpr std::size_t kColumns = 5'120U;
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      qkv_weight.valueless_by_exception() ||
+      z_weight.valueless_by_exception() ||
+      a_weight.valueless_by_exception() ||
+      b_weight.valueless_by_exception()) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const auto* const qkv = std::get_if<Fp8LinearWeight>(&qkv_weight);
+  const auto* const z = std::get_if<Fp8LinearWeight>(&z_weight);
+  const auto* const a = std::get_if<Bf16LinearWeight>(&a_weight);
+  const auto* const b = std::get_if<Bf16LinearWeight>(&b_weight);
+  if (qkv == nullptr || z == nullptr || a == nullptr || b == nullptr ||
+      qkv->output_size != kQkvRows || z->output_size != kZRows ||
+      a->output_size != kAbRows || b->output_size != kAbRows ||
+      qkv->input_size != kColumns || z->input_size != kColumns ||
+      a->input_size != kColumns || b->input_size != kColumns) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  LinearAttentionQkvZAbLaunchPlan plan;
+  const int validation = validate_linear_attention_qkv_z_ab_direct_launch(
+      backend, qkv_weight, z_weight, a_weight, b_weight, input, qkv_output,
+      z_output, a_output, b_output, &plan);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!pointer_is_aligned(a->weight, alignof(std::uint16_t)) ||
+      !pointer_is_aligned(b->weight, alignof(std::uint16_t))) {
+    return invalid_value();
+  }
+  const bool aligned =
+      pointer_is_aligned(qkv->weight, alignof(std::uint32_t)) &&
+      pointer_is_aligned(z->weight, alignof(std::uint32_t)) &&
+      pointer_is_aligned(input, alignof(std::uint64_t)) &&
+      pointer_is_aligned(qkv_output, alignof(std::uint16_t)) &&
+      pointer_is_aligned(z_output, alignof(std::uint16_t)) &&
+      pointer_is_aligned(a_output, alignof(std::uint16_t)) &&
+      pointer_is_aligned(b_output, alignof(std::uint16_t));
+  if (!aligned) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  return kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
+      qkv->weight, qkv->weight_scale, z->weight, z->weight_scale, a->weight,
+      b->weight, input, qkv->output_size, z->output_size, a->output_size,
+      qkv->input_size, qkv_output, z_output, a_output, b_output, cuda_stream);
 }
 
 int launch_full_attention_q_kv_to_bf16_cuda(

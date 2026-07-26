@@ -733,6 +733,14 @@ bool supports_fp8_qkv_z_projection_pair(
          qkv->input_size == kColumns && z->input_size == kColumns;
 }
 
+bool supports_linear_attention_qkv_z_ab_projection_fusion(
+    const ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight, const LinearWeight& a_weight,
+    const LinearWeight& b_weight) noexcept {
+  return supports_fp8_qkv_z_projection_pair(backend, qkv_weight, z_weight) &&
+         supports_bf16_projection_pair(backend, a_weight, b_weight);
+}
+
 bool supports_fp8_q_kv_projection_fusion(
     const ProjectionBackend backend, const LinearWeight& q_weight,
     const LinearWeight& key_weight,

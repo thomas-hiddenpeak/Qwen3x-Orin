@@ -128,6 +128,16 @@ inline constexpr std::size_t kMaximumProjectionTileTokenCount = 32U;
     ProjectionBackend backend, const LinearWeight& qkv_weight,
     const LinearWeight& z_weight) noexcept;
 
+// True only for the exact M=1 step-path linear-attention four-projection
+// group: FP8 QKV/Z followed by BF16 A/B on the explicitly selected SM87
+// backend. This includes Decode and any C1/finish-prefill delegation to
+// ReferenceRunner::step(). Types, payloads, and shapes are checked here;
+// pointer alignment and all cross-output ranges remain launch-time concerns.
+[[nodiscard]] bool supports_linear_attention_qkv_z_ab_projection_fusion(
+    ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight, const LinearWeight& a_weight,
+    const LinearWeight& b_weight) noexcept;
+
 // True only for the production full-attention Q/K/V fusion ABI: the
 // explicitly selected SM87 backend followed by valid FP8 [12288, 5120],
 // [1024, 5120], and [1024, 5120] matrices in Q, K, V order. This is
@@ -417,6 +427,20 @@ struct WeightBindResult {
     std::size_t token_count, float* fp32_scratch,
     std::size_t scratch_elements, std::uint16_t* first_output,
     std::uint16_t* second_output, void* cuda_stream = nullptr) noexcept;
+
+// Launches the exact M=1 linear-attention QKV/Z/A/B group as one SM87 kernel.
+// Unsupported backend, types, shapes, or fusion-only QKV/Z-weight/activation
+// alignment return cudaErrorNotSupported before enqueue so the runner can
+// retain its established two-call fallback. Structurally eligible calls with
+// invalid payloads, BF16 alignment, null pointers, ranges, or aliases return
+// cudaErrorInvalidValue and must not be retried through that fallback.
+[[nodiscard]] int launch_linear_attention_qkv_z_ab_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& qkv_weight,
+    const LinearWeight& z_weight, const LinearWeight& a_weight,
+    const LinearWeight& b_weight, const std::uint16_t* input,
+    std::uint16_t* qkv_output, std::uint16_t* z_output,
+    std::uint16_t* a_output, std::uint16_t* b_output,
+    void* cuda_stream = nullptr) noexcept;
 
 // Validates and launches the single-token full-attention Q, K, and V
 // projections over one shared activation. The exact aligned SM87 FP8
