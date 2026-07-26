@@ -375,6 +375,22 @@ query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activation,
+    const std::uint16_t* residual_left, const std::uint16_t* norm_weight,
+    float epsilon, std::size_t rows, std::size_t columns,
+    std::uint16_t* raw_down_output, std::uint16_t* residual_output,
+    std::uint16_t* normalized_output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_down_residual_norm_coarsened_512_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gemv_bf16_k5120_xor_dual_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activation, std::size_t rows,
@@ -28627,6 +28643,7 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
       "NVFP4 M1 down+residual+centered-norm exact 5120x17408";
 
   NvFp4M1DownDualKernelResources resources{};
+  NvFp4M1DownDualKernelResources coarsened_resources{};
   bool ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
@@ -28650,6 +28667,15 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
                                               cudaDevAttrMultiProcessorCount,
                                               device),
                        label + " query multiprocessor count");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(q3x::kernels::
+                           query_sm87_nvfp4_w4a16_m1_down_residual_norm_coarsened_512_resources_test_cuda(
+                               &coarsened_resources.registers_per_thread,
+                               &coarsened_resources.static_shared_bytes,
+                               &coarsened_resources.local_bytes,
+                               &coarsened_resources.maximum_threads_per_block,
+                               &coarsened_resources.active_blocks_per_sm)),
+                       label + " query test-only 32x512 resources");
   const bool null_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_down_residual_norm_resources_cuda(
@@ -28665,6 +28691,23 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
       multiprocessor_count > 0 &&
       multiprocessor_count * resources.active_blocks_per_sm >= 64 &&
       null_rejected;
+  const bool coarsened_null_rejected =
+      static_cast<cudaError_t>(q3x::kernels::
+          query_sm87_nvfp4_w4a16_m1_down_residual_norm_coarsened_512_resources_test_cuda(
+              nullptr, &coarsened_resources.static_shared_bytes,
+              &coarsened_resources.local_bytes,
+              &coarsened_resources.maximum_threads_per_block,
+              &coarsened_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  const bool coarsened_resource_gate =
+      ready && coarsened_resources.registers_per_thread <= 64 &&
+      coarsened_resources.static_shared_bytes == 35'904U &&
+      coarsened_resources.local_bytes == 0U &&
+      coarsened_resources.maximum_threads_per_block >= 512 &&
+      coarsened_resources.active_blocks_per_sm >= 2 &&
+      cooperative_launch != 0 && multiprocessor_count > 0 &&
+      multiprocessor_count * coarsened_resources.active_blocks_per_sm >= 32 &&
+      coarsened_null_rejected;
   test.expect(resource_gate,
               label + " clears exact 64r/35904B/0local/active4 gate");
   std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_PRODUCTION_RESOURCES: "
@@ -28681,6 +28724,27 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             << " null_query_rejected="
             << (null_rejected ? "true" : "false")
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(coarsened_resource_gate,
+              label + " test-only 32x512 clears cooperative resource gate");
+  std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_CTA_COARSEN_RESOURCES: "
+            << "registers_per_thread="
+            << coarsened_resources.registers_per_thread
+            << " static_shared_bytes="
+            << coarsened_resources.static_shared_bytes
+            << " local_bytes=" << coarsened_resources.local_bytes
+            << " maximum_threads_per_block="
+            << coarsened_resources.maximum_threads_per_block
+            << " active_blocks_per_sm="
+            << coarsened_resources.active_blocks_per_sm
+            << " cooperative_launch=" << cooperative_launch
+            << " multiprocessor_count=" << multiprocessor_count
+            << " resident_grid_capacity="
+            << multiprocessor_count *
+                   coarsened_resources.active_blocks_per_sm
+            << " null_query_rejected="
+            << (coarsened_null_rejected ? "true" : "false")
+            << " gate=" << (coarsened_resource_gate ? "PASS" : "FAIL")
+            << '\n';
   if (!ready) {
     return;
   }
@@ -28754,6 +28818,76 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             << " dynamic_shared_bytes=" << kernel_params.sharedMemBytes
             << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
 
+  cudaGraph_t coarsened_capture_graph = nullptr;
+  bool coarsened_graph_ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin test-only 32x512 cooperative capture");
+  if (coarsened_graph_ready) {
+    coarsened_graph_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
+                fake_packed, fake_scales, kWeightScale2, fake_activation,
+                fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+                fake_residual, fake_normalized,
+                static_cast<void*>(stream))),
+        label + " capture test-only 32x512 cooperative launch");
+    coarsened_graph_ready =
+        test.cuda_ok(
+            cudaStreamEndCapture(stream, &coarsened_capture_graph),
+            label + " end test-only 32x512 cooperative capture") &&
+        coarsened_graph_ready;
+  }
+  std::size_t coarsened_node_count = 0U;
+  cudaKernelNodeParams coarsened_kernel_params{};
+  if (coarsened_graph_ready) {
+    coarsened_graph_ready = test.cuda_ok(
+        cudaGraphGetNodes(coarsened_capture_graph, nullptr,
+                          &coarsened_node_count),
+        label + " query test-only 32x512 capture nodes");
+  }
+  if (coarsened_graph_ready && coarsened_node_count == 1U) {
+    cudaGraphNode_t node = nullptr;
+    std::size_t capacity = 1U;
+    coarsened_graph_ready = test.cuda_ok(
+        cudaGraphGetNodes(coarsened_capture_graph, &node, &capacity),
+        label + " get test-only 32x512 capture node");
+    coarsened_graph_ready =
+        coarsened_graph_ready && capacity == 1U &&
+        test.cuda_ok(cudaGraphKernelNodeGetParams(
+                         node, &coarsened_kernel_params),
+                     label + " get test-only 32x512 kernel params");
+  }
+  const bool coarsened_graph_gate =
+      coarsened_graph_ready && coarsened_node_count == 1U &&
+      coarsened_kernel_params.func != nullptr &&
+      coarsened_kernel_params.func != kernel_params.func &&
+      coarsened_kernel_params.gridDim.x == 32U &&
+      coarsened_kernel_params.gridDim.y == 1U &&
+      coarsened_kernel_params.gridDim.z == 1U &&
+      coarsened_kernel_params.blockDim.x == 512U &&
+      coarsened_kernel_params.blockDim.y == 1U &&
+      coarsened_kernel_params.blockDim.z == 1U &&
+      coarsened_kernel_params.sharedMemBytes == 0U;
+  test.expect(coarsened_graph_gate,
+              label + " test-only 32x512 is distinct from production");
+  if (coarsened_capture_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(coarsened_capture_graph),
+                       label + " destroy test-only 32x512 graph");
+  }
+  std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_CTA_COARSEN_GRAPH: "
+            << "production_grid=" << kernel_params.gridDim.x
+            << " production_block=" << kernel_params.blockDim.x
+            << " candidate_nodes=" << coarsened_node_count
+            << " candidate_grid=" << coarsened_kernel_params.gridDim.x
+            << " candidate_block=" << coarsened_kernel_params.blockDim.x
+            << " distinct_function="
+            << (coarsened_kernel_params.func != kernel_params.func ? "true"
+                                                                   : "false")
+            << " dynamic_shared_bytes="
+            << coarsened_kernel_params.sharedMemBytes
+            << " gate=" << (coarsened_graph_gate ? "PASS" : "FAIL")
+            << '\n';
+
   const auto public_status =
       [&](const std::uint8_t* const packed,
           const std::uint8_t* const scales, const float scale,
@@ -28765,6 +28899,21 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
           std::uint16_t* const normalized) noexcept {
         return q3x::kernels::
             launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                packed, scales, scale, activation, left, weight, epsilon,
+                rows, columns, raw, residual, normalized,
+                static_cast<void*>(stream));
+      };
+  const auto coarsened_status =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scales, const float scale,
+          const std::uint16_t* const activation,
+          const std::uint16_t* const left,
+          const std::uint16_t* const weight, const float epsilon,
+          const std::size_t rows, const std::size_t columns,
+          std::uint16_t* const raw, std::uint16_t* const residual,
+          std::uint16_t* const normalized) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
                 packed, scales, scale, activation, left, weight, epsilon,
                 rows, columns, raw, residual, normalized,
                 static_cast<void*>(stream));
@@ -29065,10 +29214,104 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             overflowing_output, fake_residual, fake_normalized);
       },
       "overflowing output range");
-  test.expect(invalid_zero_node_gate,
+  const bool production_invalid_zero_node_gate = invalid_zero_node_gate;
+  const std::size_t production_invalid_case_count = invalid_case_count;
+  test.expect(production_invalid_zero_node_gate,
               label + " clears complete invalid zero-node contract");
+
+  invalid_zero_node_gate = true;
+  invalid_case_count = 0U;
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation,
+            fake_left, fake_weight, kEpsilon, kRows - 1U, kColumns, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 near-miss rows");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation,
+            fake_left, fake_weight, kEpsilon, kRows, kColumns + 16U, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 near-miss columns");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales,
+            std::numeric_limits<float>::quiet_NaN(), fake_activation,
+            fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 NaN weight scale");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation,
+            fake_left, fake_weight, 0.0F, kRows, kColumns, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 nonpositive epsilon");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            nullptr, fake_scales, kWeightScale2, fake_activation, fake_left,
+            fake_weight, kEpsilon, kRows, kColumns, fake_raw, fake_residual,
+            fake_normalized);
+      },
+      "test-only 32x512 null packed weights");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation, nullptr,
+            fake_weight, kEpsilon, kRows, kColumns, fake_raw, fake_residual,
+            fake_normalized);
+      },
+      "test-only 32x512 null residual input");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation,
+            fake_left, nullptr, kEpsilon, kRows, kColumns, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 null norm weight");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2,
+            reinterpret_cast<const std::uint16_t*>(
+                reinterpret_cast<std::uintptr_t>(fake_activation) + 2U),
+            fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+            fake_residual, fake_normalized);
+      },
+      "test-only 32x512 unaligned activation");
+  expect_invalid_zero_node(
+      [&]() noexcept {
+        return coarsened_status(
+            fake_packed, fake_scales, kWeightScale2, fake_activation,
+            fake_left, fake_weight, kEpsilon, kRows, kColumns, fake_raw,
+            fake_raw, fake_normalized);
+      },
+      "test-only 32x512 raw/residual overlap");
+  const bool coarsened_invalid_zero_node_gate =
+      invalid_zero_node_gate && invalid_case_count == 9U;
+  test.expect(coarsened_invalid_zero_node_gate,
+              label + " test-only 32x512 invalid calls enqueue zero nodes");
+  std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_CTA_COARSEN_INVALID: cases="
+            << invalid_case_count << " zero_nodes="
+            << (coarsened_invalid_zero_node_gate ? "true" : "false")
+            << " gate="
+            << (coarsened_invalid_zero_node_gate ? "PASS" : "FAIL")
+            << '\n';
+
   const bool production_contract_gate =
-      resource_gate && graph_gate && invalid_zero_node_gate;
+      resource_gate && graph_gate && production_invalid_zero_node_gate;
+  const bool coarsened_contract_gate =
+      coarsened_resource_gate && coarsened_graph_gate &&
+      coarsened_invalid_zero_node_gate;
   std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_PRODUCTION_CONTRACT: nodes="
             << node_count << " grid=" << kernel_params.gridDim.x
             << " block=" << kernel_params.blockDim.x
@@ -29079,14 +29322,15 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             << " cooperative_launch=" << cooperative_launch
             << " resident_grid_capacity="
             << multiprocessor_count * resources.active_blocks_per_sm
-            << " invalid_cases=" << invalid_case_count
+            << " invalid_cases=" << production_invalid_case_count
             << " invalid_zero_node_gate="
-            << (invalid_zero_node_gate ? "PASS" : "FAIL")
+            << (production_invalid_zero_node_gate ? "PASS" : "FAIL")
             << " gate=" << (production_contract_gate ? "PASS" : "FAIL")
             << '\n';
 
-  if (!production_contract_gate) {
-    test.expect(false, label + " exact run requires production contract");
+  if (!production_contract_gate || !coarsened_contract_gate) {
+    test.expect(false,
+                label + " exact run requires production/candidate contracts");
     return;
   }
 
@@ -29232,6 +29476,14 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             candidate_raw, candidate_residual, candidate_norm,
             static_cast<void*>(stream));
   };
+  const auto launch_coarsened = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activation.get(),
+            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
+            baseline_raw, baseline_residual, baseline_norm,
+            static_cast<void*>(stream));
+  };
   const auto poison = [&](DeviceBuffer<std::uint16_t>& storage,
                           const int byte, const std::string& operation) {
     return test.cuda_ok(
@@ -29320,6 +29572,7 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
         }
         return true;
       };
+
   const std::size_t raw_mismatches =
       mismatch_count(baseline_raw_host, candidate_raw_host);
   const std::size_t residual_mismatches =
@@ -29345,6 +29598,85 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             << kRows << " guards=" << (guard_gate ? "intact" : "BAD")
             << " gate=" << (correctness_gate ? "PASS" : "FAIL") << '\n';
   if (!correctness_gate) {
+    return;
+  }
+
+  ready = poison(baseline_raw_storage, 0xa1,
+                 label + " poison 32x512 finite raw");
+  ready = ready && poison(baseline_residual_storage, 0xb2,
+                           label + " poison 32x512 finite residual");
+  ready = ready && poison(baseline_norm_storage, 0xc3,
+                           label + " poison 32x512 finite norm");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_coarsened()),
+                       label + " launch test-only 32x512 finite");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " 32x512 finite synchronize");
+  ready = ready && copy_output(baseline_raw_host, baseline_raw_storage,
+                               label + " copy 32x512 finite raw");
+  ready = ready && copy_output(baseline_residual_host,
+                               baseline_residual_storage,
+                               label + " copy 32x512 finite residual");
+  ready = ready && copy_output(baseline_norm_host, baseline_norm_storage,
+                               label + " copy 32x512 finite norm");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " 32x512 finite copy synchronize");
+  if (!ready) {
+    return;
+  }
+  const std::size_t coarsened_raw_mismatches =
+      mismatch_count(candidate_raw_host, baseline_raw_host);
+  const std::size_t coarsened_residual_mismatches =
+      mismatch_count(candidate_residual_host, baseline_residual_host);
+  const std::size_t coarsened_norm_mismatches =
+      mismatch_count(candidate_norm_host, baseline_norm_host);
+  const bool coarsened_guards =
+      guards_intact(baseline_raw_host, 0xa1a1U) &&
+      guards_intact(baseline_residual_host, 0xb2b2U) &&
+      guards_intact(baseline_norm_host, 0xc3c3U);
+  const std::vector<std::uint16_t> coarsened_first_raw = baseline_raw_host;
+  const std::vector<std::uint16_t> coarsened_first_residual =
+      baseline_residual_host;
+  const std::vector<std::uint16_t> coarsened_first_norm = baseline_norm_host;
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_coarsened()),
+                       label + " replay test-only 32x512 finite");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " 32x512 replay synchronize");
+  ready = ready && copy_output(baseline_raw_host, baseline_raw_storage,
+                               label + " copy 32x512 replay raw");
+  ready = ready && copy_output(baseline_residual_host,
+                               baseline_residual_storage,
+                               label + " copy 32x512 replay residual");
+  ready = ready && copy_output(baseline_norm_host, baseline_norm_storage,
+                               label + " copy 32x512 replay norm");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " 32x512 replay copy synchronize");
+  if (!ready) {
+    return;
+  }
+  const std::size_t coarsened_replay_mismatches =
+      mismatch_count(coarsened_first_raw, baseline_raw_host) +
+      mismatch_count(coarsened_first_residual, baseline_residual_host) +
+      mismatch_count(coarsened_first_norm, baseline_norm_host);
+  const bool coarsened_correctness_gate =
+      coarsened_raw_mismatches == 0U &&
+      coarsened_residual_mismatches == 0U &&
+      coarsened_norm_mismatches == 0U && coarsened_replay_mismatches == 0U &&
+      coarsened_guards;
+  test.expect(coarsened_correctness_gate,
+              label + " test-only 32x512 preserves production bits/replay");
+  std::cout << "NVFP4_M1_DOWN_RESIDUAL_NORM_CTA_COARSEN_DIFF: "
+            << "raw_bitwise_mismatches=" << coarsened_raw_mismatches << '/'
+            << kRows << " residual_bitwise_mismatches="
+            << coarsened_residual_mismatches << '/' << kRows
+            << " norm_bitwise_mismatches=" << coarsened_norm_mismatches << '/'
+            << kRows << " replay_bitwise_mismatches="
+            << coarsened_replay_mismatches << '/' << (3U * kRows)
+            << " guards=" << (coarsened_guards ? "intact" : "BAD")
+            << " gate=" << (coarsened_correctness_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!coarsened_correctness_gate) {
     return;
   }
 
@@ -29657,6 +29989,864 @@ void run_nvfp4_m1_down_residual_norm_production_probe(TestContext& test,
             << " recommendation=" << (speedup >= 1.005 ? "KEEP" : "DROP")
             << " correctness=" << (correctness_gate ? "PASS" : "FAIL")
             << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
+}
+
+void run_optional_nvfp4_m1_down_residual_norm_cta_coarsen(
+    TestContext& test, cudaStream_t stream) {
+  if (!nvfp4_m1_down_residual_norm_performance_enabled()) {
+    return;
+  }
+
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  constexpr std::size_t kPackedCount = kRows * kColumns / 2U;
+  constexpr std::size_t kScaleCount = kRows * kColumns / 16U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuardElements = 16U;
+  constexpr float kEpsilon = 1.0e-6F;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 64;
+  constexpr int kMeasurementRounds = 5;
+  constexpr std::uint64_t kExpectedCheckpointBytes = 9'965'652'512ULL;
+  constexpr std::uint64_t kExpectedHeaderBytes = 126'504ULL;
+  constexpr std::uint64_t kExpectedDataBase = 126'512ULL;
+  constexpr std::uint64_t kWeightOffset = 6'712'445'472ULL;
+  constexpr std::uint64_t kScaleOffset = 3'600'468'512ULL;
+  constexpr std::uint64_t kScale2Offset = 126'540ULL;
+  constexpr std::uint64_t kNormWeightOffset = 2'544'010'432ULL;
+  constexpr std::uint32_t kExpectedScale2Bits = 0x39b61862U;
+  constexpr std::string_view kWeightSha256 =
+      "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf";
+  constexpr std::string_view kScaleSha256 =
+      "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019";
+  constexpr std::string_view kNormWeightSha256 =
+      "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d";
+  const std::string label =
+      "NVFP4 M1 down/residual/norm test-only CTA coarsen 5120x17408";
+
+  const char* const checkpoint_value =
+      std::getenv("Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE");
+  const bool source_set =
+      checkpoint_value != nullptr && checkpoint_value[0] != '\0';
+  test.expect(source_set, label + " requires actual checkpoint shard");
+  if (!source_set) {
+    std::cout << "NVFP4_M1_DOWN_CTA_COARSEN_CHECKPOINT_SOURCE: source=missing "
+                 "required_env=Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE "
+                 "gate=FAIL\n";
+    return;
+  }
+
+  const std::string checkpoint_path = checkpoint_value;
+  std::ifstream checkpoint(checkpoint_path, std::ios::binary);
+  const bool opened = checkpoint.is_open();
+  test.expect(opened, label + " opens actual checkpoint shard");
+  if (!opened) {
+    return;
+  }
+  checkpoint.seekg(0, std::ios::end);
+  const std::streamoff checkpoint_size = checkpoint.tellg();
+  const bool checkpoint_size_gate =
+      checkpoint_size >= 0 &&
+      static_cast<std::uint64_t>(checkpoint_size) ==
+          kExpectedCheckpointBytes;
+  test.expect(checkpoint_size_gate, label + " pins checkpoint shard size");
+  if (!checkpoint_size_gate) {
+    return;
+  }
+
+  const auto read_slice =
+      [&](const std::uint64_t offset, void* const destination,
+          const std::size_t bytes, const std::string& tensor) {
+        const std::uint64_t file_bytes =
+            static_cast<std::uint64_t>(checkpoint_size);
+        const bool range_gate =
+            offset <= file_bytes && bytes <= file_bytes - offset &&
+            offset <= static_cast<std::uint64_t>(
+                          std::numeric_limits<std::streamoff>::max()) &&
+            bytes <= static_cast<std::size_t>(
+                         std::numeric_limits<std::streamsize>::max());
+        test.expect(range_gate, label + " contains " + tensor);
+        if (!range_gate) {
+          return false;
+        }
+        checkpoint.clear();
+        checkpoint.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        checkpoint.read(reinterpret_cast<char*>(destination),
+                        static_cast<std::streamsize>(bytes));
+        const bool complete =
+            checkpoint.gcount() == static_cast<std::streamsize>(bytes);
+        test.expect(complete, label + " reads complete " + tensor);
+        return complete;
+      };
+
+  std::array<std::uint8_t, 8U> header_length_bytes{};
+  bool ready = read_slice(0U, header_length_bytes.data(),
+                          header_length_bytes.size(),
+                          "safetensors header length");
+  std::uint64_t header_bytes = 0U;
+  for (std::size_t index = 0U; index < header_length_bytes.size(); ++index) {
+    header_bytes |= static_cast<std::uint64_t>(header_length_bytes[index])
+                    << (8U * index);
+  }
+  const bool header_gate =
+      ready && header_bytes == kExpectedHeaderBytes &&
+      header_bytes + 8U == kExpectedDataBase;
+  test.expect(header_gate, label + " pins safetensors header/data base");
+
+  std::vector<std::uint8_t> actual_packed(kPackedCount);
+  std::vector<std::uint8_t> actual_scales(kScaleCount);
+  std::vector<std::uint16_t> actual_norm_weight(kRows);
+  std::array<std::uint8_t, 4U> scale2_bytes{};
+  ready = ready && read_slice(kWeightOffset, actual_packed.data(),
+                              actual_packed.size(),
+                              "layer-0 down_proj.weight");
+  ready = ready && read_slice(kScaleOffset, actual_scales.data(),
+                              actual_scales.size(),
+                              "layer-0 down_proj.weight_scale");
+  ready = ready && read_slice(kScale2Offset, scale2_bytes.data(),
+                              scale2_bytes.size(),
+                              "layer-0 down_proj.weight_scale_2");
+  ready = ready && read_slice(kNormWeightOffset, actual_norm_weight.data(),
+                              kRows * sizeof(std::uint16_t),
+                              "layer-1 input_layernorm.weight");
+  if (!ready) {
+    return;
+  }
+  const std::uint32_t scale2_bits =
+      static_cast<std::uint32_t>(scale2_bytes[0U]) |
+      (static_cast<std::uint32_t>(scale2_bytes[1U]) << 8U) |
+      (static_cast<std::uint32_t>(scale2_bytes[2U]) << 16U) |
+      (static_cast<std::uint32_t>(scale2_bytes[3U]) << 24U);
+  float actual_scale2 = 0.0F;
+  std::memcpy(&actual_scale2, &scale2_bits, sizeof(actual_scale2));
+  const auto hash_bytes = [](const void* const data, const std::size_t bytes) {
+    return q3x::core::sha256(std::string_view(
+                                 reinterpret_cast<const char*>(data), bytes))
+        .hex();
+  };
+  const std::string weight_hash =
+      hash_bytes(actual_packed.data(), actual_packed.size());
+  const std::string scale_hash =
+      hash_bytes(actual_scales.data(), actual_scales.size());
+  const std::string norm_hash = hash_bytes(
+      actual_norm_weight.data(), kRows * sizeof(std::uint16_t));
+  const bool pinned_payload_gate =
+      header_gate && weight_hash == kWeightSha256 &&
+      scale_hash == kScaleSha256 && norm_hash == kNormWeightSha256 &&
+      scale2_bits == kExpectedScale2Bits && std::isfinite(actual_scale2) &&
+      actual_scale2 > 0.0F;
+  test.expect(pinned_payload_gate,
+              label + " pins actual weight/scale/scale2/norm payloads");
+  std::cout << "NVFP4_M1_DOWN_CTA_COARSEN_CHECKPOINT_SOURCE: source=actual"
+            << " path=" << checkpoint_path
+            << " file_bytes=" << checkpoint_size
+            << " header_bytes=" << header_bytes
+            << " data_base=" << kExpectedDataBase
+            << " weight_offset=" << kWeightOffset
+            << " weight_bytes=" << actual_packed.size()
+            << " weight_sha256=" << weight_hash
+            << " scale_offset=" << kScaleOffset
+            << " scale_bytes=" << actual_scales.size()
+            << " scale_sha256=" << scale_hash
+            << " scale2_offset=" << kScale2Offset
+            << " scale2_bits=" << scale2_bits
+            << " norm_weight_offset=" << kNormWeightOffset
+            << " norm_weight_bytes="
+            << kRows * sizeof(std::uint16_t)
+            << " norm_weight_sha256=" << norm_hash
+            << " gate=" << (pinned_payload_gate ? "PASS" : "FAIL")
+            << '\n';
+  if (!pinned_payload_gate) {
+    return;
+  }
+
+  std::array<std::uint8_t, kNvFp4M1DownDualFixturePeriod> packed_pattern{};
+  for (std::size_t index = 0U; index < packed_pattern.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 2U) * 3U + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 7U + (index >> 3U) * 5U + 9U) & 0x0fU);
+    packed_pattern[index] =
+        static_cast<std::uint8_t>(low | (high << 4U));
+  }
+  std::vector<std::uint8_t> stress_packed(kPackedCount);
+  for (std::size_t index = 0U; index < stress_packed.size(); ++index) {
+    stress_packed[index] = packed_pattern[index % packed_pattern.size()];
+  }
+  std::vector<std::uint8_t> stress_scales(kScaleCount);
+  fill_nvfp4_m1_down_dual_scale_distribution(
+      stress_scales, kScaleColumns,
+      NvFp4M1ScaleDistribution::kSameBankStress);
+  std::vector<std::uint16_t> host_activation(kColumns);
+  std::vector<std::uint16_t> host_left(kRows);
+  for (std::size_t index = 0U; index < kColumns; ++index) {
+    const int centered =
+        static_cast<int>((index * 19U + (index >> 3U) * 7U + 11U) %
+                         127U) -
+        63;
+    host_activation[index] =
+        encode_bf16(static_cast<float>(centered) / 256.0F);
+  }
+  for (std::size_t index = 0U; index < kRows; ++index) {
+    const int centered =
+        static_cast<int>((index * 23U + (index >> 2U) * 5U + 3U) % 257U) -
+        128;
+    host_left[index] = encode_bf16(static_cast<float>(centered) / 128.0F);
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> residual_left;
+  DeviceBuffer<std::uint16_t> norm_weight;
+  DeviceBuffer<std::uint16_t> production_raw_storage;
+  DeviceBuffer<std::uint16_t> production_residual_storage;
+  DeviceBuffer<std::uint16_t> production_norm_storage;
+  DeviceBuffer<std::uint16_t> coarsened_raw_storage;
+  DeviceBuffer<std::uint16_t> coarsened_residual_storage;
+  DeviceBuffer<std::uint16_t> coarsened_norm_storage;
+  ready = test.cuda_ok(packed.allocate(kPackedCount),
+                       label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(kScaleCount),
+                                label + " allocate scales");
+  ready = ready && test.cuda_ok(activation.allocate(kColumns),
+                                label + " allocate activation");
+  ready = ready && test.cuda_ok(residual_left.allocate(kRows),
+                                label + " allocate residual input");
+  ready = ready && test.cuda_ok(norm_weight.allocate(kRows),
+                                label + " allocate norm weight");
+  const auto allocate_guarded =
+      [&](DeviceBuffer<std::uint16_t>& buffer, const std::string& name) {
+        return test.cuda_ok(buffer.allocate(kRows + 2U * kGuardElements),
+                            label + " allocate guarded " + name);
+      };
+  ready = ready &&
+          allocate_guarded(production_raw_storage, "production raw");
+  ready = ready && allocate_guarded(production_residual_storage,
+                                     "production residual");
+  ready = ready &&
+          allocate_guarded(production_norm_storage, "production norm");
+  ready = ready &&
+          allocate_guarded(coarsened_raw_storage, "coarsened raw");
+  ready = ready && allocate_guarded(coarsened_residual_storage,
+                                     "coarsened residual");
+  ready = ready &&
+          allocate_guarded(coarsened_norm_storage, "coarsened norm");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(activation.get(), host_activation.data(),
+                                       kColumns * sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload deterministic activation");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(residual_left.get(), host_left.data(),
+                                       kRows * sizeof(std::uint16_t),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload deterministic residual input");
+  if (!ready) {
+    return;
+  }
+
+  std::uint16_t* const production_raw =
+      production_raw_storage.get() + kGuardElements;
+  std::uint16_t* const production_residual =
+      production_residual_storage.get() + kGuardElements;
+  std::uint16_t* const production_norm =
+      production_norm_storage.get() + kGuardElements;
+  std::uint16_t* const coarsened_raw =
+      coarsened_raw_storage.get() + kGuardElements;
+  std::uint16_t* const coarsened_residual =
+      coarsened_residual_storage.get() + kGuardElements;
+  std::uint16_t* const coarsened_norm =
+      coarsened_norm_storage.get() + kGuardElements;
+  const auto launch_production = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+            packed.get(), scales.get(), actual_scale2, activation.get(),
+            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
+            production_raw, production_residual, production_norm,
+            static_cast<void*>(stream));
+  };
+  const auto launch_coarsened = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_down_residual_norm_coarsened_512_test_cuda(
+            packed.get(), scales.get(), actual_scale2, activation.get(),
+            residual_left.get(), norm_weight.get(), kEpsilon, kRows, kColumns,
+            coarsened_raw, coarsened_residual, coarsened_norm,
+            static_cast<void*>(stream));
+  };
+  const auto poison = [&](DeviceBuffer<std::uint16_t>& storage,
+                          const int byte, const std::string& operation) {
+    return test.cuda_ok(
+        cudaMemsetAsync(storage.get(), byte,
+                        (kRows + 2U * kGuardElements) *
+                            sizeof(std::uint16_t),
+                        stream),
+        operation);
+  };
+  const auto poison_outputs = [&](const std::string& fixture) {
+    bool ok = poison(production_raw_storage, 0xa1,
+                     label + " poison " + fixture + " production raw");
+    ok = ok && poison(production_residual_storage, 0xb2,
+                      label + " poison " + fixture +
+                          " production residual");
+    ok = ok && poison(production_norm_storage, 0xc3,
+                      label + " poison " + fixture + " production norm");
+    ok = ok && poison(coarsened_raw_storage, 0xd4,
+                      label + " poison " + fixture + " coarsened raw");
+    ok = ok && poison(coarsened_residual_storage, 0xe5,
+                      label + " poison " + fixture +
+                          " coarsened residual");
+    ok = ok && poison(coarsened_norm_storage, 0xf6,
+                      label + " poison " + fixture + " coarsened norm");
+    return ok;
+  };
+  const std::size_t guarded_count = kRows + 2U * kGuardElements;
+  std::vector<std::uint16_t> production_raw_host(guarded_count);
+  std::vector<std::uint16_t> production_residual_host(guarded_count);
+  std::vector<std::uint16_t> production_norm_host(guarded_count);
+  std::vector<std::uint16_t> coarsened_raw_host(guarded_count);
+  std::vector<std::uint16_t> coarsened_residual_host(guarded_count);
+  std::vector<std::uint16_t> coarsened_norm_host(guarded_count);
+  const auto copy_output = [&](std::vector<std::uint16_t>& host,
+                               const DeviceBuffer<std::uint16_t>& device,
+                               const std::string& operation) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(host.data(), device.get(),
+                        guarded_count * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        operation);
+  };
+  const auto copy_all_outputs = [&](const std::string& fixture) {
+    bool ok = copy_output(production_raw_host, production_raw_storage,
+                          label + " copy " + fixture + " production raw");
+    ok = ok && copy_output(
+                   production_residual_host, production_residual_storage,
+                   label + " copy " + fixture + " production residual");
+    ok = ok && copy_output(production_norm_host, production_norm_storage,
+                           label + " copy " + fixture + " production norm");
+    ok = ok && copy_output(coarsened_raw_host, coarsened_raw_storage,
+                           label + " copy " + fixture + " coarsened raw");
+    ok = ok && copy_output(
+                   coarsened_residual_host, coarsened_residual_storage,
+                   label + " copy " + fixture + " coarsened residual");
+    ok = ok && copy_output(coarsened_norm_host, coarsened_norm_storage,
+                           label + " copy " + fixture + " coarsened norm");
+    return ok;
+  };
+  const auto mismatch_count =
+      [&](const std::vector<std::uint16_t>& expected,
+          const std::vector<std::uint16_t>& actual) {
+        std::size_t mismatches = 0U;
+        for (std::size_t index = 0U; index < kRows; ++index) {
+          mismatches += expected[kGuardElements + index] !=
+                                actual[kGuardElements + index]
+                            ? 1U
+                            : 0U;
+        }
+        return mismatches;
+      };
+  const auto guards_intact =
+      [&](const std::vector<std::uint16_t>& output,
+          const std::uint16_t expected) {
+        for (std::size_t index = 0U; index < kGuardElements; ++index) {
+          if (output[index] != expected ||
+              output[kGuardElements + kRows + index] != expected) {
+            return false;
+          }
+        }
+        return true;
+      };
+
+  std::vector<std::uint8_t> packed_after(kPackedCount);
+  std::vector<std::uint8_t> scales_after(kScaleCount);
+  std::vector<std::uint16_t> activation_after(kColumns);
+  std::vector<std::uint16_t> residual_after(kRows);
+  std::vector<std::uint16_t> norm_after(kRows);
+  const auto inputs_preserved =
+      [&](const std::vector<std::uint8_t>& expected_packed,
+          const std::vector<std::uint8_t>& expected_scales,
+          const std::vector<std::uint16_t>& expected_residual,
+          const std::vector<std::uint16_t>& expected_norm,
+          const std::string& fixture) {
+        bool ok = test.cuda_ok(
+            cudaMemcpyAsync(packed_after.data(), packed.get(), kPackedCount,
+                            cudaMemcpyDeviceToHost, stream),
+            label + " copy " + fixture + " preserved packed");
+        ok = ok && test.cuda_ok(
+                       cudaMemcpyAsync(scales_after.data(), scales.get(),
+                                       kScaleCount, cudaMemcpyDeviceToHost,
+                                       stream),
+                       label + " copy " + fixture + " preserved scales");
+        ok = ok && test.cuda_ok(
+                       cudaMemcpyAsync(activation_after.data(),
+                                       activation.get(),
+                                       kColumns * sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy " + fixture +
+                           " preserved activation");
+        ok = ok && test.cuda_ok(
+                       cudaMemcpyAsync(residual_after.data(),
+                                       residual_left.get(),
+                                       kRows * sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy " + fixture +
+                           " preserved residual");
+        ok = ok && test.cuda_ok(
+                       cudaMemcpyAsync(norm_after.data(), norm_weight.get(),
+                                       kRows * sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy " + fixture + " preserved norm");
+        ok = ok && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " " + fixture +
+                                    " input preservation synchronize");
+        return ok && packed_after == expected_packed &&
+               scales_after == expected_scales &&
+               activation_after == host_activation &&
+               residual_after == expected_residual &&
+               norm_after == expected_norm;
+      };
+
+  struct DownCoarsenFixture {
+    const char* name;
+    const std::vector<std::uint8_t>* packed_values;
+    const std::vector<std::uint8_t>* scale_values;
+    float required_median_speedup;
+  };
+  const std::array<DownCoarsenFixture, 2U> fixtures{{
+      {"actual_checkpoint", &actual_packed, &actual_scales, 1.005F},
+      {"same_bank_stress", &stress_packed, &stress_scales, 1.000F},
+  }};
+  std::array<bool, 2U> fixture_gates{};
+  std::array<float, 2U> fixture_paired_medians{};
+
+  for (std::size_t fixture_index = 0U; fixture_index < fixtures.size();
+       ++fixture_index) {
+    const DownCoarsenFixture& fixture = fixtures[fixture_index];
+    const std::string fixture_name = fixture.name;
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(packed.get(), fixture.packed_values->data(),
+                        kPackedCount, cudaMemcpyHostToDevice, stream),
+        label + " upload " + fixture_name + " packed");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(scales.get(),
+                                         fixture.scale_values->data(),
+                                         kScaleCount, cudaMemcpyHostToDevice,
+                                         stream),
+                         label + " upload " + fixture_name + " scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(norm_weight.get(),
+                                         actual_norm_weight.data(),
+                                         kRows * sizeof(std::uint16_t),
+                                         cudaMemcpyHostToDevice, stream),
+                         label + " upload " + fixture_name + " norm");
+    ready = ready && poison_outputs(fixture_name);
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_production()),
+                         label + " launch " + fixture_name +
+                             " production 64x256");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_coarsened()),
+                         label + " launch " + fixture_name +
+                             " test-only 32x512");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " " + fixture_name +
+                                      " correctness synchronize");
+    ready = ready && copy_all_outputs(fixture_name);
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " " + fixture_name +
+                                      " output copy synchronize");
+    if (!ready) {
+      return;
+    }
+
+    const std::size_t raw_mismatches =
+        mismatch_count(production_raw_host, coarsened_raw_host);
+    const std::size_t residual_mismatches =
+        mismatch_count(production_residual_host, coarsened_residual_host);
+    const std::size_t norm_mismatches =
+        mismatch_count(production_norm_host, coarsened_norm_host);
+    const bool guards_gate =
+        guards_intact(production_raw_host, 0xa1a1U) &&
+        guards_intact(production_residual_host, 0xb2b2U) &&
+        guards_intact(production_norm_host, 0xc3c3U) &&
+        guards_intact(coarsened_raw_host, 0xd4d4U) &&
+        guards_intact(coarsened_residual_host, 0xe5e5U) &&
+        guards_intact(coarsened_norm_host, 0xf6f6U);
+    const std::vector<std::uint16_t> first_raw = coarsened_raw_host;
+    const std::vector<std::uint16_t> first_residual =
+        coarsened_residual_host;
+    const std::vector<std::uint16_t> first_norm = coarsened_norm_host;
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_coarsened()),
+                         label + " replay " + fixture_name +
+                             " test-only 32x512");
+    ready = ready && copy_output(coarsened_raw_host, coarsened_raw_storage,
+                                 label + " copy " + fixture_name +
+                                     " replay raw");
+    ready = ready && copy_output(coarsened_residual_host,
+                                 coarsened_residual_storage,
+                                 label + " copy " + fixture_name +
+                                     " replay residual");
+    ready = ready && copy_output(coarsened_norm_host,
+                                 coarsened_norm_storage,
+                                 label + " copy " + fixture_name +
+                                     " replay norm");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " " + fixture_name +
+                                      " replay synchronize");
+    if (!ready) {
+      return;
+    }
+    const std::size_t replay_mismatches =
+        mismatch_count(first_raw, coarsened_raw_host) +
+        mismatch_count(first_residual, coarsened_residual_host) +
+        mismatch_count(first_norm, coarsened_norm_host);
+    const bool replay_guards_gate =
+        guards_intact(coarsened_raw_host, 0xd4d4U) &&
+        guards_intact(coarsened_residual_host, 0xe5e5U) &&
+        guards_intact(coarsened_norm_host, 0xf6f6U);
+    const bool input_gate = inputs_preserved(
+        *fixture.packed_values, *fixture.scale_values, host_left,
+        actual_norm_weight, fixture_name);
+    const bool finite_gate = raw_mismatches == 0U &&
+                             residual_mismatches == 0U &&
+                             norm_mismatches == 0U &&
+                             replay_mismatches == 0U && guards_gate &&
+                             replay_guards_gate && input_gate;
+    test.expect(finite_gate,
+                label + " " + fixture_name +
+                    " preserves production bits/replay/inputs");
+    std::cout << "NVFP4_M1_DOWN_CTA_COARSEN_DIFF: fixture="
+              << fixture_name << " raw_bitwise_mismatches=" << raw_mismatches
+              << '/' << kRows << " residual_bitwise_mismatches="
+              << residual_mismatches << '/' << kRows
+              << " norm_bitwise_mismatches=" << norm_mismatches << '/'
+              << kRows << " replay_bitwise_mismatches="
+              << replay_mismatches << '/' << (3U * kRows)
+              << " guards="
+              << (guards_gate && replay_guards_gate ? "intact" : "BAD")
+              << " inputs_preserved=" << (input_gate ? "true" : "false")
+              << " gate=" << (finite_gate ? "PASS" : "FAIL") << '\n';
+    if (!finite_gate) {
+      return;
+    }
+
+    for (int iteration = 0; iteration < kWarmupIterations; ++iteration) {
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_production()),
+                           label + " warm " + fixture_name + " production");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_coarsened()),
+                           label + " warm " + fixture_name + " coarsened");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  label + " " + fixture_name +
+                                      " warmup synchronize");
+    if (!ready) {
+      return;
+    }
+    std::array<float, 2U * kMeasurementRounds> production_passes{};
+    std::array<float, 2U * kMeasurementRounds> coarsened_passes{};
+    std::array<float, kMeasurementRounds> paired_speedups{};
+    bool rounds_gate = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          label + " " + fixture_name + " round=" + std::to_string(round);
+      const float b1 = measure_small_m_tile(
+          test, stream, launch_production, kMeasuredIterations,
+          round_label + " B1 production 64x256");
+      const float c1 = measure_small_m_tile(
+          test, stream, launch_coarsened, kMeasuredIterations,
+          round_label + " C1 test-only 32x512");
+      const float c2 = measure_small_m_tile(
+          test, stream, launch_coarsened, kMeasuredIterations,
+          round_label + " C2 test-only 32x512");
+      const float b2 = measure_small_m_tile(
+          test, stream, launch_production, kMeasuredIterations,
+          round_label + " B2 production 64x256");
+      const float paired = (b1 + b2) / (c1 + c2);
+      production_passes[2U * static_cast<std::size_t>(round)] = b1;
+      production_passes[2U * static_cast<std::size_t>(round) + 1U] = b2;
+      coarsened_passes[2U * static_cast<std::size_t>(round)] = c1;
+      coarsened_passes[2U * static_cast<std::size_t>(round) + 1U] = c2;
+      paired_speedups[static_cast<std::size_t>(round)] = paired;
+      const bool round_gate =
+          std::isfinite(paired) && b1 > 0.0F && b2 > 0.0F && c1 > 0.0F &&
+          c2 > 0.0F && paired >= 1.0F;
+      rounds_gate = rounds_gate && round_gate;
+      std::cout << "PERF_NVFP4_M1_DOWN_CTA_COARSEN_ROUND: fixture="
+                << fixture_name << " round=" << round << " b1_ms=" << b1
+                << " c1_ms=" << c1 << " c2_ms=" << c2
+                << " b2_ms=" << b2 << " paired_speedup=" << paired
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    const float production_median =
+        median_fp8_kv_pair_timing(production_passes);
+    const float coarsened_median =
+        median_fp8_kv_pair_timing(coarsened_passes);
+    const float paired_median =
+        median_fp8_kv_pair_timing(paired_speedups);
+    fixture_paired_medians[fixture_index] = paired_median;
+    const bool timing_gate =
+        rounds_gate && std::isfinite(paired_median) &&
+        paired_median >= fixture.required_median_speedup;
+    fixture_gates[fixture_index] = finite_gate && timing_gate;
+    test.expect(fixture_gates[fixture_index],
+                label + " " + fixture_name + " clears frozen timing gate");
+    std::cout << "PERF_NVFP4_M1_DOWN_CTA_COARSEN: fixture="
+              << fixture_name
+              << " production_64x256_pass_median_ms=" << production_median
+              << " candidate_32x512_pass_median_ms=" << coarsened_median
+              << " paired_round_median_speedup=" << paired_median
+              << " required_median_speedup="
+              << fixture.required_median_speedup
+              << " every_round_nonregression="
+              << (rounds_gate ? "PASS" : "FAIL")
+              << " correctness=" << (finite_gate ? "PASS" : "FAIL")
+              << " gate="
+              << (fixture_gates[fixture_index] ? "PASS" : "FAIL") << '\n';
+  }
+
+  const auto guarded_at = [&](const std::vector<std::uint16_t>& values,
+                              const std::size_t index) {
+    return values[kGuardElements + index];
+  };
+  const auto run_nonfinite_fixture =
+      [&](const std::vector<std::uint16_t>& left_values,
+          const std::vector<std::uint16_t>& norm_values,
+          const std::string& fixture, const auto& semantic_check) {
+        bool fixture_ready = test.cuda_ok(
+            cudaMemcpyAsync(packed.get(), actual_packed.data(), kPackedCount,
+                            cudaMemcpyHostToDevice, stream),
+            label + " upload " + fixture + " actual packed");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaMemcpyAsync(scales.get(), actual_scales.data(), kScaleCount,
+                            cudaMemcpyHostToDevice, stream),
+            label + " upload " + fixture + " actual scales");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaMemcpyAsync(residual_left.get(), left_values.data(),
+                            kRows * sizeof(std::uint16_t),
+                            cudaMemcpyHostToDevice, stream),
+            label + " upload " + fixture + " residual input");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaMemcpyAsync(norm_weight.get(), norm_values.data(),
+                            kRows * sizeof(std::uint16_t),
+                            cudaMemcpyHostToDevice, stream),
+            label + " upload " + fixture + " norm weight");
+        fixture_ready = fixture_ready && poison_outputs(fixture);
+        fixture_ready = fixture_ready && test.cuda_ok(
+            static_cast<cudaError_t>(launch_production()),
+            label + " launch " + fixture + " production");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            static_cast<cudaError_t>(launch_coarsened()),
+            label + " launch " + fixture + " coarsened");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream), label + " " + fixture +
+                                               " synchronize");
+        fixture_ready = fixture_ready && copy_all_outputs(fixture);
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream), label + " " + fixture +
+                                               " copy synchronize");
+        if (!fixture_ready) {
+          return false;
+        }
+
+        const std::size_t raw_mismatches =
+            mismatch_count(production_raw_host, coarsened_raw_host);
+        const std::size_t residual_mismatches = mismatch_count(
+            production_residual_host, coarsened_residual_host);
+        const std::size_t norm_mismatches =
+            mismatch_count(production_norm_host, coarsened_norm_host);
+        const bool guards =
+            guards_intact(production_raw_host, 0xa1a1U) &&
+            guards_intact(production_residual_host, 0xb2b2U) &&
+            guards_intact(production_norm_host, 0xc3c3U) &&
+            guards_intact(coarsened_raw_host, 0xd4d4U) &&
+            guards_intact(coarsened_residual_host, 0xe5e5U) &&
+            guards_intact(coarsened_norm_host, 0xf6f6U);
+        const std::vector<std::uint16_t> first_raw = coarsened_raw_host;
+        const std::vector<std::uint16_t> first_residual =
+            coarsened_residual_host;
+        const std::vector<std::uint16_t> first_norm = coarsened_norm_host;
+        fixture_ready = test.cuda_ok(
+            static_cast<cudaError_t>(launch_coarsened()),
+            label + " replay " + fixture + " coarsened");
+        fixture_ready = fixture_ready && copy_output(
+            coarsened_raw_host, coarsened_raw_storage,
+            label + " copy " + fixture + " replay raw");
+        fixture_ready = fixture_ready && copy_output(
+            coarsened_residual_host, coarsened_residual_storage,
+            label + " copy " + fixture + " replay residual");
+        fixture_ready = fixture_ready && copy_output(
+            coarsened_norm_host, coarsened_norm_storage,
+            label + " copy " + fixture + " replay norm");
+        fixture_ready = fixture_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream), label + " " + fixture +
+                                               " replay synchronize");
+        if (!fixture_ready) {
+          return false;
+        }
+        const std::size_t replay_mismatches =
+            mismatch_count(first_raw, coarsened_raw_host) +
+            mismatch_count(first_residual, coarsened_residual_host) +
+            mismatch_count(first_norm, coarsened_norm_host);
+        const bool replay_guards =
+            guards_intact(coarsened_raw_host, 0xd4d4U) &&
+            guards_intact(coarsened_residual_host, 0xe5e5U) &&
+            guards_intact(coarsened_norm_host, 0xf6f6U);
+        const bool input_gate = inputs_preserved(
+            actual_packed, actual_scales, left_values, norm_values, fixture);
+        const bool semantic_gate = semantic_check(
+            production_residual_host, production_norm_host,
+            coarsened_residual_host, coarsened_norm_host);
+        const bool fixture_gate =
+            raw_mismatches == 0U && residual_mismatches == 0U &&
+            norm_mismatches == 0U && replay_mismatches == 0U && guards &&
+            replay_guards && input_gate && semantic_gate;
+        test.expect(fixture_gate, label + " " + fixture +
+                                      " preserves bits/replay/class/sign");
+        std::cout << "NVFP4_M1_DOWN_CTA_COARSEN_NONFINITE: fixture="
+                  << fixture << " raw_bitwise_mismatches=" << raw_mismatches
+                  << '/' << kRows << " residual_bitwise_mismatches="
+                  << residual_mismatches << '/' << kRows
+                  << " norm_bitwise_mismatches=" << norm_mismatches << '/'
+                  << kRows << " replay_bitwise_mismatches="
+                  << replay_mismatches << '/' << (3U * kRows)
+                  << " class_sign=" << (semantic_gate ? "PASS" : "FAIL")
+                  << " guards="
+                  << (guards && replay_guards ? "intact" : "BAD")
+                  << " inputs_preserved="
+                  << (input_gate ? "true" : "false")
+                  << " gate=" << (fixture_gate ? "PASS" : "FAIL")
+                  << '\n';
+        return fixture_gate;
+      };
+
+  std::vector<std::uint16_t> residual_nonfinite_left = host_left;
+  residual_nonfinite_left[0U] = 0x7f80U;
+  residual_nonfinite_left[1U] = 0xff80U;
+  residual_nonfinite_left[2U] = 0x7fc1U;
+  residual_nonfinite_left[3U] = 0xffc1U;
+  const bool residual_nonfinite_gate = run_nonfinite_fixture(
+      residual_nonfinite_left, actual_norm_weight,
+      "residual_signed_nonfinite",
+      [&](const std::vector<std::uint16_t>& production_residual_bits,
+          const std::vector<std::uint16_t>& production_norm_bits,
+          const std::vector<std::uint16_t>& candidate_residual_bits,
+          const std::vector<std::uint16_t>& candidate_norm_bits) {
+        bool class_sign =
+            guarded_at(production_residual_bits, 0U) == 0x7f80U &&
+            guarded_at(candidate_residual_bits, 0U) == 0x7f80U &&
+            guarded_at(production_residual_bits, 1U) == 0xff80U &&
+            guarded_at(candidate_residual_bits, 1U) == 0xff80U;
+        for (std::size_t index = 2U; index < 4U; ++index) {
+          const std::uint16_t production_bits =
+              guarded_at(production_residual_bits, index);
+          const std::uint16_t candidate_bits =
+              guarded_at(candidate_residual_bits, index);
+          class_sign = class_sign && is_bf16_nan(production_bits) &&
+                       is_bf16_nan(candidate_bits) &&
+                       ((production_bits ^ candidate_bits) & 0x8000U) == 0U;
+        }
+        for (std::size_t index = 0U; index < kRows; ++index) {
+          const std::uint16_t production_bits =
+              guarded_at(production_norm_bits, index);
+          const std::uint16_t candidate_bits =
+              guarded_at(candidate_norm_bits, index);
+          class_sign = class_sign && is_bf16_nan(production_bits) &&
+                       is_bf16_nan(candidate_bits) &&
+                       ((production_bits ^ candidate_bits) & 0x8000U) == 0U;
+        }
+        return class_sign;
+      });
+
+  std::array<std::size_t, 4U> norm_nonfinite_indices{};
+  std::size_t norm_nonfinite_count = 0U;
+  for (std::size_t index = 0U;
+       index < kRows && norm_nonfinite_count < norm_nonfinite_indices.size();
+       ++index) {
+    const std::uint16_t bits = guarded_at(production_residual_host, index);
+    if (is_bf16_finite(bits) && (bits & 0x7fffU) != 0U) {
+      norm_nonfinite_indices[norm_nonfinite_count++] = index;
+    }
+  }
+  bool norm_nonfinite_gate =
+      norm_nonfinite_count == norm_nonfinite_indices.size();
+  std::vector<std::uint16_t> norm_nonfinite_weight = actual_norm_weight;
+  if (norm_nonfinite_gate) {
+    norm_nonfinite_weight[norm_nonfinite_indices[0U]] = 0x7f80U;
+    norm_nonfinite_weight[norm_nonfinite_indices[1U]] = 0xff80U;
+    norm_nonfinite_weight[norm_nonfinite_indices[2U]] = 0x7fc1U;
+    norm_nonfinite_weight[norm_nonfinite_indices[3U]] = 0xffc1U;
+    norm_nonfinite_gate = run_nonfinite_fixture(
+        host_left, norm_nonfinite_weight, "norm_weight_signed_nonfinite",
+        [&](const std::vector<std::uint16_t>& production_residual_bits,
+            const std::vector<std::uint16_t>& production_norm_bits,
+            const std::vector<std::uint16_t>& candidate_residual_bits,
+            const std::vector<std::uint16_t>& candidate_norm_bits) {
+          bool class_sign = true;
+          for (std::size_t special = 0U; special < 4U; ++special) {
+            const std::size_t index = norm_nonfinite_indices[special];
+            const std::uint16_t production_residual_bits_at_index =
+                guarded_at(production_residual_bits, index);
+            const std::uint16_t candidate_residual_bits_at_index =
+                guarded_at(candidate_residual_bits, index);
+            const std::uint16_t production_bits =
+                guarded_at(production_norm_bits, index);
+            const std::uint16_t candidate_bits =
+                guarded_at(candidate_norm_bits, index);
+            class_sign =
+                class_sign &&
+                production_residual_bits_at_index ==
+                    candidate_residual_bits_at_index &&
+                ((production_bits ^ candidate_bits) & 0x8000U) == 0U;
+            if (special < 2U) {
+              class_sign = class_sign && !is_bf16_finite(production_bits) &&
+                           !is_bf16_nan(production_bits) &&
+                           !is_bf16_finite(candidate_bits) &&
+                           !is_bf16_nan(candidate_bits);
+              const bool residual_negative =
+                  (production_residual_bits_at_index & 0x8000U) != 0U;
+              const bool expected_negative =
+                  special == 0U ? residual_negative : !residual_negative;
+              class_sign = class_sign &&
+                           (((production_bits & 0x8000U) != 0U) ==
+                            expected_negative) &&
+                           (((candidate_bits & 0x8000U) != 0U) ==
+                            expected_negative);
+            } else {
+              class_sign = class_sign && is_bf16_nan(production_bits) &&
+                           is_bf16_nan(candidate_bits);
+            }
+          }
+          return class_sign;
+        });
+  }
+  test.expect(norm_nonfinite_count == norm_nonfinite_indices.size(),
+              label +
+                  " selects finite nonzero residuals for norm-only fixture");
+  const bool nonfinite_gate =
+      residual_nonfinite_gate && norm_nonfinite_gate;
+  test.expect(nonfinite_gate,
+              label + " clears split signed nonfinite candidate gate");
+
+  const bool selection_gate =
+      fixture_gates[0U] && fixture_gates[1U] && nonfinite_gate;
+  const bool promotion_advisory = fixture_paired_medians[0U] >= 1.01F;
+  std::cout << "PERF_NVFP4_M1_DOWN_CTA_COARSEN_SELECTED: "
+            << "baseline=production_64x256"
+            << " candidate=test_only_32x512"
+            << " actual_paired_median_speedup="
+            << fixture_paired_medians[0U]
+            << " stress_paired_median_speedup="
+            << fixture_paired_medians[1U]
+            << " required_actual=1.005 required_stress=1"
+            << " every_round_required=1"
+            << " nonfinite=" << (nonfinite_gate ? "PASS" : "FAIL")
+            << " promotion_advisory="
+            << (promotion_advisory ? "PROCEED" : "HOLD_BELOW_1.01")
+            << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(selection_gate,
+              label + " clears test-only CTA-coarsen selection gate");
 }
 
 using NvFp4GateUpPairLauncher = int (*)(
@@ -36503,6 +37693,7 @@ int main() {
   run_nvfp4_m1_down_xor_dual_probe(test, stream);
   run_nvfp4_m1_down_activation_staged_probe(test, stream);
   run_nvfp4_m1_down_residual_norm_production_probe(test, stream);
+  run_optional_nvfp4_m1_down_residual_norm_cta_coarsen(test, stream);
   run_nvfp4_m1_k5120_xor_dual_probe(test, stream);
   run_nvfp4_m1_gate_up_pair_default_probe(test, stream);
   run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);

@@ -360,7 +360,7 @@
     "result": "promote the exact M1 Decode residual/norm/gate-up/SiLU 32x512 CTA-coarsened route to production SM87 dispatch",
     "prior_formal_hot_decode_ms_per_token": 109.7585,
     "achieved_hot_decode_ms_per_token": 109.056,
-    "improvement_from_prior_formal_anchor_ms_per_token": -0.7025,
+    "delta_from_prior_formal_anchor_ms_per_token": -0.7025,
     "same_run_mirrored_baseline_ms_per_token": 109.817,
     "same_run_mirrored_candidate_delta_ms_per_token": -0.761,
     "achieved_single_request_tokens_per_second": 9.169600939,

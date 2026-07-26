@@ -1,0 +1,544 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-down-cta-coarsen-selection",
+  "status": "selected-test-only",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode",
+  "source": {
+    "base_commit": "d3f0d5afdc6f5e40d2ebc094bfbb0a3d8c6159b2",
+    "base_tree": "baefb5ea4fe61773816e13f7c93cb66f707b58be",
+    "base_subject": "docs: record Decode gate-up CTA promotion",
+    "candidate_commit": null,
+    "tree_state_at_measurement": "uncommitted test-only source and formal-harness changes based on base_commit",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_selector_changed": false,
+    "production_kernel_changed": false,
+    "public_abi_changed": false,
+    "production_claim": false,
+    "end_to_end_claim": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "current_formal_hot_milliseconds_per_token": 109.056,
+    "current_formal_single_request_tokens_per_second": 9.169600939,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.056,
+    "remaining_tokens_per_second": 0.830399061,
+    "current_result_unchanged_by_this_selection": true
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "measurement_started_at": "2026-07-26T10:48:31+08:00",
+    "measurement_ended_at": "2026-07-26T10:48:45+08:00",
+    "gpu_devfreq_hz": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current_before": 1300500000,
+      "current_after": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current_before": 3200000000,
+      "current_after": 3200000000
+    },
+    "comparison_scope": "three independent processes of one frozen exact-shape binary on the named device",
+    "claim_boundary": "This fixed-frequency same-binary result selects a test-only production-integration candidate. It is not an achieved end-to-end, Prefill, thermal, power, serving-throughput, or cross-device result."
+  },
+  "candidate": {
+    "phase": "exact M1 Decode NVFP4 down projection, residual add, and centered RMSNorm",
+    "shape_n_by_k": [5120, 17408],
+    "dtype": "BF16 activation, residual, norm weight, and three public outputs; NVFP4 E2M1 packed projection weights with FP8 E4M3FN block scales",
+    "baseline_topology": {
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "warps_per_block": 8,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 4,
+      "resident_warps_per_sm": 32,
+      "resident_grid_capacity": 64
+    },
+    "candidate_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32,
+      "resident_grid_capacity": 32
+    },
+    "mechanism": "Regroup the same 512 global projection warps as 32 CTAs of 16 warps instead of 64 CTAs of eight warps. This halves complete 34-KiB activation staging and the redundant post-grid-sync centered-RMSNorm reductions while preserving 32 resident warps/SM.",
+    "projection_contract": "The global warp-to-row-quad mapping, packed-weight and scale access, decoded values, BF16 activation, per-row FFMA order, warp reduction, output scaling, and raw-down BF16-RNE boundary match production.",
+    "residual_contract": "Each CTA publishes only rows owned by its 16 projection warps; all 5,120 residual rows are written exactly once with the unchanged rounded-raw-down-left plus residual-right FP32 add and BF16-RNE boundary before the grid sync.",
+    "norm_contract": "Threads 0 through 255 preserve production's i+=256 accumulation order, 256-lane reduction tree, rsqrtf, gamma multiplication, and BF16-RNE order. Threads 256 through 511 skip arithmetic but participate in every CTA barrier. CTAs 0 through 19 publish the same disjoint 256-row normalized slices.",
+    "cooperative_launch_contract": "The 32-CTA grid equals the measured 16-SM times two-active-CTA resident-grid capacity; the resource gate is therefore exact-capacity with no residency margin.",
+    "public_bf16_outputs": [
+      "raw down projection",
+      "rounded residual",
+      "centered RMSNorm output"
+    ],
+    "memory_overhead_bytes": 0,
+    "scope_boundary": "The candidate launcher, resource query, kernel, and formal timing path are test-only and are not selected by the public production route."
+  },
+  "checkpoint_fixture": {
+    "source": "actual pinned layer-0 checkpoint down payload plus next-layer input RMSNorm weight",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "down_weight": {
+      "name": "model.language_model.layers.0.mlp.down_proj.weight",
+      "absolute_offset_begin": 6712445472,
+      "bytes": 44564480,
+      "sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+    },
+    "down_block_scale": {
+      "name": "model.language_model.layers.0.mlp.down_proj.weight_scale",
+      "absolute_offset_begin": 3600468512,
+      "bytes": 5570560,
+      "sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+    },
+    "down_weight_scale_2": {
+      "absolute_offset_begin": 126540,
+      "little_endian_fp32_bits": "0x39b61862",
+      "decimal_bits": 968235106
+    },
+    "next_layer_input_norm_weight": {
+      "name": "model.language_model.layers.1.input_layernorm.weight",
+      "absolute_offset_begin": 2544010432,
+      "bytes": 10240,
+      "sha256": "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d"
+    },
+    "activation_and_residual": "deterministic mixed-sign finite BF16 fixtures generated by the formal harness",
+    "all_pinned_payload_hashes_matched": true
+  },
+  "correctness_and_contracts": {
+    "cuda_graph": {
+      "production": {
+        "nodes": 1,
+        "grid": [64, 1, 1],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "candidate": {
+        "nodes": 1,
+        "grid": [32, 1, 1],
+        "block": [512, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "functions_distinct": true,
+      "gate": "pass"
+    },
+    "invalid_calls": {
+      "cases": 9,
+      "captured_nodes_each": 0,
+      "gate": "pass"
+    },
+    "actual_checkpoint_finite": {
+      "raw_down_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "candidate_replay_mismatches": "0/15360",
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "same_bank_stress_finite": {
+      "raw_down_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "candidate_replay_mismatches": "0/15360",
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass"
+    },
+    "signed_inf_nan": {
+      "residual_only": {
+        "raw_down_mismatches": "0/5120",
+        "residual_mismatches": "0/5120",
+        "normalized_mismatches": "0/5120",
+        "candidate_replay_mismatches": "0/15360",
+        "class_and_sign": true,
+        "guards": "intact",
+        "inputs_preserved": true,
+        "gate": "pass"
+      },
+      "norm_weight_only": {
+        "raw_down_mismatches": "0/5120",
+        "residual_mismatches": "0/5120",
+        "normalized_mismatches": "0/5120",
+        "candidate_replay_mismatches": "0/15360",
+        "class_and_sign": true,
+        "guards": "intact",
+        "inputs_preserved": true,
+        "gate": "pass"
+      },
+      "gate": "pass"
+    },
+    "whole_device_test_terminal_line": "SM87 weight-only GEMV tests passed",
+    "all_three_processes_exit_zero": true,
+    "all_gates": "pass"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 4,
+      "resident_warps_per_sm": 32,
+      "cooperative_launch": true,
+      "resident_grid_capacity": 64
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32,
+      "cooperative_launch": true,
+      "resident_grid_capacity": 32
+    },
+    "required_candidate": {
+      "maximum_registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "minimum_maximum_threads_per_block": 512,
+      "minimum_active_ctas_per_sm": 2,
+      "minimum_resident_grid_capacity": 32,
+      "null_resource_query_must_return_invalid_value": true
+    },
+    "null_resource_query_rejected": true,
+    "gate": "pass"
+  },
+  "sass": {
+    "extraction_scope": "cuobjdump Function body and encoded 64-bit instruction words extracted from the final frozen candidate-test binary",
+    "production": {
+      "instruction_count": 1280,
+      "encoding_words": 2560,
+      "historical_function_body_normalized_sha256": "17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5",
+      "encoding_words_sha256": "fe10e377d8377678ad6fe3dcc43b86011476f839171bd5ffacc7d6584f6c2922",
+      "historical_identity_unchanged_in_candidate_binary": true
+    },
+    "test_only_candidate": {
+      "instruction_count": 1280,
+      "encoding_words": 2560,
+      "function_body_normalized_sha256": "825cc3451177cf34a9e99a8e74325610989721f5680af8371fb4f104e2c9ab27",
+      "encoding_words_sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8",
+      "old_body_canonical_encoding_sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8"
+    },
+    "interpretation": "The final measurement binary leaves the production 64x256 function unchanged under the historical normalized-body identity; the 32x512 function is distinct and remains test-only."
+  },
+  "performance_protocol": {
+    "comparison": "within each process, production exact 64x256 kernel versus test-only exact 32x512 candidate in one binary, stream, and fixture",
+    "warmup_launches_per_route": 10,
+    "rounds_per_fixture": 5,
+    "logical_launches_per_timed_pass": 64,
+    "order_each_round": "B-C-C-B",
+    "paired_round_statistic": "(production_pass1 + production_pass2) / (candidate_pass1 + candidate_pass2)",
+    "independent_same_binary_processes": 3,
+    "rounds_per_fixture_across_processes": 15,
+    "total_paired_rounds": 30,
+    "within_process_selection_statistic": "median of five paired per-round speedups; separately printed pass medians are diagnostic",
+    "cross_process_reporting_statistic": "median of the three within-process paired-round medians",
+    "gates": {
+      "minimum_actual_checkpoint_paired_median_speedup_per_process": 1.005,
+      "actual_checkpoint_promotion_advisory_per_process": 1.01,
+      "minimum_same_bank_stress_paired_median_speedup_per_process": 1.0,
+      "minimum_each_round_speedup_in_every_process": 1.0,
+      "resources_graph_invalid_bitwise_replay_guards_inputs_and_split_nonfinite": "required"
+    }
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "processes": [
+        {
+          "process": 1,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.327948, "candidate_pass1_ms": 0.324216, "candidate_pass2_ms": 0.323983, "production_pass2_ms": 0.327907, "paired_speedup": 1.01181, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.328007, "candidate_pass1_ms": 0.324145, "candidate_pass2_ms": 0.323866, "production_pass2_ms": 0.328122, "paired_speedup": 1.01253, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.327809, "candidate_pass1_ms": 0.324201, "candidate_pass2_ms": 0.324570, "production_pass2_ms": 0.327630, "paired_speedup": 1.01028, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.328281, "candidate_pass1_ms": 0.324133, "candidate_pass2_ms": 0.324461, "production_pass2_ms": 0.328063, "paired_speedup": 1.01195, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.327552, "candidate_pass1_ms": 0.324468, "candidate_pass2_ms": 0.323972, "production_pass2_ms": 0.328481, "paired_speedup": 1.01171, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.327978,
+          "candidate_pass_median_ms": 0.324174,
+          "pass_median_delta_ms": 0.003804,
+          "paired_round_median_speedup": 1.01181,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.319469, "candidate_pass1_ms": 0.313257, "candidate_pass2_ms": 0.313526, "production_pass2_ms": 0.319451, "paired_speedup": 1.01936, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.318721, "candidate_pass1_ms": 0.313331, "candidate_pass2_ms": 0.313399, "production_pass2_ms": 0.319515, "paired_speedup": 1.01836, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.319007, "candidate_pass1_ms": 0.313386, "candidate_pass2_ms": 0.313383, "production_pass2_ms": 0.319077, "paired_speedup": 1.01805, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.319199, "candidate_pass1_ms": 0.313491, "candidate_pass2_ms": 0.313453, "production_pass2_ms": 0.319295, "paired_speedup": 1.01842, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.319453, "candidate_pass1_ms": 0.313083, "candidate_pass2_ms": 0.313015, "production_pass2_ms": 0.319149, "paired_speedup": 1.01997, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.319247,
+          "candidate_pass_median_ms": 0.313385,
+          "pass_median_delta_ms": 0.005862,
+          "paired_round_median_speedup": 1.01842,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.335834, "candidate_pass1_ms": 0.331074, "candidate_pass2_ms": 0.331906, "production_pass2_ms": 0.334128, "paired_speedup": 1.01053, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.334189, "candidate_pass1_ms": 0.330509, "candidate_pass2_ms": 0.330361, "production_pass2_ms": 0.334363, "paired_speedup": 1.01162, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.334630, "candidate_pass1_ms": 0.330548, "candidate_pass2_ms": 0.330603, "production_pass2_ms": 0.334295, "paired_speedup": 1.01176, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.334504, "candidate_pass1_ms": 0.330174, "candidate_pass2_ms": 0.330258, "production_pass2_ms": 0.334188, "paired_speedup": 1.01251, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.334278, "candidate_pass1_ms": 0.330447, "candidate_pass2_ms": 0.330095, "production_pass2_ms": 0.334421, "paired_speedup": 1.01235, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.334329,
+          "candidate_pass_median_ms": 0.330478,
+          "pass_median_delta_ms": 0.003851,
+          "paired_round_median_speedup": 1.01176,
+          "gate": "pass"
+        }
+      ],
+      "process_paired_round_median_speedups": [1.01181, 1.01842, 1.01176],
+      "cross_process_paired_round_median_speedup": 1.01181,
+      "minimum_paired_round_speedup": 1.01028,
+      "maximum_paired_round_speedup": 1.01997,
+      "required_paired_round_median_speedup_per_process": 1.005,
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "processes": [
+        {
+          "process": 1,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.328920, "candidate_pass1_ms": 0.324464, "candidate_pass2_ms": 0.324517, "production_pass2_ms": 0.328586, "paired_speedup": 1.01313, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.328554, "candidate_pass1_ms": 0.324762, "candidate_pass2_ms": 0.324333, "production_pass2_ms": 0.328447, "paired_speedup": 1.01218, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.328548, "candidate_pass1_ms": 0.324365, "candidate_pass2_ms": 0.324838, "production_pass2_ms": 0.328490, "paired_speedup": 1.01207, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.328328, "candidate_pass1_ms": 0.324726, "candidate_pass2_ms": 0.324348, "production_pass2_ms": 0.328737, "paired_speedup": 1.01231, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.328317, "candidate_pass1_ms": 0.324769, "candidate_pass2_ms": 0.324347, "production_pass2_ms": 0.328530, "paired_speedup": 1.01191, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.328539,
+          "candidate_pass_median_ms": 0.324491,
+          "pass_median_delta_ms": 0.004048,
+          "paired_round_median_speedup": 1.01218,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.320076, "candidate_pass1_ms": 0.313998, "candidate_pass2_ms": 0.313996, "production_pass2_ms": 0.319884, "paired_speedup": 1.01905, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.320414, "candidate_pass1_ms": 0.314050, "candidate_pass2_ms": 0.314402, "production_pass2_ms": 0.319829, "paired_speedup": 1.01876, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.320006, "candidate_pass1_ms": 0.314119, "candidate_pass2_ms": 0.314236, "production_pass2_ms": 0.319808, "paired_speedup": 1.01824, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.320246, "candidate_pass1_ms": 0.313898, "candidate_pass2_ms": 0.314261, "production_pass2_ms": 0.320001, "paired_speedup": 1.01924, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.319950, "candidate_pass1_ms": 0.314368, "candidate_pass2_ms": 0.314004, "production_pass2_ms": 0.320130, "paired_speedup": 1.01863, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.320003,
+          "candidate_pass_median_ms": 0.314085,
+          "pass_median_delta_ms": 0.005918,
+          "paired_round_median_speedup": 1.01876,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "rounds": [
+            {"round": 1, "production_pass1_ms": 0.335543, "candidate_pass1_ms": 0.330745, "candidate_pass2_ms": 0.330456, "production_pass2_ms": 0.335266, "paired_speedup": 1.01453, "nonregression": "pass"},
+            {"round": 2, "production_pass1_ms": 0.335328, "candidate_pass1_ms": 0.330267, "candidate_pass2_ms": 0.330507, "production_pass2_ms": 0.335313, "paired_speedup": 1.01493, "nonregression": "pass"},
+            {"round": 3, "production_pass1_ms": 0.335252, "candidate_pass1_ms": 0.330743, "candidate_pass2_ms": 0.330804, "production_pass2_ms": 0.335232, "paired_speedup": 1.01351, "nonregression": "pass"},
+            {"round": 4, "production_pass1_ms": 0.335319, "candidate_pass1_ms": 0.330445, "candidate_pass2_ms": 0.330578, "production_pass2_ms": 0.335250, "paired_speedup": 1.01444, "nonregression": "pass"},
+            {"round": 5, "production_pass1_ms": 0.335292, "candidate_pass1_ms": 0.330619, "candidate_pass2_ms": 0.330135, "production_pass2_ms": 0.335165, "paired_speedup": 1.01469, "nonregression": "pass"}
+          ],
+          "production_pass_median_ms": 0.335279,
+          "candidate_pass_median_ms": 0.330543,
+          "pass_median_delta_ms": 0.004736,
+          "paired_round_median_speedup": 1.01453,
+          "gate": "pass"
+        }
+      ],
+      "process_paired_round_median_speedups": [1.01218, 1.01876, 1.01453],
+      "cross_process_paired_round_median_speedup": 1.01453,
+      "minimum_paired_round_speedup": 1.01191,
+      "maximum_paired_round_speedup": 1.01924,
+      "required_paired_round_median_speedup_per_process": 1.0,
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "all_30_rounds_nonregression": true,
+    "all_fixtures_gate": "pass"
+  },
+  "projection_only_planning": {
+    "dense_mlp_layers": 64,
+    "actual_process_pass_median_deltas_ms_per_layer": [0.003804, 0.005862, 0.003851],
+    "median_actual_pass_median_delta_ms_per_layer": 0.003851,
+    "ideal_arithmetic_delta_ms_per_token": 0.246464,
+    "ideal_arithmetic_delta_range_ms_per_token": [0.243456, 0.375168],
+    "formula": "median(0.003804, 0.005862, 0.003851) * 64",
+    "fraction_of_remaining_9_056_ms_gap_percent": 2.721555,
+    "ideal_planning_latency_if_fully_realized_ms_per_token": 108.809536,
+    "ideal_planning_tokens_per_second_if_fully_realized": 9.190370962,
+    "not_an_achieved_end_to_end_result": true,
+    "current_formal_result_remains_milliseconds_per_token": 109.056,
+    "current_formal_result_remains_tokens_per_second": 9.169600939
+  },
+  "decision": {
+    "result": "select-for-production-integration",
+    "reason": "Across three independent fixed-frequency processes of one frozen binary, actual-checkpoint paired medians are 1.01181x, 1.01842x, and 1.01176x and same-bank-stress medians are 1.01218x, 1.01876x, and 1.01453x. All 30 paired rounds non-regress. Three-output bitwise, candidate replay, guards, all five inputs, split residual-only and norm-weight-only signed Inf/NaN, resource, null-query, Graph, invalid-call, and production-SASS-identity gates pass; every process exits zero.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "achieved_end_to_end_improvement": false,
+    "next_required_work": [
+      "promote the selected 32x512 exact-shape implementation into the production route without retaining a divergent duplicate implementation",
+      "re-run default, exact finite/replay, split signed Inf/NaN, invalid-call, Graph, resource, and production SASS gates on the final Release binary",
+      "run the pinned full-model exact-output oracle",
+      "run fixed-frequency P19/C32/max26 mirrored B-C-C-B end-to-end measurement against an independently frozen production baseline",
+      "capture a post-promotion Decode Nsys trace and close phase ranges over unique kernel rows"
+    ],
+    "promotion_gate": "Only final production integration plus full-model and end-to-end evidence may change the formal 109.056-ms/token and 9.169600939-token/s anchor."
+  },
+  "limitations": [
+    "The selected launcher and kernel are test-only; no production route, public ABI, model format, loader, or allocation changed.",
+    "The 32-CTA cooperative grid exactly equals measured resident capacity on the named 16-SM device, so the topology has no occupancy margin if final resources regress.",
+    "The screen uses three independent processes of one frozen binary on one device; it does not establish another-build or cross-device behavior.",
+    "No full-model model-oracle, P19/C32/max26 end-to-end run, Nsys, or NCU measurement has been performed for this selected candidate.",
+    "The 0.246464-ms/token value and 0.243456-to-0.375168-ms/token range are linear 64-layer arithmetic projections from isolated actual-payload pass medians, not achieved latency reductions.",
+    "The formal performance anchor remains 109.056 ms/token and 9.169600939 token/s until final production integration and end-to-end validation pass.",
+    "The result does not measure Prefill, multi-request serving throughput, energy, or behavior on another device or clock configuration."
+  ],
+  "artifacts": [
+    {
+      "role": "authoritative frozen same-binary screen process 1",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/process-1.log",
+      "bytes": 62366,
+      "lines": 359,
+      "sha256": "fcb40b5ac6dd9e3241c0ddae472dbda7e51a1a25800649b698a5b04684cad1dc",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative frozen same-binary screen process 2",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/process-2.log",
+      "bytes": 62362,
+      "lines": 359,
+      "sha256": "d61c1ae1a88a03641e451807c79e6a51be74fc15547881e2184aa733e26ffcf1",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative frozen same-binary screen process 3",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/process-3.log",
+      "bytes": 62364,
+      "lines": 359,
+      "sha256": "aec76a298b5f4fce995554fd2af4ce1e9a7188473c6565e1341b1bbd1e95919a",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "frozen candidate test binary shared by all three processes",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/candidate-test",
+      "bytes": 5298272,
+      "sha256": "dc98a903589bb1bfffa74da4669245d3631633d4f8bc36f80b9ad05dcd350b13",
+      "gnu_build_id": "5d25ecd01bf818b8b7488c6bd3c3146204939360",
+      "checked_in": false
+    },
+    {
+      "role": "fixed-clock environment before screen",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/environment-before.log",
+      "bytes": 611,
+      "lines": 6,
+      "sha256": "168b5223487d68fe1bb25bd061d7d55d88eaaa21412ae19b97d611929d7b08c2",
+      "checked_in": false
+    },
+    {
+      "role": "fixed-clock environment after screen",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/environment-after.log",
+      "bytes": 573,
+      "lines": 4,
+      "sha256": "03fa963dd1258477ac7a0cf32b9ee133197b91848547ebb11aa82ca93ecd55f4",
+      "checked_in": false
+    },
+    {
+      "role": "frozen binary identity and source-base record",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/binary-identity.log",
+      "bytes": 410,
+      "lines": 6,
+      "sha256": "8100e20933fc4fbc181e36ae548ea5ad421dd4d7ca075c21a7ed51475364a1ab",
+      "checked_in": false
+    },
+    {
+      "role": "target build log",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/build.log",
+      "bytes": 112,
+      "lines": 3,
+      "sha256": "0bfce7725bee6fd387c5a898f149d6e6930c633c127cf773ad6832105faa8741",
+      "result": "pass",
+      "checked_in": false
+    },
+    {
+      "role": "default target CTest log",
+      "path": "/tmp/q3x-down-coarsen-confirm.aE5n2Q/ctest.log",
+      "bytes": 387,
+      "lines": 12,
+      "sha256": "e2b866009128995a3cdf7b561f47a043f87c94cfbe473ce17cb59d095ef1dfe5",
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "result": "pass",
+      "checked_in": false
+    },
+    {
+      "role": "final frozen binary full SASS dump",
+      "path": "/tmp/q3x-down-coarsen-final-sass.vrOmuy/final.sass",
+      "bytes": 24393479,
+      "lines": 194804,
+      "sha256": "09c89d53ff5876d4084687452e4019799a6bd76d29893be4bdff49a0047ef993",
+      "checked_in": false
+    },
+    {
+      "role": "final frozen binary production function body",
+      "path": "/tmp/q3x-down-coarsen-final-sass.vrOmuy/production.body",
+      "bytes": 322638,
+      "lines": 2564,
+      "sha256": "17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5",
+      "checked_in": false
+    },
+    {
+      "role": "final frozen binary production canonical encoding stream",
+      "path": "/tmp/q3x-down-coarsen-final-sass.vrOmuy/production.encoding64",
+      "bytes": 48640,
+      "lines": 2560,
+      "sha256": "fe10e377d8377678ad6fe3dcc43b86011476f839171bd5ffacc7d6584f6c2922",
+      "checked_in": false
+    },
+    {
+      "role": "final frozen binary test-only candidate function body",
+      "path": "/tmp/q3x-down-coarsen-final-sass.vrOmuy/candidate.body",
+      "bytes": 322638,
+      "lines": 2564,
+      "sha256": "825cc3451177cf34a9e99a8e74325610989721f5680af8371fb4f104e2c9ab27",
+      "checked_in": false
+    },
+    {
+      "role": "final frozen binary test-only candidate canonical encoding stream",
+      "path": "/tmp/q3x-down-coarsen-final-sass.vrOmuy/candidate.encoding64",
+      "bytes": 48640,
+      "lines": 2560,
+      "sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8",
+      "checked_in": false
+    }
+  ]
+}

@@ -890,6 +890,22 @@ ranks two and three. See the
 [production benchmark](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json)
 and
 [post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json).
+
+The next rank-three down/residual/centered-RMSNorm mechanism is now selected at
+the test-only stage. Its `32x512` grouping preserves the production `64x256`
+route's 512 projection warps and 32 resident warps/SM while halving complete
+activation staging and redundant RMS reductions. Three fixed-frequency
+same-binary processes reach actual-checkpoint medians of
+1.01181x/1.01842x/1.01176x and stress medians of
+1.01218x/1.01876x/1.01453x; all 30 rounds improve, and bitwise/replay,
+guards, inputs, split nonfinite, resource, Graph, invalid-call, and production
+SASS gates pass. The 32-CTA cooperative grid exactly matches measured resident
+capacity. Production remains unchanged, so 109.056 ms/token and 9.1696 token/s
+remain authoritative; the 0.246464-ms/token 64-layer value is arithmetic only.
+The immediate next step is bounded production integration, full-model and
+end-to-end validation, then a fresh Decode trace. See the
+[down CTA-coarsening selection](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json).
+
 Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants, the down CTA-
 prune, and the QKV/Z sidecar remain closed. The 100-ms/token and 10-token/s gate
 still precedes the larger Prefill program.

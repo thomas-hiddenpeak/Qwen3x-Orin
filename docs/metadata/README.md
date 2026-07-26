@@ -635,6 +635,16 @@ The diagnostic Phase 3 records are:
   directionally from 39.675852 to 38.772791 ms/step; the old `64x256` kernel is
   absent. Generation/leaf closure and the retained FP8 output-sidecar route
   both pass, while the unprofiled 109.056-ms result remains authoritative.
+- [`qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json`](qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json),
+  which selects the test-only exact-M1 down/residual/centered-RMSNorm
+  `32x512` CTA grouping while leaving production's `64x256` route unchanged.
+  Three fixed-frequency same-binary processes reach actual-checkpoint paired
+  medians of 1.01181x/1.01842x/1.01176x and stress medians of
+  1.01218x/1.01876x/1.01453x; all 30 rounds improve. Three-output bitwise and
+  replay, guards, inputs, split residual-only/norm-only Inf/NaN, resource,
+  Graph, invalid-call, and production-SASS-identity gates pass. The isolated
+  0.246464-ms/token 64-layer value is arithmetic only; the formal anchor
+  remains 109.056 ms/token and 9.1696 token/s pending production integration.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

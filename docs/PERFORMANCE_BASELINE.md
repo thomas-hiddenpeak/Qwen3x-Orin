@@ -5018,3 +5018,50 @@ commands, arithmetic, logs, and limitations are retained in the
 [production benchmark record](metadata/qwen36-27b-nvfp4-m1-gate-up-cta-coarsen-production-benchmark.json)
 and the
 [post-promotion Decode profile](metadata/qwen36-27b-post-gate-up-cta-coarsen-decode-phase-profile.json).
+
+## Decode NVFP4 M1 down 32x512 CTA-coarsening selection
+
+The next bounded Decode screen targets the rank-three exact `[5120,17408]`
+down/residual/centered-RMSNorm cooperative kernel. The test-only candidate
+regroups the same 512 projection warps from production's 64 CTAs by 256
+threads into 32 CTAs by 512 threads. It preserves projection, raw-down BF16,
+residual BF16, grid-sync, 256-lane RMS reduction, gamma, and normalized BF16
+order while halving complete 34-KiB activation staging and redundant RMS
+reductions. Production dispatch and the public ABI remain unchanged.
+
+Three independent processes used one frozen Release binary, the pinned actual
+layer-0 down payload, same-bank stress, ten warmups, 64 launches per timed
+pass, and five `B-C-C-B` rounds per fixture:
+
+| Fixture | Process paired medians | Cross-process median | Frozen gate |
+| --- | --- | ---: | ---: |
+| Actual checkpoint | 1.01181x / 1.01842x / 1.01176x | 1.01181x | >=1.005x |
+| Same-bank stress | 1.01218x / 1.01876x / 1.01453x | 1.01453x | >=1.000x |
+
+All 30 paired rounds improve; the minimum actual and stress rounds are
+1.01028x and 1.01191x. Both finite fixtures match production bitwise at
+`0/5,120` for raw, residual, and normalized output and `0/15,360` on candidate
+replay, with intact guards and all five inputs preserved. Independent
+residual-only and norm-weight-only signed Inf/NaN cases pass the same
+three-output, replay, class/sign, guard, and input gates. The candidate Graph
+is a distinct one-node `32x512` cooperative launch; all nine invalid calls
+capture zero nodes.
+
+The candidate uses 64 registers/thread, 35,904 B static shared memory, zero
+local memory, and two active CTAs/SM. Its 32-CTA grid therefore exactly equals
+the 16-SM resident capacity, preserving 32 resident warps/SM but leaving no
+occupancy margin. Final frozen-binary extraction retains production's
+historical 1,280-instruction body SHA-256
+`17b02b92fa3404948dd695d3fee3f34d7ddf7d0d4912357063cacb83c09674e5`;
+the distinct candidate canonical encoding SHA-256 is
+`fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8`.
+
+The median actual pass delta is 0.003851 ms/layer. Multiplying it by 64 gives
+an ideal **0.246464 ms/token** arithmetic saving, only 2.721555% of the current
+9.056-ms stage gap. It is not an achieved runtime result: the formal anchor
+remains **109.056 ms/token and 9.1696 token/s**. The candidate is selected for
+production integration next, followed by final Release/static gates, the
+pinned full-model oracle, fixed-frequency mirrored end-to-end measurement,
+and a fresh Decode trace. Complete rounds, payload identities, binary/log/SASS
+hashes, and claim limits are in the
+[down CTA-coarsening selection record](metadata/qwen36-27b-nvfp4-m1-down-cta-coarsen-selection.json).
