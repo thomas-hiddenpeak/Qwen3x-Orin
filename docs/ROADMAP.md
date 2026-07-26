@@ -967,14 +967,32 @@ formal **109.056 ms/token / 9.169600939 token/s** anchor remain unchanged. See
 the
 [QKV grid-cap 1024 rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json).
 
-The next bounded Decode work should therefore require a materially different
-gate/up or QKV/Z mechanism rather than further CTA-width coarsening or a
-simple grid-cap sweep; those rows remain 38.834222 and 22.963224 ms/step,
-ahead of Down. Do not restore closed branches or prioritize general batch-one
-buffering: Prefill and Decode are logically split for tuning, but the measured
-request is still causally serialized on one stream, with no double/triple
-buffer, independent phase executors, or kernel overlap.
+The materially different gate/up mechanism is now selected at the test-only
+stage. It keeps production's `32x512` topology but retains the independently
+BF16-rounded gate/up pair in two CTA-local `BF16[576]` arrays and publishes
+only final `SiLU(gate)*up`; the runner-dead up buffer remains untouched. Three
+clean frozen-binary processes reach actual/stress cross-process paired medians
+of **1.01034x / 1.00932x**, with all 30 rounds improving. Published-output
+bitwise/replay, combined signed Inf/NaN, guards, inputs, resource
+(`64r/13,632B/0local/2CTA`), one-node Graph capture, nine-invalid, and
+production-SASS-identity gates pass. The 64-layer **0.396352-ms/token** value
+is arithmetic only, so production and the formal **109.056 ms/token /
+9.169600939 token/s** anchor have not changed. See the
+[selection record](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json).
 
+The immediate P0 sequence is explicit Decode-runner-only production
+integration, Release/default/focused CTests, real-buffer Graph replay and the
+complete invalid matrix, pinned C1/C8/C16/C32 model oracles, fixed-clock
+P19/C32/max26 `B1-C1-C2-B2`, and a fresh Nsys closure. The generic public
+double-output API must continue to publish independently rounded up values;
+only the proven runner-dead boundary may elide that publication. A production
+trace must show the runner-only symbol 1,600 times (64 per Decode step), the
+old full-output exact GateUp symbol zero times on that boundary, and retain the
+25-range/10,925-leaf closure before the anchor changes.
+
+This remains phase-local work, not a system double/triple buffer or
+Prefill/Decode executor split. The measured single request is causally serial
+on one stream, so general batch-one buffering stays behind this integration.
 Closed gate/up row-pair balanced-tail/shared-pipeline/AoSoA4/`16x1024`
 variants, the down CTA-prune, the QKV/Z sidecar, and production-ping-pong
 QKV1024/Z768 grid-cap policy remain closed. The 100-ms/token and 10-token/s

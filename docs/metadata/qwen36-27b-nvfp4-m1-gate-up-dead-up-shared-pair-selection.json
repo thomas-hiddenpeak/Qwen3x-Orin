@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection",
+  "status": "selected-test-only-awaiting-runner-contract-production-integration",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode",
+  "source": {
+    "base_commit": "6b31604a4cf490f7f1539954e064421f466f6820",
+    "base_tree": "a4626c7d0bb6a9657df2896a346a959a0002b964",
+    "base_subject": "docs: reject Decode QKV grid-cap 1024",
+    "candidate_commit": "544d69557fe63136d832805ed459473ffc09d375",
+    "candidate_tree": "cd52e49f39e3ae2750b6a6025f037a45c2c4e665",
+    "candidate_subject": "perf: select Decode gate-up dead-up staging",
+    "kernel_source_blob": "64eaa42ee67c661676deda673020bd64461993ea",
+    "cuda_test_blob": "83048bebd6e7949b6463ea009bfd6febe5681fba",
+    "measurement_relationship": "The frozen binary was built from the uncommitted source/test bytes subsequently committed without modification as candidate_commit.",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_selector_changed": false,
+    "public_abi_changed": false,
+    "production_claim": false,
+    "end_to_end_claim": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 single-request Decode",
+    "current_formal_hot_milliseconds_per_token": 109.056,
+    "current_formal_single_request_tokens_per_second": 9.169600939,
+    "target_milliseconds_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_milliseconds_per_token": 9.056,
+    "current_result_unchanged_by_this_selection": true
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "linux": "6.8.12-1021-tegra",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": {
+      "minimum": 1300500000,
+      "maximum": 1300500000,
+      "current": 1300500000
+    },
+    "emc_bwmgr_devfreq_hz": {
+      "minimum": 3200000000,
+      "maximum": 3200000000,
+      "current": 3200000000
+    },
+    "comparison_scope": "three independent clean processes of one frozen exact-shape candidate binary on the named device",
+    "claim_boundary": "This same-binary microbenchmark selects a runner-contract candidate. It is not an achieved end-to-end latency, throughput, thermal, power, or cross-device result."
+  },
+  "candidate": {
+    "phase": "exact M1 Decode post-attention residual add, centered RMSNorm, NVFP4 gate/up, and SiLU",
+    "shape_n_by_k": [17408, 5120],
+    "dtype": "BF16 residual/norm inputs and outputs; NVFP4 E2M1 packed weights with FP8 E4M3FN block scales",
+    "production_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "candidate_topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "total_projection_warps": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "mechanism": "Keep the independently BF16-rounded gate and up projection intermediates in two CTA-local 576-entry BF16 shared arrays. After both projection phases, publish only the final BF16-RNE SiLU(gate)*up vector; the runner-dead up_output buffer remains untouched.",
+    "row_mapping": "Each warp writes four CTA-local rows per 2,048-row global stride. Logical blocks 0 through 15 use nine 64-row CTA strides with maximum local index 575; blocks 16 through 31 use eight strides with maximum local index 511. A full-CTA barrier precedes the balanced 512-thread SiLU epilogue.",
+    "arithmetic_contract": "Residual add, centered RMSNorm, projection FFMA and warp-reduction order, independent gate/up BF16-RNE boundaries, SiLU arithmetic, final BF16-RNE, and global row mapping match production for every published output.",
+    "shared_memory": {
+      "production_static_bytes": 11328,
+      "candidate_static_bytes": 13632,
+      "candidate_increment_bytes": 2304,
+      "gate_entries_bf16": 576,
+      "up_entries_bf16": 576
+    },
+    "global_intermediate_traffic_removed": {
+      "bytes_per_layer": 139264,
+      "bytes_across_64_layers": 8912896,
+      "mib_across_64_layers": 8.5,
+      "formula": "17408 rows * 2 bytes * two tensors * one write plus one read",
+      "measurement_scope": "logical eliminated global-memory instructions and bytes, not measured DRAM transactions"
+    },
+    "persistent_model_memory_overhead_bytes": 0,
+    "scope_boundary": "The selected launcher, query, and kernel remain test-only. The existing public low-level and high-level gate/up APIs still promise an independently rounded up_output and must not be changed to this behavior. Production integration requires a new explicit Decode-runner-only dead-up contract."
+  },
+  "checkpoint_fixture": {
+    "source": "actual pinned layer-0 checkpoint payload",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "safetensors_data_base": 126512,
+    "gate_weight": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight",
+      "absolute_offset_begin": 6757009952,
+      "bytes": 44564480,
+      "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+    },
+    "up_weight": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight",
+      "absolute_offset_begin": 6801574432,
+      "bytes": 44564480,
+      "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+    },
+    "gate_block_scale": {
+      "name": "model.language_model.layers.0.mlp.gate_proj.weight_scale",
+      "absolute_offset_begin": 3606039072,
+      "bytes": 5570560,
+      "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+    },
+    "up_block_scale": {
+      "name": "model.language_model.layers.0.mlp.up_proj.weight_scale",
+      "absolute_offset_begin": 3611609632,
+      "bytes": 5570560,
+      "sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+    },
+    "gate_and_up_weight_scale_2_little_endian_bits": "0x391e79e8",
+    "deterministic_activation_sha256": "d6e6cf22f50819f40059c0a88890b8c08d2bce410fe2f0887bf8cff04aeb5def",
+    "all_payload_hashes_matched": true
+  },
+  "correctness_and_contracts": {
+    "finite_actual_checkpoint": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "replay_mismatches": "0/22528",
+      "unexpected_nonfinite": 0,
+      "up_publication": "elided",
+      "dead_up_buffer_untouched": true,
+      "guards": "intact",
+      "seven_inputs_preserved": true,
+      "gate": "pass"
+    },
+    "finite_same_bank_stress": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "replay_mismatches": "0/22528",
+      "unexpected_nonfinite": 0,
+      "up_publication": "elided",
+      "dead_up_buffer_untouched": true,
+      "guards": "intact",
+      "seven_inputs_preserved": true,
+      "gate": "pass"
+    },
+    "signed_inf_nan": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "classified_nan_outputs": "17408/17408",
+      "class_and_sign": true,
+      "up_publication": "elided",
+      "dead_up_buffer_untouched": true,
+      "guards": "intact",
+      "seven_inputs_preserved": true,
+      "gate": "pass"
+    },
+    "cuda_graph_capture_contract": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "production_grid_block": [32, 512],
+      "candidate_grid_block": [32, 512],
+      "dynamic_shared_bytes": 0,
+      "functions_distinct": true,
+      "gate": "pass",
+      "limitation": "This selection capture used aligned sentinel pointers to prove single-node topology and distinct function identity; real-buffer Graph instantiate/replay remains a production-integration gate."
+    },
+    "invalid_calls": {
+      "representative_cases": 9,
+      "captured_nodes_each": 0,
+      "gate": "pass",
+      "production_integration_requirement": "The runner-only production API must inherit the complete shared validator matrix, including all null, nonfinite scalar, alignment, shape, and alias cases."
+    },
+    "default_device_test": {
+      "exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "gate": "pass"
+    }
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "required": {
+      "maximum_registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "minimum_threads_per_block": 512,
+      "minimum_active_ctas_per_sm": 2,
+      "null_resource_query_must_return_invalid_value": true
+    },
+    "null_resource_query_rejected": true,
+    "gate": "pass"
+  },
+  "sass": {
+    "normalization": "cuobjdump Function section; every ordered 64-bit encoding/control word emitted as one lowercase 0x-prefixed line before SHA-256",
+    "candidate_build_production": {
+      "normalized_instruction_words": 2704,
+      "normalized_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab"
+    },
+    "established_promoted_production": {
+      "normalized_instruction_words": 2704,
+      "normalized_sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab"
+    },
+    "production_exact_match": true,
+    "test_only_candidate": {
+      "normalized_instruction_words": 2704,
+      "normalized_sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d",
+      "distinct_from_production": true,
+      "ldl_or_stl_instruction_rows": 0
+    },
+    "gate": "pass"
+  },
+  "performance_protocol": {
+    "comparison": "within each clean process, production exact 32x512 double-publication kernel versus test-only exact 32x512 CTA-local dead-up candidate in one frozen binary, stream, and fixture",
+    "warmup_launches_per_route": 10,
+    "rounds_per_fixture": 5,
+    "logical_launches_per_timed_pass": 64,
+    "order_each_round": "B-C-C-B",
+    "paired_round_statistic": "(production_pass1 + production_pass2) / (candidate_pass1 + candidate_pass2)",
+    "independent_clean_same_binary_processes": 3,
+    "rounds_per_fixture_across_clean_processes": 15,
+    "cross_process_reporting_statistic": "median of the three within-process paired-round medians",
+    "gates": {
+      "minimum_actual_checkpoint_paired_median_speedup_per_process": 1.005,
+      "minimum_same_bank_stress_paired_median_speedup_per_process": 1.0,
+      "minimum_each_round_speedup_in_every_process": 1.0,
+      "correctness_resource_graph_invalid_sass_and_process_exit_zero": "required"
+    }
+  },
+  "performance": {
+    "actual_checkpoint": {
+      "processes": [
+        {
+          "process": 1,
+          "production_pass_median_ms": 0.602499,
+          "candidate_pass_median_ms": 0.596105,
+          "pass_median_delta_ms": 0.006394,
+          "paired_round_speedups": [1.01034, 1.01041, 1.01117, 1.01040, 1.01126],
+          "paired_round_median_speedup": 1.01041,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "production_pass_median_ms": 0.599853,
+          "candidate_pass_median_ms": 0.593660,
+          "pass_median_delta_ms": 0.006193,
+          "paired_round_speedups": [1.01034, 1.01034, 1.01058, 1.01045, 1.00503],
+          "paired_round_median_speedup": 1.01034,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "production_pass_median_ms": 0.597774,
+          "candidate_pass_median_ms": 0.592036,
+          "pass_median_delta_ms": 0.005738,
+          "paired_round_speedups": [1.00975, 1.00964, 1.01015, 1.00917, 1.00986],
+          "paired_round_median_speedup": 1.00975,
+          "gate": "pass"
+        }
+      ],
+      "cross_process_production_pass_median_ms": 0.599853,
+      "cross_process_candidate_pass_median_ms": 0.593660,
+      "cross_process_paired_round_median_speedup": 1.01034,
+      "all_15_round_speedup_range": [1.00503, 1.01126],
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "same_bank_stress": {
+      "processes": [
+        {
+          "process": 1,
+          "production_pass_median_ms": 0.607264,
+          "candidate_pass_median_ms": 0.601584,
+          "paired_round_speedups": [1.01007, 1.00921, 1.00929, 1.00996, 1.00914],
+          "paired_round_median_speedup": 1.00929,
+          "gate": "pass"
+        },
+        {
+          "process": 2,
+          "production_pass_median_ms": 0.604504,
+          "candidate_pass_median_ms": 0.598810,
+          "paired_round_speedups": [1.00940, 1.00973, 1.00945, 1.00603, 1.00919],
+          "paired_round_median_speedup": 1.00940,
+          "gate": "pass"
+        },
+        {
+          "process": 3,
+          "production_pass_median_ms": 0.603131,
+          "candidate_pass_median_ms": 0.597697,
+          "paired_round_speedups": [1.00814, 1.00932, 1.00921, 1.00942, 1.01076],
+          "paired_round_median_speedup": 1.00932,
+          "gate": "pass"
+        }
+      ],
+      "cross_process_production_pass_median_ms": 0.604504,
+      "cross_process_candidate_pass_median_ms": 0.598810,
+      "cross_process_paired_round_median_speedup": 1.00932,
+      "all_15_round_speedup_range": [1.00603, 1.01076],
+      "all_15_rounds_nonregression": true,
+      "all_3_processes_gate": "pass",
+      "gate": "pass"
+    },
+    "all_30_clean_rounds_nonregression": true,
+    "all_fixtures_gate": "pass"
+  },
+  "excluded_measurement": {
+    "artifact": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/process-1.log",
+    "exit_code": 1,
+    "exclusion_reason": "An unrelated historical 64x256-versus-32x512 CTA-coarsen comparator suffered a single 0.966306x actual-checkpoint round after a 0.677115-ms production pass, so the whole suite failed its already-promoted comparator assertion.",
+    "dead_up_candidate_behavior": "The dead-up candidate itself passed all ten actual/stress rounds in this excluded process, with paired medians 1.01244x and 1.01293x. It is retained for transparency but contributes no clean-process statistic."
+  },
+  "projection_only_planning": {
+    "dense_mlp_layers": 64,
+    "actual_process_pass_median_deltas_ms_per_layer": [0.006394, 0.006193, 0.005738],
+    "median_actual_pass_median_delta_ms_per_layer": 0.006193,
+    "ideal_arithmetic_delta_ms_per_token": 0.396352,
+    "ideal_arithmetic_delta_range_ms_per_token": [0.367232, 0.409216],
+    "formula": "median(0.006394, 0.006193, 0.005738) * 64",
+    "fraction_of_remaining_9_056_ms_gap_percent": 4.376678,
+    "anchor_normalized_planning_only_milliseconds_per_token": 108.659648,
+    "anchor_normalized_planning_only_tokens_per_second": 9.203048403,
+    "not_an_achieved_end_to_end_result": true,
+    "current_formal_result_remains_milliseconds_per_token": 109.056,
+    "current_formal_result_remains_tokens_per_second": 9.169600939
+  },
+  "decision": {
+    "result": "select-for-explicit-decode-runner-dead-up-production-integration",
+    "reason": "Three independent clean same-binary processes clear the actual and stress median gates, all 30 clean paired rounds improve, published residual/final outputs are bitwise exact for finite and signed Inf/NaN fixtures, the dead up workspace remains untouched, and resource, Graph-capture, invalid-call, production-SASS-identity, and default-test gates pass.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "public_double_output_contract_changed": false,
+    "achieved_end_to_end_improvement": false,
+    "next_required_work": [
+      "add an explicit internal runner-only dead-up API while preserving the generic double-output API and all fallbacks",
+      "prove with runner call-chain tests that up_workspace is dead until the down projection overwrites it",
+      "run real-buffer CUDA Graph instantiate/replay and the complete invalid-input matrix on the production API",
+      "run Release/default/CTest, pinned C1/C8/C16/C32 full-model oracles, and exact trace equivalence",
+      "run fixed-frequency P19/C32/max26 B1-C1-C2-B2 end-to-end Decode measurement",
+      "capture a fresh production Decode Nsys trace before changing the formal anchor"
+    ],
+    "promotion_gate": "Only final production-runner integration plus model-oracle, end-to-end, and profile evidence may change the formal 109.056-ms/token and 9.169600939-token/s anchor."
+  },
+  "artifacts": [
+    {
+      "role": "frozen same-binary candidate test ELF",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/q3x_sm87_weight_only_gemv_test.candidate",
+      "bytes": 5435464,
+      "sha256": "63a38ab803a41c21e3dc46b4d5e11727c45ecfa68d48281b2fabc871f9e85e3f",
+      "gnu_build_id": "f3fdefe504c4da5894635880fedcc47d97b0abf7",
+      "checked_in": false
+    },
+    {
+      "role": "default candidate-build device test",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/default.log",
+      "bytes": 57899,
+      "lines": 338,
+      "sha256": "5f55f0db718a77aab966193a09d56c9c509ec75f58bd007ed413665ea2255bc1",
+      "expected_exit_code": 0,
+      "terminal_line": "SM87 weight-only GEMV tests passed",
+      "checked_in": false
+    },
+    {
+      "role": "authoritative clean same-binary process 1",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/process-1-clean.log",
+      "bytes": 82235,
+      "lines": 421,
+      "sha256": "90e063d84d6bbcd7fdda859f10440cd4f21d97cffedd02859b7d5d117d53795b",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "authoritative clean same-binary process 2",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/process-2.log",
+      "bytes": 82223,
+      "lines": 421,
+      "sha256": "f7a71e04f23b9302aa37bd97b2e8d39f70262837e18b88758883572c59a1b5b3",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "authoritative clean same-binary process 3",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/process-3.log",
+      "bytes": 82216,
+      "lines": 421,
+      "sha256": "b8f2d7d3222098bae0d210a4c8a58bc3a09175a54e482b94884b86d2a9e670e1",
+      "expected_exit_code": 0,
+      "checked_in": false
+    },
+    {
+      "role": "excluded whole-suite outlier process",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/process-1.log",
+      "bytes": 82339,
+      "lines": 422,
+      "sha256": "62348fbd2c7dc048d14d3a4585b816a968dd1225c066e24813c9f7eecf996960",
+      "expected_exit_code": 1,
+      "checked_in": false
+    },
+    {
+      "role": "candidate-build production normalized SASS",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/production.encoding64.normalized",
+      "bytes": 51376,
+      "instruction_words": 2704,
+      "sha256": "134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab",
+      "checked_in": false
+    },
+    {
+      "role": "test-only dead-up candidate normalized SASS",
+      "path": "/tmp/q3x-gateup-dead-up-formal.S8f1hf/dead-up.encoding64.normalized",
+      "bytes": 51376,
+      "instruction_words": 2704,
+      "sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d",
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "The selected launcher and kernel are test-only; no production route or public ABI changed.",
+    "The existing public APIs require an independently rounded up_output. Only an explicit runner-private contract may elide that publication.",
+    "The fixed clock configuration was retained during the clean processes, but no standalone before/after clock, thermal, power, or energy log is archived with this selection.",
+    "Actual-checkpoint microbenchmark payloads come from pinned layer 0; same-bank stress and exact arithmetic contracts broaden data coverage, but only the full-model runner validation covers all 64 layers.",
+    "The Graph gate proves capture topology with aligned sentinel pointers; real-buffer instantiate/replay remains required during production integration.",
+    "The representative nine-case invalid-call probe relies on the shared complete validator; the production runner-only API must re-run the complete null/scalar/alignment/shape/alias matrix.",
+    "One whole-suite process was excluded transparently because an unrelated historical comparator had a single large outlier; its dead-up measurements passed but are not used in the clean-process statistic.",
+    "No production runner, full-model oracle, end-to-end Decode benchmark, Nsys, or NCU measurement is attached to this selection.",
+    "The 0.396352-ms/token planning value and 0.367232-to-0.409216-ms/token range are linear 64-layer arithmetic projections, not achieved latency reductions.",
+    "The formal performance anchor remains 109.056 ms/token and 9.169600939 token/s until final production integration and end-to-end validation pass.",
+    "The result does not measure Prefill, multi-request serving, energy, or behavior on another device or clock configuration."
+  ]
+}

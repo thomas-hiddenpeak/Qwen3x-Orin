@@ -5289,3 +5289,90 @@ therefore remains **109.056 ms/token and 9.169600939 token/s**, still
 **9.056 ms/token** from the 100-ms stage target. Complete rounds, fixture and
 artifact identities, cleanup proof, and claim limits are in the
 [QKV grid-cap 1024 rejection record](metadata/qwen36-27b-fp8-m1-qkv-z-ping-pong-grid-cap-1024-rejection.json).
+
+## Decode NVFP4 M1 gate/up dead-up shared-pair selection
+
+The next bounded mechanism uses the Decode runner's actual dataflow rather
+than another CTA-width or grid-cap change. The reference runner does not
+observe the independently rounded up projection after the exact-M1 fused
+gate/up boundary: the down projection overwrites that workspace before its
+next read. The test-only candidate therefore preserves the production
+`32x512` topology and all arithmetic boundaries, but retains the rounded gate
+and up intermediates in two CTA-local `BF16[576]` arrays. A CTA barrier then
+precedes the same balanced 512-thread SiLU epilogue, which publishes only the
+final BF16 `SiLU(gate)*up` vector. The supplied up buffer remains poison and
+untouched.
+
+This is a selection for a new explicit **Decode-runner-only** contract. It is
+not a replacement for the existing low- or high-level public APIs, whose
+observable contract still requires an independently rounded up output. The
+candidate, launcher, and resource query remain test-only at commit `544d695`;
+production dispatch, the runner, model layout, public ABI, and formal
+end-to-end result are unchanged. It is also not executor double/triple
+buffering or cross-kernel overlap.
+
+Both routes use 32 CTAs, 512 threads/CTA, 16 warps/CTA, 512 projection warps,
+two active CTAs/SM, and 32 resident warps/SM. Production uses 11,328 B static
+shared memory; the candidate's two local arrays add 2,304 B for a total of
+13,632 B. Both report 64 registers/thread, zero local memory, and a 512-thread
+maximum block. Logically, avoiding the two global intermediate writes and
+reads removes `17,408 * 2 B * 2 tensors * 2 directions = 139,264 B` per layer,
+or 8.5 MiB across 64 layers. These are logical bytes, not measured DRAM
+transactions, and no persistent model memory is added.
+
+The frozen Release test ELF is 5,435,464 bytes, SHA-256
+`63a38ab803a41c21e3dc46b4d5e11727c45ecfa68d48281b2fabc871f9e85e3f`,
+and Build ID `f3fdefe504c4da5894635880fedcc47d97b0abf7`. Inside that same binary,
+production retains its established 2,704 normalized SASS words at SHA-256
+`134202f948d757928aa744d20fa7064bdb28b12334659e88046a0fecd071d2ab`.
+The distinct dead-up candidate also has 2,704 words, at SHA-256
+`38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d`,
+with no `LDL` or `STL` rows.
+
+Actual layer-0 checkpoint and same-bank-stress fixtures each report 0/5,120
+residual, 0/17,408 final-gate, and 0/22,528 replay mismatches, finite published
+outputs, intact guards, preserved seven inputs, and an untouched dead-up
+buffer. The signed Inf/NaN fixture preserves residual/final bits and class/sign
+for 17,408/17,408 published NaNs. Candidate and production capture as distinct
+single-node `32x512` Graphs with zero dynamic shared memory; all nine
+representative invalid launches enqueue zero nodes, and a null resource query
+is rejected. The Graph gate at this selection stage proves capture topology
+with aligned sentinel pointers; real-buffer instantiate/replay and the full
+invalid matrix remain production-integration gates.
+
+Three independent clean processes of the frozen binary use ten warmups per
+route, five 64-launch `B-C-C-B` rounds per fixture, and the median paired-round
+speedup as the selection statistic:
+
+| Process | Actual P/C pass medians | Actual paired median | Stress P/C pass medians | Stress paired median | Result |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.602499 / 0.596105 ms | 1.01041x | 0.607264 / 0.601584 ms | 1.00929x | pass |
+| 2 | 0.599853 / 0.593660 ms | 1.01034x | 0.604504 / 0.598810 ms | 1.00940x | pass |
+| 3 | 0.597774 / 0.592036 ms | 1.00975x | 0.603131 / 0.597697 ms | 1.00932x | pass |
+| Cross-process median | 0.599853 / 0.593660 ms | **1.01034x** | 0.604504 / 0.598810 ms | **1.00932x** | pass |
+
+All 30 clean paired rounds improve. Actual round speedups span
+1.00503x–1.01126x, and stress spans 1.00603x–1.01076x. One earlier complete
+process is deliberately excluded from those statistics: an unrelated,
+already-promoted 64x256-versus-32x512 sentinel suffered one 0.966306x round
+after a 0.677115-ms production pass, so the whole suite exited nonzero. The
+dead-up cells in that excluded log still passed all ten rounds; the replacement
+reran the complete binary and exited zero. Both logs and hashes remain in the
+[selection record](metadata/qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json),
+so no dead-up regression is silently omitted.
+
+The cross-process median actual pass delta is 0.006193 ms/layer. Multiplying
+by 64 gives **0.396352 ms/token**, with a 0.367232–0.409216-ms/token process
+range. That is only an isolated arithmetic projection, equal to 4.376678% of
+the remaining 9.056-ms stage gap. Applying it to the old anchor would give
+108.659648 ms/token and 9.203048 token/s as planning normalization only; those
+values were not measured. The formal achieved result remains **109.056
+ms/token and 9.169600939 token/s**.
+
+The immediate production gate is narrow: add an internal runner-only API while
+leaving the generic double-output route and every fallback intact; prove the
+workspace is dead until down overwrites it; run real-buffer Graph replay and
+the complete invalid matrix; then run Release/default/focused CTests, pinned
+C1/C8/C16/C32 model oracles, P19/C32/max26 `B1-C1-C2-B2`, and a fresh Decode
+Nsys closure. Only that final evidence can update the formal anchor or begin
+the larger Prefill optimization program.

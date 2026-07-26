@@ -695,6 +695,23 @@ The diagnostic Phase 3 records are:
   stress reaches 0.998787x and regresses in all five rounds. First-process
   stop-loss restores the test policy and leaves production and the formal
   109.056-ms/token / 9.169600939-token/s anchor unchanged.
+- [`qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json`](qwen36-27b-nvfp4-m1-gate-up-dead-up-shared-pair-selection.json),
+  which selects a test-only, runner-scoped gate/up mechanism for explicit
+  production integration. Production and candidate both remain `32x512`; the
+  candidate keeps the independently BF16-rounded gate/up pair in two
+  CTA-local `BF16[576]` arrays, publishes only final `SiLU(gate)*up`, and
+  leaves the dead up buffer untouched. It uses 64 registers, 13,632 B shared,
+  zero local memory, and two active CTAs/SM. Three clean frozen-binary
+  processes reach cross-process actual/stress paired medians of 1.01034x and
+  1.00932x, with all 30 rounds improving. Published-output bitwise/replay,
+  signed Inf/NaN, guard, input, Graph-capture, invalid-call, resource, and
+  production-SASS-identity gates pass. One complete-suite outlier attempt is
+  retained and excluded transparently; no dead-up regression was omitted.
+  The 0.396352-ms/token 64-layer value is arithmetic only. Production and the
+  formal 109.056-ms/token / 9.169600939-token/s anchor remain unchanged until
+  an explicit runner-only API, full-model oracle, end-to-end benchmark, and
+  fresh Nsys closure pass; the generic double-output API must continue to
+  publish independently rounded up values.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
