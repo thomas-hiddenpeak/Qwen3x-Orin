@@ -811,6 +811,26 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_test_c
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_scale_aosoa4, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_scale_aosoa4, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale_aosoa4_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale6_test_cuda(
     const std::uint8_t* gate_packed_weights,
     const std::uint8_t* gate_scale6_sidecar, unsigned int gate_scale_base,
@@ -5793,6 +5813,14 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool decode_gate_up_cs_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_CS_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_gate_up_scale_aosoa4_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_SCALE_AOSOA4_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -40102,7 +40130,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   if (!nvfp4_m1_gate_up_silu_fusion_performance_enabled() &&
       !decode_residual_chain_performance_enabled() &&
       !decode_gate_up_cg_performance_enabled() &&
-      !decode_gate_up_cs_performance_enabled()) {
+      !decode_gate_up_cs_performance_enabled() &&
+      !decode_gate_up_scale_aosoa4_performance_enabled()) {
     std::cout
         << "SKIP: NVFP4 M1 gate/up+SiLU fusion gate; set "
            "Q3X_RUN_SM87_NVFP4_M1_GATE_UP_SILU_FUSION_PERF=1 together "
@@ -40847,6 +40876,526 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                              cudaStreamSynchronize(stream),
                              fixture_label + " upload synchronize");
       };
+
+  if (decode_gate_up_scale_aosoa4_performance_enabled()) {
+    constexpr int kSidecarWarmupIterations = 10;
+    constexpr int kSidecarMeasuredIterations = 64;
+    constexpr int kSidecarMeasurementRounds = 5;
+    // Frozen first-process stop-loss for this scale-layout candidate.
+    constexpr double kRequiredActualSpeedup = 1.02;
+    constexpr double kRequiredStressSpeedup = 1.000;
+    constexpr double kRequiredEachRoundSpeedup = 1.000;
+    constexpr double kRequiredProjectedDeltaMilliseconds = 0.50;
+    const std::string sidecar_label =
+        "Decode gate/up row-quad scale AoSoA4 screen";
+
+    NvFp4M1DownDualKernelResources sidecar_resources{};
+    bool sidecar_ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale_aosoa4_resources_test_cuda(
+                &sidecar_resources.registers_per_thread,
+                &sidecar_resources.static_shared_bytes,
+                &sidecar_resources.local_bytes,
+                &sidecar_resources.maximum_threads_per_block,
+                &sidecar_resources.active_blocks_per_sm)),
+        sidecar_label + " query resources");
+    const bool null_query_rejected =
+        static_cast<cudaError_t>(q3x::kernels::
+            query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale_aosoa4_resources_test_cuda(
+                nullptr, &sidecar_resources.static_shared_bytes,
+                &sidecar_resources.local_bytes,
+                &sidecar_resources.maximum_threads_per_block,
+                &sidecar_resources.active_blocks_per_sm)) ==
+        cudaErrorInvalidValue;
+    const bool sidecar_resource_gate =
+        sidecar_ready && dead_up_resource_gate &&
+        sidecar_resources.registers_per_thread <= 64 &&
+        sidecar_resources.static_shared_bytes == 13'632U &&
+        sidecar_resources.local_bytes == 0U &&
+        sidecar_resources.maximum_threads_per_block >= 512 &&
+        sidecar_resources.active_blocks_per_sm >= 2 &&
+        null_query_rejected;
+    test.expect(sidecar_resource_gate,
+                sidecar_label + " preserves the dead-up resource envelope");
+    std::cout << "PERF_DECODE_GATE_UP_SCALE_AOSOA4_RESOURCES:"
+              << " baseline_registers="
+              << residual_norm_dead_up_resources.registers_per_thread
+              << " candidate_registers="
+              << sidecar_resources.registers_per_thread
+              << " candidate_shared="
+              << sidecar_resources.static_shared_bytes
+              << " candidate_local=" << sidecar_resources.local_bytes
+              << " candidate_max_threads="
+              << sidecar_resources.maximum_threads_per_block
+              << " candidate_active="
+              << sidecar_resources.active_blocks_per_sm
+              << " null_query_rejected="
+              << (null_query_rejected ? "true" : "false")
+              << " limits=64r,13632shared,0local,active2"
+              << " gate=" << (sidecar_resource_gate ? "PASS" : "FAIL")
+              << '\n';
+    if (!sidecar_resource_gate) {
+      return;
+    }
+
+    DeviceBuffer<std::uint8_t> gate_scale_aosoa4;
+    DeviceBuffer<std::uint8_t> up_scale_aosoa4;
+    sidecar_ready = test.cuda_ok(
+        gate_scale_aosoa4.allocate(kScaleCount),
+        sidecar_label + " allocate gate sidecar");
+    sidecar_ready = sidecar_ready && test.cuda_ok(
+        up_scale_aosoa4.allocate(kScaleCount),
+        sidecar_label + " allocate up sidecar");
+    if (!sidecar_ready) {
+      return;
+    }
+    std::vector<std::uint8_t> host_gate_scale_aosoa4(kScaleCount);
+    std::vector<std::uint8_t> host_up_scale_aosoa4(kScaleCount);
+    const auto pack_scale_aosoa4 =
+        [&](const std::vector<std::uint8_t>& canonical,
+            std::vector<std::uint8_t>& sidecar) {
+          if (canonical.size() != kScaleCount ||
+              sidecar.size() != kScaleCount) {
+            return false;
+          }
+          for (std::size_t row_quad = 0U; row_quad < kRows / 4U;
+               ++row_quad) {
+            for (std::size_t scale_column = 0U;
+                 scale_column < kScaleColumns; ++scale_column) {
+              const std::size_t sidecar_base =
+                  (row_quad * kScaleColumns + scale_column) * 4U;
+              const std::size_t canonical_base =
+                  row_quad * 4U * kScaleColumns + scale_column;
+              for (std::size_t row = 0U; row < 4U; ++row) {
+                sidecar[sidecar_base + row] =
+                    canonical[canonical_base + row * kScaleColumns];
+              }
+            }
+          }
+          return true;
+        };
+    const auto sidecar_matches_canonical =
+        [&](const std::vector<std::uint8_t>& canonical,
+            const std::vector<std::uint8_t>& sidecar) {
+          if (canonical.size() != kScaleCount ||
+              sidecar.size() != kScaleCount) {
+            return false;
+          }
+          for (std::size_t row = 0U; row < kRows; ++row) {
+            for (std::size_t scale_column = 0U;
+                 scale_column < kScaleColumns; ++scale_column) {
+              const std::size_t canonical_index =
+                  row * kScaleColumns + scale_column;
+              const std::size_t sidecar_index =
+                  ((row / 4U) * kScaleColumns + scale_column) * 4U +
+                  row % 4U;
+              if (canonical[canonical_index] != sidecar[sidecar_index]) {
+                return false;
+              }
+            }
+          }
+          return true;
+        };
+    const auto launch_sidecar_baseline = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+              gate_packed.get(), gate_scales.get(), gate_scale2,
+              up_packed.get(), up_scales.get(), up_scale2,
+              residual_left.get(), residual_right.get(), norm_weight.get(),
+              kNormEpsilon, kRows, kColumns, baseline_residual,
+              baseline_gate, baseline_up, static_cast<void*>(stream));
+    };
+    const auto launch_sidecar_candidate = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_cuda(
+              gate_packed.get(), gate_scale_aosoa4.get(), gate_scale2,
+              up_packed.get(), up_scale_aosoa4.get(), up_scale2,
+              residual_left.get(), residual_right.get(), norm_weight.get(),
+              kNormEpsilon, kRows, kColumns, candidate_residual,
+              candidate_gate, candidate_up, static_cast<void*>(stream));
+    };
+
+    std::array<float, 2U> baseline_medians{};
+    std::array<float, 2U> candidate_medians{};
+    std::array<float, 2U> paired_speedup_medians{};
+    std::array<float, 2U> paired_delta_medians{};
+    std::array<bool, 2U> correctness_gates{};
+    std::array<bool, 2U> every_round_nonregression{};
+    for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
+      const bool actual = fixture == 0U;
+      if (!actual) {
+        for (std::size_t index = 0U; index < kPackedCount; ++index) {
+          const std::uint8_t gate_low = static_cast<std::uint8_t>(
+              (index * 5U + (index >> 3U) * 3U + 1U) & 0x0fU);
+          const std::uint8_t gate_high = static_cast<std::uint8_t>(
+              (index * 7U + (index >> 2U) * 5U + 9U) & 0x0fU);
+          const std::uint8_t up_low = static_cast<std::uint8_t>(
+              (index * 11U + (index >> 4U) * 7U + 3U) & 0x0fU);
+          const std::uint8_t up_high = static_cast<std::uint8_t>(
+              (index * 13U + (index >> 1U) * 3U + 5U) & 0x0fU);
+          host_gate_packed[index] =
+              static_cast<std::uint8_t>(gate_low | (gate_high << 4U));
+          host_up_packed[index] =
+              static_cast<std::uint8_t>(up_low | (up_high << 4U));
+        }
+        fill_nvfp4_m1_exact_shape_scale_distribution(
+            host_gate_scales, kScaleColumns,
+            NvFp4M1ScaleDistribution::kSameBankStress);
+        fill_nvfp4_m1_exact_shape_scale_distribution(
+            host_up_scales, kScaleColumns,
+            NvFp4M1ScaleDistribution::kSameBankStress);
+        std::rotate(host_up_scales.begin(), host_up_scales.begin() + 1U,
+                    host_up_scales.end());
+      }
+      const char* const fixture_name =
+          actual ? "actual_checkpoint" : "same_bank_stress";
+      const std::string fixture_label =
+          sidecar_label + " " + fixture_name;
+      const bool packed =
+          pack_scale_aosoa4(host_gate_scales, host_gate_scale_aosoa4) &&
+          pack_scale_aosoa4(host_up_scales, host_up_scale_aosoa4);
+      const bool layout_gate =
+          packed &&
+          sidecar_matches_canonical(host_gate_scales,
+                                    host_gate_scale_aosoa4) &&
+          sidecar_matches_canonical(host_up_scales,
+                                    host_up_scale_aosoa4);
+      test.expect(layout_gate,
+                  fixture_label + " sidecars round-trip canonical scales");
+      std::cout << "DECODE_GATE_UP_SCALE_AOSOA4_LAYOUT: fixture="
+                << fixture_name << " canonical_bytes=" << kScaleCount
+                << " sidecar_bytes=" << host_gate_scale_aosoa4.size()
+                << " gate_sidecar_sha256="
+                << hash_bytes(host_gate_scale_aosoa4)
+                << " up_sidecar_sha256="
+                << hash_bytes(host_up_scale_aosoa4)
+                << " gate=" << (layout_gate ? "PASS" : "FAIL") << '\n';
+      if (!layout_gate) {
+        return;
+      }
+      sidecar_ready = upload_fixture(fixture_label);
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemcpyAsync(gate_scale_aosoa4.get(),
+                          host_gate_scale_aosoa4.data(), kScaleCount,
+                          cudaMemcpyHostToDevice, stream),
+          fixture_label + " upload gate sidecar");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemcpyAsync(up_scale_aosoa4.get(),
+                          host_up_scale_aosoa4.data(), kScaleCount,
+                          cudaMemcpyHostToDevice, stream),
+          fixture_label + " upload up sidecar");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream),
+          fixture_label + " sidecar upload synchronize");
+      if (!sidecar_ready) {
+        return;
+      }
+
+      sidecar_ready = test.cuda_ok(
+          cudaMemsetAsync(baseline_residual_storage.get(), 0x31,
+                          (kColumns + 2U * kGuardElements) *
+                              sizeof(std::uint16_t),
+                          stream),
+          fixture_label + " poison baseline residual");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_residual_storage.get(), 0x42,
+                          (kColumns + 2U * kGuardElements) *
+                              sizeof(std::uint16_t),
+                          stream),
+          fixture_label + " poison candidate residual");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemsetAsync(baseline_gate_storage.get(), 0x53,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison baseline gate");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_gate_storage.get(), 0x64,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison candidate gate");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemsetAsync(baseline_up_storage.get(), 0x75,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison baseline workspace");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaMemsetAsync(candidate_up_storage.get(), 0x86,
+                          guarded_count * sizeof(std::uint16_t), stream),
+          fixture_label + " poison candidate workspace");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_sidecar_baseline()),
+          fixture_label + " launch baseline correctness");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          static_cast<cudaError_t>(launch_sidecar_candidate()),
+          fixture_label + " launch candidate correctness");
+
+      std::vector<std::uint16_t> observed_baseline_residual(
+          kColumns + 2U * kGuardElements);
+      std::vector<std::uint16_t> observed_candidate_residual(
+          kColumns + 2U * kGuardElements);
+      std::vector<std::uint16_t> observed_baseline_gate(guarded_count);
+      std::vector<std::uint16_t> observed_candidate_gate(guarded_count);
+      std::vector<std::uint16_t> observed_baseline_up(guarded_count);
+      std::vector<std::uint16_t> observed_candidate_up(guarded_count);
+      const auto copy_output =
+          [&](std::vector<std::uint16_t>& destination,
+              const DeviceBuffer<std::uint16_t>& source,
+              const std::string& operation) {
+            return test.cuda_ok(
+                cudaMemcpyAsync(destination.data(), source.get(),
+                                destination.size() * sizeof(std::uint16_t),
+                                cudaMemcpyDeviceToHost, stream),
+                operation);
+          };
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_baseline_residual, baseline_residual_storage,
+          fixture_label + " copy baseline residual");
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_candidate_residual, candidate_residual_storage,
+          fixture_label + " copy candidate residual");
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_baseline_gate, baseline_gate_storage,
+          fixture_label + " copy baseline gate");
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_candidate_gate, candidate_gate_storage,
+          fixture_label + " copy candidate gate");
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_baseline_up, baseline_up_storage,
+          fixture_label + " copy baseline workspace");
+      sidecar_ready = sidecar_ready && copy_output(
+          observed_candidate_up, candidate_up_storage,
+          fixture_label + " copy candidate workspace");
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream),
+          fixture_label + " correctness synchronize");
+      if (!sidecar_ready) {
+        return;
+      }
+
+      std::size_t residual_mismatches = 0U;
+      std::size_t gate_mismatches = 0U;
+      bool finite = true;
+      for (std::size_t column = 0U; column < kColumns; ++column) {
+        const std::size_t guarded = kGuardElements + column;
+        residual_mismatches += observed_baseline_residual[guarded] !=
+                               observed_candidate_residual[guarded];
+        finite = finite && std::isfinite(
+                               decode_bf16(observed_candidate_residual[guarded]));
+      }
+      for (std::size_t row = 0U; row < kRows; ++row) {
+        const std::size_t guarded = kGuardElements + row;
+        gate_mismatches += observed_baseline_gate[guarded] !=
+                           observed_candidate_gate[guarded];
+        finite = finite && std::isfinite(
+                               decode_bf16(observed_candidate_gate[guarded]));
+      }
+      const auto guards_intact =
+          [&](const std::vector<std::uint16_t>& values,
+              const std::uint16_t canary) {
+            return std::all_of(
+                       values.begin(), values.begin() + kGuardElements,
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       }) &&
+                   std::all_of(
+                       values.end() - kGuardElements, values.end(),
+                       [canary](const std::uint16_t value) {
+                         return value == canary;
+                       });
+          };
+      const bool guards_gate =
+          guards_intact(observed_baseline_residual, 0x3131U) &&
+          guards_intact(observed_candidate_residual, 0x4242U) &&
+          guards_intact(observed_baseline_gate, 0x5353U) &&
+          guards_intact(observed_candidate_gate, 0x6464U);
+      const bool workspace_gate =
+          std::all_of(observed_baseline_up.begin(),
+                      observed_baseline_up.end(),
+                      [](const std::uint16_t value) {
+                        return value == 0x7575U;
+                      }) &&
+          std::all_of(observed_candidate_up.begin(),
+                      observed_candidate_up.end(),
+                      [](const std::uint16_t value) {
+                        return value == 0x8686U;
+                      });
+      correctness_gates[fixture] =
+          residual_mismatches == 0U && gate_mismatches == 0U && finite &&
+          guards_gate && workspace_gate;
+      test.expect(correctness_gates[fixture],
+                  fixture_label +
+                      " is bitwise, finite, guarded, and leaves up untouched");
+      std::cout << "DECODE_GATE_UP_SCALE_AOSOA4_DIFF: fixture="
+                << fixture_name << " residual_mismatches="
+                << residual_mismatches << '/' << kColumns
+                << " gate_mismatches=" << gate_mismatches << '/' << kRows
+                << " finite=" << (finite ? "true" : "false")
+                << " guards=" << (guards_gate ? "PASS" : "FAIL")
+                << " workspaces_untouched="
+                << (workspace_gate ? "PASS" : "FAIL")
+                << " gate="
+                << (correctness_gates[fixture] ? "PASS" : "FAIL") << '\n';
+      if (!correctness_gates[fixture]) {
+        return;
+      }
+
+      for (int iteration = 0;
+           iteration < kSidecarWarmupIterations && sidecar_ready;
+           ++iteration) {
+        sidecar_ready = test.cuda_ok(
+            static_cast<cudaError_t>(launch_sidecar_baseline()),
+            fixture_label + " baseline warmup");
+        sidecar_ready = sidecar_ready && test.cuda_ok(
+            static_cast<cudaError_t>(launch_sidecar_candidate()),
+            fixture_label + " candidate warmup");
+      }
+      sidecar_ready = sidecar_ready && test.cuda_ok(
+          cudaStreamSynchronize(stream), fixture_label + " warmup sync");
+      constexpr std::size_t kTimedPasses =
+          2U * static_cast<std::size_t>(kSidecarMeasurementRounds);
+      std::array<float, kTimedPasses> baseline_passes{};
+      std::array<float, kTimedPasses> candidate_passes{};
+      std::array<float, kSidecarMeasurementRounds> paired_speedups{};
+      std::array<float, kSidecarMeasurementRounds> paired_deltas{};
+      bool all_rounds = sidecar_ready;
+      for (int round = 0;
+           round < kSidecarMeasurementRounds && sidecar_ready; ++round) {
+        const std::string round_label =
+            fixture_label + " round=" + std::to_string(round + 1);
+        const bool baseline_outer = round % 2 == 0;
+        float b1 = 0.0F;
+        float b2 = 0.0F;
+        float c1 = 0.0F;
+        float c2 = 0.0F;
+        if (baseline_outer) {
+          b1 = measure_small_m_tile(
+              test, stream, launch_sidecar_baseline,
+              kSidecarMeasuredIterations, round_label + " B1");
+          c1 = measure_small_m_tile(
+              test, stream, launch_sidecar_candidate,
+              kSidecarMeasuredIterations, round_label + " C1");
+          c2 = measure_small_m_tile(
+              test, stream, launch_sidecar_candidate,
+              kSidecarMeasuredIterations, round_label + " C2");
+          b2 = measure_small_m_tile(
+              test, stream, launch_sidecar_baseline,
+              kSidecarMeasuredIterations, round_label + " B2");
+        } else {
+          c1 = measure_small_m_tile(
+              test, stream, launch_sidecar_candidate,
+              kSidecarMeasuredIterations, round_label + " C1");
+          b1 = measure_small_m_tile(
+              test, stream, launch_sidecar_baseline,
+              kSidecarMeasuredIterations, round_label + " B1");
+          b2 = measure_small_m_tile(
+              test, stream, launch_sidecar_baseline,
+              kSidecarMeasuredIterations, round_label + " B2");
+          c2 = measure_small_m_tile(
+              test, stream, launch_sidecar_candidate,
+              kSidecarMeasuredIterations, round_label + " C2");
+        }
+        const std::size_t pass = 2U * static_cast<std::size_t>(round);
+        baseline_passes[pass] = b1;
+        baseline_passes[pass + 1U] = b2;
+        candidate_passes[pass] = c1;
+        candidate_passes[pass + 1U] = c2;
+        const bool round_finite =
+            std::isfinite(b1) && b1 > 0.0F && std::isfinite(c1) &&
+            c1 > 0.0F && std::isfinite(c2) && c2 > 0.0F &&
+            std::isfinite(b2) && b2 > 0.0F;
+        const float paired_baseline = 0.5F * (b1 + b2);
+        const float paired_candidate = 0.5F * (c1 + c2);
+        paired_speedups[static_cast<std::size_t>(round)] =
+            paired_baseline / paired_candidate;
+        paired_deltas[static_cast<std::size_t>(round)] =
+            paired_baseline - paired_candidate;
+        const bool round_gate =
+            round_finite &&
+            static_cast<double>(
+                paired_speedups[static_cast<std::size_t>(round)]) >
+                kRequiredEachRoundSpeedup;
+        all_rounds = all_rounds && round_gate;
+        sidecar_ready = sidecar_ready && round_finite;
+        std::cout << "PERF_DECODE_GATE_UP_SCALE_AOSOA4_ROUND: fixture="
+                  << fixture_name << " round=" << round + 1 << " order="
+                  << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+                  << " logical_kernels_per_pass="
+                  << kSidecarMeasuredIterations << " baseline1_ms=" << b1
+                  << " candidate1_ms=" << c1
+                  << " candidate2_ms=" << c2 << " baseline2_ms=" << b2
+                  << " paired_speedup="
+                  << paired_speedups[static_cast<std::size_t>(round)]
+                  << " paired_delta_ms="
+                  << paired_deltas[static_cast<std::size_t>(round)]
+                  << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+      }
+      baseline_medians[fixture] =
+          sidecar_ready
+              ? median_fp8_kv_pair_timing(baseline_passes)
+              : std::numeric_limits<float>::quiet_NaN();
+      candidate_medians[fixture] =
+          sidecar_ready
+              ? median_fp8_kv_pair_timing(candidate_passes)
+              : std::numeric_limits<float>::quiet_NaN();
+      paired_speedup_medians[fixture] =
+          sidecar_ready
+              ? median_fp8_kv_pair_timing(paired_speedups)
+              : std::numeric_limits<float>::quiet_NaN();
+      paired_delta_medians[fixture] =
+          sidecar_ready
+              ? median_fp8_kv_pair_timing(paired_deltas)
+              : std::numeric_limits<float>::quiet_NaN();
+      every_round_nonregression[fixture] = all_rounds;
+    }
+
+    std::array<bool, 2U> timing_gates{};
+    for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
+      const double required =
+          fixture == 0U ? kRequiredActualSpeedup : kRequiredStressSpeedup;
+      timing_gates[fixture] =
+          correctness_gates[fixture] && every_round_nonregression[fixture] &&
+          std::isfinite(paired_speedup_medians[fixture]) &&
+          static_cast<double>(paired_speedup_medians[fixture]) >= required;
+      std::cout << "PERF_DECODE_GATE_UP_SCALE_AOSOA4: fixture="
+                << (fixture == 0U ? "actual_checkpoint"
+                                  : "same_bank_stress")
+                << " baseline_pass_median_ms=" << baseline_medians[fixture]
+                << " candidate_pass_median_ms="
+                << candidate_medians[fixture]
+                << " paired_round_median_speedup="
+                << paired_speedup_medians[fixture]
+                << " paired_round_median_delta_ms="
+                << paired_delta_medians[fixture]
+                << " required_speedup=" << required
+                << " every_round_nonregression="
+                << (every_round_nonregression[fixture] ? "true" : "false")
+                << " gate=" << (timing_gates[fixture] ? "PASS" : "FAIL")
+                << '\n';
+    }
+    const double projected_delta_ms =
+        64.0 * static_cast<double>(paired_delta_medians[0U]);
+    const bool projected_delta_gate =
+        std::isfinite(projected_delta_ms) &&
+        projected_delta_ms >= kRequiredProjectedDeltaMilliseconds;
+    const bool selected_gate =
+        header_gate && pinned_payload_gate && binary_identity_gate &&
+        sidecar_resource_gate && correctness_gates[0U] &&
+        correctness_gates[1U] && timing_gates[0U] && timing_gates[1U] &&
+        projected_delta_gate;
+    test.expect(selected_gate,
+                sidecar_label + " clears the isolated promotion screen");
+    std::cout << "PERF_DECODE_GATE_UP_SCALE_AOSOA4_SELECTED:"
+              << " layout=row_quad_scale_column_row4"
+              << " canonical_bytes_per_projection=" << kScaleCount
+              << " sidecar_bytes_per_projection=" << kScaleCount
+              << " actual_paired_median_speedup="
+              << paired_speedup_medians[0U]
+              << " stress_paired_median_speedup="
+              << paired_speedup_medians[1U]
+              << " projected_64_layer_delta_ms=" << projected_delta_ms
+              << " required_projected_64_layer_delta_ms="
+              << kRequiredProjectedDeltaMilliseconds
+              << " production_dispatch_unchanged=true"
+              << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
+    return;
+  }
 
   if (decode_gate_up_cg_performance_enabled() ||
       decode_gate_up_cs_performance_enabled()) {
@@ -51369,6 +51918,18 @@ int main() {
       return 1;
     }
     std::cout << "Decode residual-chain screen passed\n";
+    return 0;
+  }
+  if (decode_gate_up_scale_aosoa4_performance_enabled()) {
+    run_optional_nvfp4_m1_gate_up_silu_fusion_performance(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy Decode gate/up scale AoSoA4 stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Decode gate/up scale AoSoA4 assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "Decode gate/up scale AoSoA4 screen passed\n";
     return 0;
   }
   if (decode_gate_up_cg_performance_enabled() ||

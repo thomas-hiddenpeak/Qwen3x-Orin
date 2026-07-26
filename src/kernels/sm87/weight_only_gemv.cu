@@ -8555,6 +8555,172 @@ nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_coarsened_512_cache_policy_
   }
 }
 
+// Test-only scale-layout twin of the selected Decode gate/up phase. The
+// sidecar keeps the canonical number of E4M3 bytes but stores each scale
+// column as four adjacent-row bytes. One streaming U32 load therefore
+// replaces the four strided U8 scale loads; packed weights, arithmetic order,
+// BF16 boundaries, topology, and publication contract remain unchanged.
+__device__ __forceinline__ void
+nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_coarsened_512_scale_aosoa4_phase(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const scale_aosoa4, const float weight_scale_2,
+    std::uint16_t* const output, const ulonglong2* const staged_activation,
+    const float* const decoded_weights, const float* const decoded_scales,
+    const unsigned int lane, const unsigned int warp) {
+  constexpr std::uint32_t kRows = 17'408U;
+  constexpr std::uint32_t kColumns = 5'120U;
+  constexpr std::uint32_t kBlocks = 32U;
+  constexpr std::uint32_t kWarps = 16U;
+  constexpr std::uint32_t kPackedColumns =
+      kColumns / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kScaleColumns = kColumns / kNvFp4GroupSize;
+  constexpr std::uint32_t kPackedIterationStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4ValuesPerByte;
+  constexpr std::uint32_t kScaleIterationStride =
+      kNvFp4VectorColumnsPerWarp / kNvFp4GroupSize;
+  constexpr std::uint32_t kRowStride = kBlocks * kWarps * 4U;
+  constexpr std::uint32_t kRowsPerCtaPerStride = kWarps * 4U;
+  constexpr std::uint32_t kPackedRowStride =
+      kRowStride * kPackedColumns;
+  constexpr std::uint32_t kScaleQuadStride =
+      (kRowStride / 4U) * kScaleColumns;
+  static_assert(kBlocks * kWarps ==
+                kNvFp4M1RowQuadMaximumBlocks * kWarpsPerBlock);
+
+  const std::uint32_t first_row =
+      4U * (static_cast<std::uint32_t>(blockIdx.x) * kWarps + warp);
+  std::uint32_t packed_row_offset = first_row * kPackedColumns;
+  std::uint32_t scale_quad_offset = (first_row / 4U) * kScaleColumns;
+  std::uint32_t local_row0 = warp * 4U;
+#pragma unroll 1
+  for (std::uint32_t row0 = first_row; row0 < kRows;
+       row0 += kRowStride) {
+    const auto row0_weights = packed_weights + packed_row_offset;
+    const auto row1_weights = row0_weights + kPackedColumns;
+    const auto row2_weights = row1_weights + kPackedColumns;
+    const auto row3_weights = row2_weights + kPackedColumns;
+    float accumulators0[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators1[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators2[4]{0.0F, 0.0F, 0.0F, 0.0F};
+    float accumulators3[4]{0.0F, 0.0F, 0.0F, 0.0F};
+
+#pragma unroll 1
+    for (std::uint32_t packed_column =
+             lane * kNvFp4VectorPackedBytesPerLane;
+         packed_column < kPackedColumns;
+         packed_column += 2U * kPackedIterationStride) {
+      const std::uint32_t scale_column =
+          packed_column / kNvFp4PackedValuesPerScale +
+          (lane & 1U) * kScaleIterationStride;
+      std::uint32_t local_raw_scale_codes =
+          nvfp4_test_cache_load_u32<NvFp4TestCachePolicy::kStreaming>(
+              scale_aosoa4 +
+              (static_cast<std::size_t>(scale_quad_offset + scale_column) *
+               sizeof(std::uint32_t)));
+      const std::uint32_t partner_raw_scale_codes = __shfl_xor_sync(
+          0xffff'ffffU, local_raw_scale_codes, 1);
+      const std::uint32_t odd_lane_mask = 0U - (lane & 1U);
+      const std::uint32_t phase0_raw_scale_codes =
+          (local_raw_scale_codes & ~odd_lane_mask) |
+          (partner_raw_scale_codes & odd_lane_mask);
+      local_raw_scale_codes ^=
+          partner_raw_scale_codes ^ phase0_raw_scale_codes;
+
+#pragma unroll
+      for (unsigned int phase = 0U; phase < 2U; ++phase) {
+        const std::uint32_t raw_scale_codes =
+            phase == 0U ? phase0_raw_scale_codes : local_raw_scale_codes;
+        const float block_scale0 =
+            decoded_scales[raw_scale_codes & 0xffU];
+        const float block_scale1 =
+            decoded_scales[(raw_scale_codes >> 8U) & 0xffU];
+        const float block_scale2 =
+            decoded_scales[(raw_scale_codes >> 16U) & 0xffU];
+        const float block_scale3 =
+            decoded_scales[(raw_scale_codes >> 24U) & 0xffU];
+        const std::uint32_t phase_packed_column =
+            packed_column + phase * kPackedIterationStride;
+        const std::uint32_t packed0 =
+            nvfp4_test_cache_load_u32<NvFp4TestCachePolicy::kStreaming>(
+                row0_weights + phase_packed_column);
+        const std::uint32_t packed1 =
+            nvfp4_test_cache_load_u32<NvFp4TestCachePolicy::kStreaming>(
+                row1_weights + phase_packed_column);
+        const std::uint32_t packed2 =
+            nvfp4_test_cache_load_u32<NvFp4TestCachePolicy::kStreaming>(
+                row2_weights + phase_packed_column);
+        const std::uint32_t packed3 =
+            nvfp4_test_cache_load_u32<NvFp4TestCachePolicy::kStreaming>(
+                row3_weights + phase_packed_column);
+        const std::uint32_t first_column =
+            phase_packed_column * kNvFp4ValuesPerByte;
+        const ulonglong2 packed_activations =
+            staged_activation[first_column / 8U];
+
+#pragma unroll
+        for (unsigned int half = 0U; half < 2U; ++half) {
+          const std::uint64_t packed_activation =
+              half == 0U ? packed_activations.x : packed_activations.y;
+#pragma unroll
+          for (unsigned int value = 0U; value < 4U; ++value) {
+            const unsigned int packed_value = half * 4U + value;
+            const unsigned int shift = packed_value * 4U;
+            const std::uint16_t encoded_activation =
+                static_cast<std::uint16_t>(
+                    (packed_activation >> (value * 16U)) & 0xffffU);
+            const float decoded_activation =
+                decode_bf16(encoded_activation);
+            accumulators0[value] =
+                fmaf(decoded_weights[(packed0 >> shift) & 0x0fU] *
+                         block_scale0,
+                     decoded_activation, accumulators0[value]);
+            accumulators1[value] =
+                fmaf(decoded_weights[(packed1 >> shift) & 0x0fU] *
+                         block_scale1,
+                     decoded_activation, accumulators1[value]);
+            accumulators2[value] =
+                fmaf(decoded_weights[(packed2 >> shift) & 0x0fU] *
+                         block_scale2,
+                     decoded_activation, accumulators2[value]);
+            accumulators3[value] =
+                fmaf(decoded_weights[(packed3 >> shift) & 0x0fU] *
+                         block_scale3,
+                     decoded_activation, accumulators3[value]);
+          }
+        }
+      }
+    }
+
+    float sum = (accumulators0[0] + accumulators0[1]) +
+                (accumulators0[2] + accumulators0[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[local_row0] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators1[0] + accumulators1[1]) +
+          (accumulators1[2] + accumulators1[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[local_row0 + 1U] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators2[0] + accumulators2[1]) +
+          (accumulators2[2] + accumulators2[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[local_row0 + 2U] = encode_bf16_rne(sum);
+    }
+    sum = (accumulators3[0] + accumulators3[1]) +
+          (accumulators3[2] + accumulators3[3]);
+    sum = warp_sum(sum) * weight_scale_2;
+    if (lane == 0U) {
+      output[local_row0 + 3U] = encode_bf16_rne(sum);
+    }
+    packed_row_offset += kPackedRowStride;
+    scale_quad_offset += kScaleQuadStride;
+    local_row0 += kRowsPerCtaPerStride;
+  }
+}
+
 // Production down-projection phase. The physical grouping is 32 CTAs x 16
 // warps while retaining
 // the same 512 global projection warps, 2,048-row stride, per-row FMA order,
@@ -10190,6 +10356,86 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_cache_polic
         Policy>(
         pair_phase == 0U ? gate_packed_weights : up_packed_weights,
         pair_phase == 0U ? gate_block_scales : up_block_scales,
+        pair_phase == 0U ? gate_weight_scale_2 : up_weight_scale_2,
+        pair_phase == 0U ? staged_gate : staged_up, staged_activation,
+        decoded_weights, norm_partial_or_decoded_scales, lane, warp);
+  }
+
+  __syncthreads();
+  for (std::uint32_t local_row = threadIdx.x;;
+       local_row += kCoarsenedThreads) {
+    const std::uint32_t row =
+        static_cast<std::uint32_t>(blockIdx.x) * kRowsPerCtaPerStride +
+        (local_row / kRowsPerCtaPerStride) * kRowStride +
+        local_row % kRowsPerCtaPerStride;
+    if (row >= kRows) {
+      break;
+    }
+    const float gate = decode_bf16(staged_gate[local_row]);
+    const float up = decode_bf16(staged_up[local_row]);
+    gate_output[row] =
+        encode_bf16_rne(gate / (1.0F + expf(-gate)) * up);
+  }
+}
+
+// Test-only dead-up twin consuming row-quad AoSoA4 scale sidecars. The
+// selected production kernel and ABI remain untouched while this candidate
+// isolates the scale-load transaction shape.
+__global__ __launch_bounds__(512, 2) void
+nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_kernel(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_scale_aosoa4,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_scale_aosoa4,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output) {
+  constexpr unsigned int kCoarsenedThreads = 512U;
+  constexpr unsigned int kCoarsenedWarps = 16U;
+  constexpr unsigned int kCoarsenedBlocks = 32U;
+  constexpr std::uint32_t kRows = 17'408U;
+  constexpr std::uint32_t kColumns = 5'120U;
+  constexpr std::uint32_t kActivationVectorCount = kColumns / 8U;
+  constexpr std::uint32_t kRowStride =
+      kCoarsenedBlocks * kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kRowsPerCtaPerStride = kCoarsenedWarps * 4U;
+  constexpr std::uint32_t kMaximumRowsPerCta = 576U;
+  static_assert(kCoarsenedThreads == kCoarsenedWarps * kWarpSize);
+  static_assert(kRowStride ==
+                kNvFp4M1RowQuadMaximumBlocks * kWarpsPerBlock * 4U);
+
+  __shared__ ulonglong2 staged_activation[kActivationVectorCount];
+  __shared__ float decoded_weights[kNvFp4EncodedValueCount];
+  __shared__ float norm_partial_or_decoded_scales[kFp8EncodedValueCount];
+  __shared__ std::uint16_t staged_gate[kMaximumRowsPerCta];
+  __shared__ std::uint16_t staged_up[kMaximumRowsPerCta];
+  auto staged_activation_bf16 =
+      reinterpret_cast<std::uint16_t*>(staged_activation);
+  stage_residual_centered_rms_norm_bf16_coarsened_512(
+      residual_left, residual_right, norm_weight, epsilon, residual_output,
+      staged_activation_bf16, norm_partial_or_decoded_scales);
+
+  if (threadIdx.x < kFp8EncodedValueCount) {
+    norm_partial_or_decoded_scales[threadIdx.x] =
+        decode_e4m3fn(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  if (threadIdx.x < kNvFp4EncodedValueCount) {
+    decoded_weights[threadIdx.x] =
+        decode_e2m1(static_cast<std::uint8_t>(threadIdx.x));
+  }
+  __syncthreads();
+
+  const unsigned int lane = threadIdx.x & (kWarpSize - 1U);
+  const unsigned int warp = threadIdx.x / kWarpSize;
+#pragma unroll 1
+  for (unsigned int pair_phase = 0U; pair_phase < 2U; ++pair_phase) {
+    nvfp4_w4a16_gemv_bf16_gate_up_pair_activation_staged_coarsened_512_scale_aosoa4_phase(
+        pair_phase == 0U ? gate_packed_weights : up_packed_weights,
+        pair_phase == 0U ? gate_scale_aosoa4 : up_scale_aosoa4,
         pair_phase == 0U ? gate_weight_scale_2 : up_weight_scale_2,
         pair_phase == 0U ? staged_gate : staged_up, staged_activation,
         decoded_weights, norm_partial_or_decoded_scales, lane, warp);
@@ -13041,6 +13287,29 @@ void launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_cs_test_uncheck
       <<<kCoarsenedBlocks, kCoarsenedThreads, 0U, stream>>>(
           gate_packed_weights, gate_block_scales, gate_weight_scale_2,
           up_packed_weights, up_block_scales, up_weight_scale_2,
+          residual_left, residual_right, norm_weight, epsilon,
+          residual_output, gate_output);
+}
+
+void launch_nvfp4_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_unchecked(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_scale_aosoa4,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_scale_aosoa4,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kCoarsenedBlocks = 32U;
+  constexpr unsigned int kCoarsenedThreads = 512U;
+  nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_kernel
+      <<<kCoarsenedBlocks, kCoarsenedThreads, 0U, stream>>>(
+          gate_packed_weights, gate_scale_aosoa4, gate_weight_scale_2,
+          up_packed_weights, up_scale_aosoa4, up_weight_scale_2,
           residual_left, residual_right, norm_weight, epsilon,
           residual_output, gate_output);
 }
@@ -16500,6 +16769,68 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test-only row-quad AoSoA4 block-scale entry point. Each sidecar has the
+// same byte count as its canonical scale tensor, so the established overlap
+// and size validation applies unchanged; the extra alignment check covers
+// the candidate's U32 scale loads.
+int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_cuda(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_scale_aosoa4,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_scale_aosoa4,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_workspace,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_residual_norm_gate_up_silu_launch(
+      gate_packed_weights, gate_scale_aosoa4, gate_weight_scale_2,
+      up_packed_weights, up_scale_aosoa4, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, rows, columns, residual_output,
+      gate_output, up_workspace);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool supported_shape = rows == 17'408U && columns == 5'120U;
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(gate_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(gate_scale_aosoa4) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_scale_aosoa4) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_left) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_right) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(norm_weight) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(gate_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_workspace) %
+       alignof(std::uint16_t)) == 0U;
+  if (!supported_shape || !aligned) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_unchecked(
+      gate_packed_weights, gate_scale_aosoa4, gate_weight_scale_2,
+      up_packed_weights, up_scale_aosoa4, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, residual_output, gate_output,
+      stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only six-bit block-scale sidecar entry point. Production, default
 // rollback, and streaming-cache ABIs remain unchanged and never select it.
 int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_scale6_test_cuda(
@@ -18740,6 +19071,40 @@ int query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_cs_resources_te
       &active_blocks,
       nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_cache_policy_test_kernel<
           NvFp4TestCachePolicy::kStreaming>,
+      512, 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_scale_aosoa4_resources_test_cuda(
+    int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
+      &attributes,
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks,
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_scale_aosoa4_test_kernel,
       512, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
