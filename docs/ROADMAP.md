@@ -224,6 +224,14 @@ Deliverables:
   residual/norm/gate/up/SiLU hotspot. Corrected synthetic screens reach only
   0.656836x and 0.615217x; the candidate was removed and production is
   unchanged.
+- [measured and rejected] Add a lossless 6-bit block-scale sidecar to the
+  production-selected M1 NVFP4 streaming gate/up and down kernels. Gate/up
+  regresses in all 30 formal actual/stress rounds. Down improves in all 30,
+  but its third independent 53-layer projection reaches only 0.199822
+  ms/token against the required 0.25-ms/token gate. The pre-formal deadlock
+  run is excluded after the `7612bd5` warp-uniform shuffle fix. Production
+  remains serial on one stream at 107.889500 ms/token and 9.268742556 token/s;
+  the next dedicated Prefill optimization stage has not started.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

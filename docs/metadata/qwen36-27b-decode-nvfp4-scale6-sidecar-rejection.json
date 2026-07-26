@@ -1,0 +1,455 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-scale6-sidecar-rejection",
+  "status": "rejected-test-only-decode-nvfp4-scale6-block-scale-sidecar",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "production_commit": "9aab3c34f2b40dcea8a395c873d67297723051d4",
+    "production_tree": "89a3ef0b92f374758b6557fdd63ee26d2050e95f",
+    "production_subject": "perf: promote Decode streaming-load kernels",
+    "active_anchor_record_commit": "994d480422a744489dc597c7c3fe2ea67fd9bf96",
+    "candidate_commit": "cefab1af35de4ae8fa0c3b67867d7f3c86c10021",
+    "candidate_tree": "72e1b6703ff3c95bc6727ab83d7660dced07f8f8",
+    "candidate_subject": "bench: add Decode scale6 sidecar candidates",
+    "initial_closeout_commit": "be09820d22753b7c9af4b15abc5dd1861a56d356",
+    "initial_closeout_tree": "8bc95b3ae40b0837337c991ff87cde0298331810",
+    "deadlock_fix_commit": "7612bd504a4154a123654406eae280e6de23e442",
+    "deadlock_fix_tree": "085002dabb9b6f08aa42248b2a02fc3173390632",
+    "deadlock_fix_subject": "fix: make Decode scale6 shuffle warp-uniform",
+    "down_gate_hardening_commit": "19ab423c6afd0fa48c0ac68638202adcd372a3bb",
+    "down_gate_hardening_tree": "fe771a18a81e51530fd956a0d2d5d0e2276eeb7f",
+    "down_gate_hardening_subject": "test: harden Decode scale6 down selection",
+    "candidate_scope": "test-only launchers, kernels, resource queries, host packer, and opt-in closeout",
+    "candidate_retained_for_reproducibility": true,
+    "production_dispatch_changed": false,
+    "production_runtime_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_ms_per_token": 107.889500,
+    "formal_anchor_tokens_per_second": 9.268742556,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.889500,
+    "remaining_tokens_per_second": 0.731257444,
+    "target_met": false
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "weight_encoding": "NVFP4 E2M1 packed weights remain canonical",
+    "compressed_subject": "E4M3FN block-scale codes only",
+    "baseline": "current production-selected evict-first streaming .cs kernels",
+    "gate_up_shape_n_by_k": [17408, 5120],
+    "down_shape_n_by_k": [5120, 17408],
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "canonical_scale_bytes_per_projection": 5570560,
+    "sidecar_bytes_per_projection": 4177920,
+    "sidecar_reduction_vs_canonical_scale_percent": 25.0,
+    "packing": {
+      "columns_per_tile": 512,
+      "rows_per_quad": 4,
+      "scale_codes_per_tile": 128,
+      "bits_per_code_delta": 6,
+      "bytes_per_tile": 96,
+      "u32_words_per_tile": 24,
+      "logical_order": "lane_pair, phase, row",
+      "base_limit": 192,
+      "maximum_delta": 63,
+      "device_load": "the first 24 lanes load one aligned streaming U32 each and reconstruct four row codes through warp shuffles"
+    },
+    "eligible_projection_inventory": {
+      "scale_tensors_scanned": 192,
+      "nonfinite_raw_scale_codes": 0,
+      "gate_eligible_layers": 64,
+      "up_eligible_layers": 64,
+      "down_eligible_layers": 53,
+      "down_canonical_fallback_layers": [2, 24, 30, 31, 54, 55, 56, 57, 58, 59, 60],
+      "eligible_projection_count": 181,
+      "additional_sidecar_bytes_if_all_eligible_are_resident": 756203520,
+      "additional_sidecar_gib": 0.704269,
+      "canonical_scale_payload_retained": true,
+      "memory_interpretation": "The sidecar is an additional Decode representation because canonical scales remain required by Prefill and fallback routes; it is not a 0.704-GiB model-memory saving."
+    },
+    "arithmetic_changed": false,
+    "bf16_publication_boundaries_changed": false,
+    "launch_count_changed": false,
+    "stream_policy_changed": false,
+    "production_route_ever_selected_candidate": false
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "layer": 0,
+    "gate": {
+      "packed_weight_absolute_offset": 6757009952,
+      "packed_weight_bytes": 44564480,
+      "packed_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+      "canonical_scale_absolute_offset": 3606039072,
+      "canonical_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+      "scale2_bits": "0x391e79e8",
+      "sidecar_base": 73,
+      "sidecar_sha256": "54905b291bdfb5e618a67db095f111e12dd0af382bfd39c68e1691a75de597af"
+    },
+    "up": {
+      "packed_weight_absolute_offset": 6801574432,
+      "packed_weight_bytes": 44564480,
+      "packed_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+      "canonical_scale_absolute_offset": 3611609632,
+      "canonical_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+      "scale2_bits": "0x391e79e8",
+      "sidecar_base": 74,
+      "sidecar_sha256": "74a49f8da5f4b4bf2e5b98c9567777ea93ebaf1bcab3fa05afd4000a58d393e2"
+    },
+    "down": {
+      "packed_weight_absolute_offset": 6712445472,
+      "packed_weight_bytes": 44564480,
+      "packed_weight_sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf",
+      "canonical_scale_absolute_offset": 3600468512,
+      "canonical_scale_sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019",
+      "scale2_bits": "0x39b61862",
+      "sidecar_base": 66,
+      "sidecar_sha256": "250e205c06ad6bc4849e3a6ecafeee403bf5fb2bec116ebb301e0ae022144a45"
+    },
+    "same_bank_stress_sidecar_sha256": "8de5829214f72a3f8d9572f5b51e61cd2cfefc0a061b83ab511d3fbfbc4b51a9",
+    "host_pack_contract": {
+      "all_64_deltas_covered": true,
+      "fixed_96_byte_micro_fixture_sha256": "042fcd619223958a55d9b166e293ee991b073364f282010888fc15ed30faa880",
+      "pack_unpack_exact": true,
+      "repack_byte_identical": true,
+      "span_64_rejected": true,
+      "actual_and_stress_hash_gate": "pass"
+    }
+  },
+  "deadlock_exploration": {
+    "observed_before_formal_series": true,
+    "cause": "A __shfl_sync call used the full-warp mask inside a lane-dependent shift branch, so participating lanes did not execute the intrinsic warp-uniformly.",
+    "interrupted_log": {
+      "local_path": "/tmp/q3x-decode-scale6-closeout.egHowC/process1.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "completed": false,
+      "included_in_correctness_or_performance": false
+    },
+    "fix": "Commit 7612bd5 executes the high-word full-mask shuffle unconditionally and applies only the merge under the shift branch.",
+    "post_fix_exploration": {
+      "local_path": "/tmp/q3x-decode-scale6-closeout.egHowC/process1-fixed.log",
+      "bytes": 5420,
+      "sha256": "5729aa02d6cbf78e28c4c964cc1f15a9032d3b4ac117d3b88c227200f275f7f9",
+      "completed": true,
+      "formal_series_member": false,
+      "reason_excluded": "It predates the independent down-only gate hardening in 19ab423; the formal series was restarted afterward."
+    },
+    "formal_processes_started_after_fix_and_gate_hardening": true
+  },
+  "correctness_and_contract": {
+    "actual_checkpoint": {
+      "gate_direct_mismatches": 0,
+      "down_direct_mismatches": 0,
+      "gate_graph_replay_mismatches": 0,
+      "down_graph_replay_mismatches": 0,
+      "finite": true,
+      "guards": "intact",
+      "sidecars_immutable": true,
+      "down_inputs_immutable": true,
+      "dead_up_workspace_untouched": true,
+      "gate": "pass"
+    },
+    "valid_same_bank_stress": {
+      "gate_direct_mismatches": 0,
+      "down_direct_mismatches": 0,
+      "gate_graph_replay_mismatches": 0,
+      "down_graph_replay_mismatches": 0,
+      "finite": true,
+      "guards": "intact",
+      "sidecars_immutable": true,
+      "down_inputs_immutable": true,
+      "dead_up_workspace_untouched": true,
+      "gate": "pass"
+    },
+    "down_nonfinite": {
+      "fixtures": ["residual_signed_nonfinite", "norm_weight_signed_nonfinite"],
+      "raw_mismatches_per_fixture": "0/5120",
+      "residual_mismatches_per_fixture": "0/5120",
+      "norm_mismatches_per_fixture": "0/5120",
+      "graph_replay_mismatches_per_fixture": "0/15360",
+      "class_and_sign": "pass",
+      "guards": "intact",
+      "inputs_immutable": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "gate_candidate_nodes": 1,
+      "down_candidate_nodes": 1,
+      "grid": [32, 1, 1],
+      "block": [512, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "candidate_functions_distinct_from_public": true,
+      "gate": "pass"
+    },
+    "down_invalid_zero_node": {
+      "cases": 8,
+      "covered": [
+        "scale base 193",
+        "wrong rows",
+        "wrong columns",
+        "null packed weights",
+        "null sidecar",
+        "null activation",
+        "misaligned sidecar",
+        "overlapping raw and residual outputs"
+      ],
+      "all_status_cuda_error_invalid_value": true,
+      "all_graph_nodes": 0,
+      "stream_clean_after_each": true,
+      "gate": "pass"
+    }
+  },
+  "resources_and_sass": {
+    "normalization": "cuobjdump Function section normalized to one lowercase 0x-prefixed 64-bit encoding/control word per line before SHA-256",
+    "production_selected_gate_up": {
+      "encoding_words": 2704,
+      "sha256": "2176900d654384440b638338cbbfe7e3ae2a02d59643d1ce30aa882fb47d4ae3",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0
+    },
+    "production_rollback_gate_up": {
+      "encoding_words": 2704,
+      "sha256": "38e45f532ce63c539d8e735699c146b046967c16ead6596b402045db6a228b5d"
+    },
+    "scale6_gate_up": {
+      "encoding_words": 2800,
+      "instruction_count": 1400,
+      "sha256": "ba6913cccbdaa0109239a025b49e814200162c7bb6eaec197fc58788fba0762c",
+      "registers_per_thread": 63,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2
+    },
+    "production_selected_down": {
+      "encoding_words": 2576,
+      "sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0
+    },
+    "production_rollback_down": {
+      "encoding_words": 2560,
+      "sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8"
+    },
+    "scale6_down": {
+      "encoding_words": 2656,
+      "instruction_count": 1328,
+      "sha256": "f8bd6bcfd58c6d2f03dfc98231fb50e5d1ab4150845278fda599b2685d1e606b",
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2
+    },
+    "production_identities_unchanged": true,
+    "candidate_resource_gate": "pass"
+  },
+  "performance_protocol": {
+    "baseline": "current public selected .cs route",
+    "candidate": "test-only scale6 sidecar route",
+    "same_binary": true,
+    "same_stream": true,
+    "timing_output_addresses_shared": true,
+    "pack_h2d_graph_setup_inside_cuda_events": false,
+    "warmup_launches_per_route": 10,
+    "unmeasured_prime_order": "B-C-C-B",
+    "measured_launches_per_pass": 64,
+    "rounds_per_fixture": 5,
+    "alternating_orders": ["B-C-C-B", "C-B-B-C"],
+    "fixtures": ["actual_checkpoint", "valid_same_bank_stress"],
+    "formal_processes_required": 3,
+    "gate_up_original_combined_gate": {
+      "required_each_fixture_round_speedup": 1.0,
+      "required_mixed_projected_delta_ms_per_token": 0.5,
+      "disposition_after_measurement": "reject"
+    },
+    "independent_down_only_gate": {
+      "eligible_layers": 53,
+      "required_actual_median_speedup": 1.005,
+      "required_stress_median_speedup": 1.0,
+      "required_each_actual_and_stress_round_speedup": 1.0,
+      "required_projected_delta_ms_per_token": 0.25,
+      "required_every_formal_process_to_pass": true
+    }
+  },
+  "formal_processes": [
+    {
+      "process": 1,
+      "gate_up": {
+        "actual_median_speedup": 0.964139,
+        "stress_median_speedup": 0.965743,
+        "actual_median_delta_ms_per_layer": -0.0219458,
+        "all_10_rounds_nonregressing": false,
+        "disposition": "reject"
+      },
+      "down": {
+        "actual_median_speedup": 1.02671,
+        "stress_median_speedup": 1.02637,
+        "actual_median_delta_ms_per_layer": 0.00819799,
+        "projected_53_layer_delta_ms_per_token": 0.434494,
+        "all_10_rounds_nonregressing": true,
+        "gate": "pass"
+      },
+      "mixed_projected_delta_ms_per_token": -0.970036,
+      "overall_candidate_gate": "reject"
+    },
+    {
+      "process": 2,
+      "gate_up": {
+        "actual_median_speedup": 0.966421,
+        "stress_median_speedup": 0.967750,
+        "actual_median_delta_ms_per_layer": -0.0205518,
+        "all_10_rounds_nonregressing": false,
+        "disposition": "reject"
+      },
+      "down": {
+        "actual_median_speedup": 1.01646,
+        "stress_median_speedup": 1.01603,
+        "actual_median_delta_ms_per_layer": 0.00505701,
+        "projected_53_layer_delta_ms_per_token": 0.268021,
+        "all_10_rounds_nonregressing": true,
+        "gate": "pass"
+      },
+      "mixed_projected_delta_ms_per_token": -1.04729,
+      "overall_candidate_gate": "reject"
+    },
+    {
+      "process": 3,
+      "gate_up": {
+        "actual_median_speedup": 0.963405,
+        "stress_median_speedup": 0.965035,
+        "actual_median_delta_ms_per_layer": -0.0223831,
+        "all_10_rounds_nonregressing": false,
+        "disposition": "reject"
+      },
+      "down": {
+        "actual_median_speedup": 1.01230,
+        "stress_median_speedup": 1.01172,
+        "actual_median_delta_ms_per_layer": 0.00377023,
+        "projected_53_layer_delta_ms_per_token": 0.199822,
+        "all_10_rounds_nonregressing": true,
+        "gate": "fail"
+      },
+      "mixed_projected_delta_ms_per_token": -1.23270,
+      "overall_candidate_gate": "reject"
+    }
+  ],
+  "cross_process_assessment": {
+    "gate_up_formal_rounds": 30,
+    "gate_up_rounds_improving": 0,
+    "gate_up_interpretation": "The unpack and reconstruction overhead outweighs the 25-percent block-scale-byte reduction for gate/up in every actual and stress round.",
+    "down_formal_rounds": 30,
+    "down_rounds_improving": 30,
+    "down_projected_53_layer_delta_ms_per_token": [0.434494, 0.268021, 0.199822],
+    "down_processes_passing_absolute_gate": 2,
+    "down_processes_required": 3,
+    "down_rejection_trigger": "Process 3 reaches only 0.199822 ms/token, below the frozen 0.25-ms/token absolute gate.",
+    "micro_projection_is_end_to_end_result": false
+  },
+  "decision": {
+    "result": "reject",
+    "gate_up_result": "reject because actual-checkpoint and stress performance regress stably in all three formal processes",
+    "down_result": "reject because the third of three required independent processes fails the 0.25-ms/token absolute gate despite positive relative and every-round results",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "model_oracle_run_for_candidate": false,
+    "end_to_end_run_for_candidate": false,
+    "nsight_systems_run_for_candidate": false,
+    "anchor_changed": false,
+    "stop_loss": "Do not productionize this 6-bit block-scale sidecar or allocate its 0.704269-GiB full eligible inventory without a materially different unpack mechanism and a new independent gate.",
+    "next_priority": "Continue bounded phase-local Decode candidates against the 107.889500-ms/token anchor. Start the next dedicated Prefill optimization stage only after Decode reaches 100 ms/token and 10 token/s."
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.889500,
+    "formal_anchor_after_ms_per_token": 107.889500,
+    "formal_tokens_per_second_before": 9.268742556,
+    "formal_tokens_per_second_after": 9.268742556,
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap": false,
+      "prefill_decode_overlap": false
+    },
+    "next_prefill_optimization_stage_started": false
+  },
+  "validation": {
+    "formal_binary": {
+      "local_path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 6067840,
+      "sha256": "f0cca7e8b35a1b20187f5a7fdd2494cd842753563e86b33fdf8d484457e016d1",
+      "elf_build_id": "f848e5e4abc9ac4076093d0217ee144c001fbace",
+      "checked_in": false
+    },
+    "complete_ctest": {
+      "discovered": 56,
+      "runnable_passed": 51,
+      "skipped": 5,
+      "failed": 0,
+      "gate": "pass"
+    }
+  },
+  "artifacts": [
+    {
+      "role": "formal independent process 1 log",
+      "local_path": "/tmp/q3x-decode-scale6-closeout.egHowC/down-formal1.log",
+      "bytes": 7763,
+      "sha256": "37b952ce5b4bd63bdfc64f6e3d2dcf3792a740d8f9ffdf2fbdec1a77d00bf579",
+      "checked_in": false,
+      "result": "gate/up reject; down pass"
+    },
+    {
+      "role": "formal independent process 2 log",
+      "local_path": "/tmp/q3x-decode-scale6-closeout.egHowC/down-formal2.log",
+      "bytes": 7759,
+      "sha256": "6520636f4f27d30263dbf551c4942cced37760f5998077be2e4cab6e3e31d1e5",
+      "checked_in": false,
+      "result": "gate/up reject; down pass"
+    },
+    {
+      "role": "formal independent process 3 rejection log",
+      "local_path": "/tmp/q3x-decode-scale6-closeout.egHowC/down-formal3.log",
+      "bytes": 7858,
+      "sha256": "6572c97cc79cc2766581eaf30991148a60c0837f256f8f326e3d4614bc51c4a2",
+      "checked_in": false,
+      "result": "expected down absolute-gate rejection"
+    },
+    {
+      "role": "post-fix full SASS dump",
+      "local_path": "/tmp/q3x-scale6-rejection-sass.WS4qB1/full.sass",
+      "bytes": 31444554,
+      "sha256": "bb81fb144c0163a096c3b7ffc1f040344b17e6963c23e87d7ccd7545556b80e4",
+      "checked_in": false
+    }
+  ],
+  "reproduction": {
+    "environment_flag": "Q3X_RUN_SM87_DECODE_NVFP4_6BIT_SIDECAR_PERF=1",
+    "checkpoint_environment": "Q3X_NVFP4_6BIT_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "binary": "./build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "limitations": [
+    "The reported millisecond savings are arithmetic projections from one isolated gate/up or down launch per layer. They are not measured P19/C32/max26 end-to-end savings and cannot change the achieved production anchor.",
+    "The three formal logs are same-binary, same-process kernel comparisons. They do not independently embed complete clock, thermal, power, or energy readbacks.",
+    "The interrupted zero-byte deadlock exploration and the post-fix pre-hardening confirmation are excluded from the three-process performance series.",
+    "The all-layer eligibility inventory establishes encoding feasibility and memory cost; performance payloads are pinned layer-0 tensors plus a same-bank stress fixture, not all 181 eligible projections.",
+    "The candidate remains test-only for reproducibility. No public production dispatcher, Prefill route, model oracle, end-to-end executable behavior, stream count, or buffer schedule was changed.",
+    "The current runtime remains a serial one-stream single-request path. This rejection is not evidence for double buffering, triple buffering, Prefill/Decode overlap, or multi-request throughput."
+  ]
+}

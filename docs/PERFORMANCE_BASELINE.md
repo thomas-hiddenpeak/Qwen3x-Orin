@@ -5831,3 +5831,60 @@ Prefill tile path. The next priority remains bounded Decode work until the
 stage target is reached. Complete hashes, commands, gates, and scope limits
 are in the
 [production benchmark](metadata/qwen36-27b-decode-streaming-production-benchmark.json).
+
+## Rejected Decode NVFP4 6-bit block-scale sidecar
+
+The next bounded Decode screen kept NVFP4 packed weights canonical and
+compressed only E4M3FN block-scale codes into a test-only lossless sidecar.
+Each four-row/K512 tile stores 128 `scale - base` values as 6-bit deltas in
+96 bytes (24 aligned U32 words), versus 128 canonical U8 scale bytes. Gate,
+up, and down layer-0 sidecars are each 4,177,920 bytes rather than 5,570,560
+bytes. An all-tensor feasibility scan finds all 64 gate and 64 up projections
+eligible and 53 of 64 down projections eligible; the other 11 down layers
+retain canonical scales. Keeping all 181 eligible sidecars beside the
+canonical payload would add 756,203,520 bytes (0.704269 GiB), because Prefill
+and fallbacks still require the canonical representation.
+
+The host packer covers all 64 deltas, round-trips and repacks byte-identically,
+rejects a span of 64, and pins the three actual layer-0 sidecars by SHA-256.
+Actual-checkpoint and same-bank-stress direct/replay comparisons are bitwise
+exact for gate/up and all three down outputs. The down route also passes two
+split signed Inf/NaN fixtures, guarded input/sidecar preservation, eight
+fail-before-enqueue cases, and distinct one-node `32x512` CUDA Graph capture.
+The candidate retains two active CTAs/SM and zero local memory: gate/up uses
+63 registers and 13,632 B shared, while down uses 64 registers and 35,904 B.
+
+One early exploratory process deadlocked before producing output. The cause
+was a full-mask warp shuffle inside a lane-dependent branch; commit `7612bd5`
+makes the shuffle warp-uniform. The zero-byte interrupted run is not a timing
+sample. A completed post-fix confirmation also predates the hardened down-only
+gate and is excluded; the formal three-process series starts afterward.
+
+Each formal process compares the current public `.cs` baseline with the
+test-only scale6 route in the same binary and stream. It uses ten warmups, an
+unmeasured `B-C-C-B` prime, and five 64-launch rounds for both actual and
+same-bank fixtures, alternating `B-C-C-B` and `C-B-B-C` order:
+
+| Process | Gate actual/stress | Down actual/stress | Down actual delta/layer | Projected 53-layer down delta | Down gate |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.964139x / 0.965743x | 1.02671x / 1.02637x | 0.00819799 ms | 0.434494 ms/token | pass |
+| 2 | 0.966421x / 0.967750x | 1.01646x / 1.01603x | 0.00505701 ms | 0.268021 ms/token | pass |
+| 3 | 0.963405x / 0.965035x | 1.01230x / 1.01172x | 0.00377023 ms | **0.199822 ms/token** | **fail** |
+
+Gate/up regresses in all 30 formal actual-plus-stress rounds; its unpack work
+more than offsets the 25% block-scale-byte reduction. Down improves in all 30
+rounds and clears its relative gates, but production selection requires all
+three independent processes to project at least 0.25 ms/token over the 53
+eligible layers. Process 3 reaches only 0.199822 ms/token, so down-only is also
+rejected. The mixed gate/up-plus-down projections are negative in every
+process (-0.970036, -1.04729, and -1.23270 ms/token).
+
+No candidate route entered production, and no candidate end-to-end or Nsys
+claim is made. The formal anchor remains **107.889500 ms/token and
+9.268742556 token/s**, still 7.889500 ms/token short of the stage target.
+Decode remains serial on one stream without double/triple buffering or
+cross-kernel overlap. The planned next Prefill optimization stage has not
+started; bounded Decode work continues until the 100-ms/token and 10-token/s
+gate is met. Complete hashes, the interrupted-run exclusion, formal logs, and
+claim limits are in the
+[scale6 rejection record](metadata/qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json).

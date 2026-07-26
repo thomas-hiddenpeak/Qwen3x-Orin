@@ -754,6 +754,16 @@ The diagnostic Phase 3 records are:
   with no fully improving round and a projected 0.0304642-ms/token regression,
   so stop-loss leaves the production anchor unchanged and routes the next cell
   to the independent evict-first streaming policy.
+- [`qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json`](qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json),
+  which closes the lossless 6-bit NVFP4 block-scale sidecar screen against the
+  production-selected Decode streaming kernels. Gate/up regresses in all 30
+  formal actual/stress rounds. Down improves in all 30 rounds, but its three
+  independent 53-layer projections are 0.434494, 0.268021, and 0.199822
+  ms/token; the third misses the required 0.25-ms/token absolute gate. The
+  pre-formal deadlock exploration is recorded separately and excluded from
+  performance after the warp-uniform shuffle fix. Production, the serial
+  one-stream schedule, Prefill, and the **107.889500 ms/token / 9.268742556
+  token/s** anchor remain unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
