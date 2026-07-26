@@ -13671,14 +13671,14 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
           query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cuda(
               &registers_per_thread, &static_shared_bytes, &local_bytes,
               &maximum_threads_per_block, &active_blocks_per_sm)),
-      label + " query candidate resources");
+      label + " query default-cache rollback resources");
   const bool resource_gate = ready && registers_per_thread <= 64 &&
                              static_shared_bytes <= 1'280U &&
                              local_bytes == 0U &&
                              maximum_threads_per_block == 256 &&
                              active_blocks_per_sm >= 4;
   test.expect(resource_gate,
-              label + " preserves the QKV/Z occupancy and spill contract");
+              label + " rollback preserves the QKV/Z occupancy contract");
   const bool resource_null_gate =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_resources_test_cuda(
@@ -13687,7 +13687,7 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       cudaErrorInvalidValue;
   test.expect(resource_null_gate,
               label + " resource query rejects a null destination");
-  std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_RESOURCES:"
+  std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_ROLLBACK_RESOURCES:"
             << " registers_per_thread=" << registers_per_thread
             << " static_shared_bytes=" << static_shared_bytes
             << " local_bytes=" << local_bytes
@@ -13877,17 +13877,19 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
         output_pointer(candidate_storage, 2U),
         output_pointer(candidate_storage, 3U), static_cast<void*>(stream));
   };
-  const auto launch_cs_baseline = [&]() noexcept -> int {
-    return q3x::kernels::launch_sm87_fp8_w8a16_gemv_qkv_z_bf16_ab_pair_cuda(
-        qkv_weights.get(), qkv_weight_scale, z_weights.get(),
-        z_weight_scale, a_weights.get(), b_weights.get(), activation.get(),
-        kQkvRows, kZRows, kAbRows, kColumns,
-        output_pointer(baseline_storage, 0U),
-        output_pointer(baseline_storage, 1U),
-        output_pointer(baseline_storage, 2U),
-        output_pointer(baseline_storage, 3U), static_cast<void*>(stream));
+  const auto launch_cs_rollback = [&]() noexcept -> int {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_test_cuda(
+            qkv_weights.get(), qkv_weight_scale, z_weights.get(),
+            z_weight_scale, a_weights.get(), b_weights.get(),
+            activation.get(), kQkvRows, kZRows, kAbRows, kColumns,
+            output_pointer(baseline_storage, 0U),
+            output_pointer(baseline_storage, 1U),
+            output_pointer(baseline_storage, 2U),
+            output_pointer(baseline_storage, 3U),
+            static_cast<void*>(stream));
   };
-  const auto launch_cs_candidate = [&]() noexcept -> int {
+  const auto launch_cs_test_alias = [&]() noexcept -> int {
     return q3x::kernels::
         launch_sm87_fp8_w8a16_m1_qkv_z_bf16_ab_pair_tail_composite_cs_test_cuda(
             qkv_weights.get(), qkv_weight_scale, z_weights.get(),
@@ -14032,22 +14034,22 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
 
   const auto run_cs_direct_diff = [&](const std::string& fixture_label) {
     bool diff_ready = poison_outputs(baseline_storage, 0xc3U,
-                                     fixture_label + " public");
+                                     fixture_label + " rollback");
     diff_ready = poison_outputs(candidate_storage, 0x3cU,
-                                fixture_label + " streaming") &&
+                                fixture_label + " selected public") &&
                  diff_ready;
-    diff_ready = test.cuda_ok(static_cast<cudaError_t>(launch_cs_baseline()),
-                              fixture_label + " launch public composite") &&
+    diff_ready = test.cuda_ok(static_cast<cudaError_t>(launch_cs_rollback()),
+                              fixture_label + " launch rollback composite") &&
                  diff_ready;
     diff_ready =
-        test.cuda_ok(static_cast<cudaError_t>(launch_cs_candidate()),
-                     fixture_label + " launch FP8-weight streaming") &&
+        test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                     fixture_label + " launch selected public composite") &&
         diff_ready;
     diff_ready = copy_outputs(baseline_storage, baseline_outputs,
-                              fixture_label + " public") &&
+                              fixture_label + " rollback") &&
                  diff_ready;
     diff_ready = copy_outputs(candidate_storage, candidate_outputs,
-                              fixture_label + " streaming") &&
+                              fixture_label + " selected public") &&
                  diff_ready;
     if (!diff_ready) {
       return false;
@@ -14058,18 +14060,19 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     const bool candidate_guards = guards_intact(candidate_outputs, 0x3cU);
     const bool bitwise = all_zero(mismatches);
     test.expect(bitwise,
-                fixture_label + " streaming matches public four outputs");
+                fixture_label + " selected public matches rollback outputs");
     test.expect(baseline_guards && candidate_guards,
-                fixture_label + " streaming preserves output guards");
+                fixture_label + " rollback and selected preserve guards");
     std::cout << "FP8_M1_LINEAR_QKV_CS_DIFF: fixture=" << fixture_label
               << " qkv_mismatches=" << mismatches[0U] << '/' << kQkvRows
               << " z_mismatches=" << mismatches[1U] << '/' << kZRows
               << " a_mismatches=" << mismatches[2U] << '/' << kAbRows
               << " b_mismatches=" << mismatches[3U] << '/' << kAbRows
-              << " public_guards="
+              << " rollback_guards="
               << (baseline_guards ? "intact" : "BAD")
-              << " streaming_guards="
+              << " selected_public_guards="
               << (candidate_guards ? "intact" : "BAD")
+              << " comparison=rollback_default_cache_vs_public_selected_cs"
               << " gate="
               << (bitwise && baseline_guards && candidate_guards ? "PASS"
                                                                   : "FAIL")
@@ -14098,27 +14101,27 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     for (int iteration = 0;
          iteration < kWarmupIterations && timing_ready; ++iteration) {
       timing_ready = test.cuda_ok(
-          static_cast<cudaError_t>(launch_candidate()),
-          fixture_label + " public warmup");
+          static_cast<cudaError_t>(launch_cs_rollback()),
+          fixture_label + " rollback warmup");
       timing_ready =
-          test.cuda_ok(static_cast<cudaError_t>(launch_cs_candidate()),
-                       fixture_label + " streaming warmup") &&
+          test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                       fixture_label + " selected public warmup") &&
           timing_ready;
     }
     timing_ready = test.cuda_ok(
-                       static_cast<cudaError_t>(launch_candidate()),
+                       static_cast<cudaError_t>(launch_cs_rollback()),
                        fixture_label + " unmeasured prime B1") &&
                    timing_ready;
     timing_ready = test.cuda_ok(
-                       static_cast<cudaError_t>(launch_cs_candidate()),
+                       static_cast<cudaError_t>(launch_candidate()),
                        fixture_label + " unmeasured prime C1") &&
                    timing_ready;
     timing_ready = test.cuda_ok(
-                       static_cast<cudaError_t>(launch_cs_candidate()),
+                       static_cast<cudaError_t>(launch_candidate()),
                        fixture_label + " unmeasured prime C2") &&
                    timing_ready;
     timing_ready = test.cuda_ok(
-                       static_cast<cudaError_t>(launch_candidate()),
+                       static_cast<cudaError_t>(launch_cs_rollback()),
                        fixture_label + " unmeasured prime B2") &&
                    timing_ready;
     timing_ready = test.cuda_ok(cudaStreamSynchronize(stream),
@@ -14139,29 +14142,29 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       float candidate1 = std::numeric_limits<float>::quiet_NaN();
       float candidate2 = std::numeric_limits<float>::quiet_NaN();
       if (baseline_first) {
-        baseline1 = measure_small_m_tile(test, stream, launch_candidate,
+        baseline1 = measure_small_m_tile(test, stream, launch_cs_rollback,
                                          kMeasuredIterations,
                                          round_label + " B1");
-        candidate1 = measure_small_m_tile(test, stream, launch_cs_candidate,
+        candidate1 = measure_small_m_tile(test, stream, launch_candidate,
                                           kMeasuredIterations,
                                           round_label + " C1");
-        candidate2 = measure_small_m_tile(test, stream, launch_cs_candidate,
+        candidate2 = measure_small_m_tile(test, stream, launch_candidate,
                                           kMeasuredIterations,
                                           round_label + " C2");
-        baseline2 = measure_small_m_tile(test, stream, launch_candidate,
+        baseline2 = measure_small_m_tile(test, stream, launch_cs_rollback,
                                          kMeasuredIterations,
                                          round_label + " B2");
       } else {
-        candidate1 = measure_small_m_tile(test, stream, launch_cs_candidate,
+        candidate1 = measure_small_m_tile(test, stream, launch_candidate,
                                           kMeasuredIterations,
                                           round_label + " C1");
-        baseline1 = measure_small_m_tile(test, stream, launch_candidate,
+        baseline1 = measure_small_m_tile(test, stream, launch_cs_rollback,
                                          kMeasuredIterations,
                                          round_label + " B1");
-        baseline2 = measure_small_m_tile(test, stream, launch_candidate,
+        baseline2 = measure_small_m_tile(test, stream, launch_cs_rollback,
                                          kMeasuredIterations,
                                          round_label + " B2");
-        candidate2 = measure_small_m_tile(test, stream, launch_cs_candidate,
+        candidate2 = measure_small_m_tile(test, stream, launch_candidate,
                                           kMeasuredIterations,
                                           round_label + " C2");
       }
@@ -14188,6 +14191,8 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_ROUND: fixture="
                 << fixture_label << " round=" << round + 1
                 << " order=" << (baseline_first ? "B-C-C-B" : "C-B-B-C")
+                << " baseline=rollback_default_cache"
+                << " candidate=public_selected_qkv_z_fp8_weight_cs"
                 << " logical_chains_per_pass=" << kMeasuredIterations
                 << " baseline_pass1_ms=" << baseline1
                 << " candidate_pass1_ms=" << candidate1
@@ -14297,10 +14302,10 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       capture_route(launch_baseline, label + " baseline graph");
   CapturedRoute candidate_graph =
       capture_route(launch_candidate, label + " candidate graph");
-  CapturedRoute cs_public_graph =
-      capture_route(launch_cs_baseline, label + " streaming public graph");
-  CapturedRoute cs_candidate_graph = capture_route(
-      launch_cs_candidate, label + " FP8-weight streaming graph");
+  CapturedRoute cs_rollback_graph = capture_route(
+      launch_cs_rollback, label + " default-cache rollback graph");
+  CapturedRoute cs_test_alias_graph = capture_route(
+      launch_cs_test_alias, label + " selected CS test-alias graph");
   const auto exact_topology = [](const cudaKernelNodeParams& params,
                                  const unsigned int grid_x,
                                  const unsigned int grid_y,
@@ -14336,28 +14341,35 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
           candidate_graph.kernel_params.front().func != params.func;
     }
   }
-  const bool cs_public_graph_gate =
-      cs_public_graph.ready && cs_public_graph.total_nodes == 1U &&
-      cs_public_graph.root_nodes == 1U &&
-      cs_public_graph.kernel_params.size() == 1U &&
-      exact_topology(cs_public_graph.kernel_params.front(), 1'536U, 1U, 1U);
-  const bool cs_candidate_graph_gate =
-      cs_candidate_graph.ready && cs_candidate_graph.total_nodes == 1U &&
-      cs_candidate_graph.root_nodes == 1U &&
-      cs_candidate_graph.kernel_params.size() == 1U &&
-      exact_topology(cs_candidate_graph.kernel_params.front(), 1'536U, 1U,
+  const bool cs_rollback_graph_gate =
+      cs_rollback_graph.ready && cs_rollback_graph.total_nodes == 1U &&
+      cs_rollback_graph.root_nodes == 1U &&
+      cs_rollback_graph.kernel_params.size() == 1U &&
+      exact_topology(cs_rollback_graph.kernel_params.front(), 1'536U, 1U,
                      1U);
-  const bool cs_candidate_distinct =
-      cs_public_graph_gate && cs_candidate_graph_gate &&
-      cs_public_graph.kernel_params.front().func !=
-          cs_candidate_graph.kernel_params.front().func;
+  const bool cs_test_alias_graph_gate =
+      cs_test_alias_graph.ready && cs_test_alias_graph.total_nodes == 1U &&
+      cs_test_alias_graph.root_nodes == 1U &&
+      cs_test_alias_graph.kernel_params.size() == 1U &&
+      exact_topology(cs_test_alias_graph.kernel_params.front(), 1'536U, 1U,
+                     1U);
+  const bool cs_public_test_function_identity =
+      candidate_graph_gate && cs_test_alias_graph_gate &&
+      candidate_graph.kernel_params.front().func ==
+          cs_test_alias_graph.kernel_params.front().func;
+  const bool cs_rollback_function_distinct =
+      cs_rollback_graph_gate && candidate_graph_gate &&
+      cs_rollback_graph.kernel_params.front().func !=
+          candidate_graph.kernel_params.front().func;
   test.expect(baseline_graph_gate,
               label + " baseline graph is the ordered two-kernel chain");
   test.expect(candidate_graph_gate && candidate_distinct,
               label + " candidate graph is one distinct 1536x256 kernel");
-  test.expect(cs_public_graph_gate && cs_candidate_graph_gate &&
-                  cs_candidate_distinct,
-              label + " streaming screen captures distinct one-node routes");
+  test.expect(cs_rollback_graph_gate && cs_test_alias_graph_gate &&
+                  cs_public_test_function_identity &&
+                  cs_rollback_function_distinct,
+              label + " public and CS ABI select one function distinct from "
+                      "the rollback");
 
   bool graph_replay_gate = false;
   cudaGraphExec_t candidate_graph_exec = nullptr;
@@ -14389,23 +14401,24 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
   }
 
   bool cs_graph_replay_gate = false;
-  cudaGraphExec_t cs_candidate_graph_exec = nullptr;
-  bool cs_graph_replay_ready = cs_candidate_graph_gate &&
-                               cs_candidate_distinct &&
+  cudaGraphExec_t cs_test_alias_graph_exec = nullptr;
+  bool cs_graph_replay_ready = cs_test_alias_graph_gate &&
+                               cs_public_test_function_identity &&
+                               cs_rollback_function_distinct &&
                                synthetic_cs_bitwise_gate;
   if (cs_graph_replay_ready) {
     cs_graph_replay_ready = test.cuda_ok(
-        cudaGraphInstantiate(&cs_candidate_graph_exec,
-                             cs_candidate_graph.graph, nullptr, nullptr, 0U),
-        label + " instantiate FP8-weight streaming graph");
+        cudaGraphInstantiate(&cs_test_alias_graph_exec,
+                             cs_test_alias_graph.graph, nullptr, nullptr, 0U),
+        label + " instantiate selected CS test-alias graph");
   }
   if (cs_graph_replay_ready) {
     cs_graph_replay_ready =
         poison_outputs(candidate_storage, 0x69U,
                        label + " FP8-weight streaming graph replay");
     cs_graph_replay_ready =
-        test.cuda_ok(cudaGraphLaunch(cs_candidate_graph_exec, stream),
-                     label + " launch FP8-weight streaming graph") &&
+        test.cuda_ok(cudaGraphLaunch(cs_test_alias_graph_exec, stream),
+                     label + " launch selected CS test-alias graph") &&
         cs_graph_replay_ready;
     cs_graph_replay_ready =
         copy_outputs(candidate_storage, graph_outputs,
@@ -14424,10 +14437,10 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     (void)test.cuda_ok(cudaGraphExecDestroy(candidate_graph_exec),
                        label + " destroy candidate graph executable");
   }
-  if (cs_candidate_graph_exec != nullptr) {
+  if (cs_test_alias_graph_exec != nullptr) {
     (void)test.cuda_ok(
-        cudaGraphExecDestroy(cs_candidate_graph_exec),
-        label + " destroy FP8-weight streaming graph executable");
+        cudaGraphExecDestroy(cs_test_alias_graph_exec),
+        label + " destroy selected CS test-alias graph executable");
   }
   if (baseline_graph.graph != nullptr) {
     (void)test.cuda_ok(cudaGraphDestroy(baseline_graph.graph),
@@ -14437,13 +14450,13 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
     (void)test.cuda_ok(cudaGraphDestroy(candidate_graph.graph),
                        label + " destroy candidate graph");
   }
-  if (cs_public_graph.graph != nullptr) {
-    (void)test.cuda_ok(cudaGraphDestroy(cs_public_graph.graph),
-                       label + " destroy streaming public graph");
+  if (cs_rollback_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(cs_rollback_graph.graph),
+                       label + " destroy default-cache rollback graph");
   }
-  if (cs_candidate_graph.graph != nullptr) {
-    (void)test.cuda_ok(cudaGraphDestroy(cs_candidate_graph.graph),
-                       label + " destroy FP8-weight streaming graph");
+  if (cs_test_alias_graph.graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(cs_test_alias_graph.graph),
+                       label + " destroy selected CS test-alias graph");
   }
   std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_GRAPH:"
             << " baseline_total_nodes=" << baseline_graph.total_nodes
@@ -14465,22 +14478,33 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
                     : "FAIL")
             << '\n';
   std::cout << "FP8_M1_LINEAR_QKV_CS_GRAPH:"
-            << " public_total_nodes=" << cs_public_graph.total_nodes
-            << " public_kernel_nodes="
-            << cs_public_graph.kernel_params.size()
-            << " public_root_nodes=" << cs_public_graph.root_nodes
-            << " candidate_total_nodes=" << cs_candidate_graph.total_nodes
-            << " candidate_kernel_nodes="
-            << cs_candidate_graph.kernel_params.size()
-            << " candidate_root_nodes=" << cs_candidate_graph.root_nodes
-            << " candidate_distinct="
-            << (cs_candidate_distinct ? "true" : "false")
+            << " rollback_total_nodes=" << cs_rollback_graph.total_nodes
+            << " rollback_kernel_nodes="
+            << cs_rollback_graph.kernel_params.size()
+            << " rollback_root_nodes=" << cs_rollback_graph.root_nodes
+            << " selected_public_total_nodes=" << candidate_graph.total_nodes
+            << " selected_public_kernel_nodes="
+            << candidate_graph.kernel_params.size()
+            << " selected_public_root_nodes=" << candidate_graph.root_nodes
+            << " cs_test_alias_total_nodes="
+            << cs_test_alias_graph.total_nodes
+            << " cs_test_alias_kernel_nodes="
+            << cs_test_alias_graph.kernel_params.size()
+            << " cs_test_alias_root_nodes="
+            << cs_test_alias_graph.root_nodes
+            << " public_equals_cs_test_function="
+            << (cs_public_test_function_identity ? "true" : "false")
+            << " rollback_function_distinct="
+            << (cs_rollback_function_distinct ? "true" : "false")
             << " graph_replay="
             << (cs_graph_replay_gate ? "bitwise_guarded" : "FAIL")
             << " grid=1536 block=256"
+            << " claim_scope=function_identity_and_correctness_only"
+            << " performance_claim=none"
             << " gate="
-            << (cs_public_graph_gate && cs_candidate_graph_gate &&
-                        cs_candidate_distinct && cs_graph_replay_gate
+            << (cs_rollback_graph_gate && cs_test_alias_graph_gate &&
+                        cs_public_test_function_identity &&
+                        cs_rollback_function_distinct && cs_graph_replay_gate
                     ? "PASS"
                     : "FAIL")
             << '\n';
@@ -14646,9 +14670,9 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
       baseline_graph_gate && candidate_graph_gate && candidate_distinct &&
       graph_replay_gate && invalid_graph_gate && cs_resource_gate &&
       cs_resource_null_gate && synthetic_cs_bitwise_gate &&
-      cs_public_graph_gate && cs_candidate_graph_gate &&
-      cs_candidate_distinct && cs_graph_replay_gate &&
-      cs_invalid_graph_gate;
+      cs_rollback_graph_gate && cs_test_alias_graph_gate &&
+      cs_public_test_function_identity && cs_rollback_function_distinct &&
+      cs_graph_replay_gate && cs_invalid_graph_gate;
   test.expect(default_gate,
               label + " clears the default focused selection screen");
   std::cout << "FP8_M1_QKV_Z_BF16_AB_COMPOSITE_DEFAULT:"
@@ -14668,8 +14692,9 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " synthetic_bitwise_guard="
             << (synthetic_cs_bitwise_gate ? "PASS" : "FAIL")
             << " graph="
-            << (cs_public_graph_gate && cs_candidate_graph_gate &&
-                        cs_candidate_distinct && cs_graph_replay_gate
+            << (cs_rollback_graph_gate && cs_test_alias_graph_gate &&
+                        cs_public_test_function_identity &&
+                        cs_rollback_function_distinct && cs_graph_replay_gate
                     ? "PASS"
                     : "FAIL")
             << " invalid_zero_node="
@@ -14679,10 +14704,20 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
             << " activation_policy=production_default"
             << " ab_weight_policy=production_default"
             << " scale_loads=none_scalar_kernel_arguments"
+            << " selected_route=public_qkv_z_fp8_weight_cs"
+            << " rollback_route=tail_composite_default_cache_test_abi"
+            << " public_equals_cs_test_function="
+            << (cs_public_test_function_identity ? "true" : "false")
+            << " rollback_function_distinct="
+            << (cs_rollback_function_distinct ? "true" : "false")
+            << " claim_scope=function_identity_and_correctness_only"
+            << " performance_claim=none"
             << " gate="
             << (cs_resource_gate && cs_resource_null_gate &&
-                        synthetic_cs_bitwise_gate && cs_public_graph_gate &&
-                        cs_candidate_graph_gate && cs_candidate_distinct &&
+                        synthetic_cs_bitwise_gate &&
+                        cs_rollback_graph_gate && cs_test_alias_graph_gate &&
+                        cs_public_test_function_identity &&
+                        cs_rollback_function_distinct &&
                         cs_graph_replay_gate && cs_invalid_graph_gate
                     ? "PASS"
                     : "FAIL")
@@ -14922,10 +14957,10 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
         actual_cs_bitwise_gate && actual_cs_timing_gate &&
         stress_cs_timing_gate;
     test.expect(cs_process_gate,
-                label + " FP8-weight streaming process clears frozen gate");
+                label + " rollback-versus-selected process clears frozen gate");
     std::cout << "PERF_FP8_M1_LINEAR_QKV_CS_SELECTED:"
-              << " baseline=public_tail_composite_default_cache"
-              << " candidate=test_only_qkv_z_fp8_weight_cs"
+              << " baseline=rollback_tail_composite_default_cache_test_abi"
+              << " candidate=public_selected_qkv_z_fp8_weight_cs"
               << " actual_baseline_median_ms="
               << actual_cs_timing.baseline_median_ms
               << " actual_candidate_median_ms="
@@ -14958,6 +14993,9 @@ void run_fp8_m1_qkv_z_bf16_ab_tail_composite_screen(
               << " required_three_process_median_projected_48_layer_delta_ms="
               << kRequiredThreeProcessMedianProjectedDeltaMs
               << " three_process_median_gate=pending_external_aggregation"
+              << " claim_scope=isolated_qkv_z_ab_tail_composite"
+              << " projection_scope=arithmetic_48_layer_only"
+              << " end_to_end_claim=none"
               << " actual_bitwise_guard="
               << (actual_cs_bitwise_gate ? "PASS" : "FAIL")
               << " stress_bitwise_guard="

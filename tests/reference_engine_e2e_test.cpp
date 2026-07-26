@@ -289,6 +289,8 @@ int main(const int argc, char** const argv) {
       load.request_state_milliseconds >= 0.0 &&
       std::isfinite(load.fp8_output_sidecar_milliseconds) &&
       load.fp8_output_sidecar_milliseconds >= 0.0 &&
+      std::isfinite(load.nvfp4_down_scale6_sidecar_milliseconds) &&
+      load.nvfp4_down_scale6_sidecar_milliseconds >= 0.0 &&
       std::isfinite(load.runner_factory_milliseconds) &&
       load.runner_factory_milliseconds >= 0.0 &&
       std::isfinite(load.total_milliseconds) &&
@@ -318,6 +320,35 @@ int main(const int argc, char** const argv) {
                          load.fp8_output_sidecar_fallback_reason.empty()),
                 "disabled FP8 output sidecars retain an internally "
                 "consistent fallback report");
+  }
+  constexpr std::uint64_t kExpectedNvFp4DownScale6SidecarBytes =
+      221'429'760ULL;
+  if (load.nvfp4_down_scale6_sidecars_enabled) {
+    test.expect(projection_backend ==
+                        runtime::ProjectionBackend::kSm87WeightOnly &&
+                    load.nvfp4_down_scale6_sidecar_eligible_layers == 53U &&
+                    load.nvfp4_down_scale6_sidecar_fallback_layers == 11U &&
+                    load.nvfp4_down_scale6_sidecar_bytes ==
+                        kExpectedNvFp4DownScale6SidecarBytes &&
+                    load.nvfp4_down_scale6_sidecar_fallback_reason.empty(),
+                "enabled NVFP4 down scale6 sidecars report the exact "
+                "53-layer compact allocation and 11 canonical fallbacks");
+  } else if (projection_backend ==
+             runtime::ProjectionBackend::kSm87WeightOnly) {
+    test.expect(load.nvfp4_down_scale6_sidecar_bytes == 0U &&
+                    load.nvfp4_down_scale6_sidecar_eligible_layers +
+                            load.nvfp4_down_scale6_sidecar_fallback_layers ==
+                        64U &&
+                    !load.nvfp4_down_scale6_sidecar_fallback_reason.empty(),
+                "disabled SM87 NVFP4 down scale6 sidecars retain the "
+                "complete inventory and an explicit fallback reason");
+  } else {
+    test.expect(load.nvfp4_down_scale6_sidecar_eligible_layers == 0U &&
+                    load.nvfp4_down_scale6_sidecar_fallback_layers == 0U &&
+                    load.nvfp4_down_scale6_sidecar_bytes == 0U &&
+                    load.nvfp4_down_scale6_sidecar_fallback_reason.empty(),
+                "unrequested NVFP4 down scale6 sidecars retain an empty "
+                "fallback report");
   }
   if (!load.tokenizer_resident_overlap) {
     test.expect(load.total_milliseconds >=
@@ -374,7 +405,19 @@ int main(const int argc, char** const argv) {
               << " fp8_output_sidecar_ms="
               << load.fp8_output_sidecar_milliseconds
               << " fp8_output_sidecar_fallback_reason="
-              << load.fp8_output_sidecar_fallback_reason << '\n';
+              << load.fp8_output_sidecar_fallback_reason
+              << " nvfp4_down_scale6_sidecars_enabled="
+              << (load.nvfp4_down_scale6_sidecars_enabled ? 1 : 0)
+              << " nvfp4_down_scale6_sidecar_eligible_layers="
+              << load.nvfp4_down_scale6_sidecar_eligible_layers
+              << " nvfp4_down_scale6_sidecar_fallback_layers="
+              << load.nvfp4_down_scale6_sidecar_fallback_layers
+              << " nvfp4_down_scale6_sidecar_bytes="
+              << load.nvfp4_down_scale6_sidecar_bytes
+              << " nvfp4_down_scale6_sidecar_ms="
+              << load.nvfp4_down_scale6_sidecar_milliseconds
+              << " nvfp4_down_scale6_sidecar_fallback_reason="
+              << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n';
     return 0;
   }
   return 1;

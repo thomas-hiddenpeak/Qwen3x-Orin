@@ -4936,6 +4936,258 @@ void test_nvfp4_mlp_down_residual_norm_dispatch(TestContext& test) {
   compare(candidate_normalized, baseline_normalized, "normalized output");
 }
 
+void test_nvfp4_mlp_down_scale6_dispatch(TestContext& test) {
+  constexpr std::size_t kRows = runtime::kNvFp4DownScale6Rows;
+  constexpr std::size_t kColumns = runtime::kNvFp4DownScale6Columns;
+  constexpr std::size_t kPackedBytes = kRows * kColumns / 2U;
+  constexpr std::size_t kCanonicalScaleBytes = kRows * kColumns / 16U;
+  constexpr std::size_t kScale6Bytes =
+      runtime::kNvFp4DownScale6SidecarBytesPerProjection;
+  constexpr std::size_t kOutputBytes = kRows * sizeof(std::uint16_t);
+  constexpr unsigned int kScaleBase = 0x38U;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  constexpr float kEpsilon = 1.0e-6F;
+
+  const auto* const fake_packed =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const fake_block_scales =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const fake_scale6 =
+      reinterpret_cast<const std::uint8_t*>(0x21'0000'0000ULL);
+  const auto* const fake_activation =
+      reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
+  const auto* const fake_residual_left =
+      reinterpret_cast<const std::uint16_t*>(0x40'0000'0000ULL);
+  const auto* const fake_norm_weight =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const fake_raw =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const fake_residual =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+  auto* const fake_normalized =
+      reinterpret_cast<std::uint16_t*>(0x80'0000'0000ULL);
+  const auto* const fake_weight_scale =
+      reinterpret_cast<const float*>(0x90'0000'0000ULL);
+  const auto* const fake_input_scale =
+      reinterpret_cast<const float*>(0x91'0000'0000ULL);
+
+  const runtime::LinearWeight canonical = runtime::NvFp4LinearWeight{
+      fake_packed, fake_block_scales, fake_weight_scale, fake_input_scale,
+      kWeightScale, 1.0F, kRows, kColumns};
+  runtime::LinearWeight attached = canonical;
+  auto& attached_nvfp4 = std::get<runtime::NvFp4LinearWeight>(attached);
+  attached_nvfp4.down_scale6_sidecar = fake_scale6;
+  attached_nvfp4.down_scale6_base = kScaleBase;
+
+  const auto dispatch = [&](const runtime::LinearWeight& weight,
+                            cudaStream_t stream) noexcept {
+    return runtime::launch_mlp_down_residual_norm_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, weight,
+        fake_activation, fake_residual_left, fake_norm_weight, kEpsilon,
+        nullptr, 0U, fake_raw, fake_residual, fake_normalized,
+        static_cast<void*>(stream));
+  };
+  const CapturedKernelChain canonical_dispatch =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return dispatch(canonical, stream);
+          },
+          "null-sidecar canonical down dispatch graph");
+  const CapturedKernelChain canonical_oracle =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_down_residual_norm_bf16_cuda(
+                    fake_packed, fake_block_scales, kWeightScale,
+                    fake_activation, fake_residual_left, fake_norm_weight,
+                    kEpsilon, kRows, kColumns, fake_raw, fake_residual,
+                    fake_normalized, static_cast<void*>(stream));
+          },
+          "canonical down .cs direct oracle graph");
+  const CapturedKernelChain scale6_dispatch = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return dispatch(attached, stream);
+      },
+      "attached scale6 down dispatch graph");
+  const CapturedKernelChain scale6_oracle = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_down_residual_norm_scale6_bf16_cuda(
+                fake_packed, fake_scale6, kScaleBase, kWeightScale,
+                fake_activation, fake_residual_left, fake_norm_weight,
+                kEpsilon, kRows, kColumns, fake_raw, fake_residual,
+                fake_normalized, static_cast<void*>(stream));
+      },
+      "scale6 down direct oracle graph");
+  const auto is_exact_one_node = [](const CapturedKernelChain& graph) {
+    return graph.valid && graph.launches.size() == 1U &&
+           graph.launches.front().function != nullptr &&
+           graph.launches.front().grid.x == 32U &&
+           graph.launches.front().grid.y == 1U &&
+           graph.launches.front().grid.z == 1U &&
+           graph.launches.front().block.x == 512U &&
+           graph.launches.front().block.y == 1U &&
+           graph.launches.front().block.z == 1U &&
+           graph.launches.front().dynamic_shared_bytes == 0U;
+  };
+  const bool graph_gate =
+      is_exact_one_node(canonical_dispatch) &&
+      is_exact_one_node(canonical_oracle) &&
+      is_exact_one_node(scale6_dispatch) &&
+      is_exact_one_node(scale6_oracle) &&
+      canonical_dispatch.launches.front().function ==
+          canonical_oracle.launches.front().function &&
+      scale6_dispatch.launches.front().function ==
+          scale6_oracle.launches.front().function &&
+      canonical_dispatch.launches.front().function !=
+          scale6_dispatch.launches.front().function;
+  test.expect(graph_gate,
+              "attached scale6 selects its distinct 32x512 Function while "
+              "null sidecar preserves canonical .cs");
+  if (!graph_gate) {
+    return;
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> block_scales;
+  DeviceBuffer<std::uint8_t> scale6;
+  DeviceBuffer<float> companion_scales;
+  DeviceBuffer<std::uint16_t> activation;
+  DeviceBuffer<std::uint16_t> residual_left;
+  DeviceBuffer<std::uint16_t> norm_weight;
+  DeviceBuffer<std::uint16_t> canonical_raw;
+  DeviceBuffer<std::uint16_t> canonical_residual;
+  DeviceBuffer<std::uint16_t> canonical_normalized;
+  DeviceBuffer<std::uint16_t> scale6_raw;
+  DeviceBuffer<std::uint16_t> scale6_residual;
+  DeviceBuffer<std::uint16_t> scale6_normalized;
+  bool ready = packed.allocate(test, kPackedBytes,
+                               "scale6 dispatch packed weights");
+  ready = ready && block_scales.allocate(
+                       test, kCanonicalScaleBytes,
+                       "scale6 dispatch canonical block scales");
+  ready = ready && scale6.allocate(test, kScale6Bytes,
+                                   "scale6 dispatch sidecar");
+  ready = ready && companion_scales.allocate(
+                       test, 2U, "scale6 dispatch companion scales");
+  ready = ready && activation.allocate(test, kColumns,
+                                        "scale6 dispatch activation");
+  ready = ready && residual_left.allocate(
+                       test, kRows, "scale6 dispatch residual input");
+  ready = ready && norm_weight.allocate(test, kRows,
+                                         "scale6 dispatch norm weight");
+  ready = ready && canonical_raw.allocate(
+                       test, kRows, "canonical down raw output");
+  ready = ready && canonical_residual.allocate(
+                       test, kRows, "canonical down residual output");
+  ready = ready && canonical_normalized.allocate(
+                       test, kRows, "canonical down normalized output");
+  ready = ready && scale6_raw.allocate(test, kRows,
+                                        "scale6 down raw output");
+  ready = ready && scale6_residual.allocate(
+                       test, kRows, "scale6 down residual output");
+  ready = ready && scale6_normalized.allocate(
+                       test, kRows, "scale6 down normalized output");
+  if (!ready) {
+    return;
+  }
+
+  ready = test.cuda_ok(cudaMemset(packed.get(), 0x11, kPackedBytes),
+                       "initialize scale6 dispatch packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemset(block_scales.get(), kScaleBase,
+                                  kCanonicalScaleBytes),
+                       "initialize canonical block scales");
+  ready = ready && test.cuda_ok(cudaMemset(scale6.get(), 0, kScale6Bytes),
+                                "initialize zero-delta scale6 sidecar");
+  ready = ready && upload(
+                       test, companion_scales,
+                       std::vector<float>{kWeightScale, 1.0F},
+                       "scale6 dispatch companion scales");
+  std::vector<std::uint16_t> host_activation(kColumns, 0x3d80U);
+  for (std::size_t column = 1U; column < kColumns; column += 2U) {
+    host_activation[column] = 0xbd00U;
+  }
+  std::vector<std::uint16_t> host_residual(kRows);
+  std::vector<std::uint16_t> host_norm(kRows);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    host_residual[row] =
+        row % 3U == 0U ? 0x3f80U : (row % 3U == 1U ? 0xbf00U : 0x3e80U);
+    host_norm[row] = row % 2U == 0U ? 0x0000U : 0x3e80U;
+  }
+  ready = ready && upload(test, activation, host_activation,
+                           "scale6 dispatch activation");
+  ready = ready && upload(test, residual_left, host_residual,
+                           "scale6 dispatch residual input");
+  ready = ready && upload(test, norm_weight, host_norm,
+                           "scale6 dispatch norm weight");
+  if (!ready) {
+    return;
+  }
+
+  const runtime::LinearWeight canonical_device =
+      runtime::NvFp4LinearWeight{
+          packed.get(), block_scales.get(), companion_scales.get(),
+          companion_scales.get() + 1U, kWeightScale, 1.0F, kRows, kColumns};
+  runtime::LinearWeight scale6_device = canonical_device;
+  auto& scale6_nvfp4 =
+      std::get<runtime::NvFp4LinearWeight>(scale6_device);
+  scale6_nvfp4.down_scale6_sidecar = scale6.get();
+  scale6_nvfp4.down_scale6_base = kScaleBase;
+
+  int status = runtime::launch_mlp_down_residual_norm_to_bf16_cuda(
+      runtime::ProjectionBackend::kSm87WeightOnly, canonical_device,
+      activation.get(), residual_left.get(), norm_weight.get(), kEpsilon,
+      nullptr, 0U, canonical_raw.get(), canonical_residual.get(),
+      canonical_normalized.get());
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "null-sidecar canonical .cs dispatch executes");
+  if (static_cast<cudaError_t>(status) == cudaSuccess) {
+    status = runtime::launch_mlp_down_residual_norm_to_bf16_cuda(
+        runtime::ProjectionBackend::kSm87WeightOnly, scale6_device,
+        activation.get(), residual_left.get(), norm_weight.get(), kEpsilon,
+        nullptr, 0U, scale6_raw.get(), scale6_residual.get(),
+        scale6_normalized.get());
+  }
+  test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
+              "attached scale6 dispatch executes");
+  if (static_cast<cudaError_t>(status) != cudaSuccess ||
+      !test.cuda_ok(cudaDeviceSynchronize(),
+                    "synchronize scale6 dispatch numerical fixture")) {
+    return;
+  }
+
+  const auto expect_bitwise_equal =
+      [&](const DeviceBuffer<std::uint16_t>& actual,
+          const DeviceBuffer<std::uint16_t>& expected,
+          const std::string& label) {
+        std::vector<std::uint16_t> actual_host(kRows);
+        std::vector<std::uint16_t> expected_host(kRows);
+        bool copied = test.cuda_ok(
+            cudaMemcpy(actual_host.data(), actual.get(), kOutputBytes,
+                       cudaMemcpyDeviceToHost),
+            "download scale6 " + label);
+        copied = copied && test.cuda_ok(
+                               cudaMemcpy(expected_host.data(), expected.get(),
+                                          kOutputBytes, cudaMemcpyDeviceToHost),
+                               "download canonical " + label);
+        if (copied) {
+          test.expect(actual_host == expected_host,
+                      "attached scale6 " + label +
+                          " is bitwise canonical .cs");
+        }
+      };
+  expect_bitwise_equal(scale6_raw, canonical_raw, "raw output");
+  expect_bitwise_equal(scale6_residual, canonical_residual,
+                       "residual output");
+  expect_bitwise_equal(scale6_normalized, canonical_normalized,
+                       "normalized output");
+}
+
 void test_fp8_m16_production_dispatch(TestContext& test) {
   constexpr std::size_t kTokens = 16U;
   constexpr std::size_t kRows = 5'120U;
@@ -5603,6 +5855,7 @@ int main() {
   test_nvfp4_mlp_gate_up_silu_dispatch(test);
   test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(test);
   test_nvfp4_mlp_down_residual_norm_dispatch(test);
+  test_nvfp4_mlp_down_scale6_dispatch(test);
   test_fp8_m16_production_dispatch(test);
   test_nvfp4_m16_production_dispatch(test);
   test_tile_validation(test);

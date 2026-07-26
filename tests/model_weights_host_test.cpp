@@ -3,6 +3,8 @@
 #include "q3x/io/safetensors.h"
 #include "q3x/model/model_config.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -58,8 +60,10 @@ enum class SyntheticLinearKind : std::uint8_t {
 class SyntheticArena {
  public:
   explicit SyntheticArena(
-      const bool force_fp8_attention_outputs = false)
-      : force_fp8_attention_outputs_(force_fp8_attention_outputs) {
+      const bool force_fp8_attention_outputs = false,
+      const bool force_nvfp4_down_projections = false)
+      : force_fp8_attention_outputs_(force_fp8_attention_outputs),
+        force_nvfp4_down_projections_(force_nvfp4_down_projections) {
     build();
   }
 
@@ -199,8 +203,12 @@ class SyntheticArena {
                  config->hidden_size, next_kind());
       add_linear(prefix + "mlp.up_proj", config->intermediate_size,
                  config->hidden_size, next_kind());
+      const SyntheticLinearKind down_kind = next_kind();
       add_linear(prefix + "mlp.down_proj", config->hidden_size,
-                 config->intermediate_size, next_kind());
+                 config->intermediate_size,
+                 force_nvfp4_down_projections_
+                     ? SyntheticLinearKind::kNvFp4
+                     : down_kind);
 
       if (config->layer_type(layer) ==
           q3x::model::LayerType::kLinearAttention) {
@@ -262,6 +270,7 @@ class SyntheticArena {
   std::size_t linear_index_ = 0U;
   int scalar_status_ = 0;
   bool force_fp8_attention_outputs_ = false;
+  bool force_nvfp4_down_projections_ = false;
 };
 
 [[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
@@ -292,6 +301,41 @@ class SyntheticArena {
     if (output == nullptr ||
         reinterpret_cast<std::uintptr_t>(
             output->m1_aosoa4_preswizzled_weight) != expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] runtime::NvFp4LinearWeight* mutable_nvfp4_down(
+    runtime::ModelWeights& weights, const std::size_t layer_index) {
+  auto& layer =
+      const_cast<runtime::DecoderLayerWeights&>(weights.layer(layer_index));
+  return std::get_if<runtime::NvFp4LinearWeight>(&layer.mlp.down_proj);
+}
+
+[[nodiscard]] bool down_scale6_attachments_match(
+    runtime::ModelWeights& weights,
+    const std::vector<runtime::NvFp4DownScale6SidecarDescriptor>& expected) {
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    const runtime::NvFp4LinearWeight* const down =
+        mutable_nvfp4_down(weights, layer_index);
+    if (down == nullptr) {
+      return false;
+    }
+    const auto selected = std::find_if(
+        expected.begin(), expected.end(),
+        [layer_index](
+            const runtime::NvFp4DownScale6SidecarDescriptor& descriptor) {
+          return descriptor.layer_index == layer_index;
+        });
+    const std::uint8_t* const expected_sidecar =
+        selected == expected.end() ? nullptr : selected->sidecar;
+    const unsigned int expected_base =
+        selected == expected.end() ? 0U : selected->scale_base;
+    if (down->down_scale6_sidecar != expected_sidecar ||
+        down->down_scale6_base != expected_base) {
       return false;
     }
   }
@@ -476,6 +520,176 @@ void test_fp8_m1_output_projection_sidecar_attachment(TestContext& test) {
                     first_arena, kSidecarBytes),
                 "non-FP8 attention output rejects the sidecar contract");
   }
+}
+
+void test_nvfp4_down_scale6_sidecar_attachment(TestContext& test) {
+  static_assert(runtime::kNvFp4DownScale6Rows == 5'120U);
+  static_assert(runtime::kNvFp4DownScale6Columns == 17'408U);
+  static_assert(runtime::kNvFp4DownScale6SidecarBytesPerProjection ==
+                4'177'920U);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(), "all-NVFP4 down synthetic ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+  const std::vector<runtime::NvFp4DownScale6SidecarDescriptor> empty_state;
+  test.expect(down_scale6_attachments_match(weights, empty_state),
+              "NVFP4 down scale6 views default to detached");
+
+  constexpr std::size_t kSidecarBytes =
+      runtime::kNvFp4DownScale6SidecarBytesPerProjection;
+  constexpr std::uintptr_t kFirstArenaAddress = 0x0000060000000000ULL;
+  constexpr std::uintptr_t kSecondArenaAddress = 0x0000070000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const auto* const first_arena = pointer(kFirstArenaAddress);
+  const auto* const second_arena = pointer(kSecondArenaAddress);
+  const std::array<runtime::NvFp4DownScale6SidecarDescriptor, 2U>
+      first_descriptors{{
+          {5U, first_arena, kSidecarBytes, 66U,
+           runtime::kNvFp4DownScale6Rows,
+           runtime::kNvFp4DownScale6Columns},
+          {61U, pointer(kFirstArenaAddress + kSidecarBytes), kSidecarBytes,
+           73U, runtime::kNvFp4DownScale6Rows,
+           runtime::kNvFp4DownScale6Columns},
+      }};
+  const std::vector<runtime::NvFp4DownScale6SidecarDescriptor> first_state(
+      first_descriptors.begin(), first_descriptors.end());
+  test.expect(weights.attach_nvfp4_down_scale6_sidecars(
+                  first_arena, 2U * kSidecarBytes,
+                  first_descriptors.data(), first_descriptors.size()) &&
+                  down_scale6_attachments_match(weights, first_state),
+              "sparse exact down scale6 descriptors attach atomically");
+
+  const auto expect_rejected_preserves =
+      [&](const std::uint8_t* const candidate_arena,
+          const std::size_t candidate_bytes,
+          const runtime::NvFp4DownScale6SidecarDescriptor*
+              const candidate_descriptors,
+          const std::size_t candidate_count, const std::string_view label) {
+        test.expect(!weights.attach_nvfp4_down_scale6_sidecars(
+                        candidate_arena, candidate_bytes,
+                        candidate_descriptors, candidate_count) &&
+                        down_scale6_attachments_match(weights, first_state),
+                    label);
+      };
+
+  expect_rejected_preserves(nullptr, 2U * kSidecarBytes,
+                            first_descriptors.data(),
+                            first_descriptors.size(),
+                            "null scale6 arena preserves prior sparse set");
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, nullptr,
+                            first_descriptors.size(),
+                            "null scale6 descriptors preserve prior set");
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes - 1U,
+                            first_descriptors.data(),
+                            first_descriptors.size(),
+                            "wrong scale6 arena byte count is atomic");
+  expect_rejected_preserves(pointer(kSecondArenaAddress + 1U),
+                            2U * kSidecarBytes,
+                            first_descriptors.data(),
+                            first_descriptors.size(),
+                            "misaligned scale6 arena is atomic");
+
+  auto invalid = first_descriptors;
+  invalid[1U].layer_index = invalid[0U].layer_index;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "duplicate scale6 layer is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].layer_index = runtime::kQwen36DenseLayerCount;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "out-of-range scale6 layer is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].bytes = kSidecarBytes - 1U;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "wrong descriptor byte count is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].scale_base = 193U;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "out-of-range scale base is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].output_size = runtime::kNvFp4DownScale6Rows - 1U;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "wrong descriptor output shape is atomic");
+  invalid = first_descriptors;
+  invalid[1U].input_size = runtime::kNvFp4DownScale6Columns - 16U;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "wrong descriptor input shape is atomic");
+  invalid = first_descriptors;
+  invalid[1U].sidecar = nullptr;
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "null descriptor sidecar is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].sidecar =
+      pointer(kFirstArenaAddress + kSidecarBytes + 1U);
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "misaligned descriptor sidecar is atomic");
+  invalid = first_descriptors;
+  invalid[0U].sidecar = pointer(kFirstArenaAddress - 32U);
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "sidecar before arena span is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].sidecar =
+      pointer(kFirstArenaAddress + kSidecarBytes + 32U);
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "sidecar past arena span is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].sidecar =
+      pointer(kFirstArenaAddress + kSidecarBytes - 32U);
+  expect_rejected_preserves(first_arena, 2U * kSidecarBytes, invalid.data(),
+                            invalid.size(),
+                            "overlapping scale6 ranges are rejected atomically");
+
+  runtime::NvFp4LinearWeight* const late_down =
+      mutable_nvfp4_down(weights, first_descriptors.back().layer_index);
+  test.expect(late_down != nullptr,
+              "late down target exists for shape atomicity test");
+  if (late_down != nullptr) {
+    const std::size_t original_input_size = late_down->input_size;
+    late_down->input_size = runtime::kNvFp4DownScale6Columns - 16U;
+    expect_rejected_preserves(first_arena, 2U * kSidecarBytes,
+                              first_descriptors.data(),
+                              first_descriptors.size(),
+                              "late target shape failure preserves prior set");
+    late_down->input_size = original_input_size;
+  }
+
+  expect_rejected_preserves(nullptr, 0U, first_descriptors.data(), 0U,
+                            "noncanonical empty detach preserves prior set");
+
+  const std::array<runtime::NvFp4DownScale6SidecarDescriptor, 1U>
+      replacement{{
+          {11U, second_arena, kSidecarBytes, 74U,
+           runtime::kNvFp4DownScale6Rows,
+           runtime::kNvFp4DownScale6Columns},
+      }};
+  const std::vector<runtime::NvFp4DownScale6SidecarDescriptor>
+      replacement_state(replacement.begin(), replacement.end());
+  test.expect(weights.attach_nvfp4_down_scale6_sidecars(
+                  second_arena, kSidecarBytes, replacement.data(),
+                  replacement.size()) &&
+                  down_scale6_attachments_match(weights, replacement_state),
+              "valid sparse replacement clears the prior attachment set");
+  test.expect(weights.attach_nvfp4_down_scale6_sidecars(
+                  nullptr, 0U, nullptr, 0U) &&
+                  down_scale6_attachments_match(weights, empty_state),
+              "canonical empty call detaches every down scale6 sidecar");
 }
 
 void test_projection_pair_eligibility(TestContext& test) {
@@ -995,6 +1209,7 @@ int main() {
   TestContext test;
   test_successful_bind(test);
   test_fp8_m1_output_projection_sidecar_attachment(test);
+  test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);
   test_linear_attention_qkv_z_ab_projection_fusion_eligibility(test);
