@@ -466,6 +466,25 @@ launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
     std::uint16_t* gate_output, std::uint16_t* up_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Decode-runner-only form of the operation above. The exact aligned SM87
+// NVFP4 M=1 route keeps rounded gate/up intermediates CTA-local, publishes
+// residual_output and final gate_output, and leaves up_workspace untouched.
+// Every fallback preserves the existing implementation and may use/write
+// up_workspace; callers must treat it as dead until it is overwritten.
+// Validation and alias rules remain identical to the generic double-output
+// API. This explicit boundary must not be used when rounded up is observable.
+[[nodiscard]] int
+launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight,
+    const std::uint16_t* residual_left,
+    std::uint16_t* residual_right_and_normalized,
+    const std::uint16_t* norm_weight, float epsilon,
+    float* fp32_scratch, std::size_t scratch_elements,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
 // Validates and launches a single-token dense-MLP down projection followed by
 // the decoder residual add and centered RMSNorm boundary. The exact aligned
 // SM87 NVFP4 [5120, 17408] route uses one cooperative kernel. Every other

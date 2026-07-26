@@ -1102,7 +1102,15 @@ int launch_mlp_gate_up_silu_to_bf16_cuda(
       gate_output, up_output, plan.gate.rows, gate_output, cuda_stream);
 }
 
-int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+namespace {
+
+enum class MlpUpPublication {
+  kRequired,
+  kDecodeRunnerDead,
+};
+
+int launch_post_attention_residual_norm_mlp_gate_up_silu_impl(
+    const MlpUpPublication up_publication,
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight,
     const std::uint16_t* const residual_left,
@@ -1206,6 +1214,15 @@ int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
         pointer_is_aligned(gate_output, alignof(std::uint16_t)) &&
         pointer_is_aligned(up_output, alignof(std::uint16_t));
     if (aligned_fusion) {
+      if (up_publication == MlpUpPublication::kDecodeRunnerDead) {
+        return kernels::
+            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+                gate.packed_weight, gate.block_scale, gate.weight_scale_2,
+                up.packed_weight, up.block_scale, up.weight_scale_2,
+                residual_left, residual_right_and_normalized, norm_weight,
+                epsilon, gate.output_size, gate.input_size, residual_output,
+                gate_output, up_output, cuda_stream);
+      }
       return kernels::
           launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
               gate.packed_weight, gate.block_scale, gate.weight_scale_2,
@@ -1225,6 +1242,44 @@ int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
   return launch_mlp_gate_up_silu_to_bf16_cuda(
       backend, gate_weight, up_weight, residual_right_and_normalized,
       fp32_scratch, scratch_elements, gate_output, up_output, cuda_stream);
+}
+
+}  // namespace
+
+int launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight,
+    const std::uint16_t* const residual_left,
+    std::uint16_t* const residual_right_and_normalized,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_output,
+    void* const cuda_stream) noexcept {
+  return launch_post_attention_residual_norm_mlp_gate_up_silu_impl(
+      MlpUpPublication::kRequired, backend, gate_weight, up_weight,
+      residual_left, residual_right_and_normalized, norm_weight, epsilon,
+      fp32_scratch, scratch_elements, residual_output, gate_output, up_output,
+      cuda_stream);
+}
+
+int launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight,
+    const std::uint16_t* const residual_left,
+    std::uint16_t* const residual_right_and_normalized,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    float* const fp32_scratch, const std::size_t scratch_elements,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output,
+    std::uint16_t* const up_workspace,
+    void* const cuda_stream) noexcept {
+  return launch_post_attention_residual_norm_mlp_gate_up_silu_impl(
+      MlpUpPublication::kDecodeRunnerDead, backend, gate_weight, up_weight,
+      residual_left, residual_right_and_normalized, norm_weight, epsilon,
+      fp32_scratch, scratch_elements, residual_output, gate_output,
+      up_workspace, cuda_stream);
 }
 
 int launch_mlp_down_residual_norm_to_bf16_cuda(

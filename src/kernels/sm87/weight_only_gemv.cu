@@ -7440,7 +7440,7 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_coarsened_512_kernel(
   }
 }
 
-// Test-only runner-contract candidate. The reference runner does not consume
+// Decode-runner-only contract. The reference runner does not consume
 // the independently rounded up projection after this boundary, so keep both
 // rounded gate/up intermediates CTA-local and publish only the final
 // SiLU(gate)*up BF16 vector. The 576-entry arrays cover nine 64-row strides
@@ -7448,7 +7448,7 @@ nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_coarsened_512_kernel(
 // The final 512-thread mapping is identical to production's balanced CTA
 // epilogue and therefore preserves its SFU parallelism and arithmetic order.
 __global__ __launch_bounds__(512, 2) void
-nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_test_kernel(
+nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_kernel(
     const std::uint8_t* const gate_packed_weights,
     const std::uint8_t* const gate_block_scales,
     const float gate_weight_scale_2,
@@ -9513,7 +9513,7 @@ void launch_nvfp4_residual_norm_gate_up_silu_cta_coarsened_512_unchecked(
           residual_output, gate_output, up_output);
 }
 
-void launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_test_unchecked(
+void launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_unchecked(
     const std::uint8_t* const gate_packed_weights,
     const std::uint8_t* const gate_block_scales,
     const float gate_weight_scale_2,
@@ -9528,7 +9528,7 @@ void launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_test_unchecked(
     cudaStream_t const stream) noexcept {
   constexpr unsigned int kCoarsenedBlocks = 32U;
   constexpr unsigned int kCoarsenedThreads = 512U;
-  nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_test_kernel
+  nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_kernel
       <<<kCoarsenedBlocks, kCoarsenedThreads, 0U, stream>>>(
           gate_packed_weights, gate_block_scales, gate_weight_scale_2,
           up_packed_weights, up_block_scales, up_weight_scale_2,
@@ -12052,6 +12052,59 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+    const std::uint8_t* const gate_packed_weights,
+    const std::uint8_t* const gate_block_scales,
+    const float gate_weight_scale_2,
+    const std::uint8_t* const up_packed_weights,
+    const std::uint8_t* const up_block_scales,
+    const float up_weight_scale_2,
+    const std::uint16_t* const residual_left,
+    const std::uint16_t* const residual_right,
+    const std::uint16_t* const norm_weight, const float epsilon,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const residual_output,
+    std::uint16_t* const gate_output, std::uint16_t* const up_workspace,
+    void* const cuda_stream) noexcept {
+  const int validation = validate_nvfp4_residual_norm_gate_up_silu_launch(
+      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
+      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, rows, columns, residual_output,
+      gate_output, up_workspace);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool supported_shape = rows == 17'408U && columns == 5'120U;
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(gate_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_packed_weights) %
+       alignof(std::uint32_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_left) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_right) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(norm_weight) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(residual_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(gate_output) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(up_workspace) %
+       alignof(std::uint16_t)) == 0U;
+  if (!supported_shape || !aligned) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_unchecked(
+      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
+      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
+      residual_right, norm_weight, epsilon, residual_output, gate_output,
+      stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
 // Test-only entry point: intentionally omitted from the public header. It
 // allows the CUDA-event gate to compare the production vector path with the
 // exact scalar kernel in one binary and on identical device buffers.
@@ -13286,59 +13339,6 @@ int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_coarsened_512_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
-int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_shared_pair_test_cuda(
-    const std::uint8_t* const gate_packed_weights,
-    const std::uint8_t* const gate_block_scales,
-    const float gate_weight_scale_2,
-    const std::uint8_t* const up_packed_weights,
-    const std::uint8_t* const up_block_scales,
-    const float up_weight_scale_2,
-    const std::uint16_t* const residual_left,
-    const std::uint16_t* const residual_right,
-    const std::uint16_t* const norm_weight, const float epsilon,
-    const std::size_t rows, const std::size_t columns,
-    std::uint16_t* const residual_output,
-    std::uint16_t* const gate_output, std::uint16_t* const up_output,
-    void* const cuda_stream) noexcept {
-  const int validation = validate_nvfp4_residual_norm_gate_up_silu_launch(
-      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
-      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
-      residual_right, norm_weight, epsilon, rows, columns, residual_output,
-      gate_output, up_output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  const bool supported_shape = rows == 17'408U && columns == 5'120U;
-  const bool aligned =
-      (reinterpret_cast<std::uintptr_t>(gate_packed_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(up_packed_weights) %
-       alignof(std::uint32_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(residual_left) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(residual_right) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(norm_weight) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(residual_output) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(gate_output) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(up_output) %
-       alignof(std::uint16_t)) == 0U;
-  if (!supported_shape || !aligned) {
-    return invalid_value();
-  }
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  launch_nvfp4_residual_norm_gate_up_silu_dead_up_shared_pair_test_unchecked(
-      gate_packed_weights, gate_block_scales, gate_weight_scale_2,
-      up_packed_weights, up_block_scales, up_weight_scale_2, residual_left,
-      residual_right, norm_weight, epsilon, residual_output, gate_output,
-      stream);
-  return static_cast<int>(cudaGetLastError());
-}
-
 int launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_shared_tree_test_cuda(
     const std::uint8_t* const gate_packed_weights,
     const std::uint8_t* const gate_block_scales,
@@ -13478,14 +13478,14 @@ int query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_res
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_test_kernel);
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_test_kernel,
+      nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_kernel,
       512, 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

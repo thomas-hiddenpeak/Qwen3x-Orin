@@ -3615,6 +3615,64 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
   test.expect(exact_total_nodes == 1U && exact_kernel_nodes == 1U,
               "exact residual-norm NVFP4 MLP graph has one fused kernel");
 
+  std::size_t exact_runner_total_nodes = 0U;
+  const std::size_t exact_runner_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "exact Decode-runner dead-up NVFP4 MLP graph",
+      &exact_runner_total_nodes);
+  test.expect(exact_runner_total_nodes == 1U &&
+                  exact_runner_kernel_nodes == 1U,
+              "exact Decode-runner dead-up graph has one fused kernel");
+  const CapturedKernelChain exact_public_chain =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::
+                launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                    runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                    exact_up, fake_residual_left, fake_residual_right,
+                    fake_norm_weight, kEpsilon, nullptr, 0U,
+                    fake_residual_output, fake_gate_output, fake_up_output,
+                    static_cast<void*>(stream));
+          },
+          "exact public double-output NVFP4 MLP ordered graph");
+  const CapturedKernelChain exact_runner_chain =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::
+                launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                    runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                    exact_up, fake_residual_left, fake_residual_right,
+                    fake_norm_weight, kEpsilon, nullptr, 0U,
+                    fake_residual_output, fake_gate_output, fake_up_output,
+                    static_cast<void*>(stream));
+          },
+          "exact Decode-runner dead-up NVFP4 MLP ordered graph");
+  const bool exact_runner_identity =
+      exact_public_chain.valid && exact_runner_chain.valid &&
+      exact_public_chain.launches.size() == 1U &&
+      exact_runner_chain.launches.size() == 1U &&
+      exact_public_chain.launches[0].function !=
+          exact_runner_chain.launches[0].function &&
+      exact_public_chain.launches[0].grid.x == 32U &&
+      exact_runner_chain.launches[0].grid.x == 32U &&
+      exact_public_chain.launches[0].block.x == 512U &&
+      exact_runner_chain.launches[0].block.x == 512U &&
+      exact_public_chain.launches[0].dynamic_shared_bytes == 0U &&
+      exact_runner_chain.launches[0].dynamic_shared_bytes == 0U;
+  test.expect(exact_runner_identity,
+              "public and Decode-runner exact routes are distinct 32x512 kernels");
+
   const runtime::LinearWeight unaligned_exact_gate =
       runtime::NvFp4LinearWeight{
           fake_unaligned_gate_packed, fake_gate_scales,
@@ -3729,6 +3787,68 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
                   unaligned_fp8_kernel_nodes == 4U,
               "unaligned FP8 residual-norm MLP graph preserves split pair");
 
+  const auto expect_runner_fallback_chain =
+      [&](const runtime::LinearWeight& gate,
+          const runtime::LinearWeight& up,
+          const std::size_t expected_nodes, const std::string& case_label) {
+        const CapturedKernelChain public_chain =
+            capture_ordered_kernel_chain(
+                test,
+                [&](cudaStream_t stream) noexcept {
+                  return runtime::
+                      launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+                          runtime::ProjectionBackend::kSm87WeightOnly, gate,
+                          up, fake_residual_left, fake_residual_right,
+                          fake_norm_weight, kEpsilon, nullptr, 0U,
+                          fake_residual_output, fake_gate_output,
+                          fake_up_output, static_cast<void*>(stream));
+                },
+                case_label + " public ordered graph");
+        const CapturedKernelChain runner_chain =
+            capture_ordered_kernel_chain(
+                test,
+                [&](cudaStream_t stream) noexcept {
+                  return runtime::
+                      launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                          runtime::ProjectionBackend::kSm87WeightOnly, gate,
+                          up, fake_residual_left, fake_residual_right,
+                          fake_norm_weight, kEpsilon, nullptr, 0U,
+                          fake_residual_output, fake_gate_output,
+                          fake_up_output, static_cast<void*>(stream));
+                },
+                case_label + " runner ordered graph");
+        bool identical = public_chain.valid && runner_chain.valid &&
+                         public_chain.launches.size() == expected_nodes &&
+                         runner_chain.launches.size() == expected_nodes;
+        for (std::size_t node = 0U;
+             identical && node < public_chain.launches.size(); ++node) {
+          const CapturedKernelLaunch& public_launch =
+              public_chain.launches[node];
+          const CapturedKernelLaunch& runner_launch =
+              runner_chain.launches[node];
+          identical = public_launch.function == runner_launch.function &&
+                      public_launch.grid.x == runner_launch.grid.x &&
+                      public_launch.grid.y == runner_launch.grid.y &&
+                      public_launch.grid.z == runner_launch.grid.z &&
+                      public_launch.block.x == runner_launch.block.x &&
+                      public_launch.block.y == runner_launch.block.y &&
+                      public_launch.block.z == runner_launch.block.z &&
+                      public_launch.dynamic_shared_bytes ==
+                          runner_launch.dynamic_shared_bytes;
+        }
+        test.expect(identical,
+                    case_label +
+                        " Decode-runner fallback is the public kernel chain");
+      };
+  expect_runner_fallback_chain(unaligned_exact_gate, exact_up, 4U,
+                               "unaligned exact NVFP4");
+  expect_runner_fallback_chain(near_miss_gate, near_miss_up, 4U,
+                               "near-miss NVFP4");
+  expect_runner_fallback_chain(bf16_gate, bf16_up, 3U, "BF16 pair");
+  expect_runner_fallback_chain(fp8_gate, fp8_up, 3U, "aligned FP8 pair");
+  expect_runner_fallback_chain(unaligned_fp8_gate, fp8_up, 4U,
+                               "unaligned FP8 pair");
+
   expect_invalid_capture_has_no_nodes(
       test,
       [&](cudaStream_t stream) noexcept {
@@ -3780,6 +3900,82 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
                 static_cast<void*>(stream));
       },
       "residual output aliases persistent gate scalar weight");
+
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, 0.0F, nullptr, 0U, fake_residual_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects zero epsilon");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight,
+                std::numeric_limits<float>::quiet_NaN(), nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects NaN epsilon");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U, fake_gate_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects residual/gate alias");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                reinterpret_cast<std::uint16_t*>(
+                    const_cast<float*>(fake_gate_weight_scale)),
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects persistent scalar alias");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, nullptr,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects null up workspace");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, exact_gate,
+                exact_up, fake_residual_left, fake_residual_right,
+                fake_norm_weight, kEpsilon, nullptr, 0U,
+                fake_residual_output, fake_gate_output, fake_gate_output,
+                static_cast<void*>(stream));
+      },
+      "Decode-runner dead-up rejects gate/workspace alias");
 
   constexpr std::size_t kRows = 4U;
   constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
@@ -3977,7 +4173,7 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
   const auto expect_fallback_matches = [&]
       (const runtime::ProjectionBackend backend,
        float* const scratch_pointer, const std::size_t scratch_elements,
-       const std::string& label) {
+       const bool decode_runner_dead_up, const std::string& label) {
     bool reset = upload(test, baseline_right, host_right,
                         label + " reset baseline right");
     reset = reset && upload(test, candidate_right, host_right,
@@ -3999,12 +4195,21 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
     if (static_cast<cudaError_t>(status) != cudaSuccess) {
       return;
     }
-    status = runtime::
-        launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
-            backend, small_gate, small_up, residual_left.get(),
-            candidate_right.get(), norm_weight.get(), kEpsilon,
-            scratch_pointer, scratch_elements, candidate_residual.get(),
-            candidate_gate.get(), candidate_up.get());
+    if (decode_runner_dead_up) {
+      status = runtime::
+          launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+              backend, small_gate, small_up, residual_left.get(),
+              candidate_right.get(), norm_weight.get(), kEpsilon,
+              scratch_pointer, scratch_elements, candidate_residual.get(),
+              candidate_gate.get(), candidate_up.get());
+    } else {
+      status = runtime::
+          launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+              backend, small_gate, small_up, residual_left.get(),
+              candidate_right.get(), norm_weight.get(), kEpsilon,
+              scratch_pointer, scratch_elements, candidate_residual.get(),
+              candidate_gate.get(), candidate_up.get());
+    }
     test.expect(static_cast<cudaError_t>(status) == cudaSuccess,
                 label + " combined API succeeds");
     if (static_cast<cudaError_t>(status) != cudaSuccess ||
@@ -4080,11 +4285,17 @@ void test_post_attention_residual_norm_mlp_gate_up_silu_dispatch(
     }
   };
   expect_fallback_matches(runtime::ProjectionBackend::kSm87WeightOnly,
-                          nullptr, 0U,
+                          nullptr, 0U, false,
                           "small SM87 residual-norm MLP fallback");
+  expect_fallback_matches(
+      runtime::ProjectionBackend::kSm87WeightOnly, nullptr, 0U, true,
+      "small SM87 Decode-runner residual-norm MLP fallback");
   expect_fallback_matches(runtime::ProjectionBackend::kReference,
-                          scratch.get(), kRows,
+                          scratch.get(), kRows, false,
                           "small reference residual-norm MLP fallback");
+  expect_fallback_matches(
+      runtime::ProjectionBackend::kReference, scratch.get(), kRows, true,
+      "small reference Decode-runner residual-norm MLP fallback");
 }
 
 void test_nvfp4_mlp_down_residual_norm_dispatch(TestContext& test) {

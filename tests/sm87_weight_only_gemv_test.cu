@@ -535,20 +535,6 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_tes
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
-launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_shared_pair_test_cuda(
-    const std::uint8_t* gate_packed_weights,
-    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
-    const std::uint8_t* up_packed_weights,
-    const std::uint8_t* up_block_scales, float up_weight_scale_2,
-    const std::uint16_t* residual_left,
-    const std::uint16_t* residual_right,
-    const std::uint16_t* norm_weight, float epsilon,
-    std::size_t rows, std::size_t columns,
-    std::uint16_t* residual_output,
-    std::uint16_t* gate_output, std::uint16_t* up_output,
-    void* cuda_stream = nullptr) noexcept;
-
-[[nodiscard]] int
 query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
@@ -32121,7 +32107,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   const bool residual_norm_dead_up_captured = capture_single_kernel(
       [&]() noexcept {
         return q3x::kernels::
-            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_shared_pair_test_cuda(
+            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
                 fake_gate_packed, fake_gate_scales, kGateWeightScale2,
                 fake_up_packed, fake_up_scales, kUpWeightScale2,
                 fake_residual_left, fake_residual_right, fake_norm_weight,
@@ -32129,7 +32115,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
                 fake_gate_output, fake_up_output,
                 static_cast<void*>(stream));
       },
-      "test exact residual/norm dead-up shared-pair",
+      "production exact residual/norm runner dead-up shared-pair",
       &residual_norm_dead_up_parameters);
   const bool residual_norm_identity_gate =
       residual_norm_public_captured && residual_norm_coarsened_captured &&
@@ -32434,7 +32420,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
           std::uint16_t* const residual, std::uint16_t* const gate,
           std::uint16_t* const up) noexcept {
         return q3x::kernels::
-            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_shared_pair_test_cuda(
+            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
                 gate_weights, fake_gate_scales, kGateWeightScale2,
                 fake_up_packed, fake_up_scales, kUpWeightScale2, left,
                 fake_residual_right, fake_norm_weight, epsilon, rows, columns,
@@ -32445,7 +32431,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   const auto expect_residual_norm_dead_up_invalid =
       [&](const auto& launch, const std::string& reason) {
         const bool rejected = expect_invalid_before_enqueue(
-            launch, "test residual/norm dead-up shared-pair " + reason);
+            launch, "production residual/norm runner dead-up " + reason);
         residual_norm_dead_up_invalid_gate =
             residual_norm_dead_up_invalid_gate && rejected;
         ++residual_norm_dead_up_invalid_cases;
@@ -33442,7 +33428,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               &residual_norm_dead_up_resources.local_bytes,
               &residual_norm_dead_up_resources.maximum_threads_per_block,
               &residual_norm_dead_up_resources.active_blocks_per_sm)),
-      label + " query test-only dead-up shared-pair resources");
+      label + " query production runner-only dead-up resources");
   const bool coarsened_resource_null_rejected =
       static_cast<cudaError_t>(q3x::kernels::
           query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_coarsened_512_resources_test_cuda(
@@ -33538,7 +33524,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             << " gate=" << (coarsened_resource_gate ? "PASS" : "FAIL")
             << '\n';
   std::cout << "PERF_NVFP4_M1_GATE_UP_DEAD_UP_RESOURCES: "
-            << "candidate=test_only_shared_gate_up_grid32_block512"
+            << "candidate=production_runner_dead_up_grid32_block512"
             << " registers="
             << residual_norm_dead_up_resources.registers_per_thread
             << " shared="
@@ -33742,7 +33728,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   };
   const auto launch_residual_norm_dead_up_candidate = [&]() noexcept {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_shared_pair_test_cuda(
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
             gate_packed.get(), gate_scales.get(), gate_scale2,
             up_packed.get(), up_scales.get(), up_scale2,
             residual_left.get(), residual_right.get(), norm_weight.get(),
@@ -34127,6 +34113,42 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         correct_ready = correct_ready && copy(
             observed_candidate_up, candidate_up_storage,
             fixture_label + " copy residual candidate up");
+        const bool replay_uses_cuda_graph = !candidate_publishes_up;
+        cudaGraph_t replay_graph = nullptr;
+        cudaGraphExec_t replay_graph_exec = nullptr;
+        if (correct_ready && replay_uses_cuda_graph) {
+          correct_ready = test.cuda_ok(
+              cudaStreamSynchronize(stream),
+              fixture_label + " synchronize before graph capture");
+          bool capture_started = false;
+          if (correct_ready) {
+            capture_started = test.cuda_ok(
+                cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal),
+                fixture_label + " begin dead-up graph capture");
+            correct_ready = capture_started;
+          }
+          int captured_launch_status = static_cast<int>(cudaErrorUnknown);
+          if (capture_started) {
+            captured_launch_status = launch_fused();
+            test.expect(
+                static_cast<cudaError_t>(captured_launch_status) ==
+                    cudaSuccess,
+                fixture_label + " dead-up graph captured launch succeeds");
+            const bool capture_ended = test.cuda_ok(
+                cudaStreamEndCapture(stream, &replay_graph),
+                fixture_label + " end dead-up graph capture");
+            correct_ready = correct_ready &&
+                            static_cast<cudaError_t>(captured_launch_status) ==
+                                cudaSuccess &&
+                            capture_ended && replay_graph != nullptr;
+          }
+          if (correct_ready) {
+            correct_ready = test.cuda_ok(
+                cudaGraphInstantiate(&replay_graph_exec, replay_graph,
+                                     nullptr, nullptr, 0U),
+                fixture_label + " instantiate dead-up graph");
+          }
+        }
         correct_ready = correct_ready && test.cuda_ok(
             cudaMemsetAsync(candidate_residual_storage.get(), 0xb2U,
                             kResidualGuardedCount * sizeof(std::uint16_t),
@@ -34137,13 +34159,20 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                             guarded_count * sizeof(std::uint16_t), stream),
             fixture_label + " poison replay candidate gate");
         correct_ready = correct_ready && test.cuda_ok(
-            cudaMemsetAsync(candidate_up_storage.get(), 0xf6U,
+            cudaMemsetAsync(candidate_up_storage.get(), 0x8cU,
                             guarded_count * sizeof(std::uint16_t), stream),
             fixture_label + " poison replay candidate up");
-        correct_ready = correct_ready && test.cuda_ok(
-            static_cast<cudaError_t>(launch_fused()),
-            fixture_label + " replay residual/norm fused " +
-                std::string(candidate_name));
+        if (correct_ready && replay_uses_cuda_graph) {
+          correct_ready = test.cuda_ok(
+              cudaGraphLaunch(replay_graph_exec, stream),
+              fixture_label + " replay residual/norm fused CUDA Graph " +
+                  std::string(candidate_name));
+        } else if (correct_ready) {
+          correct_ready = test.cuda_ok(
+              static_cast<cudaError_t>(launch_fused()),
+              fixture_label + " replay residual/norm fused " +
+                  std::string(candidate_name));
+        }
         std::vector<std::uint16_t> replay_candidate_residual(
             kResidualGuardedCount);
         std::vector<std::uint16_t> replay_candidate_gate(guarded_count);
@@ -34202,6 +34231,18 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         correct_ready = correct_ready && test.cuda_ok(
             cudaStreamSynchronize(stream),
             fixture_label + " residual correctness synchronize");
+        if (replay_graph_exec != nullptr) {
+          correct_ready =
+              test.cuda_ok(cudaGraphExecDestroy(replay_graph_exec),
+                           fixture_label + " destroy dead-up graph exec") &&
+              correct_ready;
+        }
+        if (replay_graph != nullptr) {
+          correct_ready =
+              test.cuda_ok(cudaGraphDestroy(replay_graph),
+                           fixture_label + " destroy dead-up graph") &&
+              correct_ready;
+        }
         if (!correct_ready) {
           return false;
         }
@@ -34232,7 +34273,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             candidate_up_untouched =
                 candidate_up_untouched &&
                 observed_candidate_up[guarded] == 0xf6f6U &&
-                replay_candidate_up[guarded] == 0xf6f6U;
+                replay_candidate_up[guarded] == 0x8c8cU;
           }
           replay_mismatches += observed_candidate_gate[guarded] !=
                                replay_candidate_gate[guarded];
@@ -34269,11 +34310,11 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                    replay_candidate_residual[kGuardElements + kColumns +
                                              index] == 0xb2b2U &&
                    replay_candidate_gate[index] == 0xe5e5U &&
-                   replay_candidate_up[index] == 0xf6f6U &&
+                   replay_candidate_up[index] == 0x8c8cU &&
                    replay_candidate_gate[kGuardElements + kRows + index] ==
                        0xe5e5U &&
                    replay_candidate_up[kGuardElements + kRows + index] ==
-                       0xf6f6U;
+                       0x8c8cU;
         }
         const bool inputs_preserved =
             observed_gate_packed == host_gate_packed &&
@@ -34305,6 +34346,9 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
                   << (candidate_publishes_up ? "required" : "elided")
                   << " dead_up_buffer_untouched="
                   << (candidate_up_untouched ? "true" : "false")
+                  << " distinct_replay_up_poison=true"
+                  << " replay_mode="
+                  << (replay_uses_cuda_graph ? "cuda_graph" : "direct")
                   << " guards=" << (guards ? "intact" : "BAD")
                   << " inputs_preserved="
                   << (inputs_preserved ? "true" : "false")
@@ -34882,7 +34926,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     residual_norm_dead_up_correctness[fixture] =
         check_residual_norm_correctness(
             fixture_label, launch_residual_norm_dead_up_candidate,
-            "dead_up_shared_pair_test_only", false);
+            "production_runner_dead_up_shared_pair", false);
     residual_norm_reduction_direct_correctness[fixture] =
         check_residual_norm_reduction_direct_correctness(
             fixture_label + " finite", false,
@@ -34924,7 +34968,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
           check_residual_norm_reduction_direct_correctness(
               nonfinite_label, true,
               launch_residual_norm_dead_up_candidate,
-              "dead_up_shared_pair_test_only", false);
+              "production_runner_dead_up_shared_pair", false);
       host_residual_left = finite_residual_left;
       host_residual_right = finite_residual_right;
       host_norm_weight = finite_norm_weight;
@@ -35149,7 +35193,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       residual_norm_dead_up_cell_gates[1U] &&
       residual_norm_dead_up_nonfinite_correctness;
   std::cout << "PERF_NVFP4_M1_GATE_UP_DEAD_UP_SELECTED: "
-            << "candidate=test_only_cta_local_gate_up_bf16"
+            << "candidate=production_runner_cta_local_gate_up_bf16"
             << " production=grid32_block512"
             << " candidate_grid=32 candidate_block=512"
             << " global_intermediate_gate_up_publications=0"

@@ -194,6 +194,31 @@ launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_bf16_cuda(
     std::uint16_t* gate_output, std::uint16_t* up_output,
     void* cuda_stream = nullptr) noexcept;
 
+// Decode-runner-only variant of the exact fused operation above. It preserves
+// the independently rounded gate/up BF16 arithmetic boundary internally, but
+// publishes only residual_output and the final gate_output. up_workspace is
+// validated with the same size, alignment, and alias contract as up_output,
+// then remains untouched on this exact route. Callers must prove that the up
+// value is dead and must not observe up_workspace before overwriting it.
+//
+// This entry point exists so the Decode runner can avoid a dead global up
+// publication without weakening the generic double-output ABI. It accepts
+// only [17408, 5120], and every invalid argument returns
+// cudaErrorInvalidValue before work is enqueued.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
 // Small-M sequence-tile projections over the same canonical weight layouts.
 // activations is contiguous token-major BF16 [token_count, columns] and output
 // is contiguous token-major BF16 [token_count, rows]. token_count must be in

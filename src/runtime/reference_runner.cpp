@@ -1324,7 +1324,7 @@ ReferenceStepOutcome ReferenceRunner::step(
     }
 
     if (!check_cuda(
-            launch_post_attention_residual_norm_mlp_gate_up_silu_to_bf16_cuda(
+            launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
                 projection_backend_, layer_weights.mlp.gate_proj,
                 layer_weights.mlp.up_proj, views_.hidden[0],
                 views_.hidden[1],
