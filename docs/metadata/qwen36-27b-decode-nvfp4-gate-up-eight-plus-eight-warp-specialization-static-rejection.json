@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-gate-up-eight-plus-eight-warp-specialization-static-rejection",
+  "status": "rejected-static-audit-decode-nvfp4-m1-gate-up-eight-plus-eight-warp-specialization",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode",
+  "source": {
+    "base_commit": "0ee5a82cf7763763a31693d90c03b26662c3212f",
+    "base_tree": "dcbadc21864d3b3b4856d71a9f6039d296972b4e",
+    "base_subject": "docs: reject Decode QKV register lookahead",
+    "branch": "main",
+    "kernel_source_blob": "8cc2320c7ff767d8661899d1f34896f53b50516a",
+    "cuda_test_blob": "be57333c6ab82d8bc51ed1074a71138138110173",
+    "candidate_commit": null,
+    "candidate_built": false,
+    "candidate_tested": false,
+    "production_dispatch_changed": false,
+    "production_kernel_changed": false,
+    "public_abi_changed": false,
+    "prefill_changed": false
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 107.314000,
+    "formal_anchor_tokens_per_second": 9.318448665,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.314000,
+    "remaining_tokens_per_second": 0.681551335,
+    "anchor_changed_by_this_audit": false
+  },
+  "production_baseline": {
+    "operation": "runner-only exact-M1 residual/RMSNorm/NVFP4 gate-up/SiLU with dead up publication",
+    "shape_n_by_k": [17408, 5120],
+    "topology": {
+      "grid": [32, 1, 1],
+      "block": [512, 1, 1],
+      "warps_per_cta": 16,
+      "active_ctas_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "projection_schedule": "Every warp executes the gate phase and then the up phase through a two-iteration pair_phase loop.",
+    "projection_phase_barrier": "There is no CTA-wide barrier between gate and up. A warp may enter up after finishing its own gate work; the next CTA-wide barrier only publishes both staged matrices to the SiLU epilogue.",
+    "resources": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2
+    },
+    "selected_streaming_sass": {
+      "evidence_record": "qwen36-27b-decode-streaming-production-benchmark.json",
+      "production_commit": "9aab3c34f2b40dcea8a395c873d67297723051d4",
+      "normalization": "one lowercase 0x-prefixed 64-bit encoding/control word per line",
+      "encoding_words": 2704,
+      "sha256": "2176900d654384440b638338cbbfe7e3ae2a02d59643d1ce30aa882fb47d4ae3",
+      "freshness_limit": "This audit reuses the checked-in production identity; it did not rebuild or re-extract SASS."
+    }
+  },
+  "audited_candidate": {
+    "scope": "unbuilt test-only 32x512 mapping that assigns warps 0 through 7 to gate and warps 8 through 15 to up",
+    "matrix_warp": "warp & 7",
+    "global_first_row": "4 * (blockIdx.x * 8 + matrix_warp)",
+    "global_row_stride": "32 * 8 * 4 = 1024",
+    "row_quad_iterations_per_matrix_warp": 17,
+    "coverage": {
+      "rows_per_matrix_per_cta": "8 * 17 * 4 = 544",
+      "rows_per_matrix_all_ctas": "32 * 544 = 17408",
+      "maximum_global_row": 17407,
+      "no_missing_or_duplicate_rows": true
+    },
+    "cta_local_mapping": {
+      "formula": "matrix_warp * 4 + iteration * 32 + row_in_quad",
+      "minimum": 0,
+      "maximum": 543,
+      "epilogue_inverse": "row = 4 * (blockIdx.x * 8) + (local_row / 32) * 1024 + (local_row % 32)",
+      "epilogue_bijection": true
+    },
+    "arithmetic_feasibility": "Keeping the existing per-row FFMA order, warp reduction, independent gate/up BF16-RNE boundaries, staged BF16 values, and SiLU epilogue makes a bit-exact implementation statically feasible. No runtime correctness claim is made because the candidate was not completed or run.",
+    "intended_change": "Replace the two-iteration per-warp projection selector with fixed gate and up warp ownership and uniform 17-row-quad loops."
+  },
+  "static_cost_audit": {
+    "packed_weight_bytes_reduced": false,
+    "block_scale_bytes_reduced": false,
+    "activation_bytes_reduced": false,
+    "ffma_count_reduced": false,
+    "launch_count_reduced": false,
+    "cta_barrier_count_reduced": false,
+    "topology_or_intended_occupancy_increased": false,
+    "material_remaining_change": "Only a small amount of pair-phase selection and loop control is removed; the warp scheduler can already interleave warps because production has no CTA barrier between projection phases.",
+    "compiled_resource_limit": "The candidate was not built, so no candidate register, spill, SASS, or measured occupancy result exists."
+  },
+  "required_gate": {
+    "required_projected_64_layer_delta_ms_per_token": 0.5,
+    "required_delta_ms_per_layer": 0.0078125,
+    "historical_selected_streaming_actual_median_ms_per_layer": 0.584337,
+    "historical_reference_record": "qwen36-27b-decode-gate-up-streaming-selection.json",
+    "equivalent_required_speedup_against_historical_median": 1.013551029,
+    "interpretation": "The historical median is used only to express the frozen absolute gate as an approximate 1.0135x requirement; it is not a fresh current-head measurement."
+  },
+  "historical_analogs": {
+    "prefill_exact_m32_eight_plus_eight_pair_fusion": {
+      "record": "qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json",
+      "candidate": "512-thread dual-decoded-B-slot with eight gate warps and eight up warps",
+      "checkpoint_like_speedup": 0.897969,
+      "same_bank_stress_speedup": 0.900066,
+      "positive_rounds": 0,
+      "rounds": 8,
+      "final_state": "candidate and harness removed",
+      "scope_limit": "This M32 WMMA/shared-B/two-stream pair experiment is directional evidence, not a direct M1 performance prediction."
+    },
+    "decode_m1_balanced_tail": {
+      "record": "qwen36-27b-nvfp4-m1-gate-up-balanced-tail-rejection.json",
+      "actual_checkpoint_speedup": 0.951273,
+      "same_bank_stress_speedup": 0.955264,
+      "rounds_at_or_above_one": 0,
+      "rounds": 10,
+      "scope_limit": "This is a different row-redistribution mechanism, retained only as evidence that equal-byte work repartition has not paid on this M1 kernel."
+    }
+  },
+  "decision": {
+    "result": "reject before build",
+    "reason": "The mapping is safe and can preserve exact arithmetic, but it does not remove the dominant memory traffic, FFMA work, launches, barriers, or residency limit. Production already has no CTA barrier between the two projection phases, while the closest 8+8 and M1 repartition histories regress well beyond the required 1.0135x region.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "reopen_when": "Reopen only with profiler evidence that phase-control exposure alone can clear 0.0078125 ms/layer, or with a materially different mechanism that reduces bytes, FFMA work, synchronization, launches, or the residency limit.",
+    "not_run": [
+      "CUDA build and ptxas resource extraction",
+      "correctness, Graph, guard, alias, and nonfinite gates",
+      "same-binary microbenchmark",
+      "model oracle and end-to-end benchmark",
+      "Nsys and NCU"
+    ]
+  },
+  "cleanup": {
+    "incomplete_probe_lines_added_before_revert": 344,
+    "revert_method": "apply_patch",
+    "probe_built": false,
+    "probe_tested": false,
+    "probe_committed": false,
+    "candidate_source_present": false,
+    "candidate_test_hooks_present": false,
+    "kernel_blob_matches_base": true,
+    "test_blob_matches_base": true,
+    "production_route_touched": false,
+    "retained_probe_artifact": false
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.314000,
+    "formal_anchor_after_ms_per_token": 107.314000,
+    "formal_tokens_per_second": 9.318448665,
+    "runtime_changed": false,
+    "execution_model": {
+      "request_concurrency": 1,
+      "streams": 1,
+      "serial_kernel_execution": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "cross_kernel_overlap": false,
+      "prefill_decode_overlap": false
+    }
+  },
+  "next_priority": {
+    "candidate": "Decode NVFP4 down runner-only dead-raw inline-residual contract audit",
+    "reason": "Unlike warp repartition, a verified dead raw-down publication contract could remove an intermediate global store/read path and therefore offers a material byte-level mechanism before implementation."
+  },
+  "claim_limits": [
+    "This is a static NO-GO, not a measured candidate regression or speedup.",
+    "The coverage proof establishes only the audited mapping; compiled resource and numerical gates were intentionally not claimed.",
+    "Historical M32 and balanced-tail results are supporting directional evidence and do not substitute for a same-binary M1 measurement.",
+    "Production, the 107.314000-ms/token anchor, the serial one-stream schedule, and Prefill state remain unchanged."
+  ]
+}

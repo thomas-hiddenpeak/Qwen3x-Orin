@@ -916,6 +916,21 @@ The diagnostic Phase 3 records are:
   the projection is not an end-to-end result. Production and the **107.314000
   ms/token / 9.318448665 token/s** anchor remain unchanged. The next bounded
   Decode cell is NVFP4 gate/up warp specialization.
+- [`qwen36-27b-decode-nvfp4-gate-up-eight-plus-eight-warp-specialization-static-rejection.json`](qwen36-27b-decode-nvfp4-gate-up-eight-plus-eight-warp-specialization-static-rejection.json),
+  which closes that gate/up candidate at static audit, before build. The
+  `32x512` mapping is complete and invertible: eight warps per matrix execute
+  17 row quads, covering `32 * 8 * 17 * 4 = 17,408` rows with CTA-local index
+  543 as the maximum, and it can preserve the existing numerical order.
+  However, it removes no packed-weight, scale, activation, or intermediate
+  bytes; no FFMA, launch, CTA barrier, or occupancy limit; and production
+  already has no CTA-wide barrier between its gate and up phases. The closest
+  M32 8+8 analog reached only **0.897969x/0.900066x** with 0/8 positive rounds,
+  while the M1 balanced-tail repartition reached **0.951273x/0.955264x**. An
+  incomplete 344-line probe was fully reverted without build, test, commit,
+  or production reachability. This is therefore a static NO-GO, not a measured
+  regression; the **107.314000 ms/token / 9.318448665 token/s** anchor remains
+  unchanged, and the next priority is a down runner-only dead-raw
+  inline-residual contract audit.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
