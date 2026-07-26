@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-down-streaming-selection",
+  "status": "selected-test-only-decode-down-streaming-and-gate-down-projection",
+  "recorded_at": "2026-07-26",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "f12b598d9ada6e0fe07c80e5c8b1cb4550b8e496",
+    "candidate_subject": "bench: add Decode down streaming-load candidate",
+    "closeout_commit": "527f9a7ba1dde602822c235f335a42000e550ff3",
+    "closeout_subject": "test: add Decode down streaming-load closeout",
+    "closeout_tree": "d2234219fb5dd05857870af7c3bc324ac4d65128",
+    "kernel_source_blob": "757112dd0341dfc4a93ee1ca4de03e7b094b4ec0",
+    "test_source_blob": "263c22f1f56cc1860f83c50c84af488adc31a96e",
+    "test_only_candidate": true,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "production_route_ever_selected_candidate": false,
+    "prefill_changed": false,
+    "end_to_end_implementation_claim": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "candidate": {
+    "phase": "Decode",
+    "token_count": 1,
+    "operation": "production-shaped cooperative NVFP4 down projection, residual add, and RMSNorm",
+    "shape_n_by_k": [5120, 17408],
+    "baseline_grid_block": [32, 512],
+    "candidate_grid_block": [32, 512],
+    "launch_count": {"baseline": 1, "candidate": 1},
+    "only_source_change": "one-pass packed NVFP4 weight U32 and block-scale U8 projection loads use evict-first streaming rather than compiler-default caching",
+    "source_cache_policy": "ld.global.cs",
+    "candidate_sass_policy": "EF",
+    "correctness_output_addresses": "disjoint guarded baseline and candidate buffers",
+    "timing_output_addresses": "the baseline and candidate both write the same three candidate output buffers",
+    "timing_address_reason": "exclude allocator placement and output-cache-state bias from the sub-percent A/B",
+    "unchanged": [
+      "projection arithmetic and BF16 raw-down boundary",
+      "residual addition and BF16 boundary",
+      "RMSNorm reduction, gamma arithmetic, and BF16 boundary",
+      "cooperative grid synchronization",
+      "grid, block, shared-memory layout, launch count, and stream"
+    ]
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "safetensors_header_bytes": 126504,
+    "safetensors_data_base": 126512,
+    "down_weight": {
+      "absolute_offset": 6712445472,
+      "bytes": 44564480,
+      "sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+    },
+    "down_block_scale": {
+      "absolute_offset": 3600468512,
+      "bytes": 5570560,
+      "sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+    },
+    "down_weight_scale_2": {
+      "absolute_offset": 126540,
+      "little_endian_fp32_bits": "0x39b61862",
+      "decimal_bits": 968235106
+    },
+    "next_layer_input_norm_weight": {
+      "absolute_offset": 2544010432,
+      "bytes": 10240,
+      "sha256": "89b1d66c33ed1a46813b12d4ca0757fcdd01f1e6fb90d47a569f37e0603a193d"
+    },
+    "activation_and_residual": "deterministic mixed-sign finite BF16 fixtures",
+    "payload_identity_gate": "pass-in-all-three-processes"
+  },
+  "static_identity": {
+    "normalization": "cuobjdump Function section; every ordered 64-bit encoding/control word emitted as one lowercase 0x-prefixed line before SHA-256",
+    "production": {
+      "instructions": 1280,
+      "encoding_words": 2560,
+      "encoding_sha256": "fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8",
+      "global_loads": {
+        "LDG.E": 8,
+        "LDG.E.U8": 4,
+        "LDG.E.64": 8,
+        "LDG.E.U16": 37
+      },
+      "NOP": 8
+    },
+    "candidate": {
+      "instructions": 1288,
+      "encoding_words": 2576,
+      "encoding_sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
+      "global_loads": {
+        "LDG.E.EF": 8,
+        "LDG.E.EF.U8": 4,
+        "LDG.E.64": 8,
+        "LDG.E.U16": 37
+      },
+      "NOP": 15,
+      "ldl_count": 0,
+      "stl_count": 0
+    },
+    "target_load_policy_confirmed": true,
+    "same_length_isolation": false,
+    "caveat": {
+      "candidate_extra_instructions": 8,
+      "unreachable_tail_alignment_nop_delta": 7,
+      "reachable_net_instruction_delta": 1,
+      "zero_materialization_or_scheduling_drift": true,
+      "data_arithmetic_store_and_sync_census_preserved": true,
+      "interpretation": "The source mechanism is limited to the targeted load operators, but ptxas did not retain a byte-for-byte same-length body; measured timing includes this compiler scheduling artifact."
+    },
+    "gate": "pass-with-explicit-compiler-drift-caveat"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_blocks_per_sm": 2
+    },
+    "candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_blocks_per_sm": 2
+    },
+    "resident_grid_capacity": 32,
+    "cooperative_launch_supported": true,
+    "null_candidate_query_rejected": true,
+    "gate": "pass-in-all-three-processes"
+  },
+  "correctness": {
+    "processes_passing": 3,
+    "finite_actual_checkpoint": {
+      "raw_down_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "candidate_graph_replay_mismatches": "0/15360",
+      "finite_outputs": true,
+      "guards": "intact",
+      "all_five_buffer_inputs_preserved": true,
+      "gate": "pass-in-all-three-processes"
+    },
+    "finite_same_bank_stress": {
+      "raw_down_mismatches": "0/5120",
+      "residual_mismatches": "0/5120",
+      "normalized_mismatches": "0/5120",
+      "candidate_graph_replay_mismatches": "0/15360",
+      "finite_outputs": true,
+      "guards": "intact",
+      "all_five_buffer_inputs_preserved": true,
+      "gate": "pass-in-all-three-processes"
+    },
+    "cuda_graph": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "production_grid_block": [32, 512],
+      "candidate_grid_block": [32, 512],
+      "dynamic_shared_bytes": 0,
+      "functions_distinct": true,
+      "actual_and_stress_capture_instantiate_replay": true,
+      "gate": "pass-in-all-three-processes"
+    },
+    "signed_inf_nan": {
+      "fixtures": ["residual_signed_nonfinite", "norm_weight_signed_nonfinite"],
+      "raw_down_mismatches_each": "0/5120",
+      "residual_mismatches_each": "0/5120",
+      "normalized_mismatches_each": "0/5120",
+      "candidate_graph_replay_mismatches_each": "0/15360",
+      "class_and_sign": true,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "gate": "pass-in-all-three-processes"
+    },
+    "gate": "pass-in-all-three-processes"
+  },
+  "performance_protocol": {
+    "independent_processes": 3,
+    "same_binary_per_process": true,
+    "same_stream_per_process": true,
+    "shared_output_addresses_for_timing": true,
+    "warmup_launches_per_route_per_fixture": 10,
+    "unmeasured_prime_order": "B-C-C-B",
+    "measured_launches_per_pass": 64,
+    "rounds_per_fixture_per_process": 5,
+    "round_orders": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "required_actual_paired_median_speedup": 1.005,
+    "required_stress_paired_median_speedup": 1.0,
+    "required_each_round_paired_speedup": 1.0,
+    "required_projected_64_layer_delta_ms": 0.169,
+    "rounds_per_process_actual_plus_stress": 10,
+    "total_rounds": 30,
+    "positive_paired_delta_rounds": 30
+  },
+  "process_results": [
+    {
+      "process": "closeout",
+      "actual_checkpoint": {
+        "baseline_pass_median_ms": 0.326675,
+        "candidate_pass_median_ms": 0.321449,
+        "paired_round_median_speedup": 1.01538,
+        "median_paired_delta_ms_per_layer": 0.00494376,
+        "projected_64_layer_delta_ms": 0.316401,
+        "round_speedups": [1.01348, 1.01767, 1.01538, 1.01523, 1.01594],
+        "round_deltas_ms": [0.00432998, 0.00570276, 0.00494376, 0.00490123, 0.00512701]
+      },
+      "same_bank_stress": {
+        "baseline_pass_median_ms": 0.361278,
+        "candidate_pass_median_ms": 0.356286,
+        "paired_round_median_speedup": 1.01721,
+        "round_speedups": [1.01329, 1.01089, 1.02086, 1.03543, 1.01721],
+        "round_deltas_ms": [0.00474575, 0.00389051, 0.00740126, 0.0120593, 0.00553399]
+      },
+      "positive_rounds": "10/10",
+      "gate": "pass"
+    },
+    {
+      "process": "replication_1",
+      "actual_checkpoint": {
+        "baseline_pass_median_ms": 0.306401,
+        "candidate_pass_median_ms": 0.300967,
+        "paired_round_median_speedup": 1.01762,
+        "median_paired_delta_ms_per_layer": 0.00537601,
+        "projected_64_layer_delta_ms": 0.344065,
+        "round_speedups": [1.01858, 1.01872, 1.01714, 1.01756, 1.01762],
+        "round_deltas_ms": [0.00558949, 0.00563124, 0.00515848, 0.00537601, 0.00530526]
+      },
+      "same_bank_stress": {
+        "baseline_pass_median_ms": 0.307826,
+        "candidate_pass_median_ms": 0.3023,
+        "paired_round_median_speedup": 1.01887,
+        "round_speedups": [1.0189, 1.01304, 1.01785, 1.01887, 1.02023],
+        "round_deltas_ms": [0.00578275, 0.00396073, 0.0053975, 0.005698, 0.0061045]
+      },
+      "positive_rounds": "10/10",
+      "gate": "pass"
+    },
+    {
+      "process": "replication_2",
+      "actual_checkpoint": {
+        "baseline_pass_median_ms": 0.313961,
+        "candidate_pass_median_ms": 0.309679,
+        "paired_round_median_speedup": 1.01386,
+        "median_paired_delta_ms_per_layer": 0.00429049,
+        "projected_64_layer_delta_ms": 0.274591,
+        "round_speedups": [1.01299, 1.01392, 1.01386, 1.0143, 1.01308],
+        "round_deltas_ms": [0.00402474, 0.004309, 0.00429049, 0.00442576, 0.00405499]
+      },
+      "same_bank_stress": {
+        "baseline_pass_median_ms": 0.314957,
+        "candidate_pass_median_ms": 0.310659,
+        "paired_round_median_speedup": 1.01344,
+        "round_speedups": [1.01193, 1.00995, 1.01541, 1.01344, 1.01649],
+        "round_deltas_ms": [0.00375977, 0.00310051, 0.00478199, 0.00417528, 0.00511023]
+      },
+      "positive_rounds": "10/10",
+      "gate": "pass"
+    }
+  ],
+  "replicated_summary": {
+    "actual_paired_median_speedups": [1.01538, 1.01762, 1.01386],
+    "actual_paired_median_speedup_median": 1.01538,
+    "stress_paired_median_speedups": [1.01721, 1.01887, 1.01344],
+    "stress_paired_median_speedup_median": 1.01721,
+    "projected_64_layer_deltas_ms": [0.316401, 0.344065, 0.274591],
+    "projected_64_layer_delta_median_ms": 0.316401,
+    "projected_64_layer_delta_minimum_ms": 0.274591,
+    "positive_rounds": "30/30",
+    "gate": "pass"
+  },
+  "gate_plus_down_combined_projection": {
+    "gate_up_selection_record": "docs/metadata/qwen36-27b-decode-gate-up-streaming-selection.json",
+    "gate_up_actual_projected_delta_ms": 0.334846,
+    "down_median_projected_delta_ms": 0.316401,
+    "median_planning_sum_ms_per_token": 0.651247,
+    "down_minimum_projected_delta_ms": 0.274591,
+    "conservative_planning_sum_ms_per_token": 0.609437,
+    "both_candidates_test_only": true,
+    "combined_in_one_production_binary": false,
+    "combined_end_to_end_benchmark_run": false,
+    "interpretation": "Arithmetic sum of two separately selected phase-local projections on distinct Decode kernels; additivity and the production effect remain unverified."
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 108.2645,
+    "formal_anchor_after_ms_per_token": 108.2645,
+    "formal_tokens_per_second": 9.236638048,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "prefill_changed": false,
+    "end_to_end_benchmark_run": false,
+    "anchor_changed_by_this_selection": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "/home/rm01/Qwen3x-Orin/build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 5787712,
+      "sha256": "c785b99f98fa00371357e48997a8e6f2a6870f42491bdc2e885985a28a7eec79",
+      "build_id": "7a677e72faaae874d35daae316b3f96c49ed5a45",
+      "checked_in": false
+    },
+    "logs": [
+      {
+        "process": "closeout",
+        "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/down-cs-closeout.log",
+        "bytes": 5179,
+        "sha256": "696e837a70fa419d3ed59e0b3cb1b2bd33c4455aeb697cfac23970cfca897f83",
+        "exit_code": 0,
+        "checked_in": false
+      },
+      {
+        "process": "replication_1",
+        "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/down-cs-replication.log",
+        "bytes": 5174,
+        "sha256": "7d98cece3ccd19037f112c8c21795410624ef465c8b768d10b7c5ee1f99b863f",
+        "exit_code": 0,
+        "checked_in": false
+      },
+      {
+        "process": "replication_2",
+        "local_path": "/tmp/q3x-decode-cache-policy.8mr8So/down-cs-replication-2.log",
+        "bytes": 5177,
+        "sha256": "d03811c1c21e0ef09faec302c0ab04a37f7d728ec13723d3db471cfc143650e0",
+        "exit_code": 0,
+        "checked_in": false
+      }
+    ],
+    "command": "Q3X_RUN_SM87_DECODE_DOWN_CS_PERF=1 Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/q3x_sm87_weight_only_gemv_test"
+  },
+  "decision": {
+    "selected_for_production_integration_evaluation": true,
+    "production_integrated": false,
+    "reason": "all three actual and stress processes clear their relative and absolute gates, all 30 paired rounds are positive, and resource, finite, Graph replay, guard, input-preservation, and split signed-nonfinite gates pass",
+    "required_before_anchor_change": [
+      "integrate both selected cache policies into production dispatch",
+      "full-model C1/C8/C16/C32 correctness oracles",
+      "formal independent-process combined end-to-end benchmark",
+      "Nsight Systems Decode and generation closure"
+    ],
+    "scope_boundary": "replicated phase-local test-only selection and unmeasured additive planning projection; no production, Prefill, or end-to-end performance claim"
+  }
+}

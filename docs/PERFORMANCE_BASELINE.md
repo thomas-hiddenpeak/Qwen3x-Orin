@@ -5680,3 +5680,71 @@ runtime path calls the candidate, so the achieved production anchor remains
 model oracles, formal end-to-end benchmarking, and profiler closure remain
 required before changing that anchor. Complete evidence is in the
 [selection record](metadata/qwen36-27b-decode-gate-up-streaming-selection.json).
+
+## Selected test-only Decode down streaming loads and gate+down projection
+
+Commits `f12b598` and `527f9a7` add and close a test-only twin of the
+production `32x512` cooperative NVFP4 down/residual/RMSNorm kernel. The source
+change applies evict-first streaming (`.cs`) only to the one-pass packed-weight
+U32 and block-scale U8 projection loads. Arithmetic, BF16 publication
+boundaries, residual/RMSNorm work, cooperative topology, output addresses used
+for timed A/B, launch count, stream, runtime dispatch, and Prefill remain
+unchanged. Correctness uses disjoint guarded outputs; timing deliberately uses
+the same three candidate output addresses for both routes to remove allocator
+and output-cache placement bias.
+
+All three independent same-binary processes pass actual-checkpoint and
+same-bank-stress finite comparisons with zero raw, residual, or normalized
+mismatches over 5,120 elements and zero CUDA Graph replay mismatches over all
+15,360 outputs. Each process also passes distinct one-node `32x512`, zero
+dynamic-shared Graph topology, complete input preservation, output guards,
+and split residual/norm-weight signed Inf/NaN class-and-sign gates. Both routes
+use 64 registers/thread, 35,904 B static shared memory, zero local memory, 512
+threads/block, and two active CTAs/SM.
+
+The final binary confirms the intended load policy: eight production `LDG.E`
+and four `LDG.E.U8` operations become eight `LDG.E.EF` and four
+`LDG.E.EF.U8`; the eight `LDG.E.64` and 37 `LDG.E.U16` loads remain. Static
+identity is not same-length, however. Production has 1,280 instructions/2,560
+encoding words with SHA-256
+`fde55ae44d31797fe93f31a682c74bb6515133f75a68c7189879ca9057055ad8`,
+whereas the candidate has 1,288/2,576 and hashes to
+`46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6`.
+Seven extra instructions are unreachable tail-alignment NOPs; reachable code
+also has a net one-instruction zero-materialization/scheduling delta. The
+arithmetic, store, and synchronization census is preserved, but the measured
+result necessarily includes this compiler scheduling artifact as well as the
+target `.cs` qualifiers.
+
+Each process uses ten warmups, one unmeasured `B-C-C-B` prime, and five
+64-launch rounds per fixture in alternating `B-C-C-B`/`C-B-B-C` order:
+
+| Process | Actual paired median | Stress paired median | Actual delta/layer | Projected 64-layer delta | Positive rounds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Closeout | **1.01538x** | 1.01721x | 0.00494376 ms | **0.316401 ms/token** | 10/10 |
+| Replication 1 | **1.01762x** | 1.01887x | 0.00537601 ms | **0.344065 ms/token** | 10/10 |
+| Replication 2 | **1.01386x** | 1.01344x | 0.00429049 ms | **0.274591 ms/token** | 10/10 |
+
+Thus all 30/30 measured actual-plus-stress rounds have positive paired deltas;
+every process clears the 1.005x actual, 1.0x stress/every-round, and
+0.169-ms/token projected-absolute gates. The median down projection is
+**0.316401 ms/token**. Added to the separately selected gate/up projection of
+0.334846 ms/token, the planning sum is **0.651247 ms/token**; using the lowest
+replicated down projection instead gives a conservative **0.609437
+ms/token**. These sums are arithmetic phase-local projections, not a measured
+combined-engine or end-to-end result.
+
+The three logs hash respectively to
+`696e837a70fa419d3ed59e0b3cb1b2bd33c4455aeb697cfac23970cfca897f83`,
+`7d98cece3ccd19037f112c8c21795410624ef465c8b768d10b7c5ee1f99b863f`,
+and `d03811c1c21e0ef09faec302c0ab04a37f7d728ec13723d3db471cfc143650e0`.
+Their exact test binary hashes to
+`c785b99f98fa00371357e48997a8e6f2a6870f42491bdc2e885985a28a7eec79`.
+
+Both down and gate/up remain **test-only selections**: no production dispatch
+or Prefill path calls either candidate, and the combined projection has not
+been benchmarked end to end. The achieved production anchor therefore remains
+**108.2645 ms/token and 9.236638048 token/s**. Production integration, model
+oracles, independent-process end-to-end A/B, and profiler closure remain
+required before changing it. Complete evidence is in the
+[selection record](metadata/qwen36-27b-decode-down-streaming-selection.json).
