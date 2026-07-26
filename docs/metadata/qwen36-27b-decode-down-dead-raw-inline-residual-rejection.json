@@ -446,37 +446,46 @@
       "checked_in": false
     },
     "production_function_sass": {
-      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.production.sass",
+      "local_path": "/tmp/q3x-down-dead-raw-final-binary.production.sass",
       "bytes": 324828,
       "lines": 2581,
+      "mtime": "2026-07-27T02:04:14.676743441+08:00",
       "sha256": "85c1fc13c481693b7a65d7904ff19dd5de378e1de1d8326b5590d53840a09d77",
+      "extracted_from_final_binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
       "checked_in": false
     },
     "candidate_function_sass": {
-      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.candidate.sass",
+      "local_path": "/tmp/q3x-down-dead-raw-final-binary.candidate.sass",
       "bytes": 324832,
       "lines": 2581,
+      "mtime": "2026-07-27T02:04:14.652743222+08:00",
       "sha256": "585c5b404cf1c0c807a92c19353cf2c2c6d716f30df14390b0ae4d34ebcd8a20",
+      "extracted_from_final_binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
       "checked_in": false
     },
     "production_canonical_encoding64": {
-      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.production.encoding64",
+      "local_path": "/tmp/q3x-down-dead-raw-final-binary.production.encoding64",
       "bytes": 48944,
       "lines": 2576,
+      "mtime": "2026-07-27T02:04:23.848826909+08:00",
       "sha256": "46be0b08c4dd8660928cd33e2696ca5d703326d77b88f5527d03e1ed36771da6",
       "checked_in": false
     },
     "candidate_canonical_encoding64": {
-      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.candidate.encoding64",
+      "local_path": "/tmp/q3x-down-dead-raw-final-binary.candidate.encoding64",
       "bytes": 48944,
       "lines": 2576,
+      "mtime": "2026-07-27T02:04:23.844826872+08:00",
       "sha256": "6920a9410a48487abd427cba3aeb88d3af6d69e3e4f5593394ef430fe6a6563e",
       "checked_in": false
     },
     "whole_cuobjdump_sass": {
-      "local_path": "/tmp/q3x-down-dead-raw-inline-residual.sass",
-      "bytes": 28471899,
-      "sha256": "1d798a391b187c272607655382fea72d84c946415796b15156d71ab7ca143e0d",
+      "local_path": "/tmp/q3x-down-dead-raw-final-binary.sass",
+      "bytes": 35040785,
+      "lines": 279729,
+      "mtime": "2026-07-27T02:03:48.024501623+08:00",
+      "sha256": "7a5fd3638a3f64caffb5c019082cef6f5dd9f70128dd59fff48abe1ad3670712",
+      "source_binary_sha256": "851dc847aa147e81053b2bfc47864d83aa430baf8185e5dc5935176e409fdd5c",
       "checked_in": false
     },
     "formal_command": "Q3X_RUN_SM87_DECODE_DOWN_DEAD_RAW_PERF=1 Q3X_NVFP4_M1_DOWN_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ./build/orin-release/q3x_sm87_weight_only_gemv_test"
