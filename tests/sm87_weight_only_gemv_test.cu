@@ -33091,6 +33091,7 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   cudaKernelNodeParams residual_norm_shared_tree_parameters{};
   cudaKernelNodeParams residual_norm_coarsened_parameters{};
   cudaKernelNodeParams residual_norm_dead_up_parameters{};
+  cudaKernelNodeParams residual_norm_dead_up_cs_parameters{};
   const bool residual_norm_public_captured = capture_single_kernel(
       [&]() noexcept {
         return residual_norm_public_status(
@@ -33150,6 +33151,19 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
       },
       "production exact residual/norm runner dead-up shared-pair",
       &residual_norm_dead_up_parameters);
+  const bool residual_norm_dead_up_cs_captured = capture_single_kernel(
+      [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+                fake_gate_packed, fake_gate_scales, kGateWeightScale2,
+                fake_up_packed, fake_up_scales, kUpWeightScale2,
+                fake_residual_left, fake_residual_right, fake_norm_weight,
+                1.0e-6F, kExactRows, kExactColumns, fake_residual_output,
+                fake_gate_output, fake_up_output,
+                static_cast<void*>(stream));
+      },
+      "test exact residual/norm runner dead-up packed/scale streaming",
+      &residual_norm_dead_up_cs_parameters);
   const bool residual_norm_identity_gate =
       residual_norm_public_captured && residual_norm_coarsened_captured &&
       residual_norm_public_parameters.func ==
@@ -33234,6 +33248,26 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
   test.expect(residual_norm_dead_up_topology_gate,
               label +
                   " dead-up candidate is distinct 32x512 one-node graph");
+  const bool residual_norm_dead_up_cs_topology_gate =
+      residual_norm_dead_up_cs_captured && residual_norm_dead_up_captured &&
+      residual_norm_dead_up_cs_parameters.func !=
+          residual_norm_dead_up_parameters.func &&
+      residual_norm_dead_up_cs_parameters.gridDim.x == 32U &&
+      residual_norm_dead_up_cs_parameters.gridDim.y == 1U &&
+      residual_norm_dead_up_cs_parameters.gridDim.z == 1U &&
+      residual_norm_dead_up_cs_parameters.blockDim.x == 512U &&
+      residual_norm_dead_up_cs_parameters.blockDim.y == 1U &&
+      residual_norm_dead_up_cs_parameters.blockDim.z == 1U &&
+      residual_norm_dead_up_cs_parameters.sharedMemBytes == 0U &&
+      residual_norm_dead_up_cs_parameters.gridDim.x ==
+          residual_norm_dead_up_parameters.gridDim.x &&
+      residual_norm_dead_up_cs_parameters.blockDim.x ==
+          residual_norm_dead_up_parameters.blockDim.x &&
+      residual_norm_dead_up_cs_parameters.sharedMemBytes ==
+          residual_norm_dead_up_parameters.sharedMemBytes;
+  test.expect(residual_norm_dead_up_cs_topology_gate,
+              label +
+                  " dead-up streaming candidate is distinct 32x512 one-node graph");
   std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_CTA_COARSEN_GRAPH: "
             << "production_nodes=1 production_grid=32 production_block=512"
             << " replay_nodes=1 replay_grid=32 replay_block=512"
@@ -33261,6 +33295,17 @@ void run_nvfp4_m1_gate_up_pair_default_probe(TestContext& test,
                     : "false")
             << " gate="
             << (residual_norm_dead_up_topology_gate ? "PASS" : "FAIL")
+            << '\n';
+  std::cout << "NVFP4_M1_RESIDUAL_NORM_GATE_UP_DEAD_UP_CS_GRAPH: "
+            << "production_nodes=1 production_grid=32 production_block=512"
+            << " candidate_nodes=1 candidate_grid=32 candidate_block=512"
+            << " dynamic_shared=0 distinct_func="
+            << (residual_norm_dead_up_cs_parameters.func !=
+                        residual_norm_dead_up_parameters.func
+                    ? "true"
+                    : "false")
+            << " gate="
+            << (residual_norm_dead_up_cs_topology_gate ? "PASS" : "FAIL")
             << '\n';
 
   bool residual_norm_invalid_gate = true;
@@ -34417,6 +34462,7 @@ struct NvFp4GateUpDeadUpTiming {
   float paired_round_median_speedup =
       std::numeric_limits<float>::quiet_NaN();
   std::array<float, 5U> paired_round_speedups{};
+  std::array<float, 5U> paired_round_deltas_milliseconds{};
 };
 
 void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
@@ -35002,6 +35048,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             kNormEpsilon, kRows, kColumns, candidate_residual,
             candidate_gate, candidate_up, static_cast<void*>(stream));
   };
+  const auto launch_residual_norm_dead_up_cs_candidate = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cs_test_cuda(
+            gate_packed.get(), gate_scales.get(), gate_scale2,
+            up_packed.get(), up_scales.get(), up_scale2,
+            residual_left.get(), residual_right.get(), norm_weight.get(),
+            kNormEpsilon, kRows, kColumns, candidate_residual,
+            candidate_gate, candidate_up, static_cast<void*>(stream));
+  };
   const auto launch_residual_norm_predecessor = [&]() noexcept {
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_test_cuda(
@@ -35518,7 +35573,9 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               << " required_projected_64_layer_delta_ms=0.25"
               << " required_speedup=" << kRequiredSpeedup
               << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
-    return;
+    if (!selected_gate || !streaming_policy) {
+      return;
+    }
   }
 
   if (decode_residual_chain_performance_enabled()) {
@@ -37077,6 +37134,126 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         return timing;
       };
 
+  const auto benchmark_residual_norm_dead_up_cs =
+      [&](const std::string& fixture_label) {
+        NvFp4GateUpDeadUpTiming timing{};
+        bool timing_ready = true;
+        for (int iteration = 0;
+             iteration < kWarmupIterations && timing_ready; ++iteration) {
+          timing_ready = test.cuda_ok(
+              static_cast<cudaError_t>(
+                  launch_residual_norm_dead_up_candidate()),
+              fixture_label + " cache baseline warmup");
+          timing_ready = timing_ready && test.cuda_ok(
+              static_cast<cudaError_t>(
+                  launch_residual_norm_dead_up_cs_candidate()),
+              fixture_label + " streaming candidate warmup");
+        }
+        timing_ready = timing_ready && test.cuda_ok(
+            cudaStreamSynchronize(stream),
+            fixture_label + " cache-policy warmup synchronize");
+        if (!timing_ready) {
+          return timing;
+        }
+        const float prime_b1 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_candidate,
+            kMeasuredIterations, fixture_label + " streaming prime B1");
+        const float prime_c1 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_cs_candidate,
+            kMeasuredIterations, fixture_label + " streaming prime C1");
+        const float prime_c2 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_cs_candidate,
+            kMeasuredIterations, fixture_label + " streaming prime C2");
+        const float prime_b2 = measure_small_m_tile(
+            test, stream, launch_residual_norm_dead_up_candidate,
+            kMeasuredIterations, fixture_label + " streaming prime B2");
+        if (!std::isfinite(prime_b1) || !std::isfinite(prime_c1) ||
+            !std::isfinite(prime_c2) || !std::isfinite(prime_b2)) {
+          return timing;
+        }
+        constexpr std::size_t kPasses =
+            2U * static_cast<std::size_t>(kMeasurementRounds);
+        std::array<float, kPasses> production_passes{};
+        std::array<float, kPasses> candidate_passes{};
+        bool finite = true;
+        for (int round = 0; round < kMeasurementRounds; ++round) {
+          const std::string round_label =
+              fixture_label + " streaming round=" +
+              std::to_string(round + 1);
+          const bool baseline_outer = round % 2 == 0;
+          float b1 = 0.0F;
+          float b2 = 0.0F;
+          float c1 = 0.0F;
+          float c2 = 0.0F;
+          if (baseline_outer) {
+            b1 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " B1 default");
+            c1 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_cs_candidate,
+                kMeasuredIterations, round_label + " C1 cs");
+            c2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_cs_candidate,
+                kMeasuredIterations, round_label + " C2 cs");
+            b2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " B2 default");
+          } else {
+            c1 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_cs_candidate,
+                kMeasuredIterations, round_label + " C1 cs");
+            b1 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " B1 default");
+            b2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_candidate,
+                kMeasuredIterations, round_label + " B2 default");
+            c2 = measure_small_m_tile(
+                test, stream, launch_residual_norm_dead_up_cs_candidate,
+                kMeasuredIterations, round_label + " C2 cs");
+          }
+          const std::size_t pass = 2U * static_cast<std::size_t>(round);
+          production_passes[pass] = b1;
+          production_passes[pass + 1U] = b2;
+          candidate_passes[pass] = c1;
+          candidate_passes[pass + 1U] = c2;
+          const float paired_speedup = (b1 + b2) / (c1 + c2);
+          const float paired_delta_milliseconds =
+              0.5F * ((b1 + b2) - (c1 + c2));
+          timing.paired_round_speedups[static_cast<std::size_t>(round)] =
+              paired_speedup;
+          timing.paired_round_deltas_milliseconds
+              [static_cast<std::size_t>(round)] =
+                  paired_delta_milliseconds;
+          finite = finite && std::isfinite(b1) && std::isfinite(c1) &&
+                   std::isfinite(c2) && std::isfinite(b2) &&
+                   std::isfinite(paired_speedup) &&
+                   std::isfinite(paired_delta_milliseconds);
+          std::cout << "PERF_DECODE_GATE_UP_CS_CLOSEOUT_ROUND: fixture="
+                    << fixture_label << " round=" << round + 1
+                    << " order="
+                    << (baseline_outer ? "B-C-C-B" : "C-B-B-C")
+                    << " iterations=64"
+                    << " baseline1_ms=" << b1
+                    << " candidate1_ms=" << c1
+                    << " candidate2_ms=" << c2
+                    << " baseline2_ms=" << b2
+                    << " paired_speedup=" << paired_speedup
+                    << " paired_delta_ms=" << paired_delta_milliseconds
+                    << '\n';
+        }
+        if (!finite) {
+          return timing;
+        }
+        timing.production_pass_median_milliseconds =
+            median_fp8_kv_pair_timing(production_passes);
+        timing.candidate_pass_median_milliseconds =
+            median_fp8_kv_pair_timing(candidate_passes);
+        timing.paired_round_median_speedup =
+            median_fp8_kv_pair_timing(timing.paired_round_speedups);
+        return timing;
+      };
+
   std::array<NvFp4GateUpSiluFusionTiming, 2U> timings{};
   std::array<bool, 2U> correctness{};
   std::array<NvFp4GateUpSiluFusionTiming, 2U> residual_norm_timings{};
@@ -37092,6 +37269,10 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   std::array<NvFp4GateUpDeadUpTiming, 2U> residual_norm_dead_up_timings{};
   std::array<bool, 2U> residual_norm_dead_up_correctness{};
   bool residual_norm_dead_up_nonfinite_correctness = false;
+  std::array<NvFp4GateUpDeadUpTiming, 2U>
+      residual_norm_dead_up_cs_timings{};
+  std::array<bool, 2U> residual_norm_dead_up_cs_correctness{};
+  bool residual_norm_dead_up_cs_nonfinite_correctness = false;
   for (std::size_t fixture = 0U; fixture < 2U; ++fixture) {
     const bool actual = fixture == 0U;
     if (!actual) {
@@ -37145,6 +37326,12 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         check_residual_norm_correctness(
             fixture_label, launch_residual_norm_dead_up_candidate,
             "production_runner_dead_up_shared_pair", false);
+    if (decode_gate_up_cs_performance_enabled()) {
+      residual_norm_dead_up_cs_correctness[fixture] =
+          check_residual_norm_correctness(
+              fixture_label, launch_residual_norm_dead_up_cs_candidate,
+              "test_only_runner_dead_up_packed_scale_cs", false);
+    }
     residual_norm_reduction_direct_correctness[fixture] =
         check_residual_norm_reduction_direct_correctness(
             fixture_label + " finite", false,
@@ -37157,6 +37344,10 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         benchmark_residual_norm_cta_coarsen(fixture_label);
     residual_norm_dead_up_timings[fixture] =
         benchmark_residual_norm_dead_up(fixture_label);
+    if (decode_gate_up_cs_performance_enabled()) {
+      residual_norm_dead_up_cs_timings[fixture] =
+          benchmark_residual_norm_dead_up_cs(fixture_label);
+    }
     if (actual) {
       const std::vector<std::uint16_t> finite_residual_left =
           host_residual_left;
@@ -37187,6 +37378,14 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               nonfinite_label, true,
               launch_residual_norm_dead_up_candidate,
               "production_runner_dead_up_shared_pair", false);
+      if (decode_gate_up_cs_performance_enabled()) {
+        residual_norm_dead_up_cs_nonfinite_correctness =
+            upload_residual_fixture(nonfinite_label) &&
+            check_residual_norm_reduction_direct_correctness(
+                nonfinite_label, true,
+                launch_residual_norm_dead_up_cs_candidate,
+                "test_only_runner_dead_up_packed_scale_cs", false);
+      }
       host_residual_left = finite_residual_left;
       host_residual_right = finite_residual_right;
       host_norm_weight = finite_norm_weight;
@@ -37435,6 +37634,85 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
             << '\n';
   test.expect(residual_norm_dead_up_selected_gate,
               label + " dead-up shared-pair clears frozen screen gates");
+  if (decode_gate_up_cs_performance_enabled()) {
+    std::array<bool, 2U> cache_policy_cell_gates{};
+    for (std::size_t fixture = 0U;
+         fixture < residual_norm_dead_up_cs_timings.size(); ++fixture) {
+      const NvFp4GateUpDeadUpTiming& timing =
+          residual_norm_dead_up_cs_timings[fixture];
+      bool every_round_nonregression = true;
+      for (const float round_speedup : timing.paired_round_speedups) {
+        every_round_nonregression =
+            every_round_nonregression && std::isfinite(round_speedup) &&
+            static_cast<double>(round_speedup) >= 1.0;
+      }
+      const double required_median = fixture == 0U ? 1.005 : 1.0;
+      const bool cell_gate =
+          residual_norm_dead_up_cs_correctness[fixture] &&
+          std::isfinite(timing.production_pass_median_milliseconds) &&
+          std::isfinite(timing.candidate_pass_median_milliseconds) &&
+          std::isfinite(timing.paired_round_median_speedup) &&
+          timing.production_pass_median_milliseconds > 0.0F &&
+          timing.candidate_pass_median_milliseconds > 0.0F &&
+          static_cast<double>(timing.paired_round_median_speedup) >=
+              required_median &&
+          every_round_nonregression;
+      cache_policy_cell_gates[fixture] = cell_gate;
+      std::cout << "PERF_DECODE_GATE_UP_CS_CLOSEOUT: fixture="
+                << (fixture == 0U ? "actual_checkpoint"
+                                  : "same_bank_stress")
+                << " baseline_pass_median_ms="
+                << timing.production_pass_median_milliseconds
+                << " candidate_pass_median_ms="
+                << timing.candidate_pass_median_milliseconds
+                << " paired_round_median_speedup="
+                << timing.paired_round_median_speedup
+                << " required_median_speedup=" << required_median
+                << " required_each_round_speedup=1"
+                << " every_round_nonregression="
+                << (every_round_nonregression ? "true" : "false")
+                << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    }
+    const double actual_delta_ms_per_layer = static_cast<double>(
+        median_fp8_kv_pair_timing(
+            residual_norm_dead_up_cs_timings[0U]
+                .paired_round_deltas_milliseconds));
+    const double projected_delta_ms_per_token =
+        64.0 * actual_delta_ms_per_layer;
+    const bool absolute_delta_gate =
+        std::isfinite(projected_delta_ms_per_token) &&
+        projected_delta_ms_per_token >= 0.25;
+    const bool cache_policy_selected_gate =
+        header_gate && pinned_payload_gate && dead_up_resource_gate &&
+        cache_policy_cell_gates[0U] && cache_policy_cell_gates[1U] &&
+        residual_norm_dead_up_cs_nonfinite_correctness &&
+        absolute_delta_gate;
+    std::cout << "PERF_DECODE_GATE_UP_CS_CLOSEOUT_SELECTED:"
+              << " policy=packed_and_scale_cs"
+              << " actual_paired_median_speedup="
+              << residual_norm_dead_up_cs_timings[0U]
+                     .paired_round_median_speedup
+              << " stress_paired_median_speedup="
+              << residual_norm_dead_up_cs_timings[1U]
+                     .paired_round_median_speedup
+              << " actual_delta_ms_per_layer="
+              << actual_delta_ms_per_layer
+              << " projected_64_layer_delta_ms="
+              << projected_delta_ms_per_token
+              << " required_projected_64_layer_delta_ms=0.25"
+              << " finite_graph_replay_gate="
+              << (residual_norm_dead_up_cs_correctness[0U] &&
+                          residual_norm_dead_up_cs_correctness[1U]
+                      ? "PASS"
+                      : "FAIL")
+              << " nonfinite_bitwise_gate="
+              << (residual_norm_dead_up_cs_nonfinite_correctness ? "PASS"
+                                                                : "FAIL")
+              << " gate="
+              << (cache_policy_selected_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cache_policy_selected_gate,
+                label + " packed/scale streaming policy clears closeout");
+  }
   const bool selected_gate =
       header_gate && pinned_payload_gate && resource_gate && timing_gate;
   std::cout << "PERF_NVFP4_M1_GATE_UP_SILU_SELECTED: candidate="
