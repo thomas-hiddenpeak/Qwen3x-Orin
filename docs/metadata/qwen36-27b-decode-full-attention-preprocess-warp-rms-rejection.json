@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-full-attention-preprocess-warp-rms-rejection",
+  "status": "rejected-test-only-decode-full-attention-preprocess-warp-rms",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "3c33a7666fcc647c5ab04f7bcfeb155643e3dc25",
+    "base_tree": "28778aaeac37f527684d5e792667b04b7aabcdf4",
+    "base_subject": "docs: reject Decode QKV causal-conv epilogue",
+    "candidate_commit": "0a2ef0f244facece47360dfb6982ce0cbc48d8d1",
+    "candidate_tree": "64543a294b3d24514fa5dc611d47be965bad27cc",
+    "candidate_subject": "bench: screen Decode preprocess warp RMS",
+    "kernel_source_blob": "149cc57bf5c4ac3667e6da5a9206677f52132697",
+    "cuda_test_blob": "3abe80e45015db10d22180e032a398ff5ec46023",
+    "candidate_scope": "test-only exact Q24/KV4/D256/RoPE64 full-attention preprocess warp-local RMS reduction",
+    "candidate_reachable_from_production_dispatch": false,
+    "production_dispatch_changed": false,
+    "production_kernel_body_changed": false,
+    "production_launcher_changed": false,
+    "public_abi_changed": false,
+    "prefill_dispatch_changed": false,
+    "test_only_hooks_retained_for_reproducibility": true
+  },
+  "current_stage_target": {
+    "workload": "hot P19/C32/max26 single-request Decode",
+    "formal_anchor_record": "qwen36-27b-decode-gqa-sigmoid-warp-positions-production-benchmark.json",
+    "formal_anchor_ms_per_token": 107.314000,
+    "formal_anchor_tokens_per_second": 9.318448665,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 7.314000,
+    "remaining_tokens_per_second": 0.681551335,
+    "target_met": false,
+    "anchor_changed_by_this_rejection": false
+  },
+  "candidate": {
+    "phase": "16 full-attention Decode layers",
+    "production_route": "full_attention_preprocess_24_4_256_64_kernel",
+    "test_only_route": "full_attention_preprocess_warp_rms_24_4_256_64_test_kernel",
+    "fixed_shape": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "rope_dimension": 64,
+      "decode_token_count": 1,
+      "supporting_token_counts": [2, 8, 16]
+    },
+    "topology": {
+      "ownership": "one CTA per Q or K head per token",
+      "production_grid_m1": [28, 1, 1],
+      "candidate_grid_m1": [28, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "kernel_nodes_per_call": 1,
+      "launches_removed_if_selected": 0
+    },
+    "mechanism": "Warp 0 reconstructs the production 256-thread square-sum tree locally: scalar 128, 64, and 32 pairings followed by shuffle-down 16, 8, 4, 2, and 1. Lane 0 publishes one FP32 inverse RMS through shared memory; all 256 threads retain the centered RMSNorm, BF16-RNE boundary, in-place key behavior, and post-normalization RoPE order.",
+    "production_shared_tree_order": [128, 64, 32, 16, 8, 4, 2, 1],
+    "candidate_tree_order": [128, 64, 32, 16, 8, 4, 2, 1],
+    "arithmetic_and_boundary_bitwise_preserved": true,
+    "production_route_ever_selected_candidate": false
+  },
+  "correctness_and_contract": {
+    "exact_fixtures": {
+      "token_counts": [1, 2, 8, 16],
+      "distributions_each": ["finite", "nonfinite"],
+      "query_output": "bitwise exact against production and the decomposed reference",
+      "in_place_key_output": "bitwise exact against production and the decomposed reference",
+      "raw_gate_output": "bitwise exact against production and the decomposed reference",
+      "inputs_weights_and_rope_tables_unchanged": true,
+      "guards": "intact",
+      "gate": "pass"
+    },
+    "resource_query_null_destinations": {
+      "queries": 2,
+      "null_destinations_each": 5,
+      "all_status_cuda_error_invalid_value": true,
+      "gate": "pass"
+    },
+    "cuda_graph": {
+      "production_nodes": 1,
+      "candidate_nodes": 1,
+      "production_grid_m1": [28, 1, 1],
+      "candidate_grid_m1": [28, 1, 1],
+      "production_block": [256, 1, 1],
+      "candidate_block": [256, 1, 1],
+      "dynamic_shared_bytes": 0,
+      "functions_distinct": true,
+      "instantiate_and_replay_launch": "pass",
+      "replay_output_bitwise_compared": false,
+      "gate": "pass"
+    },
+    "invalid_zero_node": {
+      "cases": 15,
+      "zero_node_cases": 15,
+      "covers_shape_epsilon_overflow_null_and_alias_rejection": true,
+      "all_status_cuda_error_invalid_value": true,
+      "gate": "pass"
+    },
+    "combined_default_gate": "pass"
+  },
+  "resources_and_static_mechanism": {
+    "production": {
+      "registers_per_thread": 18,
+      "static_shared_bytes": 1024,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 6,
+      "primary_path_bar_sync_instruction_points": 10,
+      "primary_reduction_shfl_down_instruction_points": 0
+    },
+    "candidate": {
+      "registers_per_thread": 22,
+      "static_shared_bytes": 4,
+      "dynamic_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 6,
+      "primary_path_bar_sync_instruction_points": 2,
+      "primary_reduction_shfl_down_instruction_points": 5
+    },
+    "bar_sync_delta": -8,
+    "static_shared_bytes_delta": -1020,
+    "occupancy_preserved": true,
+    "local_spills_absent": true,
+    "stack_bytes_queried": false,
+    "static_mechanism_gate": "pass",
+    "interpretation": "The intended shared-tree-to-warp-local mechanism compiled: eight CTA barrier points and 1,020 static shared bytes disappeared without reducing six-CTA/SM occupancy. Static evidence does not establish a useful Decode latency gain."
+  },
+  "profile_headroom_context": {
+    "source": "/tmp/q3x-gqa-warp-production.3ba9c40/nsys-candidate-analysis.json",
+    "production_instances": 400,
+    "production_raw_ns": 2534528,
+    "production_average_ns_per_call": 6336.32,
+    "production_raw_ms_per_decode_token": 0.10138112,
+    "complete_kernel_removal_ceiling_ms_per_token": 0.10138112,
+    "complete_removal_ceiling_percent_of_remaining_7_314_ms_gap": 1.386124145,
+    "claim_boundary": "The raw production-kernel time is directional headroom context from a preceding Nsys capture, not this candidate's end-to-end saving."
+  },
+  "benchmark_protocol": {
+    "environment_variable": "Q3X_RUN_FULL_ATTENTION_PREPROCESS_WARP_RMS_PERF=1",
+    "executable": "./build/orin-release/q3x_decode_ops_cuda_test",
+    "comparison": "production shared-tree kernel versus test-only warp-RMS kernel in one binary, process, stream, and deterministic synthetic fixture",
+    "independent_processes_planned": 2,
+    "independent_processes_completed": 1,
+    "warmup_iterations_per_route_and_cell": 128,
+    "timed_iterations_per_pass": 4096,
+    "rounds_per_cell": 5,
+    "round_order": ["B-C-C-B", "C-B-B-C", "B-C-C-B", "C-B-B-C", "B-C-C-B"],
+    "paired_statistic": "median of five per-round values; each round pairs the mean of its two production passes with the mean of its two candidate passes",
+    "decode_authoritative_cell": "M=1",
+    "supporting_cells": ["M=2", "M=8", "M=16"],
+    "in_place_key_reset_between_timed_passes": false,
+    "in_place_key_timing_interpretation": "Both routes perform the same in-place key transformation count in each timed pass, which is sufficient for a rejection almost eight times below the absolute gate. Any future promotion-quality rerun must reset both key buffers to the same seed before every pass.",
+    "required_decode_all_rounds_positive": true,
+    "required_decode_median_speedup": 1.10,
+    "required_decode_delta_ms_per_call": 0.00125,
+    "required_projected_16_layer_delta_ms_per_token": 0.020,
+    "supporting_cell_gate": "positive delta in every round",
+    "stop_loss": "Stop after process 1 and skip production integration, whole-model timing, and candidate Nsys when the authoritative M1 cell misses any frozen Decode selection gate."
+  },
+  "formal_process_1": {
+    "m1_rounds": [
+      {"round": 1, "order": "B-C-C-B", "b1_call_ms": 0.00440375, "c1_call_ms": 0.00423666, "c2_call_ms": 0.00422841, "b2_call_ms": 0.00438512, "paired_speedup": 1.03825, "paired_delta_ms_per_call": 0.000161906, "positive": true},
+      {"round": 2, "order": "C-B-B-C", "b1_call_ms": 0.00438994, "c1_call_ms": 0.00423665, "c2_call_ms": 0.00423022, "b2_call_ms": 0.00439308, "paired_speedup": 1.03734, "paired_delta_ms_per_call": 0.000158074, "positive": true},
+      {"round": 3, "order": "B-C-C-B", "b1_call_ms": 0.00439009, "c1_call_ms": 0.00421758, "c2_call_ms": 0.00423339, "b2_call_ms": 0.00438573, "paired_speedup": 1.03844, "paired_delta_ms_per_call": 0.000162430, "positive": true},
+      {"round": 4, "order": "C-B-B-C", "b1_call_ms": 0.00438989, "c1_call_ms": 0.00423973, "c2_call_ms": 0.00424111, "b2_call_ms": 0.00438890, "paired_speedup": 1.03513, "paired_delta_ms_per_call": 0.000148973, "positive": true},
+      {"round": 5, "order": "B-C-C-B", "b1_call_ms": 0.00438673, "c1_call_ms": 0.00423170, "c2_call_ms": 0.00456521, "b2_call_ms": 0.00441538, "paired_speedup": 1.00059, "paired_delta_ms_per_call": 0.00000260537, "positive": true}
+    ],
+    "cells": [
+      {"token_count": 1, "role": "authoritative Decode", "paired_median_speedup": 1.03734, "paired_median_delta_ms_per_call": 0.000158074, "projected_16_layer_delta_ms_per_token": 0.00252919, "rounds_positive": "5/5", "gate": "fail"},
+      {"token_count": 2, "role": "supporting", "paired_median_speedup": 1.09998, "paired_median_delta_ms_per_call": 0.000439801, "projected_16_layer_delta_ms_per_token": 0.00703682, "rounds_positive": "5/5", "gate": "pass"},
+      {"token_count": 8, "role": "supporting", "paired_median_speedup": 1.17999, "paired_median_delta_ms_per_call": 0.00124170, "projected_16_layer_delta_ms_per_token": 0.0198671, "rounds_positive": "5/5", "gate": "pass"},
+      {"token_count": 16, "role": "supporting", "paired_median_speedup": 1.26014, "paired_median_delta_ms_per_call": 0.00251791, "projected_16_layer_delta_ms_per_token": 0.0402865, "rounds_positive": "5/5", "gate": "pass"}
+    ],
+    "m1_speedup_gate": "fail",
+    "m1_per_call_delta_gate": "fail",
+    "m1_projected_delta_gate": "fail",
+    "m1_all_rounds_positive_gate": "pass",
+    "supporting_cells_gate": "pass",
+    "projected_delta_fraction_of_frozen_0_020_ms_gate": 0.1264595,
+    "projected_delta_below_gate_factor": 7.907670045,
+    "overall_gate": "fail"
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "The authoritative M1 median reaches only 1.03734x and 0.000158074 ms/call, projecting 0.00252919 ms/token over 16 layers. It misses the frozen 1.10x, 0.00125-ms/call, and 0.020-ms/token gates despite positive supporting cells.",
+    "process_2": "not-run-after-process-1-gate-failure",
+    "production_integration": "not-run",
+    "whole_model_end_to_end": "not-run",
+    "candidate_nsight_systems": "not-run",
+    "decision": "reject production promotion of this exact warp-RMS mapping and retain production"
+  },
+  "validation": {
+    "candidate_target_build": "pass",
+    "default_test_exit_code": 0,
+    "default_contract": "pass",
+    "formal_process_1_exit_code": 1,
+    "formal_process_1_exit_interpretation": "expected frozen performance-gate rejection; the two failed assertions are the M1 selection gate and the combined summary gate after correctness, resource, Graph, invalid-call, and supporting-cell gates passed"
+  },
+  "production_impact": {
+    "formal_anchor_before_ms_per_token": 107.314000,
+    "formal_anchor_after_ms_per_token": 107.314000,
+    "formal_tokens_per_second": 9.318448665,
+    "runtime_changed": false,
+    "production_dispatch_changed": false,
+    "launch_count_changed": false,
+    "stream_count_changed": false,
+    "double_or_triple_buffering_added": false,
+    "cross_kernel_overlap_added": false,
+    "prefill_work_started": false
+  },
+  "artifacts": {
+    "candidate_test_binary": {
+      "local_path": "build/orin-release/q3x_decode_ops_cuda_test",
+      "bytes": 788440,
+      "sha256": "2c5f5f77ee257446a06591b542b61c352a09253bb789c3af23de8395dcdd697e",
+      "build_id": "4a55295e9368ab1004a011cc9309d8a395fd82fb",
+      "checked_in": false
+    },
+    "default_log": {
+      "local_path": "/tmp/q3x-full-preprocess-warp-rms-default.log",
+      "bytes": 3848,
+      "lines": 27,
+      "sha256": "9f5b97b2fbbd8a3696934aeefb1125d32263a620077b2924c84ba4dfc070ee33",
+      "exit_code": 0,
+      "result": "pass",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-full-preprocess-warp-rms.20260726.process1.log",
+      "bytes": 9909,
+      "lines": 53,
+      "sha256": "a0cb1d1b368856807403072b74527d2b2cb42f9a0eb8fbd2d7823637de0aef66",
+      "exit_code": 1,
+      "result": "expected frozen performance-gate rejection",
+      "checked_in": false
+    }
+  },
+  "next_priority": {
+    "candidate": "attention output-projection exact-resident grid-64 screen",
+    "reason": "The preprocess cell's measured 0.00252919-ms/token projection is immaterial against the remaining 7.314-ms/token gap. Return to a bounded Decode projection cell with materially larger raw-time leverage; Prefill remains deferred until the Decode stage target is met."
+  },
+  "claim_limits": [
+    "This rejection applies to the exact one-warp RMS construction inside the fixed Q24/KV4/D256/RoPE64 preprocess topology, not every preprocess optimization or fusion topology.",
+    "The 0.00252919-ms/token value is an isolated synthetic 16-layer projection, not a whole-model measurement.",
+    "Graph evidence proves a distinct one-node kernel, expected topology, successful instantiation, and successful replay; replay outputs were not separately compared bitwise.",
+    "The timing harness did not reset the in-place key buffers between timed passes. Both routes execute equal transformation counts, so this does not rescue a candidate 7.91 times below the frozen absolute gate, but promotion would require per-pass reset.",
+    "Resource queries cover registers, static shared memory, local memory, maximum threads, and active CTAs/SM; stack bytes were not queried and no zero-stack claim is made.",
+    "Finite and nonfinite M1/M2/M8/M16 fixtures provide strong bitwise evidence but are not an exhaustive enumeration of every reduction-tree slot or BF16 pattern.",
+    "M2, M8, and M16 are supporting cells; their positive results do not override failure of the authoritative Decode M1 gate or begin Prefill optimization.",
+    "No process 2, production integration, whole-model end-to-end benchmark, or candidate Nsys capture was run after first-process stop-loss.",
+    "Production, the 107.314000-ms/token anchor, the serial one-stream schedule, and Prefill state remain unchanged."
+  ]
+}

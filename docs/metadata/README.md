@@ -868,6 +868,20 @@ The diagnostic Phase 3 records are:
   production integration, end-to-end timing, and candidate Nsys are skipped;
   the **107.314000 ms/token / 9.318448665 token/s** anchor remains unchanged,
   and the next bounded Decode cell is standalone preprocess warp-tree work.
+- [`qwen36-27b-decode-full-attention-preprocess-warp-rms-rejection.json`](qwen36-27b-decode-full-attention-preprocess-warp-rms-rejection.json),
+  which closes the test-only Q24/KV4/D256/RoPE64 full-attention preprocess
+  warp-RMS screen. Warp 0 reproduces the production `128 -> 64 -> 32 -> 16
+  -> 8 -> 4 -> 2 -> 1` reduction order, reducing static shared memory from
+  1,024 B to 4 B and primary-path CTA barriers from 10 to 2 while retaining
+  six CTAs/SM, exact finite/nonfinite M1/M2/M8/M16 outputs, one distinct
+  `M*28 x 256` Graph node, and 15 zero-node invalid cases. The authoritative
+  M1 median is nevertheless only **1.03734x**, saving 0.000158074 ms/call and
+  projecting just **0.00252919 ms/token** over 16 layers—7.91x below the
+  frozen 0.020-ms gate. M2/M8/M16 remain positive supporting cells but do not
+  override Decode M1. Process 2, production integration, end-to-end timing,
+  and candidate Nsys are skipped; production and the **107.314000 ms/token /
+  9.318448665 token/s** anchor remain unchanged. The next bounded cell is the
+  attention output-projection exact-resident grid-64 screen.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
