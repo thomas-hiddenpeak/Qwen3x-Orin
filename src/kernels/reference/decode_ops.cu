@@ -1015,11 +1015,12 @@ __global__ void attention_values_exact_24_4_256_kernel(
          dimension] = encode_bf16_device(value);
 }
 
-// Each CTA owns one query head, so the score, softmax, value, and gate phases
-// retain the reference kernels' thread mapping and reduction order. The
-// explicit BF16 encode/decode below preserves the observable rounding boundary
-// between attention_values_kernel and sigmoid_gate_kernel.
-__global__ void gqa_sigmoid_gate_24_4_256_kernel(
+// Test-only predecessor retained for direct production comparisons. Each CTA
+// owns one query head, and every position uses the original block-wide shared
+// reduction tree. The remaining softmax, value, BF16 boundary, probability-
+// scratch, and sigmoid-gate phases match the production kernel below.
+__global__ void
+gqa_sigmoid_gate_shared_tree_predecessor_24_4_256_test_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -1128,12 +1129,12 @@ __global__ void gqa_sigmoid_gate_24_4_256_kernel(
   }
 }
 
-// Test-only fixed-shape candidate. The score phase assigns each sequence
-// position to one warp and reproduces the production shared-memory reduction
-// order exactly: 128, 64, 32, 16, 8, 4, 2, 1. The remaining softmax, value,
-// BF16 boundary, probability-scratch, and sigmoid-gate phases intentionally
-// match gqa_sigmoid_gate_24_4_256_kernel.
-__global__ void gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel(
+// Production fixed-shape kernel. Each CTA owns one query head, while each warp
+// owns one score position at a time. The scalar construction reproduces the
+// predecessor's shared-memory reduction order exactly: 128, 64, 32, 16, 8, 4,
+// 2, 1. The remaining softmax, value, BF16 boundary, probability-scratch, and
+// sigmoid-gate phases are unchanged.
+__global__ void gqa_sigmoid_gate_24_4_256_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -1681,7 +1682,37 @@ int launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda(
 
   const auto stream = static_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel
+  gqa_sigmoid_gate_24_4_256_kernel
+      <<<kFusedGqaQueryHeads, kThreads, 0U, stream>>>(
+          query, key_cache, value_cache, sequence_length, attention_scale,
+          probabilities_scratch, gate, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_test_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::size_t sequence_length,
+    const float attention_scale,
+    float* const probabilities_scratch,
+    const std::size_t scratch_elements,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (sequence_length == 0U ||
+      sequence_length > kFusedGqaMaximumSequenceLength ||
+      !std::isfinite(attention_scale) || attention_scale < 0.0F ||
+      scratch_elements < kFusedGqaQueryHeads * sequence_length ||
+      query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      probabilities_scratch == nullptr || gate == nullptr ||
+      output == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  gqa_sigmoid_gate_shared_tree_predecessor_24_4_256_test_kernel
       <<<kFusedGqaQueryHeads, kThreads, 0U, stream>>>(
           query, key_cache, value_cache, sequence_length, attention_scale,
           probabilities_scratch, gate, output);
@@ -1733,15 +1764,47 @@ int query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda
   }
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
+      &attributes, gqa_sigmoid_gate_24_4_256_kernel);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  int active_blocks = 0;
+  status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &active_blocks, gqa_sigmoid_gate_24_4_256_kernel,
+      static_cast<int>(kThreads), 0U);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads = attributes.maxThreadsPerBlock;
+  *active_blocks_per_multiprocessor = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_test_cuda(
+    int* const registers,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes,
+    int* const maximum_threads,
+    int* const active_blocks_per_multiprocessor) noexcept {
+  if (registers == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads == nullptr ||
+      active_blocks_per_multiprocessor == nullptr) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel);
+      gqa_sigmoid_gate_shared_tree_predecessor_24_4_256_test_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      gqa_sigmoid_gate_warp_positions_24_4_256_test_kernel,
+      gqa_sigmoid_gate_shared_tree_predecessor_24_4_256_test_kernel,
       static_cast<int>(kThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);

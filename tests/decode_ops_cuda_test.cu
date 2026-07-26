@@ -86,12 +86,24 @@ int launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda(
     std::size_t scratch_elements, const std::uint16_t* gate,
     std::uint16_t* output, void* cuda_stream) noexcept;
 
+int launch_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_test_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, std::size_t sequence_length,
+    float attention_scale, float* probabilities_scratch,
+    std::size_t scratch_elements, const std::uint16_t* gate,
+    std::uint16_t* output, void* cuda_stream) noexcept;
+
 int query_gqa_attention_sigmoid_gate_24_4_256_resources_test_cuda(
     int* registers, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
 
 int query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
+int query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_test_cuda(
     int* registers, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
@@ -6300,15 +6312,18 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
       kSequence * kKvHeads * kDimension;
   constexpr std::size_t kScratchElements = kQueryHeads * kSequence;
 
+  AttentionScoreKernelResources predecessor_resources;
   AttentionScoreKernelResources production_resources;
-  AttentionScoreKernelResources candidate_resources;
+  AttentionScoreKernelResources direct_resources;
   constexpr std::array<std::pair<const char*,
-                                 FusedGqaSigmoidResourceQuery>, 2U>
+                                 FusedGqaSigmoidResourceQuery>, 3U>
       kResourceQueries{{
+          {"predecessor", q3x::runtime::
+                              query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_test_cuda},
           {"production", q3x::runtime::
                              query_gqa_attention_sigmoid_gate_24_4_256_resources_test_cuda},
-          {"candidate", q3x::runtime::
-                            query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda},
+          {"direct", q3x::runtime::
+                         query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda},
       }};
   for (const auto& [name, query_resources] : kResourceQueries) {
     AttentionScoreKernelResources outputs;
@@ -6329,6 +6344,15 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
   }
   bool ready = test.cuda_ok(
       static_cast<cudaError_t>(q3x::runtime::
+          query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_test_cuda(
+              &predecessor_resources.registers,
+              &predecessor_resources.static_shared_bytes,
+              &predecessor_resources.local_bytes,
+              &predecessor_resources.maximum_threads,
+              &predecessor_resources.active_blocks_per_multiprocessor)),
+      "fused GQA predecessor resource query");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
           query_gqa_attention_sigmoid_gate_24_4_256_resources_test_cuda(
               &production_resources.registers,
               &production_resources.static_shared_bytes,
@@ -6339,54 +6363,71 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
   ready = ready && test.cuda_ok(
       static_cast<cudaError_t>(q3x::runtime::
           query_gqa_attention_sigmoid_gate_warp_positions_24_4_256_resources_test_cuda(
-              &candidate_resources.registers,
-              &candidate_resources.static_shared_bytes,
-              &candidate_resources.local_bytes,
-              &candidate_resources.maximum_threads,
-              &candidate_resources.active_blocks_per_multiprocessor)),
-      "fused GQA warp-position resource query");
+              &direct_resources.registers,
+              &direct_resources.static_shared_bytes,
+              &direct_resources.local_bytes,
+              &direct_resources.maximum_threads,
+              &direct_resources.active_blocks_per_multiprocessor)),
+      "fused GQA direct warp-position resource query");
   if (!ready) {
     return;
   }
-  test.expect(production_resources.registers <= 40,
-              "fused GQA production stays at or below 40 registers");
-  test.expect(production_resources.static_shared_bytes == 1'280U,
-              "fused GQA production retains 1280 static shared bytes");
-  test.expect(production_resources.local_bytes == 0U,
-              "fused GQA production has no local-memory spills");
-  test.expect(candidate_resources.registers <= 64,
-              "fused GQA warp-position candidate stays below 64 registers");
-  test.expect(candidate_resources.static_shared_bytes <= 1'280U,
-              "fused GQA warp-position candidate stays within shared cap");
-  test.expect(candidate_resources.local_bytes == 0U,
-              "fused GQA warp-position candidate has no local-memory spills");
-  test.expect(candidate_resources.maximum_threads >= 256,
-              "fused GQA warp-position candidate supports 256 threads");
-  test.expect(candidate_resources.active_blocks_per_multiprocessor >= 4,
-              "fused GQA warp-position candidate retains four CTAs per SM");
-  std::cout << "GQA_SIGMOID_WARP_POSITIONS_RESOURCES: production_regs="
+  const auto expect_promoted_resources = [&](const std::string& name,
+                                             const auto& resources) {
+    const bool gate_passed =
+        resources.registers == 40 &&
+        resources.static_shared_bytes == 1'280U &&
+        resources.local_bytes == 0U &&
+        resources.maximum_threads >= 256 &&
+        resources.active_blocks_per_multiprocessor == 6;
+    test.expect(resources.registers == 40,
+                "fused GQA " + name + " retains exactly 40 registers");
+    test.expect(resources.static_shared_bytes == 1'280U,
+                "fused GQA " + name + " retains 1280 static shared bytes");
+    test.expect(resources.local_bytes == 0U,
+                "fused GQA " + name + " has no local-memory spills");
+    test.expect(resources.maximum_threads >= 256,
+                "fused GQA " + name + " supports 256 threads");
+    test.expect(resources.active_blocks_per_multiprocessor == 6,
+                "fused GQA " + name + " retains six CTAs per SM");
+    return gate_passed;
+  };
+  const bool resources_gate =
+      expect_promoted_resources("predecessor", predecessor_resources) &
+      expect_promoted_resources("production", production_resources) &
+      expect_promoted_resources("direct warp hook", direct_resources);
+  std::cout << "GQA_SIGMOID_WARP_POSITIONS_RESOURCES: predecessor_regs="
+            << predecessor_resources.registers
+            << " predecessor_static_shared="
+            << predecessor_resources.static_shared_bytes
+            << " predecessor_local=" << predecessor_resources.local_bytes
+            << " predecessor_active_blocks="
+            << predecessor_resources.active_blocks_per_multiprocessor
+            << " production_regs="
             << production_resources.registers
             << " production_static_shared="
             << production_resources.static_shared_bytes
             << " production_local=" << production_resources.local_bytes
             << " production_active_blocks="
             << production_resources.active_blocks_per_multiprocessor
-            << " candidate_regs=" << candidate_resources.registers
-            << " candidate_static_shared="
-            << candidate_resources.static_shared_bytes
-            << " candidate_local=" << candidate_resources.local_bytes
-            << " candidate_active_blocks="
-            << candidate_resources.active_blocks_per_multiprocessor
-            << " gate=PASS\n";
+            << " direct_regs=" << direct_resources.registers
+            << " direct_static_shared="
+            << direct_resources.static_shared_bytes
+            << " direct_local=" << direct_resources.local_bytes
+            << " direct_active_blocks="
+            << direct_resources.active_blocks_per_multiprocessor
+            << " gate=" << (resources_gate ? "PASS" : "FAIL") << '\n';
 
   ManagedBuffer<std::uint16_t> query;
   ManagedBuffer<std::uint16_t> key;
   ManagedBuffer<std::uint16_t> value;
   ManagedBuffer<std::uint16_t> gate;
+  ManagedBuffer<float> predecessor_scratch;
   ManagedBuffer<float> production_scratch;
-  ManagedBuffer<float> candidate_scratch;
+  ManagedBuffer<float> direct_scratch;
+  ManagedBuffer<std::uint16_t> predecessor_output;
   ManagedBuffer<std::uint16_t> production_output;
-  ManagedBuffer<std::uint16_t> candidate_output;
+  ManagedBuffer<std::uint16_t> direct_output;
   ready = test.cuda_ok(query.allocate(kQueryElements),
                        "fused GQA graph allocate query");
   ready = ready && test.cuda_ok(key.allocate(kCacheElements),
@@ -6395,14 +6436,18 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
                                 "fused GQA graph allocate value");
   ready = ready && test.cuda_ok(gate.allocate(kQueryElements),
                                 "fused GQA graph allocate gate");
+  ready = ready && test.cuda_ok(predecessor_scratch.allocate(kScratchElements),
+                                "fused GQA graph allocate predecessor scratch");
   ready = ready && test.cuda_ok(production_scratch.allocate(kScratchElements),
                                 "fused GQA graph allocate production scratch");
-  ready = ready && test.cuda_ok(candidate_scratch.allocate(kScratchElements),
-                                "fused GQA graph allocate candidate scratch");
+  ready = ready && test.cuda_ok(direct_scratch.allocate(kScratchElements),
+                                "fused GQA graph allocate direct scratch");
+  ready = ready && test.cuda_ok(predecessor_output.allocate(kQueryElements),
+                                "fused GQA graph allocate predecessor output");
   ready = ready && test.cuda_ok(production_output.allocate(kQueryElements),
                                 "fused GQA graph allocate production output");
-  ready = ready && test.cuda_ok(candidate_output.allocate(kQueryElements),
-                                "fused GQA graph allocate candidate output");
+  ready = ready && test.cuda_ok(direct_output.allocate(kQueryElements),
+                                "fused GQA graph allocate direct output");
   if (!ready) {
     return;
   }
@@ -6435,34 +6480,14 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
   const std::vector<std::uint16_t> gate_snapshot(gate.data(),
                                                   gate.data() + gate.size());
 
-  constexpr FusedGqaSigmoidTestLaunch kCandidateLaunch =
-      q3x::runtime::
-          launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda;
-  expect_invalid_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA warp invalid S0", kCandidateLaunch,
-      query.data(), key.data(), value.data(), 0U, 0.0625F,
-      candidate_scratch.data(), candidate_scratch.size(), gate.data(),
-      candidate_output.data());
-  expect_invalid_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA warp invalid S65", kCandidateLaunch,
-      query.data(), key.data(), value.data(), 65U, 0.0625F,
-      candidate_scratch.data(), candidate_scratch.size(), gate.data(),
-      candidate_output.data());
-  expect_invalid_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA warp invalid negative scale", kCandidateLaunch,
-      query.data(), key.data(), value.data(), kSequence, -1.0F,
-      candidate_scratch.data(), candidate_scratch.size(), gate.data(),
-      candidate_output.data());
-  expect_invalid_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA warp invalid NaN scale", kCandidateLaunch,
-      query.data(), key.data(), value.data(), kSequence,
-      std::numeric_limits<float>::quiet_NaN(), candidate_scratch.data(),
-      candidate_scratch.size(), gate.data(), candidate_output.data());
-  expect_invalid_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA warp invalid short scratch", kCandidateLaunch,
-      query.data(), key.data(), value.data(), kSequence, 0.0625F,
-      candidate_scratch.data(), kScratchElements - 1U, gate.data(),
-      candidate_output.data());
+  constexpr FusedGqaSigmoidTestLaunch kDirectLaunch =
+      q3x::runtime::launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda;
+  constexpr std::array<std::pair<const char*, FusedGqaSigmoidTestLaunch>, 2U>
+      kPromotedLaunches{{
+          {"production",
+           q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda},
+          {"direct", kDirectLaunch},
+      }};
   struct NullPointerCase {
     const char* name;
     int pointer;
@@ -6471,76 +6496,127 @@ void test_fused_gqa_sigmoid_gate_warp_positions_contract(
       {"query", 0}, {"key", 1}, {"value", 2},
       {"scratch", 3}, {"gate", 4}, {"output", 5},
   }};
-  for (const NullPointerCase& null_case : kNullCases) {
+  for (const auto& [route_name, launch] : kPromotedLaunches) {
+    const std::string prefix = std::string("fused GQA ") + route_name +
+                               " invalid ";
     expect_invalid_fused_gqa_sigmoid_graph(
-        test, stream,
-        std::string("fused GQA warp invalid null ") + null_case.name,
-        kCandidateLaunch,
-        null_case.pointer == 0 ? nullptr : query.data(),
-        null_case.pointer == 1 ? nullptr : key.data(),
-        null_case.pointer == 2 ? nullptr : value.data(), kSequence, 0.0625F,
-        null_case.pointer == 3 ? nullptr : candidate_scratch.data(),
-        candidate_scratch.size(),
-        null_case.pointer == 4 ? nullptr : gate.data(),
-        null_case.pointer == 5 ? nullptr : candidate_output.data());
+        test, stream, prefix + "S0", launch, query.data(), key.data(),
+        value.data(), 0U, 0.0625F, direct_scratch.data(),
+        direct_scratch.size(), gate.data(), direct_output.data());
+    expect_invalid_fused_gqa_sigmoid_graph(
+        test, stream, prefix + "S65", launch, query.data(), key.data(),
+        value.data(), 65U, 0.0625F, direct_scratch.data(),
+        direct_scratch.size(), gate.data(), direct_output.data());
+    expect_invalid_fused_gqa_sigmoid_graph(
+        test, stream, prefix + "negative scale", launch, query.data(),
+        key.data(), value.data(), kSequence, -1.0F, direct_scratch.data(),
+        direct_scratch.size(), gate.data(), direct_output.data());
+    expect_invalid_fused_gqa_sigmoid_graph(
+        test, stream, prefix + "NaN scale", launch, query.data(), key.data(),
+        value.data(), kSequence,
+        std::numeric_limits<float>::quiet_NaN(), direct_scratch.data(),
+        direct_scratch.size(), gate.data(), direct_output.data());
+    expect_invalid_fused_gqa_sigmoid_graph(
+        test, stream, prefix + "short scratch", launch, query.data(),
+        key.data(), value.data(), kSequence, 0.0625F,
+        direct_scratch.data(), kScratchElements - 1U, gate.data(),
+        direct_output.data());
+    for (const NullPointerCase& null_case : kNullCases) {
+      expect_invalid_fused_gqa_sigmoid_graph(
+          test, stream, prefix + "null " + null_case.name, launch,
+          null_case.pointer == 0 ? nullptr : query.data(),
+          null_case.pointer == 1 ? nullptr : key.data(),
+          null_case.pointer == 2 ? nullptr : value.data(), kSequence,
+          0.0625F,
+          null_case.pointer == 3 ? nullptr : direct_scratch.data(),
+          direct_scratch.size(),
+          null_case.pointer == 4 ? nullptr : gate.data(),
+          null_case.pointer == 5 ? nullptr : direct_output.data());
+    }
   }
 
+  AttentionScoreGraphTopology predecessor_topology;
   AttentionScoreGraphTopology production_topology;
-  AttentionScoreGraphTopology candidate_topology;
+  AttentionScoreGraphTopology direct_topology;
   ready = capture_fused_gqa_sigmoid_graph(
-      test, stream, "fused GQA production graph",
-      q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda,
+      test, stream, "fused GQA predecessor graph",
+      q3x::runtime::
+          launch_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_test_cuda,
       query.data(), key.data(), value.data(), kSequence,
-      production_scratch.data(), production_scratch.size(), gate.data(),
-      production_output.data(), production_topology);
+      predecessor_scratch.data(), predecessor_scratch.size(), gate.data(),
+      predecessor_output.data(), predecessor_topology);
   ready = capture_fused_gqa_sigmoid_graph(
-              test, stream, "fused GQA warp-position graph", kCandidateLaunch,
+              test, stream, "fused GQA production graph",
+              q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda,
               query.data(), key.data(), value.data(), kSequence,
-              candidate_scratch.data(), candidate_scratch.size(), gate.data(),
-              candidate_output.data(), candidate_topology) &&
+              production_scratch.data(), production_scratch.size(),
+              gate.data(), production_output.data(), production_topology) &&
+          ready;
+  ready = capture_fused_gqa_sigmoid_graph(
+              test, stream, "fused GQA direct warp graph", kDirectLaunch,
+              query.data(), key.data(), value.data(), kSequence,
+              direct_scratch.data(), direct_scratch.size(), gate.data(),
+              direct_output.data(), direct_topology) &&
           ready;
   if (!ready) {
     return;
   }
-  test.expect(production_topology.function != nullptr &&
-                  candidate_topology.function != nullptr &&
-                  production_topology.function != candidate_topology.function,
-              "fused GQA production and warp Graph functions are distinct");
-  test.expect(production_topology.grid.x == 24U &&
-                  production_topology.grid.y == 1U &&
-                  production_topology.grid.z == 1U &&
-                  candidate_topology.grid.x == 24U &&
-                  candidate_topology.grid.y == 1U &&
-                  candidate_topology.grid.z == 1U,
-              "fused GQA production and warp Graph grids are 24x1x1");
-  test.expect(production_topology.block.x == 256U &&
-                  production_topology.block.y == 1U &&
-                  production_topology.block.z == 1U &&
-                  candidate_topology.block.x == 256U &&
-                  candidate_topology.block.y == 1U &&
-                  candidate_topology.block.z == 1U,
-              "fused GQA production and warp Graph blocks are 256x1x1");
-  test.expect(production_topology.dynamic_shared_bytes == 0U &&
-                  candidate_topology.dynamic_shared_bytes == 0U,
-              "fused GQA production and warp Graphs use zero dynamic shared");
-  test.expect(std::memcmp(candidate_output.data(), production_output.data(),
-                          kQueryElements * sizeof(std::uint16_t)) == 0,
-              "fused GQA warp Graph replay output is bitwise exact");
-  test.expect(std::memcmp(candidate_scratch.data(), production_scratch.data(),
-                          kScratchElements * sizeof(float)) == 0,
-              "fused GQA warp Graph replay probabilities are bitwise exact");
-  test.expect(std::memcmp(query.data(), query_snapshot.data(),
-                          query.size() * sizeof(std::uint16_t)) == 0 &&
-                  std::memcmp(key.data(), key_snapshot.data(),
-                              key.size() * sizeof(std::uint16_t)) == 0 &&
-                  std::memcmp(value.data(), value_snapshot.data(),
-                              value.size() * sizeof(std::uint16_t)) == 0 &&
-                  std::memcmp(gate.data(), gate_snapshot.data(),
-                              gate.size() * sizeof(std::uint16_t)) == 0,
+  const bool function_identity_gate =
+      predecessor_topology.function != nullptr &&
+      production_topology.function != nullptr &&
+      direct_topology.function != nullptr &&
+      predecessor_topology.function != production_topology.function &&
+      production_topology.function == direct_topology.function;
+  test.expect(predecessor_topology.function != nullptr &&
+                  production_topology.function != nullptr &&
+                  direct_topology.function != nullptr &&
+                  predecessor_topology.function != production_topology.function,
+              "fused GQA predecessor and promoted production functions differ");
+  test.expect(production_topology.function == direct_topology.function,
+              "fused GQA public and direct hooks select the promoted kernel");
+  const auto fixed_topology = [](const auto& topology) {
+    return topology.grid.x == 24U && topology.grid.y == 1U &&
+           topology.grid.z == 1U && topology.block.x == 256U &&
+           topology.block.y == 1U && topology.block.z == 1U &&
+           topology.dynamic_shared_bytes == 0U;
+  };
+  const bool topology_gate = fixed_topology(predecessor_topology) &&
+                             fixed_topology(production_topology) &&
+                             fixed_topology(direct_topology);
+  test.expect(topology_gate,
+              "fused GQA Graph routes are one 24x256 zero-dynamic kernel");
+  const bool output_gate =
+      std::memcmp(production_output.data(), predecessor_output.data(),
+                  kQueryElements * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(direct_output.data(), predecessor_output.data(),
+                  kQueryElements * sizeof(std::uint16_t)) == 0;
+  test.expect(output_gate,
+              "fused GQA promoted Graph outputs are bitwise exact");
+  const bool scratch_gate =
+      std::memcmp(production_scratch.data(), predecessor_scratch.data(),
+                  kScratchElements * sizeof(float)) == 0 &&
+      std::memcmp(direct_scratch.data(), predecessor_scratch.data(),
+                  kScratchElements * sizeof(float)) == 0;
+  test.expect(scratch_gate,
+              "fused GQA promoted Graph probabilities are bitwise exact");
+  const bool inputs_gate =
+      std::memcmp(query.data(), query_snapshot.data(),
+                  query.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(key.data(), key_snapshot.data(),
+                  key.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(value.data(), value_snapshot.data(),
+                  value.size() * sizeof(std::uint16_t)) == 0 &&
+      std::memcmp(gate.data(), gate_snapshot.data(),
+                  gate.size() * sizeof(std::uint16_t)) == 0;
+  test.expect(inputs_gate,
               "fused GQA Graph inputs are preserved");
-  std::cout << "GQA_SIGMOID_WARP_POSITIONS_GRAPH: production_nodes=1 "
-               "candidate_nodes=1 distinct_function=true grid=24 block=256 "
-               "dynamic_shared=0 replay=bitwise gate=PASS\n";
+  const bool graph_gate = function_identity_gate && topology_gate &&
+                          output_gate && scratch_gate && inputs_gate;
+  std::cout << "GQA_SIGMOID_WARP_POSITIONS_GRAPH: predecessor_nodes=1 "
+               "production_nodes=1 direct_nodes=1 predecessor_distinct=true "
+               "public_direct_same=true grid=24 block=256 dynamic_shared=0 "
+               "replay=bitwise gate="
+            << (graph_gate ? "PASS" : "FAIL") << '\n';
 }
 
 void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
@@ -6563,9 +6639,11 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
   ManagedBuffer<std::uint16_t> value;
   ManagedBuffer<std::uint16_t> gate;
   ManagedBuffer<float> baseline_scratch;
+  ManagedBuffer<float> predecessor_scratch;
   ManagedBuffer<float> candidate_scratch;
   ManagedBuffer<float> warp_candidate_scratch;
   ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> predecessor_output;
   ManagedBuffer<std::uint16_t> candidate_output;
   ManagedBuffer<std::uint16_t> warp_candidate_output;
   bool ready = test.cuda_ok(query.allocate(query_elements), label + " query");
@@ -6575,6 +6653,9 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
   ready = ready && test.cuda_ok(gate.allocate(query_elements), label + " gate");
   ready = ready && test.cuda_ok(baseline_scratch.allocate(scratch_elements),
                                 label + " baseline scratch");
+  ready = ready &&
+          test.cuda_ok(predecessor_scratch.allocate(scratch_elements),
+                       label + " predecessor scratch");
   ready = ready && test.cuda_ok(candidate_scratch.allocate(scratch_elements),
                                 label + " candidate scratch");
   ready = ready &&
@@ -6582,6 +6663,9 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
                        label + " warp-position candidate scratch");
   ready = ready && test.cuda_ok(baseline_output.allocate(query_elements),
                                 label + " baseline output");
+  ready = ready &&
+          test.cuda_ok(predecessor_output.allocate(query_elements),
+                       label + " predecessor output");
   ready = ready && test.cuda_ok(candidate_output.allocate(query_elements),
                                 label + " candidate output");
   ready = ready &&
@@ -6613,13 +6697,24 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
   }
   std::fill_n(baseline_scratch.data(), scratch_elements,
               std::numeric_limits<float>::quiet_NaN());
+  std::fill_n(predecessor_scratch.data(), scratch_elements,
+              std::numeric_limits<float>::quiet_NaN());
   std::fill_n(candidate_scratch.data(), scratch_elements,
               std::numeric_limits<float>::quiet_NaN());
   std::fill_n(warp_candidate_scratch.data(), scratch_elements,
               std::numeric_limits<float>::quiet_NaN());
   std::fill_n(baseline_output.data(), query_elements, kPoison);
+  std::fill_n(predecessor_output.data(), query_elements, kPoison);
   std::fill_n(candidate_output.data(), query_elements, kPoison);
   std::fill_n(warp_candidate_output.data(), query_elements, kPoison);
+  const std::vector<std::uint16_t> query_snapshot(
+      query.data(), query.data() + query.size());
+  const std::vector<std::uint16_t> key_snapshot(key.data(),
+                                                key.data() + key.size());
+  const std::vector<std::uint16_t> value_snapshot(
+      value.data(), value.data() + value.size());
+  const std::vector<std::uint16_t> gate_snapshot(gate.data(),
+                                                  gate.data() + gate.size());
 
   ready = launch_after_stale(test, stream, label + " baseline", [&]() {
     const int attention_status =
@@ -6635,6 +6730,15 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
         baseline_output.data(), gate.data(), query_elements,
         baseline_output.data(), static_cast<void*>(stream));
   });
+  ready = ready &&
+          launch_after_stale(test, stream, label + " predecessor", [&]() {
+            return q3x::runtime::
+                launch_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_test_cuda(
+                    query.data(), key.data(), value.data(), sequence_length,
+                    kScale, predecessor_scratch.data(),
+                    predecessor_scratch.size(), gate.data(),
+                    predecessor_output.data(), static_cast<void*>(stream));
+          });
   ready = ready &&
           launch_after_stale(test, stream, label + " candidate", [&]() {
             return q3x::runtime::
@@ -6660,6 +6764,13 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
     return;
   }
 
+  expect_bf16_bits_equal(test, predecessor_output.data(),
+                         baseline_output.data(), query_elements,
+                         label + " predecessor gated output");
+  test.expect(
+      std::memcmp(predecessor_scratch.data(), baseline_scratch.data(),
+                  scratch_elements * sizeof(float)) == 0,
+      label + " predecessor probability scratch is bitwise identical");
   expect_bf16_bits_equal(test, candidate_output.data(),
                          baseline_output.data(), query_elements,
                          label + " gated output");
@@ -6669,10 +6780,26 @@ void run_fused_gqa_sigmoid_gate_exact_case(TestContext& test,
   expect_bf16_bits_equal(test, warp_candidate_output.data(),
                          baseline_output.data(), query_elements,
                          label + " warp-position gated output");
+  expect_bf16_bits_equal(test, warp_candidate_output.data(),
+                         candidate_output.data(), query_elements,
+                         label + " direct and public gated output");
   test.expect(
       std::memcmp(warp_candidate_scratch.data(), baseline_scratch.data(),
                   scratch_elements * sizeof(float)) == 0,
       label + " warp-position probability scratch is bitwise identical");
+  test.expect(
+      std::memcmp(warp_candidate_scratch.data(), candidate_scratch.data(),
+                  scratch_elements * sizeof(float)) == 0,
+      label + " direct and public probability scratch are bitwise identical");
+  test.expect(std::memcmp(query.data(), query_snapshot.data(),
+                          query.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(key.data(), key_snapshot.data(),
+                              key.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(value.data(), value_snapshot.data(),
+                              value.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(gate.data(), gate_snapshot.data(),
+                              gate.size() * sizeof(std::uint16_t)) == 0,
+              label + " preserves query, caches, and gate inputs");
 }
 
 void test_fused_gqa_sigmoid_gate_exact(TestContext& test,
@@ -6947,18 +7074,18 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
   const std::vector<std::uint16_t> gate_snapshot(gate.data(),
                                                   gate.data() + gate.size());
 
+  const auto launch_predecessor = [&](const std::size_t sequence_length) {
+    return q3x::runtime::
+        launch_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_test_cuda(
+            query.data(), key.data(), value.data(), sequence_length, kScale,
+            shared_scratch.data(), shared_scratch.size(), gate.data(),
+            shared_output.data(), static_cast<void*>(stream));
+  };
   const auto launch_production = [&](const std::size_t sequence_length) {
     return q3x::runtime::launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
         query.data(), key.data(), value.data(), sequence_length, kScale,
         shared_scratch.data(), shared_scratch.size(), gate.data(),
         shared_output.data(), static_cast<void*>(stream));
-  };
-  const auto launch_candidate = [&](const std::size_t sequence_length) {
-    return q3x::runtime::
-        launch_gqa_attention_sigmoid_gate_warp_positions_24_4_256_test_cuda(
-            query.data(), key.data(), value.data(), sequence_length, kScale,
-            shared_scratch.data(), shared_scratch.size(), gate.data(),
-            shared_output.data(), static_cast<void*>(stream));
   };
   const auto median_five = [](std::array<double, kMeasurementRounds> values) {
     std::sort(values.begin(), values.end());
@@ -6972,12 +7099,12 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
     for (std::size_t iteration = 0U;
          iteration < kWarmupIterations && ready; ++iteration) {
       ready = test.cuda_ok(
-          static_cast<cudaError_t>(launch_production(sequence_length)),
-          cell + " production warmup");
+          static_cast<cudaError_t>(launch_predecessor(sequence_length)),
+          cell + " predecessor warmup");
       ready = ready && test.cuda_ok(
                            static_cast<cudaError_t>(
-                               launch_candidate(sequence_length)),
-                           cell + " candidate warmup");
+                               launch_production(sequence_length)),
+                           cell + " production warmup");
     }
     ready = ready &&
             test.cuda_ok(cudaStreamSynchronize(stream), cell + " warmup sync");
@@ -6989,13 +7116,20 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
     std::array<double, kMeasurementRounds> paired_deltas{};
     bool cell_nonregressing = true;
     for (std::size_t round = 0U; round < kMeasurementRounds; ++round) {
-      const bool production_first = (round & 1U) == 0U;
+      const bool predecessor_first = (round & 1U) == 0U;
       const std::string round_label =
           cell + " round=" + std::to_string(round + 1U);
-      double b1 = std::numeric_limits<double>::quiet_NaN();
-      double b2 = std::numeric_limits<double>::quiet_NaN();
-      double c1 = std::numeric_limits<double>::quiet_NaN();
-      double c2 = std::numeric_limits<double>::quiet_NaN();
+      double predecessor1 = std::numeric_limits<double>::quiet_NaN();
+      double predecessor2 = std::numeric_limits<double>::quiet_NaN();
+      double production1 = std::numeric_limits<double>::quiet_NaN();
+      double production2 = std::numeric_limits<double>::quiet_NaN();
+      const auto measure_predecessor = [&]() {
+        return static_cast<double>(measure_cuda_span_milliseconds(
+            test, stream, kIndividualMeasuredIterations,
+            round_label + " predecessor", [&]() {
+              return launch_predecessor(sequence_length);
+            }));
+      };
       const auto measure_production = [&]() {
         return static_cast<double>(measure_cuda_span_milliseconds(
             test, stream, kIndividualMeasuredIterations,
@@ -7003,28 +7137,22 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
               return launch_production(sequence_length);
             }));
       };
-      const auto measure_candidate = [&]() {
-        return static_cast<double>(measure_cuda_span_milliseconds(
-            test, stream, kIndividualMeasuredIterations,
-            round_label + " candidate", [&]() {
-              return launch_candidate(sequence_length);
-            }));
-      };
-      if (production_first) {
-        b1 = measure_production();
-        c1 = measure_candidate();
-        c2 = measure_candidate();
-        b2 = measure_production();
+      if (predecessor_first) {
+        predecessor1 = measure_predecessor();
+        production1 = measure_production();
+        production2 = measure_production();
+        predecessor2 = measure_predecessor();
       } else {
-        c1 = measure_candidate();
-        b1 = measure_production();
-        b2 = measure_production();
-        c2 = measure_candidate();
+        production1 = measure_production();
+        predecessor1 = measure_predecessor();
+        predecessor2 = measure_predecessor();
+        production2 = measure_production();
       }
-      const double production_pair = 0.5 * (b1 + b2);
-      const double candidate_pair = 0.5 * (c1 + c2);
-      paired_speedups[round] = production_pair / candidate_pair;
-      paired_deltas[round] = production_pair - candidate_pair;
+      const double predecessor_pair =
+          0.5 * (predecessor1 + predecessor2);
+      const double production_pair = 0.5 * (production1 + production2);
+      paired_speedups[round] = predecessor_pair / production_pair;
+      paired_deltas[round] = predecessor_pair - production_pair;
       const bool round_gate =
           std::isfinite(paired_speedups[round]) &&
           std::isfinite(paired_deltas[round]) &&
@@ -7032,9 +7160,11 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
       cell_nonregressing = cell_nonregressing && round_gate;
       std::cout << "PERF_GQA_SIGMOID_WARP_POSITIONS_INDIVIDUAL_ROUND: S="
                 << sequence_length << " round=" << round + 1U << " order="
-                << (production_first ? "B-C-C-B" : "C-B-B-C")
-                << " production1_ms=" << b1 << " candidate1_ms=" << c1
-                << " candidate2_ms=" << c2 << " production2_ms=" << b2
+                << (predecessor_first ? "B-C-C-B" : "C-B-B-C")
+                << " predecessor1_ms=" << predecessor1
+                << " production1_ms=" << production1
+                << " production2_ms=" << production2
+                << " predecessor2_ms=" << predecessor2
                 << " paired_speedup=" << paired_speedups[round]
                 << " paired_delta_ms=" << paired_deltas[round]
                 << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
@@ -7056,6 +7186,16 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
               << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
   }
 
+  const auto launch_predecessor_chain = [&]() {
+    for (std::size_t sequence_length = kFirstSequence;
+         sequence_length <= kLastSequence; ++sequence_length) {
+      const int status = launch_predecessor(sequence_length);
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
   const auto launch_production_chain = [&]() {
     for (std::size_t sequence_length = kFirstSequence;
          sequence_length <= kLastSequence; ++sequence_length) {
@@ -7066,23 +7206,13 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
     }
     return static_cast<int>(cudaSuccess);
   };
-  const auto launch_candidate_chain = [&]() {
-    for (std::size_t sequence_length = kFirstSequence;
-         sequence_length <= kLastSequence; ++sequence_length) {
-      const int status = launch_candidate(sequence_length);
-      if (status != static_cast<int>(cudaSuccess)) {
-        return status;
-      }
-    }
-    return static_cast<int>(cudaSuccess);
-  };
   for (std::size_t iteration = 0U;
        iteration < kWarmupIterations && ready; ++iteration) {
-    ready = test.cuda_ok(static_cast<cudaError_t>(launch_production_chain()),
-                         label + " production chain warmup");
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_predecessor_chain()),
+                         label + " predecessor chain warmup");
     ready = ready &&
-            test.cuda_ok(static_cast<cudaError_t>(launch_candidate_chain()),
-                         label + " candidate chain warmup");
+            test.cuda_ok(static_cast<cudaError_t>(launch_production_chain()),
+                         label + " production chain warmup");
   }
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 label + " chain warmup sync");
@@ -7090,46 +7220,47 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
     return;
   }
 
+  std::array<double, kMeasurementRounds> chain_predecessor_pairs{};
   std::array<double, kMeasurementRounds> chain_production_pairs{};
-  std::array<double, kMeasurementRounds> chain_candidate_pairs{};
   std::array<double, kMeasurementRounds> chain_speedups{};
   std::array<double, kMeasurementRounds> chain_deltas{};
   bool every_chain_round_nonregressing = true;
   for (std::size_t round = 0U; round < kMeasurementRounds; ++round) {
-    const bool production_first = (round & 1U) == 0U;
+    const bool predecessor_first = (round & 1U) == 0U;
     const std::string round_label =
         label + " chain round=" + std::to_string(round + 1U);
-    double b1 = std::numeric_limits<double>::quiet_NaN();
-    double b2 = std::numeric_limits<double>::quiet_NaN();
-    double c1 = std::numeric_limits<double>::quiet_NaN();
-    double c2 = std::numeric_limits<double>::quiet_NaN();
+    double predecessor1 = std::numeric_limits<double>::quiet_NaN();
+    double predecessor2 = std::numeric_limits<double>::quiet_NaN();
+    double production1 = std::numeric_limits<double>::quiet_NaN();
+    double production2 = std::numeric_limits<double>::quiet_NaN();
+    const auto measure_predecessor_chain = [&]() {
+      return static_cast<double>(measure_cuda_span_milliseconds(
+          test, stream, kChainMeasuredIterations,
+          round_label + " predecessor", launch_predecessor_chain));
+    };
     const auto measure_production_chain = [&]() {
       return static_cast<double>(measure_cuda_span_milliseconds(
           test, stream, kChainMeasuredIterations,
           round_label + " production", launch_production_chain));
     };
-    const auto measure_candidate_chain = [&]() {
-      return static_cast<double>(measure_cuda_span_milliseconds(
-          test, stream, kChainMeasuredIterations,
-          round_label + " candidate", launch_candidate_chain));
-    };
-    if (production_first) {
-      b1 = measure_production_chain();
-      c1 = measure_candidate_chain();
-      c2 = measure_candidate_chain();
-      b2 = measure_production_chain();
+    if (predecessor_first) {
+      predecessor1 = measure_predecessor_chain();
+      production1 = measure_production_chain();
+      production2 = measure_production_chain();
+      predecessor2 = measure_predecessor_chain();
     } else {
-      c1 = measure_candidate_chain();
-      b1 = measure_production_chain();
-      b2 = measure_production_chain();
-      c2 = measure_candidate_chain();
+      production1 = measure_production_chain();
+      predecessor1 = measure_predecessor_chain();
+      predecessor2 = measure_predecessor_chain();
+      production2 = measure_production_chain();
     }
-    chain_production_pairs[round] = 0.5 * (b1 + b2);
-    chain_candidate_pairs[round] = 0.5 * (c1 + c2);
+    chain_predecessor_pairs[round] =
+        0.5 * (predecessor1 + predecessor2);
+    chain_production_pairs[round] = 0.5 * (production1 + production2);
     chain_speedups[round] =
-        chain_production_pairs[round] / chain_candidate_pairs[round];
+        chain_predecessor_pairs[round] / chain_production_pairs[round];
     chain_deltas[round] =
-        chain_production_pairs[round] - chain_candidate_pairs[round];
+        chain_predecessor_pairs[round] - chain_production_pairs[round];
     const bool round_gate =
         std::isfinite(chain_speedups[round]) &&
         std::isfinite(chain_deltas[round]) && chain_speedups[round] >= 1.0;
@@ -7137,20 +7268,22 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
         every_chain_round_nonregressing && round_gate;
     std::cout << "PERF_GQA_SIGMOID_WARP_POSITIONS_CHAIN_ROUND: round="
               << round + 1U << " order="
-              << (production_first ? "B-C-C-B" : "C-B-B-C")
+              << (predecessor_first ? "B-C-C-B" : "C-B-B-C")
               << " chains_per_pass=" << kChainMeasuredIterations
               << " kernels_per_chain=" << kSequenceCount
-              << " production1_ms=" << b1 << " candidate1_ms=" << c1
-              << " candidate2_ms=" << c2 << " production2_ms=" << b2
+              << " predecessor1_ms=" << predecessor1
+              << " production1_ms=" << production1
+              << " production2_ms=" << production2
+              << " predecessor2_ms=" << predecessor2
               << " paired_speedup=" << chain_speedups[round]
               << " paired_delta_ms=" << chain_deltas[round]
               << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
   }
 
+  const double predecessor_chain_median =
+      median_five(chain_predecessor_pairs);
   const double production_chain_median =
       median_five(chain_production_pairs);
-  const double candidate_chain_median =
-      median_five(chain_candidate_pairs);
   const double paired_median_speedup = median_five(chain_speedups);
   const double paired_median_chain_delta_ms = median_five(chain_deltas);
   const double paired_median_per_layer_delta_ms =
@@ -7171,8 +7304,8 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
   std::cout << "PERF_GQA_SIGMOID_WARP_POSITIONS_CHAIN: first_S="
             << kFirstSequence << " last_S=" << kLastSequence
             << " kernels_per_chain=" << kSequenceCount
+            << " predecessor_chain_median_ms=" << predecessor_chain_median
             << " production_chain_median_ms=" << production_chain_median
-            << " candidate_chain_median_ms=" << candidate_chain_median
             << " paired_median_speedup=" << paired_median_speedup
             << " paired_median_chain_delta_ms="
             << paired_median_chain_delta_ms
@@ -7188,13 +7321,19 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
             << " required_per_layer_delta_ms=" << kRequiredPerLayerDeltaMs
             << " required_projected_16_layer_delta_ms="
             << kRequiredProjected16LayerDeltaMs
-            << " shared_output_address=true gate="
+            << " shared_output_scratch_addresses=true public_route=production "
+               "promotion_gate="
             << (gate_passed ? "PASS" : "FAIL") << '\n';
   if (!gate_passed) {
     std::cout << "PERF_GQA_SIGMOID_WARP_POSITIONS_STOP_LOSS: "
                  "reason=first_frozen_process_failed second_process=NOT_RUN "
-                 "production_integration=NOT_RUN end_to_end=NOT_RUN "
+                 "public_route=production rollback_required=true "
+                 "end_to_end=NOT_RUN "
                  "gate=FAIL\n";
+  } else {
+    std::cout << "PERF_GQA_SIGMOID_WARP_POSITIONS_SELECTION: "
+                 "selected=production predecessor=shared_tree "
+                 "production=warp_positions gate=PASS\n";
   }
   test.expect(std::memcmp(query.data(), query_snapshot.data(),
                           query.size() * sizeof(std::uint16_t)) == 0 &&
