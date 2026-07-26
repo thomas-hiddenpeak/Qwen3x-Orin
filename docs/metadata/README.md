@@ -901,6 +901,21 @@ The diagnostic Phase 3 records are:
   persistent-grid mechanisms; the **107.314000 ms/token / 9.318448665 token/s**
   anchor remains unchanged. The next priority is a new major-projection
   mechanism pending parallel audit.
+- [`qwen36-27b-decode-fp8-qkv-z-register-lookahead-rejection.json`](qwen36-27b-decode-fp8-qkv-z-register-lookahead-rejection.json),
+  which closes the test-only QKV/Z rolled direct-LDG register-lookahead
+  screen. The pinned SASS contains the intended runtime loop and one-stage
+  next-weight lookahead without full-K preload or local spills, contracts from
+  1,752 to 1,144 static instructions, and preserves four CTAs/SM while reducing
+  registers from 64 to 53. Actual layer-0 QKV/Z/A/B outputs, guards, all five
+  inputs, distinct one-node Graph replay, 11 zero-node invalid calls, payload
+  hashes, and resources pass. Performance nevertheless regresses in all five
+  rounds: production is 0.475987 ms/layer versus 0.517730 ms/layer for the
+  candidate, or **0.919387x**, a 0.0418743-ms/layer loss and an isolated
+  **2.00997-ms/token projected regression** over 48 layers. Frozen stop-loss
+  skips process 2, stress timing, production, end-to-end, Nsys, and NCU work;
+  the projection is not an end-to-end result. Production and the **107.314000
+  ms/token / 9.318448665 token/s** anchor remain unchanged. The next bounded
+  Decode cell is NVFP4 gate/up warp specialization.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
