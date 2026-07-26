@@ -882,6 +882,25 @@ The diagnostic Phase 3 records are:
   and candidate Nsys are skipped; production and the **107.314000 ms/token /
   9.318448665 token/s** anchor remain unchanged. The next bounded cell is the
   attention output-projection exact-resident grid-64 screen.
+- [`qwen36-27b-decode-fp8-o-proj-resident-grid64-rejection.json`](qwen36-27b-decode-fp8-o-proj-resident-grid64-rejection.json),
+  which closes that exact output-projection resident-wave screen. The
+  candidate launches the same production AoSoA4/preswizzled Function at
+  `64x256` instead of `1024x256`, exactly filling the measured 16-SM by
+  4-CTA/SM capacity while retaining `64r/1,152B/0local`. Same-bank and actual
+  outputs, guards, and inputs are bitwise exact; both one-node Graphs replay
+  bitwise with the same Function, all 11 invalid calls capture zero nodes,
+  signed infinity/NaN fixtures pass, and the canonical and sidecar SHA gates
+  pass. A separate legacy cache-streaming run also preserves its original
+  functional gates and frozen stop-loss behavior after screen
+  parameterization. Nevertheless, all five grid-64 actual-checkpoint rounds
+  regress: the public median is 0.179963 ms/layer versus 0.186084 ms/layer at
+  grid 64, for **0.967290x**, a 0.00609002-ms/layer loss, and an isolated
+  **0.389761-ms/token projected regression** over 64 layers. Frozen stop-loss
+  skips stress timing, processes 2/3, nearby grid-128/256 trials, production,
+  end-to-end, and Nsys work. This rejects only exact grid 64, not all
+  persistent-grid mechanisms; the **107.314000 ms/token / 9.318448665 token/s**
+  anchor remains unchanged. The next priority is a new major-projection
+  mechanism pending parallel audit.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
