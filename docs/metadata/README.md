@@ -586,6 +586,16 @@ The diagnostic Phase 3 records are:
   non-regresses. Paired medians reach only 1.00135x checkpoint-like and
   1.00107x same-bank stress against the frozen 1.002x gate, so stop-loss skips
   actual checkpoint, NCU, model-oracle, and end-to-end work.
+- [`qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json`](qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json),
+  which records the required fixed-frequency Decode-only refresh at `aa7312b`
+  using the final `77931b8` Release binary. All 25 Decode ranges close over
+  10,925 unique kernels on one stream, raw equals union at 2,745.814816 ms,
+  and the top three gate/up, QKV/Z, and down rows retain 75.878904% of kernel
+  time. The production output-sidecar row averages 0.181293 ms per launch and
+  contributes 11.602725 ms per Decode step. Its comparison with the earlier
+  `9bddbda` trace is explicitly directional; the formal performance anchor
+  remains the unprofiled 109.7585 ms/token and 9.1109 token/s `B1-C1-C2-B2`
+  result.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

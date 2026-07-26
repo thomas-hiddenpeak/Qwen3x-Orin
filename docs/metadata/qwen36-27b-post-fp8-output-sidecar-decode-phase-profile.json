@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-post-fp8-output-sidecar-decode-phase-profile",
+  "status": "post-fp8-output-sidecar-fixed-clock-decode-hotspot-refresh",
+  "recorded_at": "2026-07-26T08:36:28+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "profiled_head": "aa7312b9f6242dae5a26045241646e1d813d0cae",
+    "profiled_tree": "86cf221b60b6c682781c2152fdeb444f7eadb908",
+    "profiled_subject": "docs: reject Decode down CTA prune",
+    "latest_runtime_source_commit": "77931b863dd8674317aed473c3de97552290a886",
+    "latest_runtime_source_tree": "dec4421a7c6867b740f751da088ad4e87cf4e4bf",
+    "latest_runtime_source_subject": "perf: promote Decode FP8 output sidecar",
+    "provenance_note": "The only commit from 77931b8 to the profiled aa7312b HEAD is the documentation-only CTA-prune rejection; the profiled executable is the final 77931b8 Release validation binary.",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "binary": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 4199264,
+      "sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+      "elf_build_id": "c28ae51b0e28618fefd55484650e0128404e9c4e",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "nsys_version": "2026.1.3.243-261337792075v0",
+    "fixed_frequency": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz_readback": 1300500000,
+      "gpu_readback_note": "min, max, and current read back identically during the capture setup/audit; this is not a thermal or power-stability claim",
+      "emc_status": "not freshly recorded for this capture"
+    },
+    "exclusivity": {
+      "other_qwen3x_nsys_or_ncu_processes_before_capture": 0
+    }
+  },
+  "protocol": {
+    "scope": "Decode-only hotspot selection from the q3x.decode.step ranges; the same short trace's one prefix tile and finish-prefill range are deliberately excluded from Prefill ranking",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "warmup_rounds": 0,
+    "measured_processes": 1,
+    "trace_domains": [
+      "cuda",
+      "nvtx"
+    ],
+    "nsys_common_options": "--trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true",
+    "capture": {
+      "id": "P19-C32-max26",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "prefix_tokens": 18,
+      "prefix_tiles": 1,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_steps_after_first": 25,
+      "command": "nsys profile --trace=cuda,nvtx --sample=none --cpuctxsw=none --stats=false --force-overwrite=true -o /tmp/q3x-post-sidecar-phase-profile.aJaoZa/p19-c32-max26 build/orin-release/qwen3x-orin generate /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87 --nvtx-phase-ranges"
+    },
+    "correctness_anchor": {
+      "capture_console_log_retained": false,
+      "same_binary_oracle_record": "qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json",
+      "same_binary_oracle_status": "pass",
+      "same_binary_oracle_binary_sha256": "52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462",
+      "same_binary_oracle_prompt_ids": 19,
+      "same_binary_oracle_generated_ids": 26,
+      "same_binary_oracle_exact_text": true,
+      "same_binary_oracle_stop_reason": "im_end",
+      "same_binary_oracle_steps": 44,
+      "note": "The profile is attribution evidence for a binary whose exact model oracle is already retained; no new standalone console-log oracle is claimed for this capture."
+    }
+  },
+  "attribution_method": {
+    "nvtx_selection": "completed q3x.decode.step ranges with registered strings resolved through coalesce(NVTX_EVENTS.text, StringIds.value via textId)",
+    "runtime_selection": "CUDA Runtime calls on the same globalTid whose host start and end are contained in one completed Decode range",
+    "runtime_to_kernel_join": "correlationId plus k.globalPid=(r.globalTid & 0xFFFFFFFFFF000000)",
+    "duplicate_kernel_row_check": {
+      "selected_rows": 10925,
+      "distinct_kernel_rows": 10925,
+      "status": "pass"
+    },
+    "raw_kernel_ns": "sum of kernel end-start",
+    "union_kernel_ns": "length of the merged GPU interval union",
+    "union_rule": "sort [start,end], starting a new segment only when next.start is greater than current.end",
+    "idle_ns": "last associated kernel end minus first associated kernel start across all selected Decode rows, minus their interval union; this overall span includes the gaps between adjacent Decode steps",
+    "decode_ranking": "raw time by exact demangled kernel name after proving zero cross-stream overlap"
+  },
+  "decode_profile": {
+    "nvtx_ranges": {
+      "decode_step": {
+        "instances": 25,
+        "host_sum_ns": 2762982144,
+        "host_average_ns": 110519285.76,
+        "host_average_ms": 110.51928576,
+        "host_median_ns": 110180832,
+        "host_median_ms": 110.180832,
+        "host_minimum_ns": 109943616,
+        "host_minimum_ms": 109.943616,
+        "host_maximum_ns": 114304544,
+        "host_maximum_ms": 114.304544
+      }
+    },
+    "kernel_timeline": {
+      "kernel_instances": 10925,
+      "instances_per_decode_step": 437,
+      "stream_instances": {
+        "18": 10925
+      },
+      "raw_ns": 2745814816,
+      "raw_ms": 2745.814816,
+      "raw_per_decode_step_ms": 109.83259264,
+      "union_ns": 2745814816,
+      "union_ms": 2745.814816,
+      "span_ns": 2763041088,
+      "span_ms": 2763.041088,
+      "idle_ns": 17226272,
+      "idle_ms": 17.226272,
+      "idle_percent_of_span": 0.623453,
+      "overlap_ns": 0,
+      "raw_equals_union": true
+    },
+    "generation_leaf_closure": {
+      "generation_kernel_instances": 12997,
+      "leaf_kernel_instances": 12997,
+      "generation_raw_ns": 3174031264,
+      "leaf_raw_ns": 3174031264,
+      "missing_generation_kernels": 0,
+      "extra_leaf_kernels": 0,
+      "duplicate_leaf_kernels": 0,
+      "duplicate_leaf_rows": 0,
+      "status": "pass"
+    },
+    "decode_output_sidecar_route_sanity": {
+      "aosoa4_preswizzled_output_kernel_instances": 1600,
+      "canonical_output_row_quad_kernel_instances": 0,
+      "output_sidecar_pack_kernel_instances": 0,
+      "interpretation": "All 64 per-step output projections use the production sidecar route inside Decode; canonical fallback is absent and cold pack work occurs before q3x.generation rather than contaminating the Decode ranking.",
+      "status": "pass"
+    },
+    "decode_hotspots": [
+      {
+        "rank": 1,
+        "group": "NVFP4 fused residual/norm/gate/up/SiLU [17408,5120]",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 991896288,
+        "average_ns": 619935.18,
+        "average_ms": 0.61993518,
+        "per_decode_step_ms": 39.67585152,
+        "share_of_decode_raw_percent": 36.123932
+      },
+      {
+        "rank": 2,
+        "group": "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 572457344,
+        "average_ns": 477047.786667,
+        "average_ms": 0.477047787,
+        "per_decode_step_ms": 22.89829376,
+        "share_of_decode_raw_percent": 20.848359
+      },
+      {
+        "rank": 3,
+        "group": "NVFP4 fused down/residual/norm [5120,17408]",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 519140544,
+        "average_ns": 324462.84,
+        "average_ms": 0.32446284,
+        "per_decode_step_ms": 20.76562176,
+        "share_of_decode_raw_percent": 18.906612
+      },
+      {
+        "rank": 4,
+        "group": "FP8 output projection AoSoA4/preswizzled sidecar [5120,6144]",
+        "kernel_instances": 1600,
+        "launches_per_decode_step": 64,
+        "total_ns": 290068128,
+        "average_ns": 181292.58,
+        "average_ms": 0.18129258,
+        "per_decode_step_ms": 11.60272512,
+        "share_of_decode_raw_percent": 10.564009
+      },
+      {
+        "rank": 5,
+        "group": "FP8 full-attention Q+K/V reduction-scratch ping-pong",
+        "kernel_instances": 400,
+        "launches_per_decode_step": 16,
+        "total_ns": 170956864,
+        "average_ns": 427392.16,
+        "average_ms": 0.42739216,
+        "per_decode_step_ms": 6.83827456,
+        "share_of_decode_raw_percent": 6.226089
+      },
+      {
+        "rank": 6,
+        "group": "NVFP4 language head [248320,5120]",
+        "kernel_instances": 25,
+        "launches_per_decode_step": 1,
+        "total_ns": 109541888,
+        "average_ns": 4381675.52,
+        "average_ms": 4.38167552,
+        "per_decode_step_ms": 4.38167552,
+        "share_of_decode_raw_percent": 3.989413
+      },
+      {
+        "rank": 7,
+        "group": "fused Decode GDN/plain-RMSNorm/SiLU gate",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 38483584,
+        "average_ns": 32069.653333,
+        "average_ms": 0.032069653,
+        "per_decode_step_ms": 1.53934336,
+        "share_of_decode_raw_percent": 1.401536
+      },
+      {
+        "rank": 8,
+        "group": "BF16 projection pair tile",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 23309536,
+        "average_ns": 19424.613333,
+        "average_ms": 0.019424613,
+        "per_decode_step_ms": 0.93238144,
+        "share_of_decode_raw_percent": 0.848911
+      },
+      {
+        "rank": 9,
+        "group": "GQA sigmoid gate Q24/KV4/D256",
+        "kernel_instances": 400,
+        "launches_per_decode_step": 16,
+        "total_ns": 19712800,
+        "average_ns": 49282,
+        "average_ms": 0.049282,
+        "per_decode_step_ms": 0.788512,
+        "share_of_decode_raw_percent": 0.717922
+      },
+      {
+        "rank": 10,
+        "group": "causal Conv1D/SiLU",
+        "kernel_instances": 1200,
+        "launches_per_decode_step": 48,
+        "total_ns": 6679360,
+        "average_ns": 5566.133333,
+        "average_ms": 0.005566133,
+        "per_decode_step_ms": 0.2671744,
+        "share_of_decode_raw_percent": 0.243256
+      }
+    ],
+    "ranking_summary": {
+      "top_three_share_of_decode_raw_percent": 75.878904,
+      "top_five_share_of_decode_raw_percent": 92.669001,
+      "top_ten_share_of_decode_raw_percent": 99.870039,
+      "raw_equals_union": true,
+      "largest_remaining_group": "NVFP4 fused residual/norm/gate/up/SiLU [17408,5120]"
+    }
+  },
+  "previous_current_head_trace_comparison": {
+    "baseline_record": "qwen36-27b-current-head-phase-profile.json",
+    "baseline_profiled_commit": "9bddbda15028751eeabca3cd8c911de8bfd94ec7",
+    "baseline_binary_sha256": "144c408ec994e9c519742abcd5ea0322560c1d20b94bbe303ab9dc5f220ecca6",
+    "same_workload_contract": {
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_ranges_each": 25,
+      "decode_kernel_instances_each": 10925,
+      "overlap_ns_each": 0
+    },
+    "decode_raw": {
+      "baseline_ns": 2757625632,
+      "current_ns": 2745814816,
+      "delta_ns": -11810816,
+      "delta_per_decode_step_ms": -0.47243264,
+      "current_over_baseline": 0.995717034,
+      "arithmetic_reduction_percent": 0.428297
+    },
+    "decode_host_range_average": {
+      "baseline_ms": 110.95300096,
+      "current_ms": 110.51928576,
+      "delta_ms": -0.4337152,
+      "current_over_baseline": 0.996091001,
+      "arithmetic_reduction_percent": 0.3909
+    },
+    "output_projection": {
+      "baseline_group": "FP8 row-quad output projection",
+      "current_group": "FP8 output projection AoSoA4/preswizzled sidecar [5120,6144]",
+      "kernel_instances_each": 1600,
+      "baseline_total_ns": 299916576,
+      "current_total_ns": 290068128,
+      "delta_total_ns": -9848448,
+      "baseline_average_ms": 0.18744786,
+      "current_average_ms": 0.18129258,
+      "baseline_per_decode_step_ms": 11.99666304,
+      "current_per_decode_step_ms": 11.60272512,
+      "delta_per_decode_step_ms": -0.39393792,
+      "current_over_baseline": 0.967162709,
+      "arithmetic_speedup": 1.033952189
+    },
+    "per_group_directional_context": [
+      {
+        "group": "NVFP4 fused residual/norm/gate/up/SiLU [17408,5120]",
+        "baseline_total_ns": 986903168,
+        "current_total_ns": 991896288,
+        "delta_per_decode_step_ms": 0.1997248
+      },
+      {
+        "group": "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+        "baseline_total_ns": 578224544,
+        "current_total_ns": 572457344,
+        "delta_per_decode_step_ms": -0.230688
+      },
+      {
+        "group": "NVFP4 fused down/residual/norm [5120,17408]",
+        "baseline_total_ns": 519390496,
+        "current_total_ns": 519140544,
+        "delta_per_decode_step_ms": -0.00999808
+      },
+      {
+        "group": "FP8 output projection",
+        "baseline_total_ns": 299916576,
+        "current_total_ns": 290068128,
+        "delta_per_decode_step_ms": -0.39393792
+      },
+      {
+        "group": "FP8 full-attention Q+K/V reduction-scratch ping-pong",
+        "baseline_total_ns": 172626944,
+        "current_total_ns": 170956864,
+        "delta_per_decode_step_ms": -0.0668032
+      },
+      {
+        "group": "NVFP4 language head [248320,5120]",
+        "baseline_total_ns": 109681152,
+        "current_total_ns": 109541888,
+        "delta_per_decode_step_ms": -0.00557056
+      }
+    ],
+    "interpretation": "The output-projection row is directionally lower after its production sidecar route, while other unchanged rows move in both directions. These are separate single-process Nsys captures and therefore do not prove that the sidecar caused the full-trace delta or that any other kernel changed intrinsically."
+  },
+  "release_performance_anchor": {
+    "record": "qwen36-27b-fp8-m1-o-proj-aosoa4-preswizzled-production-benchmark.json",
+    "method": "fixed-frequency P19/C32/max26 B1-C1-C2-B2, one warmup and five measured generations per process, arithmetic mean of mirrored process medians",
+    "hot_subsequent_token_ms": 109.7585,
+    "single_request_tokens_per_second": 9.110911683,
+    "target_ms_per_token": 100,
+    "target_tokens_per_second": 10,
+    "remaining_ms_per_token": 9.7585,
+    "remaining_relative_latency_reduction_percent": 8.890883,
+    "single_nsys_capture_replaces_release_anchor": false,
+    "note": "The 110.519286-ms profiled host-range average and 109.832593-ms GPU raw time per Decode step are profiler-run diagnostics, not a replacement latency or throughput measurement."
+  },
+  "priority_decision": {
+    "phase_local_kernel_work_before_general_batch_one_buffering": true,
+    "re_ranked_order": [
+      "NVFP4 fused residual/norm/gate/up/SiLU [17408,5120]",
+      "FP8 linear-attention QKV/Z reduction-scratch ping-pong",
+      "NVFP4 fused down/residual/norm [5120,17408]",
+      "FP8 output projection AoSoA4/preswizzled sidecar [5120,6144]"
+    ],
+    "reasons": [
+      "The first three groups retain 75.878904% of Decode raw kernel time.",
+      "Decode remains one stream with raw equal to union and only 0.623453% idle in its associated kernel span.",
+      "The production output sidecar remains the fourth row at 10.564009%, so its promotion changes its measured cost but not the leading three-group order.",
+      "General batch-one double/triple buffering has no measured same-request overlap opportunity comparable to the phase-local rows."
+    ],
+    "mechanism_boundary": [
+      "The rank alone does not justify restoring rejected gate/up balanced-tail, K256 shared-pipeline, inline-barrier, or AoSoA4-sidecar variants.",
+      "The rejected down post-sync CTA prune remains below its frozen gate and is not revived by the down row retaining rank three.",
+      "No fresh Nsight Compute counters are available on this vGPU, so a next implementation requires a materially different bounded mechanism with actual-payload gates rather than an unverified cache or scoreboard claim."
+    ],
+    "prefill_policy": "Resume the larger Prefill program after the 100-ms/token and 10-token/s single-request Decode target is met."
+  },
+  "artifacts": [
+    {
+      "role": "Decode Nsys report",
+      "path": "/tmp/q3x-post-sidecar-phase-profile.aJaoZa/p19-c32-max26.nsys-rep",
+      "bytes": 1017459,
+      "sha256": "e9d6d5eacb25c9cc4eb84161756a270400a2e2f34c7b08180e419888387cef4f",
+      "checked_in": false
+    },
+    {
+      "role": "Decode SQLite export",
+      "path": "/tmp/q3x-post-sidecar-phase-profile.aJaoZa/p19-c32-max26.sqlite",
+      "bytes": 2859008,
+      "sha256": "1396a4fb9ac33f79316d58a370193515a69e2cae1453a941dbc250226d18190c",
+      "checked_in": false
+    },
+    {
+      "role": "exact analysis JSON",
+      "path": "/tmp/q3x-post-sidecar-phase-profile.aJaoZa/analysis.json",
+      "bytes": 23065,
+      "sha256": "ec33f5d0b7e0bc840fe5a6f63939e37b9805db9bfb05b44ed29ec67038c8a168",
+      "checked_in": false
+    }
+  ],
+  "limitations": [
+    "This is one profiled P19/C32/max26 process with no warmup, not a latency distribution, release SLA, or end-to-end promotion gate.",
+    "Nsight Systems perturbs absolute latency; the trace selects hotspots and audits topology. The separate fixed-frequency B1-C1-C2-B2 result remains the performance anchor.",
+    "The old/new Nsys comparison uses different binaries and processes. Even though the production code delta is the output sidecar, profiler and run drift prevent attributing the complete raw or host-range delta causally.",
+    "No Nsight Compute counters, fresh EMC readback, power, energy, thermal-soak, long-context, tail-latency, or multi-request evidence was collected.",
+    "The short trace contains only one 18-token prefix tile; it is intentionally not used to rank Prefill.",
+    "The capture console log was not retained. Exact replay is anchored separately to the retained same-binary final-model oracle.",
+    "Prefill and Decode remain logically separate but dependency-serialized for one request; no general double/triple buffer, independent executor, or cross-request scheduler is implemented by this profile."
+  ]
+}

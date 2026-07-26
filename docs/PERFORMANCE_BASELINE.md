@@ -4778,6 +4778,53 @@ Five 80-launch `B-C-C-B` rounds all non-regress, but paired medians are only
 0.320397→0.320088 and 0.321472→0.321102 ms, an arithmetic 64-layer saving of
 about 0.020–0.024 ms/token rather than an achieved end-to-end result. Stop-loss
 therefore rejects and removes the candidate without actual checkpoint, NCU,
-Nsys, model-oracle, or P19 timing. The next step is a fresh production Decode
-profile after the output-sidecar promotion. Full evidence is in the
+Nsys, model-oracle, or P19 timing. Full evidence is in the
 [CTA-prune rejection record](metadata/qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json).
+
+## Post-FP8-output-sidecar Decode phase profile
+
+The required current-production refresh profiles `aa7312b`, whose latest
+runtime source is the `77931b8` output-sidecar promotion. The documentation-only
+commit between those identities does not alter the executable. The captured
+Release binary is 4,199,264 bytes with SHA-256
+`52968768870629826635b395e679b0500fb16b2692a55b79b58697ad19317462`.
+The fixed-GPU-frequency P19/C32/max26 run contains 25 completed
+`q3x.decode.step` ranges and closes over 10,925 unique kernel rows on stream
+18. Raw and interval-union time are both 2,745.814816 ms, so measured overlap
+is zero. The associated spans contain 17.226272 ms idle, or 0.623453%.
+
+The current exact-name ranking is:
+
+| Rank | Decode group | Launches | Mean launch | Per Decode step | Raw share |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | NVFP4 residual/norm/gate/up/SiLU | 1,600 | 0.619935 ms | 39.675852 ms | 36.123932% |
+| 2 | FP8 linear-attention QKV/Z | 1,200 | 0.477048 ms | 22.898294 ms | 20.848359% |
+| 3 | NVFP4 down/residual/norm | 1,600 | 0.324463 ms | 20.765622 ms | 18.906612% |
+| 4 | FP8 output AoSoA4/preswizzled sidecar | 1,600 | 0.181293 ms | 11.602725 ms | 10.564009% |
+| 5 | FP8 full-attention Q+K/V | 400 | 0.427392 ms | 6.838275 ms | 6.226089% |
+| 6 | NVFP4 language head | 25 | 4.381676 ms | 4.381676 ms | 3.989413% |
+| 7 | Fused Decode GDN/plain-RMSNorm/SiLU gate | 1,200 | 0.032070 ms | 1.539343 ms | 1.401536% |
+| 8 | BF16 projection pair tile | 1,200 | 0.019425 ms | 0.932381 ms | 0.848911% |
+| 9 | GQA sigmoid gate | 400 | 0.049282 ms | 0.788512 ms | 0.717922% |
+| 10 | Causal Conv1D/SiLU | 1,200 | 0.005566 ms | 0.267174 ms | 0.243256% |
+
+The top three still account for 75.878904% of raw Decode kernel time; the top
+ten account for 99.870039%. Compared directionally with the earlier matched-
+workload `9bddbda` trace, raw time is 11.810816 ms lower across 25 steps
+(0.472433 ms/step), and the profiled host-range average moves from 110.953001
+to 110.519286 ms. The output-projection row itself moves from 299.916576 to
+290.068128 ms across 1,600 launches: 0.187448→0.181293 ms/launch and
+11.996663→11.602725 ms/step. Other unchanged rows move in both directions,
+so separate-process Nsys drift prevents attributing the complete trace delta
+to the sidecar or claiming intrinsic changes in those rows.
+
+This single profiler run is hotspot-selection and topology evidence. It does
+not replace the fixed-frequency, unprofiled `B1-C1-C2-B2` release result of
+**109.7585 ms/token and 9.1109 token/s**. That remains 9.7585 ms/token above
+the target. The new ranking keeps materially different, actual-payload-gated
+phase-local work ahead of general batch-one double/triple buffering: the trace
+is single-stream and its 0.623453% idle fraction is much smaller than the
+leading kernel exposures. Rejected gate/up load-shape and down CTA-prune
+mechanisms remain closed. Commands, exact arithmetic, report/SQLite hashes,
+same-binary oracle anchor, and limitations are retained in the
+[post-sidecar Decode phase-profile record](metadata/qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json).

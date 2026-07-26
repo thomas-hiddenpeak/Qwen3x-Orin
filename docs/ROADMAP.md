@@ -829,10 +829,27 @@ the `64x256` cooperative shape and production resources, and non-regresses in
 all ten paired rounds, but checkpoint-like/stress medians reach only
 1.00135x/1.00107x against 1.002x. The roughly 0.02-ms/token arithmetic ceiling
 triggers stop-loss before actual checkpoint, NCU, model-oracle, or end-to-end
-work. The candidate is removed. Next capture a fresh production
-P19/C32/max26 Decode profile after the output-sidecar promotion and re-rank
-current-timeline hotspots. See the
+work. The candidate is removed. See the
 [CTA-prune rejection](metadata/qwen36-27b-nvfp4-m1-down-norm-cta-prune-rejection.json).
+
+The required post-sidecar production Decode profile is now complete at
+`aa7312b`, using the final `77931b8` Release binary. Its 25 ranges contain
+10,925 unique kernels on one stream; 2,745.814816 ms raw equals union, and only
+0.623453% of the associated span is idle. Gate/up, QKV/Z, and down remain the
+first three rows at 36.123932%, 20.848359%, and 18.906612%, jointly 75.878904%.
+The promoted output sidecar is fourth at 10.564009%, averaging 0.181293 ms per
+launch and 11.602725 ms per step. Against the older `9bddbda` profiler capture,
+that row is directionally 0.393938 ms/step lower, but cross-process Nsys drift
+means neither the full-trace delta nor other row movement is assigned a cause.
+The unprofiled 109.7585 ms/token and 9.1109 token/s `B1-C1-C2-B2` result remains
+the release anchor. See the
+[post-sidecar Decode phase profile](metadata/qwen36-27b-post-fp8-output-sidecar-decode-phase-profile.json).
+
+The next bounded Decode work therefore starts from the leading three rows and
+requires a materially different mechanism with fixed-clock actual-payload
+gates. Closed gate/up balanced-tail/shared-pipeline/AoSoA4 variants and the
+down CTA-prune are not restored merely because their parent rows remain hot.
+The 100-ms/token and 10-token/s gate still precedes the larger Prefill program.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
