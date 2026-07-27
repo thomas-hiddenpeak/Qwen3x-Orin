@@ -1354,9 +1354,23 @@ The diagnostic Phase 3 records are:
   **1.27998x/1.28465x**, and all 72 pair rounds improve. Single-branch
   exact/replay/guard/input and pair exact/replay/guard checks pass, as do
   Graph, invalid-call, and 126-register/37,376-byte-shared/two-CTA resource
-  gates. The production route is unchanged. Applying the
-  conservative M512 pair minimum to the current Gate/Up union projects, but
-  does not achieve, **2,912.933316 ms / 175.767841 token/s** P513 Prefix.
+  gates. At the time of this screen the production route was unchanged;
+  applying the conservative M512 pair minimum projected, but had not yet
+  achieved, **2,912.933316 ms / 175.767841 token/s** P513 Prefix. The later
+  production record below closes that admission plan without rewriting this
+  historical screen.
+- [`qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json`](qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json),
+  which promotes exact C256/C512 Gate/Up to M128 decoded/staged B-tile reuse.
+  The formal M64 comparator and M128 candidate both contain the same output-
+  span safety fix. Mirrored fixed-clock P257/P513 Prefix improves by
+  **1.079886387949x/1.081515606806x** to **175.547351155/175.730487094
+  token/s**; complete-prompt throughput reaches **164.104109691/
+  169.740778038 token/s**. All 40 outputs, steps, canonical hashes, persistent-
+  memory checks, E2E gates, and the 52-pass/12-skip suite remain exact. Fresh
+  P513 attribution retains 8,209 total and 128 Gate/Up nodes, halves Gate/Up
+  grid X from 1,088 to 544, and reduces its interval union from 1,065.953440
+  to 827.889280 ms (**1.287555553x**). The gain is M128 B reuse, not new
+  buffering or overlap; the existing two-stream fork/join remains unchanged.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

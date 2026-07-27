@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-28T06:46:19+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "676e8ad43b7ba209c147a7b6e428a3dfb78c8956",
+    "tree": "96b39cf88cdb816f5b9beee430deb18c7be1a42b",
+    "parent_commit": "f3f94d7ea7e54063b0d1162844713eae2f3894b6",
+    "subject": "feat: promote M128 Prefill Gate Up reuse",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "span_safety_commit": "33871d5f89ec2dcac64ed53646e0d5e3c70f2c2a",
+    "formal_baseline": {
+      "description": "the production M64 Gate/Up route rebuilt from candidate parent f3f94d7; it contains the same output-span safety fix as the candidate, so the timed source delta is the M128 production promotion",
+      "source_commit": "f3f94d7ea7e54063b0d1162844713eae2f3894b6",
+      "path": "/tmp/q3x-prefill-gate-m128-production-m64-safety-comparator",
+      "bytes": 6205208,
+      "sha256": "ea04b2d500aacd00f2e64e4d371dc44ca7cd88c85455a45952fd2a07d78b7eb7",
+      "elf_build_id": "dc9b73de1a19ad85ef2e43923be9ecd077cee207"
+    },
+    "formal_candidate": {
+      "description": "the exact production M128 Gate/Up source later committed as 676e8ad",
+      "source_commit": "676e8ad43b7ba209c147a7b6e428a3dfb78c8956",
+      "path": "/tmp/q3x-prefill-gate-m128-production-candidate",
+      "bytes": 6205168,
+      "sha256": "ff9261596fcf6a3853949c41bef08dd49243800b258ec0bc292c67d41ff77cf6",
+      "elf_build_id": "68ee24fd83eb2cdad008c289f6c8b2127c9bb849"
+    },
+    "formal_binary_comparability": "Both timed binaries include the same fail-closed output-span overlap contract. The old d1fa6c5 report is not the formal latency baseline and is used below only for matched valid-path GPU profile attribution."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback_at_every_process_boundary": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_rate_locked": true
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, pinned checkpoint, batch one, output one, direct native-runner timing"
+  },
+  "production_route": {
+    "shape": {
+      "rows": 17408,
+      "columns": 5120,
+      "selected_token_counts": [256, 512]
+    },
+    "weight_format": "NVFP4 E2M1 packed, block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "kernel": "one CTA owns an M128-by-N128 output tile and reuses each decoded and staged B tile across eight M16 accumulator panels",
+    "grid_x": {
+      "C256": {
+        "historical_M64": 544,
+        "production_M128": 272
+      },
+      "C512": {
+        "historical_M64": 1088,
+        "production_M128": 544
+      }
+    },
+    "main_stream_branch": "Gate",
+    "auxiliary_stream_branch": "Up",
+    "kernel_nodes_per_layer": 2,
+    "whole_chunk_nodes_per_branch_per_layer": 1,
+    "join": "the existing ready/done CUDA-event fork/join; Gate and Up are independent nodes and both precede the joined main-stream successor",
+    "down_route_changed": false,
+    "c32_c64_and_near_miss_routes_changed": false,
+    "generic_projection_maximum_tokens": 64,
+    "additional_runtime_buffer_bytes": 0,
+    "public_runtime_abi_changed": false,
+    "decode_route_changed": false,
+    "mtp_used": false,
+    "flashinfer_dependency_added": false,
+    "double_or_triple_buffering_added": false,
+    "prefill_decode_overlap_added": false,
+    "interpretation": "The gain is decoded/staged B-tile arithmetic reuse inside each M128 CTA. The already-existing two-stream layer-local fork/join remains; this promotion adds neither a buffering pipeline nor independent Prefill and Decode executors."
+  },
+  "validation": {
+    "production_resource_contract": {
+      "tokens": [256, 512],
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 2,
+      "gate": "pass"
+    },
+    "production_invalid_graph_contract": {
+      "invalid_statuses": 21,
+      "total_cases": 21,
+      "captured_graph_nodes": 0,
+      "coverage": "null, shape, packed-weight, block-scale, activation and output aliases including partial spans and wrapping address intervals",
+      "gate": "pass"
+    },
+    "fork_join_contract": {
+      "token_counts": [256, 512],
+      "graph_nodes": 3,
+      "kernel_nodes": 2,
+      "joined_successor_nodes": 1,
+      "branch_dependencies_before_join": 0,
+      "joined_successor_dependencies": 2,
+      "gate": "pass"
+    },
+    "checkpoint_canary": "pass: historical M64 versus production M128 branch and main/aux pair remain bitwise exact with deterministic replay, intact guards, preserved immutable inputs, one node per branch, and every timed round positive",
+    "full_reference_oracle": "pass: exact 19 prompt IDs, 26 generated IDs/text, im_end, and 44 steps on the SM87 backend",
+    "bulk_e2e": "pass: P257/P513 return token 9419, text Hello, exact 257/513 steps, and unchanged token-CSV hashes",
+    "targeted_ctest": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        "sm87_weight_only_gemv",
+        "projection_backend_dispatch",
+        "reference_runner_host"
+      ]
+    },
+    "full_ctest": {
+      "total": 64,
+      "passed": 52,
+      "expected_skips": 12,
+      "failed": 0,
+      "skip_breakdown": "one tokenizer plus eleven external-model/performance tests"
+    },
+    "independent_static_review_blockers": 0
+  },
+  "formal_protocol": {
+    "order": ["B1", "C1", "C2", "B2"],
+    "baseline": "M64 safety comparator at f3f94d7",
+    "candidate": "production M128 source at 676e8ad",
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompts": ["P257", "P513"],
+    "prompt_text_sha256": {
+      "P257": "2848acb520f124aeb836063c92a6ea73b35834bf01caa6f26ad9d0a4d619da7a",
+      "P513": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2"
+    },
+    "comparison": "arithmetic mean of mirrored per-process medians: B=(B1+B2)/2 and C=(C1+C2)/2",
+    "prefix_definition": "all prompt tokens except the final prompt token and LM head",
+    "complete_prompt_throughput_definition": "P divided by native time_to_first_token",
+    "binary_frozen_within_each_process": true
+  },
+  "raw_process_medians_ms": {
+    "B1": {
+      "P257": {"prefix": 1574.808, "ttft": 1682.568},
+      "P513": {"prefix": 3151.647, "ttft": 3260.334}
+    },
+    "C1": {
+      "P257": {"prefix": 1458.814, "ttft": 1566.619},
+      "P513": {"prefix": 2913.683, "ttft": 3022.398}
+    },
+    "C2": {
+      "P257": {"prefix": 1457.778, "ttft": 1565.539},
+      "P513": {"prefix": 2913.422, "ttft": 3022.113}
+    },
+    "B2": {
+      "P257": {"prefix": 1574.780, "ttft": 1682.615},
+      "P513": {"prefix": 3150.458, "ttft": 3259.175}
+    }
+  },
+  "formal_results": [
+    {
+      "id": "P257",
+      "prompt_tokens": 257,
+      "prefix_tokens": 256,
+      "baseline_prefix_mirrored_mean_ms": 1574.794,
+      "candidate_prefix_mirrored_mean_ms": 1458.296,
+      "prefix_saved_ms": 116.498,
+      "prefix_speedup": 1.079886387949,
+      "prefix_latency_reduction_percent": 7.397665980,
+      "baseline_prefix_tokens_per_second": 162.560944479,
+      "candidate_prefix_tokens_per_second": 175.547351155,
+      "baseline_ttft_mirrored_mean_ms": 1682.5915,
+      "candidate_ttft_mirrored_mean_ms": 1566.079,
+      "ttft_saved_ms": 116.5125,
+      "ttft_speedup": 1.074397587861,
+      "baseline_complete_prompt_tokens_per_second": 152.740579041,
+      "candidate_complete_prompt_tokens_per_second": 164.104109691,
+      "matched_stock_vllm_complete_prompt_tokens_per_second": 373.5793994695759,
+      "matched_stock_vllm_gap": 2.276478024670,
+      "gate": "pass"
+    },
+    {
+      "id": "P513",
+      "prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "baseline_prefix_mirrored_mean_ms": 3151.0525,
+      "candidate_prefix_mirrored_mean_ms": 2913.5525,
+      "prefix_saved_ms": 237.5,
+      "prefix_speedup": 1.081515606806,
+      "prefix_latency_reduction_percent": 7.537164170,
+      "baseline_prefix_tokens_per_second": 162.485391786,
+      "candidate_prefix_tokens_per_second": 175.730487094,
+      "baseline_ttft_mirrored_mean_ms": 3259.7545,
+      "candidate_ttft_mirrored_mean_ms": 3022.2555,
+      "ttft_saved_ms": 237.499,
+      "ttft_speedup": 1.078583362657,
+      "baseline_complete_prompt_tokens_per_second": 157.373814500,
+      "candidate_complete_prompt_tokens_per_second": 169.740778038,
+      "matched_stock_vllm_complete_prompt_tokens_per_second": 411.3850533338813,
+      "matched_stock_vllm_gap": 2.423607680423,
+      "gate": "pass"
+    }
+  ],
+  "screen_projection_closeout": {
+    "screen_artifact": "qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen",
+    "historical_projected_p513_prefix_ms": 2912.933316,
+    "achieved_production_p513_prefix_ms": 2913.5525,
+    "absolute_error_ms": 0.619184,
+    "historical_projected_p513_prefix_tokens_per_second": 175.767841,
+    "achieved_production_p513_prefix_tokens_per_second": 175.730487094,
+    "interpretation": "The screen remains a truthful record of an unimplemented projection at that time. This later production benchmark closes its admission plan and measures a result within 0.620 ms of the projection."
+  },
+  "correctness_and_memory": {
+    "formal_measured_prompt_results": 40,
+    "generated_ids_for_every_prompt": [9419],
+    "generated_text_for_every_prompt": "Hello",
+    "step_counts": {"P257": 257, "P513": 513},
+    "streaming_canonical_extraction": {
+      "method": "For each B1/C1/C2/B2 log, stream lines matching ^(status|projection\\.backend|prefill\\.(requested|effective)_chunk_size|benchmark\\.(prompt_count|max_new_tokens|stop_token_id)|prompt\\.[01]\\.(prompt_ids|generated_ids|generated_text|stop_reason|step_count|steps))= through SHA-256.",
+      "materialized_intermediate_file": false,
+      "sha256_each": "b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118",
+      "all_four_equal": true
+    },
+    "request_arena_bytes_each_process": 233940992,
+    "maximum_observed_drop_bytes": {
+      "B1": 4214784,
+      "C1": 0,
+      "C2": 0,
+      "B2": 0
+    },
+    "persistent_drop_bytes_each_process": {
+      "B1": 0,
+      "C1": 0,
+      "C2": 0,
+      "B2": 0
+    },
+    "persistent_drop_detected_each_process": {
+      "B1": false,
+      "C1": false,
+      "C2": false,
+      "B2": false
+    },
+    "additional_candidate_workspace_bytes": 0
+  },
+  "nsight_p513_c512": {
+    "comparison_scope": "single valid P513 generate, no warmup; the historical d1fa6c5 M64 report and fresh 676e8ad M128 report have the same production GPU route except the Gate/Up M128 substitution. The later span-overlap safety check does not alter this valid path.",
+    "historical_m64": {
+      "source_commit": "d1fa6c507ae064548565d1e8df11b493a5439cf9",
+      "report_path": "/tmp/q3x-gate-up-whole-production-p513-c512.nsys-rep",
+      "report_bytes": 852083,
+      "report_sha256": "0deee613d46fe28ba485f933698e256a3148cf731a5116af5d8bd02425f13114",
+      "sqlite_path": "/tmp/q3x-gate-up-whole-production-p513-c512.sqlite",
+      "sqlite_bytes": 2412544,
+      "sqlite_sha256": "301349c981c37345fe59a0d608020507a2a764f4dccb5b54131d652768b018b8"
+    },
+    "production_m128": {
+      "source_commit": "676e8ad43b7ba209c147a7b6e428a3dfb78c8956",
+      "report_path": "/tmp/q3x-gate-m128-production-p513-c512.nsys-rep",
+      "report_bytes": 854101,
+      "report_sha256": "59753533da4aa33a9850415da817507b18d54a3a130ecebeb166d8b31f6a75b0",
+      "sqlite_path": "/tmp/q3x-gate-m128-production-p513-c512.sqlite",
+      "sqlite_bytes": 2408448,
+      "sqlite_sha256": "516cdd1d96dae3c93303b27ee54ae3c4446ff130d679f9e49657b43db2b43838"
+    },
+    "prefix": {
+      "host_nvtx_wall_ms": {
+        "historical_M64": 3161.631040,
+        "production_M128": 2923.664512,
+        "saved": 237.966528,
+        "speedup": 1.081393240
+      },
+      "kernel_interval_union_ms": {
+        "historical_M64": 3140.580960,
+        "production_M128": 2902.844576,
+        "saved": 237.736384,
+        "speedup": 1.081897731
+      },
+      "kernel_nodes": {
+        "historical_M64": 8209,
+        "production_M128": 8209
+      }
+    },
+    "gate_up": {
+      "kernel_nodes": {
+        "historical_M64": 128,
+        "production_M128": 128
+      },
+      "grid_x": {
+        "historical_M64": 1088,
+        "production_M128": 544
+      },
+      "interval_union_ms": {
+        "historical_M64": 1065.953440,
+        "production_M128": 827.889280,
+        "saved": 238.064160,
+        "speedup": 1.287555553
+      },
+      "raw_kernel_sum_ms": {
+        "historical_M64": 1081.792736,
+        "production_M128": 840.296512,
+        "saved": 241.496224,
+        "speedup": 1.287394057
+      },
+      "cross_stream_overlap_ms": {
+        "historical_M64": 15.839296,
+        "production_M128": 12.407232
+      },
+      "attribution": "Node count and fork/join topology are unchanged. The pair critical path falls because each M128 CTA reuses B work and grid X halves, not because of additional stream overlap."
+    },
+    "unchanged_control": {
+      "nvfp4_down_nodes": {
+        "historical_M64": 64,
+        "production_M128": 64
+      },
+      "nvfp4_down_union_ms": {
+        "historical_M64": 541.595488,
+        "production_M128": 542.444960,
+        "delta_ms": 0.849472
+      }
+    },
+    "analysis_method": {
+      "phase": "q3x.prefill.prefix_tile",
+      "runtime_selection": "same globalTid and contained in the completed NVTX range",
+      "kernel_join": "correlationId plus globalPid",
+      "union_rule": "merge sorted closed kernel intervals when next.start is not after current.end",
+      "marginal_rule": "full Prefix union minus union after excluding selected exact kernel rows"
+    }
+  },
+  "evidence": {
+    "formal_logs": {
+      "B1": {"path": "/tmp/q3x-gate-m128-production-b1.log", "bytes": 29233, "sha256": "7e1522028114f1c378704952752a2e9b5e5f4cffc4044d541a926797ed427e61"},
+      "C1": {"path": "/tmp/q3x-gate-m128-production-c1.log", "bytes": 29227, "sha256": "c030bdab426a4d46c5d0b679214958bde178e7d799d4ec173ec1ccb24f1cdfa5"},
+      "C2": {"path": "/tmp/q3x-gate-m128-production-c2.log", "bytes": 29227, "sha256": "a614eaa6714195d8f3f1cb0e7445ce6d61c2ff8ad468fec360678171bd535989"},
+      "B2": {"path": "/tmp/q3x-gate-m128-production-b2.log", "bytes": 29226, "sha256": "3fc1f245e5f64ace42f69abdca0675962d3e46cf2e00da8e9efca9b7474fd48f"}
+    },
+    "formal_environment": {"path": "/tmp/q3x-gate-m128-production-formal-env.log", "bytes": 1071, "sha256": "01b909e51999b0cd5bdc3a80dc86376f8be95134785ea13a93c25b2f62b2ff25"},
+    "formal_manifest": {"path": "/tmp/q3x-gate-m128-production-formal-manifest.log", "bytes": 1471, "sha256": "2a2301d01d7143c52bacc222ed1b5b6d123a4735c8cf7ae9bface14eabde77d5", "contents": "protocol, baseline/candidate path, bytes, SHA-256, ELF build ID, source commit, exact arguments, prompt-text hashes, and all four formal-log hashes"},
+    "candidate_build": {"path": "/tmp/q3x-gate-m128-production-candidate-build.log", "bytes": 1335, "sha256": "c4e8789e68a216dc98113750f37a7c290e9ed5e5436bca0349bbc3ee129ced12"},
+    "candidate_resource": {"path": "/tmp/q3x-gate-m128-production-candidate-resource.log", "bytes": 1622, "sha256": "ca23bc004f7c99ab919be3a55c8008a8df89348398a09473e478830b60064a63"},
+    "production_default": {"path": "/tmp/q3x-m128-production-final-default.log", "bytes": 69647, "sha256": "1cbbb8f8d6a24c04df49a02570b422512838fcd43c05a30a8901836c3fca1ffb"},
+    "checkpoint_canary": {"path": "/tmp/q3x-m128-production-final-canary.log", "bytes": 24141, "sha256": "bc50ae02cd024ea7129993617d070f4809d514a6fc3d1290691bc3931fcade69"},
+    "targeted_ctest": {"path": "/tmp/q3x-m128-production-final-targeted-ctest.log", "bytes": 635, "sha256": "c8d1db02b73319904f4cc3d6037abfd57f282e2aab96d46f264aba6805ab2392"},
+    "full_ctest": {"path": "/tmp/q3x-gate-m128-production-full-ctest.log", "bytes": 9467, "sha256": "62a28847f91416130912d62d604c00b302fc54fd895da10fcfcd424463094f3e"},
+    "reference_e2e": {"path": "/tmp/q3x-gate-m128-production-reference-engine-e2e.log", "bytes": 650, "sha256": "ac44889b1661f226c3200378685b0e75b2c7c55014aa7117620f3537045fb3fe"},
+    "bulk_e2e": {"path": "/tmp/q3x-gate-m128-production-bulk-attention-e2e.log", "bytes": 370, "sha256": "a7b599d15dd30035946c0045e5cafbfd2f8c6421d92c1bd789a78654baa59db3"},
+    "nsight_analysis": {"path": "/tmp/q3x-gate-m128-production-p513-c512-analysis.json", "bytes": 8595, "sha256": "b6682653b1b7642e2ca4258c4e33ab0d4fdaafdaa7c54a705b64e7ddacb70f55"},
+    "nsight_capture_log": {"path": "/tmp/q3x-gate-m128-production-p513-c512-nsys.log", "bytes": 9755, "sha256": "133284f7f6546075be4b379469885bd00f38606b316329e3676119cf5eb20ffb"}
+  },
+  "external_comparison": {
+    "matched_stock_vllm_complete_prompt_tokens_per_second": {
+      "P257": 373.5793994695759,
+      "P513": 411.3850533338813
+    },
+    "native_production_complete_prompt_tokens_per_second": {
+      "P257": 164.104109691,
+      "P513": 169.740778038
+    },
+    "interpretation": "This is a directional comparison between different runtime systems using complete-prompt P/TTFT accounting. It is not a same-kernel A/B and does not attribute the remaining gap to one backend component.",
+    "user_tuned_vllm_range": "2k-8k token/s",
+    "user_tuned_range_comparable": false,
+    "reason_not_comparable": "No matching raw protocol, prompt-accounting, backend controls, clock evidence, or run logs were supplied for that separately tuned range."
+  },
+  "decision": {
+    "result": "promoted",
+    "selected_mechanism": "M128 Gate/Up decoded/staged B-tile reuse",
+    "next_priority": [
+      "admit the selected sequential FP32-B8 GDN path against real-checkpoint and full-model numerical, recurrent-state, memory, Decode non-regression, fixed-clock Prefix/TTFT, and fresh-profile gates",
+      "immediately after GDN admission, introduce the bounded OpenAI-compatible evaluation gateway and EvalScope alignment in parallel with a global Nsight Compute traffic audit",
+      "use the traffic audit to choose linear-attention FP8 QKV/Z/O or NVFP4 Down as the next large dataflow target after the external capability and performance baseline is established"
+    ]
+  },
+  "limitations": [
+    "This is batch-one latency on one fixed-clock Orin, not multi-request serving throughput, tail latency, power, or energy.",
+    "The historical d1fa6c5 report is used only for valid-path GPU profile attribution; formal end-to-end latency uses the f3f94d7 M64 safety comparator.",
+    "The matched stock-vLLM numbers are a different-system comparison, and the user's separately tuned 2k-8k token/s range is not a matched measurement.",
+    "No MTP, FlashInfer dependency, new double/triple buffering, independent Prefill/Decode executor, or Prefill/Decode overlap is introduced."
+  ]
+}

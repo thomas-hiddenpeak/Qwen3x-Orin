@@ -1473,7 +1473,7 @@ row-search structure without an unpriced global-progress assumption. See the
   94.35% of its union saving and the result is not described as buffering.
   The subsequent M128 B-tile-reuse screen is recorded below. See the
   [Gate/Up production record](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
-- [selected for production admission, test-only NVFP4 Gate/Up M128 B reuse]
+- [done, historical test-only NVFP4 Gate/Up M128 B-reuse screen]
   Commit `1f8779c` reuses each decoded/staged B tile across two adjacent M64
   token panels. Three frozen-binary processes reach
   **1.275707061x/1.283725529x** aggregate single-branch speedup at M256/M512.
@@ -1482,12 +1482,25 @@ row-search structure without an unpriced global-progress assumption. See the
   all-round minima are **1.27930x/1.28349x**. Branch exact/replay/guard/input,
   pair exact/replay/guard, invalid-call, Graph, and
   126-register/37,376-byte-shared/two-CTA resource gates pass. Production
-  remains on M64. A conservative, unimplemented P513
-  projection is **2,912.933316 ms / 175.767841 token/s**. Next freeze pair
-  Graph topology, partial-alias rejection, and an exact checkpoint-hash
-  fixture; then route exact C256/C512 and require fixed-clock full-model and
-  fresh-Nsight admission. See the
+  remained on M64 at screen time. Its conservative, then-unimplemented P513
+  projection was **2,912.933316 ms / 175.767841 token/s**. The production
+  promotion immediately below closes that plan while this record retains its
+  historical screen status. See the
   [M128 screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).
+- [done, production NVFP4 C256/C512 Gate/Up M128 B reuse] Commit `676e8ad`
+  promotes the screened kernel after pair Graph, partial/wrapping alias,
+  exact-checkpoint, resource, memory, and full-suite gates. Formal M64 and
+  M128 binaries contain the same span-safety fix. Mirrored P257/P513 Prefix
+  improves **1.079886387949x/1.081515606806x** to
+  **175.547351155/175.730487094 token/s**; complete-prompt throughput reaches
+  **164.104109691/169.740778038 token/s**. All 40 outputs and canonical
+  contracts match, every process has zero persistent drop, and the suite has
+  52 passes/12 expected skips/zero failures. Fresh P513 Nsight keeps 8,209
+  Prefix and 128 Gate/Up nodes, halves Gate/Up grid X from 1,088 to 544, and
+  reduces its union from 1,065.953440 to 827.889280 ms
+  (**1.287555553x**). The existing two-stream fork/join remains; the gain is
+  M128 B reuse, not new buffering or overlap. See the
+  [M128 production record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
 - [selected test-only GDN sequential FP32-B8; current WY rejected] Commit
   `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
   lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
@@ -1497,7 +1510,8 @@ row-search structure without an unpriced global-progress assumption. See the
   numerical, immutable-input, invalid-contract, and 109-register/8,256-byte-
   shared/two-CTA gates pass. The 37,748,736-byte rotating state pool exceeds
   the 4-MiB L2 but makes no hit-rate claim. Production remains unchanged.
-  After M128 admission, GDN requires real-checkpoint numerics, full-model
+  With M128 admission complete, GDN is the immediate candidate and requires
+  real-checkpoint numerics, full-model
   exact-token/state/memory, fixed-clock Prefix/TTFT, Decode non-regression,
   and fresh-profiler gates. See the
   [GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json).
@@ -1532,7 +1546,7 @@ row-search structure without an unpriced global-progress assumption. See the
   result. See the
   [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
 - [done, current C512 optimized-route bundle] Commits `1f7d6be`, `6327733`,
-  `10c4c85`, `86d5843`, and `d1fa6c5` route exact C256/C512 bulk
+  `10c4c85`, `86d5843`, `d1fa6c5`, and `676e8ad` route exact C256/C512 bulk
   full-attention compute, NVFP4 Down and Gate/Up, FP8 linear-attention
   QKV/Z/O, and FP8 full-attention Q/K/V behind the ABI-0.4 boundary.
   P257/P513 exact-token, persistent-state,
@@ -1540,8 +1554,9 @@ row-search structure without an unpriced global-progress assumption. See the
   fallbacks, Decode Graph, and default C1 remain. The early synchronous M64
   Gate/Up recheck was rejected, but the later production-like whole-chunk
   main/aux pair reached 1.12867x at C512 and then passed production admission.
-  The current route uses one kernel per branch and the existing event join;
-  it does not introduce an independent executor or buffering pipeline.
+  The current Gate/Up route uses one M128 B-reuse kernel per branch and the
+  existing event join; it does not introduce an independent executor or
+  buffering pipeline.
 - [done, native bulk attention production route; queued new-mechanism GDN]
   Commit `3044ab5` validates
   the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
@@ -1589,34 +1604,38 @@ Exit criteria:
 The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
 The 100-ms/token / 10-token/s objective remains documented but is no longer a
 prerequisite for Prefill work. The C256/C512 whole-chunk main/aux-stream
-Gate/Up route is now production-integrated and passes exact model, memory,
-mirrored-latency, and fresh-profile gates. The test-only M128 Gate/Up kernel
-has now passed its 1.05x branch and 1.08x M512 main/aux-pair stop-losses while
-staying within 128 registers, zero local/spill traffic, and two resident
-CTA/SM. It is selected for production admission, not yet production-routed.
-First freeze pair Graph topology, partial-alias rejection, and the exact
-checkpoint-hash fixture; then require exact C256/C512 routing, full-model
-fixed-clock Prefix/TTFT, memory, Decode non-regression, and fresh Nsight.
+Gate/Up route now uses production M128 B reuse and passes exact model, memory,
+mirrored-latency, resource/invalid, full-suite, and fresh-profile gates.
+P257/P513 Prefix reaches **175.547351155/175.730487094 token/s** and complete-
+prompt throughput reaches **164.104109691/169.740778038 token/s**. The layer
+still has one Gate and one Up node on the existing two-stream fork/join; no
+new double/triple buffering or Prefill/Decode overlap was introduced.
 The parallel GDN screen selects sequential FP32-B8 at **2.76977x/2.78551x**
 over production M16 and rejects the measured WY dataflow, but remains
-test-only and follows M128 admission. It must pass real-checkpoint numerical,
+test-only and is now the immediate admission target. It must pass real-
+checkpoint numerical,
 full-model exact-token/state/memory, fixed-clock Prefix/TTFT, Decode, and fresh
-profiler gates before routing. Global NCU traffic evidence then selects linear-
-attention FP8 QKV/Z/O or NVFP4 Down for the next dataflow change.
+profiler gates before routing. Immediately after GDN admission, begin the
+bounded OpenAI-compatible API/EvalScope work and global NCU traffic audit in
+parallel. The audit then selects linear-attention FP8 QKV/Z/O or NVFP4 Down
+for the next large dataflow change after the external baseline exists.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request
 serving throughput is a separate later target.
 
-Before Phase 3.5, run an offline same-token vLLM/FlashInfer alignment matrix
-from the existing dedicated reference environment. Use P65/P129/P257/P513/
-P1025, batch one, output one, matched cache precision and backend controls, and
-`P / scheduled-to-first-token` as the cross-framework metric. The current
-native production result now reaches **141.273450981/145.327508146 token/s** by
-complete-prompt `P/TTFT` accounting at P257/P513. It remains far below the
-user's separately tuned 2k--8k range, which is not treated as a matched result.
-The offline gate establishes the stock-runtime gap without delaying kernel
-work for an HTTP adapter; Phase 3.5 remains the point where EvalScope and
-user-visible TTFT become first-class release evidence.
+Before Phase 3.5, retain the completed offline same-token vLLM/FlashInfer
+matrix as the cross-framework reference. Its batch-one/output-one comparison
+uses `P / scheduled-to-first-token`; native direct timing uses complete-prompt
+`P/TTFT`. Current native production reaches **164.104109691/169.740778038
+token/s** at P257/P513, while matched stock vLLM reaches 373.579/411.385.
+These are different runtime systems and leave directional
+**2.276478024670x/2.423607680423x** gaps, not a same-kernel attribution. The
+user's
+separately tuned 2k--8k range has no matched raw protocol and is not treated as
+a comparable result. Complete GDN admission, then introduce the HTTP adapter
+and EvalScope in parallel with the ensuing traffic audit so the external
+baseline precedes the next large dataflow optimization. Phase 3.5 remains
+where EvalScope and user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses
 FlashInfer for 16 full-attention layers, GDN for 48 layers, and Marlin for
@@ -1630,9 +1649,10 @@ See the
 The vLLM-side formal matrix is also complete: three 3-warmup/10-measure
 processes reach 236.380/312.828/373.579/411.385/432.738 prompt token/s at
 P65/P129/P257/P513/P1025, with 150/150 trusted timestamps and first token ID
-9419. The native production boundary and mirrored ordering are now complete:
-P257/P513 reach 141.273450981/145.327508146 token/s, leaving directional
-stock-vLLM gaps of **2.644368049x/2.830744195x**. Native `Prefix` still
+9419. The current native production boundary and mirrored ordering are
+complete: P257/P513 reach 164.104109691/169.740778038 token/s, leaving
+directional stock-vLLM gaps of **2.276478024670x/2.423607680423x**. Native
+`Prefix` still
 excludes the final
 prompt token and LM head, so cross-framework comparisons use complete-prompt
 `P/TTFT`, not `(P-1)/Prefix`. See the

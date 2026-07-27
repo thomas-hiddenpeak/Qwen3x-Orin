@@ -7592,10 +7592,10 @@ local/stack/spill traffic, and retain two resident CTA/SM, passing the frozen
 resource gate. The default test log also passes.
 
 Applying the conservative cross-process-minimum M512 pair speedup of 1.28465x
-to only the current 1,065.953440-ms P513 Gate/Up interval union gives this
+to only the then-current 1,065.953440-ms P513 Gate/Up interval union gave this
 unimplemented arithmetic projection:
 
-| P513 Prefix quantity | Current production | M128 projection |
+| P513 Prefix quantity | Screen-time M64 production | M128 projection |
 | --- | ---: | ---: |
 | Gate/Up union | 1,065.953440 ms | 829.761756 ms |
 | Gate/Up saving | -- | 236.191684 ms |
@@ -7603,16 +7603,96 @@ unimplemented arithmetic projection:
 | Prefix speedup | 1.000000000x | **1.081083794x** |
 | Prefix throughput | 162.584844997 token/s | **175.767841 token/s** |
 
-This projection is not an achieved production Prefix, TTFT, or full-model
-result. The candidate is selected only for production admission. Before
-routing it, freeze the pair Graph topology, partial-alias rejection, and exact
-checkpoint-hash fixture. Then admit only the exact C256/C512 Gate/Up routes
-and rerun fixed-clock exact-output, memory, Prefix/TTFT, and fresh Nsight
-gates. The parallel GDN study now favors its test-only sequential FP32-B8
-formulation over WY, but neither GDN candidate is production-routed; that
-screen is recorded below and M128 Gate/Up admission remains first. Full binary
+At the time of this screen, the projection was not an achieved production
+Prefix, TTFT, or full-model result and the candidate was selected only for
+production admission. The later promotion below freezes the pair Graph
+topology, partial-alias rejection, exact checkpoint output, memory,
+fixed-clock Prefix/TTFT, and fresh Nsight gates. This historical screen and
+its `implemented: false` field remain unchanged so that the distinction
+between forecast and later measurement stays auditable. Full screen binary
 identity, raw-log hashes, gates, and limitations are in the
 [M128 B-tile-reuse screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).
+
+## NVFP4 Gate/Up M128 B-tile-reuse production promotion
+
+Commit `676e8ad` promotes only the exact aligned C256/C512 Gate/Up route to
+the screened M128 kernel. One CTA owns an M128-by-N128 output tile and reuses
+each decoded/staged B tile across eight M16 accumulator panels. Grid X falls
+from 544 to 272 at C256 and from 1,088 to 544 at C512. Each layer still has
+one Gate node on the main stream and one Up node on the runner-owned auxiliary
+stream, followed by the existing event join. C32/C64 and near misses, Down,
+Decode, the public ABI, workspace, and the generic C64 projection cap remain
+unchanged.
+
+The formal timing baseline is not the older `d1fa6c5` binary. It is the
+6,205,208-byte M64 safety comparator built from candidate parent `f3f94d7`,
+with SHA-256
+`ea04b2d500aacd00f2e64e4d371dc44ca7cd88c85455a45952fd2a07d78b7eb7`
+and ELF build ID `dc9b73de1a19ad85ef2e43923be9ecd077cee207`.
+The 6,205,168-byte M128 candidate has SHA-256
+`ff9261596fcf6a3853949c41bef08dd49243800b258ec0bc292c67d41ff77cf6`
+and ELF build ID `68ee24fd83eb2cdad008c289f6c8b2127c9bb849`.
+Both contain the same fail-closed output-span overlap fix from `33871d5`, so
+the formal source delta is the M128 production promotion rather than a safety-
+contract difference.
+
+Fixed 1.3005-GHz GPU and locked 3.2-GHz EMC measurements used
+`B1-C1-C2-B2` order. Each process loaded the pinned checkpoint once and used
+batch one, C512, output one, one warmup, and five measurements per P257/P513
+prompt:
+
+| Prompt / phase | Mirrored M64 B | Mirrored M128 C | Saved | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,574.7940 ms | 1,458.2960 ms | 116.4980 ms | **1.079886387949x** |
+| P257 TTFT | 1,682.5915 ms | 1,566.0790 ms | 116.5125 ms | **1.074397587861x** |
+| P513 Prefix | 3,151.0525 ms | 2,913.5525 ms | 237.5000 ms | **1.081515606806x** |
+| P513 TTFT | 3,259.7545 ms | 3,022.2555 ms | 237.4990 ms | **1.078583362657x** |
+
+Prefix throughput is now **175.547351155 token/s at P257** and
+**175.730487094 token/s at P513**. Complete-prompt `P/TTFT` throughput is
+**164.104109691** and **169.740778038 token/s**. The screen's historical
+P513 projection was 2,912.933316 ms / 175.767841 token/s; production lands at
+2,913.5525 ms / 175.730487094 token/s, only 0.619184 ms from that forecast.
+
+All 40 measured results return token 9419 (`Hello`) with exact 257/513 steps.
+The same streamed routing/output/step extraction has SHA-256
+`b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118`
+for all four logs. Every process reports zero persistent memory drop; only B1
+records a 4,214,784-byte transient maximum. The independent 19-prompt/
+26-output oracle and P257/P513 bulk E2E pass. The full 64-test suite has
+**52 passes, 12 expected skips, and zero failures**. Production C256/C512
+resources remain 126 registers, 37,376 bytes static shared, zero local/stack/
+spill, and two CTA/SM. All 21 invalid capture cases return invalid and enqueue
+zero nodes, including partial and wrapping span aliases.
+
+A fresh single-generate P513/C512 profile closes a 2,923.664512-ms Prefix
+NVTX range versus the historical M64 report's 3,161.631040 ms. Prefix kernel
+interval union falls from 3,140.580960 to 2,902.844576 ms. Total Prefix nodes
+remain **8,209**, and Gate/Up remains **128 nodes**; the change is arithmetic
+reuse, not node removal. Gate/Up grid X halves from 1,088 to 544 and its
+interval union falls from 1,065.953440 to 827.889280 ms, saving 238.064160 ms
+at **1.287555553x**. Raw pair time falls from 1,081.792736 to 840.296512 ms,
+while existing cross-stream overlap changes from 15.839296 to 12.407232 ms.
+The unchanged Down control moves only from 541.595488 to 542.444960 ms.
+
+The older `d1fa6c5` report is used only for this valid-path GPU attribution;
+formal end-to-end latency uses the same-safety `f3f94d7` comparator above.
+No MTP, FlashInfer dependency, new double/triple buffer, or Prefill/Decode
+overlap is added. Against different-system stock-vLLM complete-prompt values
+of 373.579/411.385 token/s, the remaining P257/P513 gaps are directional
+**2.276478024670x/2.423607680423x**. The user's separately tuned 2k--8k token/s
+range lacks a matched raw protocol and is not treated as a comparable result.
+
+The next production priority is the selected sequential FP32-B8 GDN path:
+first require real-checkpoint/full-model numerics, recurrent-state and memory
+gates, Decode non-regression, fixed-clock Prefix/TTFT, and fresh attribution.
+Immediately after GDN admission, start the bounded OpenAI-compatible API and
+EvalScope alignment in parallel with a global NCU traffic audit. This
+establishes the external capability/performance baseline while the audit
+chooses linear-attention FP8 QKV/Z/O or NVFP4 Down for the next large dataflow
+change. Full identities, raw medians, hashes, graph contracts, profile method,
+and limitations are in the
+[M128 production benchmark](metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
 
 ## GDN B8 block-transition selection
 
