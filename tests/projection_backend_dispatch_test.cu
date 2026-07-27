@@ -1913,6 +1913,367 @@ void test_tile_routes(TestContext& test) {
       "SM87 NVFP4 M65 tile guard");
 }
 
+void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
+  constexpr std::size_t kM64Tokens = 64U;
+  const auto* const encoded_weight =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const companion_scales =
+      reinterpret_cast<const float*>(0x20'0000'0000ULL);
+  const auto* const input =
+      reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x40'0000'0000ULL);
+  const auto make_fp8 = [&](const std::size_t rows,
+                            const std::size_t columns) {
+    return runtime::LinearWeight{runtime::Fp8LinearWeight{
+        encoded_weight, companion_scales, companion_scales + 1U,
+        1.0F, 1.0F, rows, columns}};
+  };
+  const runtime::LinearWeight qkv = make_fp8(10'240U, 5'120U);
+  const runtime::LinearWeight z = make_fp8(6'144U, 5'120U);
+  const runtime::LinearWeight attention_output = make_fp8(5'120U, 6'144U);
+
+  test.expect(runtime::kMaximumProjectionTileTokenCount == kM64Tokens,
+              "FP8 whole-chunk entry leaves the generic cap at C64");
+  const auto expect_exact_grid =
+      [&](const runtime::LinearWeight& weight,
+          const std::size_t rows, const std::size_t columns,
+          const std::size_t token_count, const std::string& label) {
+        const CapturedKernelChain dispatch = capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                      runtime::ProjectionBackend::kSm87WeightOnly, weight,
+                      input, token_count, output,
+                      static_cast<void*>(stream));
+            },
+            label + " dispatch graph");
+        const CapturedKernelChain direct = capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return q3x::kernels::
+                  launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+                      encoded_weight, 1.0F, input, token_count, rows,
+                      columns, output, static_cast<void*>(stream));
+            },
+            label + " direct graph");
+        const unsigned int expected_grid = static_cast<unsigned int>(
+            (rows / 128U) * (token_count / kM64Tokens));
+        const bool exact =
+            dispatch.valid && dispatch.launches.size() == 1U && direct.valid &&
+            direct.launches.size() == 1U &&
+            dispatch.launches.front().function ==
+                direct.launches.front().function &&
+            dispatch.launches.front().grid.x == expected_grid &&
+            dispatch.launches.front().grid.y == 1U &&
+            dispatch.launches.front().grid.z == 1U &&
+            dispatch.launches.front().block.x == 256U &&
+            dispatch.launches.front().block.y == 1U &&
+            dispatch.launches.front().block.z == 1U &&
+            dispatch.launches.front().dynamic_shared_bytes == 0U;
+        test.expect(exact, label + " is one exact N-major production grid");
+      };
+  for (const std::size_t token_count : {256U, 512U}) {
+    expect_exact_grid(qkv, 10'240U, 5'120U, token_count,
+                      "FP8 QKV C" + std::to_string(token_count));
+    expect_exact_grid(z, 6'144U, 5'120U, token_count,
+                      "FP8 Z C" + std::to_string(token_count));
+    expect_exact_grid(attention_output, 5'120U, 6'144U, token_count,
+                      "FP8 O C" + std::to_string(token_count));
+  }
+
+  // Exercise the public runtime route on real storage and a non-default
+  // stream. The low-level launcher must clear an unrelated stale last-error
+  // before capture, and the resulting one-node graph must instantiate and
+  // replay successfully.
+  constexpr std::size_t kReplayTokens = 256U;
+  constexpr std::size_t kReplayRows = 10'240U;
+  constexpr std::size_t kReplayColumns = 5'120U;
+  DeviceBuffer<std::uint8_t> replay_weight;
+  DeviceBuffer<float> replay_scales;
+  DeviceBuffer<std::uint16_t> replay_input;
+  DeviceBuffer<std::uint16_t> replay_output;
+  bool replay_ready = replay_weight.allocate(
+      test, kReplayRows * kReplayColumns,
+      "FP8 whole-chunk graph replay weight");
+  replay_ready = replay_ready && replay_scales.allocate(
+                                     test, 2U,
+                                     "FP8 whole-chunk graph replay scales");
+  replay_ready = replay_ready && replay_input.allocate(
+                                     test, kReplayTokens * kReplayColumns,
+                                     "FP8 whole-chunk graph replay input");
+  replay_ready = replay_ready && replay_output.allocate(
+                                     test, kReplayTokens * kReplayRows,
+                                     "FP8 whole-chunk graph replay output");
+  replay_ready = replay_ready && test.cuda_ok(
+                                     cudaMemset(replay_weight.get(), 0,
+                                                kReplayRows * kReplayColumns),
+                                     "zero graph replay weights");
+  replay_ready = replay_ready && test.cuda_ok(
+                                     cudaMemset(
+                                         replay_input.get(), 0,
+                                         kReplayTokens * kReplayColumns *
+                                             sizeof(std::uint16_t)),
+                                     "zero graph replay input");
+  const std::array<float, 2U> host_scales{{1.0F, 1.0F}};
+  replay_ready = replay_ready && test.cuda_ok(
+                                     cudaMemcpy(
+                                         replay_scales.get(),
+                                         host_scales.data(),
+                                         sizeof(host_scales),
+                                         cudaMemcpyHostToDevice),
+                                     "upload graph replay scales");
+  cudaStream_t replay_stream = nullptr;
+  cudaGraph_t replay_graph = nullptr;
+  cudaGraphExec_t replay_exec = nullptr;
+  replay_ready = replay_ready && test.cuda_ok(
+                                     cudaStreamCreateWithFlags(
+                                         &replay_stream,
+                                         cudaStreamNonBlocking),
+                                     "create graph replay stream");
+  if (replay_ready) {
+    const runtime::LinearWeight replay_qkv = runtime::Fp8LinearWeight{
+        replay_weight.get(), replay_scales.get(), replay_scales.get() + 1U,
+        1.0F, 1.0F, kReplayRows, kReplayColumns};
+    const cudaError_t stale =
+        cudaMemcpy(nullptr, nullptr, 1U, cudaMemcpyHostToDevice);
+    test.expect(stale == cudaErrorInvalidValue,
+                "FP8 whole chunk seeds a stale CUDA last-error");
+    replay_ready = test.cuda_ok(
+        cudaStreamBeginCapture(replay_stream, cudaStreamCaptureModeGlobal),
+        "begin FP8 whole-chunk replay capture");
+    int launch_status = static_cast<int>(cudaErrorUnknown);
+    if (replay_ready) {
+      launch_status =
+          runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, replay_qkv,
+              replay_input.get(), kReplayTokens, replay_output.get(),
+              static_cast<void*>(replay_stream));
+      test.expect(static_cast<cudaError_t>(launch_status) == cudaSuccess,
+                  "FP8 whole chunk ignores stale error during capture");
+      replay_ready = test.cuda_ok(
+          cudaStreamEndCapture(replay_stream, &replay_graph),
+          "end FP8 whole-chunk replay capture");
+    }
+    std::size_t replay_nodes = 0U;
+    replay_ready = replay_ready && test.cuda_ok(
+                                       cudaGraphGetNodes(
+                                           replay_graph, nullptr,
+                                           &replay_nodes),
+                                       "count FP8 replay graph nodes");
+    test.expect(replay_nodes == 1U,
+                "FP8 whole-chunk replay graph contains one kernel");
+    replay_ready = replay_ready && test.cuda_ok(
+                                       cudaGraphInstantiate(
+                                           &replay_exec, replay_graph,
+                                           nullptr, nullptr, 0U),
+                                       "instantiate FP8 replay graph");
+    replay_ready = replay_ready && test.cuda_ok(
+                                       cudaMemsetAsync(
+                                           replay_output.get(), 0xff,
+                                           kReplayTokens * kReplayRows *
+                                               sizeof(std::uint16_t),
+                                           replay_stream),
+                                       "poison FP8 replay output");
+    replay_ready = replay_ready && test.cuda_ok(
+                                       cudaGraphLaunch(replay_exec,
+                                                       replay_stream),
+                                       "launch FP8 replay graph");
+    replay_ready = replay_ready && test.cuda_ok(
+                                       cudaStreamSynchronize(replay_stream),
+                                       "synchronize FP8 replay graph");
+    std::array<std::uint16_t, 2U> edge_outputs{{0xffffU, 0xffffU}};
+    if (replay_ready) {
+      replay_ready = test.cuda_ok(
+          cudaMemcpy(&edge_outputs[0], replay_output.get(),
+                     sizeof(std::uint16_t), cudaMemcpyDeviceToHost),
+          "read first FP8 replay output");
+      replay_ready = replay_ready && test.cuda_ok(
+          cudaMemcpy(&edge_outputs[1],
+                     replay_output.get() +
+                         kReplayTokens * kReplayRows - 1U,
+                     sizeof(std::uint16_t), cudaMemcpyDeviceToHost),
+          "read last FP8 replay output");
+    }
+    test.expect(replay_ready && edge_outputs[0] == 0U &&
+                    edge_outputs[1] == 0U,
+                "FP8 whole-chunk graph replay writes the complete output");
+  }
+  if (replay_exec != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(replay_exec),
+                       "destroy FP8 replay executable");
+  }
+  if (replay_graph != nullptr) {
+    (void)test.cuda_ok(cudaGraphDestroy(replay_graph),
+                       "destroy FP8 replay graph");
+  }
+  if (replay_stream != nullptr) {
+    (void)test.cuda_ok(cudaStreamDestroy(replay_stream),
+                       "destroy FP8 replay stream");
+  }
+
+  const auto expect_not_supported =
+      [&](const runtime::ProjectionBackend backend,
+          const runtime::LinearWeight& weight,
+          const std::uint16_t* const selected_input,
+          const std::size_t token_count, const std::string& label) {
+        expect_not_supported_capture_has_no_nodes(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                      backend, weight, selected_input, token_count, output,
+                      static_cast<void*>(stream));
+            },
+            label);
+      };
+  expect_not_supported(runtime::ProjectionBackend::kReference, qkv, input,
+                       256U, "FP8 whole chunk rejects reference backend");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                       input, 64U, "FP8 whole chunk rejects C64");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                       input, 255U, "FP8 whole chunk rejects C255");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                       input, 513U, "FP8 whole chunk rejects C513");
+  const runtime::LinearWeight shape_near_miss =
+      make_fp8(10'239U, 5'120U);
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       shape_near_miss, input, 256U,
+                       "FP8 whole chunk rejects QKV N near miss");
+  const runtime::LinearWeight type_near_miss = runtime::Bf16LinearWeight{
+      reinterpret_cast<const std::uint16_t*>(encoded_weight), 10'240U,
+      5'120U};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       type_near_miss, input, 256U,
+                       "FP8 whole chunk rejects BF16 payload");
+  const runtime::LinearWeight unaligned_weight = runtime::Fp8LinearWeight{
+      encoded_weight + 4U, companion_scales, companion_scales + 1U,
+      1.0F, 1.0F, 10'240U, 5'120U};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       unaligned_weight, input, 256U,
+                       "FP8 whole chunk rejects 4-byte weight alignment");
+  const auto* const unaligned_input = reinterpret_cast<const std::uint16_t*>(
+      reinterpret_cast<std::uintptr_t>(input) + 2U);
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                       unaligned_input, 256U,
+                       "FP8 whole chunk rejects 2-byte input alignment");
+
+  const auto expect_invalid =
+      [&](const runtime::LinearWeight& weight,
+          const std::uint16_t* const selected_input,
+          std::uint16_t* const selected_output, const std::string& label) {
+        expect_invalid_capture_has_no_nodes(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                      runtime::ProjectionBackend::kSm87WeightOnly, weight,
+                      selected_input, 256U, selected_output,
+                      static_cast<void*>(stream));
+            },
+            label);
+      };
+  expect_invalid(runtime::Fp8LinearWeight{
+                     nullptr, companion_scales, companion_scales + 1U,
+                     1.0F, 1.0F, 10'240U, 5'120U},
+                 input, output, "FP8 whole chunk rejects null weight");
+  expect_invalid(runtime::Fp8LinearWeight{
+                     encoded_weight, nullptr, companion_scales + 1U,
+                     1.0F, 1.0F, 10'240U, 5'120U},
+                 input, output,
+                 "FP8 whole chunk rejects null weight-scale device pointer");
+  expect_invalid(runtime::Fp8LinearWeight{
+                     encoded_weight, companion_scales, nullptr,
+                     1.0F, 1.0F, 10'240U, 5'120U},
+                 input, output,
+                 "FP8 whole chunk rejects null input-scale device pointer");
+  expect_invalid(runtime::Fp8LinearWeight{
+                     encoded_weight, companion_scales,
+                     companion_scales + 1U,
+                     std::numeric_limits<float>::quiet_NaN(), 1.0F,
+                     10'240U, 5'120U},
+                 input, output, "FP8 whole chunk rejects NaN weight scale");
+  expect_invalid(qkv, nullptr, output,
+                 "FP8 whole chunk rejects null input");
+  expect_invalid(qkv, input, nullptr,
+                 "FP8 whole chunk rejects null output");
+  expect_invalid(qkv, input, const_cast<std::uint16_t*>(input),
+                 "FP8 whole chunk rejects full-chunk input/output alias");
+  expect_invalid(
+      qkv, input,
+      const_cast<std::uint16_t*>(input) + 64U * 5'120U,
+      "FP8 whole chunk rejects alias beginning beyond the first C64 input");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, qkv, input,
+                512U,
+                const_cast<std::uint16_t*>(input) + 64U * 5'120U,
+                static_cast<void*>(stream));
+      },
+      "FP8 C512 rejects alias beginning beyond the first C64 input");
+  expect_invalid(
+      qkv, input,
+      reinterpret_cast<std::uint16_t*>(
+          const_cast<std::uint8_t*>(encoded_weight) + 128U),
+      "FP8 whole chunk rejects output inside the weight span");
+  expect_invalid(qkv, input,
+                 reinterpret_cast<std::uint16_t*>(
+                     const_cast<float*>(companion_scales)),
+                 "FP8 whole chunk rejects output over companion scale");
+  auto* const odd_output = reinterpret_cast<std::uint16_t*>(
+      reinterpret_cast<std::uintptr_t>(output) + 1U);
+  expect_invalid(qkv, input, odd_output,
+                 "FP8 whole chunk rejects odd BF16 output");
+  const std::uintptr_t near_end =
+      std::numeric_limits<std::uintptr_t>::max() - 3U;
+  expect_invalid(qkv,
+                 reinterpret_cast<const std::uint16_t*>(near_end), output,
+                 "FP8 whole chunk rejects wrapping input range");
+  const runtime::LinearWeight wrapping_weight = runtime::Fp8LinearWeight{
+      reinterpret_cast<const std::uint8_t*>(near_end), companion_scales,
+      companion_scales + 1U, 1.0F, 1.0F, 10'240U, 5'120U};
+  expect_invalid(wrapping_weight, input, output,
+                 "FP8 whole chunk rejects wrapping weight range");
+
+  std::size_t fallback_total_nodes = 0U;
+  bool fallback_linear_chain = false;
+  const std::size_t fallback_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        constexpr std::size_t kRunnerSubtileTokens = 32U;
+        int status =
+            runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                shape_near_miss, input, 256U, output,
+                static_cast<void*>(stream));
+        if (static_cast<cudaError_t>(status) != cudaErrorNotSupported) {
+          return status;
+        }
+        for (std::size_t offset = 0U; offset < 256U;
+             offset += kRunnerSubtileTokens) {
+          status = runtime::launch_projection_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              shape_near_miss, input + offset * 5'120U,
+              kRunnerSubtileTokens, nullptr, 0U,
+              output + offset * 10'239U, static_cast<void*>(stream));
+          if (status != static_cast<int>(cudaSuccess)) {
+            return status;
+          }
+        }
+        return static_cast<int>(cudaSuccess);
+      },
+      "FP8 C256 near-miss whole-chunk fallback graph",
+      &fallback_total_nodes, &fallback_linear_chain);
+  test.expect(fallback_kernel_nodes == 32U && fallback_total_nodes == 32U &&
+                  fallback_linear_chain,
+              "FP8 whole-chunk near miss retains eight ordered generic C32 "
+              "fallback schedules");
+}
+
 void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
   constexpr std::size_t kHiddenSize = 5'120U;
   constexpr std::size_t kIntermediateSize = 17'408U;
@@ -6262,6 +6623,7 @@ int main() {
   test_fp8_m1_output_sidecar_dispatch(test);
   test_bf16_direct_production_dispatch(test);
   test_tile_routes(test);
+  test_exact_fp8_whole_chunk_projection_dispatch(test);
   test_exact_nvfp4_whole_chunk_branch_dispatch(test);
   test_bf16_projection_pair_dispatch(test);
   test_fp8_projection_pair_dispatch(test);

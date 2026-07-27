@@ -796,6 +796,71 @@ void test_fake_linear_weight_validation(TestContext& test) {
       "runner FP8 C64 selector rejects decode/C32/C512/near-miss/alignment "
       "cases without inheriting the request maximum");
 
+  const runtime::LinearWeight qkv_whole_chunk = runtime::Fp8LinearWeight{
+      attention_output_weight.data(), &device_weight_scale,
+      &device_input_scale, 0.25F, 0.5F, 10'240U, 5'120U};
+  const runtime::LinearWeight z_whole_chunk = runtime::Fp8LinearWeight{
+      attention_output_weight.data(), &device_weight_scale,
+      &device_input_scale, 0.25F, 0.5F, 6'144U, 5'120U};
+  const runtime::LinearWeight missing_whole_chunk_companions =
+      runtime::Fp8LinearWeight{attention_output_weight.data(), nullptr,
+                               nullptr, 0.25F, 0.5F, 10'240U, 5'120U};
+  const auto selects_fp8_whole_chunk =
+      [&](const runtime::LinearWeight& weight,
+          const std::size_t token_count) noexcept {
+        return detail::use_fp8_whole_chunk_prefill_projection(
+            runtime::ProjectionBackend::kSm87WeightOnly, weight,
+            attention_input.data(), attention_output.data(), token_count);
+      };
+  test.expect(
+      selects_fp8_whole_chunk(qkv_whole_chunk, 256U) &&
+          selects_fp8_whole_chunk(qkv_whole_chunk, 512U) &&
+          selects_fp8_whole_chunk(z_whole_chunk, 256U) &&
+          selects_fp8_whole_chunk(z_whole_chunk, 512U) &&
+          selects_fp8_whole_chunk(attention_output_projection, 256U) &&
+          selects_fp8_whole_chunk(attention_output_projection, 512U),
+      "runner selects QKV/Z/O exact aligned FP8 C256/C512 whole chunks");
+  test.expect(
+      selects_fp8_whole_chunk(missing_whole_chunk_companions, 256U),
+      "runner FP8 whole-chunk selector leaves malformed companion scales "
+      "to runtime validation");
+
+  const runtime::LinearWeight qkv_whole_chunk_shape_near_miss =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data(), &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 10'239U, 5'120U};
+  const runtime::LinearWeight qkv_whole_chunk_unaligned_weight =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data() + 1U, &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 10'240U, 5'120U};
+  const runtime::LinearWeight other_fp8_checkpoint_shape =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data(), &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 12'288U, 5'120U};
+  const runtime::LinearWeight bf16_whole_chunk_near_miss =
+      runtime::Bf16LinearWeight{attention_input.data(), 10'240U, 5'120U};
+  test.expect(
+      !detail::use_fp8_whole_chunk_prefill_projection(
+          runtime::ProjectionBackend::kReference, qkv_whole_chunk,
+          attention_input.data(), attention_output.data(), 256U) &&
+          !selects_fp8_whole_chunk(qkv_whole_chunk, 64U) &&
+          !selects_fp8_whole_chunk(qkv_whole_chunk, 255U) &&
+          !selects_fp8_whole_chunk(qkv_whole_chunk, 513U) &&
+          !selects_fp8_whole_chunk(qkv_whole_chunk_shape_near_miss, 256U) &&
+          !selects_fp8_whole_chunk(other_fp8_checkpoint_shape, 256U) &&
+          !selects_fp8_whole_chunk(qkv_whole_chunk_unaligned_weight, 256U) &&
+          !detail::use_fp8_whole_chunk_prefill_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              qkv_whole_chunk, unaligned_attention_input,
+              attention_output.data(), 256U) &&
+          !detail::use_fp8_whole_chunk_prefill_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              qkv_whole_chunk, attention_input.data(), odd_attention_output,
+              256U) &&
+          !selects_fp8_whole_chunk(bf16_whole_chunk_near_miss, 256U),
+      "runner FP8 whole-chunk selector rejects backend/token/shape/type/"
+      "alignment near misses");
+
   alignas(16) std::array<std::uint8_t, 16U> down_packed{};
   alignas(2) std::array<std::uint8_t, 2U> down_scales{};
   alignas(8) std::array<std::uint16_t, 4U> down_input{};

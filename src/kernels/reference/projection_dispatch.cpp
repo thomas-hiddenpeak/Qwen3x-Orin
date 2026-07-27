@@ -970,6 +970,55 @@ int launch_projection_tile_to_bf16_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, const std::size_t token_count,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  constexpr std::size_t kMaximumWholeChunkTokens = 512U;
+  constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr std::size_t kQkvSize = 10'240U;
+  constexpr std::size_t kZSize = 6'144U;
+
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      weight.valueless_by_exception() ||
+      (token_count != 256U && token_count != 512U)) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
+  if (selected == nullptr) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const bool qkv_shape = selected->output_size == kQkvSize &&
+                         selected->input_size == kHiddenSize;
+  const bool z_shape = selected->output_size == kZSize &&
+                       selected->input_size == kHiddenSize;
+  const bool attention_output_shape =
+      selected->output_size == kHiddenSize &&
+      selected->input_size == kZSize;
+  if (!qkv_shape && !z_shape && !attention_output_shape) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  ProjectionTileSpans spans;
+  const int validation = validate_projection_tile(
+      backend, weight, input, token_count, nullptr, 0U, output, &spans, true,
+      kMaximumWholeChunkTokens);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool whole_chunk_aligned =
+      pointer_is_aligned(selected->weight, 16U) &&
+      pointer_is_aligned(input, alignof(std::uint64_t)) &&
+      pointer_is_aligned(output, alignof(std::uint16_t));
+  if (!whole_chunk_aligned) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  return kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+      selected->weight, selected->weight_scale, input, token_count,
+      spans.rows, spans.columns, output, cuda_stream);
+}
+
 int launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
     const ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* const input, const std::size_t token_count,

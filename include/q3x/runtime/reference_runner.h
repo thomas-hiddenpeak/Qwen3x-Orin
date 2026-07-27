@@ -311,10 +311,21 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
     std::size_t token_count, std::size_t hidden_size) noexcept;
 
-// Pure-host selector for the only prefill projection that may bypass the
-// runner's fixed C32 subtiles. Exact aligned FP8 C64 [5120, 6144] is handed to
-// the tile dispatcher once; C32, decode, near-miss alignment/shape, and all
-// other weights preserve the established runner schedule.
+// Pure-host selector for exact FP8 C256/C512 whole-chunk Prefill projection.
+// Only explicitly selected SM87, QKV [10240,5120], Z [6144,5120], or
+// attention output [5120,6144], and the production weight/input/output
+// alignments may bypass the runner's established C32 schedule. Device
+// companion-scale pointers are intentionally irrelevant to this kernel-only
+// eligibility decision.
+[[nodiscard]] bool use_fp8_whole_chunk_prefill_projection(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count) noexcept;
+
+// Pure-host selector for the exact FP8 C64 attention-output projection.
+// Aligned [5120,6144] is handed to the tile dispatcher once; C32, decode,
+// near-miss alignment/shape, and all other C64 weights preserve the
+// established runner schedule.
 [[nodiscard]] bool use_fp8_m64_prefill_attention_output_projection(
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::uint16_t* output,
@@ -405,9 +416,11 @@ class ReferenceRunner {
   // request plan must reserve at least token_count workspace rows. Operations
   // with a narrower kernel contract are enqueued as ordered subtiles.
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
-  // SM87 FP8 C64 attention-output projection uses one exact kernel. The exact
-  // aligned NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream
-  // and an event join; C64 preserves two ordered C32 launches on each branch.
+  // SM87 FP8 C64 attention-output projection uses one exact kernel. Exact
+  // aligned C256/C512 FP8 QKV/Z/O and NVFP4 Down projections each use one
+  // whole-chunk grid. The exact aligned NVFP4 C32/C64 MLP gate/up pair may use
+  // one owned auxiliary stream and an event join; C64 preserves two ordered
+  // C32 launches on each branch.
   // Exact SM87 C256/C512 full-attention tiles use one bulk causal GQA/Gate
   // launch with tile-local Q/Gate/output and global NHD K/V caches. Every
   // fallback remains on the main stream, and the logical request length is

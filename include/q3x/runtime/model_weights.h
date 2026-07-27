@@ -101,10 +101,12 @@ enum class ProjectionBackend : std::uint8_t {
   kSm87WeightOnly,
 };
 
-// The projection dispatcher accepts one C64 Prefill supertile. Non-specialized
-// paths preserve the established schedule by splitting it into two ordered
-// C32 projection tiles; the exact FP8 attention-output and NVFP4 down shapes
-// may each use one M64 kernel.
+// The generic projection dispatcher accepts one C64 Prefill supertile.
+// Non-specialized paths preserve the established schedule by splitting it
+// into two ordered C32 projection tiles; the exact FP8 attention-output and
+// NVFP4 down shapes may each use one M64 kernel. Separate narrow exact APIs
+// expose screened C256/C512 FP8 and NVFP4 whole-chunk routes without widening
+// this generic limit.
 // Request scheduling imposes its larger C512 limit independently; keeping
 // this C64 contract local to projection dispatch prevents the low-level
 // composite route from silently inheriting the request scheduler's chunk size.
@@ -438,6 +440,24 @@ struct WeightBindResult {
     ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* input, std::size_t token_count,
     float* fp32_scratch, std::size_t scratch_elements,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+// Narrow exact-shape entry for a full FP8 Prefill projection chunk. Only the
+// explicitly selected SM87 backend, QKV [10240,5120], Z [6144,5120], or
+// attention output [5120,6144], C256/C512, and the whole-chunk kernel's
+// production alignments are supported. Eligible calls enqueue one fixed
+// N-major grid and write BF16 directly. Structurally unsupported calls and
+// production-alignment near misses return cudaErrorNotSupported before
+// enqueue so the runner may retain its established C32 schedule. Malformed
+// payloads, scalar values, byte ranges, or aliases return
+// cudaErrorInvalidValue. The complete Fp8LinearWeight payload contract,
+// including both device companion-scale pointers, remains required even
+// though this kernel consumes the validated host weight scale directly. This
+// entry does not widen kMaximumProjectionTileTokenCount or alter
+// launch_projection_tile_to_bf16_cuda.
+[[nodiscard]] int launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::size_t token_count,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 // Narrow exact-shape entry for one dense-MLP projection branch over a full

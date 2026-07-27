@@ -745,6 +745,37 @@ bool use_m32_prefill_residual_rms_fusion(
          hidden_size == kReferenceHiddenSize;
 }
 
+bool use_fp8_whole_chunk_prefill_projection(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kQkvRows = 10'240U;
+  constexpr std::size_t kZRows = 6'144U;
+  constexpr std::size_t kHiddenSize = 5'120U;
+  const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      (token_count != 256U && token_count != 512U) ||
+      selected == nullptr) {
+    return false;
+  }
+  const bool qkv_shape = selected->output_size == kQkvRows &&
+                         selected->input_size == kHiddenSize;
+  const bool z_shape = selected->output_size == kZRows &&
+                       selected->input_size == kHiddenSize;
+  const bool attention_output_shape =
+      selected->output_size == kHiddenSize &&
+      selected->input_size == kZRows;
+  return (qkv_shape || z_shape || attention_output_shape) &&
+         aligned(selected->weight, 16U) &&
+         aligned(input, alignof(std::uint64_t)) &&
+         aligned(output, alignof(std::uint16_t));
+}
+
 bool use_fp8_m64_prefill_attention_output_projection(
     const ProjectionBackend backend, const LinearWeight& weight,
     const std::uint16_t* const input, std::uint16_t* const output,
@@ -2375,6 +2406,19 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           const LinearWeight& weight, const std::uint16_t* const input,
           std::uint16_t* const output, const char* const operation,
           const std::size_t layer, void* const launch_stream) noexcept {
+        if (reference_runner_detail::use_fp8_whole_chunk_prefill_projection(
+                projection_backend_, weight, input, output, token_count)) {
+          const int status =
+              launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                  projection_backend_, weight, input, token_count, output,
+                  launch_stream);
+          if (status == static_cast<int>(cudaSuccess)) {
+            return true;
+          }
+          if (status != static_cast<int>(cudaErrorNotSupported)) {
+            return check_cuda(status, operation, layer);
+          }
+        }
         const std::size_t columns = linear_input_size(weight);
         const std::size_t rows = linear_output_size(weight);
         for (std::size_t token_offset = 0U; token_offset < token_count;
