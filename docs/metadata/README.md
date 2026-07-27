@@ -1316,6 +1316,18 @@ The diagnostic Phase 3 records are:
   and **2.55933x** aggregate. Correctness, exhaustive E4M3FN, replay, Graph,
   invalid-call, guard, input, and resources pass. Production dispatch remains
   unchanged, and the record makes no model-level or end-to-end claim.
+- [`qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json`](qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json),
+  which records production admission for those exact Q/K/V routes. Q uses
+  N-major at C256/C512; K/V use M-major at C256 and N-major at C512. Frozen-
+  binary P257/P513 `B1-C1-C2-B2` measurements reach **1.054381379x/
+  1.055108640x Prefix** and **1.051134118x/1.053417066x TTFT** speedups.
+  Complete-prompt throughput advances to **141.273450981/145.327508146
+  token/s**, leaving **2.644368049x/2.830744195x** gaps to matched stock vLLM.
+  All 40 outputs and steps remain exact. Fresh P513 Nsight confirms Q/K/V
+  change from 2,304 launches / 314.357120 ms to 48 launches / 124.991296 ms.
+  Both candidate processes have zero persistent drop; baseline B1's nonzero
+  66,441,216-byte drop remains below the 64-MiB tolerance. Public ABI,
+  workspace, Decode, MTP, FlashInfer, and buffering policy remain unchanged.
 - [`qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json`](qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json),
   which rejects test-only exact C256/C512 GDN whole-span register-state
   lifetime extension. Bitwise output/state, replay, guards, inputs, Graph,

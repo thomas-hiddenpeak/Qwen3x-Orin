@@ -1439,11 +1439,27 @@ row-search structure without an unpriced global-progress assumption. See the
   **7.96850x/8.56814x**, and V reaches **7.97343x/8.53129x** for
   checkpoint-like/stress fixtures. Sequential Q-then-K-then-V reaches
   **2.54717x/2.57488x** and **2.55933x** aggregate. Production dispatch is
-  unchanged. Promotion must choose C256 K/V layout deliberately because its
+  unchanged by the screen. Promotion must choose C256 K/V layout deliberately
+  because its
   32-CTA N-major grid underfills the device and trails the M-major control;
   then pass exact model, memory, fixed-clock Prefix/TTFT, and fresh Nsight
   gates. See the
   [full-attention screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json).
+- [done, production FP8 C256/C512 full-attention Q/K/V whole chunks] Commit
+  `86d5843` promotes exact Q `[12288,5120]` and K/V `[1024,5120]`. Q uses
+  N-major at C256/C512; K/V use M-major at C256 and N-major at C512. Frozen-
+  binary `B1-C1-C2-B2` reaches **1.054381379x/1.055108640x Prefix** and
+  **1.051134118x/1.053417066x TTFT** at P257/P513. Complete-prompt throughput
+  is now **141.273450981/145.327508146 token/s**, leaving
+  **2.644368049x/2.830744195x** gaps to matched stock vLLM. All 40 outputs and
+  steps remain exact. Fresh P513 Nsight confirms the full-attention projection
+  transition from 2,304 launches / 314.357120 ms to 48 launches / 124.991296
+  ms. Both candidate processes have zero persistent drop; B1's 66,441,216-byte
+  drop remains below tolerance. The remaining Prefix is still one-stream;
+  Gate/Up contributes 2,048 serial launches / 1,346.373984 ms / 39.199622%,
+  selecting the already-screened C512 whole-chunk main/aux pair as the next
+  production integration. See the
+  [production record](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1473,13 +1489,16 @@ row-search structure without an unpriced global-progress assumption. See the
   remains C1 and no candidate route is enabled, so this is not a performance
   result. See the
   [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
-- [done, first C512 optimized-route bundle] Commits `1f7d6be`, `6327733`, and
-  `10c4c85` route exact C256/C512 full-attention tiles, NVFP4 Down, and FP8
-  QKV/Z/O behind the ABI-0.4 boundary. P257/P513 exact-token, persistent-state,
+- [done, current C512 optimized-route bundle] Commits `1f7d6be`, `6327733`,
+  `10c4c85`, and `86d5843` route exact C256/C512 bulk full-attention compute,
+  NVFP4 Down, FP8 linear-attention QKV/Z/O, and FP8 full-attention Q/K/V behind
+  the ABI-0.4 boundary. P257/P513 exact-token, persistent-state,
   memory, fixed-clock Prefix, and fresh-profile gates pass. C64/C32/tail
-  fallbacks, Decode Graph, and default C1 remain. The current-binary
-  whole-chunk Gate/Up recheck did not clear its frozen gate, so that route is
-  deliberately not enabled from the earlier isolated screen.
+  fallbacks, Decode Graph, and default C1 remain. The early synchronous M64
+  Gate/Up recheck was rejected, but the later production-like whole-chunk
+  main/aux pair reaches 1.12867x at C512 and clears its frozen 1.12x gate. The
+  fresh current-production trace still executes Gate/Up serially on one stream,
+  so that already-selected pair is now queued for production integration.
 - [done, native bulk attention production route; queued new-mechanism GDN]
   Commit `3044ab5` validates
   the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
@@ -1527,15 +1546,17 @@ Exit criteria:
 The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
 The 100-ms/token / 10-token/s objective remains documented but is no longer a
 prerequisite for Prefill work. Active optimization now prioritizes
-current-production large-tile Prefill measurement and phase-local improvements
-while retaining exact output and Decode non-regression gates. Multi-request
+production integration of the already-screened C512 whole-chunk main/aux-
+stream Gate/Up pair, followed by exact model/memory/mirrored-latency/profile
+gates and then an internal test-only C1024 route, while retaining exact output
+and Decode non-regression gates. Multi-request
 serving throughput remains a separate later target.
 
 Before Phase 3.5, run an offline same-token vLLM/FlashInfer alignment matrix
 from the existing dedicated reference environment. Use P65/P129/P257/P513/
 P1025, batch one, output one, matched cache precision and backend controls, and
 `P / scheduled-to-first-token` as the cross-framework metric. The current
-native production result now reaches **134.351126/137.928939 token/s** by
+native production result now reaches **141.273450981/145.327508146 token/s** by
 complete-prompt `P/TTFT` accounting at P257/P513. It remains far below the
 user's separately tuned 2k--8k range, which is not treated as a matched result.
 The offline gate establishes the stock-runtime gap without delaying kernel
@@ -1555,8 +1576,9 @@ The vLLM-side formal matrix is also complete: three 3-warmup/10-measure
 processes reach 236.380/312.828/373.579/411.385/432.738 prompt token/s at
 P65/P129/P257/P513/P1025, with 150/150 trusted timestamps and first token ID
 9419. The native production boundary and mirrored ordering are now complete:
-P257/P513 reach 134.351126/137.928939 token/s, leaving directional stock-vLLM
-gaps of **2.780617x/2.982587x**. Native `Prefix` still excludes the final
+P257/P513 reach 141.273450981/145.327508146 token/s, leaving directional
+stock-vLLM gaps of **2.644368049x/2.830744195x**. Native `Prefix` still
+excludes the final
 prompt token and LM head, so cross-framework comparisons use complete-prompt
 `P/TTFT`, not `(P-1)/Prefix`. See the
 [formal vLLM record](metadata/qwen36-27b-vllm-flashinfer-prefill-reference.json).

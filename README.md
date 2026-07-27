@@ -277,12 +277,18 @@ causal Conv/GDN and Q/K+RoPE subtiles.
 The request controller schedules larger prefixes with the explicit palette
 `{C512,C256,C64,C32,tail<=31}`. On SM87, exact C256/C512 full-attention tiles
 use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
-`[5120,17408]` Down and FP8 QKV `[10240,5120]`, Z `[6144,5120]`, and attention
-output `[5120,6144]` each use one N-major whole-chunk grid. Generic projection
-APIs remain capped at C64: NVFP4 Gate/Up, residual/RMS, Conv/GDN, other shapes,
-and every near miss retain their established ordered subtiles. In particular,
-the whole-chunk Gate/Up route is not enabled because its current-binary C512
-dual-stream recheck did not clear the frozen performance gate.
+`[5120,17408]` Down and FP8 linear-attention QKV `[10240,5120]`, Z
+`[6144,5120]`, and attention output `[5120,6144]` each use one N-major
+whole-chunk grid. Full-attention Q `[12288,5120]` also uses N-major at C256 and
+C512; K/V `[1024,5120]` use M-major at C256's under-filled 32-CTA grid and
+N-major at C512. Generic projection APIs remain capped at C64: NVFP4 Gate/Up,
+residual/RMS, Conv/GDN, other shapes, and every near miss retain their
+established ordered subtiles. The early synchronous M64 Gate/Up candidate was
+rejected, but the later test-only whole-chunk main/aux pair clears its frozen
+C512 gate at 1.12867x. It is not yet production-integrated: the fresh current
+P513 trace still executes all 10,129 Prefix GPU operations on one stream, with
+2,048 serial Gate/Up launches. Integrating that selected pair is the next
+bounded step before any C1024 test-only expansion.
 
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
@@ -625,12 +631,12 @@ and Decode have distinct internal host-control plans but still execute through
 the same runner, without double/triple buffering or Prefill/Decode overlap.
 Most work, including exact M17 through M31 gate/up, remains serialized on the
 main stream.
-The narrow exception is exact aligned NVFP4 C32/C64 and wide fallback MLP
-gate/up: the runner may
+The narrow exception is exact aligned NVFP4 C32/C64 MLP gate/up: the runner may
 overlap gate on its main stream with up on one owned auxiliary stream and join
-them with events. Wide tiles still issue ordered C32 projections on each
-branch; the rejected C256/C512 whole-chunk Gate/Up kernel is not selected. This
-is layer-local branch overlap, not a general multi-stream scheduler. The
+them with events. C256/C512 wide tiles still issue ordered C32 projections on
+one stream; the test-only whole-chunk main/aux pair has passed its screen but
+is not yet selected by production. Existing C32/C64 overlap is layer-local
+branch overlap, not a general multi-stream scheduler. The
 independent target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as

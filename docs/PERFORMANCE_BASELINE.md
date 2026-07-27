@@ -7435,3 +7435,73 @@ TTFT, throughput, or end-to-end gain is attributed until dispatch integration
 passes exact P257/P513 model, memory, mirrored fixed-clock, and fresh-profile
 gates. Full evidence is in the
 [full-attention screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json).
+
+## FP8 C256/C512 full-attention Q/K/V whole-chunk production promotion
+
+Commit `86d5843` promotes the screened exact FP8 full-attention Q
+`[N12288,K5120]` and K/V `[N1024,K5120]` projections behind the existing
+C256/C512 narrow whole-chunk entry. Q uses N-major at both token counts. K/V
+use the measured-faster M-major order at C256's under-filled 32-CTA grid and
+N-major at C512's 64-CTA grid. The generic projection cap remains C64; every
+shape, token-count, backend, or alignment near miss retains the established
+fallback, while malformed payload, range, and alias contracts fail before
+enqueue. The public ABI, request arena, Decode, MTP, and execution ownership
+do not change.
+
+The frozen comparator is the preceding production binary with bulk GQA,
+whole-chunk Down, and whole-chunk FP8 linear QKV/Z/O. It and the Release
+candidate were measured under MAXN with fixed 1.3005-GHz GPU and locked
+3.2-GHz EMC clocks in `B1-C1-C2-B2` order. Each process loads the pinned model
+once and uses batch one, C512, max1, max sequence length 1024, one warmup, and
+five measured generations per prompt:
+
+| Prompt / phase | B1 | C1 | C2 | B2 | Mirrored B | Mirrored C | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,804.034 ms | 1,711.755 ms | 1,710.832 ms | 1,804.678 ms | 1,804.3560 ms | 1,711.2935 ms | **1.054381379x** |
+| P257 TTFT | 1,911.862 ms | 1,819.619 ms | 1,818.715 ms | 1,912.515 ms | 1,912.1885 ms | 1,819.1670 ms | **1.051134118x** |
+| P513 Prefix | 3,609.048 ms | 3,421.525 ms | 3,420.814 ms | 3,610.363 ms | 3,609.7055 ms | 3,421.1695 ms | **1.055108640x** |
+| P513 TTFT | 3,717.800 ms | 3,530.272 ms | 3,529.644 ms | 3,719.236 ms | 3,718.5180 ms | 3,529.9580 ms | **1.053417066x** |
+
+Candidate Prefix throughput is **149.594444203 token/s at P257** and
+**149.656425968 token/s at P513**. Complete-prompt `P/TTFT` throughput is
+**141.273450981** and **145.327508146 token/s**, respectively. All 40 measured
+generations return token 9419 (`Hello`) with exact 257/513 steps. A streamed
+canonical extraction that includes status, routing, prompt IDs, generated
+output, and complete steps has SHA-256
+`b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118`
+for every formal log. The independent 19-prompt/26-output reference oracle and
+P257/P513 bulk E2E also remain exact.
+
+Both candidate processes and B2 report zero persistent memory drop. B1 reports
+66,441,216 bytes, which is 667,648 bytes below the declared 64-MiB tolerance;
+its `persistent_drop_detected` flag therefore remains zero. Maximum observed
+drops are 66,441,216/9,482,240/14,495,744/15,126,528 bytes for B1/C1/C2/B2.
+The formal request arena remains 233,940,992 bytes and the candidate adds no
+workspace or persistent allocation.
+
+A fresh single-generate P513/C512 Nsight trace uses a 200,321,536-byte arena
+and no warmup. Its Prefix NVTX wall range is 3,435.638592 ms against
+3,434.660672 ms of GPU-projected span. Q appears as 16 launches totaling
+104.957632 ms; the shared K/V row appears as 32 launches totaling 20.033664
+ms, or 16 logical K plus 16 logical V projections. The previous production
+profile used 256 Q plus 2,048 K/V launches totaling 314.357120 ms. The new
+48 launches total 124.991296 ms, a **48x node reduction**, **189.365824 ms
+saved**, and **2.515032087x** projection-time improvement. Prefix GPU-operation
+count falls exactly from 12,385 to 10,129.
+
+All 10,129 Prefix GPU operations are still on one CUDA stream. NVFP4 Gate/Up
+is now the largest residual hotspot at 2,048 serial launches and 1,346.373984
+ms, or **39.199622%** of the projected Prefix span. The next bounded priority
+is therefore production integration of the already-screened C512 whole-chunk
+main/aux-stream Gate/Up pair, followed by its exact model/memory/mirrored-
+latency/profile gates and then an internal test-only C1024 route.
+
+Against the matched stock-vLLM complete-prompt results, P257/P513 remain at
+373.579/411.385 token/s versus native's 141.273450981/145.327508146 token/s,
+leaving **2.644368049x/2.830744195x** gaps. This promotion uses neither
+FlashInfer nor MTP and does not claim proximity to the user's separately tuned
+2k--8k token/s range. It is a fixed-clock batch-one production result, not a
+serving-throughput, concurrency, tail-latency, power, or energy result. Full
+binary identities, raw process medians, memory evidence, profile rows, hashes,
+and limitations are in the
+[full-attention production benchmark](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json).
