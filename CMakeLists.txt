@@ -108,6 +108,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/decode_ops.cu
   src/kernels/reference/gdn_decode.cu
   src/kernels/reference/gdn_m16_register_state.cu
+  src/kernels/reference/gdn_prefill_b8_sequential_sm87.cu
   src/kernels/reference/layout_ops.cu
   src/kernels/reference/fp8_reference.cu
   src/kernels/reference/gemv_reference.cu
