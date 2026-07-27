@@ -1390,27 +1390,39 @@ row-search structure without an unpriced global-progress assumption. See the
   23,552-byte shared memory, zero local memory, and three CTA/SM. Production
   dispatch remains unchanged. See the
   [whole-chunk screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).
-- [active, C256 then C512 Prefill workspace and FP8 shape screens] Raise the
-  request-local Prefill workspace boundary incrementally without changing the
-  Decode arena or KV ownership. Directly screen whole-chunk QKV
-  `[N10240,K5120]`, Z `[N6144,K5120]`, and output `[N5120,K6144]` before any
-  production dispatch. The M512 output-only hotspot projects to only 1.01490x
-  P513 Prefix. Applying the measured median to all three current FP8 hotspots
-  projects 1.05007x, but one of three processes is below the derived 1.28995x
-  all-FP8 threshold; this is an integration hypothesis, not a performance
-  claim.
-- [queued, FP8 M64 QKV/Z controls and NVFP4 whole-chunk screens] Preserve
-  exact M64 QKV/Z as bounded fallbacks. After the workspace boundary is proven,
-  separately screen Gate/Up and down with their native NVFP4 CTA bodies; do not
-  infer NVFP4 behavior from the FP8 result. These projections dominate the
-  remaining P513 time and are necessary to approach the external 2k--8k
-  token/s region.
+- [done, NVFP4 whole-chunk down canary] Commit `5dc256b` compares four/eight
+  exact production M64 down launches with one M/N-major M256/M512 grid. Three
+  fixed-clock processes put M256 at **1.29624x** median and M512 at
+  **1.34655x** median; all 72 baseline rounds improve. N-major adds 1.03288x
+  over the M-major M512 control. Both scale distributions are bit-exact with
+  replay, guards, inputs, invalid capture, and Graph topology passing. The
+  candidate uses 79 registers versus production 76 while retaining 23,552 B
+  shared, zero local, and three CTA/SM. Down alone projects to 1.04647x P513
+  Prefix; production dispatch remains unchanged. See the
+  [NVFP4 down screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-down-grid-screen.json).
+- [active, dominant whole-chunk shape screens] Screen isolated NVFP4 Gate
+  `[N17408,K5120]`, then the actual Gate/Up main-plus-aux-stream pair. In
+  parallel, measure direct FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]`
+  against their production M32 chains; preserve exact M64 QKV/Z as controls.
+  Do not infer Gate/Up or QKV/Z behavior from down/output. The current down plus
+  all-FP8 arithmetic opportunity is 1.10144x P513 Prefix, not an achieved
+  result.
+- [queued, one C512 public Prefill boundary] After dominant shapes select
+  their routes, implement explicit `{512,256,64,32,tail}` scheduling and
+  publish one ABI/package 0.4.0 boundary. C256 remains an internal canary.
+  Preserve the generic projection tile cap at 64, existing exact C64 down and
+  FP8 output routes, residual/RMS M32 tiling, Gate/Up stream ownership, and
+  Decode Graph admission. Default max-sequence workspace grows from
+  98,752,512 to 174,991,360 bytes; update the absolute arena ceiling and exact
+  layout/package-consumer tests together.
 - [parallel reference, native bulk attention and WY GDN] Use FlashInfer's
   online-softmax and chunked-delta-rule contracts as design references only.
-  A dependency-free SM87 attention prototype must include Q/K preprocessing,
-  KV placement, gating, and numerical costs, clear 2x core and 1.03x P513
-  Prefix gates, and retain final tokens. WY GDN follows only after a larger
-  request workspace exists. Decode remains frozen and non-MTP.
+  The first dependency-free SM87 attention prototype maps one `(QT=2, KV
+  head)` CTA with six Q-head warps, BK16 shared K/V, register online softmax,
+  and fused Gate while preserving the BF16 boundary. It must include Q/K
+  preprocessing, KV placement, gating, and numerical costs, clear 2x core and
+  1.03x P513 Prefix gates, and retain final tokens. WY GDN follows only after
+  a larger request workspace exists. Decode remains frozen and non-MTP.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
@@ -1448,6 +1460,16 @@ prerequisite for Prefill work. Active optimization now prioritizes
 current-production large-tile Prefill measurement and phase-local improvements
 while retaining exact output and Decode non-regression gates. Multi-request
 serving throughput remains a separate later target.
+
+Before Phase 3.5, run an offline same-token vLLM/FlashInfer alignment matrix
+from the existing dedicated reference environment. Use P65/P129/P257/P513/
+P1025, batch one, output one, matched cache precision and backend controls, and
+`P / scheduled-to-first-token` as the cross-framework metric. The current
+native 119.839 token/s P513 result is superficially 16--67x below the user's
+2k--8k range, but the old `(P-1)/Prefix` metric is not directly comparable.
+This offline gate establishes the real gap without delaying kernel work for an
+HTTP adapter; Phase 3.5 remains the point where EvalScope and user-visible TTFT
+become first-class release evidence.
 
 ## Phase 3.5 — External evaluation gateway
 

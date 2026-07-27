@@ -7084,6 +7084,58 @@ skips, and 0 fail.
 This passes the 1.25x M512 mechanism gate, but is not an end-to-end result.
 Output-only arithmetic projects to 1.01490x P513 Prefix; applying the median to
 all current FP8 QKV/Z/output hotspots projects 1.05007x and still requires
-direct shape measurements. The next milestone is a C256 then C512 Prefill
-workspace plus QKV/Z screens. Full evidence is in the
+direct shape measurements. The next bounded milestones are native NVFP4 and
+direct QKV/Z whole-chunk screens before one public C512 workspace change. Full
+evidence is in the
 [whole-chunk screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).
+
+## NVFP4 M256/M512 whole-chunk down grid screen
+
+Commit `5dc256b` applies the same one-grid mechanism to exact NVFP4 down
+`[N5120,K17408]` without changing production dispatch, the C64 request ABI,
+runner workspace, Decode, or MTP policy. Four/eight public production M64
+launches form the baseline. M-major and N-major candidates execute the same
+M64 CTA arithmetic in one 160/320-CTA grid; the N-major order places all
+four/eight token CTAs for one N128 packed-weight panel next to each other.
+
+Three independent MAXN processes use fixed 1.3005-GHz GPU and locked 3.2-GHz
+EMC clocks, two scale distributions, 10 warmups, 24 logical operations per
+timed pass, and six mirrored `B-C-C-B` plus `S-C-C-S` rounds:
+
+| Shape | Process speedups | Median | All-round range | Median N-major / M-major |
+| --- | --- | ---: | ---: | ---: |
+| M256 | 1.29357x, 1.29708x, 1.29624x | **1.29624x** | 1.29303x--1.29764x | 1.03208x |
+| M512 | 1.34513x, 1.34717x, 1.34655x | **1.34655x** | 1.34468x--1.34758x | **1.03288x** |
+
+All 72 baseline-comparison rounds improve. The M512 control shows N-major is
+about 3.29% faster than the otherwise identical one-grid M-major order, larger
+than the earlier FP8 locality delta. This is stable locality evidence, but it
+is not labeled a measured L2-hit-rate improvement because no hardware counter
+was collected.
+
+Production M64 and every candidate retain 23,552 bytes shared, zero local
+memory, and three CTA/SM. Production reports 76 registers/thread; M256/M512
+M-major and N-major report 79. Both checkpoint-like and same-bank-stress
+fixtures match the repeated production M64 output bit-for-bit across
+1,310,720 M256 and 2,621,440 M512 elements per route. Replay mismatches are
+zero, all outputs are finite, guards and all inputs remain intact, valid Graph
+topologies are 4/8 baseline nodes versus one candidate node, and 17 invalid
+calls capture zero nodes. The complete Release suite reports 51 pass, 9
+existing model/external-data skips, and 0 fail.
+
+The latest P513 trace assigns 738.322 ms to down inside a 4,278.702-ms Prefix.
+Applying the measured M512 median to that hotspot alone projects 190.016 ms
+saved and a **1.04647x** Prefix opportunity. Combining it arithmetically with
+the still-unintegrated all-FP8 whole-chunk hypothesis projects 1.10144x and
+131.801 token/s, but neither number is an achieved end-to-end result. The
+selected next step is isolated Gate followed by the production-like Gate/Up
+pair, then direct QKV/Z screens. Only after these dominant shapes select their
+routes will the public request boundary move once to C512, with C256 retained
+as an internal canary rather than a second ABI release.
+
+The shared templated kernel gained compile-time tile-order parameters, so the
+precise claim is that production public dispatch, validation contract,
+shared/local resources, occupancy, and default correctness remain unchanged;
+cubin/SASS byte identity is not claimed. Full inputs, process measurements,
+binary identity, projections, and limits are in the
+[NVFP4 down screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-down-grid-screen.json).

@@ -73,12 +73,13 @@ match for the full-attention part of this model:
   SM75 or newer. Official tests instantiate FA2 head dimension 256 and grouped
   heads.
 
-This is source-level compatibility, not a measured Orin result. The current
-environment does not contain PyTorch, and the public Python wrapper allocates
-temporary/output tensors and uses a JIT/FFI stack. Installing that stack or
-calling it from production would violate the scope of this audit. A later
-standalone probe must include setup, workspace, stream, KV placement, gate,
-and any layout cost rather than timing only the attention kernel.
+This is source-level compatibility, not a measured Orin result. The repository
+build and system Python environment do not contain PyTorch. A separate external
+reference environment later located at `/home/rm01/setup/.venv` contains
+PyTorch, vLLM, and FlashInfer, but it is not linked into native production.
+The public Python wrapper allocates temporary/output tensors and uses a JIT/FFI
+stack. A standalone probe must include setup, workspace, stream, KV placement,
+gate, and any layout cost rather than timing only the attention kernel.
 
 FlashInfer's current GDN Prefill implementation is not directly available on
 SM87. Its dispatch accepts SM90, SM100/103, and SM120 families and uses a
@@ -144,10 +145,10 @@ whole-chunk weight-reuse screen:
    non-regressive, M512 is at least 1.25x faster, and the measured hotspot
    table projects at least a 1.05x P513 Prefix opportunity across eligible
    projections.
-3. If selected, raise the request/workspace boundary incrementally to C256 and
-   then C512. Generalize the large-M grid across the dominant Gate/Up, down,
-   QKV, Z, and output shapes before spending further effort on isolated M64
-   variants.
+3. If selected, generalize the test-only large-M grid across the dominant
+   Gate/Up, down, QKV, Z, and output shapes before changing the public request
+   ABI. Validate C256 and C512 in the same implementation, but publish one C512
+   boundary rather than two successive ABI changes.
 4. Keep exact FP8 M64 QKV and Z screens as fallback/control milestones. They
    remain valid low-risk improvements if the cross-CTA/L2 mechanism fails, but
    they are no longer the main route to the external 2k--8k token/s region.
@@ -183,10 +184,64 @@ each shape.
 The measured output shape alone projects to only 1.01490x P513 Prefix. Applying
 the M512 median hypothetically to QKV, Z, and output projects 1.05007x, almost
 exactly the 1.05 gate, but one of three processes is below the derived 1.28995x
-all-FP8 requirement. The next step is therefore C256 then C512 workspace work
-and direct QKV/Z screens, not an output-only production promotion. Full inputs,
-resources, per-process results, hashes, and claim limits are in the
+all-FP8 requirement. The next step is therefore direct dominant-shape screens
+followed by one C512 workspace change, not an output-only production promotion.
+Full inputs, resources, per-process results, hashes, and claim limits are in the
 [machine-readable screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).
+
+## NVFP4 down canary result
+
+Commit `5dc256b` completes the first native-NVFP4 canary. The exact down
+`[N5120,K17408]` shape compares four/eight production M64 launches with one
+M-major grid and one N-major grid. Across three fixed-clock processes and two
+scale distributions, M256 reaches 1.29624x median and M512 reaches **1.34655x**
+median. All 36 rounds per shape improve. At M512, N-major adds 1.03288x over
+the single-grid M-major control, so packed-weight locality contributes more
+than it did in the FP8 output screen while grid consolidation remains useful.
+
+Production reports 76 registers/thread; both whole-chunk orders report 79.
+All retain 23,552-byte shared memory, zero local memory, and three CTA/SM.
+M-major, N-major, and replay are bit-exact to repeated production M64 for
+checkpoint-like and same-bank-stress scales at M256/M512. Guards, weights,
+scales, and activations remain intact; 17 invalid calls capture zero nodes;
+Graph topology is exactly 4/8 baseline nodes versus one candidate node. The
+full 60-test Release suite has 51 passes, nine existing skips, and zero fails.
+
+Down alone projects to a 1.04647x P513 Prefix opportunity from the latest
+738.322-ms hotspot. Combining it arithmetically with the unintegrated FP8
+hypothesis reaches 1.10144x, but this remains a phase-local projection. The
+next canary is isolated Gate, followed by the actual main/aux-stream Gate/Up
+pair. Direct QKV/Z and native bulk attention remain parallel necessities.
+Machine-readable evidence is in the
+[NVFP4 down screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-down-grid-screen.json).
+
+## External vLLM alignment status
+
+The same Orin has a dedicated Python 3.13 reference environment with PyTorch
+2.11.0, vLLM `ccd49f682`, installed FlashInfer 0.6.12, and the exact
+`Qwen3.6-27B-NVFP4` checkpoint revision used by native fixtures. Existing
+oracle records prove successful Marlin NVFP4/FP8 model loading and exact greedy
+outputs, but no retained run proves a FlashInfer attention route or a vLLM
+Prefill performance number. The source checkout and installed FlashInfer
+versions also differ, so a formal run must pin the installed runtime rather
+than mix its AOT binaries with a newer source tree.
+
+The latest native production measurements are 127.249/125.324/119.839 token/s
+at P65/P129/P513 under the repository's `(P-1)/Prefix` definition. The user's
+2k--8k token/s result is therefore a surface distance of roughly 16--67x, not
+a valid cross-framework ratio. Native `Prefix` excludes the final prompt token
+and LM head, while standard vLLM throughput/TTFT accounting differs.
+
+Before the OpenAI-compatible API and EvalScope gateway, run an offline matched
+matrix using raw token IDs at P65/P129/P257/P513/P1025, batch one, output one,
+no prefix cache, no chunked Prefill, no MTP/speculation, BF16 KV/state, and an
+explicit FlashInfer attention request. The cross-framework primary metric is
+`P / scheduled-to-first-token`; native maps that to complete prompt Prefill,
+not the historical `(P-1)/Prefix` metric. Use three warmups, ten measurements,
+three independent fixed-clock processes, and native-vLLM-vLLM-native mirrored
+ordering. A P65/P513 smoke must first confirm the actual vLLM linear,
+attention, and GDN backends. This converts the external target into a real
+engineering gap without waiting for the HTTP evaluation adapter.
 
 No MTP, FlashInfer dependency, paged-KV rewrite, generic double/triple
 buffering, Prefill Graph, or Prefill/Decode overlap is admitted by this audit.
