@@ -4230,11 +4230,12 @@ fp8_w8a16_small_m32_gemm_bf16_wmma_dual_resident_a_kernel(
 // removing the second B decode/load pass.  C reuses B storage in two M32
 // segments so the static shared-memory footprint remains exactly 23,552 B.
 template <std::size_t kRows, std::size_t kColumns,
-          unsigned int kSharedLeadingDimension = 72U>
+          unsigned int kSharedLeadingDimension = 72U,
+          unsigned int kM64TileCount = 1U, bool kNMajor = true>
 __global__ __launch_bounds__(kThreads, 3) void
 fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel(
     const std::uint8_t* const weights, const float weight_scale,
-    const std::uint16_t* const activations, std::uint16_t* const output) {
+    const std::uint16_t* activations, std::uint16_t* output) {
   constexpr unsigned int kResidentTokenCount = 32U;
   constexpr unsigned int kPanelTokenCount = 16U;
   constexpr unsigned int kOutputColumnsPerBlock = 128U;
@@ -4261,6 +4262,8 @@ fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel(
   static_assert(kWeightVectorsPerRow == 4U);
   static_assert(kSharedLeadingDimension >= kColumnsPerStage);
   static_assert(kSharedLeadingDimension % 8U == 0U);
+  static_assert(kM64TileCount == 1U || kM64TileCount == 4U ||
+                kM64TileCount == 8U);
 
   union __align__(32) BOrCStorage {
     std::uint32_t weights[kSharedWeightWordCount];
@@ -4287,8 +4290,22 @@ fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel(
   wmma::fill_fragment(accumulator1, 0.0F);
   wmma::fill_fragment(accumulator2, 0.0F);
   wmma::fill_fragment(accumulator3, 0.0F);
+  // Flatten [output-column block][M64 token tile] with the token tile as the
+  // fastest-moving coordinate.  The kM64TileCount=1 production instance is
+  // unchanged; test-only M256/M512 instances place CTAs that consume the same
+  // 128x6144 weight panel next to each other in scheduler order.
+  constexpr unsigned int kOutputColumnBlockCount =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  const unsigned int output_column_block =
+      kNMajor ? blockIdx.x / kM64TileCount
+              : blockIdx.x % kOutputColumnBlockCount;
+  const unsigned int token_tile =
+      kNMajor ? blockIdx.x % kM64TileCount
+              : blockIdx.x / kOutputColumnBlockCount;
   const unsigned int first_output_column =
-      blockIdx.x * kOutputColumnsPerBlock;
+      output_column_block * kOutputColumnsPerBlock;
+  activations += static_cast<std::size_t>(token_tile) * 64U * kColumns;
+  output += static_cast<std::size_t>(token_tile) * 64U * kRows;
 
 #pragma unroll 1
   for (unsigned int first_k = 0U; first_k < kColumns;
@@ -14410,6 +14427,43 @@ void launch_nvfp4_lm_head_activation_staged_cs_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+// Test-only whole-chunk validator.  Keeping the complete M256/M512 spans in
+// one range check is important: validating each M64 tile independently would
+// miss an output alias into a different tile's activation range.
+[[nodiscard]] int validate_fp8_m64_tiles_launch(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  if ((token_count != 256U && token_count != 512U) ||
+      !std::isfinite(weight_scale) || weight_scale < 0.0F ||
+      multiply_overflows(rows, columns) ||
+      multiply_overflows(token_count, columns) ||
+      multiply_overflows(token_count, rows)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  const std::size_t activation_elements = token_count * columns;
+  const std::size_t output_elements = token_count * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      weights == nullptr || activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t weight_bytes = rows * columns;
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes = output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, weights, weight_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] int validate_nvfp4_small_m_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -14825,16 +14879,18 @@ void launch_fp8_small_m32_wmma_dual_resident_a_unchecked(
 }
 
 template <std::size_t kRows, std::size_t kColumns,
-          unsigned int kSharedLeadingDimension = 72U>
+          unsigned int kSharedLeadingDimension = 72U,
+          unsigned int kM64TileCount = 1U, bool kNMajor = true>
 void launch_fp8_small_m64_attention_output_wmma_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
   constexpr unsigned int kOutputColumnsPerBlock = 128U;
   constexpr unsigned int kBlocks =
-      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
+      kM64TileCount;
   fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
-      kRows, kColumns, kSharedLeadingDimension>
+      kRows, kColumns, kSharedLeadingDimension, kM64TileCount, kNMajor>
       <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
                                          output);
 }
@@ -17307,6 +17363,119 @@ int query_sm87_fp8_w8a16_small_m64_attention_output_wmma_resources_test_cuda(
   if (status == cudaSuccess) {
     status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
         &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+// Test-only whole-chunk entry.  It deliberately reuses the exact production
+// M64 CTA body and changes only the single-grid token-tile topology.
+int launch_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const bool n_major,
+    const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 6'144U) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m64_tiles_launch(
+      weights, weight_scale, activations, token_count, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if ((reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) != 0U) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (token_count == 256U && n_major) {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 4U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (token_count == 256U) {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 4U, false>(
+        weights, weight_scale, activations, output, stream);
+  } else if (n_major) {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 8U>(
+        weights, weight_scale, activations, output, stream);
+  } else {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 8U, false>(
+        weights, weight_scale, activations, output, stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_resources_test_cuda(
+    const std::size_t token_count, const bool n_major,
+    const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if ((token_count != 256U && token_count != 512U) || rows != 5'120U ||
+      columns != 6'144U || registers_per_thread == nullptr ||
+      static_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (token_count == 256U && n_major) {
+    const auto kernel =
+        fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
+            5'120U, 6'144U, 72U, 4U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else if (token_count == 256U) {
+    const auto kernel =
+        fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
+            5'120U, 6'144U, 72U, 4U, false>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else if (n_major) {
+    const auto kernel =
+        fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
+            5'120U, 6'144U, 72U, 8U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    const auto kernel =
+        fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
+            5'120U, 6'144U, 72U, 8U, false>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
   }
   if (status != cudaSuccess) {
     return static_cast<int>(status);
