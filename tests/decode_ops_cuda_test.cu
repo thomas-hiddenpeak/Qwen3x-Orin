@@ -8163,7 +8163,6 @@ void expect_invalid_bulk_gqa_graph(
     const std::uint16_t* const gate,
     const std::size_t first_position,
     const std::size_t token_count,
-    const float scale,
     std::uint16_t* const output) {
   if (!test.cuda_ok(
           cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
@@ -8171,10 +8170,9 @@ void expect_invalid_bulk_gqa_graph(
     return;
   }
   const cudaError_t status = static_cast<cudaError_t>(
-      q3x::runtime::
-          launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
-              query, key, value, gate, first_position, token_count, scale,
-              output, static_cast<void*>(stream)));
+      q3x::runtime::launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+          query, key, value, gate, first_position, token_count, output,
+          static_cast<void*>(stream)));
   test.expect(status == cudaErrorInvalidValue,
               label + " returns cudaErrorInvalidValue");
   cudaGraph_t graph = nullptr;
@@ -8189,6 +8187,79 @@ void expect_invalid_bulk_gqa_graph(
                 label + " rejects before enqueue and captures zero nodes");
   }
   (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+void expect_invalid_bulk_gqa_compatibility_scale_graph(
+    TestContext& test,
+    cudaStream_t stream,
+    const std::string& label,
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::uint16_t* const value,
+    const std::uint16_t* const gate,
+    std::uint16_t* const output) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return;
+  }
+  const cudaError_t status = static_cast<cudaError_t>(q3x::runtime::
+      launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+          query, key, value, gate, 0U, 256U, 0.125F, output,
+          static_cast<void*>(stream)));
+  test.expect(status == cudaErrorInvalidValue,
+              label + " returns cudaErrorInvalidValue");
+  cudaGraph_t graph = nullptr;
+  if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                    label + " end capture")) {
+    return;
+  }
+  std::size_t node_count = 0U;
+  if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                   label + " count nodes")) {
+    test.expect(node_count == 0U,
+                label + " rejects before enqueue and captures zero nodes");
+  }
+  (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+void test_bulk_gqa_near_max_graph_contract(TestContext& test,
+                                           cudaStream_t stream) {
+  constexpr std::uintptr_t kAddressStride = 0x1'0000'0000ULL;
+  const auto* const query =
+      reinterpret_cast<const std::uint16_t*>(1U * kAddressStride);
+  const auto* const key =
+      reinterpret_cast<const std::uint16_t*>(2U * kAddressStride);
+  const auto* const value =
+      reinterpret_cast<const std::uint16_t*>(3U * kAddressStride);
+  const auto* const gate =
+      reinterpret_cast<const std::uint16_t*>(4U * kAddressStride);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(5U * kAddressStride);
+  for (const std::size_t token_count : {256U, 512U}) {
+    const std::string label =
+        "bulk GQA near-max C" + std::to_string(token_count);
+    BulkGqaGraphTopology topology;
+    const std::size_t first_position =
+        q3x::runtime::kBulkCausalGqaMaximumSequenceLength - token_count;
+    const bool ready = capture_bulk_gqa_graph(
+        test, stream, label,
+        [&]() {
+          return q3x::runtime::
+              launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                  query, key, value, gate, first_position, token_count,
+                  output, static_cast<void*>(stream));
+        },
+        false, topology);
+    if (!ready) {
+      return;
+    }
+    test.expect(topology.node_count == 1U,
+                label + " admits the final legal append as one node");
+    test.expect(topology.grid.x == token_count / 2U &&
+                    topology.grid.y == 4U && topology.block.x == 192U,
+                label + " preserves the fixed bulk topology");
+  }
 }
 
 struct BulkGqaErrorMetrics {
@@ -8280,14 +8351,17 @@ void run_bulk_gqa_correctness_case(
       std::to_string(first_position);
   const std::size_t query_elements =
       token_count * kBulkGqaQueryElementsPerToken;
+  const std::size_t future_positions = first_position == 17U ? 3U : 0U;
   const std::size_t cache_elements =
       (first_position + token_count) * kBulkGqaKvElementsPerToken;
+  const std::size_t allocated_cache_elements =
+      cache_elements + future_positions * kBulkGqaKvElementsPerToken;
   const std::size_t scratch_elements =
       (first_position + token_count) * kBulkGqaQueryHeads;
   const std::size_t guarded_query_elements =
       query_elements + 2U * kBulkGqaGuardElements;
   const std::size_t guarded_cache_elements =
-      cache_elements + 2U * kBulkGqaGuardElements;
+      allocated_cache_elements + 2U * kBulkGqaGuardElements;
 
   ManagedBuffer<std::uint16_t> query_storage;
   ManagedBuffer<std::uint16_t> key_storage;
@@ -8362,6 +8436,10 @@ void run_bulk_gqa_correctness_case(
                            54) /
         32.0F);
   }
+  std::fill_n(key + cache_elements,
+              allocated_cache_elements - cache_elements, 0x7fc1U);
+  std::fill_n(value + cache_elements,
+              allocated_cache_elements - cache_elements, 0xff80U);
   const std::vector<std::uint16_t> query_snapshot(
       query_storage.data(), query_storage.data() + query_storage.size());
   const std::vector<std::uint16_t> key_snapshot(
@@ -8377,25 +8455,34 @@ void run_bulk_gqa_correctness_case(
           scratch.data(), scratch.size(), baseline, stream)),
       label + " baseline launch");
   ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(
+          q3x::runtime::launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+              query, key, value, gate, first_position, token_count, candidate,
+              static_cast<void*>(stream))),
+      label + " production launch");
+  ready = ready && test.cuda_ok(
       static_cast<cudaError_t>(q3x::runtime::
           launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
               query, key, value, gate, first_position, token_count,
-              kBulkGqaScale, candidate, static_cast<void*>(stream))),
-      label + " candidate launch");
+              kBulkGqaScale, replay, static_cast<void*>(stream))),
+      label + " compatibility wrapper launch");
   ready = ready &&
           test.cuda_ok(cudaStreamSynchronize(stream), label + " synchronize");
   if (!ready) {
     return;
   }
+  test.expect(std::memcmp(replay, candidate,
+                          query_elements * sizeof(std::uint16_t)) == 0,
+              label + " compatibility wrapper matches production API");
 
   BulkGqaGraphTopology candidate_topology;
   ready = capture_bulk_gqa_graph(
       test, stream, label + " candidate graph",
       [&]() {
         return q3x::runtime::
-            launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
-                query, key, value, gate, first_position, token_count,
-                kBulkGqaScale, replay, static_cast<void*>(stream));
+            launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                query, key, value, gate, first_position, token_count, replay,
+                static_cast<void*>(stream));
       },
       true, candidate_topology);
   if (!ready) {
@@ -8486,6 +8573,7 @@ void run_bulk_gqa_correctness_case(
             << " nonfinite_mismatches=" << metrics.nonfinite_mismatches
             << " baseline_nodes=" << (3U * token_count + 1U)
             << " candidate_nodes=" << candidate_topology.node_count
+            << " future_poison_positions=" << future_positions
             << " replay=bitwise gate="
             << (numerical_gate ? "PASS" : "FAIL") << '\n';
 
@@ -8494,41 +8582,44 @@ void run_bulk_gqa_correctness_case(
     const std::string invalid = "bulk GQA invalid graph ";
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "C255", query, key, value, gate, 0U, 255U,
-        kBulkGqaScale, candidate);
+        candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "C513", query, key, value, gate, 0U, 513U,
-        kBulkGqaScale, candidate);
+        candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "sequence overflow", query, key, value, gate,
-        262'144U - 255U, 256U, kBulkGqaScale, candidate);
-    expect_invalid_bulk_gqa_graph(
-        test, stream, invalid + "wrong scale", query, key, value, gate, 0U,
-        256U, 0.125F, candidate);
+        q3x::runtime::kBulkCausalGqaMaximumSequenceLength - 255U, 256U,
+        candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "null query", nullptr, key, value, gate, 0U,
-        256U, kBulkGqaScale, candidate);
+        256U, candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "null key", query, nullptr, value, gate, 0U,
-        256U, kBulkGqaScale, candidate);
+        256U, candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "null value", query, key, nullptr, gate, 0U,
-        256U, kBulkGqaScale, candidate);
+        256U, candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "null gate", query, key, value, nullptr, 0U,
-        256U, kBulkGqaScale, candidate);
+        256U, candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "null output", query, key, value, gate, 0U,
-        256U, kBulkGqaScale, nullptr);
+        256U, nullptr);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "misaligned query", query + 1U, key, value,
-        gate, 0U, 256U, kBulkGqaScale, candidate);
+        gate, 0U, 256U, candidate);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "query-output alias", query, key, value,
-        gate, 0U, 256U, kBulkGqaScale, query);
+        gate, 0U, 256U, query);
     expect_invalid_bulk_gqa_graph(
         test, stream, invalid + "key-value alias", query, key, key, gate, 0U,
-        256U, kBulkGqaScale, candidate);
-    std::cout << "BULK_GQA_INVALID_GRAPH: cases=12 zero_node_contract=true "
+        256U, candidate);
+    expect_invalid_bulk_gqa_compatibility_scale_graph(
+        test, stream, invalid + "compatibility wrong scale", query, key,
+        value, gate, candidate);
+    std::cout << "BULK_GQA_INVALID_GRAPH: production_cases=11 "
+                 "compatibility_cases=1 "
+                 "zero_node_contract=true "
                  "gate="
               << (test.failures() == invalid_failures_before ? "PASS"
                                                               : "FAIL")
@@ -8584,6 +8675,7 @@ void test_bulk_causal_gqa_prefill_contract(TestContext& test,
             << resources.active_blocks_per_multiprocessor
             << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
 
+  test_bulk_gqa_near_max_graph_contract(test, stream);
   run_bulk_gqa_correctness_case(test, stream, 0U, 256U, true);
   run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
   run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
@@ -8663,10 +8755,9 @@ void run_bulk_gqa_perf_case(TestContext& test,
   };
   const auto launch_candidate = [&]() {
     return q3x::runtime::
-        launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+        launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
             query.data(), key.data(), value.data(), gate.data(), 0U,
-            token_count, kBulkGqaScale, candidate_output.data(),
-            static_cast<void*>(stream));
+            token_count, candidate_output.data(), static_cast<void*>(stream));
   };
   for (std::size_t iteration = 0U;
        iteration < kWarmupIterations && ready; ++iteration) {

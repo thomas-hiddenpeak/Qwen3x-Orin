@@ -60,7 +60,8 @@ constexpr unsigned int kBulkGqaQueryTile = 2U;
 constexpr unsigned int kBulkGqaKvTile = 16U;
 constexpr unsigned int kBulkGqaThreads =
     kBulkGqaQueriesPerKv * 32U;
-constexpr std::size_t kBulkGqaMaximumSequence = 262'144U;
+constexpr std::size_t kBulkGqaMaximumSequence =
+    kBulkCausalGqaMaximumSequenceLength;
 constexpr float kBulkGqaAttentionScale = 1.0F / 16.0F;
 constexpr std::size_t kQkRopeQueryHeads = 24U;
 constexpr std::size_t kQkRopeKvHeads = 4U;
@@ -1153,14 +1154,14 @@ __global__ void attention_values_exact_24_4_256_kernel(
          dimension] = encode_bf16_device(value);
 }
 
-// Test-only fixed-shape bulk causal GQA prototype. One CTA owns two adjacent
-// query tokens and one KV head. Its six warps own that KV head's six query
-// heads, so one shared K/V tile serves twelve query rows. Each lane retains
-// eight head dimensions plus FP32 online-softmax state in registers. The
-// final sigmoid gate deliberately observes a BF16-rounded attention value,
-// preserving the production attention -> BF16 -> gate -> BF16 boundary.
+// Fixed-shape bulk causal GQA implementation. One CTA owns two adjacent query
+// tokens and one KV head. Its six warps own that KV head's six query heads, so
+// one shared K/V tile serves twelve query rows. Each lane retains eight head
+// dimensions plus FP32 online-softmax state in registers. The final sigmoid
+// gate deliberately observes a BF16-rounded attention value, preserving the
+// production attention -> BF16 -> gate -> BF16 boundary.
 __global__ __launch_bounds__(kBulkGqaThreads)
-void bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_kernel(
+void bulk_causal_gqa_sigmoid_gate_24_4_256_kernel(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
@@ -1826,20 +1827,18 @@ void launch_attention_scores_unchecked(
                          kOutputBytes);
 }
 
-[[nodiscard]] bool valid_bulk_causal_gqa_test_arguments(
+[[nodiscard]] bool valid_bulk_causal_gqa_arguments(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
     const std::uint16_t* const value_cache,
     const std::uint16_t* const gate,
     const std::size_t first_position,
     const std::size_t token_count,
-    const float attention_scale,
     const std::uint16_t* const output) noexcept {
   if ((token_count != 256U && token_count != 512U) ||
       first_position > kBulkGqaMaximumSequence - token_count ||
-      attention_scale != kBulkGqaAttentionScale || query == nullptr ||
-      key_cache == nullptr || value_cache == nullptr || gate == nullptr ||
-      output == nullptr) {
+      query == nullptr || key_cache == nullptr || value_cache == nullptr ||
+      gate == nullptr || output == nullptr) {
     return false;
   }
   constexpr std::uintptr_t kPackedAlignment = alignof(std::uint32_t);
@@ -2374,6 +2373,32 @@ int query_attention_values_exact_24_4_256_test_cuda_resources(
   return static_cast<int>(cudaSuccess);
 }
 
+int launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key_cache,
+    const std::uint16_t* const value_cache,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!valid_bulk_causal_gqa_arguments(query, key_cache, value_cache, gate,
+                                       first_position, token_count, output)) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const dim3 blocks(
+      static_cast<unsigned int>(token_count / kBulkGqaQueryTile),
+      kBulkGqaKvHeads, 1U);
+  const auto stream = static_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  bulk_causal_gqa_sigmoid_gate_24_4_256_kernel
+      <<<blocks, kBulkGqaThreads, 0U, stream>>>(
+          query, key_cache, value_cache, gate,
+          static_cast<unsigned int>(first_position),
+          static_cast<unsigned int>(token_count), output);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
     const std::uint16_t* const query,
     const std::uint16_t* const key_cache,
@@ -2384,22 +2409,12 @@ int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
     const float attention_scale,
     std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (!valid_bulk_causal_gqa_test_arguments(
-          query, key_cache, value_cache, gate, first_position, token_count,
-          attention_scale, output)) {
+  if (attention_scale != kBulkGqaAttentionScale) {
     return static_cast<int>(cudaErrorInvalidValue);
   }
-  const dim3 blocks(
-      static_cast<unsigned int>(token_count / kBulkGqaQueryTile),
-      kBulkGqaKvHeads, 1U);
-  const auto stream = static_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_kernel
-      <<<blocks, kBulkGqaThreads, 0U, stream>>>(
-          query, key_cache, value_cache, gate,
-          static_cast<unsigned int>(first_position),
-          static_cast<unsigned int>(token_count), output);
-  return static_cast<int>(cudaGetLastError());
+  return launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+      query, key_cache, value_cache, gate, first_position, token_count,
+      output, cuda_stream);
 }
 
 int query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
@@ -2416,14 +2431,14 @@ int query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncGetAttributes(
       &attributes,
-      bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_kernel);
+      bulk_causal_gqa_sigmoid_gate_24_4_256_kernel);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
   int active_blocks = 0;
   status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &active_blocks,
-      bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_kernel,
+      bulk_causal_gqa_sigmoid_gate_24_4_256_kernel,
       static_cast<int>(kBulkGqaThreads), 0U);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
