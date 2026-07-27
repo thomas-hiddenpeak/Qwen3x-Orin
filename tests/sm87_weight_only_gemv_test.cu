@@ -29773,11 +29773,11 @@ void run_fp8_full_attention_invalid_capture_contract(TestContext& test,
         launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda;
     statuses[index++] = q3x::kernels::
         launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-            weights, 1.0F, activations, 256U, 12'288U, 5'120U, output,
+            weights, 1.0F, activations, 256U, 12'287U, 5'120U, output,
             static_cast<void*>(stream));
     statuses[index++] = q3x::kernels::
         launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-            weights, 1.0F, activations, 512U, 1'024U, 5'120U, output,
+            weights, 1.0F, activations, 512U, 1'023U, 5'120U, output,
             static_cast<void*>(stream));
     statuses[index++] = q_launch(weights, 1.0F, activations, 256U, true,
                                  1'024U, 5'120U, output,
@@ -29844,7 +29844,7 @@ void run_fp8_full_attention_invalid_capture_contract(TestContext& test,
                           static_cast<int>(cudaErrorInvalidValue))
             << '/' << statuses.size() << " total_nodes=" << node_count
             << " full_span_aliases=C256_Q_KV_and_C512_Q_KV"
-            << " production_public_rejects=Q_and_KV"
+            << " production_public_rejects=Q_and_KV_shape_near_misses"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
               "FP8 full-attention invalid paths enqueue zero graph nodes");
@@ -30277,7 +30277,9 @@ struct Fp8FullAttentionCaseResult {
             << " correctness=" << (result.correctness ? "PASS" : "FAIL")
             << " graph=" << (result.graph ? "PASS" : "FAIL")
             << " every_round_positive=" << (every_round ? "true" : "false")
-            << " production_dispatch=unchanged"
+            << " baseline=frozen_pre_promotion_route"
+            << " production_selection="
+               "Q_and_C512_KV_N_major_C256_KV_M_major"
             << " gate="
             << (result.correctness && result.graph && every_round &&
                         std::isfinite(speedup) && speedup > 1.0
@@ -30534,7 +30536,9 @@ void run_fp8_whole_chunk_full_attention_screen(TestContext& test,
          " baseline=Q_production_M32,K_V_production_M8_CUDA"
          " controls=R_repeated_M64,S_one_grid_M_major"
          " candidate=C_one_grid_N_major order=B-R-S-C-C-S-R-B"
-         " warmup=10 measured_ops=24 rounds=6 production_dispatch=unchanged\n";
+         " warmup=10 measured_ops=24 rounds=6"
+         " baseline=frozen_pre_promotion_routes"
+         " production_selection=Q_and_C512_KV_N_major_C256_KV_M_major\n";
   const int failures_before_prechecks = test.failures();
   run_fp8_full_attention_resource_gate(test);
   run_fp8_full_attention_invalid_capture_contract(test, stream);
@@ -30615,7 +30619,8 @@ void run_fp8_whole_chunk_full_attention_screen(TestContext& test,
             << (exhaustive_gate ? "PASS" : "FAIL")
             << " K_V_failure_cannot_be_masked_by_Q=true"
             << " Q_only_selection=" << (q_gate ? "SELECTABLE" : "REJECT")
-            << " production_dispatch=unchanged"
+            << " production_selection="
+               "Q_and_C512_KV_N_major_C256_KV_M_major"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
               "FP8 full-attention screen clears all independent and C512 "
@@ -62616,8 +62621,8 @@ int main() {
       return 1;
     }
     std::cout << "FP8 whole-chunk full-attention Q/K/V M256/M512 "
-                 "fixed-frequency screen passed; production dispatch is "
-                 "unchanged\n";
+                 "fixed-frequency screen passed; production dispatch uses "
+                 "the selected shape-specific layouts\n";
     return 0;
   }
   if (fp8_whole_chunk_qkv_z_performance_enabled()) {

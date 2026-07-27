@@ -320,11 +320,15 @@ launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
 
 // Exact C256/C512 FP8 Prefill projection. activations is contiguous
 // token-major BF16 [token_count, columns] and output is contiguous token-major
-// BF16 [token_count, rows]. The accepted checkpoint shapes are QKV
-// [10240,5120], Z [6144,5120], and attention output [5120,6144]. The complete
-// chunk is validated before one fixed N-major grid is enqueued. Every shape,
-// token-count, range, alias, or production-alignment near miss returns
-// cudaErrorInvalidValue before enqueue.
+// BF16 [token_count, rows]. The accepted checkpoint shapes are linear-
+// attention QKV [10240,5120] and Z [6144,5120], full-attention Q
+// [12288,5120] and K/V [1024,5120], and attention output [5120,6144]. The
+// complete chunk is validated before one fixed whole-chunk grid is enqueued.
+// Q and C512 K/V use N-major ordering; C256 K/V uses the measured-faster
+// M-major ordering to avoid N-major's locality penalty at the same 32-CTA
+// under-filled grid size.
+// Every shape, token-count, range, alias, or production-alignment near miss
+// returns cudaErrorInvalidValue before enqueue.
 [[nodiscard]] int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t token_count,

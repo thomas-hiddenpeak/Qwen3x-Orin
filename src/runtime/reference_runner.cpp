@@ -752,6 +752,8 @@ bool use_fp8_whole_chunk_prefill_projection(
   constexpr std::size_t kQkvRows = 10'240U;
   constexpr std::size_t kZRows = 6'144U;
   constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr std::size_t kFullQueryGateRows = 12'288U;
+  constexpr std::size_t kFullKvRows = 1'024U;
   const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
   const auto aligned = [](const void* const pointer,
                           const std::size_t alignment) noexcept {
@@ -770,7 +772,13 @@ bool use_fp8_whole_chunk_prefill_projection(
   const bool attention_output_shape =
       selected->output_size == kHiddenSize &&
       selected->input_size == kZRows;
-  return (qkv_shape || z_shape || attention_output_shape) &&
+  const bool full_query_shape =
+      selected->output_size == kFullQueryGateRows &&
+      selected->input_size == kHiddenSize;
+  const bool full_kv_shape = selected->output_size == kFullKvRows &&
+                             selected->input_size == kHiddenSize;
+  return (qkv_shape || z_shape || attention_output_shape ||
+          full_query_shape || full_kv_shape) &&
          aligned(selected->weight, 16U) &&
          aligned(input, alignof(std::uint64_t)) &&
          aligned(output, alignof(std::uint16_t));

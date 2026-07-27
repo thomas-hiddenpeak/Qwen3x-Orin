@@ -802,6 +802,12 @@ void test_fake_linear_weight_validation(TestContext& test) {
   const runtime::LinearWeight z_whole_chunk = runtime::Fp8LinearWeight{
       attention_output_weight.data(), &device_weight_scale,
       &device_input_scale, 0.25F, 0.5F, 6'144U, 5'120U};
+  const runtime::LinearWeight full_q_whole_chunk = runtime::Fp8LinearWeight{
+      attention_output_weight.data(), &device_weight_scale,
+      &device_input_scale, 0.25F, 0.5F, 12'288U, 5'120U};
+  const runtime::LinearWeight full_kv_whole_chunk = runtime::Fp8LinearWeight{
+      attention_output_weight.data(), &device_weight_scale,
+      &device_input_scale, 0.25F, 0.5F, 1'024U, 5'120U};
   const runtime::LinearWeight missing_whole_chunk_companions =
       runtime::Fp8LinearWeight{attention_output_weight.data(), nullptr,
                                nullptr, 0.25F, 0.5F, 10'240U, 5'120U};
@@ -817,9 +823,14 @@ void test_fake_linear_weight_validation(TestContext& test) {
           selects_fp8_whole_chunk(qkv_whole_chunk, 512U) &&
           selects_fp8_whole_chunk(z_whole_chunk, 256U) &&
           selects_fp8_whole_chunk(z_whole_chunk, 512U) &&
+          selects_fp8_whole_chunk(full_q_whole_chunk, 256U) &&
+          selects_fp8_whole_chunk(full_q_whole_chunk, 512U) &&
+          selects_fp8_whole_chunk(full_kv_whole_chunk, 256U) &&
+          selects_fp8_whole_chunk(full_kv_whole_chunk, 512U) &&
           selects_fp8_whole_chunk(attention_output_projection, 256U) &&
           selects_fp8_whole_chunk(attention_output_projection, 512U),
-      "runner selects QKV/Z/O exact aligned FP8 C256/C512 whole chunks");
+      "runner selects linear QKV/Z, full Q/K/V, and O exact aligned FP8 "
+      "C256/C512 whole chunks");
   test.expect(
       selects_fp8_whole_chunk(missing_whole_chunk_companions, 256U),
       "runner FP8 whole-chunk selector leaves malformed companion scales "
@@ -836,7 +847,7 @@ void test_fake_linear_weight_validation(TestContext& test) {
   const runtime::LinearWeight other_fp8_checkpoint_shape =
       runtime::Fp8LinearWeight{
           attention_output_weight.data(), &device_weight_scale,
-          &device_input_scale, 0.25F, 0.5F, 12'288U, 5'120U};
+          &device_input_scale, 0.25F, 0.5F, 12'287U, 5'120U};
   const runtime::LinearWeight bf16_whole_chunk_near_miss =
       runtime::Bf16LinearWeight{attention_input.data(), 10'240U, 5'120U};
   test.expect(

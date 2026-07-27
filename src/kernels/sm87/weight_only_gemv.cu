@@ -15307,13 +15307,13 @@ void launch_fp8_small_m64_attention_output_wmma_unchecked(
 [[nodiscard]] constexpr bool use_fp8_whole_chunk_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   return use_fp8_m64_qkv_z_fixed_shape(rows, columns) ||
-         (rows == 5'120U && columns == 6'144U);
+         (rows == 5'120U && columns == 6'144U) ||
+         (columns == 5'120U && (rows == 12'288U || rows == 1'024U));
 }
 
-// Screen-only full-attention projections.  These shapes deliberately remain
-// outside use_fp8_whole_chunk_fixed_shape until their independent correctness
-// and fixed-frequency gates have been evaluated.
-[[nodiscard]] constexpr bool use_fp8_m64_full_attention_test_shape(
+// Exact full-attention Q/K/V shapes shared by the production whole-chunk
+// route and the frozen M64/M-major screen controls.
+[[nodiscard]] constexpr bool use_fp8_m64_full_attention_fixed_shape(
     const std::size_t rows, const std::size_t columns) noexcept {
   return columns == 5'120U && (rows == 12'288U || rows == 1'024U);
 }
@@ -18113,15 +18113,14 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
       local_bytes, maximum_threads_per_block, active_blocks_per_sm);
 }
 
-// Test-only exact-M64 full-attention Q/K/V entries.  They intentionally do
-// not delegate to the production whole-chunk API: the production fixed-shape
-// selector must stay frozen while this candidate is screened.
+// Test-only exact-M64 full-attention Q/K/V entries retain the frozen baseline
+// and M-major/N-major controls used by the selection screen.
 [[nodiscard]] static int launch_fp8_small_m64_full_attention_test_cuda(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (!use_fp8_m64_full_attention_test_shape(rows, columns)) {
+  if (!use_fp8_m64_full_attention_fixed_shape(rows, columns)) {
     return invalid_value();
   }
   const int validation = validate_fp8_m64_launch(
@@ -18154,7 +18153,7 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
     int* const registers_per_thread, std::size_t* const static_shared_bytes,
     std::size_t* const local_bytes, int* const maximum_threads_per_block,
     int* const active_blocks_per_sm) noexcept {
-  if (!use_fp8_m64_full_attention_test_shape(rows, columns) ||
+  if (!use_fp8_m64_full_attention_fixed_shape(rows, columns) ||
       registers_per_thread == nullptr || static_shared_bytes == nullptr ||
       local_bytes == nullptr || maximum_threads_per_block == nullptr ||
       active_blocks_per_sm == nullptr) {
@@ -18176,7 +18175,7 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
     const std::size_t token_count, const bool n_major,
     const std::size_t rows, const std::size_t columns,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
-  if (!use_fp8_m64_full_attention_test_shape(rows, columns)) {
+  if (!use_fp8_m64_full_attention_fixed_shape(rows, columns)) {
     return invalid_value();
   }
   const int validation = validate_fp8_m64_tiles_launch(
@@ -18213,7 +18212,7 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
     std::size_t* const local_bytes, int* const maximum_threads_per_block,
     int* const active_blocks_per_sm) noexcept {
   if ((token_count != 256U && token_count != 512U) ||
-      !use_fp8_m64_full_attention_test_shape(rows, columns) ||
+      !use_fp8_m64_full_attention_fixed_shape(rows, columns) ||
       registers_per_thread == nullptr || static_shared_bytes == nullptr ||
       local_bytes == nullptr || maximum_threads_per_block == nullptr ||
       active_blocks_per_sm == nullptr) {
@@ -23656,6 +23655,26 @@ int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
     } else {
       launch_fp8_small_m64_attention_output_wmma_unchecked<
           6'144U, 5'120U, 72U, 8U>(
+          weights, weight_scale, activations, output, stream);
+    }
+  } else if (rows == 12'288U) {
+    if (token_count == 256U) {
+      launch_fp8_small_m64_attention_output_wmma_unchecked<
+          12'288U, 5'120U, 72U, 4U>(
+          weights, weight_scale, activations, output, stream);
+    } else {
+      launch_fp8_small_m64_attention_output_wmma_unchecked<
+          12'288U, 5'120U, 72U, 8U>(
+          weights, weight_scale, activations, output, stream);
+    }
+  } else if (rows == 1'024U) {
+    if (token_count == 256U) {
+      launch_fp8_small_m64_attention_output_wmma_unchecked<
+          1'024U, 5'120U, 72U, 4U, false>(
+          weights, weight_scale, activations, output, stream);
+    } else {
+      launch_fp8_small_m64_attention_output_wmma_unchecked<
+          1'024U, 5'120U, 72U, 8U>(
           weights, weight_scale, activations, output, stream);
     }
   } else if (token_count == 256U) {

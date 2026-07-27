@@ -16,6 +16,26 @@
 #include <utility>
 #include <vector>
 
+namespace q3x::kernels {
+
+// Frozen screen controls used to lock the production full-attention layout
+// choice without exposing test-only entries in the public kernel header.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    bool n_major, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    bool n_major, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+}  // namespace q3x::kernels
+
 namespace {
 
 namespace runtime = q3x::runtime;
@@ -1931,6 +1951,8 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
   };
   const runtime::LinearWeight qkv = make_fp8(10'240U, 5'120U);
   const runtime::LinearWeight z = make_fp8(6'144U, 5'120U);
+  const runtime::LinearWeight full_query = make_fp8(12'288U, 5'120U);
+  const runtime::LinearWeight full_kv = make_fp8(1'024U, 5'120U);
   const runtime::LinearWeight attention_output = make_fp8(5'120U, 6'144U);
 
   test.expect(runtime::kMaximumProjectionTileTokenCount == kM64Tokens,
@@ -1972,16 +1994,70 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
             dispatch.launches.front().block.y == 1U &&
             dispatch.launches.front().block.z == 1U &&
             dispatch.launches.front().dynamic_shared_bytes == 0U;
-        test.expect(exact, label + " is one exact N-major production grid");
+        test.expect(exact,
+                    label + " is one exact whole-chunk production grid");
       };
   for (const std::size_t token_count : {256U, 512U}) {
     expect_exact_grid(qkv, 10'240U, 5'120U, token_count,
                       "FP8 QKV C" + std::to_string(token_count));
     expect_exact_grid(z, 6'144U, 5'120U, token_count,
                       "FP8 Z C" + std::to_string(token_count));
+    expect_exact_grid(full_query, 12'288U, 5'120U, token_count,
+                      "FP8 full Q C" + std::to_string(token_count));
+    expect_exact_grid(full_kv, 1'024U, 5'120U, token_count,
+                      "FP8 full K/V C" + std::to_string(token_count));
     expect_exact_grid(attention_output, 5'120U, 6'144U, token_count,
                       "FP8 O C" + std::to_string(token_count));
   }
+
+  const auto expect_full_attention_layout =
+      [&](const runtime::LinearWeight& weight, const std::size_t rows,
+          const std::size_t token_count, const bool is_query,
+          const bool expected_n_major, const std::string& label) {
+        const CapturedKernelChain production = capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                      runtime::ProjectionBackend::kSm87WeightOnly, weight,
+                      input, token_count, output,
+                      static_cast<void*>(stream));
+            },
+            label + " production graph");
+        const CapturedKernelChain frozen_layout =
+            capture_ordered_kernel_chain(
+                test,
+                [&](cudaStream_t stream) noexcept {
+                  if (is_query) {
+                    return q3x::kernels::
+                        launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda(
+                            encoded_weight, 1.0F, input, token_count,
+                            expected_n_major, rows, 5'120U, output,
+                            static_cast<void*>(stream));
+                  }
+                  return q3x::kernels::
+                      launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda(
+                          encoded_weight, 1.0F, input, token_count,
+                          expected_n_major, rows, 5'120U, output,
+                          static_cast<void*>(stream));
+                },
+                label + " frozen layout graph");
+        test.expect(
+            production.valid && production.launches.size() == 1U &&
+                frozen_layout.valid && frozen_layout.launches.size() == 1U &&
+                production.launches.front().function ==
+                    frozen_layout.launches.front().function,
+            label + " selects the screened production layout");
+      };
+  for (const std::size_t token_count : {256U, 512U}) {
+    expect_full_attention_layout(
+        full_query, 12'288U, token_count, true, true,
+        "FP8 full Q C" + std::to_string(token_count) + " N-major");
+  }
+  expect_full_attention_layout(full_kv, 1'024U, 256U, false, false,
+                               "FP8 full K/V C256 M-major");
+  expect_full_attention_layout(full_kv, 1'024U, 512U, false, true,
+                               "FP8 full K/V C512 N-major");
 
   // Exercise the public runtime route on real storage and a non-default
   // stream. The low-level launcher must clear an unrelated stale last-error
@@ -2141,6 +2217,16 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
   expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
                        shape_near_miss, input, 256U,
                        "FP8 whole chunk rejects QKV N near miss");
+  const runtime::LinearWeight full_query_near_miss =
+      make_fp8(12'287U, 5'120U);
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       full_query_near_miss, input, 256U,
+                       "FP8 whole chunk rejects full-Q N near miss");
+  const runtime::LinearWeight full_kv_near_miss =
+      make_fp8(1'023U, 5'120U);
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       full_kv_near_miss, input, 512U,
+                       "FP8 whole chunk rejects full-K/V N near miss");
   const runtime::LinearWeight type_near_miss = runtime::Bf16LinearWeight{
       reinterpret_cast<const std::uint16_t*>(encoded_weight), 10'240U,
       5'120U};
@@ -2188,6 +2274,16 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
                      1.0F, 1.0F, 10'240U, 5'120U},
                  input, output,
                  "FP8 whole chunk rejects null input-scale device pointer");
+  expect_invalid(runtime::Fp8LinearWeight{
+                     encoded_weight, nullptr, companion_scales + 1U,
+                     1.0F, 1.0F, 12'288U, 5'120U},
+                 input, output,
+                 "FP8 full-Q whole chunk requires weight-scale companion");
+  expect_invalid(runtime::Fp8LinearWeight{
+                     encoded_weight, companion_scales, nullptr,
+                     1.0F, 1.0F, 1'024U, 5'120U},
+                 input, output,
+                 "FP8 full-K/V whole chunk requires input-scale companion");
   expect_invalid(runtime::Fp8LinearWeight{
                      encoded_weight, companion_scales,
                      companion_scales + 1U,
@@ -2238,6 +2334,17 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
       companion_scales + 1U, 1.0F, 1.0F, 10'240U, 5'120U};
   expect_invalid(wrapping_weight, input, output,
                  "FP8 whole chunk rejects wrapping weight range");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::
+            launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly, full_kv,
+                input, 512U,
+                reinterpret_cast<std::uint16_t*>(near_end),
+                static_cast<void*>(stream));
+      },
+      "FP8 full-K/V C512 rejects wrapping output range");
 
   std::size_t fallback_total_nodes = 0U;
   bool fallback_linear_chain = false;

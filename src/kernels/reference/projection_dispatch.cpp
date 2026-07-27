@@ -978,6 +978,8 @@ int launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
   constexpr std::size_t kHiddenSize = 5'120U;
   constexpr std::size_t kQkvSize = 10'240U;
   constexpr std::size_t kZSize = 6'144U;
+  constexpr std::size_t kFullQueryGateSize = 12'288U;
+  constexpr std::size_t kFullKvSize = 1'024U;
 
   if (backend != ProjectionBackend::kSm87WeightOnly ||
       weight.valueless_by_exception() ||
@@ -995,7 +997,13 @@ int launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
   const bool attention_output_shape =
       selected->output_size == kHiddenSize &&
       selected->input_size == kZSize;
-  if (!qkv_shape && !z_shape && !attention_output_shape) {
+  const bool full_query_shape =
+      selected->output_size == kFullQueryGateSize &&
+      selected->input_size == kHiddenSize;
+  const bool full_kv_shape = selected->output_size == kFullKvSize &&
+                             selected->input_size == kHiddenSize;
+  if (!qkv_shape && !z_shape && !attention_output_shape &&
+      !full_query_shape && !full_kv_shape) {
     return static_cast<int>(cudaErrorNotSupported);
   }
 

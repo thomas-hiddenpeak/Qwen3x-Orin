@@ -312,9 +312,10 @@ struct LogitsAnalysis {
     std::size_t token_count, std::size_t hidden_size) noexcept;
 
 // Pure-host selector for exact FP8 C256/C512 whole-chunk Prefill projection.
-// Only explicitly selected SM87, QKV [10240,5120], Z [6144,5120], or
+// Only explicitly selected SM87, linear-attention QKV [10240,5120] and Z
+// [6144,5120], full-attention Q [12288,5120] and K/V [1024,5120], or
 // attention output [5120,6144], and the production weight/input/output
-// alignments may bypass the runner's established C32 schedule. Device
+// alignments may bypass the runner's established tiled schedule. Device
 // companion-scale pointers are intentionally irrelevant to this kernel-only
 // eligibility decision.
 [[nodiscard]] bool use_fp8_whole_chunk_prefill_projection(
