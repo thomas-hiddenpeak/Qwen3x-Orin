@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark",
+  "status": "production-promoted-single-request-decode-target-not-yet-met",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 Decode toward 100 ms/token and 10 token/s",
+  "current_stage_target": {
+    "scope": "hot single-request Decode after the first generated token",
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "prior_formal_anchor_ms_per_token": 106.763,
+    "prior_formal_anchor_tokens_per_second": 9.366540843,
+    "directly_achieved_candidate_ms_per_token": 105.8705,
+    "directly_achieved_candidate_tokens_per_second": 9.445501816,
+    "target_met": false
+  },
+  "source": {
+    "p2_feature_commit": "f95dbf4de6167f704ce4571ce87a7b50a30473c5",
+    "p2_feature_tree": "32706fa5ee4e8163e1510d3d07945fd3e4914322",
+    "p2_feature_subject": "bench: validate short-position Decode Graph cache",
+    "p2_selection_commit": "ba450119309077627ddaaedb99116870282ab939",
+    "p2_selection_tree": "29b68b8ed2dbdcb74d9d80337b0be83deda0d6fa",
+    "p2_selection_subject": "docs: select short-position Decode Graph cache",
+    "p2_selection_record": "qwen36-27b-decode-short-position-cuda-graph-cache-p2-selection.json",
+    "p2_selection_record_blob": "fd6d55675eea7d0343a7a3437a37810b5eb1470d",
+    "production_cache_commit": "c8fbd309446a5f3e758922861e83a067e55dc741",
+    "production_cache_tree": "b853f15196a0149b23f42bd9e5a540bbaac6d039",
+    "production_cache_subject": "feat: promote short-position Decode Graph cache",
+    "production_entry_commit": "fc9547c1015b73c5178d7767ed02d62f1b830be9",
+    "production_entry_tree": "b29a4f0a463ed04b7433c2fbc56f3ca7e28a938d",
+    "production_entry_subject": "feat: enable production Decode Graph dispatch",
+    "production_entry_parent_commit": "c8fbd309446a5f3e758922861e83a067e55dc741",
+    "blobs_at_production_entry_commit": {
+      "cmake": "6d089ad99fd56294e15691178c55dfdad727cde2",
+      "reference_engine_header": "ddb654b5b8c44b971d1e13bb086824621f03bd5b",
+      "reference_runner_header": "9592c1245384044afbaae6992c06a8cc62d9071e",
+      "reference_engine_source": "961cca75e01fb93b572e59912eb2c2ba4f249b18",
+      "reference_runner_source": "9114dba76b146bfac263262115b50cfac7bdf5ea",
+      "reference_benchmark_header": "c9a9fc1e2466a3cd4f0f631c6cb670c24b119877",
+      "reference_benchmark_source": "8a496167a2cf78dd7cd64a3ed72c1ce3dbb95fbc",
+      "cli_source": "61f9b39326fec6bec67299d6f9b6effaf1babadb",
+      "production_test": "5fffcdfa1deeefe0b3a598b48ffdf5d9fa268158"
+    },
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "measurement_identity": "B is the executable frozen from the P2 selection commit ba45011, before production dispatch. C is the Release executable frozen at fc9547c after the engine-lifetime cache manager and ordinary CLI/benchmark policy integration. B1-C1-C2-B2 is the mirrored formal sequence; every process performs its own model load, one warmup, and five measured generations."
+  },
+  "binaries": {
+    "production_baseline": {
+      "source_commit": "ba450119309077627ddaaedb99116870282ab939",
+      "local_path": "/tmp/q3x-decode-graph-p2-build-release/qwen3x-orin",
+      "bytes": 5174080,
+      "sha256": "3c5bf3fbf6521be750e9a50fb8ff5c9f8b8437d6993de435adcefd41a2b9e391",
+      "elf_build_id": "f15fc1e8bfe754b8edd840638cdfb08a35ba5219",
+      "checked_in": false
+    },
+    "production_candidate": {
+      "source_commit": "fc9547c1015b73c5178d7767ed02d62f1b830be9",
+      "local_path": "/tmp/q3x-decode-graph-prod-build-release/qwen3x-orin",
+      "bytes": 5175456,
+      "sha256": "1ef6488f062aef3a24b0c55c0072b8ba1b5de4b655eb0978799aac6e879a53ad",
+      "elf_build_id": "d6ad9bd2e55d7e658cf885194d8192fc8dde6c11",
+      "checked_in": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "gpu_name": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "architecture": "aarch64",
+    "kernel": "Linux 6.8.12-1021-tegra",
+    "driver_version": "595.78",
+    "cuda_compiler": "CUDA 13.3 build 37862127_0",
+    "cmake_version": "3.28.3",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "nvpmodel": "MAXN",
+    "gpu_devfreq_hz": 1300500000,
+    "emc_bwmgr_devfreq_hz": 3200000000,
+    "clock_scope": "The formal evidence uses the project's fixed-frequency MAXN workflow. This record does not establish thermal-soak, power, or energy behavior."
+  },
+  "implementation": {
+    "name": "Production short-position Decode CUDA Graph cache",
+    "scope": "hot single-request predicted-token-only SM87 Decode at P19-P43",
+    "cache_ownership": "one bounded cache bank owned by the engine lifetime",
+    "cache_window": {
+      "first_position": 19,
+      "last_position": 43,
+      "slot_count": 25,
+      "graph_launches_per_cached_token": 1,
+      "kernels_inside_each_graph": 389,
+      "total_nodes_per_graph": 390,
+      "root_parameter_update": "embedding-gather input token offset"
+    },
+    "publication": {
+      "transactional": true,
+      "all_slots_staged_before_publish": true,
+      "partial_failure_publishes_no_bank": true,
+      "resource_admission_precedes_preparation": true,
+      "cold_time_budget_ms": 1000.0,
+      "observed_free_memory_drop_budget_bytes": 268435456,
+      "coverage": "The normal success path is exercised; deterministic injected partial-failure rollback coverage remains test debt."
+    },
+    "production_policy": {
+      "ordinary_cli_and_benchmark_sm87_predicted_token_only_max_tokens_over_one": "automatically requests the short-position cache",
+      "generic_engine_api_default": "disabled unless its caller requests the production policy",
+      "full_statistics": "serial",
+      "trace": "serial",
+      "reference_backend": "serial",
+      "cache_miss_or_out_of_window": "serial",
+      "same_token_retry_after_graph_failure": false,
+      "runtime_graph_failure": "clear and demote the cache for subsequent work"
+    },
+    "execution_model": {
+      "request_concurrency": 1,
+      "runners": 1,
+      "decode_streams": 1,
+      "serial_dependency_order_inside_graph": true,
+      "double_buffered": false,
+      "triple_buffered": false,
+      "prefill_decode_logical_plans_separate": true,
+      "prefill_decode_executors_separate": false,
+      "cross_kernel_overlap_added": false,
+      "prefill_decode_overlap_added": false,
+      "interpretation": "Graph replay removes repeated host submission for the existing serial Decode DAG; it does not add inter-kernel overlap, phase overlap, or request buffering."
+    },
+    "public_source_api_extended": true,
+    "pre_existing_positional_aggregate_source_compatibility_preserved": true
+  },
+  "production_end_to_end_gate": {
+    "status": "pass",
+    "scope": "enabled versus disabled production engine policy on the full model",
+    "request_arena_bytes": 87846400,
+    "cache": {
+      "first_position": 19,
+      "last_position": 43,
+      "slot_count": 25,
+      "latest_prepare_wall_ms": 75.758861,
+      "maximum_prepare_wall_ms": 1000.0,
+      "latest_observed_cuda_free_drop_bytes": 76607488,
+      "maximum_observed_cuda_free_drop_bytes": 268435456,
+      "cold_time_gate": "pass",
+      "memory_gate": "pass"
+    },
+    "generation_paths": {
+      "canonical_p19_p43": {
+        "graph_replays": 25,
+        "serial_fallbacks": 0,
+        "generation_semantics_exact": true
+      },
+      "post_reset_p19_p43": {
+        "graph_replays": 25,
+        "serial_fallbacks": 0,
+        "generation_semantics_exact": true
+      },
+      "full_statistics": {
+        "graph_replays": 0,
+        "serial_fallbacks": 0,
+        "all_logits_and_generation_semantics_exact": true
+      },
+      "trace": {
+        "graph_replays": 0,
+        "serial_fallbacks": 0,
+        "trace_and_generation_semantics_exact": true
+      },
+      "p44_boundary": {
+        "graph_replays": 25,
+        "serial_fallbacks": 1,
+        "p44_cache_miss_exact": true
+      }
+    },
+    "gate": "pass"
+  },
+  "release_validation": {
+    "ctest": {
+      "command": "ctest --test-dir /tmp/q3x-decode-graph-prod-build-release --output-on-failure --output-log /tmp/q3x-decode-graph-prod.ctest.log",
+      "tests_total": 59,
+      "tests_passed": 55,
+      "tests_failed": 0,
+      "tests_skipped": 4,
+      "expected_skips": [
+        "reference_decode_graph_p1_perf",
+        "reference_decode_graph_p2_perf",
+        "reference_decode_graph_production",
+        "tokenizer"
+      ],
+      "wall_seconds": 255.93,
+      "status": "pass",
+      "log": {
+        "local_path": "/tmp/q3x-decode-graph-prod.ctest.log",
+        "bytes": 8274,
+        "lines": 144,
+        "sha256": "54df8239e3208224d67522baf0702088709bcd4b8c845fde9f0eaa606c35fc31"
+      }
+    }
+  },
+  "end_to_end_benchmark": {
+    "status": "pass",
+    "protocol": {
+      "scope": "hot single-request Decode through the ordinary benchmark production entry point",
+      "process_order": ["B1", "C1", "C2", "B2"],
+      "command_template": "taskset -c 11 BINARY benchmark MODEL_DIR --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --prefill-chunk-size 32 --projection-backend sm87",
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "rendered_prompt_tokens": 19,
+      "requested_prefill_chunk_size": 32,
+      "effective_prefill_chunk_size": 32,
+      "max_new_tokens": 26,
+      "decode_intervals_per_generation": 25,
+      "warmup_rounds_per_process": 1,
+      "measured_rounds_per_process": 5,
+      "candidate_replays_per_sample": 25,
+      "candidate_fallbacks_per_sample": 0,
+      "candidate_replays_per_measured_process": 125,
+      "candidate_fallbacks_per_measured_process": 0
+    },
+    "runs": {
+      "B1": {
+        "subsequent_token_ms": 106.763,
+        "total_generation_ms": 3093.621,
+        "persistent_device_memory_drop_detected": false
+      },
+      "C1": {
+        "subsequent_token_ms": 105.865,
+        "total_generation_ms": 3071.291,
+        "decode_graph_replays": 125,
+        "decode_graph_serial_fallbacks": 0,
+        "persistent_device_memory_drop_detected": false
+      },
+      "C2": {
+        "subsequent_token_ms": 105.876,
+        "total_generation_ms": 3071.281,
+        "decode_graph_replays": 125,
+        "decode_graph_serial_fallbacks": 0,
+        "persistent_device_memory_drop_detected": false
+      },
+      "B2": {
+        "subsequent_token_ms": 106.747,
+        "total_generation_ms": 3092.894,
+        "persistent_device_memory_drop_detected": false
+      }
+    },
+    "pairwise_subsequent_token_gate": {
+      "pair_labels": ["B1-C1", "B2-C2"],
+      "saved_ms": [0.898, 0.871],
+      "every_pair_strictly_improves": true,
+      "gate": "pass"
+    },
+    "mirrored_aggregate": {
+      "baseline_subsequent_ms": 106.755,
+      "candidate_subsequent_ms": 105.8705,
+      "subsequent_saved_ms": 0.8845,
+      "subsequent_speedup": 1.008354546,
+      "candidate_tokens_per_second": 9.445501816,
+      "baseline_total_generation_ms": 3093.2575,
+      "candidate_total_generation_ms": 3071.286,
+      "total_generation_saved_ms": 21.9715,
+      "total_generation_speedup": 1.007153844
+    },
+    "functional_canonicalization": {
+      "all_four_processes_match_the_pinned_golden": true,
+      "prompt_ids": 19,
+      "generated_ids": 26,
+      "exact_text": true,
+      "stop_reason": "im_end",
+      "steps": 44,
+      "gate": "pass"
+    },
+    "completeness": {
+      "sample_count_each": 5,
+      "later_token_intervals_each_process": 125,
+      "candidate_dispatch_each_sample": "25/0",
+      "candidate_dispatch_each_measured_process": "125/0",
+      "all_processes_status_ok": true,
+      "all_processes_persistent_device_memory_drop_detected": false,
+      "gate": "pass"
+    },
+    "logs": {
+      "B1": {"local_path": "/tmp/q3x-decode-graph-prod.B1.log", "bytes": 8421, "lines": 169, "sha256": "d425e9f776ba9a9a8ccfda6ad3918b386cc56a96b9547cb7b24b3bcf1a638414"},
+      "C1": {"local_path": "/tmp/q3x-decode-graph-prod.C1.log", "bytes": 9675, "lines": 197, "sha256": "e8c649baff3cf40e75e24c316e7770cb007c5c07d187a76d5b7e4dab96fca50e"},
+      "C2": {"local_path": "/tmp/q3x-decode-graph-prod.C2.log", "bytes": 9676, "lines": 197, "sha256": "54369310983317fcb3eb4d86e451c90c3462b5773b0046b3290969e2fae9e27d"},
+      "B2": {"local_path": "/tmp/q3x-decode-graph-prod.B2.log", "bytes": 8421, "lines": 169, "sha256": "1915a3059f30079dcca0b8efd4d930fd91289cee8de4689164c27206eb580af1"}
+    }
+  },
+  "nsys_profile": {
+    "status": "pass-supporting-topology-evidence",
+    "scope": "candidate ordinary generate entry with Decode NVTX ranges",
+    "decode_ranges": 25,
+    "joined_graph_traces": 25,
+    "graph_traces_per_decode_range": 1,
+    "distinct_graph_ids": 25,
+    "distinct_graph_exec_ids": 25,
+    "distinct_graph_streams": 1,
+    "graph_trace_median_ms": 105.867008,
+    "graph_trace_min_ms": 105.803424,
+    "graph_trace_max_ms": 105.937024,
+    "preparation_calls": {
+      "cudaStreamBeginCapture": 25,
+      "cudaStreamEndCapture": 25,
+      "cudaGraphInstantiate": 25,
+      "cudaGraphUpload": 25,
+      "all_before_generation": true,
+      "any_inside_decode_ranges": false
+    },
+    "artifacts": {
+      "nsys_rep": {"local_path": "/tmp/q3x-decode-graph-prod-profile.nsys-rep", "bytes": 806938, "sha256": "0623208e6525d4583f5a3494645870efa4b43d5a0c0044a405b62238b54d5ee0"},
+      "sqlite": {"local_path": "/tmp/q3x-decode-graph-prod-profile.sqlite", "bytes": 2170880, "sha256": "77c43be9a5b0ffb31a2d8e4b09ca76a62645c30a21917d523da9e14abce7fb67"},
+      "console": {"local_path": "/tmp/q3x-decode-graph-prod-profile.console.log", "bytes": 4315, "lines": 80, "sha256": "d193ec2ebc06251bb227f0838db6465fd6981590dbeaabcee96d7568813432a8"},
+      "analysis": {"local_path": "/tmp/q3x-decode-graph-prod-profile.analysis.log", "bytes": 1304, "lines": 34, "sha256": "7e469db614004ba8690023f4ebf35a1b3ebc8beb53ff3d2a7f2ea68ae350ce2c"}
+    },
+    "interpretation": "Each of the 25 measured Decode ranges contains exactly one position-specialized Graph execution on one stream. Capture, end-capture, instantiate, and upload occur only during preparation before generation. Profile timing supports topology and dispatch and is not substituted for the mirrored E2E anchor."
+  },
+  "decision": {
+    "result": "promote the short-position Decode CUDA Graph cache to production",
+    "prior_active_anchor_ms_per_token": 106.763,
+    "prior_active_anchor_tokens_per_second": 9.366540843,
+    "achieved_hot_single_request_ms_per_token": 105.8705,
+    "achieved_hot_single_request_tokens_per_second": 9.445501816,
+    "saved_from_prior_active_anchor_ms_per_token": 0.8925,
+    "speedup_from_prior_active_anchor": 1.008430110,
+    "same_run_mirrored_baseline_ms_per_token": 106.755,
+    "same_run_mirrored_candidate_saved_ms_per_token": 0.8845,
+    "same_run_mirrored_speedup": 1.008354546,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.8705,
+    "remaining_tokens_per_second": 0.554498184,
+    "remaining_relative_latency_reduction_percent": 5.544981841,
+    "target_met": false,
+    "next_priority": "Continue bounded single-request Decode optimization from the production Graph profile until the 100-ms/token and 10-token/s stage target is met; then begin the larger dedicated Prefill program."
+  },
+  "test_debt": [
+    "Add deterministic failure injection that proves multi-slot preparation transaction rollback after a partial staged build.",
+    "Add deterministic runtime Graph update, launch, and synchronization failure injection that proves no same-token serial retry and stable cache demotion for subsequent work."
+  ],
+  "limitations": [
+    "The 105.8705-ms/token anchor is the directly achieved C1/C2 mirrored mean from ordinary B1-C1-C2-B2 production benchmark processes; it is not the P2 test-only 105.978481-ms/token result subtracted from the previous anchor.",
+    "The production E2E test proves enabled/disabled arena layout and exact generation semantics for its 87,846,400-byte request arena; it does not compare every arena byte.",
+    "The achieved anchor is hot single-request Decode on one fixed-clock Orin and excludes model load and cache preparation.",
+    "Only P19-P43 are cached. P44 and other misses remain serial; full-statistics and trace modes remain serial.",
+    "Production remains dependency-ordered on one stream. No double buffering, triple buffering, cross-kernel overlap, multi-request scheduling, or Prefill/Decode overlap was introduced.",
+    "Bulk tiled Prefill is unchanged. This record makes no dedicated Prefill performance claim.",
+    "This is not a multi-request throughput, tail-latency, power, energy, or thermal-soak claim.",
+    "The 100-ms/token and 10-token/s stage target remains unmet."
+  ]
+}

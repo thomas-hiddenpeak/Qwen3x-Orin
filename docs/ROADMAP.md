@@ -271,6 +271,18 @@ Deliverables:
   no double/triple buffer or overlap; bulk Prefill tiles are unchanged, while
   finish-prefill M1 shares the selected route. Earlier component arithmetic
   remains microbenchmark evidence rather than end-to-end timing.
+- [done, Decode short-position CUDA Graph production promotion] Promote the
+  selected P19-P43/25-slot cache through an engine-lifetime transactional bank
+  and the ordinary SM87 predicted-only, non-trace CLI/benchmark policy.
+  Canonical and reset paths dispatch 25/0 Graph/serial, full-statistics and
+  trace remain 0/0 serial paths, and P44 is an exact 25/1 miss fallback. Cold
+  preparation is 75.758861 ms with a 76,607,488-byte observed CUDA free drop,
+  inside the 1-second/256-MiB gates. Ordinary-entry `B1-C1-C2-B2` moves
+  **106.755000 to 105.870500 ms/token**, establishing the directly achieved
+  **105.870500-ms/token / 9.445501816-token/s** anchor. The target remains
+  5.870500 ms/token and 0.554498184 token/s away. Execution stays on one stream
+  without double/triple buffering or phase overlap; bulk Prefill is unchanged.
+  Transaction-rollback and runtime-demotion failure injection remain test debt.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -1123,19 +1135,31 @@ this exact RP2 schedule/layout without a materially different mechanism and a
 credible >=0.30-ms/token ceiling. See the
 [RP2 rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json).
 
-Reorder the next priority from the latest production profile instead of
-prespecifying an implementation. Screen structural Decode candidates with a
-credible **at least 0.3--0.5 ms/token** contribution first, and advance to a
-full-model run only after the micro gate passes. Continue this incremental
-progression toward **100 ms/token / 10 token/s**.
+The P19-P43 Decode Graph cache is now production-promoted through an
+engine-lifetime transactional bank and the ordinary CLI/benchmark entry point.
+The mirrored full-generation gate establishes a new directly achieved anchor
+of **105.870500 ms/token / 9.445501816 token/s**. Its two independent pairs
+save 0.898/0.871 ms/token, every candidate sample dispatches 25/0 Graph/serial,
+all golden results are exact, and no process reports a persistent memory drop.
+Production correctness closes P19-P43, full-statistics, trace, reset, and the
+P44 serial miss; cold preparation and free-memory drop pass their budgets.
+See the [production Decode Graph record](metadata/qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json).
+
+The 100-ms/token / 10-token/s gate is still open by **5.870500 ms/token and
+0.554498184 token/s**. Re-rank structural Decode candidates from the fresh
+production Graph profile and screen only mechanisms with a credible **at least
+0.3--0.5 ms/token** contribution before advancing to full-model validation.
+Keep the larger dedicated Prefill program behind the Decode stage gate.
 
 Current-production NCU remains unavailable on this vGPU because performance-
 counter permission is denied, so these screens use static resource/SASS checks
 followed by same-binary actual-payload gates.
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
-candidates for restoration. The measured sub-1% Decode scheduling hole still
-leaves general batch-one double/triple buffering behind phase-local work.
+candidates for restoration. Graph replay now removes repeated host submission
+for the selected positions, but adds no double/triple buffering, GPU overlap,
+separate Prefill/Decode executor, or phase overlap; those remain later
+multi-request/serving concerns rather than claims of this promotion.
 Rejected
 product-table, pair-fused CTA, shared A/B pipeline, scale-window ping-pong,
 activation-only `cp.async`, generalized dual-stream, and GDN shared-resident

@@ -1104,6 +1104,25 @@ The diagnostic Phase 3 records are:
   internal production cache manager. It reaches **9.435878 token/s**, not the
   10-token/s target, so the formal production anchor remains **106.763 ms/token
   / 9.366540843 token/s**.
+- [`qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json`](qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json),
+  which promotes the selected P19-P43 cache through an engine-lifetime SM87
+  policy and the ordinary predicted-only, non-trace CLI and benchmark paths.
+  The 25 slots are staged and published transactionally outside generation;
+  admission failure preserves serial execution, while a runtime Graph failure
+  is not retried serially for the same token and demotes later work. The
+  production gate reproduces canonical and post-reset P19-P43 dispatch at
+  **25/0** Graph/serial, keeps full-statistics and trace at **0/0**, and reaches
+  P44 with **25/1**; all compared generation semantics are exact. Its latest
+  cold preparation is **75.758861 ms** with a **76,607,488-byte** observed CUDA
+  free-memory drop, inside the 1-second and 256-MiB budgets. Ordinary-entry
+  `B1-C1-C2-B2` measures **106.755000** versus **105.870500 ms/token**, saving
+  **0.884500 ms/token**; both pairs improve, every candidate sample dispatches
+  25/0, and the new directly achieved formal anchor is **105.870500 ms/token /
+  9.445501816 token/s**. The target remains unmet by 5.870500 ms/token and
+  0.554498184 token/s. The generic engine API remains default-disabled;
+  execution stays on one stream without double/triple buffering, overlap, or a
+  dedicated Prefill performance change. Fault-injection coverage for
+  transactional rollback and runtime demotion remains explicit test debt.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -6321,3 +6321,69 @@ production integration were not run. Production allocates neither sidecar;
 dispatch, runtime, ABI, Prefill, and the hot single-request Decode anchor remain
 unchanged at **106.763000 ms/token and 9.366540843 token/s**. Full evidence is
 in the [machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-lm-head-rp2-schedule-aosoa2-rejection.json).
+
+## Decode short-position CUDA Graph cache production promotion
+
+The selected P19-P43 CUDA Graph cache is now promoted from its P2 test harness
+to an engine-lifetime production policy. Ordinary SM87 predicted-token-only,
+non-trace CLI and benchmark requests with more than one generated token request
+the bounded 25-slot cache; the generic engine API remains default-disabled.
+Each hit executes the existing dependency-ordered 389-kernel DAG plus its
+greedy-result D2H as one Graph launch, updating only the embedding root token
+offset. Preparation occurs outside generation, stages the full bank before an
+all-or-nothing publication, and checks the 1-second/256-MiB admission envelope.
+Cache misses, incompatible modes, and P44 remain serial. A runtime Graph
+failure is not retried serially for the same token and demotes subsequent work.
+
+The production full-model gate compares enabled and disabled engines, including
+a reset between two canonical generations. It checks generation semantics and
+the exact enabled/disabled 87,846,400-byte arena layout; unlike the P2 harness,
+it does not claim complete-arena byte equality:
+
+| Production route | Graph replays | Serial fallbacks | Result |
+| --- | ---: | ---: | --- |
+| Canonical P19-P43 | 25 | 0 | exact |
+| Post-reset P19-P43 | 25 | 0 | exact |
+| Full statistics | 0 | 0 | exact serial path |
+| Trace | 0 | 0 | exact serial path |
+| Max27 through P44 | 25 | 1 | exact P44 miss fallback |
+
+All 19 prompt IDs, 26 generated IDs, exact text, `im_end`, and 44 steps match
+the pinned golden. The latest production preparation takes **75.758861 ms**
+and observes a **76,607,488-byte** CUDA free-memory drop, passing the 1-second
+and 268,435,456-byte gates. This device-wide free-memory delta is not added to
+host RSS on Jetson's shared DRAM.
+
+The formal performance comparison uses the ordinary benchmark production
+entry, not the test-only prepared-cache hook. Four independent fixed-core
+processes run `B1-C1-C2-B2`; each performs one warmup and five measured
+P19/C32/max26 generations:
+
+| Process | Decode median | Total-generation median | Candidate dispatch |
+| --- | ---: | ---: | ---: |
+| B1, `ba45011` | 106.763 ms/token | 3093.621 ms | — |
+| C1, `fc9547c` | 105.865 ms/token | 3071.291 ms | 125/0 |
+| C2, `fc9547c` | 105.876 ms/token | 3071.281 ms | 125/0 |
+| B2, `ba45011` | 106.747 ms/token | 3092.894 ms | — |
+
+Both mirrored pairs improve by **0.898/0.871 ms/token**. Their aggregate is
+**106.755000 ms/token** baseline versus **105.870500 ms/token** candidate,
+saving **0.884500 ms/token** for **1.008354546x** and reaching
+**9.445501816 token/s**. Every candidate sample dispatches 25 Graph replays
+and zero fallbacks, all four processes reproduce the golden, and none detects
+a persistent device-memory drop. The new directly achieved hot single-request
+Decode anchor is therefore **105.870500 ms/token / 9.445501816 token/s**,
+replacing **106.763000 ms/token / 9.366540843 token/s**. It remains
+**5.870500 ms/token and 0.554498184 token/s** short of the 100-ms/token and
+10-token/s target.
+
+Nsight Systems independently finds 25 Decode ranges and exactly one Graph
+trace in each, with 25 distinct graph/GraphExec IDs on one stream and a
+105.867008-ms median Graph trace. All 25 capture, end-capture, instantiate, and
+upload calls occur before generation, with none inside Decode ranges. The full
+Release suite passes 55 of 59 tests with four expected skips and no failures.
+Execution still has no double/triple buffer, cross-kernel overlap, separate
+Prefill/Decode executor, or Prefill/Decode overlap; bulk Prefill is unchanged.
+Failure-injection coverage for transactional rollback and runtime demotion
+remains test debt. Complete hashes, commands, gates, and claim limits are in
+the [production benchmark record](metadata/qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json).
