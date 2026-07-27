@@ -6519,3 +6519,37 @@ at least **1.2448x / 0.30 ms/token**. Otherwise it is removed immediately.
 The formal production anchor remains **105.870500 ms/token / 9.445501816
 token/s**. Full report identities, equations, priorities, and claim limits are
 in the [non-MTP audit record](metadata/qwen36-27b-decode-non-mtp-global-traffic-state-audit.json).
+
+## Decode GDN M1 transient register-state rejection
+
+The first non-MTP state-update P1 targeted the production fused GDN/plain
+RMSNorm/SiLU-gate kernel's second read of decayed FP32 row scratch. That read is
+64 KiB per value head, 3 MiB per layer, and **144 MiB/token** over 48 GDN
+layers. Two same-binary, test-only implementations preserve the production
+48x256 launch, K=0..127 FMA order, BF16 state boundary, output arithmetic,
+global state traffic, and production dispatcher:
+
+| Candidate | Resources | Baseline | Candidate | Speedup | Projected saving | Gate |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| packed BF16 + recompute | 64r, 34,568 B, 0 local, 4 CTA/SM | 31.6932 us | 30.1427 us | 1.05144x | 0.074424 ms/token | fail |
+| retained FP32 decay | 80r, 34,568 B, 0 local, 3 CTA/SM | 31.6569 us | 30.0652 us | 1.05294x | 0.076402 ms/token | fail |
+
+Both variants pass four-step in-place, disjoint state, replay, directed signed
+NaN/infinity, invalid capture, one-node 48x256 Graph, and complete 786,432-state
+bit/6,144-output-bit comparisons. Static SASS confirms the intended mechanism:
+both remove 32 `LDS` rows without changing `STS`, `LDG`, `STG`, `FFMA`, shuffle,
+or barrier counts; pair rounding adds 16 `F2FP` and 23-25 `PRMT` rows.
+
+The 24-state-bank working set is 36 MiB per variant, nine times L2. Each
+process uses 48 warmups and 480 measured launches per pass over five `B-C-C-B`
+rounds. Every round improves, but both candidates deliver only about one
+quarter of the frozen **1.2448x / 0.30-ms/token** admission requirement. FP32
+reuse removes the packed variant's decay recomputation yet barely changes the
+result, so the single shared reload is not the dominant whole-kernel limiter.
+
+First-process stop-loss skips full-model, candidate Nsys/NCU, and production
+integration. Both candidate kernels, launchers, and tests are removed with
+`apply_patch`; the production source/test blobs are restored exactly, the
+clean target build and default GDN CUDA suite pass, and the formal anchor stays
+**105.870500 ms/token / 9.445501816 token/s**. Complete rounds and claim limits
+are in the [rejection record](metadata/qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json).

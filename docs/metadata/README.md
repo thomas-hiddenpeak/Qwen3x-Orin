@@ -1152,6 +1152,14 @@ The diagnostic Phase 3 records are:
   a test-only packed-register transient-state P1 with bit-exact, zero-local,
   at-least-three-CTA/SM, and 1.2448x / 0.30-ms/token stop-loss gates. This audit
   changes no production code or formal performance anchor.
+- [`qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json`](qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json),
+  which closes the selected non-MTP GDN single-shared-reload P1. Packed-BF16
+  recompute and retained-FP32 variants remove the intended 144 MiB/token of
+  shared reads, stay bit-exact with zero local memory and three or four CTA/SM,
+  and improve all five mirrored rounds. Their 1.05144x/1.05294x results project
+  to only 0.074424/0.076402 ms/token, however, far below the frozen 1.2448x /
+  0.30-ms/token gate. Stop-loss removes all candidate code, restores the exact
+  production blobs, and leaves the formal anchor unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

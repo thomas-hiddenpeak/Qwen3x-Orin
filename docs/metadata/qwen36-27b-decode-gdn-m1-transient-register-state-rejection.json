@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gdn-m1-transient-register-state-rejection",
+  "status": "rejected-first-process-stop-loss-gdn-m1-transient-register-state",
+  "recorded_at": "2026-07-27T11:35:33+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "source": {
+    "base_commit": "088ce8537f0e38d7f8fc0e0d59a5a37529dcc77f",
+    "base_tree": "833d0e7e4d352b071a76a6e00f32400bd51ccc0d",
+    "base_subject": "docs: audit non-MTP Decode traffic ceilings",
+    "selection_record": "qwen36-27b-decode-non-mtp-global-traffic-state-audit.json",
+    "production_gdn_blob": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+    "production_gdn_test_blob": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "mtp_used": false
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.870500,
+    "remaining_tokens_per_second": 0.554498184,
+    "minimum_candidate_contribution_ms_per_token": 0.30,
+    "minimum_candidate_speedup": 1.2448,
+    "target_candidate_us_per_layer": 25.53,
+    "target_met": false,
+    "anchor_changed_by_this_experiment": false
+  },
+  "measured_baseline": {
+    "kernel": "gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<true>",
+    "launch": "48 blocks x 256 threads",
+    "nsys_us_per_layer": 31.783,
+    "nsys_ms_per_token_over_48_layers": 1.525591,
+    "ncu_dram_read_throughput_pct": 21.5684,
+    "ncu_issue_active_pct": 37.9714,
+    "registers_per_thread": 40,
+    "static_shared_bytes": 34568,
+    "local_bytes": 0,
+    "active_blocks_per_sm": 4
+  },
+  "mechanism": {
+    "current_row_scratch_bytes_per_state_element": 20,
+    "current_transfers": [
+      "write decayed FP32 state",
+      "read decayed state for prediction",
+      "read decayed state for update",
+      "write updated FP32 state",
+      "read updated state for output"
+    ],
+    "targeted_transfer": "read decayed state for update",
+    "shared_read_bytes_removed_per_value_head": 65536,
+    "shared_read_bytes_removed_per_layer": 3145728,
+    "shared_read_bytes_removed_per_token": 150994944,
+    "shared_read_mib_removed_per_token": 144.0,
+    "physical_ceiling": "Removing one of five row-state shared transfers gives an approximately 1.25x state-path ideal before normalization, global state traffic, FMA, encoding, and synchronization costs. The frozen 1.2448x gate is therefore close to the mechanism's unattainable whole-kernel ceiling."
+  },
+  "candidates": {
+    "packed_bf16_recompute": {
+      "implementation": "Each lane retains one row8 batch as 16 U32 words, each packing two BF16 state values. Prediction preserves the production shared-memory K=0..127 accumulation. Update reconstructs alpha*state from the retained BF16 bits, uses native BF16x2 rounding with a per-half NaN override for state stores, and retains the production shared updated-state/result path.",
+      "launch_bounds": [256, 4],
+      "persistent_state_format_changed": false,
+      "global_state_traffic_changed": false,
+      "production_dispatch_changed": false
+    },
+    "fp32_decayed_reuse": {
+      "implementation": "Each lane retains the first alpha*state results as decayed_state[4][8] FP32 registers while also publishing the identical values to shared memory for prediction. Update reuses those exact registers as the FMA third operands, then uses the same BF16x2 plus per-half NaN override and production shared updated-state/result path.",
+      "launch_bounds": [256, 3],
+      "persistent_state_format_changed": false,
+      "global_state_traffic_changed": false,
+      "production_dispatch_changed": false
+    }
+  },
+  "correctness_and_graph": {
+    "status": "pass_both_candidates",
+    "four_step_in_place": "all 786432 state bits and all 6144 output bits match production after every step",
+    "disjoint_state": "output and final state bitwise; both state inputs preserved",
+    "direct_replay": "output and state bitwise",
+    "directed_special_values": "signed infinities and signaling/quiet signed NaNs exercise both halves of packed words; complete output and state comparisons are bitwise",
+    "cuda_graph": "one distinct candidate kernel node at grid 48x1x1 and block 256x1x1 with zero dynamic shared memory",
+    "invalid_capture": "NaN epsilon returns cudaErrorInvalidValue and captures zero nodes",
+    "default_gdn_cuda_suite": "pass before candidate timing",
+    "full_model_run": false,
+    "reason_full_model_skipped": "both variants fail the frozen first-process microbenchmark stop-loss"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 1024,
+      "active_blocks_per_sm": 4
+    },
+    "packed_bf16_recompute": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 4,
+      "gate": "pass"
+    },
+    "fp32_decayed_reuse": {
+      "registers_per_thread": 80,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3,
+      "gate": "pass"
+    }
+  },
+  "sass": {
+    "candidate_binary_sha256": "7b8df713e993d2f4ddb9a53eb0b68212ad1a511441750bbd4ca7bd4fa394532d",
+    "candidate_binary_bytes": 1125872,
+    "candidate_binary_elf_build_id": "0085fbdbf6adc60670751a4e66c6a10b24ac24ad",
+    "candidate_binary_retained": false,
+    "method": "cuobjdump function-section instruction-row counts on the exact combined-candidate test executable before cleanup",
+    "production": {
+      "static_instructions": 1768,
+      "LDS": 395,
+      "STS": 89,
+      "LDG": 43,
+      "STG": 34,
+      "FFMA": 359,
+      "F2FP": 0,
+      "PRMT": 0,
+      "SHFL": 15,
+      "BAR_SYNC": 24,
+      "LDL": 0,
+      "STL": 0
+    },
+    "packed_bf16_recompute": {
+      "static_instructions": 1720,
+      "LDS": 363,
+      "STS": 89,
+      "LDG": 43,
+      "STG": 34,
+      "FFMA": 359,
+      "F2FP": 16,
+      "PRMT": 25,
+      "SHFL": 15,
+      "BAR_SYNC": 24,
+      "LDL": 0,
+      "STL": 0
+    },
+    "fp32_decayed_reuse": {
+      "static_instructions": 1712,
+      "LDS": 363,
+      "STS": 89,
+      "LDG": 43,
+      "STG": 34,
+      "FFMA": 359,
+      "F2FP": 16,
+      "PRMT": 23,
+      "SHFL": 15,
+      "BAR_SYNC": 24,
+      "LDL": 0,
+      "STL": 0
+    },
+    "interpretation": "Both candidates remove the intended 32 static LDS rows without changing global loads/stores, shared stores, FMA count, shuffles, or barriers. Pair conversion adds F2FP and PRMT work; only measured timing decides the trade."
+  },
+  "same_binary_performance": {
+    "method": {
+      "state_banks_per_variant": 24,
+      "state_working_set_bytes_per_variant": 37748736,
+      "working_set_over_l2": 9.0,
+      "warmup_launches_per_pass": 48,
+      "measured_launches_per_pass": 480,
+      "rounds": 5,
+      "order": "B-C-C-B",
+      "statistic": "median of ten baseline passes divided by median of ten candidate passes",
+      "all_rounds_must_improve": true,
+      "candidate_and_baseline_state_banks_bitwise_after_timing": true,
+      "fixed_frequency": "GPU 1.3005 GHz and EMC 3.2 GHz",
+      "logs_retained_as_files": false
+    },
+    "packed_bf16_recompute": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.0317039, "candidate_1_ms": 0.0301540, "candidate_2_ms": 0.0301423, "baseline_2_ms": 0.0317035},
+        {"round": 2, "baseline_1_ms": 0.0316886, "candidate_1_ms": 0.0301530, "candidate_2_ms": 0.0301687, "baseline_2_ms": 0.0316977},
+        {"round": 3, "baseline_1_ms": 0.0317081, "candidate_1_ms": 0.0301827, "candidate_2_ms": 0.0301411, "baseline_2_ms": 0.0316895},
+        {"round": 4, "baseline_1_ms": 0.0316803, "candidate_1_ms": 0.0301430, "candidate_2_ms": 0.0301407, "baseline_2_ms": 0.0316767},
+        {"round": 5, "baseline_1_ms": 0.0316906, "candidate_1_ms": 0.0301317, "candidate_2_ms": 0.0301274, "baseline_2_ms": 0.0316958}
+      ],
+      "baseline_median_ms_per_layer": 0.0316932,
+      "candidate_median_ms_per_layer": 0.0301427,
+      "speedup": 1.05144,
+      "all_rounds_faster": true,
+      "projected_saving_ms_per_token": 0.074424,
+      "required_speedup": 1.2448,
+      "required_saving_ms_per_token": 0.30,
+      "gate": "fail"
+    },
+    "fp32_decayed_reuse": {
+      "rounds": [
+        {"round": 1, "baseline_1_ms": 0.0317030, "candidate_1_ms": 0.0300544, "candidate_2_ms": 0.0300625, "baseline_2_ms": 0.0316750},
+        {"round": 2, "baseline_1_ms": 0.0316615, "candidate_1_ms": 0.0300843, "candidate_2_ms": 0.0300655, "baseline_2_ms": 0.0316596},
+        {"round": 3, "baseline_1_ms": 0.0316531, "candidate_1_ms": 0.0300595, "candidate_2_ms": 0.0300648, "baseline_2_ms": 0.0316457},
+        {"round": 4, "baseline_1_ms": 0.0316543, "candidate_1_ms": 0.0300631, "candidate_2_ms": 0.0300881, "baseline_2_ms": 0.0316490},
+        {"round": 5, "baseline_1_ms": 0.0316424, "candidate_1_ms": 0.0300687, "candidate_2_ms": 0.0300802, "baseline_2_ms": 0.0316886}
+      ],
+      "baseline_median_ms_per_layer": 0.0316569,
+      "candidate_median_ms_per_layer": 0.0300652,
+      "speedup": 1.05294,
+      "all_rounds_faster": true,
+      "projected_saving_ms_per_token": 0.076402,
+      "required_speedup": 1.2448,
+      "required_saving_ms_per_token": 0.30,
+      "gate": "fail"
+    }
+  },
+  "decision": {
+    "result": "reject_both_variants",
+    "reason": "Both exact implementations remove the intended shared reload and improve every measured round, but their 0.074-0.076-ms/token projections deliver only about one quarter of the 0.30-ms/token admission requirement. FP32 register reuse removes recomputation yet improves only marginally over packed BF16, proving that the targeted LDS path is not the dominant remaining whole-kernel limiter.",
+    "production_integration": false,
+    "full_model_validation": false,
+    "nsys_candidate_profile": false,
+    "ncu_candidate_profile": false,
+    "candidate_source_retained": false,
+    "reopen_when": "Only a materially different exact state-update topology that removes at least two row-scratch transfers or otherwise has a newly quantified credible contribution of at least 0.30 ms/token."
+  },
+  "cleanup": {
+    "method": "apply_patch reverse application of the complete experiment diff",
+    "production_gdn_blob_after_cleanup": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+    "production_gdn_test_blob_after_cleanup": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+    "working_tree_clean_after_cleanup": true,
+    "clean_test_binary_sha256": "355e32ab87f5d787f92f130e76837c6d5126d376d2e1969d541dae3330456004",
+    "clean_test_binary_bytes": 1055328,
+    "clean_test_binary_elf_build_id": "7cd015b0183581ea2228410f373466315b3fb72a",
+    "clean_target_build": "pass",
+    "clean_default_gdn_cuda_test": "pass"
+  },
+  "production_impact": {
+    "production_changed": false,
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "prefill_changed": false,
+    "mtp_used": false
+  },
+  "claim_limits": [
+    "This is a first-process same-binary microbenchmark rejection, not an achieved production speedup or a release latency claim.",
+    "The 0.074424 and 0.076402-ms/token values linearly multiply isolated per-layer medians by 48 GDN layers; neither candidate was integrated into the model runner.",
+    "The CUDA fixtures use deterministic synthetic activation and state payloads. Candidate stop-loss intentionally skipped a real-model run after the micro gate failed.",
+    "The combined candidate executable and console logs were not retained as files; their hashes, resources, SASS counts, and complete aggregate timing rows are recorded here, but the removed source is not recoverable from this record alone.",
+    "Production remains unchanged at 105.870500 ms/token / 9.445501816 token/s, and MTP is not used."
+  ]
+}

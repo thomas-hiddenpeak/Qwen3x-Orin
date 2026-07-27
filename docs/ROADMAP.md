@@ -1186,6 +1186,17 @@ and at least three CTA/SM. Projection physical-layout work follows only as a
 bounded hypothesis; generic L2 persistence and same-request buffering remain
 lower priority. MTP is explicitly outside this target path. See the
 [non-MTP traffic/state audit](metadata/qwen36-27b-decode-non-mtp-global-traffic-state-audit.json).
+
+The selected GDN single-reload P1 is now closed by actual-first stop-loss.
+Packed-BF16 recompute and retained-FP32 variants both pass bitwise, Graph, and
+resource gates and improve all five `B-C-C-B` rounds, but reach only
+**1.05144x / 0.074424 ms/token** and **1.05294x / 0.076402 ms/token**. Both miss
+the 1.2448x / 0.30-ms/token gate, so candidate code is removed and production
+is unchanged. Do not repeat a one-reload-only state cache; a new GDN topology
+must remove at least two scratch transfers and independently establish a
+credible 0.30-ms/token ceiling. The immediate path returns to zero-code
+projection payload admissions and measured global-flow changes. See the
+[GDN rejection record](metadata/qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json).
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission
