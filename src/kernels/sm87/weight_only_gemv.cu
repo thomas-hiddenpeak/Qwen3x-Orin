@@ -4901,13 +4901,19 @@ template <std::size_t kRows, std::size_t kColumns,
           bool kFactorizedProductLookup = false,
           bool kVectorizedDecodedStore = false,
           unsigned int kValidTokenCount = 32U,
-          bool kTableFreeE2M1 = false>
-__global__ __launch_bounds__(kThreads, 5) void
+          bool kTableFreeE2M1 = false,
+          unsigned int kTokenCount = 32U,
+          unsigned int kMinimumBlocksPerSm = 5U>
+__global__ __launch_bounds__(kThreads, kMinimumBlocksPerSm) void
 nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, std::uint16_t* const output) {
-  constexpr unsigned int kTokenCount = 32U;
+  // The production M32 instances keep two resident M16 panels.  The
+  // test-only M64 instance below deliberately reuses that same shared-A
+  // footprint for a second pair of panels so every decoded weight tile is
+  // consumed by 64 tokens without increasing shared memory.
+  constexpr unsigned int kResidentTokenCount = 32U;
   constexpr unsigned int kPanelTokenCount = 16U;
   constexpr unsigned int kOutputColumnsPerBlock = 128U;
   constexpr unsigned int kOutputColumnsPerWarp = 16U;
@@ -4923,7 +4929,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   constexpr unsigned int kSharedActivationWordsPerToken =
       kSharedLeadingDimension / kBf16ValuesPerActivationWord;
   constexpr unsigned int kActivationWordCount =
-      kTokenCount * kActivationWordsPerToken;
+      kResidentTokenCount * kActivationWordsPerToken;
   constexpr unsigned int kActivationLoadPasses =
       kActivationWordCount / kThreads;
   constexpr unsigned int kPackedColumns =
@@ -4940,7 +4946,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   constexpr unsigned int kSharedWeightWordCount =
       kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
   constexpr unsigned int kSharedOutputCount =
-      kTokenCount * kOutputColumnsPerBlock;
+      kResidentTokenCount * kOutputColumnsPerBlock;
   constexpr unsigned int kProductWordCount =
       kFp8EncodedValueCount * kNvFp4EncodedValueCount /
       kBf16ValuesPerWeightWord;
@@ -4965,7 +4971,12 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   static_assert(!kVectorizedDecodedStore || kFactorizedProductLookup);
   static_assert(!kTableFreeE2M1 ||
                 (kFactorizedProductLookup && kVectorizedDecodedStore));
-  static_assert(kValidTokenCount == 18U || kValidTokenCount == kTokenCount);
+  static_assert(kTokenCount == 32U || kTokenCount == 64U);
+  static_assert((kTokenCount == 32U &&
+                 (kValidTokenCount == 18U ||
+                  kValidTokenCount == kResidentTokenCount)) ||
+                (kTokenCount == 64U &&
+                 kValidTokenCount == kResidentTokenCount));
   static_assert((kSharedWeightWordsPerRow * sizeof(std::uint32_t)) %
                     alignof(uint4) ==
                 0U);
@@ -4982,7 +4993,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
                                           kTableFreeE2M1>
       product_lookup;
   __shared__ __align__(32) std::uint64_t
-      shared_activations[kTokenCount * kSharedActivationWordsPerToken];
+      shared_activations[kResidentTokenCount *
+                         kSharedActivationWordsPerToken];
   __shared__ BOrCStorage b_or_c;
 
   namespace wmma = nvcuda::wmma;
@@ -5027,8 +5039,14 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
 
   wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
   wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator2;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator3;
   wmma::fill_fragment(accumulator0, 0.0F);
   wmma::fill_fragment(accumulator1, 0.0F);
+  if constexpr (kTokenCount == 64U) {
+    wmma::fill_fragment(accumulator2, 0.0F);
+    wmma::fill_fragment(accumulator3, 0.0F);
+  }
   const unsigned int first_output_column =
       blockIdx.x * kOutputColumnsPerBlock;
   const unsigned int local_output_column = thread / kWeightVectorsPerRow;
@@ -5076,7 +5094,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
             activation_index / kActivationWordsPerToken;
         const unsigned int activation_word =
             activation_index % kActivationWordsPerToken;
-        if constexpr (kValidTokenCount == kTokenCount) {
+        if constexpr (kValidTokenCount == kResidentTokenCount) {
           shared_activations[token * kSharedActivationWordsPerToken +
                              activation_word] =
               *reinterpret_cast<const std::uint64_t*>(
@@ -5206,6 +5224,60 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
         wmma::mma_sync(accumulator1, activation_fragment, weight_fragment,
                        accumulator1);
       }
+      if constexpr (kTokenCount == 64U) {
+        // The first panel pair has consumed shared A.  Keep the decoded B
+        // tile resident, replace only A with tokens 32..63, then accumulate
+        // the second pair in the identical K order.
+        __syncthreads();
+#pragma unroll
+        for (unsigned int load_pass = 0U;
+             load_pass < kActivationLoadPasses; ++load_pass) {
+          const unsigned int activation_index =
+              thread + load_pass * kThreads;
+          const unsigned int resident_token =
+              activation_index / kActivationWordsPerToken;
+          const unsigned int activation_word =
+              activation_index % kActivationWordsPerToken;
+          shared_activations[
+              resident_token * kSharedActivationWordsPerToken +
+              activation_word] =
+              *reinterpret_cast<const std::uint64_t*>(
+                  activations +
+                  static_cast<std::size_t>(resident_token +
+                                           kResidentTokenCount) *
+                      kColumns +
+                  first_k +
+                  activation_word * kBf16ValuesPerActivationWord);
+        }
+        __syncthreads();
+#pragma unroll 1
+        for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+             inner_k += 16U) {
+          wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                         wmma::row_major>
+              activation_fragment;
+          wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                         wmma::col_major>
+              weight_fragment;
+          wmma::load_matrix_sync(
+              weight_fragment,
+              shared_b +
+                  warp * kOutputColumnsPerWarp * kSharedLeadingDimension +
+                  inner_k,
+              kSharedLeadingDimension);
+          wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                                 kSharedLeadingDimension);
+          wmma::mma_sync(accumulator2, activation_fragment, weight_fragment,
+                         accumulator2);
+          wmma::load_matrix_sync(
+              activation_fragment,
+              shared_a + kPanelTokenCount * kSharedLeadingDimension +
+                  inner_k,
+              kSharedLeadingDimension);
+          wmma::mma_sync(accumulator3, activation_fragment, weight_fragment,
+                         accumulator3);
+        }
+      }
       __syncthreads();
     }
   }
@@ -5224,13 +5296,40 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
        index += kThreads) {
     const unsigned int token = index / kOutputColumnsPerBlock;
     const unsigned int local_column = index % kOutputColumnsPerBlock;
-    if constexpr (kValidTokenCount == kTokenCount) {
+    if constexpr (kValidTokenCount == kResidentTokenCount) {
       output[static_cast<std::size_t>(token) * kRows + first_output_column +
              local_column] =
           encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
     } else if (token < kValidTokenCount) {
       output[static_cast<std::size_t>(token) * kRows + first_output_column +
              local_column] =
+          encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+    }
+  }
+  if constexpr (kTokenCount == 64U) {
+    // Reuse the 32-token C overlay after every thread has consumed the first
+    // pair.  This keeps the M64 experiment at the production 23,552-byte
+    // shared-memory footprint.
+    __syncthreads();
+    wmma::store_matrix_sync(
+        b_or_c.output + warp * kOutputColumnsPerWarp, accumulator2,
+        kOutputColumnsPerBlock, wmma::mem_row_major);
+    wmma::store_matrix_sync(
+        b_or_c.output + kPanelTokenCount * kOutputColumnsPerBlock +
+            warp * kOutputColumnsPerWarp,
+        accumulator3, kOutputColumnsPerBlock, wmma::mem_row_major);
+    __syncthreads();
+
+#pragma unroll
+    for (unsigned int index = thread; index < kSharedOutputCount;
+         index += kThreads) {
+      const unsigned int resident_token =
+          index / kOutputColumnsPerBlock;
+      const unsigned int local_column = index % kOutputColumnsPerBlock;
+      output[static_cast<std::size_t>(resident_token +
+                                      kResidentTokenCount) *
+                 kRows +
+             first_output_column + local_column] =
           encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
     }
   }
@@ -14255,6 +14354,51 @@ void launch_nvfp4_lm_head_activation_staged_cs_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+// Test-only exact-M64 validator.  Keep this separate from the public M32
+// contract until the large-M schedule clears correctness and performance
+// gates on the target device.
+[[nodiscard]] int validate_nvfp4_m64_launch(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  constexpr std::size_t kTokenCount = 64U;
+  if ((columns % kNvFp4GroupSize) != 0U ||
+      !std::isfinite(weight_scale_2) || weight_scale_2 < 0.0F ||
+      multiply_overflows(rows, columns)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  if (multiply_overflows(kTokenCount, columns) ||
+      multiply_overflows(kTokenCount, rows)) {
+    return invalid_value();
+  }
+  const std::size_t activation_elements = kTokenCount * columns;
+  const std::size_t output_elements = kTokenCount * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      packed_weights == nullptr || block_scales == nullptr ||
+      activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t packed_bytes =
+      rows * (columns / kNvFp4ValuesPerByte);
+  const std::size_t scale_bytes = rows * (columns / kNvFp4GroupSize);
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes =
+      output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, packed_weights, packed_bytes) ||
+      ranges_overlap(output, output_bytes, block_scales, scale_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 template <std::size_t TokenCount>
 void launch_fp8_small_m_vector_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
@@ -14647,6 +14791,27 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked(
       kRows, kColumns, kSharedLeadingDimension, true, true, 32U, true>
       <<<kBlocks, kThreads, 0U, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
+}
+
+// Test-only large-M down-projection schedule.  Four M16 accumulator panels
+// consume each decoded B tile while only two panels are resident in shared A
+// at a time.  The lower launch-bound occupancy target leaves enough registers
+// for four WMMA accumulators; the 40-CTA down grid cannot use five CTAs/SM in
+// any case on the target Orin.
+template <std::size_t kRows, std::size_t kColumns,
+          unsigned int kSharedLeadingDimension = 72U>
+void launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output,
+    cudaStream_t const stream) noexcept {
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+      kRows, kColumns, kSharedLeadingDimension, true, true, 32U, true, 64U,
+      3U><<<kBlocks, kThreads, 0U, stream>>>(
+      packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
 template <std::size_t kRows, std::size_t kColumns,
@@ -20879,6 +21044,77 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_t
               5'120U, 17'408U, 72U, true, true, 32U, true>,
           static_cast<int>(kThreads), 0U);
     }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+// Test-only exact-M64 down-projection entry.  Production dispatch remains on
+// exact-M32 tiles until this schedule clears its fixed-frequency gates.
+int launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+      5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
+                       activations, output, stream);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+    const std::size_t rows, const std::size_t columns,
+    int* const registers_per_thread, std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes, int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if (rows != 5'120U || columns != 17'408U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      local_bytes == nullptr || maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+          5'120U, 17'408U, 72U, true, true, 32U, true, 64U, 3U>;
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads), 0U);
   }
   if (status != cudaSuccess) {
     return static_cast<int>(status);

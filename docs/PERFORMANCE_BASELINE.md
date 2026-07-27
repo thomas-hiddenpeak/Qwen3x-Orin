@@ -6896,3 +6896,35 @@ It is therefore a route/correctness diagnostic only and does not replace the
 formal mirrored Decode anchor. Full identities, ranges, claim limits, and the
 next-work decision are in the
 [machine-readable baseline record](metadata/qwen36-27b-current-head-prefill-baseline.json).
+
+## Prefill NVFP4 M64 down schedule selection
+
+The first large-M Prefill screen validates cross-tile weight reuse on the
+exact NVFP4 down shape `[M=64, N=5120, K=17408]`. One test-only CTA keeps four
+M16 WMMA accumulators, stages only two activation panels at a time, and reuses
+each decoded K64 weight tile across all 64 tokens. The comparison baseline is
+two ordered calls to the current production exact-M32 table-free kernel;
+production dispatch is unchanged.
+
+Under MAXN with fixed 1.3005-GHz GPU and 3.2-GHz EMC clocks, 10 warmup pairs,
+24 logical operations per pass, and six `B-C-C-B` rounds per distribution:
+
+| Scale distribution | Two production M32 | Candidate M64 | Speedup | Worst round |
+| --- | ---: | ---: | ---: | ---: |
+| checkpoint-like synthetic | 1.78080 ms | 1.41531 ms | 1.25824x | 1.25704x |
+| same-bank stress | 1.78056 ms | 1.41563 ms | 1.25778x | 1.25674x |
+| aggregate | 3.56136 ms | 2.83094 ms | **1.25801x** | 1.25674x |
+
+Both distributions match all 327,680 BF16 outputs bit-for-bit and capture as
+one CUDA Graph kernel node. All 12 rounds improve. Release SASS reports the
+production M32 at 48 registers, 23,552 bytes shared, and zero local memory;
+M64 uses 76 registers, the same shared footprint, zero local memory, and three
+active CTA/SM. The directed screen and default `sm87_weight_only_gemv` test
+pass.
+
+This selects large-M weight decode/reuse as the active Prefill mechanism, but
+does not claim an end-to-end gain yet. Runtime promotion first needs a
+phase-local path that presents 64 contiguous MLP intermediate tokens to down
+projection without changing attention/GDN ordering, residual boundaries, or
+tail behavior. Full protocol and claim limits are in the
+[machine-readable M64 screen](metadata/qwen36-27b-prefill-nvfp4-m64-down-screen.json).

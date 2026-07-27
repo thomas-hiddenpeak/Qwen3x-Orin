@@ -1141,6 +1141,19 @@ query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_test_
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -5959,6 +5972,13 @@ decode_gate_up_silu_table_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m32_table_free_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M32_TABLE_FREE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m64_down_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M64_DOWN_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -26209,6 +26229,172 @@ void run_nvfp4_m32_candidate_smoke(
               label + " captures exactly one direct CUDA kernel node");
 }
 
+void run_nvfp4_m64_down_candidate_smoke(
+    TestContext& test, cudaStream_t stream,
+    const DeviceBuffer<std::uint8_t>& packed,
+    const std::uint8_t* const scales,
+    const DeviceBuffer<std::uint16_t>& activations,
+    const std::size_t rows, const std::size_t columns,
+    const float weight_scale_2, const std::string& label) {
+  constexpr std::size_t kTokenCount = 64U;
+  constexpr std::size_t kHalfTokenCount = 32U;
+  constexpr std::size_t kGuardElements = 64U;
+  constexpr std::uint8_t kCandidateSentinelByte = 0xa7U;
+  constexpr std::uint8_t kReplaySentinelByte = 0x7aU;
+  const std::size_t output_elements = kTokenCount * rows;
+  const std::size_t guarded_elements =
+      output_elements + 2U * kGuardElements;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  bool ready = test.cuda_ok(baseline_output.allocate(output_elements),
+                            label + " allocate two-M32 baseline");
+  ready = ready && test.cuda_ok(
+                       candidate_guarded.allocate(guarded_elements),
+                       label + " allocate guarded M64 candidate");
+  ready = ready && test.cuda_ok(
+                       replay_guarded.allocate(guarded_elements),
+                       label + " allocate guarded M64 replay");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           candidate_guarded.get(), kCandidateSentinelByte,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison candidate guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           replay_guarded.get(), kReplaySentinelByte,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison replay guards");
+  if (!ready) {
+    return;
+  }
+
+  std::uint16_t* const candidate_output =
+      candidate_guarded.get() + kGuardElements;
+  std::uint16_t* const replay_output =
+      replay_guarded.get() + kGuardElements;
+  const auto launch_two_m32 = [&]() noexcept {
+    int status = q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+        packed.get(), scales, weight_scale_2, activations.get(), rows,
+        columns, baseline_output.get(), static_cast<void*>(stream));
+    if (status == static_cast<int>(cudaSuccess)) {
+      status =
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+              packed.get(), scales, weight_scale_2,
+              activations.get() + kHalfTokenCount * columns, rows, columns,
+              baseline_output.get() + kHalfTokenCount * rows,
+              static_cast<void*>(stream));
+    }
+    return status;
+  };
+  const auto launch_m64 = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+            packed.get(), scales, weight_scale_2, activations.get(), rows,
+            columns, output, static_cast<void*>(stream));
+  };
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_two_m32()),
+                       label + " launch two production M32 baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_m64(candidate_output)),
+                       label + " launch M64 candidate");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_m64(replay_output)),
+                       label + " launch deterministic M64 replay");
+
+  std::vector<std::uint16_t> baseline(output_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           baseline.data(), baseline_output.get(),
+                           output_elements * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy two-M32 baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           candidate.data(), candidate_guarded.get(),
+                           guarded_elements * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded M64 candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           replay.data(), replay_guarded.get(),
+                           guarded_elements * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy guarded M64 replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " synchronize M64 smoke");
+  if (!ready) {
+    return;
+  }
+
+  std::size_t baseline_mismatches = 0U;
+  std::size_t replay_mismatches = 0U;
+  bool output_finite = true;
+  for (std::size_t index = 0U; index < output_elements; ++index) {
+    const std::uint16_t value = candidate[kGuardElements + index];
+    baseline_mismatches += value != baseline[index] ? 1U : 0U;
+    replay_mismatches +=
+        value != replay[kGuardElements + index] ? 1U : 0U;
+    output_finite = output_finite && std::isfinite(decode_bf16(value));
+  }
+  const std::uint16_t candidate_guard = static_cast<std::uint16_t>(
+      kCandidateSentinelByte |
+      (static_cast<std::uint16_t>(kCandidateSentinelByte) << 8U));
+  const std::uint16_t replay_guard = static_cast<std::uint16_t>(
+      kReplaySentinelByte |
+      (static_cast<std::uint16_t>(kReplaySentinelByte) << 8U));
+  bool guards_intact = true;
+  for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+    guards_intact =
+        guards_intact && candidate[guard] == candidate_guard &&
+        candidate[kGuardElements + output_elements + guard] ==
+            candidate_guard &&
+        replay[guard] == replay_guard &&
+        replay[kGuardElements + output_elements + guard] == replay_guard;
+  }
+  bool panel_boundaries_exact = true;
+  constexpr std::array<std::size_t, 3U> kPanelBoundaries{{16U, 32U, 48U}};
+  for (const std::size_t token : kPanelBoundaries) {
+    const std::size_t boundary = token * rows;
+    panel_boundaries_exact =
+        panel_boundaries_exact &&
+        candidate[kGuardElements + boundary - 1U] == baseline[boundary - 1U] &&
+        candidate[kGuardElements + boundary] == baseline[boundary];
+  }
+
+  const NvFp4M32CapturedKernel captured = capture_nvfp4_m32_kernel(
+      test, stream,
+      q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda,
+      packed.get(), scales, weight_scale_2, activations.get(), rows, columns,
+      candidate_output, label + " graph");
+  const bool graph_gate = captured.valid && captured.grid.x == rows / 128U &&
+                          captured.block.x == 256U &&
+                          captured.dynamic_shared_bytes == 0U;
+  const bool gate = baseline_mismatches == 0U && replay_mismatches == 0U &&
+                    output_finite && guards_intact &&
+                    panel_boundaries_exact && graph_gate;
+  std::cout << "NVFP4_M64_DOWN_SMOKE: " << label
+            << " candidate_vs_two_m32_mismatches=" << baseline_mismatches
+            << '/' << output_elements
+            << " replay_mismatches=" << replay_mismatches << '/'
+            << output_elements
+            << " panel_boundaries="
+            << (panel_boundaries_exact ? "exact" : "BAD")
+            << " output_finite=" << (output_finite ? "true" : "false")
+            << " guards=" << (guards_intact ? "intact" : "BAD")
+            << " graph_nodes=" << captured.total_nodes
+            << " graph_kernel_nodes=" << captured.kernel_nodes
+            << " grid=" << captured.grid.x
+            << " block=" << captured.block.x
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, label +
+                        " is bit-exact, deterministic, guarded, finite, and "
+                        "captures as one direct kernel");
+}
+
 void run_nvfp4_m17_m31_runtime_masked_m32_default_matrix(
     TestContext& test, cudaStream_t stream,
     const DeviceBuffer<std::uint8_t>& packed,
@@ -26393,6 +26579,8 @@ void run_nvfp4_m32_wmma_smoke_case(
     const NvFp4M1ScaleDistribution scale_distribution,
     const std::string& label) {
   constexpr std::size_t kTokens = 32U;
+  const std::size_t fixture_tokens =
+      rows == 5'120U && columns == 17'408U ? 64U : kTokens;
   constexpr std::size_t kPanelTokens = 16U;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   const std::size_t packed_columns = columns / 2U;
@@ -26427,8 +26615,8 @@ void run_nvfp4_m32_wmma_smoke_case(
   std::vector<std::uint8_t> host_scales(rows * scale_columns);
   fill_nvfp4_m1_scale_distribution(host_scales, scale_columns,
                                    scale_distribution);
-  std::vector<std::uint16_t> host_activations(kTokens * columns);
-  for (std::size_t token = 0U; token < kTokens; ++token) {
+  std::vector<std::uint16_t> host_activations(fixture_tokens * columns);
+  for (std::size_t token = 0U; token < fixture_tokens; ++token) {
     for (std::size_t column = 0U; column < columns; ++column) {
       const int centered =
           static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
@@ -26621,6 +26809,12 @@ void run_nvfp4_m32_wmma_smoke_case(
       kWeightScale2,
       q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda,
       0x69U, 0x96U, distribution_label + " public production M32");
+  if (rows == 5'120U && columns == 17'408U) {
+    run_nvfp4_m64_down_candidate_smoke(
+        test, stream, packed, scales, activations, rows, columns,
+        kWeightScale2,
+        distribution_label + " K64/LD72 table-free quad-A M64");
+  }
 }
 
 void run_nvfp4_m32_wmma_exact_shape_smoke(TestContext& test,
@@ -26746,6 +26940,40 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
                             shape.label + " clears its resource gate");
     }
   }
+
+  int registers_per_thread = -1;
+  std::size_t static_shared_bytes =
+      std::numeric_limits<std::size_t>::max();
+  std::size_t local_bytes = std::numeric_limits<std::size_t>::max();
+  int maximum_threads_per_block = -1;
+  int active_blocks_per_sm = -1;
+  const cudaError_t status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+              5'120U, 17'408U, &registers_per_thread,
+              &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm));
+  // Four FP32 WMMA accumulator fragments raise the register footprint from
+  // 48 to 76 registers.  The exact down grid has only 40 CTAs, so three
+  // resident CTAs/SM are sufficient to expose the whole grid on Orin while
+  // retaining zero local-memory spill.
+  const bool m64_gate =
+      status == cudaSuccess && registers_per_thread <= 80 &&
+      static_shared_bytes == 23'552U && local_bytes == 0U &&
+      maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  std::cout << "NVFP4_M64_DOWN_RESOURCES: status="
+            << static_cast<int>(status)
+            << " registers=" << registers_per_thread
+            << " maximum_registers=80"
+            << " static_shared_bytes=" << static_shared_bytes
+            << " expected_static_shared_bytes=23552"
+            << " local_bytes=" << local_bytes
+            << " maximum_threads_per_block=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " minimum_active_blocks=3"
+            << " gate=" << (m64_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(m64_gate,
+              "NVFP4 M64 down quad-A clears its resource gate");
 }
 
 void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
@@ -27408,6 +27636,324 @@ constexpr std::array<NvFp4M1ScaleDistribution, 2U>
         NvFp4M1ScaleDistribution::kCheckpointLike,
         NvFp4M1ScaleDistribution::kSameBankStress,
     }};
+
+void run_nvfp4_m64_down_performance(TestContext& test,
+                                     cudaStream_t stream) {
+  constexpr std::size_t kTokens = 64U;
+  constexpr std::size_t kHalfTokens = 32U;
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmupPairs = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 6;
+  constexpr double kMinimumCellSpeedup = 1.10;
+  constexpr double kMinimumAggregateSpeedup = 1.15;
+  constexpr double kMinimumRoundSpeedup = 1.0;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  const std::string label =
+      "NVFP4 M64 down 5120x17408 table-free quad-A";
+
+  int registers_per_thread = -1;
+  std::size_t static_shared_bytes =
+      std::numeric_limits<std::size_t>::max();
+  std::size_t local_bytes = std::numeric_limits<std::size_t>::max();
+  int maximum_threads_per_block = -1;
+  int active_blocks_per_sm = -1;
+  const cudaError_t resource_status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+              kRows, kColumns, &registers_per_thread, &static_shared_bytes,
+              &local_bytes, &maximum_threads_per_block,
+              &active_blocks_per_sm));
+  const bool resource_gate =
+      resource_status == cudaSuccess && registers_per_thread <= 80 &&
+      static_shared_bytes == 23'552U && local_bytes == 0U &&
+      maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  std::cout << "NVFP4_M64_DOWN_PERF_RESOURCES: status="
+            << static_cast<int>(resource_status)
+            << " registers=" << registers_per_thread
+            << " shared=" << static_shared_bytes
+            << " local=" << local_bytes
+            << " maximum_threads=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(resource_gate, label + " clears the performance resource gate");
+  if (!resource_gate) {
+    return;
+  }
+
+  std::vector<std::uint8_t> host_packed(kRows * kPackedColumns);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < kPackedColumns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * kPackedColumns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
+  }
+  std::vector<std::uint8_t> host_scales(kRows * kScaleColumns);
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_output;
+  DeviceBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate packed weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate scales");
+  ready = ready && test.cuda_ok(
+                       activations.allocate(host_activations.size()),
+                       label + " allocate M64 activations");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(kOutputElements),
+                       label + " allocate two-M32 output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(kOutputElements),
+                       label + " allocate M64 output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           packed.get(), host_packed.data(),
+                           host_packed.size(), cudaMemcpyHostToDevice, stream),
+                       label + " upload packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload M64 activations");
+  if (!ready) {
+    return;
+  }
+
+  const auto launch_baseline = [&]() noexcept {
+    int status = q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+        packed.get(), scales.get(), kWeightScale2, activations.get(), kRows,
+        kColumns, baseline_output.get(), static_cast<void*>(stream));
+    if (status == static_cast<int>(cudaSuccess)) {
+      status =
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+              packed.get(), scales.get(), kWeightScale2,
+              activations.get() + kHalfTokens * kColumns, kRows, kColumns,
+              baseline_output.get() + kHalfTokens * kRows,
+              static_cast<void*>(stream));
+    }
+    return status;
+  };
+  const auto launch_candidate = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            kRows, kColumns, candidate_output.get(),
+            static_cast<void*>(stream));
+  };
+
+  std::vector<std::uint16_t> host_baseline(kOutputElements);
+  std::vector<std::uint16_t> host_candidate(kOutputElements);
+  std::array<double, kNvFp4M16K128ScaleDistributions.size()>
+      baseline_milliseconds{};
+  std::array<double, kNvFp4M16K128ScaleDistributions.size()>
+      candidate_milliseconds{};
+  bool all_cells_pass = ready;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_name(
+        nvfp4_m1_scale_distribution_name(distribution));
+    const std::string cell_label =
+        label + " " + distribution_name;
+    fill_nvfp4_m1_scale_distribution(host_scales, kScaleColumns,
+                                     distribution);
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(scales.get(), host_scales.data(), host_scales.size(),
+                        cudaMemcpyHostToDevice, stream),
+        cell_label + " upload scales");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_baseline()),
+                         cell_label + " correctness two-M32 baseline");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         cell_label + " correctness M64 candidate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             host_baseline.data(), baseline_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy baseline");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             host_candidate.data(), candidate_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy candidate");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " correctness synchronize");
+    if (!ready) {
+      return;
+    }
+
+    std::size_t mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t index = 0U; index < kOutputElements; ++index) {
+      mismatches +=
+          host_baseline[index] != host_candidate[index] ? 1U : 0U;
+      output_finite = output_finite &&
+                      std::isfinite(decode_bf16(host_candidate[index]));
+    }
+    const NvFp4M32CapturedKernel graph = capture_nvfp4_m32_kernel(
+        test, stream,
+        q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda,
+        packed.get(), scales.get(), kWeightScale2, activations.get(), kRows,
+        kColumns, candidate_output.get(), cell_label + " graph");
+    const bool correctness_gate =
+        mismatches == 0U && output_finite && graph.valid &&
+        graph.grid.x == kRows / 128U && graph.block.x == 256U;
+    std::cout << "NVFP4_M64_DOWN_PERF_DIFF: distribution="
+              << distribution_name << " mismatches=" << mismatches << '/'
+              << kOutputElements
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << " graph_nodes=" << graph.total_nodes
+              << " graph_kernel_nodes=" << graph.kernel_nodes
+              << " gate=" << (correctness_gate ? "PASS" : "FAIL")
+              << '\n';
+    test.expect(correctness_gate,
+                cell_label + " is bit-exact and captures one kernel");
+
+    for (int pair = 0; pair < kWarmupPairs && ready; ++pair) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           cell_label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           cell_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " warmup synchronize");
+    if (!ready) {
+      return;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    double minimum_round_speedup =
+        std::numeric_limits<double>::infinity();
+    bool all_rounds_pass = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          cell_label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C2");
+      const float baseline_second = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B2");
+      const bool finite =
+          std::isfinite(baseline_first) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) &&
+          std::isfinite(baseline_second) && baseline_first > 0.0F &&
+          candidate_first > 0.0F && candidate_second > 0.0F &&
+          baseline_second > 0.0F;
+      const double round_speedup =
+          finite ? (static_cast<double>(baseline_first) + baseline_second) /
+                       (static_cast<double>(candidate_first) +
+                        candidate_second)
+                 : std::numeric_limits<double>::quiet_NaN();
+      const bool round_gate =
+          finite && round_speedup >= kMinimumRoundSpeedup;
+      all_rounds_pass = all_rounds_pass && round_gate;
+      if (finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+        minimum_round_speedup =
+            std::min(minimum_round_speedup, round_speedup);
+      }
+      std::cout << "PERF_NVFP4_M64_DOWN_ROUND: distribution="
+                << distribution_name << " round=" << round + 1
+                << " order=B-C-C-B"
+                << " iterations=" << kMeasuredIterations
+                << " baseline1_ms=" << baseline_first
+                << " candidate1_ms=" << candidate_first
+                << " candidate2_ms=" << candidate_second
+                << " baseline2_ms=" << baseline_second
+                << " speedup=" << round_speedup
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    baseline_milliseconds[distribution_index] =
+        baseline_total / kTimedPasses;
+    candidate_milliseconds[distribution_index] =
+        candidate_total / kTimedPasses;
+    const double cell_speedup =
+        baseline_milliseconds[distribution_index] /
+        candidate_milliseconds[distribution_index];
+    const bool cell_gate =
+        correctness_gate && all_rounds_pass &&
+        std::isfinite(cell_speedup) &&
+        cell_speedup >= kMinimumCellSpeedup;
+    all_cells_pass = all_cells_pass && cell_gate;
+    std::cout << "PERF_NVFP4_M64_DOWN_CELL: distribution="
+              << distribution_name
+              << " baseline_two_m32_ms="
+              << baseline_milliseconds[distribution_index]
+              << " candidate_m64_ms="
+              << candidate_milliseconds[distribution_index]
+              << " speedup=" << cell_speedup
+              << " minimum_round_speedup=" << minimum_round_speedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate,
+                cell_label + " clears the per-distribution gate");
+  }
+
+  const double aggregate_baseline =
+      std::accumulate(baseline_milliseconds.begin(),
+                      baseline_milliseconds.end(), 0.0);
+  const double aggregate_candidate =
+      std::accumulate(candidate_milliseconds.begin(),
+                      candidate_milliseconds.end(), 0.0);
+  const double aggregate_speedup =
+      aggregate_baseline / aggregate_candidate;
+  const bool promotion_gate =
+      all_cells_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_speedup >= kMinimumAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M64_DOWN_AGGREGATE: baseline_two_m32_ms="
+            << aggregate_baseline
+            << " candidate_m64_ms=" << aggregate_candidate
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " promotion_gate="
+            << (promotion_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(promotion_gate,
+              label + " clears the aggregate promotion gate");
+}
 
 struct NvFp4M16K128DistributionMeasurement {
   float current_k64_milliseconds = std::numeric_limits<float>::quiet_NaN();
@@ -54783,6 +55329,19 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (nvfp4_m64_down_performance_enabled()) {
+    run_nvfp4_m64_down_performance(test, stream);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy NVFP4 M64 down performance stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " NVFP4 M64 down assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4 M64 down fixed-frequency screen passed; "
+                 "production dispatch is unchanged\n";
+    return 0;
   }
   if (decode_nvfp4_lm_head_rp2_performance_enabled()) {
     run_decode_nvfp4_lm_head_rp2_p1(test, stream);

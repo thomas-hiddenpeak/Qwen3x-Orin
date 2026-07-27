@@ -1327,6 +1327,22 @@ row-search structure without an unpriced global-progress assumption. See the
   164,122,624-byte free-memory drop make it diagnostic rather than a
   replacement for the frozen formal Decode anchor. See the
   [current-HEAD Prefill baseline](metadata/qwen36-27b-current-head-prefill-baseline.json).
+- [done, Prefill NVFP4 M64 down schedule selection] A production-unreachable
+  exact `[M=64,N=5120,K=17408]` candidate reuses every decoded K64 weight tile
+  across four M16 WMMA accumulator panels while retaining the M32 shared-A/C
+  footprint. Against two ordered production M32 launches it is bitwise exact
+  for both synthetic scale distributions, captures as one Graph kernel, uses
+  76 registers/23,552 shared bytes/zero local bytes, and improves all 12
+  fixed-frequency rounds. Checkpoint-like and same-bank cells reach
+  **1.25824x** and **1.25778x**; aggregate speedup is **1.25801x**, above the
+  1.15x gate. Production dispatch remains unchanged. See the
+  [M64 down screen](metadata/qwen36-27b-prefill-nvfp4-m64-down-screen.json).
+- [active, phase-local M64 runtime integration] Determine the smallest
+  layer-local schedule that presents 64 contiguous MLP intermediate tokens to
+  one down projection while preserving attention/GDN order, residual/RMS
+  boundaries, exact tails, and C32 Decode behavior. Promote only after P33,
+  P65, P129, and P513 end-to-end oracle and fixed-frequency gates; do not infer
+  a whole-Prefill gain from the isolated 1.25801x result.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not

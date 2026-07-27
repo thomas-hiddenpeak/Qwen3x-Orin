@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-m64-down-screen",
+  "status": "test-only candidate passed; production dispatch unchanged",
+  "recorded_at": "2026-07-27T20:41:36+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "c9b1fb853326aa71f74863ff06c85106bef26e97",
+    "base_tree": "03bffc5916103ef073495ab10f8b5aca26d5d91f",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7680728,
+      "sha256": "bd1cd4691e9478fe0f56538b3715ff0d9ae601b9d80741b06881686aaa9fa6bb",
+      "elf_build_id": "1d9e6bfe807aad094fa255d2dd0febcc3c822c55",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_min_hz": 3200000000,
+      "emc_max_hz": 3200000000,
+      "emc_current_hz": 3200000000
+    }
+  },
+  "candidate": {
+    "projection": "NVFP4 down",
+    "shape": {
+      "tokens": 64,
+      "rows": 5120,
+      "columns": 17408
+    },
+    "schedule": "one CTA retains four M16 FP32 WMMA accumulators; two M16 panels are resident in shared A at a time; every decoded K64 B tile is reused by all 64 tokens; the 32-token shared C overlay is reused sequentially",
+    "baseline": "two ordered calls to the current production exact-M32 table-free E2M1 scale-window kernel",
+    "production_dispatch_changed": false,
+    "mtp_used": false
+  },
+  "resources": {
+    "production_m32": {
+      "registers_per_thread": 48,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0
+    },
+    "candidate_m64": {
+      "registers_per_thread": 76,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3,
+      "grid_blocks": 40
+    },
+    "gate": "PASS"
+  },
+  "protocol": {
+    "fixture": "deterministic synthetic packed E2M1 weights, BF16 activations, and E4M3 scale codes",
+    "scale_distributions": [
+      "checkpoint_like",
+      "same_bank_stress"
+    ],
+    "warmup_pairs_per_distribution": 10,
+    "measured_iterations_per_pass": 24,
+    "rounds_per_distribution": 6,
+    "pass_order": "B-C-C-B",
+    "baseline_launches_per_logical_operation": 2,
+    "candidate_launches_per_logical_operation": 1,
+    "correctness": "all 327680 BF16 outputs per distribution compared bitwise; finite-output and one-kernel CUDA Graph gates",
+    "minimum_cell_speedup": 1.10,
+    "minimum_round_speedup": 1.0,
+    "minimum_aggregate_speedup": 1.15,
+    "command": "Q3X_RUN_SM87_NVFP4_M64_DOWN_PERF=1 ./build/orin-release/q3x_sm87_weight_only_gemv_test"
+  },
+  "results": [
+    {
+      "distribution": "checkpoint_like",
+      "mismatches": 0,
+      "compared_elements": 327680,
+      "cuda_graph_total_nodes": 1,
+      "cuda_graph_kernel_nodes": 1,
+      "baseline_two_m32_ms": 1.78080,
+      "candidate_m64_ms": 1.41531,
+      "speedup": 1.25824,
+      "minimum_round_speedup": 1.25704,
+      "rounds_passing_direction_gate": 6,
+      "rounds_total": 6,
+      "gate": "PASS"
+    },
+    {
+      "distribution": "same_bank_stress",
+      "mismatches": 0,
+      "compared_elements": 327680,
+      "cuda_graph_total_nodes": 1,
+      "cuda_graph_kernel_nodes": 1,
+      "baseline_two_m32_ms": 1.78056,
+      "candidate_m64_ms": 1.41563,
+      "speedup": 1.25778,
+      "minimum_round_speedup": 1.25674,
+      "rounds_passing_direction_gate": 6,
+      "rounds_total": 6,
+      "gate": "PASS"
+    }
+  ],
+  "aggregate": {
+    "baseline_two_m32_ms": 3.56136,
+    "candidate_m64_ms": 2.83094,
+    "speedup": 1.25801,
+    "required_speedup": 1.15,
+    "promotion_gate": "PASS"
+  },
+  "verification": {
+    "build": "PASS",
+    "default_ctest": {
+      "name": "sm87_weight_only_gemv",
+      "status": "PASS",
+      "wall_seconds": 2.40
+    },
+    "directed_fixed_frequency_screen": "PASS"
+  },
+  "decision": {
+    "selected_mechanism": "large-M cross-tile weight decode/reuse",
+    "next_step": "audit and implement a phase-local runtime path that can present 64 contiguous MLP intermediate tokens to down projection without changing GDN/attention ordering or tail semantics",
+    "not_claimed": [
+      "end-to-end Prefill improvement",
+      "production M64 dispatch",
+      "M64 gate/up or FP8 projection support",
+      "FlashInfer integration"
+    ]
+  },
+  "limitations": [
+    "The fixture uses deterministic synthetic scale distributions, not checkpoint scale bytes.",
+    "The result is an isolated exact-shape kernel schedule screen and is not an end-to-end tokens-per-second result.",
+    "The controlling console output was captured by the development session but no separate raw log file was retained."
+  ]
+}
