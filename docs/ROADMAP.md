@@ -1460,6 +1460,19 @@ row-search structure without an unpriced global-progress assumption. See the
   selecting the already-screened C512 whole-chunk main/aux pair as the next
   production integration. See the
   [production record](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json).
+- [done, production NVFP4 C256/C512 whole-chunk Gate/Up] Commit `d1fa6c5`
+  routes exact `[17408,5120]` Gate and Up through one whole-chunk kernel per
+  branch on the existing main/aux event fork/join. Frozen-binary P257/P513
+  Prefix improves **1.087506234x/1.086814433x** to
+  **162.636231668/162.584844997 token/s**; TTFT improves
+  **1.081889974x/1.083922378x**. All 40 formal outputs and steps remain exact
+  and every process has zero persistent drop. Fresh P513 Nsight reduces the
+  pair from 2,048 nodes / 1,346.373984-ms union to 128 nodes /
+  1,065.953440 ms and reduces all Prefix nodes from 10,129 to 8,209. Only
+  15.839296 ms of the new pair overlaps, so whole-chunk work accounts for
+  94.35% of its union saving and the result is not described as buffering.
+  The next screen is true M128 B-tile reuse, not a direct C1024 promotion. See
+  the [Gate/Up production record](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1490,15 +1503,16 @@ row-search structure without an unpriced global-progress assumption. See the
   result. See the
   [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
 - [done, current C512 optimized-route bundle] Commits `1f7d6be`, `6327733`,
-  `10c4c85`, and `86d5843` route exact C256/C512 bulk full-attention compute,
-  NVFP4 Down, FP8 linear-attention QKV/Z/O, and FP8 full-attention Q/K/V behind
-  the ABI-0.4 boundary. P257/P513 exact-token, persistent-state,
+  `10c4c85`, `86d5843`, and `d1fa6c5` route exact C256/C512 bulk
+  full-attention compute, NVFP4 Down and Gate/Up, FP8 linear-attention
+  QKV/Z/O, and FP8 full-attention Q/K/V behind the ABI-0.4 boundary.
+  P257/P513 exact-token, persistent-state,
   memory, fixed-clock Prefix, and fresh-profile gates pass. C64/C32/tail
   fallbacks, Decode Graph, and default C1 remain. The early synchronous M64
   Gate/Up recheck was rejected, but the later production-like whole-chunk
-  main/aux pair reaches 1.12867x at C512 and clears its frozen 1.12x gate. The
-  fresh current-production trace still executes Gate/Up serially on one stream,
-  so that already-selected pair is now queued for production integration.
+  main/aux pair reached 1.12867x at C512 and then passed production admission.
+  The current route uses one kernel per branch and the existing event join;
+  it does not introduce an independent executor or buffering pipeline.
 - [done, native bulk attention production route; queued new-mechanism GDN]
   Commit `3044ab5` validates
   the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
@@ -1545,12 +1559,18 @@ Exit criteria:
 
 The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
 The 100-ms/token / 10-token/s objective remains documented but is no longer a
-prerequisite for Prefill work. Active optimization now prioritizes
-production integration of the already-screened C512 whole-chunk main/aux-
-stream Gate/Up pair, followed by exact model/memory/mirrored-latency/profile
-gates and then an internal test-only C1024 route, while retaining exact output
-and Decode non-regression gates. Multi-request
-serving throughput remains a separate later target.
+prerequisite for Prefill work. The C256/C512 whole-chunk main/aux-stream
+Gate/Up route is now production-integrated and passes exact model, memory,
+mirrored-latency, and fresh-profile gates. Active optimization next screens a
+test-only M128 Gate/Up kernel that truly reuses each decoded B tile across 128
+token rows. The stop-loss is 1.05x for one branch plus at most 128 registers,
+zero local/spill traffic, and at least two resident CTA/SM; only a passing
+candidate advances to an M512 main/aux pair with a 1.08x gate. A GDN B8 WY
+screen is the parallel fallback. Global NCU traffic evidence then selects
+linear-attention FP8 QKV/Z/O or NVFP4 Down for the next dataflow change.
+C1024 remains a low-priority single-kernel canary rather than the main route.
+Exact output and Decode non-regression gates remain mandatory. Multi-request
+serving throughput is a separate later target.
 
 Before Phase 3.5, run an offline same-token vLLM/FlashInfer alignment matrix
 from the existing dedicated reference environment. Use P65/P129/P257/P513/

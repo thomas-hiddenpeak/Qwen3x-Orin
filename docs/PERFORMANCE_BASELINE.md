@@ -7489,12 +7489,10 @@ profile used 256 Q plus 2,048 K/V launches totaling 314.357120 ms. The new
 saved**, and **2.515032087x** projection-time improvement. Prefix GPU-operation
 count falls exactly from 12,385 to 10,129.
 
-All 10,129 Prefix GPU operations are still on one CUDA stream. NVFP4 Gate/Up
-is now the largest residual hotspot at 2,048 serial launches and 1,346.373984
-ms, or **39.199622%** of the projected Prefix span. The next bounded priority
-is therefore production integration of the already-screened C512 whole-chunk
-main/aux-stream Gate/Up pair, followed by its exact model/memory/mirrored-
-latency/profile gates and then an internal test-only C1024 route.
+All 10,129 Prefix GPU operations in this historical profile are on one CUDA
+stream. NVFP4 Gate/Up is its largest residual hotspot at 2,048 serial launches
+and 1,346.373984 ms, or **39.199622%** of the projected Prefix span. The
+subsequent production promotion is recorded below.
 
 Against the matched stock-vLLM complete-prompt results, P257/P513 remain at
 373.579/411.385 token/s versus native's 141.273450981/145.327508146 token/s,
@@ -7505,3 +7503,52 @@ serving-throughput, concurrency, tail-latency, power, or energy result. Full
 binary identities, raw process medians, memory evidence, profile rows, hashes,
 and limitations are in the
 [full-attention production benchmark](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-production-benchmark.json).
+
+## NVFP4 C256/C512 whole-chunk Gate/Up production promotion
+
+Commit `d1fa6c5` promotes the screened exact `[N17408,K5120]` Gate/Up pair.
+Each branch is one whole-chunk kernel at C256/C512; Gate uses the main stream,
+Up uses the runner-owned auxiliary stream, and the existing ready/done events
+join the branches before SiLU. Only `NotSupported` falls back. Invalid payload,
+range, or alias contracts propagate without enqueue. C32/C64, near misses,
+Decode, the public ABI, workspace, and the generic C64 projection cap are
+unchanged.
+
+Fixed 1.3005-GHz GPU and locked 3.2-GHz EMC measurements used one frozen
+pre-promotion binary and one candidate binary in `B1-C1-C2-B2` order. Each
+process loaded the pinned checkpoint once, used batch one, C512, output one,
+one warmup, and five measurements per prompt:
+
+| Prompt / phase | Mirrored B | Mirrored C | Saved | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,711.8055 ms | 1,574.0650 ms | 137.7405 ms | **1.087506234x** |
+| P257 TTFT | 1,819.6605 ms | 1,681.9275 ms | 137.7330 ms | **1.081889974x** |
+| P513 Prefix | 3,422.5145 ms | 3,149.1250 ms | 273.3895 ms | **1.086814433x** |
+| P513 TTFT | 3,531.2950 ms | 3,257.8855 ms | 273.4095 ms | **1.083922378x** |
+
+Prefix throughput reaches **162.636231668 token/s P257** and
+**162.584844997 token/s P513**. Complete-prompt `P/TTFT` throughput reaches
+**152.800878754** and **157.464097495 token/s**, leaving **2.444874683x** and
+**2.612563794x** gaps to matched stock vLLM. All 40 measured generations
+retain token 9419 (`Hello`) and exact 257/513 steps; all four streamed
+contracts share SHA-256
+`b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118`.
+Persistent memory drop is zero in every process.
+
+Fresh P513 Nsight reduces Prefix NVTX wall time from 3,435.638592 to
+3,161.631040 ms and Prefix GPU nodes from 10,129 to 8,209. Gate/Up changes
+from 2,048 nodes / 1,346.373984-ms interval union to 128 nodes /
+1,065.953440 ms. The two branch streams overlap for only 15.839296 ms, or
+1.48593% of their union: **94.35% of the union saving comes from whole-chunk
+kernel work and only 5.65% from true overlap**. This is therefore not a
+double/triple-buffering claim.
+
+The post-promotion P513 hotspot order is Gate/Up 1,065.953440 ms, linear FP8
+QKV/Z/O 633.897888 ms, Down 541.595488 ms, and GDN 488.590080 ms. A P1025
+diagnostic reaches 158.720465051 Prefix token/s; its second C512 causal chunk
+is about 147 ms slower, so merely publishing C1024 is not the next main
+mechanism. The next bounded screen is true M128 B-tile reuse for Gate/Up, with
+GDN B8 WY as a fallback and an NCU traffic audit after that. Full raw medians,
+binary identities, hashes, E2E evidence, profile attribution, and limitations
+are in the
+[Gate/Up production benchmark](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).

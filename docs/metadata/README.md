@@ -1336,6 +1336,16 @@ The diagnostic Phase 3 records are:
   only 1.01871x, however, below the frozen 1.03x gate. The underlying
   performance test therefore fails its two expected threshold assertions;
   the default suite passes and production remains unchanged.
+- [`qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json`](qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json),
+  which promotes exact aligned C256/C512 NVFP4 Gate and Up to one whole-chunk
+  kernel per branch on the existing main/aux event fork/join. Frozen-binary
+  P257/P513 Prefix improves by **1.087506234x/1.086814433x**, reaching
+  **162.636231668/162.584844997 token/s**; complete-prompt throughput reaches
+  **152.800878754/157.464097495 token/s**. All 40 formal outputs and steps are
+  exact and persistent drop is zero. Fresh P513 Nsight reduces Gate/Up from
+  2,048 nodes / 1,346.373984 ms to 128 nodes / 1,065.953440 ms. Only 5.65% of
+  the union saving comes from stream overlap, so the record explicitly makes
+  no double/triple-buffering or Prefill/Decode-overlap claim.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

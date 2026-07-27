@@ -281,14 +281,15 @@ use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
 `[6144,5120]`, and attention output `[5120,6144]` each use one N-major
 whole-chunk grid. Full-attention Q `[12288,5120]` also uses N-major at C256 and
 C512; K/V `[1024,5120]` use M-major at C256's under-filled 32-CTA grid and
-N-major at C512. Generic projection APIs remain capped at C64: NVFP4 Gate/Up,
-residual/RMS, Conv/GDN, other shapes, and every near miss retain their
-established ordered subtiles. The early synchronous M64 Gate/Up candidate was
-rejected, but the later test-only whole-chunk main/aux pair clears its frozen
-C512 gate at 1.12867x. It is not yet production-integrated: the fresh current
-P513 trace still executes all 10,129 Prefix GPU operations on one stream, with
-2,048 serial Gate/Up launches. Integrating that selected pair is the next
-bounded step before any C1024 test-only expansion.
+N-major at C512. Exact aligned C256/C512 NVFP4 Gate and Up `[17408,5120]`
+now each use one whole-chunk grid: Gate runs on the main stream, Up on the
+owned auxiliary stream, and the existing events join them before SiLU.
+Generic projection APIs remain capped at C64; residual/RMS, Conv/GDN, other
+shapes, and every near miss retain their established subtiles. This layer-local
+branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
+Its fixed-clock P257/P513 Prefix result is 162.636/162.585 token/s, with full
+evidence in the
+[Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
 
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
@@ -629,14 +630,12 @@ does not yet provide a complete large-Prefill backend,
 continuous batching, a server, or a release-grade performance claim. Prefill
 and Decode have distinct internal host-control plans but still execute through
 the same runner, without double/triple buffering or Prefill/Decode overlap.
-Most work, including exact M17 through M31 gate/up, remains serialized on the
-main stream.
-The narrow exception is exact aligned NVFP4 C32/C64 MLP gate/up: the runner may
-overlap gate on its main stream with up on one owned auxiliary stream and join
-them with events. C256/C512 wide tiles still issue ordered C32 projections on
-one stream; the test-only whole-chunk main/aux pair has passed its screen but
-is not yet selected by production. Existing C32/C64 overlap is layer-local
-branch overlap, not a general multi-stream scheduler. The
+Most work remains serialized on the main stream. The narrow exception is exact
+aligned NVFP4 C32/C64 and C256/C512 MLP Gate/Up: the runner may overlap Gate
+on its main stream with Up on one owned auxiliary stream and join them with
+events. C256/C512 use one whole-chunk kernel per branch; other shapes retain
+their ordered schedules. This is layer-local branch overlap, not a general
+multi-stream scheduler or double/triple buffering. The
 independent target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as
