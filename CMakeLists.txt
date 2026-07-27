@@ -281,6 +281,7 @@ if(BUILD_TESTING)
 
   add_executable(q3x_gdn_decode_cuda_test
     tests/gdn_decode_cuda_test.cu
+    tests/gdn_prefill_whole_span_sm87_candidate.cu
   )
   target_link_libraries(q3x_gdn_decode_cuda_test
     PRIVATE q3x::core q3x::kernels

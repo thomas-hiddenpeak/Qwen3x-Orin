@@ -82,6 +82,23 @@ query_gated_delta_net_update_warp_eight_row_lane_striped_resources_test_cuda(
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+// Test-only exact C256/C512 whole-span canary. It is defined in an isolated
+// CUDA translation unit and never enters the production library or public ABI.
+[[nodiscard]] int
+launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    GdnDimensions dimensions = {}, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_gated_delta_net_update_whole_span_register_state_resources_test_cuda(
+    std::size_t token_count, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
 [[nodiscard]] int
 launch_gated_delta_net_update_plain_rms_norm_silu_gate_shared_tree_test_cuda(
     const std::uint16_t* conv_qkv, const std::uint16_t* a,
@@ -528,6 +545,18 @@ void test_launch_validation(TestContext& test) {
               nullptr, nullptr, nullptr, nullptr, nullptr)) ==
           cudaErrorInvalidValue,
       "fused GDN norm resource query rejects null outputs");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+              nullptr, 256U, nullptr, nullptr, nullptr, nullptr, nullptr,
+              nullptr, 1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "GDN whole-span canary rejects null buffers without a device");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+              nullptr, 511U, nullptr, nullptr, nullptr, nullptr, nullptr,
+              nullptr, 1.0e-6F, nullptr)) == cudaErrorInvalidValue,
+      "GDN whole-span canary rejects unsupported shape without a device");
 }
 
 void test_conv_tile_bitwise(TestContext& test, cudaStream_t stream) {
@@ -819,12 +848,13 @@ void fill_gdn_tile_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
                           ManagedBuffer<std::uint16_t>& a,
                           ManagedBuffer<std::uint16_t>& b,
                           ManagedBuffer<std::uint16_t>& A_log,
-                          ManagedBuffer<std::uint16_t>& dt_bias) {
+                          ManagedBuffer<std::uint16_t>& dt_bias,
+                          const std::size_t token_count =
+                              q3x::runtime::kGdnMaximumTileTokenCount) {
   constexpr std::size_t kKOffset = q3x::runtime::kGdnQElements;
   constexpr std::size_t kVOffset =
       q3x::runtime::kGdnQElements + q3x::runtime::kGdnKElements;
-  for (std::size_t token = 0U;
-       token < q3x::runtime::kGdnMaximumTileTokenCount; ++token) {
+  for (std::size_t token = 0U; token < token_count; ++token) {
     const std::size_t qkv_offset = token * q3x::runtime::kGdnQkvChannels;
     const std::size_t scalar_offset =
         token * q3x::runtime::kGdnValueHeadCount;
@@ -878,7 +908,53 @@ void fill_gdn_tile_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
   b[0] = encode_bf16(20.0F);
   b[q3x::runtime::kGdnValueHeadCount + 1U] = encode_bf16(-20.0F);
   a[2U * q3x::runtime::kGdnValueHeadCount + 2U] = encode_bf16(25.0F);
+  if (token_count > 16U) {
+    b[15U * q3x::runtime::kGdnValueHeadCount + 3U] = encode_bf16(20.0F);
+    b[16U * q3x::runtime::kGdnValueHeadCount + 4U] = encode_bf16(-20.0F);
+  }
+  if (token_count > 256U) {
+    a[255U * q3x::runtime::kGdnValueHeadCount + 5U] = encode_bf16(25.0F);
+    b[256U * q3x::runtime::kGdnValueHeadCount + 6U] = encode_bf16(-20.0F);
+  }
+  if (token_count > 511U) {
+    b[511U * q3x::runtime::kGdnValueHeadCount + 7U] = encode_bf16(20.0F);
+  }
   A_log[2] = encode_bf16(4.0F);
+}
+
+[[nodiscard]] int launch_gdn_production_m16_chain(
+    const std::uint16_t* const conv_qkv,
+    const std::size_t token_count,
+    const std::uint16_t* const a,
+    const std::uint16_t* const b,
+    const std::uint16_t* const A_log,
+    const std::uint16_t* const dt_bias,
+    const std::uint16_t* const state_input,
+    std::uint16_t* const state_output,
+    const float l2_epsilon,
+    std::uint16_t* const output,
+    cudaStream_t stream) {
+  constexpr std::size_t kM16 = q3x::runtime::kGdnMaximumTileTokenCount;
+  if (token_count == 0U || token_count % kM16 != 0U) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  const std::uint16_t* recurrence_input = state_input;
+  for (std::size_t token_offset = 0U; token_offset < token_count;
+       token_offset += kM16) {
+    const int status =
+        q3x::runtime::launch_gated_delta_net_update_tile_warp_parallel_cuda(
+            conv_qkv + token_offset * q3x::runtime::kGdnQkvChannels, kM16,
+            a + token_offset * q3x::runtime::kGdnValueHeadCount,
+            b + token_offset * q3x::runtime::kGdnValueHeadCount, A_log,
+            dt_bias, recurrence_input, state_output, l2_epsilon,
+            output + token_offset * q3x::runtime::kGdnVElements, {},
+            static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    recurrence_input = state_output;
+  }
+  return static_cast<int>(cudaSuccess);
 }
 
 void test_gdn_plain_norm_silu_gate_production_identity(
@@ -2932,6 +3008,659 @@ void test_gdn_register_state_m16_candidate(TestContext& test,
       "GDN register-state M16 preserves dt_bias");
 }
 
+void test_gdn_prefill_whole_span_register_state_candidate(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::array<std::size_t, 2U> kTokenCounts{256U, 512U};
+  constexpr std::size_t kMaximumTokenCount = kTokenCounts.back();
+  constexpr std::size_t kMaximumOutputElements =
+      kMaximumTokenCount * q3x::runtime::kGdnVElements;
+  constexpr std::size_t kGuardElements = 17U;
+  constexpr float kL2Epsilon = 1.0e-6F;
+  constexpr std::uint16_t kPoison = 0x7fc1U;
+  constexpr std::uint16_t kPrefixCanary = 0xa55aU;
+  constexpr std::uint16_t kSuffixCanary = 0x5aa5U;
+
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> baseline_state;
+  ManagedBuffer<std::uint16_t> candidate_inplace_state;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_input_state;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_output_state;
+  ManagedBuffer<std::uint16_t> candidate_replay_state;
+  ManagedBuffer<std::uint16_t> candidate_two_chunk_state;
+  ManagedBuffer<std::uint16_t> guarded_candidate_state_storage;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> candidate_inplace_output;
+  ManagedBuffer<std::uint16_t> candidate_disjoint_output;
+  ManagedBuffer<std::uint16_t> candidate_replay_output;
+  ManagedBuffer<std::uint16_t> candidate_two_chunk_output;
+  ManagedBuffer<std::uint16_t> guarded_candidate_output_storage;
+
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kMaximumTokenCount *
+                        q3x::runtime::kGdnQkvChannels),
+      "GDN whole-span allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kMaximumTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kMaximumTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       baseline_state.allocate(q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate baseline state");
+  ready = ready && test.cuda_ok(
+                       candidate_inplace_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate in-place state");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_input_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate disjoint input state");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_output_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate disjoint output state");
+  ready = ready && test.cuda_ok(
+                       candidate_replay_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate replay state");
+  ready = ready && test.cuda_ok(
+                       candidate_two_chunk_state.allocate(
+                           q3x::runtime::kGdnStateElements),
+                       "GDN whole-span allocate two-chunk state");
+  ready = ready && test.cuda_ok(
+                       guarded_candidate_state_storage.allocate(
+                           q3x::runtime::kGdnStateElements +
+                           2U * kGuardElements),
+                       "GDN whole-span allocate guarded state");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(kMaximumOutputElements),
+                       "GDN whole-span allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       candidate_inplace_output.allocate(
+                           kMaximumOutputElements),
+                       "GDN whole-span allocate in-place output");
+  ready = ready && test.cuda_ok(
+                       candidate_disjoint_output.allocate(
+                           kMaximumOutputElements),
+                       "GDN whole-span allocate disjoint output");
+  ready = ready && test.cuda_ok(
+                       candidate_replay_output.allocate(
+                           kMaximumOutputElements),
+                       "GDN whole-span allocate replay output");
+  ready = ready && test.cuda_ok(
+                       candidate_two_chunk_output.allocate(
+                           kMaximumOutputElements),
+                       "GDN whole-span allocate two-chunk output");
+  ready = ready && test.cuda_ok(
+                       guarded_candidate_output_storage.allocate(
+                           kMaximumOutputElements + 2U * kGuardElements),
+                       "GDN whole-span allocate guarded output");
+  if (!ready) {
+    return;
+  }
+
+  fill_gdn_tile_inputs(conv_qkv, a, b, A_log, dt_bias,
+                       kMaximumTokenCount);
+  const std::vector<std::uint16_t> initial_conv_qkv(
+      conv_qkv.data(), conv_qkv.data() + conv_qkv.size());
+  const std::vector<std::uint16_t> initial_a(a.data(), a.data() + a.size());
+  const std::vector<std::uint16_t> initial_b(b.data(), b.data() + b.size());
+  const std::vector<std::uint16_t> initial_A_log(
+      A_log.data(), A_log.data() + A_log.size());
+  const std::vector<std::uint16_t> initial_dt_bias(
+      dt_bias.data(), dt_bias.data() + dt_bias.size());
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+
+  std::uint16_t* const guarded_state =
+      guarded_candidate_state_storage.data() + kGuardElements;
+  std::uint16_t* const guarded_output =
+      guarded_candidate_output_storage.data() + kGuardElements;
+
+  const auto reset_correctness_buffers =
+      [&](const std::size_t output_elements) {
+        std::copy(initial_state.begin(), initial_state.end(),
+                  baseline_state.data());
+        std::copy(initial_state.begin(), initial_state.end(),
+                  candidate_inplace_state.data());
+        std::copy(initial_state.begin(), initial_state.end(),
+                  candidate_disjoint_input_state.data());
+        std::fill_n(candidate_disjoint_output_state.data(),
+                    candidate_disjoint_output_state.size(), kPoison);
+        std::fill_n(candidate_replay_state.data(),
+                    candidate_replay_state.size(), kPoison);
+        std::copy(initial_state.begin(), initial_state.end(),
+                  candidate_two_chunk_state.data());
+        std::fill_n(baseline_output.data(), baseline_output.size(), kPoison);
+        std::fill_n(candidate_inplace_output.data(),
+                    candidate_inplace_output.size(), kPoison);
+        std::fill_n(candidate_disjoint_output.data(),
+                    candidate_disjoint_output.size(), kPoison);
+        std::fill_n(candidate_replay_output.data(),
+                    candidate_replay_output.size(), kPoison);
+        std::fill_n(candidate_two_chunk_output.data(),
+                    candidate_two_chunk_output.size(), kPoison);
+
+        std::fill_n(guarded_candidate_state_storage.data(), kGuardElements,
+                    kPrefixCanary);
+        std::copy(initial_state.begin(), initial_state.end(), guarded_state);
+        std::fill_n(guarded_state + q3x::runtime::kGdnStateElements,
+                    kGuardElements, kSuffixCanary);
+        std::fill_n(guarded_candidate_output_storage.data(), kGuardElements,
+                    kPrefixCanary);
+        std::fill_n(guarded_output, output_elements, kPoison);
+        std::fill_n(guarded_output + output_elements, kGuardElements,
+                    kSuffixCanary);
+      };
+
+  const auto launch_candidate =
+      [&](const std::uint16_t* const qkv, const std::size_t token_count,
+          const std::uint16_t* const scalar_a,
+          const std::uint16_t* const scalar_b,
+          const std::uint16_t* const state_input,
+          std::uint16_t* const state_output, std::uint16_t* const output,
+          cudaStream_t launch_stream) {
+        return q3x::runtime::
+            launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+                qkv, token_count, scalar_a, scalar_b, A_log.data(),
+                dt_bias.data(), state_input, state_output, kL2Epsilon, output,
+                {}, static_cast<void*>(launch_stream));
+      };
+
+  const auto expect_guards =
+      [&](const ManagedBuffer<std::uint16_t>& storage,
+          const std::size_t active_elements, const std::string& label) {
+        const bool prefix_intact = std::all_of(
+            storage.data(), storage.data() + kGuardElements,
+            [](const std::uint16_t value) { return value == kPrefixCanary; });
+        const std::uint16_t* const suffix =
+            storage.data() + kGuardElements + active_elements;
+        const bool suffix_intact =
+            std::all_of(suffix, suffix + kGuardElements,
+                        [](const std::uint16_t value) {
+                          return value == kSuffixCanary;
+                        });
+        test.expect(prefix_intact && suffix_intact,
+                    label + " prefix/suffix canaries remain intact");
+      };
+
+  const auto expect_finite_and_overwritten =
+      [&](const std::uint16_t* const values, const std::size_t count,
+          const std::string& label) {
+        std::size_t poison_count = 0U;
+        std::size_t nonfinite_count = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+          poison_count += values[index] == kPoison ? 1U : 0U;
+          nonfinite_count += std::isfinite(decode_bf16(values[index]))
+                                 ? 0U
+                                 : 1U;
+        }
+        test.expect(poison_count == 0U && nonfinite_count == 0U,
+                    label + " poison=" + std::to_string(poison_count) +
+                        ", nonfinite=" +
+                        std::to_string(nonfinite_count));
+      };
+
+  for (const std::size_t token_count : kTokenCounts) {
+    const std::size_t output_elements =
+        token_count * q3x::runtime::kGdnVElements;
+    const std::string shape = "C" + std::to_string(token_count);
+    reset_correctness_buffers(output_elements);
+
+    ready = launch_after_stale(
+        test, stream, "GDN whole-span " + shape + " production M16 chain",
+        [&]() {
+          return launch_gdn_production_m16_chain(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), baseline_state.data(), baseline_state.data(),
+              kL2Epsilon, baseline_output.data(), stream);
+        });
+    ready = ready && launch_after_stale(
+                         test, stream,
+                         "GDN whole-span " + shape + " guarded in-place",
+                         [&]() {
+                           return launch_candidate(
+                               conv_qkv.data(), token_count, a.data(), b.data(),
+                               guarded_state, guarded_state, guarded_output,
+                               stream);
+                         });
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate(
+                             conv_qkv.data(), token_count, a.data(), b.data(),
+                             candidate_inplace_state.data(),
+                             candidate_inplace_state.data(),
+                             candidate_inplace_output.data(), stream)),
+                         "GDN whole-span " + shape + " in-place launch");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate(
+                             conv_qkv.data(), token_count, a.data(), b.data(),
+                             candidate_disjoint_input_state.data(),
+                             candidate_disjoint_output_state.data(),
+                             candidate_disjoint_output.data(), stream)),
+                         "GDN whole-span " + shape + " disjoint launch");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate(
+                             conv_qkv.data(), token_count, a.data(), b.data(),
+                             candidate_disjoint_input_state.data(),
+                             candidate_replay_state.data(),
+                             candidate_replay_output.data(), stream)),
+                         "GDN whole-span " + shape + " replay launch");
+
+    if (token_count == kMaximumTokenCount) {
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate(
+                               conv_qkv.data(), kTokenCounts.front(), a.data(),
+                               b.data(), candidate_two_chunk_state.data(),
+                               candidate_two_chunk_state.data(),
+                               candidate_two_chunk_output.data(), stream)),
+                           "GDN whole-span C512 first R256 launch");
+      const std::size_t second_token = kTokenCounts.front();
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate(
+                               conv_qkv.data() +
+                                   second_token *
+                                       q3x::runtime::kGdnQkvChannels,
+                               kTokenCounts.front(),
+                               a.data() + second_token *
+                                              q3x::runtime::kGdnValueHeadCount,
+                               b.data() + second_token *
+                                              q3x::runtime::kGdnValueHeadCount,
+                               candidate_two_chunk_state.data(),
+                               candidate_two_chunk_state.data(),
+                               candidate_two_chunk_output.data() +
+                                   second_token *
+                                       q3x::runtime::kGdnVElements,
+                               stream)),
+                           "GDN whole-span C512 second R256 launch");
+    }
+
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         "GDN whole-span " + shape +
+                             " correctness synchronize");
+    if (!ready) {
+      return;
+    }
+
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_inplace_output.data(), baseline_output.data(),
+        output_elements, "GDN whole-span " + shape +
+                             " in-place output equals M16 chain");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_inplace_state.data(), baseline_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "GDN whole-span " + shape + " in-place state equals M16 chain");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_disjoint_output.data(), baseline_output.data(),
+        output_elements, "GDN whole-span " + shape +
+                             " disjoint output equals M16 chain");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_disjoint_output_state.data(), baseline_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "GDN whole-span " + shape + " disjoint state equals M16 chain");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_disjoint_input_state.data(), initial_state.data(),
+        initial_state.size(),
+        "GDN whole-span " + shape + " preserves disjoint input state");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_replay_output.data(),
+        candidate_disjoint_output.data(), output_elements,
+        "GDN whole-span " + shape + " replay output is bitwise");
+    expect_bf16_buffer_bitwise_equal(
+        test, candidate_replay_state.data(),
+        candidate_disjoint_output_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "GDN whole-span " + shape + " replay state is bitwise");
+    expect_bf16_buffer_bitwise_equal(
+        test, guarded_output, baseline_output.data(), output_elements,
+        "GDN whole-span " + shape + " guarded output equals M16 chain");
+    expect_bf16_buffer_bitwise_equal(
+        test, guarded_state, baseline_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "GDN whole-span " + shape + " guarded state equals M16 chain");
+
+    if (token_count == kMaximumTokenCount) {
+      expect_bf16_buffer_bitwise_equal(
+          test, candidate_two_chunk_output.data(),
+          candidate_disjoint_output.data(), output_elements,
+          "GDN whole-span R256+R256 output equals R512");
+      expect_bf16_buffer_bitwise_equal(
+          test, candidate_two_chunk_state.data(),
+          candidate_disjoint_output_state.data(),
+          q3x::runtime::kGdnStateElements,
+          "GDN whole-span R256+R256 state equals R512");
+    }
+
+    expect_guards(guarded_candidate_state_storage,
+                  q3x::runtime::kGdnStateElements,
+                  "GDN whole-span " + shape + " guarded state");
+    expect_guards(guarded_candidate_output_storage, output_elements,
+                  "GDN whole-span " + shape + " guarded output");
+    expect_finite_and_overwritten(
+        candidate_disjoint_output.data(), output_elements,
+        "GDN whole-span " + shape + " overwrites finite output");
+    expect_finite_and_overwritten(
+        candidate_disjoint_output_state.data(),
+        q3x::runtime::kGdnStateElements,
+        "GDN whole-span " + shape + " overwrites finite state");
+  }
+
+  std::array<void*, kTokenCounts.size()> candidate_functions{};
+  void* production_function = nullptr;
+  for (std::size_t shape_index = 0U; shape_index < kTokenCounts.size();
+       ++shape_index) {
+    const std::size_t token_count = kTokenCounts[shape_index];
+    const std::size_t expected_baseline_nodes =
+        token_count / q3x::runtime::kGdnMaximumTileTokenCount;
+    const std::string shape = "C" + std::to_string(token_count);
+
+    int registers_per_thread = 0;
+    std::size_t static_shared_bytes = 0U;
+    std::size_t local_bytes = 0U;
+    int maximum_threads_per_block = 0;
+    int active_blocks_per_sm = 0;
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(q3x::runtime::
+            query_gated_delta_net_update_whole_span_register_state_resources_test_cuda(
+                token_count, &registers_per_thread, &static_shared_bytes,
+                &local_bytes, &maximum_threads_per_block,
+                &active_blocks_per_sm)),
+        "GDN whole-span " + shape + " query resources");
+    if (!ready) {
+      return;
+    }
+    constexpr int kMaximumRegistersPerThread = 85;
+    constexpr std::size_t kExpectedStaticSharedBytes = 34056U;
+    const bool resource_gate =
+        registers_per_thread > 0 &&
+        registers_per_thread <= kMaximumRegistersPerThread &&
+        static_shared_bytes == kExpectedStaticSharedBytes &&
+        local_bytes == 0U && maximum_threads_per_block == 256 &&
+        active_blocks_per_sm >= 3;
+    std::cout << "GDN_PREFILL_WHOLE_SPAN_RESOURCES: token_count="
+              << token_count << " registers=" << registers_per_thread
+              << " static_shared_bytes=" << static_shared_bytes
+              << " local_bytes=" << local_bytes
+              << " maximum_threads_per_block="
+              << maximum_threads_per_block
+              << " active_blocks_per_sm=" << active_blocks_per_sm
+              << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(resource_gate,
+                "GDN whole-span " + shape + " clears resource hard gate");
+
+    const CapturedTopology baseline_topology = capture_topology(
+        test,
+        [&](cudaStream_t capture_stream) {
+          return launch_gdn_production_m16_chain(
+              conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+              dt_bias.data(), candidate_disjoint_input_state.data(),
+              candidate_disjoint_output_state.data(), kL2Epsilon,
+              baseline_output.data(), capture_stream);
+        },
+        cudaSuccess, "GDN whole-span " + shape + " baseline topology");
+    const CapturedTopology candidate_topology = capture_topology(
+        test,
+        [&](cudaStream_t capture_stream) {
+          return launch_candidate(
+              conv_qkv.data(), token_count, a.data(), b.data(),
+              candidate_disjoint_input_state.data(),
+              candidate_disjoint_output_state.data(),
+              candidate_disjoint_output.data(), capture_stream);
+        },
+        cudaSuccess, "GDN whole-span " + shape + " candidate topology");
+
+    test.expect(baseline_topology.total_nodes == expected_baseline_nodes &&
+                    baseline_topology.kernel_nodes ==
+                        expected_baseline_nodes &&
+                    baseline_topology.edges == expected_baseline_nodes - 1U &&
+                    baseline_topology.kernel_launches.size() ==
+                        expected_baseline_nodes,
+                "GDN whole-span " + shape +
+                    " baseline captures ordered M16 chain");
+    for (const auto& launch : baseline_topology.kernel_launches) {
+      test.expect(launch.function != nullptr &&
+                      launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                      launch.grid.y == 1U && launch.grid.z == 1U &&
+                      launch.block.x == 256U && launch.block.y == 1U &&
+                      launch.block.z == 1U &&
+                      launch.dynamic_shared_bytes == 0U,
+                  "GDN whole-span " + shape +
+                      " baseline node locks 48x256 topology");
+      if (production_function == nullptr) {
+        production_function = launch.function;
+      } else {
+        test.expect(launch.function == production_function,
+                    "GDN whole-span baseline nodes use production M16 kernel");
+      }
+    }
+
+    test.expect(candidate_topology.total_nodes == 1U &&
+                    candidate_topology.kernel_nodes == 1U &&
+                    candidate_topology.edges == 0U &&
+                    candidate_topology.kernel_launches.size() == 1U,
+                "GDN whole-span " + shape +
+                    " candidate captures one kernel");
+    if (candidate_topology.kernel_launches.size() == 1U) {
+      const auto& launch = candidate_topology.kernel_launches.front();
+      test.expect(launch.function != nullptr &&
+                      launch.grid.x == q3x::runtime::kGdnValueHeadCount &&
+                      launch.grid.y == 1U && launch.grid.z == 1U &&
+                      launch.block.x == 256U && launch.block.y == 1U &&
+                      launch.block.z == 1U &&
+                      launch.dynamic_shared_bytes == 0U,
+                  "GDN whole-span " + shape +
+                      " candidate locks 48x256 topology");
+      candidate_functions[shape_index] = launch.function;
+    }
+  }
+  test.expect(production_function != nullptr &&
+                  candidate_functions[0] != nullptr &&
+                  candidate_functions[1] != nullptr &&
+                  production_function != candidate_functions[0] &&
+                  production_function != candidate_functions[1] &&
+                  candidate_functions[0] != candidate_functions[1],
+              "GDN whole-span freezes distinct production/R256/R512 kernels");
+
+  const auto expect_invalid_empty_capture =
+      [&](const std::size_t token_count,
+          const std::uint16_t* const qkv,
+          const std::uint16_t* const scalar_a,
+          const std::uint16_t* const scalar_b,
+          const std::uint16_t* const a_log,
+          const std::uint16_t* const bias,
+          const std::uint16_t* const state_input,
+          std::uint16_t* const state_output, const float epsilon,
+          std::uint16_t* const output, const q3x::runtime::GdnDimensions dims,
+          const std::string& label) {
+        const CapturedTopology topology = capture_topology(
+            test,
+            [&](cudaStream_t capture_stream) {
+              return q3x::runtime::
+                  launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+                      qkv, token_count, scalar_a, scalar_b, a_log, bias,
+                      state_input, state_output, epsilon, output, dims,
+                      static_cast<void*>(capture_stream));
+            },
+            cudaErrorInvalidValue, label);
+        test.expect(topology.total_nodes == 0U &&
+                        topology.kernel_nodes == 0U && topology.edges == 0U &&
+                        topology.kernel_launches.empty(),
+                    label + " captures no nodes");
+      };
+
+  std::size_t invalid_case_count = 0U;
+  const auto invalid =
+      [&](const std::size_t token_count,
+          const std::uint16_t* const qkv,
+          const std::uint16_t* const scalar_a,
+          const std::uint16_t* const scalar_b,
+          const std::uint16_t* const a_log,
+          const std::uint16_t* const bias,
+          const std::uint16_t* const state_input,
+          std::uint16_t* const state_output, const float epsilon,
+          std::uint16_t* const output, const q3x::runtime::GdnDimensions dims,
+          const std::string& label) {
+        ++invalid_case_count;
+        expect_invalid_empty_capture(token_count, qkv, scalar_a, scalar_b,
+                                     a_log, bias, state_input, state_output,
+                                     epsilon, output, dims, label);
+      };
+
+  const auto valid_dims = q3x::runtime::GdnDimensions{};
+  const std::array<std::size_t, 6U> invalid_shapes{0U, 16U, 255U,
+                                                  257U, 511U, 513U};
+  for (const std::size_t invalid_shape : invalid_shapes) {
+    invalid(invalid_shape, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+            dt_bias.data(), candidate_disjoint_input_state.data(),
+            candidate_disjoint_output_state.data(), kL2Epsilon,
+            candidate_disjoint_output.data(), valid_dims,
+            "GDN whole-span rejects shape=" +
+                std::to_string(invalid_shape));
+  }
+  invalid(256U, nullptr, a.data(), b.data(), A_log.data(), dt_bias.data(),
+          candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null conv QKV");
+  invalid(256U, conv_qkv.data(), nullptr, b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null a");
+  invalid(256U, conv_qkv.data(), a.data(), nullptr, A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null b");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), nullptr, dt_bias.data(),
+          candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null A_log");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(), nullptr,
+          candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null dt_bias");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), nullptr, candidate_disjoint_output_state.data(),
+          kL2Epsilon, candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null state input");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(), nullptr,
+          kL2Epsilon, candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects null state output");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon, nullptr,
+          valid_dims, "GDN whole-span rejects null output");
+  for (const float invalid_epsilon :
+       std::array<float, 4U>{0.0F, -1.0F,
+                             std::numeric_limits<float>::quiet_NaN(),
+                             std::numeric_limits<float>::infinity()}) {
+    invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+            dt_bias.data(), candidate_disjoint_input_state.data(),
+            candidate_disjoint_output_state.data(), invalid_epsilon,
+            candidate_disjoint_output.data(), valid_dims,
+            "GDN whole-span rejects epsilon case=" +
+                std::to_string(invalid_case_count));
+  }
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), {15U, 48U, 128U},
+          "GDN whole-span rejects QK-head dimension");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), {16U, 47U, 128U},
+          "GDN whole-span rejects value-head dimension");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), {16U, 48U, 127U},
+          "GDN whole-span rejects head dimension");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(),
+          {std::numeric_limits<std::size_t>::max(), 48U, 128U},
+          "GDN whole-span rejects overflowing dimension");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          conv_qkv.data(), valid_dims,
+          "GDN whole-span rejects output/conv alias");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_input_state.data(), valid_dims,
+          "GDN whole-span rejects output/state-input alias");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), conv_qkv.data(),
+          candidate_disjoint_output_state.data(), kL2Epsilon,
+          candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects state-input/conv alias");
+  invalid(256U, conv_qkv.data(), a.data(), b.data(), A_log.data(),
+          dt_bias.data(), candidate_disjoint_input_state.data(), a.data(),
+          kL2Epsilon, candidate_disjoint_output.data(), valid_dims,
+          "GDN whole-span rejects state-output/a alias");
+  test.expect(invalid_case_count >= 17U,
+              "GDN whole-span captures at least 17 invalid zero-node cases");
+
+  int registers = 0;
+  std::size_t shared = 0U;
+  std::size_t local = 0U;
+  int maximum_threads = 0;
+  int active_blocks = 0;
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_whole_span_register_state_resources_test_cuda(
+              16U, &registers, &shared, &local, &maximum_threads,
+              &active_blocks)) == cudaErrorInvalidValue,
+      "GDN whole-span resource query rejects unsupported shape");
+  test.expect(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_gated_delta_net_update_whole_span_register_state_resources_test_cuda(
+              256U, nullptr, &shared, &local, &maximum_threads,
+              &active_blocks)) == cudaErrorInvalidValue,
+      "GDN whole-span resource query rejects null output");
+
+  expect_bf16_buffer_bitwise_equal(
+      test, conv_qkv.data(), initial_conv_qkv.data(), initial_conv_qkv.size(),
+      "GDN whole-span preserves conv QKV");
+  expect_bf16_buffer_bitwise_equal(test, a.data(), initial_a.data(),
+                                   initial_a.size(),
+                                   "GDN whole-span preserves a");
+  expect_bf16_buffer_bitwise_equal(test, b.data(), initial_b.data(),
+                                   initial_b.size(),
+                                   "GDN whole-span preserves b");
+  expect_bf16_buffer_bitwise_equal(
+      test, A_log.data(), initial_A_log.data(), initial_A_log.size(),
+      "GDN whole-span preserves A_log");
+  expect_bf16_buffer_bitwise_equal(
+      test, dt_bias.data(), initial_dt_bias.data(), initial_dt_bias.size(),
+      "GDN whole-span preserves dt_bias");
+}
+
 void run_optional_gdn_register_state_m16_performance(TestContext& test,
                                                      cudaStream_t stream) {
   const char* const value =
@@ -3198,6 +3927,306 @@ void run_optional_gdn_register_state_m16_performance(TestContext& test,
             << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
   test.expect(performance_gate,
               "GDN register-state M16 clears 1.20x cold-bank gate");
+}
+
+void run_optional_gdn_prefill_whole_span_performance(TestContext& test,
+                                                     cudaStream_t stream) {
+  const char* const value =
+      std::getenv("Q3X_RUN_GDN_PREFILL_WHOLE_SPAN_PERF");
+  const bool enabled = value != nullptr && value[0] != '\0' &&
+                       !(value[0] == '0' && value[1] == '\0');
+  if (!enabled) {
+    std::cout
+        << "SKIP: GDN Prefill whole-span performance segment; set "
+           "Q3X_RUN_GDN_PREFILL_WHOLE_SPAN_PERF=1 to enable\n";
+    return;
+  }
+
+  constexpr std::array<std::size_t, 2U> kTokenCounts{256U, 512U};
+  constexpr std::size_t kMaximumTokenCount = kTokenCounts.back();
+  constexpr std::size_t kBankCount = 24U;
+  constexpr std::size_t kWarmupOperations = 48U;
+  constexpr std::size_t kMeasuredOperations = 240U;
+  constexpr std::size_t kRoundCount = 5U;
+  constexpr std::size_t kPassesPerVariant = 2U * kRoundCount;
+  constexpr std::size_t kStatePoolElements =
+      kBankCount * q3x::runtime::kGdnStateElements;
+  constexpr std::size_t kMaximumOutputElements =
+      kMaximumTokenCount * q3x::runtime::kGdnVElements;
+  constexpr float kL2Epsilon = 1.0e-6F;
+  constexpr float kRequiredSpeedup = 1.03F;
+  static_assert(kWarmupOperations % kBankCount == 0U);
+  static_assert(kMeasuredOperations % kBankCount == 0U);
+  static_assert(kStatePoolElements * sizeof(std::uint16_t) ==
+                36U * 1024U * 1024U);
+
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> immutable_states;
+  ManagedBuffer<std::uint16_t> baseline_states;
+  ManagedBuffer<std::uint16_t> candidate_states;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> candidate_output;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kMaximumTokenCount *
+                        q3x::runtime::kGdnQkvChannels),
+      "GDN whole-span perf allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kMaximumTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span perf allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kMaximumTokenCount *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span perf allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span perf allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "GDN whole-span perf allocate dt_bias");
+  ready = ready && test.cuda_ok(
+                       immutable_states.allocate(kStatePoolElements),
+                       "GDN whole-span perf allocate immutable state banks");
+  ready = ready && test.cuda_ok(
+                       baseline_states.allocate(kStatePoolElements),
+                       "GDN whole-span perf allocate baseline state banks");
+  ready = ready && test.cuda_ok(
+                       candidate_states.allocate(kStatePoolElements),
+                       "GDN whole-span perf allocate candidate state banks");
+  ready = ready && test.cuda_ok(
+                       baseline_output.allocate(kMaximumOutputElements),
+                       "GDN whole-span perf allocate baseline output");
+  ready = ready && test.cuda_ok(
+                       candidate_output.allocate(kMaximumOutputElements),
+                       "GDN whole-span perf allocate candidate output");
+  if (!ready) {
+    return;
+  }
+
+  int device = 0;
+  cudaDeviceProp properties{};
+  ready = test.cuda_ok(cudaGetDevice(&device),
+                       "GDN whole-span perf read active device");
+  ready = ready && test.cuda_ok(
+                       cudaGetDeviceProperties(&properties, device),
+                       "GDN whole-span perf read device properties");
+  if (!ready) {
+    return;
+  }
+  const std::size_t state_working_set_bytes =
+      kStatePoolElements * sizeof(std::uint16_t);
+  test.expect(state_working_set_bytes >
+                  static_cast<std::size_t>(properties.l2CacheSize),
+              "GDN whole-span perf state working set exceeds L2");
+
+  fill_gdn_tile_inputs(conv_qkv, a, b, A_log, dt_bias,
+                       kMaximumTokenCount);
+  const std::vector<std::uint16_t> initial_conv_qkv(
+      conv_qkv.data(), conv_qkv.data() + conv_qkv.size());
+  const std::vector<std::uint16_t> initial_a(a.data(), a.data() + a.size());
+  const std::vector<std::uint16_t> initial_b(b.data(), b.data() + b.size());
+  const std::vector<std::uint16_t> initial_A_log(
+      A_log.data(), A_log.data() + A_log.size());
+  const std::vector<std::uint16_t> initial_dt_bias(
+      dt_bias.data(), dt_bias.data() + dt_bias.size());
+  std::vector<std::uint16_t> initial_state(
+      q3x::runtime::kGdnStateElements);
+  for (std::size_t index = 0U; index < initial_state.size(); ++index) {
+    const int centered = static_cast<int>((index * 5U) % 23U) - 11;
+    initial_state[index] =
+        encode_bf16(static_cast<float>(centered) / 512.0F);
+  }
+  for (std::size_t bank = 0U; bank < kBankCount; ++bank) {
+    std::copy(initial_state.begin(), initial_state.end(),
+              immutable_states.data() +
+                  bank * q3x::runtime::kGdnStateElements);
+  }
+
+  const auto reset_variant =
+      [&](ManagedBuffer<std::uint16_t>& states,
+          ManagedBuffer<std::uint16_t>& output,
+          const std::size_t output_elements,
+          const std::string& label) -> bool {
+        bool reset_ready = test.cuda_ok(
+            cudaMemcpyAsync(states.data(), immutable_states.data(),
+                            state_working_set_bytes, cudaMemcpyDeviceToDevice,
+                            stream),
+            label + " reset 24 state banks");
+        reset_ready = reset_ready && test.cuda_ok(
+                                         cudaMemsetAsync(
+                                             output.data(), 0xff,
+                                             output_elements *
+                                                 sizeof(std::uint16_t),
+                                             stream),
+                                         label + " poison output");
+        reset_ready = reset_ready && test.cuda_ok(
+                                         cudaStreamSynchronize(stream),
+                                         label + " reset synchronize");
+        return reset_ready;
+      };
+
+  for (const std::size_t token_count : kTokenCounts) {
+    const std::size_t output_elements =
+        token_count * q3x::runtime::kGdnVElements;
+    const std::string shape = "C" + std::to_string(token_count);
+
+    const auto measure_variant =
+        [&](const bool candidate, const std::string& label) -> float {
+          ManagedBuffer<std::uint16_t>& states =
+              candidate ? candidate_states : baseline_states;
+          ManagedBuffer<std::uint16_t>& output =
+              candidate ? candidate_output : baseline_output;
+          if (!reset_variant(states, output, output_elements, label)) {
+            return std::numeric_limits<float>::quiet_NaN();
+          }
+          std::size_t operation_index = 0U;
+          const float milliseconds = measure_average_cuda_milliseconds(
+              test, stream, kWarmupOperations, kMeasuredOperations, label,
+              [&]() {
+                const std::size_t bank = operation_index % kBankCount;
+                ++operation_index;
+                std::uint16_t* const state =
+                    states.data() +
+                    bank * q3x::runtime::kGdnStateElements;
+                if (candidate) {
+                  return q3x::runtime::
+                      launch_gated_delta_net_update_whole_span_register_state_test_cuda(
+                          conv_qkv.data(), token_count, a.data(), b.data(),
+                          A_log.data(), dt_bias.data(), state, state,
+                          kL2Epsilon, output.data(), {},
+                          static_cast<void*>(stream));
+                }
+                return launch_gdn_production_m16_chain(
+                    conv_qkv.data(), token_count, a.data(), b.data(),
+                    A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
+                    output.data(), stream);
+              });
+          test.expect(operation_index ==
+                          kWarmupOperations + kMeasuredOperations,
+                      label + " rotates every logical whole-span operation");
+          return milliseconds;
+        };
+
+    bool timing_bitwise = true;
+    const auto compare_timing_results = [&](const std::string& label) {
+      const int failures_before = test.failures();
+      expect_bf16_buffer_bitwise_equal(
+          test, candidate_states.data(), baseline_states.data(),
+          kStatePoolElements, label + " final 24-bank states");
+      expect_bf16_buffer_bitwise_equal(
+          test, candidate_output.data(), baseline_output.data(),
+          output_elements, label + " last output");
+      timing_bitwise =
+          timing_bitwise && test.failures() == failures_before;
+    };
+
+    std::array<float, kPassesPerVariant> baseline_passes{};
+    std::array<float, kPassesPerVariant> candidate_passes{};
+    bool all_rounds_faster = true;
+    bool all_finite = true;
+    for (std::size_t round = 0U; round < kRoundCount; ++round) {
+      const std::string round_label =
+          "GDN whole-span " + shape +
+          " round=" + std::to_string(round + 1U);
+      const float baseline_first =
+          measure_variant(false, round_label + " B1");
+      const float candidate_first =
+          measure_variant(true, round_label + " R1");
+      compare_timing_results(round_label + " B1/R1");
+      const float candidate_second =
+          measure_variant(true, round_label + " R2");
+      const float baseline_second =
+          measure_variant(false, round_label + " B2");
+      compare_timing_results(round_label + " R2/B2");
+
+      baseline_passes[2U * round] = baseline_first;
+      baseline_passes[2U * round + 1U] = baseline_second;
+      candidate_passes[2U * round] = candidate_first;
+      candidate_passes[2U * round + 1U] = candidate_second;
+      const bool round_finite =
+          std::isfinite(baseline_first) &&
+          std::isfinite(baseline_second) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) && baseline_first > 0.0F &&
+          baseline_second > 0.0F && candidate_first > 0.0F &&
+          candidate_second > 0.0F;
+      const float baseline_mean =
+          (baseline_first + baseline_second) * 0.5F;
+      const float candidate_mean =
+          (candidate_first + candidate_second) * 0.5F;
+      const bool round_faster =
+          round_finite && candidate_mean < baseline_mean;
+      all_finite = all_finite && round_finite;
+      all_rounds_faster = all_rounds_faster && round_faster;
+      std::cout << "PERF_GDN_PREFILL_WHOLE_SPAN_ROUND: token_count="
+                << token_count << " round=" << round + 1U
+                << " baseline_pass1_ms=" << baseline_first
+                << " candidate_pass1_ms=" << candidate_first
+                << " candidate_pass2_ms=" << candidate_second
+                << " baseline_pass2_ms=" << baseline_second
+                << " baseline_mean_ms=" << baseline_mean
+                << " candidate_mean_ms=" << candidate_mean
+                << " speedup=" << baseline_mean / candidate_mean
+                << " no_reversal="
+                << (round_faster ? "true" : "false") << '\n';
+    }
+
+    const auto median = [](std::array<float, kPassesPerVariant> values) {
+      std::sort(values.begin(), values.end());
+      return (values[kPassesPerVariant / 2U - 1U] +
+              values[kPassesPerVariant / 2U]) *
+             0.5F;
+    };
+    const float baseline_milliseconds = median(baseline_passes);
+    const float candidate_milliseconds = median(candidate_passes);
+    const float speedup = baseline_milliseconds / candidate_milliseconds;
+    const bool performance_gate =
+        all_finite && timing_bitwise && all_rounds_faster &&
+        std::isfinite(speedup) && speedup >= kRequiredSpeedup;
+    std::cout << "PERF_GDN_PREFILL_WHOLE_SPAN_AGGREGATE: token_count="
+              << token_count << " baseline_ms=" << baseline_milliseconds
+              << " candidate_ms=" << candidate_milliseconds
+              << " speedup=" << speedup
+              << " required_speedup=" << kRequiredSpeedup
+              << " state_banks=" << kBankCount
+              << " state_working_set_bytes=" << state_working_set_bytes
+              << " l2_cache_bytes=" << properties.l2CacheSize
+              << " warmup_logical_operations=" << kWarmupOperations
+              << " measured_logical_operations=" << kMeasuredOperations
+              << " mirrored_order=B-R-R-B"
+              << " rounds=" << kRoundCount
+              << " required_external_process_repeats=5"
+              << " required_gpu_hz=1300500000"
+              << " required_emc_hz=3200000000"
+              << " requires_MAXN_and_clock_readback=true"
+              << " bitwise=" << (timing_bitwise ? "true" : "false")
+              << " all_rounds_faster="
+              << (all_rounds_faster ? "true" : "false")
+              << " gate=" << (performance_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(performance_gate,
+                "GDN whole-span " + shape +
+                    " clears 1.03x cold-bank gate without reversal");
+  }
+
+  expect_bf16_buffer_bitwise_equal(
+      test, conv_qkv.data(), initial_conv_qkv.data(), initial_conv_qkv.size(),
+      "GDN whole-span perf preserves conv QKV");
+  expect_bf16_buffer_bitwise_equal(test, a.data(), initial_a.data(),
+                                   initial_a.size(),
+                                   "GDN whole-span perf preserves a");
+  expect_bf16_buffer_bitwise_equal(test, b.data(), initial_b.data(),
+                                   initial_b.size(),
+                                   "GDN whole-span perf preserves b");
+  expect_bf16_buffer_bitwise_equal(
+      test, A_log.data(), initial_A_log.data(), initial_A_log.size(),
+      "GDN whole-span perf preserves A_log");
+  expect_bf16_buffer_bitwise_equal(
+      test, dt_bias.data(), initial_dt_bias.data(), initial_dt_bias.size(),
+      "GDN whole-span perf preserves dt_bias");
 }
 
 // This mirrored harness covers three successive promotions: row-pair versus
@@ -3917,7 +4946,9 @@ int main() {
   test_gdn_plain_norm_silu_gate_production_identity(test, stream);
   test_gdn_tile_bitwise(test, stream);
   test_gdn_register_state_m16_candidate(test, stream);
+  test_gdn_prefill_whole_span_register_state_candidate(test, stream);
   run_optional_gdn_register_state_m16_performance(test, stream);
+  run_optional_gdn_prefill_whole_span_performance(test, stream);
   run_optional_gdn_row_pipeline_performance(
       test, stream, GdnRowPipelineCandidate::kFourRow);
   run_optional_gdn_row_pipeline_performance(
