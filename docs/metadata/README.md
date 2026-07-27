@@ -1217,6 +1217,14 @@ The diagnostic Phase 3 records are:
   impossible fixed-direct lower bound that omits every directory and escape
   operation still reaches only 0.568148x. The standalone source/target are
   removed; neither QKV/Z nor the narrower O-projection backup proceeds.
+- [`qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json`](qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json),
+  which admits one production-unreachable Gate/Up scale decoder screen. Across
+  all 128 tensors, 81.380086% of 32-scale row tiles fit an exact unsigned
+  four-bit delta; other rows read their retained canonical sector. A fixed
+  64-byte `[lane-pair][row4]` code tile plus hoisted ten-tile metadata projects
+  26.380086% fewer L1 request sectors and a 1.136086-ms/token traffic ceiling.
+  Layer 0 and worst-case layer 50 must each save at least 4.6875 us/layer in
+  every round; this record contains no CUDA timing or production change.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

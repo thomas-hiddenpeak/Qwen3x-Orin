@@ -1246,6 +1246,17 @@ lower bound that removes all directory and escape work still reaches only
 backup on SM87; do not build a full GEMV or sidecar from this admission. See
 the [decoder rejection](metadata/qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json).
 
+The next actual-first cell returns to Gate/Up scales with a mechanism distinct
+from scale6 and P15E. Delta4-Row32 stores each four-row K512 tile in a fixed
+64-byte `[lane-pair][row4]` code block; 81.380086% of rows use exact
+`base + nibble`, while the rest read one retained canonical sector. Hoisting
+all ten metadata words once per row quad gives a conservative **26.380086%**
+L1-request reduction and **1.136086 ms/token** traffic ceiling. This is only a
+test admission. Layer 0 and worst layer 50 must both be bit exact, preserve
+`32x512`, zero local memory and at least two CTA/SM, and save **at least 4.6875
+us/layer** in every `B-C-C-B` round before a full Gate/Up kernel is considered.
+See the [Delta4 admission](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

@@ -6717,3 +6717,35 @@ SM87 GEMV suite passes and production is unchanged. This closes seven-bit W128
 P127E/P127X/fixed-direct compression and its lower-margin O-projection backup
 on SM87. Complete rounds, report hashes, SASS resources, and cleanup evidence
 are in the [decoder rejection](metadata/qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json).
+
+## Decode Gate/Up Delta4 row-fallback admission
+
+The next lossless scale screen avoids both scale6 cross-word unpack and P15E
+escape ranking. For each row's 32 scales in a K512 tile, it stores a raw-byte
+base plus 32 four-bit deltas when the raw E4M3 span is at most 15; otherwise
+that row reads its existing aligned canonical sector. All 713,031,680 source
+bytes round-trip exactly in the offline scan:
+
+| Inventory | Result |
+| --- | ---: |
+| compressed row tiles | 18,133,306 / 22,282,240 (81.380086%) |
+| fallback row tiles | 4,148,934 (18.619914%) |
+| fixed sidecar | 378,798,080 B (53.125% of canonical scales) |
+| conservative L1 requests | 524,933,312 B, down 188,098,368 B |
+| conservative traffic ceiling | 1.136086 ms/token |
+
+The required physical layout is fixed: lanes 0--15 load one aligned U32 each
+from a 64-byte `[lane-pair][row4]` tile, one indexed shuffle gives every lane
+both phase nibbles, and lanes 0--9 preload the row quad's ten contiguous U32
+metadata words in two sectors. Direct rows remove the canonical partner XOR;
+fallback rows retain one known-address canonical sector and share one
+conditional partner shuffle. Loading metadata separately for every tile would
+cap the saving at only 0.271945 ms/token and is therefore not an admitted
+implementation.
+
+This remains a zero-code capacity/sector result. A standalone decoder must pass
+both layer 0 and the lower-margin layer 50, reproduce all frozen hashes, use no
+local memory, retain at least two CTA/SM, and save at least 4.6875 us/layer in
+every five-round `B-C-C-B` series. No 361.25-MiB full sidecar or production
+dispatch may be created before that gate. See the
+[Delta4 admission record](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json).
