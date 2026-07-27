@@ -6971,3 +6971,26 @@ the direct C64 fixed fixture and the P65/P97/P129/P513 formal outputs pass on
 the target model. Full identities, hashes, per-process medians, memory evidence,
 and limitations are in the
 [C64 production record](metadata/qwen36-27b-prefill-c64-down-production-benchmark.json).
+
+## M64 Prefill NVFP4 Gate/Up stop-loss
+
+Commit `6be3a87` adds a test-only exact NVFP4 `[M64,N17408,K5120]`
+table-free quad-A instance without changing production dispatch. It is
+bitwise equal to two public production M32 raw-weight cp.async launches, has
+zero replay mismatch, preserves guards and panel boundaries, captures one
+grid-136 kernel, rejects eight invalid cases before enqueue, and reports 76
+registers, 23,552 bytes static shared memory, zero local bytes, and three
+active CTAs/SM.
+
+At fixed 1.3005-GHz GPU and 3.2-GHz EMC clocks, six mirrored B-C-C-B rounds
+per distribution put the isolated projection at 1.08934x aggregate. A second
+screen retains the production ready/done/join topology, with Gate on the main
+stream and Up on the auxiliary stream. It is exact on both branches and all
+12 rounds improve, but the pair envelope reaches only 1.07884x. The current
+P513 C64 profile contains 1,231.372 ms of Gate/Up union inside a 4,376.232-ms
+Prefix range; supporting the later 1.03x full-Prefix gate requires at least
+1.11547x at pair level, rounded to a 1.12x micro gate. The candidate therefore
+stops before any full-model or production integration. A fixed-component
+projection estimates only 1.02099x Prefix gain. Full protocol, hashes, and
+claim limits are in the
+[M64 Gate/Up rejection](metadata/qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json).

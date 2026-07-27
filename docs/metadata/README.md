@@ -1268,6 +1268,15 @@ The diagnostic Phase 3 records are:
   generations retain ID 9419, `Hello`, and exact step counts. P513 Nsight
   closes the intended route from 1,024 M32 down launches to 512 M64 launches;
   no MTP, double/triple buffering, or Prefill/Decode overlap is introduced.
+- [`qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json`](qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json),
+  which screens a test-only exact `[M64,N17408,K5120]` Gate/Up kernel against
+  the promoted C64 policy's two production raw-weight cp.async M32 launches.
+  Correctness, guards, single-node Graph, invalid-contract, and resource gates
+  pass. The isolated projection reaches 1.08934x and the production-like
+  dual-stream pair envelope reaches 1.07884x with all 12 rounds positive, but
+  both miss their
+  1.15x/1.12x promotion gates. Production remains unchanged and the next
+  bounded candidate is FP8 M64 `[M64,N5120,K6144]`.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

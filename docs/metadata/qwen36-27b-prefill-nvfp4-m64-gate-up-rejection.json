@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-m64-gate-up-rejection",
+  "status": "rejected",
+  "recorded_at": "2026-07-27T22:05:05+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "6be3a8759d84be3f68485b72101ac5f2eeccbd83",
+    "tree": "eeecfa7d1f232812c86654ce519f06c409dc1990",
+    "subject": "test: screen M64 Prefill gate-up pair",
+    "base_commit": "c44d97b814f65855527f0f100902839cf31a9aaf",
+    "production_changed": false,
+    "mtp_used": false,
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7748384,
+      "sha256": "dcd29d69e285294b0b3858c1efb9240b638050a3e64a443faa048d01e01bf9a6",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "gpu_min_hz": 1300500000,
+    "gpu_max_hz": 1300500000,
+    "gpu_current_hz": 1300500000,
+    "emc_current_hz": 3200000000,
+    "emc_mrq_rate_locked": 1,
+    "claim_scope": "one fixed-clock device and synthetic checkpoint-shape payloads"
+  },
+  "candidate": {
+    "shape": {
+      "tokens": 64,
+      "rows": 17408,
+      "columns": 5120,
+      "weight_format": "NVFP4",
+      "activation_and_output_format": "BF16"
+    },
+    "implementation": "test-only table-free quad-A WMMA kernel reusing each decoded B tile across four ordered M16 accumulator panels",
+    "baseline_single_projection": "two ordered public production M32 raw-weight cp.async kernels",
+    "baseline_pair": "Gate on the primary stream and Up on the auxiliary stream, with two ordered production M32 kernels on each branch",
+    "candidate_pair": "one M64 kernel on each of the same two streams with the same ready/done/join envelope",
+    "production_dispatch_unchanged": true
+  },
+  "resource_gate": {
+    "registers_per_thread": 76,
+    "maximum_registers": 80,
+    "static_shared_bytes": 23552,
+    "expected_static_shared_bytes": 23552,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 3,
+    "minimum_active_blocks_per_sm": 3,
+    "grid_x": 136,
+    "block_x": 256,
+    "result": "pass"
+  },
+  "default_correctness": {
+    "candidate_vs_two_m32_mismatches": 0,
+    "candidate_elements": 1114112,
+    "deterministic_replay_mismatches": 0,
+    "replay_elements": 1114112,
+    "panel_boundaries": "exact at token transitions 16, 32, and 48",
+    "output_finite": true,
+    "head_and_tail_guards": "intact",
+    "graph_total_nodes": 1,
+    "graph_kernel_nodes": 1,
+    "invalid_launches_checked": 8,
+    "invalid_graph_nodes": 0,
+    "invalid_cases": [
+      "null payload",
+      "NaN scale",
+      "negative scale",
+      "misaligned weight",
+      "misaligned activation",
+      "misaligned output",
+      "near-miss shape",
+      "second-half output/input alias"
+    ],
+    "result": "pass"
+  },
+  "isolated_protocol": {
+    "warmup_pairs": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 6,
+    "order_per_round": "B-C-C-B",
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "cell_speedup_gate": 1.10,
+    "aggregate_speedup_gate": 1.15,
+    "every_round_non_regression_gate": 1.0
+  },
+  "isolated_results": [
+    {
+      "distribution": "checkpoint_like",
+      "baseline_two_m32_ms": 1.30813,
+      "candidate_m64_ms": 1.20063,
+      "speedup": 1.08954,
+      "minimum_round_speedup": 1.08849,
+      "mismatches": 0,
+      "elements": 1114112,
+      "gate": "fail"
+    },
+    {
+      "distribution": "same_bank_stress",
+      "baseline_two_m32_ms": 1.30831,
+      "candidate_m64_ms": 1.20123,
+      "speedup": 1.08914,
+      "minimum_round_speedup": 1.08811,
+      "mismatches": 0,
+      "elements": 1114112,
+      "gate": "fail"
+    }
+  ],
+  "isolated_aggregate": {
+    "baseline_two_m32_ms": 2.61645,
+    "candidate_m64_ms": 2.40186,
+    "speedup": 1.08934,
+    "required_speedup": 1.15,
+    "result": "fail"
+  },
+  "pair_protocol": {
+    "warmup_pairs": 10,
+    "measured_iterations_per_pass": 24,
+    "measurement_rounds": 6,
+    "order_per_round": "B-C-C-B",
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "branch_scale_relation": "same distribution with the Up pattern rotated by one complete scale row",
+    "cell_speedup_gate": 1.10,
+    "aggregate_speedup_gate": 1.12,
+    "every_round_non_regression_gate": 1.0,
+    "gate_derivation": {
+      "c64_p513_prefix_range_ms": 4376.231840,
+      "c64_p513_gate_up_union_ms": 1231.372,
+      "later_full_prefix_speedup_gate": 1.03,
+      "minimum_pair_speedup_before_rounding": 1.115465197,
+      "selected_pair_speedup_gate": 1.12
+    }
+  },
+  "pair_results": [
+    {
+      "distribution": "checkpoint_like",
+      "baseline_two_m32_dual_stream_ms": 2.36317,
+      "candidate_m64_dual_stream_ms": 2.19011,
+      "speedup": 1.07902,
+      "minimum_round_speedup": 1.07816,
+      "gate_mismatches": 0,
+      "up_mismatches": 0,
+      "elements_per_branch": 1114112,
+      "gate": "fail"
+    },
+    {
+      "distribution": "same_bank_stress",
+      "baseline_two_m32_dual_stream_ms": 2.36164,
+      "candidate_m64_dual_stream_ms": 2.18942,
+      "speedup": 1.07866,
+      "minimum_round_speedup": 1.07797,
+      "gate_mismatches": 0,
+      "up_mismatches": 0,
+      "elements_per_branch": 1114112,
+      "gate": "fail"
+    }
+  ],
+  "pair_aggregate": {
+    "baseline_two_m32_dual_stream_ms": 4.72481,
+    "candidate_m64_dual_stream_ms": 4.37953,
+    "speedup": 1.07884,
+    "required_speedup": 1.12,
+    "positive_rounds": 12,
+    "measured_rounds": 12,
+    "result": "fail"
+  },
+  "projected_impact": {
+    "method": "replace the measured C64 P513 Gate/Up union by union/1.07884 while holding every other profile component fixed",
+    "current_profile_prefix_ms": 4376.231840,
+    "projected_prefix_ms": 4286.245032,
+    "projected_prefix_speedup": 1.020994322,
+    "projected_prefix_tokens_per_second": 119.451874,
+    "projected_saving_ms": 89.986808,
+    "claim": "diagnostic upper-level projection only; no full-model candidate run was admitted"
+  },
+  "tests": {
+    "release_build_target": "pass: q3x_sm87_weight_only_gemv_test",
+    "default_sm87_weight_only_gemv": "pass in 2.40 seconds",
+    "focused_default_gate_smoke": "pass",
+    "isolated_screen": "expected rejection exit 1",
+    "pair_screen": "expected rejection exit 1"
+  },
+  "evidence_files": [
+    {
+      "role": "authoritative isolated screen",
+      "local_path": "/tmp/q3x-prefill-m64-gate-single-p2.log",
+      "bytes": 3454,
+      "sha256": "b932134ff1ab1fb9c0f8ff5c50352fdb1e35efe1b235268e2a1f6459a1841b9a"
+    },
+    {
+      "role": "authoritative dual-stream pair screen",
+      "local_path": "/tmp/q3x-prefill-m64-gate-up-pair-p3.log",
+      "bytes": 3639,
+      "sha256": "40ddaaa453729efe129536a165deeb55c4a50f67b6cb7f761368bcd05a1dcfbd"
+    }
+  ],
+  "decision": {
+    "result": "reject synchronous table-free M64 Gate/Up production promotion",
+    "reason": "The candidate is exact and all 12 pair rounds improve, but 1.07884x misses the 1.12x pair envelope required to support the later 1.03x P513 Prefix gate. The projected full-Prefix gain is only about 1.021x.",
+    "production_action": "none",
+    "next_candidate": "test-only FP8 M64 [M64,N5120,K6144] attention output projection",
+    "decode_anchor": "unchanged at 105.870500 ms/token and 9.445501816 token/s without MTP"
+  },
+  "limitations": [
+    "The performance payloads are deterministic synthetic checkpoint-shape fixtures, not loaded model weights.",
+    "The screen covers one process and one fixed-clock device; ratios are not a cross-device claim.",
+    "The stop-loss gate intentionally prevents a full-model candidate run and any production dispatcher or runner change.",
+    "The user-reported vLLM plus FlashInfer result of 2k-8k tokens/s remains non-comparable until model, precision, prompt accounting, concurrency, and hardware are aligned."
+  ]
+}

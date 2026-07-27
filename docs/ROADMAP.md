@@ -1348,6 +1348,19 @@ row-search structure without an unpriced global-progress assumption. See the
   confirms 1,024 M32 down launches become 512 M64 launches and the Prefix range
   falls from 4,644.437 to 4,376.232 ms. See the
   [C64 production record](metadata/qwen36-27b-prefill-c64-down-production-benchmark.json).
+- [rejected, synchronous M64 NVFP4 Gate/Up] The exact test-only
+  `[M64,N17408,K5120]` kernel is bitwise equal to two production M32
+  raw-weight cp.async launches, uses one Graph node, and clears its
+  76-register/23,552-byte/zero-local/3-CTA resource gate. Its isolated
+  aggregate is only 1.08934x, and the joined production-like dual-stream pair
+  is 1.07884x with all 12 rounds positive. That pair misses the 1.12x gate
+  derived from the later 1.03x P513 Prefix threshold, so dispatcher and runner
+  remain unchanged. See the
+  [M64 Gate/Up rejection](metadata/qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json).
+- [active, FP8 M64 attention output projection] Screen the exact
+  `[M64,N5120,K6144]` main-stream projection against two production M32
+  dual-resident-A launches. This shape covers all 64 layers, has a 40-CTA grid,
+  and avoids the rejected Gate/Up candidate's cross-stream admission risk.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
