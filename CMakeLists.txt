@@ -18,6 +18,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(Q3X_CUDA_ARCHITECTURES "87" CACHE STRING
     "CUDA architectures for Qwen3x-Orin (87 is Jetson AGX Orin)")
 set(CMAKE_CUDA_ARCHITECTURES "${Q3X_CUDA_ARCHITECTURES}")
+option(Q3X_BUILD_GDN_B8_ADMISSION
+  "Build the rejected/test-only Prefill GDN B8 real-checkpoint route"
+  OFF
+)
+if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
 
 find_package(CUDAToolkit 12.0 REQUIRED)
 find_package(ICU 74 REQUIRED COMPONENTS uc i18n)
@@ -133,6 +142,11 @@ target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
+if(Q3X_BUILD_GDN_B8_ADMISSION)
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_B8_ADMISSION=1
+  )
+endif()
 q3x_enable_warnings(q3x_kernels)
 
 add_library(q3x_engine STATIC
@@ -293,9 +307,9 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_gdn_decode_cuda_test)
   add_test(NAME gdn_decode_cuda COMMAND q3x_gdn_decode_cuda_test)
 
-  # Isolated Prefill block-transition selection screen. This target
-  # deliberately owns its candidate CUDA section and is never linked into
-  # q3x_kernels or the runner.
+  # Isolated Prefill block-transition selection screen. Its local oracle/WY
+  # CUDA templates remain test-only; the separately admitted sequential
+  # private launcher is linked from q3x_kernels for equivalence checks.
   add_executable(q3x_gdn_prefill_b8_block_sm87_screen
     tests/gdn_prefill_b8_block_sm87_screen.cu
   )
@@ -475,6 +489,44 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     TIMEOUT 1800
   )
+
+  if(Q3X_BUILD_GDN_B8_ADMISSION)
+    add_executable(q3x_reference_gdn_prefill_b8_admission_e2e_test
+      tests/reference_gdn_prefill_b8_admission_e2e_test.cpp
+    )
+    target_link_libraries(q3x_reference_gdn_prefill_b8_admission_e2e_test
+      PRIVATE q3x::kernels
+    )
+    q3x_enable_warnings(q3x_reference_gdn_prefill_b8_admission_e2e_test)
+    add_test(NAME reference_gdn_prefill_b8_admission_e2e
+      COMMAND q3x_reference_gdn_prefill_b8_admission_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(reference_gdn_prefill_b8_admission_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;gdn;admission"
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1800
+    )
+
+    add_executable(q3x_reference_gdn_prefill_b8_engine_e2e_test
+      tests/reference_gdn_prefill_b8_engine_e2e_test.cpp
+    )
+    target_link_libraries(q3x_reference_gdn_prefill_b8_engine_e2e_test
+      PRIVATE q3x::engine
+    )
+    q3x_enable_warnings(q3x_reference_gdn_prefill_b8_engine_e2e_test)
+    add_test(NAME reference_gdn_prefill_b8_engine_e2e
+      COMMAND q3x_reference_gdn_prefill_b8_engine_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(reference_gdn_prefill_b8_engine_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;gdn;admission;ability"
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1800
+    )
+  endif()
 
   add_executable(q3x_reference_decode_graph_p1_perf_test
     tests/reference_decode_graph_p1_perf_test.cpp

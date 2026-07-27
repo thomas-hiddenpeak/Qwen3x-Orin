@@ -1,5 +1,8 @@
 #include "q3x/runtime/reference_runner.h"
 
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+#include "../kernels/reference/gdn_prefill_b8_sequential_sm87.h"
+#endif
 #include "q3x/runtime/decode_ops.h"
 #include "q3x/runtime/gdn_decode.h"
 #include "q3x/runtime/layout_ops.h"
@@ -36,6 +39,14 @@ constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
 constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
+
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+// Admission-only switch. It has internal storage and defaults off in every
+// thread, so the public runner and CLI retain the production M16 route. The
+// matching test-only setter is deliberately absent from the public header.
+thread_local bool g_enable_prefill_gdn_b8_admission = false;
+thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
+#endif
 
 static_assert(kLinearQkvElements <= kReferenceIntermediateSize);
 static_assert(kLinearValueElements <= kReferenceIntermediateSize);
@@ -241,6 +252,17 @@ static_assert(kMaximumProjectionTileTokenCount <=
          view.value->element_size_bytes == element_size;
 }
 
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+[[nodiscard]] bool use_prefill_gdn_b8_admission(
+    const bool enabled, const ProjectionBackend backend,
+    const std::uint32_t first_position,
+    const std::size_t token_count) noexcept {
+  return enabled && backend == ProjectionBackend::kSm87WeightOnly &&
+         (token_count == 256U || token_count == 512U) &&
+         first_position % 8U == 0U;
+}
+#endif
+
 }  // namespace
 
 ReferenceRunnerStatus ReferenceRunner::collect_request_views(
@@ -439,6 +461,21 @@ ConstBf16Span ReferenceTraceView::final_norm() const noexcept {
 }
 
 namespace reference_runner_detail {
+
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+// Private test hook for real-checkpoint admission. Keeping this declaration
+// out of the installed header prevents the numerically distinct B8 recurrence
+// from becoming a supported runtime option before its state/Decode gates pass.
+bool exchange_prefill_gdn_b8_admission_test_enabled(
+    const bool enabled) noexcept {
+  return std::exchange(g_enable_prefill_gdn_b8_admission, enabled);
+}
+
+std::size_t exchange_prefill_gdn_b8_admission_test_hits(
+    const std::size_t hits) noexcept {
+  return std::exchange(g_prefill_gdn_b8_admission_hits, hits);
+}
+#endif
 
 std::uint16_t float_to_bf16_rne(const float value) noexcept {
   std::uint32_t bits = 0U;
@@ -2460,6 +2497,12 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
   }
 
   const std::uint32_t first_position = state_->current_position();
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+  // Snapshot the admission switch once at the tile boundary. Tests may only
+  // change it between synchronous public runner calls.
+  const bool enable_gdn_b8_admission =
+      g_enable_prefill_gdn_b8_admission;
+#endif
   const auto stream = reinterpret_cast<cudaStream_t>(stream_);
   ReferenceRunnerStatus launch_failure{};
   const auto check_cuda = [&launch_failure](
@@ -2699,40 +2742,81 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      for (std::size_t token_offset = 0U; token_offset < token_count;
-           token_offset += kPrefillKernelTileMaximumTokens) {
-        const std::size_t remaining = token_count - token_offset;
-        const std::size_t subtile_tokens =
-            remaining < kPrefillKernelTileMaximumTokens
-                ? remaining
-                : kPrefillKernelTileMaximumTokens;
+#if defined(Q3X_ENABLE_GDN_B8_ADMISSION)
+      const bool use_gdn_b8 = use_prefill_gdn_b8_admission(
+          enable_gdn_b8_admission, projection_backend_, first_position,
+          token_count);
+      if (use_gdn_b8) {
+        // The B8 recurrence consumes the complete convolved QKV chunk. Keep
+        // the causal-convolution state transition ordered in existing M16
+        // subtiles, then replace only the GDN chain with one exact C256/C512
+        // admission kernel. No workspace, synchronization, or Decode path is
+        // added.
+        for (std::size_t token_offset = 0U; token_offset < token_count;
+             token_offset += kPrefillKernelTileMaximumTokens) {
+          if (!check_cuda(
+                  launch_causal_conv1d_silu_update_tile_reference_cuda(
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      kPrefillKernelTileMaximumTokens,
+                      attention->conv1d.data, views_.conv_state[layer],
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      {}, stream_),
+                  "prefill_linear_causal_conv", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
+        }
+        ++g_prefill_gdn_b8_admission_hits;
         if (!check_cuda(
-                launch_causal_conv1d_silu_update_tile_reference_cuda(
-                    views_.projection[0] +
-                        token_offset * kLinearQkvElements,
-                    subtile_tokens, attention->conv1d.data,
-                    views_.conv_state[layer],
-                    views_.projection[0] +
-                        token_offset * kLinearQkvElements,
-                    {}, stream_),
-                "prefill_linear_causal_conv", layer) ||
-            !check_cuda(
-                launch_gated_delta_net_update_tile_warp_parallel_cuda(
-                    views_.projection[0] +
-                        token_offset * kLinearQkvElements,
-                    subtile_tokens,
-                    views_.linear_a +
-                        token_offset * kLinearScalarElements,
-                    views_.linear_b +
-                        token_offset * kLinearScalarElements,
-                    attention->a_log.data, attention->dt_bias.data,
-                    views_.gdn_state[layer], views_.gdn_state[layer],
-                    kRmsEpsilon,
-                    views_.projection[2] +
-                        token_offset * kLinearValueElements,
-                    {}, stream_),
-                "prefill_linear_gdn", layer)) {
+                gdn_prefill_b8_detail::
+                    launch_gated_delta_net_update_sequential_fp32_b8_exact_cuda(
+                        views_.projection[0], token_count, views_.linear_a,
+                        views_.linear_b, attention->a_log.data,
+                        attention->dt_bias.data, views_.gdn_state[layer],
+                        views_.gdn_state[layer], kRmsEpsilon,
+                        views_.projection[2], stream_),
+                "prefill_linear_gdn_b8_admission", layer)) {
           return fail_prefill_tile(launch_failure);
+        }
+      } else
+#endif
+      {
+        for (std::size_t token_offset = 0U; token_offset < token_count;
+             token_offset += kPrefillKernelTileMaximumTokens) {
+          const std::size_t remaining = token_count - token_offset;
+          const std::size_t subtile_tokens =
+              remaining < kPrefillKernelTileMaximumTokens
+                  ? remaining
+                  : kPrefillKernelTileMaximumTokens;
+          if (!check_cuda(
+                  launch_causal_conv1d_silu_update_tile_reference_cuda(
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      subtile_tokens, attention->conv1d.data,
+                      views_.conv_state[layer],
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      {}, stream_),
+                  "prefill_linear_causal_conv", layer) ||
+              !check_cuda(
+                  launch_gated_delta_net_update_tile_warp_parallel_cuda(
+                      views_.projection[0] +
+                          token_offset * kLinearQkvElements,
+                      subtile_tokens,
+                      views_.linear_a +
+                          token_offset * kLinearScalarElements,
+                      views_.linear_b +
+                          token_offset * kLinearScalarElements,
+                      attention->a_log.data, attention->dt_bias.data,
+                      views_.gdn_state[layer], views_.gdn_state[layer],
+                      kRmsEpsilon,
+                      views_.projection[2] +
+                          token_offset * kLinearValueElements,
+                      {}, stream_),
+                  "prefill_linear_gdn", layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
         }
       }
       if (!check_cuda(
