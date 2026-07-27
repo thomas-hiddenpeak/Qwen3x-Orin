@@ -1307,6 +1307,15 @@ The diagnostic Phase 3 records are:
   exact prior contract's 2,560 C32 nodes with 160 nodes. The generic projection
   cap remains C64, all near misses retain their validated fallback, and no MTP,
   FlashInfer, new buffering, or Prefill/Decode overlap is introduced.
+- [`qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json`](qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json),
+  which selects test-only exact C256/C512 FP8 full-attention Q
+  `[12288,5120]` and K/V `[1024,5120]` whole-chunk routes for narrow
+  production promotion. C512 Q reaches **1.52743x/1.39116x**, K reaches
+  **7.96850x/8.56814x**, and V reaches **7.97343x/8.53129x** across the two
+  distributions; sequential Q-then-K-then-V reaches **2.54717x/2.57488x**
+  and **2.55933x** aggregate. Correctness, exhaustive E4M3FN, replay, Graph,
+  invalid-call, guard, input, and resources pass. Production dispatch remains
+  unchanged, and the record makes no model-level or end-to-end claim.
 - [`qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json`](qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json),
   which rejects test-only exact C256/C512 GDN whole-span register-state
   lifetime extension. Bitwise output/state, replay, guards, inputs, Graph,

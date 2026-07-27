@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen",
+  "status": "selected-for-production-promotion/test-only",
+  "recorded_at": "2026-07-28T04:16:21+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "base_commit": "496bb44df9c3f6033ac06c693cb55c849e64b550",
+    "base_tree": "6d614ded6278ab59dcac2b33e9f4c0f3cb6b55fd",
+    "base_subject": "docs: record whole-chunk FP8 Prefill promotion",
+    "candidate_commit": "de86613b59b4039dac10217aa1f2701eb23400df",
+    "candidate_tree": "18db08badff7f06b79b8ad48c6c742f5448d2253",
+    "candidate_subject": "test: select whole-chunk full-attention FP8 Prefill",
+    "tree_state_at_measurement": "committed test-only kernel wrappers and optional device-test screen at candidate_commit",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 8922552,
+      "sha256": "fa1ad30e93dade579b8f5752ceb25fb744eb102794e202f2de5f735da1b6254d",
+      "elf_build_id": "3218eadade02d09436f521d625df29ba1b2a4a66",
+      "build_type": "Release",
+      "checked_in": false
+    },
+    "candidate_reachable_from_production_dispatch": false,
+    "production_selector_changed": false,
+    "public_runtime_api_changed": false,
+    "request_workspace_changed": false,
+    "production_claim": false,
+    "end_to_end_claim": false
+  },
+  "evidence": {
+    "authoritative_fixed_frequency_screen": {
+      "path": "/tmp/q3x-full-attention-screen-final-perf.log",
+      "bytes": 41513,
+      "sha256": "50f5f9853e5683bad0cb855948aff9a10bc9b3f0d76641ae1cb4afbb726c4e58",
+      "command": "Q3X_RUN_SM87_FP8_WHOLE_CHUNK_FULL_ATTENTION_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "exit_status": 0,
+      "result": "pass"
+    },
+    "default_regression": {
+      "path": "/tmp/q3x-full-attention-screen-default.log",
+      "bytes": 68965,
+      "sha256": "4a41098a1681384913b2f0b11255aac09d23f1bea0fbe573e0d45126170189e7",
+      "command": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "exit_status": 0,
+      "result": "pass"
+    },
+    "final_release_target_build": {
+      "path": "/tmp/q3x-full-attention-screen-final-build.log",
+      "bytes": 285,
+      "sha256": "585abd18c47fe1b733c80fc0803e45e735ed950a994da943e70ba9bc1cc32ffc",
+      "command": "cmake --build build/orin-release --target q3x_sm87_weight_only_gemv_test",
+      "result": "pass_without_warnings"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_current_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one Release test binary, synthetic exact-shape FP8 fixtures, and direct CUDA-event projection timing"
+  },
+  "experiment": {
+    "phase": "Prefill",
+    "token_counts": [256, 512],
+    "shapes": [
+      {
+        "role": "full-attention Q",
+        "rows": 12288,
+        "columns": 5120,
+        "checkpoint_like_weight_scale": 0.000973225,
+        "distinct_scale_stress_weight_scale": "1/257"
+      },
+      {
+        "role": "full-attention K",
+        "rows": 1024,
+        "columns": 5120,
+        "checkpoint_like_weight_scale": 0.00114731,
+        "distinct_scale_stress_weight_scale": "1/509",
+        "weight_fixture_rotation_bytes": 17
+      },
+      {
+        "role": "full-attention V",
+        "rows": 1024,
+        "columns": 5120,
+        "checkpoint_like_weight_scale": 0.000731468,
+        "distinct_scale_stress_weight_scale": "1/1021",
+        "weight_fixture_rotation_bytes": 31
+      }
+    ],
+    "weight_format": "FP8 E4M3FN packed x4",
+    "activation_and_output_format": "BF16",
+    "baseline_B": {
+      "q": "ordered public production M32 chain",
+      "k_and_v": "ordered public production M8 CUDA chain"
+    },
+    "control_R": "ordered test-only M64 chain",
+    "control_S": "one test-only M-major whole-chunk grid",
+    "candidate_C": "one test-only N-major whole-chunk grid",
+    "timing_order": "B-R-S-C-C-S-R-B",
+    "warmup_operations_per_route": 10,
+    "logical_operations_per_timed_pass": 24,
+    "mirrored_rounds_per_cell": 6,
+    "individual_cells": 12,
+    "individual_rounds": 72,
+    "q_then_k_then_v_c512_cells": 2,
+    "q_then_k_then_v_c512_rounds": 12,
+    "test_only": true,
+    "production_dispatch_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false,
+    "double_or_triple_buffering_used": false,
+    "prefill_decode_overlap_used": false
+  },
+  "topology": {
+    "q": {
+      "c256": {
+        "baseline_nodes": 8,
+        "repeated_m64_nodes": 4,
+        "m_major_nodes": 1,
+        "n_major_nodes": 1,
+        "baseline_grid_x": 96,
+        "m64_grid_x": 96,
+        "whole_chunk_grid_x": 384
+      },
+      "c512": {
+        "baseline_nodes": 16,
+        "repeated_m64_nodes": 8,
+        "m_major_nodes": 1,
+        "n_major_nodes": 1,
+        "baseline_grid_x": 96,
+        "m64_grid_x": 96,
+        "whole_chunk_grid_x": 768
+      }
+    },
+    "k_and_v": {
+      "c256": {
+        "baseline_nodes": 32,
+        "repeated_m64_nodes": 4,
+        "m_major_nodes": 1,
+        "n_major_nodes": 1,
+        "baseline_grid_x": 512,
+        "m64_grid_x": 8,
+        "whole_chunk_grid_x": 32,
+        "underfills_16_sm_device": true
+      },
+      "c512": {
+        "baseline_nodes": 64,
+        "repeated_m64_nodes": 8,
+        "m_major_nodes": 1,
+        "n_major_nodes": 1,
+        "baseline_grid_x": 512,
+        "m64_grid_x": 8,
+        "whole_chunk_grid_x": 64,
+        "underfills_16_sm_device": false
+      }
+    },
+    "threads_per_block": 256,
+    "result": "all captured node and grid contracts pass"
+  },
+  "resource_gate": {
+    "limits": {
+      "maximum_registers_per_thread": 71,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "minimum_active_blocks_per_sm": 3
+    },
+    "q_m64_anchor": {
+      "registers_per_thread": 69,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "q_whole_chunk": {
+      "m_major_registers_per_thread": 71,
+      "n_major_registers_per_thread": 70,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "k_v_m64_anchor": {
+      "registers_per_thread": 69,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "k_v_whole_chunk": {
+      "m_major_registers_per_thread": 70,
+      "n_major_registers_per_thread": 70,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "invalid_queries": {
+      "q_rejects_kv_shape": true,
+      "kv_rejects_q_shape": true,
+      "near_miss_rejected": true,
+      "outputs_unchanged": true
+    },
+    "result": "pass_without_occupancy_loss"
+  },
+  "correctness": {
+    "finite_cells": {
+      "cells": 12,
+      "r_s_c_and_candidate_replay_bitwise_equal": true,
+      "q_candidate_vs_production_m32_bitwise_equal": true,
+      "k_v_candidate_vs_production_m8_cuda_within_tolerance": true,
+      "maximum_k_absolute_error": 0.00195312,
+      "maximum_k_relative_error": 0.0052356,
+      "maximum_v_absolute_error": 0.0000038147,
+      "maximum_v_relative_error": 0.0042735,
+      "unexpected_nonfinite": 0,
+      "nan_class_or_sign_mismatches": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "exhaustive_e4m3fn_m512": [
+      {
+        "representative_shape": "Q[12288x5120]",
+        "raw_codes_per_byte_position": 256,
+        "byte_positions": 4,
+        "compared_elements_per_route": 6291456,
+        "candidate_replay_mismatches": 0,
+        "candidate_vs_production_mismatches": 0,
+        "classified_nan_outputs": 4096,
+        "classified_nan_expected": 4096,
+        "nan_class_or_sign_mismatches": 0
+      },
+      {
+        "representative_shape": "K[1024x5120] for the shared K/V kernel",
+        "raw_codes_per_byte_position": 256,
+        "byte_positions": 4,
+        "compared_elements_per_route": 524288,
+        "candidate_replay_mismatches": 0,
+        "candidate_vs_production_tolerance": "pass",
+        "classified_nan_outputs": 4096,
+        "classified_nan_expected": 4096,
+        "nan_class_or_sign_mismatches": 0
+      }
+    ],
+    "invalid_capture": {
+      "invalid_statuses": 18,
+      "expected_invalid_statuses": 18,
+      "captured_graph_nodes": 0,
+      "full_span_aliases_checked": "C256 and C512 Q and K/V",
+      "production_public_whole_chunk_rejects_q_and_k_v": true
+    },
+    "graph": "all B/R/S/C node and grid contracts pass for Q, K, and V at both token counts and both finite scale cells; Q and K exhaustive graphs also pass",
+    "default_sm87_weight_only_gemv": "pass",
+    "result": "pass"
+  },
+  "individual_results": [
+    {"shape": "Q", "tokens": 256, "cell": "checkpoint_like", "baseline_ms": 6.11637, "repeated_m64_ms": 4.21835, "m_major_ms": 4.08295, "n_major_ms": 4.03269, "candidate_vs_baseline_speedup": 1.51670},
+    {"shape": "Q", "tokens": 256, "cell": "distinct_scale_stress", "baseline_ms": 4.32268, "repeated_m64_ms": 3.35891, "m_major_ms": 3.22455, "n_major_ms": 3.13630, "candidate_vs_baseline_speedup": 1.37827},
+    {"shape": "Q", "tokens": 512, "cell": "checkpoint_like", "baseline_ms": 12.23170, "repeated_m64_ms": 8.43566, "m_major_ms": 8.09723, "n_major_ms": 8.00805, "candidate_vs_baseline_speedup": 1.52743},
+    {"shape": "Q", "tokens": 512, "cell": "distinct_scale_stress", "baseline_ms": 8.64306, "repeated_m64_ms": 6.71549, "m_major_ms": 6.38080, "n_major_ms": 6.21283, "candidate_vs_baseline_speedup": 1.39116},
+    {"shape": "K", "tokens": 256, "cell": "checkpoint_like", "baseline_ms": 2.96388, "repeated_m64_ms": 1.16286, "m_major_ms": 0.378118, "n_major_ms": 0.386750, "candidate_vs_baseline_speedup": 7.66357},
+    {"shape": "K", "tokens": 256, "cell": "distinct_scale_stress", "baseline_ms": 2.61655, "repeated_m64_ms": 1.02590, "m_major_ms": 0.304485, "n_major_ms": 0.314849, "candidate_vs_baseline_speedup": 8.31049},
+    {"shape": "K", "tokens": 512, "cell": "checkpoint_like", "baseline_ms": 5.94517, "repeated_m64_ms": 2.32012, "m_major_ms": 0.749165, "n_major_ms": 0.746083, "candidate_vs_baseline_speedup": 7.96850},
+    {"shape": "K", "tokens": 512, "cell": "distinct_scale_stress", "baseline_ms": 5.21541, "repeated_m64_ms": 2.04933, "m_major_ms": 0.615514, "n_major_ms": 0.608698, "candidate_vs_baseline_speedup": 8.56814},
+    {"shape": "V", "tokens": 256, "cell": "checkpoint_like", "baseline_ms": 2.98572, "repeated_m64_ms": 1.16095, "m_major_ms": 0.377842, "n_major_ms": 0.386587, "candidate_vs_baseline_speedup": 7.72328},
+    {"shape": "V", "tokens": 256, "cell": "distinct_scale_stress", "baseline_ms": 2.62093, "repeated_m64_ms": 1.02487, "m_major_ms": 0.306253, "n_major_ms": 0.314298, "candidate_vs_baseline_speedup": 8.33899},
+    {"shape": "V", "tokens": 512, "cell": "checkpoint_like", "baseline_ms": 5.95843, "repeated_m64_ms": 2.32208, "m_major_ms": 0.750072, "n_major_ms": 0.747286, "candidate_vs_baseline_speedup": 7.97343},
+    {"shape": "V", "tokens": 512, "cell": "distinct_scale_stress", "baseline_ms": 5.19512, "repeated_m64_ms": 2.04885, "m_major_ms": 0.617100, "n_major_ms": 0.608949, "candidate_vs_baseline_speedup": 8.53129}
+  ],
+  "c512_q_then_k_then_v_results": [
+    {
+      "cell": "checkpoint_like",
+      "baseline_ms": 24.19660,
+      "repeated_m64_ms": 13.08850,
+      "m_major_ms": 9.60170,
+      "n_major_ms": 9.49939,
+      "candidate_vs_baseline_speedup": 2.54717,
+      "required_speedup": 1.25,
+      "every_round_positive": true,
+      "gate": "pass"
+    },
+    {
+      "cell": "distinct_scale_stress",
+      "baseline_ms": 19.12230,
+      "repeated_m64_ms": 10.81050,
+      "m_major_ms": 7.61177,
+      "n_major_ms": 7.42647,
+      "candidate_vs_baseline_speedup": 2.57488,
+      "required_speedup": 1.25,
+      "every_round_positive": true,
+      "gate": "pass"
+    }
+  ],
+  "selection": {
+    "aggregate_c512_q_then_k_then_v_speedup": 2.55933,
+    "required_each_distribution_and_aggregate_speedup": 1.25,
+    "all_72_individual_rounds_positive": true,
+    "all_12_sequence_rounds_positive": true,
+    "q_independent_gate": "pass",
+    "k_v_independent_gate": "pass",
+    "sequence_gate": "pass",
+    "resource_and_invalid_precheck": "pass",
+    "exhaustive_q_and_shared_k_v_kernel_gate": "pass",
+    "k_v_failure_cannot_be_masked_by_q": true,
+    "q_only_selection": "selectable",
+    "decision": "select exact C256/C512 full-attention Q/K/V whole-chunk arithmetic for narrow production-promotion work; retain test-only status until runtime and model gates pass",
+    "c256_k_v_layout_caveat": "The 32-CTA N-major grid underfills the device and is slower than the M-major one-grid control in both C256 cells. Production integration must select token-count-specific layout from direct evidence rather than applying N-major universally.",
+    "production_dispatch_after_screen": "unchanged"
+  },
+  "required_production_followup": [
+    "add narrow exact-shape runtime eligibility without widening generic projection dispatch",
+    "preserve validated FP8 payload, alignment, full-span alias, malformed-input, and fallback contracts",
+    "choose C256 K/V layout explicitly and retain C512 N-major only if direct production-dispatch identity and performance gates pass",
+    "run exact P257 and P513 model-oracle and persistent-state validation",
+    "run memory and request-arena validation",
+    "run mirrored fixed-clock Prefix and TTFT admission against a frozen production baseline",
+    "run fresh Nsight Systems launch-count and kernel-time attribution"
+  ],
+  "limitations": [
+    "The result is a single-process synthetic same-binary kernel screen on one named device.",
+    "Checkpoint-like names refer to deterministic scale fixtures, not downloaded checkpoint payload values.",
+    "K/V are tolerance-equal to the production M8 CUDA baseline rather than bitwise equal to it; R, S, C, and candidate replay remain bitwise equal to one another.",
+    "The 2.55933x aggregate covers only sequential C512 Q, K, and V projections and is not a layer, Prefix, TTFT, token/s, or end-to-end speedup.",
+    "No production selector, runner, request workspace, model output, buffering, Prefill/Decode overlap, MTP, or FlashInfer behavior changes in this screen."
+  ]
+}

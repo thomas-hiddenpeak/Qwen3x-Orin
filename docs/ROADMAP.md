@@ -1431,6 +1431,19 @@ row-search structure without an unpriced global-progress assumption. See the
   now 134.351126/137.928939 token/s, still 2.780617x/2.982587x behind the
   measured stock vLLM reference. See the
   [production record](metadata/qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json).
+- [selected, test-only FP8 full-attention Q/K/V whole chunks] Commit `de86613`
+  tests exact C256/C512
+  Q `[12288,5120]` and K/V `[1024,5120]` pass independent correctness,
+  replay, Graph, invalid-call, guard, input, resource, and every-round-positive
+  gates. At C512, Q reaches **1.52743x/1.39116x**, K reaches
+  **7.96850x/8.56814x**, and V reaches **7.97343x/8.53129x** for
+  checkpoint-like/stress fixtures. Sequential Q-then-K-then-V reaches
+  **2.54717x/2.57488x** and **2.55933x** aggregate. Production dispatch is
+  unchanged. Promotion must choose C256 K/V layout deliberately because its
+  32-CTA N-major grid underfills the device and trails the M-major control;
+  then pass exact model, memory, fixed-clock Prefix/TTFT, and fresh Nsight
+  gates. See the
+  [full-attention screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,

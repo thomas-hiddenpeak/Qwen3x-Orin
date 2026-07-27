@@ -7389,3 +7389,49 @@ production promotion, not a serving-throughput, concurrency, tail-latency,
 power, or energy claim. Full binary, log, test, Nsight, hash, and fallback
 evidence is in the
 [production benchmark](metadata/qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json).
+
+## FP8 C256/C512 full-attention Q/K/V whole-chunk screen
+
+Commit `de86613` adds a production-unreachable screen that applies the same
+M64 arithmetic to full-attention Q `[N12288,K5120]` and K/V
+`[N1024,K5120]`. It compares the
+current Q M32 and K/V M8 CUDA chains (B), repeated test-only M64 launches (R),
+one M-major grid (S), and one N-major grid (C). The timing protocol uses 10
+warmups, 24 operations per pass, six mirrored `B-R-S-C-C-S-R-B` rounds, two
+synthetic scale distributions, and fixed Orin clocks. Production dispatch,
+the public runtime API, request workspace, Decode, and MTP policy are
+unchanged.
+
+| Shape / tokens / distribution | B | S | C | C versus B |
+| --- | ---: | ---: | ---: | ---: |
+| Q C256 checkpoint-like | 6.11637 ms | 4.08295 ms | 4.03269 ms | **1.51670x** |
+| Q C256 stress | 4.32268 ms | 3.22455 ms | 3.13630 ms | **1.37827x** |
+| Q C512 checkpoint-like | 12.23170 ms | 8.09723 ms | 8.00805 ms | **1.52743x** |
+| Q C512 stress | 8.64306 ms | 6.38080 ms | 6.21283 ms | **1.39116x** |
+| K C512 checkpoint-like | 5.94517 ms | 0.749165 ms | 0.746083 ms | **7.96850x** |
+| K C512 stress | 5.21541 ms | 0.615514 ms | 0.608698 ms | **8.56814x** |
+| V C512 checkpoint-like | 5.95843 ms | 0.750072 ms | 0.747286 ms | **7.97343x** |
+| V C512 stress | 5.19512 ms | 0.617100 ms | 0.608949 ms | **8.53129x** |
+
+The sequential C512 Q-then-K-then-V envelope reaches **2.54717x** for the
+checkpoint-like fixture and **2.57488x** for the stress fixture; their combined
+aggregate is **2.55933x**, above the frozen 1.25x gate. Every individual and
+sequence round improves over its own production baseline. Q is bit-exact with
+the M32 baseline. K/V are bit-exact across R/S/C and replay and pass the CUDA
+M8 tolerance gate; their largest observed baseline differences are 0.00195312
+absolute / 0.0052356 relative for K and 0.0000038147 / 0.0042735 for V.
+Exhaustive M512 E4M3FN-by-four-byte-position coverage for Q and the shared K/V
+kernel, 4,096 classified NaNs per representative shape, guards, immutable
+inputs, Graph topology, 18 zero-node invalid captures, full-span aliases, and
+resource/cross-shape rejection gates all pass.
+
+The N-major candidates use 70 registers, 23,552 bytes shared, zero local
+memory, 256 threads, and retain three active CTA/SM. C256 K/V expose only 32
+CTAs and N-major is slightly slower than the M-major control there, although
+both one-grid layouts are much faster than the 32-launch M8 baseline. The
+screen therefore selects the exact shapes for a narrow production-promotion
+gate, but does not prescribe one layout for every token count. No full-model,
+TTFT, throughput, or end-to-end gain is attributed until dispatch integration
+passes exact P257/P513 model, memory, mirrored fixed-clock, and fresh-profile
+gates. Full evidence is in the
+[full-attention screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-full-attention-screen.json).
