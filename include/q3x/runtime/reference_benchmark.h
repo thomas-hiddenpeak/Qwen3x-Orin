@@ -63,6 +63,8 @@ struct ReferenceBenchmarkSample {
   std::size_t prompt_index = 0U;
   std::uint32_t measured_round = 0U;
   ReferenceGenerationTiming timing;
+  std::size_t decode_graph_replays = 0U;
+  std::size_t decode_graph_serial_fallbacks = 0U;
 };
 
 struct ReferenceBenchmarkPromptReport {
@@ -72,6 +74,10 @@ struct ReferenceBenchmarkPromptReport {
   std::string generated_text;
   ReferenceStopReason stop_reason = ReferenceStopReason::kMaxNewTokens;
   std::vector<ReferenceBenchmarkStep> step_sequence;
+  // Expected per-invocation dispatcher counts, retained from this prompt's
+  // repeatability baseline.
+  std::size_t decode_graph_replays = 0U;
+  std::size_t decode_graph_serial_fallbacks = 0U;
   // Each sample contributes the sum of its prefix-execution invocations.
   ReferenceLatencyStatistics prompt_prefix;
   ReferenceLatencyStatistics finish_prefill;
@@ -112,6 +118,10 @@ struct ReferenceBenchmarkReport {
   ReferenceLatencyStatistics total_generation;
   ReferenceLatencyStatistics subsequent_token;
   ReferenceBenchmarkMemory device_memory;
+  // Sums over measured samples only; warmup invocations are validated but do
+  // not contribute to the report aggregates.
+  std::size_t decode_graph_replays = 0U;
+  std::size_t decode_graph_serial_fallbacks = 0U;
   ReferenceLogitsMode logits_mode = ReferenceLogitsMode::kFullStatistics;
   bool nvtx_phase_ranges_emitted = false;
 };

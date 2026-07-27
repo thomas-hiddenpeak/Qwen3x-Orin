@@ -33,6 +33,33 @@ inline constexpr std::uint32_t kCliDefaultPrefillChunkSize =
 inline constexpr std::uint32_t kCliMaximumPrefillChunkSize =
     q3x::runtime::kMaximumRequestPrefillChunkSize;
 
+[[nodiscard]] constexpr q3x::runtime::ReferenceDecodeGraphCachePolicy
+DecodeGraphCachePolicyForGeneration(
+    const q3x::runtime::ProjectionBackend backend,
+    const bool capture_trace,
+    const q3x::runtime::ReferenceLogitsMode logits_mode,
+    const std::uint32_t max_new_tokens) noexcept {
+  return backend == q3x::runtime::ProjectionBackend::kSm87WeightOnly &&
+                 !capture_trace &&
+                 logits_mode ==
+                     q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
+                 max_new_tokens > 1U
+             ? q3x::runtime::ReferenceDecodeGraphCachePolicy::
+                   kSm87ShortPositions
+             : q3x::runtime::ReferenceDecodeGraphCachePolicy::kDisabled;
+}
+
+[[nodiscard]] constexpr std::string_view DecodeGraphCachePolicyName(
+    const q3x::runtime::ReferenceDecodeGraphCachePolicy policy) noexcept {
+  switch (policy) {
+    case q3x::runtime::ReferenceDecodeGraphCachePolicy::kDisabled:
+      return "disabled";
+    case q3x::runtime::ReferenceDecodeGraphCachePolicy::kSm87ShortPositions:
+      return "sm87_short_positions";
+  }
+  return "unknown";
+}
+
 void PrintUsage(std::ostream& output) {
   output
       << "Qwen3x-Orin " Q3X_VERSION_STRING "\n\n"
@@ -150,6 +177,43 @@ void PrintStringField(std::ostream& output, const std::string_view key,
   output << key << '=';
   PrintEscaped(output, value);
   output.put('\n');
+}
+
+void PrintDecodeGraphCacheLoadStats(
+    std::ostream& output,
+    const q3x::runtime::ReferenceEngineLoadStats& load) {
+  output << "load.decode_graph_cache_requested_policy="
+         << DecodeGraphCachePolicyName(
+                load.decode_graph_cache_requested_policy)
+         << '\n'
+         << "load.decode_graph_cache_effective_policy="
+         << DecodeGraphCachePolicyName(
+                load.decode_graph_cache_effective_policy)
+         << '\n'
+         << "load.decode_graph_cache_first_position="
+         << load.decode_graph_cache_first_position << '\n'
+         << "load.decode_graph_cache_last_position="
+         << load.decode_graph_cache_last_position << '\n'
+         << "load.decode_graph_cache_slot_count="
+         << load.decode_graph_cache_slot_count << '\n'
+         << "load.decode_graph_cache_capture_enqueue_ms="
+         << load.decode_graph_cache_capture_enqueue_milliseconds << '\n'
+         << "load.decode_graph_cache_topology_inspection_ms="
+         << load.decode_graph_cache_topology_inspection_milliseconds << '\n'
+         << "load.decode_graph_cache_instantiate_ms="
+         << load.decode_graph_cache_instantiate_milliseconds << '\n'
+         << "load.decode_graph_cache_upload_ready_ms="
+         << load.decode_graph_cache_upload_ready_milliseconds << '\n'
+         << "load.decode_graph_cache_prepare_wall_ms="
+         << load.decode_graph_cache_prepare_milliseconds << '\n'
+         << "load.decode_graph_cache_free_bytes_before="
+         << load.decode_graph_cache_free_bytes_before << '\n'
+         << "load.decode_graph_cache_free_bytes_after="
+         << load.decode_graph_cache_free_bytes_after << '\n'
+         << "load.decode_graph_cache_free_drop_bytes="
+         << load.decode_graph_cache_free_drop_bytes << '\n';
+  PrintStringField(output, "load.decode_graph_cache_fallback_reason",
+                   load.decode_graph_cache_fallback_reason);
 }
 
 void PrintIds(std::ostream& output, const std::string_view key,
@@ -767,6 +831,7 @@ void PrintGeneration(
          << load.request_max_sequence_length << '\n'
          << "load.request_prefill_chunk_size="
          << load.request_prefill_chunk_size << '\n';
+  PrintDecodeGraphCacheLoadStats(output, load);
   PrintStringField(output, "prompt.rendered", generation.rendered_prompt);
   output << "prompt.token_count=" << generation.prompt_token_ids.size()
          << '\n';
@@ -778,6 +843,10 @@ void PrintGeneration(
   output << "generated.stop_reason="
          << q3x::runtime::to_string(generation.stop_reason) << '\n'
          << "generated.step_count=" << generation.steps.size() << '\n'
+         << "generated.decode_graph_replays="
+         << generation.decode_graph_replays << '\n'
+         << "generated.decode_graph_serial_fallbacks="
+         << generation.decode_graph_serial_fallbacks << '\n'
          << "timing.finish_prefill_ms="
          << generation.timing.finish_prefill_milliseconds << '\n'
          << "timing.prompt_prefill_ms="
@@ -838,6 +907,11 @@ int RunGenerate(const int argc, char** const argv) {
   options.generation.logits_mode =
       q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   options.projection_backend = parsed.value->projection_backend;
+  options.decode_graph_cache_policy =
+      DecodeGraphCachePolicyForGeneration(
+          options.projection_backend, options.generation.capture_trace,
+          options.generation.logits_mode,
+          options.generation.max_new_tokens);
   std::cerr << "progress=loading_and_generating model_dir=";
   PrintEscaped(std::cerr, parsed.value->model_directory.string());
   std::cerr << " max_tokens=" << parsed.value->max_tokens
@@ -851,6 +925,8 @@ int RunGenerate(const int argc, char** const argv) {
                                     : parsed.value->prefill_chunk_size)
             << " projection_backend="
             << q3x::runtime::to_string(parsed.value->projection_backend)
+            << " decode_graph_cache_policy="
+            << DecodeGraphCachePolicyName(options.decode_graph_cache_policy)
             << '\n';
   q3x::runtime::ReferenceOneShotResult generated =
       q3x::runtime::generate_reference(parsed.value->model_directory,
@@ -934,7 +1010,12 @@ void PrintBenchmarkReport(
          << (report.nvtx_phase_ranges_emitted ? 1 : 0) << '\n'
          << "benchmark.max_new_tokens=" << report.max_new_tokens << '\n'
          << "benchmark.stop_token_id=" << report.stop_token_id << '\n'
-         << "benchmark.sample_count=" << report.samples.size() << '\n';
+         << "benchmark.sample_count=" << report.samples.size() << '\n'
+         << "benchmark.decode_graph_replays="
+         << report.decode_graph_replays << '\n'
+         << "benchmark.decode_graph_serial_fallbacks="
+         << report.decode_graph_serial_fallbacks << '\n';
+  PrintDecodeGraphCacheLoadStats(output, load);
   PrintStringField(output, "model.directory", model_directory.string());
   PrintLatencyStatistics(output, "stats.prompt_prefix",
                          report.prompt_prefix);
@@ -978,7 +1059,11 @@ void PrintBenchmarkReport(
     output << prefix << ".stop_reason="
            << q3x::runtime::to_string(prompt.stop_reason) << '\n'
            << prefix << ".step_count=" << prompt.step_sequence.size()
-           << '\n';
+           << '\n'
+           << prefix << ".decode_graph_replays="
+           << prompt.decode_graph_replays << '\n'
+           << prefix << ".decode_graph_serial_fallbacks="
+           << prompt.decode_graph_serial_fallbacks << '\n';
     PrintBenchmarkSteps(output, prefix + ".steps", prompt.step_sequence);
     PrintLatencyStatistics(output, prefix + ".prompt_prefix",
                            prompt.prompt_prefix);
@@ -1010,7 +1095,11 @@ void PrintBenchmarkReport(
            << prefix << ".decode_after_first_ms="
            << sample.timing.decode_after_first_milliseconds << '\n'
            << prefix << ".total_generation_ms="
-           << sample.timing.total_generation_milliseconds << '\n';
+           << sample.timing.total_generation_milliseconds << '\n'
+           << prefix << ".decode_graph_replays="
+           << sample.decode_graph_replays << '\n'
+           << prefix << ".decode_graph_serial_fallbacks="
+           << sample.decode_graph_serial_fallbacks << '\n';
     PrintTimings(output, prefix + ".prefix_execution_ms",
                  sample.timing.prefix_execution_milliseconds);
     PrintTimings(output, prefix + ".subsequent_token_ms",
@@ -1031,6 +1120,16 @@ int RunBenchmark(const int argc, char** const argv) {
     return 2;
   }
 
+  q3x::runtime::ReferenceBenchmarkOptions benchmark_options;
+  benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
+  benchmark_options.measured_rounds = parsed.value->iterations;
+  benchmark_options.max_new_tokens = parsed.value->max_tokens;
+  benchmark_options.prefill_chunk_size = parsed.value->prefill_chunk_size;
+  benchmark_options.emit_nvtx_phase_ranges =
+      parsed.value->nvtx_phase_ranges;
+  benchmark_options.logits_mode =
+      q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
+
   q3x::runtime::ReferenceEngineOptions engine_options;
   engine_options.request_options.batch_size = 1U;
   engine_options.request_options.max_sequence_length =
@@ -1038,6 +1137,11 @@ int RunBenchmark(const int argc, char** const argv) {
   engine_options.request_options.prefill_chunk_size =
       parsed.value->prefill_chunk_size;
   engine_options.projection_backend = parsed.value->projection_backend;
+  engine_options.decode_graph_cache_policy =
+      DecodeGraphCachePolicyForGeneration(
+          engine_options.projection_backend, false,
+          benchmark_options.logits_mode,
+          benchmark_options.max_new_tokens);
 
   const q3x::runtime::RequestPlanResult request_plan =
       q3x::runtime::build_request_memory_plan(engine_options.request_options);
@@ -1070,6 +1174,9 @@ int RunBenchmark(const int argc, char** const argv) {
             << parsed.value->prefill_chunk_size
             << " projection_backend="
             << q3x::runtime::to_string(parsed.value->projection_backend)
+            << " decode_graph_cache_policy="
+            << DecodeGraphCachePolicyName(
+                   engine_options.decode_graph_cache_policy)
             << '\n';
   q3x::runtime::ReferenceEngineCreateResult created =
       q3x::runtime::create_reference_engine(parsed.value->model_directory,
@@ -1079,15 +1186,6 @@ int RunBenchmark(const int argc, char** const argv) {
     return EngineFailureExitCode(created.diagnostic.code);
   }
 
-  q3x::runtime::ReferenceBenchmarkOptions benchmark_options;
-  benchmark_options.warmup_rounds = parsed.value->warmup_rounds;
-  benchmark_options.measured_rounds = parsed.value->iterations;
-  benchmark_options.max_new_tokens = parsed.value->max_tokens;
-  benchmark_options.prefill_chunk_size = parsed.value->prefill_chunk_size;
-  benchmark_options.emit_nvtx_phase_ranges =
-      parsed.value->nvtx_phase_ranges;
-  benchmark_options.logits_mode =
-      q3x::runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   std::cerr << "progress=running_benchmark prompts="
             << parsed.value->prompts.size()
             << " warmup_rounds=" << parsed.value->warmup_rounds

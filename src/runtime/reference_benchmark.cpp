@@ -72,6 +72,9 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   result.generated_token_ids = generation.generated_token_ids;
   result.generated_text = generation.generated_text;
   result.stop_reason = generation.stop_reason;
+  result.decode_graph_replays = generation.decode_graph_replays;
+  result.decode_graph_serial_fallbacks =
+      generation.decode_graph_serial_fallbacks;
   result.step_sequence.reserve(generation.steps.size());
   for (const ReferenceStepResult& step : generation.steps) {
     result.step_sequence.push_back(benchmark_step(step));
@@ -117,6 +120,37 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   }
   result = lhs * static_cast<std::size_t>(rhs);
   return true;
+}
+
+[[nodiscard]] bool checked_sum(const std::size_t lhs,
+                               const std::size_t rhs,
+                               std::size_t& result) noexcept {
+  if (rhs > std::numeric_limits<std::size_t>::max() - lhs) {
+    return false;
+  }
+  result = lhs + rhs;
+  return true;
+}
+
+[[nodiscard]] std::string decode_graph_counter_validation_error(
+    const ReferenceGeneration& generation) {
+  const std::size_t decode_step_count =
+      generation.generated_token_ids.empty()
+          ? 0U
+          : generation.generated_token_ids.size() - 1U;
+  std::size_t dispatch_count = 0U;
+  if (!checked_sum(generation.decode_graph_replays,
+                   generation.decode_graph_serial_fallbacks,
+                   dispatch_count)) {
+    return "decode_graph_dispatch_count.overflow";
+  }
+  // A generation selects one Decode callback for its full lifetime. The
+  // ordinary serial callback records no graph dispatches; the cache-aware
+  // callback records exactly one replay or fallback for every Decode step.
+  if (dispatch_count != 0U && dispatch_count != decode_step_count) {
+    return "decode_graph_dispatch_count";
+  }
+  return {};
 }
 
 [[nodiscard]] bool valid_latency(const double milliseconds) noexcept {
@@ -288,6 +322,13 @@ std::string generation_mismatch_field(const ReferenceGeneration& expected,
       actual.effective_prefill_chunk_size) {
     return "effective_prefill_chunk_size";
   }
+  if (expected.decode_graph_replays != actual.decode_graph_replays) {
+    return "decode_graph_replays";
+  }
+  if (expected.decode_graph_serial_fallbacks !=
+      actual.decode_graph_serial_fallbacks) {
+    return "decode_graph_serial_fallbacks";
+  }
   if (expected.steps.size() != actual.steps.size()) {
     return "step_sequence.size";
   }
@@ -452,6 +493,20 @@ ReferenceBenchmarkResult run_benchmark_control(
             return false;
           }
 
+          const std::string graph_counter_error =
+              decode_graph_counter_validation_error(*generated.value);
+          if (!graph_counter_error.empty()) {
+            result.diagnostic = benchmark_diagnostic(
+                ReferenceBenchmarkError::kGenerationFailure,
+                "generation returned inconsistent Decode Graph dispatcher "
+                "counts");
+            result.diagnostic.prompt_index = prompt_index;
+            result.diagnostic.round = round;
+            result.diagnostic.warmup = warmup;
+            result.diagnostic.mismatch_field = graph_counter_error;
+            return false;
+          }
+
           double prompt_prefix_milliseconds = 0.0;
           const std::string timing_error = timing_validation_error(
               *generated.value, prompt_prefix_milliseconds);
@@ -485,11 +540,35 @@ ReferenceBenchmarkResult run_benchmark_control(
           }
 
           if (!warmup) {
+            std::size_t aggregate_replays = 0U;
+            std::size_t aggregate_fallbacks = 0U;
+            if (!checked_sum(report.decode_graph_replays,
+                             generated.value->decode_graph_replays,
+                             aggregate_replays) ||
+                !checked_sum(report.decode_graph_serial_fallbacks,
+                             generated.value->decode_graph_serial_fallbacks,
+                             aggregate_fallbacks)) {
+              result.diagnostic = benchmark_diagnostic(
+                  ReferenceBenchmarkError::kGenerationFailure,
+                  "Decode Graph dispatcher counter aggregate overflowed");
+              result.diagnostic.prompt_index = prompt_index;
+              result.diagnostic.round = round;
+              result.diagnostic.warmup = false;
+              result.diagnostic.mismatch_field =
+                  "decode_graph_dispatch_count.sum";
+              return false;
+            }
             ReferenceBenchmarkSample sample;
             sample.prompt_index = prompt_index;
             sample.measured_round = round;
             sample.timing = generated.value->timing;
+            sample.decode_graph_replays =
+                generated.value->decode_graph_replays;
+            sample.decode_graph_serial_fallbacks =
+                generated.value->decode_graph_serial_fallbacks;
             report.samples.push_back(std::move(sample));
+            report.decode_graph_replays = aggregate_replays;
+            report.decode_graph_serial_fallbacks = aggregate_fallbacks;
             const double finish_prefill =
                 generated.value->timing.finish_prefill_milliseconds;
             const double prompt_prefill =
