@@ -1285,6 +1285,16 @@ adjacent linear boundaries reaches only about **0.154 ms/token**. Generic
 fusion and a topology-mismatched mega-kernel are not next-step candidates. See
 the [core-flow rejection](metadata/qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json).
 
+The structurally distinct GDN row16 register-baton screen is also closed. It
+removes all five shared-state transfers and passes the full bitwise correctness
+and resource gates at **71r / 2,568 B shared / 0 local / 3 CTA/SM**. Two
+independent 24-bank cold-state processes project **0.251234** and **0.247622
+ms/token**, both below the frozen 0.30-ms/token hard gate. The candidate is
+removed, production is unchanged, and MTP was not used. Reopen GDN state work
+only for a materially different exact topology with a credible contribution
+above 0.30 ms/token. See the
+[row16 rejection](metadata/qwen36-27b-decode-gdn-row16-register-baton-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

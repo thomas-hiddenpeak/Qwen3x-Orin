@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gdn-row16-register-baton-rejection",
+  "status": "rejected-cold-state-performance-stop-loss",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "source": {
+    "base_commit": "bb1ddba821b4ef0846708a9e10fc4b281b7551cf",
+    "base_subject": "docs: close Decode core-flow ceilings",
+    "production_gdn_blob": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+    "production_gdn_test_blob": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+    "candidate_test_blob": "ef0400ec3051eeeb64e18cfec05843786f6c78b1",
+    "candidate_gdn_source_blob": null,
+    "candidate_gdn_source_note": "The production source was restored immediately after the frozen performance stop-loss, before the later request to hash the transient source. The candidate binary, object, test blob, resource dump and SASS section were hashed before the remaining test cleanup; the removed source is not recoverable from this record alone.",
+    "mtp_used": false
+  },
+  "target": {
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "required_speedup": 1.2448,
+    "maximum_candidate_us_per_layer": 25.4069,
+    "minimum_projected_saving_ms_per_token": 0.3000,
+    "anchor_changed": false
+  },
+  "candidate": {
+    "scope": "production-unreachable exact M1 fused GDN/plain-RMSNorm/SiLU-gate test kernel",
+    "launch": "48 blocks x 256 threads; one CTA per value head; eight warps per CTA",
+    "mapping": "each warp owns sixteen value rows; two lanes own one row; each lane retains eight aligned uint4 K8 chunks, or 64 canonical BF16 state values in 32 U32 registers",
+    "ordered_prediction": "the two row lanes pass one scalar accumulator after each K8 chunk and preserve K=0..127 FMA order",
+    "ordered_update_output": "alpha*BF16 state is exactly recomputed, update uses the production fmaf, and the unrounded FP32 update feeds the K=0..127 raw-output FMA before the production BF16 boundary",
+    "state_layout_changed": false,
+    "global_state_reads_per_call": 1,
+    "global_state_writes_per_call": 1,
+    "additional_phase_barrier": false,
+    "shared_state_transfers_removed": 5,
+    "persistent_state_read_write_bytes_per_layer": 3145728,
+    "removed_shared_state_bytes_per_layer": 15728640,
+    "removed_shared_state_bytes_per_token": 754974720,
+    "state_vector_address": "head_base + 256*row + 32*tile + 16*half bytes; the two lanes cover one aligned 32-byte sector per row and tile",
+    "expected_state_load_sectors_per_layer": 49152,
+    "expected_state_store_sectors_per_layer": 49152,
+    "production_dispatch_changed": false
+  },
+  "static_and_resource_gate": {
+    "result": "pass",
+    "registers_per_thread": 71,
+    "static_shared_bytes": 2568,
+    "stack_bytes": 0,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 3,
+    "useful_state_warps_per_sm": 24,
+    "state_ldg_e_128_static_rows": 8,
+    "state_stg_e_128_static_rows": 8,
+    "ldl_static_rows": 0,
+    "stl_static_rows": 0,
+    "sass_static_instruction_rows": 2495,
+    "sass_shfl_rows": 37,
+    "candidate_binary": {
+      "bytes": 1190368,
+      "sha256": "407c77a6e6fe407435a886d262b76114eb1f43a5177eee1751db504e96301765",
+      "elf_build_id": "0abad4de34661d739522327746eb788c805e1de1"
+    },
+    "candidate_gdn_object": {
+      "bytes": 480456,
+      "sha256": "61af244bf10b10c444902df76f8b3335625c9ed50b244641502e442d84c215a4"
+    },
+    "candidate_test_object": {
+      "bytes": 546928,
+      "sha256": "5c9704a08fdfd3933b744d9e25ca97b47c43132b219cece0ba62bef394bcfbc1"
+    },
+    "resource_dump_sha256": "25147869db8e217a4d5bc02398a04cf968eec4e3d843c613312d9f07b9a67253",
+    "sass_section_sha256": "b05eb9d84a92efbbe7a6f15fe8e6bf3a070e1d1ae82e7b4bef4634db65403c77"
+  },
+  "correctness_gate": {
+    "result": "pass",
+    "four_step_in_place_complete_state_and_output_bitwise": true,
+    "disjoint_state_complete_state_and_output_bitwise": true,
+    "disjoint_input_preserved": true,
+    "aligned_prefix_suffix_guards": true,
+    "directed_state_patterns": [
+      "positive_zero",
+      "negative_zero",
+      "positive_subnormal",
+      "negative_subnormal",
+      "positive_infinity",
+      "negative_infinity",
+      "positive_quiet_nan",
+      "negative_quiet_nan",
+      "positive_signaling_nan",
+      "negative_signaling_nan"
+    ],
+    "graph": "one 48x256 kernel node, instantiated and replayed bitwise",
+    "misaligned_u128_capture": "cudaErrorInvalidValue and zero nodes",
+    "read_only_inputs_preserved": true
+  },
+  "cold_state_performance": {
+    "result": "fail",
+    "method": {
+      "order": "B-C-C-B",
+      "rounds": 5,
+      "passes_per_variant": 10,
+      "state_banks_per_variant": 24,
+      "state_bytes_per_variant": 37748736,
+      "working_set_over_4_mib_l2": 9.0,
+      "warmup_launches_per_pass": 48,
+      "measured_launches_per_pass": 480,
+      "reset_before_every_pass": true,
+      "post_timing_complete_state_bank_and_output_bitwise": true,
+      "all_read_only_inputs_preserved": true,
+      "console_reconstruction_sha256": "ff1bd3f11fb94902ee7022e39ad5222aee536e03cb1fe089d1a3d27d41d439a4",
+      "console_log_retained_as_file": false
+    },
+    "rounds": [
+      {"round": 1, "baseline_1_ms": 0.0315575, "candidate_1_ms": 0.0263581, "candidate_2_ms": 0.0263428, "baseline_2_ms": 0.0315801, "pair_gate": "pass"},
+      {"round": 2, "baseline_1_ms": 0.0315731, "candidate_1_ms": 0.0263304, "candidate_2_ms": 0.0263479, "baseline_2_ms": 0.0315651, "pair_gate": "pass"},
+      {"round": 3, "baseline_1_ms": 0.0316143, "candidate_1_ms": 0.0263390, "candidate_2_ms": 0.0263418, "baseline_2_ms": 0.0315725, "pair_gate": "pass"},
+      {"round": 4, "baseline_1_ms": 0.0315784, "candidate_1_ms": 0.0263311, "candidate_2_ms": 0.0263386, "baseline_2_ms": 0.0315551, "pair_gate": "pass"},
+      {"round": 5, "baseline_1_ms": 0.0315631, "candidate_1_ms": 0.0263091, "candidate_2_ms": 0.0263379, "baseline_2_ms": 0.0315897, "pair_gate": "pass"}
+    ],
+    "all_ten_candidate_passes_faster_than_paired_baseline": true,
+    "baseline_median_us_per_layer": 31.5728,
+    "candidate_median_us_per_layer": 26.3388,
+    "speedup": 1.19872,
+    "projected_saving_ms_per_token": 0.251234,
+    "candidate_above_maximum_us": 0.9319,
+    "shortfall_ms_per_token": 0.048766,
+    "independent_second_process": {
+      "baseline_median_us_per_layer": 31.4980,
+      "candidate_median_us_per_layer": 26.3392,
+      "speedup": 1.19586,
+      "projected_saving_ms_per_token": 0.247622,
+      "all_five_round_pair_gates": "pass",
+      "overall_gate": "fail"
+    },
+    "two_process_average_of_medians": {
+      "baseline_us_per_layer": 31.5354,
+      "candidate_us_per_layer": 26.3390,
+      "speedup": 1.19729,
+      "projected_saving_ms_per_token": 0.249427
+    },
+    "speed_gate": "fail",
+    "absolute_contribution_gate": "fail"
+  },
+  "decision": {
+    "result": "reject_and_remove",
+    "reason": "The structurally distinct row16 baton removes all five shared-state transfers, keeps exact global sectors and 24 useful state warps per SM, and improves all ten cold passes, but the measured 1.19872x and 0.251234-ms/token projection miss every frozen admission threshold.",
+    "ncu_run": false,
+    "ncu_skip_reason": "The predeclared cold-state performance gate failed; sector profiling was allowed only after the first three gates passed.",
+    "production_integration": false,
+    "candidate_source_retained": false,
+    "candidate_test_retained": false,
+    "formal_anchor_unchanged": true,
+    "mtp_used": false,
+    "reopen_when": "Only a materially different exact topology with a newly measured credible contribution above 0.30 ms/token; do not reopen row16 accumulator baton, transient register state, transposed state, or native BF16 encoding."
+  },
+  "cleanup": {
+    "production_gdn_blob_after_source_cleanup": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+    "production_gdn_test_blob_after_source_cleanup": "8b30403b5115856fb27f4fc8b6d884db6f6e4618",
+    "clean_rebuild": "pass",
+    "clean_default_gdn_cuda_test": "pass (ctest -R '^gdn_decode_cuda$', 0.42 seconds)",
+    "clean_binary_contains_row16_symbol": false
+  },
+  "claim_limits": [
+    "This is a same-binary isolated-kernel rejection, not a production speedup or an end-to-end latency claim.",
+    "The 0.251234-ms/token value linearly multiplies the isolated median saving by 48 GDN layers.",
+    "The transient source and console log were not retained as files; exact aggregate rows and available hashes are recorded here.",
+    "No NCU report was collected after the performance stop-loss, production is unchanged, and MTP was not used."
+  ]
+}

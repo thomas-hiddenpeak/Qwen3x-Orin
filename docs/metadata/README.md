@@ -1245,6 +1245,12 @@ The diagnostic Phase 3 records are:
   impossible perfect removal. Gate-to-Down still requires global cross-CTA
   broadcast, while Down-to-next activation requests are 99.568176% inferred
   L1 hits, so neither logical byte count is a removable DRAM opportunity.
+- [`qwen36-27b-decode-gdn-row16-register-baton-rejection.json`](qwen36-27b-decode-gdn-row16-register-baton-rejection.json),
+  which closes the exact test-only GDN row16 accumulator-baton screen. Resource
+  and full state/output correctness gates pass at 71 registers, 2,568 B shared,
+  zero local memory, and three CTA/SM. Two independent cold-state processes
+  project 0.251234 and 0.247622 ms/token, below the frozen 0.30-ms/token hard
+  gate; candidate code is removed, production is unchanged, and MTP is unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

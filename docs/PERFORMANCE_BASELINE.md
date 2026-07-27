@@ -6812,3 +6812,22 @@ only about **0.154 ms/token**, and broader sums would double-count gaps while
 requiring one cooperative mega-kernel across incompatible topologies. Generic
 core-flow fusion is therefore closed without new code. See the
 [core-flow ceiling record](metadata/qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json).
+
+## Decode GDN row16 register-baton rejection
+
+The production-unreachable row16 screen assigns two lanes to each state row
+and passes the ordered accumulator between them, removing all five shared-state
+transfers without changing the canonical state layout or global read/write
+sectors. It passes the static/resource gate at 71 registers, 2,568 bytes of
+shared memory, zero local/stack bytes, and three active CTA/SM. Four-step full
+state/output comparisons, in-place and disjoint state, directed special values,
+guards, input preservation, and one-node Graph replay are all bitwise exact.
+
+The first 24-bank cold-state process improves from 31.5728 to 26.3388 us/layer,
+or **1.19872x / 0.251234 ms/token** projected over 48 GDN layers. An independent
+process reaches **1.19586x / 0.247622 ms/token**. Both are stable improvements,
+but both miss the frozen **1.2448x / 0.30-ms/token** hard gate, so NCU and
+production integration are skipped and the candidate is removed. The clean
+default GDN test passes, production and the formal anchor remain unchanged,
+and MTP was not used. See the
+[row16 rejection record](metadata/qwen36-27b-decode-gdn-row16-register-baton-rejection.json).
