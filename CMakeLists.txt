@@ -424,6 +424,24 @@ if(BUILD_TESTING)
     TIMEOUT 1800
   )
 
+  add_executable(q3x_reference_mtp_draft_p1_perf_test
+    tests/reference_mtp_draft_p1_perf_test.cpp
+  )
+  target_link_libraries(q3x_reference_mtp_draft_p1_perf_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_reference_mtp_draft_p1_perf_test)
+  add_test(NAME reference_mtp_draft_p1_perf
+    COMMAND q3x_reference_mtp_draft_p1_perf_test
+            "${_q3x_e2e_model_dir}"
+  )
+  set_tests_properties(reference_mtp_draft_p1_perf PROPERTIES
+    LABELS "e2e;model;performance;decode;mtp"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 1800
+  )
+
   add_executable(q3x_reference_decode_graph_p2_perf_test
     tests/reference_decode_graph_p2_perf_test.cpp
   )

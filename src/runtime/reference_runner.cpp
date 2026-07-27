@@ -95,6 +95,21 @@ static_assert(kMaximumRequestPrefillChunkSize <=
       weight);
 }
 
+[[nodiscard]] bool valid_bf16_linear(
+    const Bf16LinearWeight& weight, const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  return weight.weight != nullptr && weight.output_size == output_size &&
+         weight.input_size == input_size;
+}
+
+[[nodiscard]] bool valid_bf16_linear(
+    const LinearWeight& weight, const std::size_t output_size,
+    const std::size_t input_size) noexcept {
+  const auto* const selected = std::get_if<Bf16LinearWeight>(&weight);
+  return selected != nullptr &&
+         valid_bf16_linear(*selected, output_size, input_size);
+}
+
 [[nodiscard]] ReferenceRunnerStatus validate_model_weights(
     const ModelWeights* const weights) noexcept {
   if (weights == nullptr) {
@@ -193,6 +208,60 @@ static_assert(kMaximumRequestPrefillChunkSize <=
       return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
                            "layer_index", layer);
     }
+  }
+  return {};
+}
+
+[[nodiscard]] ReferenceRunnerStatus validate_mtp_weights(
+    const MtpWeights* const weights) noexcept {
+  if (weights == nullptr) {
+    return {};
+  }
+  if (!valid_vector(weights->pre_fc_norm_embedding(),
+                    kReferenceHiddenSize) ||
+      !valid_vector(weights->pre_fc_norm_hidden(),
+                    kReferenceHiddenSize) ||
+      !valid_bf16_linear(weights->fc(), kReferenceHiddenSize,
+                         2U * kReferenceHiddenSize) ||
+      !valid_vector(weights->final_norm(), kReferenceHiddenSize)) {
+    return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                         "mtp_boundary_weights");
+  }
+
+  const DecoderLayerWeights& layer = weights->layer();
+  if (!valid_vector(layer.input_layernorm, kReferenceHiddenSize) ||
+      !valid_vector(layer.post_attention_layernorm,
+                    kReferenceHiddenSize) ||
+      !valid_bf16_linear(layer.mlp.gate_proj,
+                         kReferenceIntermediateSize,
+                         kReferenceHiddenSize) ||
+      !valid_bf16_linear(layer.mlp.up_proj,
+                         kReferenceIntermediateSize,
+                         kReferenceHiddenSize) ||
+      !valid_bf16_linear(layer.mlp.down_proj,
+                         kReferenceHiddenSize,
+                         kReferenceIntermediateSize)) {
+    return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                         "mtp_decoder_common_weights");
+  }
+  const auto* const attention =
+      std::get_if<FullAttentionWeights>(&layer.attention);
+  if (attention == nullptr) {
+    return runner_status(ReferenceRunnerError::kInvalidLayerSchedule,
+                         "mtp_full_attention_variant");
+  }
+  if (!valid_bf16_linear(attention->q_proj, kFullQGateElements,
+                         kReferenceHiddenSize) ||
+      !valid_bf16_linear(attention->k_proj, kFullKvElements,
+                         kReferenceHiddenSize) ||
+      !valid_bf16_linear(attention->v_proj, kFullKvElements,
+                         kReferenceHiddenSize) ||
+      !valid_bf16_linear(attention->o_proj, kReferenceHiddenSize,
+                         kFullQueryElements) ||
+      !valid_vector(attention->q_norm, kFullHeadDimension) ||
+      !valid_vector(attention->k_norm, kFullHeadDimension)) {
+    return runner_status(ReferenceRunnerError::kInvalidModelWeights,
+                         "mtp_full_attention_weights");
   }
   return {};
 }
@@ -863,6 +932,7 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   }
   release();
   weights_ = std::exchange(other.weights_, nullptr);
+  mtp_weights_ = std::exchange(other.mtp_weights_, nullptr);
   state_ = std::exchange(other.state_, nullptr);
   stream_ = std::exchange(other.stream_, nullptr);
   prefill_auxiliary_stream_ =
@@ -873,6 +943,8 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.prefill_branch_done_event_, nullptr);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
+  mtp_key_cache_ = std::exchange(other.mtp_key_cache_, nullptr);
+  mtp_value_cache_ = std::exchange(other.mtp_value_cache_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
   other.decode_graph_p1_slots_ = {};
   decode_graph_capture_active_ =
@@ -886,12 +958,17 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
   poisoned_ = std::exchange(other.poisoned_, false);
   trace_position_ = std::exchange(other.trace_position_, 0U);
   trace_input_token_ = std::exchange(other.trace_input_token_, 0U);
+  mtp_sequence_length_ =
+      std::exchange(other.mtp_sequence_length_, 0U);
   return *this;
 }
 
 ReferenceRunner::operator bool() const noexcept {
+  const bool mtp_ready =
+      mtp_weights_ == nullptr ||
+      (mtp_key_cache_ != nullptr && mtp_value_cache_ != nullptr);
   return weights_ != nullptr && state_ != nullptr && stream_ != nullptr &&
-         pinned_logits_ != nullptr;
+         pinned_logits_ != nullptr && mtp_ready;
 }
 
 std::uint32_t ReferenceRunner::current_position() const noexcept {
@@ -928,7 +1005,14 @@ void ReferenceRunner::release() noexcept {
   if (pinned_logits_ != nullptr) {
     (void)cudaFreeHost(pinned_logits_);
   }
+  if (mtp_value_cache_ != nullptr) {
+    (void)cudaFree(mtp_value_cache_);
+  }
+  if (mtp_key_cache_ != nullptr) {
+    (void)cudaFree(mtp_key_cache_);
+  }
   weights_ = nullptr;
+  mtp_weights_ = nullptr;
   state_ = nullptr;
   stream_ = nullptr;
   prefill_auxiliary_stream_ = nullptr;
@@ -936,6 +1020,8 @@ void ReferenceRunner::release() noexcept {
   prefill_branch_done_event_ = nullptr;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
+  mtp_key_cache_ = nullptr;
+  mtp_value_cache_ = nullptr;
   decode_graph_capture_active_ = false;
   views_ = {};
   projection_backend_ = ProjectionBackend::kReference;
@@ -944,6 +1030,7 @@ void ReferenceRunner::release() noexcept {
   poisoned_ = false;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
+  mtp_sequence_length_ = 0U;
 }
 
 int ReferenceRunner::destroy_decode_graph_p1_slot(
@@ -1012,6 +1099,22 @@ ReferenceStepOutcome ReferenceRunner::fail_step(
   return outcome;
 }
 
+ReferenceMtpDraftOutcome ReferenceRunner::fail_mtp_draft(
+    const ReferenceRunnerStatus status) noexcept {
+  if (stream_ != nullptr) {
+    (void)cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    (void)cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+  }
+  poisoned_ = true;
+  trace_valid_ = false;
+  ReferenceMtpDraftOutcome outcome;
+  outcome.status = status;
+  return outcome;
+}
+
 ReferencePrefillTileOutcome ReferenceRunner::fail_prefill_tile(
     const ReferenceRunnerStatus status) noexcept {
   if (stream_ != nullptr) {
@@ -1073,6 +1176,7 @@ ReferenceRunnerStatus ReferenceRunner::reset() noexcept {
   trace_valid_ = false;
   trace_position_ = 0U;
   trace_input_token_ = 0U;
+  mtp_sequence_length_ = 0U;
   return {};
 }
 
@@ -1081,6 +1185,328 @@ ReferenceStepOutcome ReferenceRunner::step(
     const ReferenceStepOptions& options) noexcept {
   return step_impl(input_token_id, options,
                    DecodeGraphP1Action::kDisabled);
+}
+
+ReferenceMtpDraftOutcome ReferenceRunner::shadow_mtp_draft(
+    const std::uint32_t input_token_id,
+    const ReferenceMtpDraftOptions& options) noexcept {
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point started{};
+  if (options.measure_timing) {
+    started = Clock::now();
+  }
+  if (!static_cast<bool>(*this)) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kInvalidRunner, "mtp_draft"));
+  }
+  if (poisoned_) {
+    ReferenceMtpDraftOutcome outcome;
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "mtp_draft");
+    return outcome;
+  }
+  if (mtp_weights_ == nullptr || mtp_key_cache_ == nullptr ||
+      mtp_value_cache_ == nullptr) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kInvalidDependency, "mtp_weights_or_cache"));
+  }
+  if (input_token_id >= kReferenceVocabularySize) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kTokenOutOfRange, "mtp_input_token"));
+  }
+  const std::uint32_t base_sequence_length = state_->current_position();
+  if (base_sequence_length != mtp_sequence_length_ + 1U) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "mtp_base_sequence_mismatch"));
+  }
+  if (mtp_sequence_length_ >= state_->max_sequence_length()) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kCapacityExceeded, "mtp_kv_capacity"));
+  }
+
+  const std::uint32_t position = mtp_sequence_length_;
+  const auto stream = reinterpret_cast<cudaStream_t>(stream_);
+  ReferenceRunnerStatus launch_failure{};
+  const auto check_cuda = [&launch_failure](
+                              const int status,
+                              const char* const operation) noexcept {
+    if (status == static_cast<int>(cudaSuccess)) {
+      return true;
+    }
+    launch_failure = runner_status(ReferenceRunnerError::kCudaFailure,
+                                   operation, 0U, status);
+    return false;
+  };
+  const auto project = [this, &check_cuda](
+                           const LinearWeight& weight,
+                           const std::uint16_t* const input,
+                           std::uint16_t* const output,
+                           const char* const operation) noexcept {
+    return check_cuda(launch_projection_to_bf16_cuda(
+                          projection_backend_, weight, input,
+                          views_.fp32_scratch,
+                          views_.fp32_scratch_elements, output, stream_),
+                      operation);
+  };
+
+  if (!check_cuda(launch_embedding_gather_reference_cuda(
+                      weights_->embed_tokens().weight,
+                      kReferenceVocabularySize, kReferenceHiddenSize,
+                      input_token_id, views_.hidden[0], stream_),
+                  "mtp_embedding_gather") ||
+      !check_cuda(launch_centered_rms_norm_reference_cuda(
+                      views_.hidden[0],
+                      mtp_weights_->pre_fc_norm_embedding().data,
+                      kReferenceHiddenSize, kRmsEpsilon,
+                      views_.projection[0], stream_),
+                  "mtp_pre_fc_norm_embedding") ||
+      !check_cuda(launch_centered_rms_norm_reference_cuda(
+                      views_.hidden[1],
+                      mtp_weights_->pre_fc_norm_hidden().data,
+                      kReferenceHiddenSize, kRmsEpsilon,
+                      views_.projection[0] + kReferenceHiddenSize,
+                      stream_),
+                  "mtp_pre_fc_norm_hidden")) {
+    return fail_mtp_draft(launch_failure);
+  }
+  const LinearWeight mtp_fc = mtp_weights_->fc();
+  if (!project(mtp_fc, views_.projection[0], views_.hidden[0],
+               "mtp_fc") ||
+      !check_cuda(launch_centered_rms_norm_reference_cuda(
+                      views_.hidden[0],
+                      mtp_weights_->layer().input_layernorm.data,
+                      kReferenceHiddenSize, kRmsEpsilon,
+                      views_.hidden[1], stream_),
+                  "mtp_input_layernorm")) {
+    return fail_mtp_draft(launch_failure);
+  }
+
+  const DecoderLayerWeights& layer_weights = mtp_weights_->layer();
+  const auto* const attention =
+      std::get_if<FullAttentionWeights>(&layer_weights.attention);
+  if (attention == nullptr) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kInvalidLayerSchedule,
+        "mtp_full_attention_variant", 0U));
+  }
+  std::uint16_t* const current_key =
+      mtp_key_cache_ +
+      static_cast<std::size_t>(position) * kFullKvElements;
+  std::uint16_t* const current_value =
+      mtp_value_cache_ +
+      static_cast<std::size_t>(position) * kFullKvElements;
+  std::uint16_t* const packed_gates =
+      views_.projection[3] + kFullQueryElements;
+  std::uint16_t* full_query = views_.projection[0];
+  const std::size_t rope_first_position =
+      static_cast<std::size_t>(position);
+  if (!check_cuda(launch_full_attention_q_kv_to_bf16_cuda(
+                      projection_backend_, attention->q_proj,
+                      attention->k_proj, attention->v_proj,
+                      views_.hidden[1], views_.fp32_scratch,
+                      views_.fp32_scratch_elements, views_.projection[0],
+                      current_key, current_value, stream_),
+                  "mtp_full_q_k_v_projection")) {
+    return fail_mtp_draft(launch_failure);
+  }
+  if (reference_runner_detail::use_qk_rope_tile(rope_first_position, 1U)) {
+    full_query = views_.projection[3];
+    if (!check_cuda(launch_full_attention_preprocess_24_4_256_64_cuda(
+                        views_.projection[0], current_key,
+                        attention->q_norm.data, attention->k_norm.data,
+                        kRmsEpsilon, full_query, packed_gates,
+                        views_.rope_cos, views_.rope_sin,
+                        rope_first_position, 1U, stream_),
+                    "mtp_full_preprocess")) {
+      return fail_mtp_draft(launch_failure);
+    }
+  } else {
+    if (!check_cuda(launch_split_interleaved_q_gate_reference_cuda(
+                        views_.projection[0], kFullQueryHeads,
+                        kFullHeadDimension, views_.projection[3],
+                        packed_gates, stream_),
+                    "mtp_full_split_q_gate") ||
+        !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                        views_.projection[3], attention->q_norm.data,
+                        kFullQueryHeads, kFullHeadDimension, kRmsEpsilon,
+                        full_query, stream_),
+                    "mtp_full_q_norm") ||
+        !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
+                        current_key, attention->k_norm.data,
+                        kFullKvHeads, kFullHeadDimension, kRmsEpsilon,
+                        current_key, stream_),
+                    "mtp_full_k_norm")) {
+      return fail_mtp_draft(launch_failure);
+    }
+    const float* const cosines =
+        views_.rope_cos + rope_first_position * kRopePairs;
+    const float* const sines =
+        views_.rope_sin + rope_first_position * kRopePairs;
+    if (!check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                        full_query, cosines, sines, kFullQueryHeads,
+                        full_query, stream_),
+                    "mtp_full_q_rope") ||
+        !check_cuda(launch_partial_neox_rope_256_64_reference_cuda(
+                        current_key, cosines, sines, kFullKvHeads,
+                        current_key, stream_),
+                    "mtp_full_k_rope")) {
+      return fail_mtp_draft(launch_failure);
+    }
+  }
+
+  const std::size_t sequence_length =
+      static_cast<std::size_t>(position) + 1U;
+  if (reference_runner_detail::use_fused_gqa_sigmoid_gate_tile(
+          position, 1U)) {
+    if (!check_cuda(launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                        full_query, mtp_key_cache_, mtp_value_cache_,
+                        sequence_length, kAttentionScale,
+                        views_.fp32_scratch,
+                        views_.fp32_scratch_elements, packed_gates,
+                        views_.projection[1], stream_),
+                    "mtp_full_gqa_output_gate")) {
+      return fail_mtp_draft(launch_failure);
+    }
+  } else if (!check_cuda(launch_gqa_attention_reference_cuda(
+                             full_query, mtp_key_cache_, mtp_value_cache_,
+                             kFullQueryHeads, kFullKvHeads,
+                             sequence_length, kFullHeadDimension,
+                             kAttentionScale, views_.fp32_scratch,
+                             views_.fp32_scratch_elements,
+                             views_.projection[1], stream_),
+                         "mtp_full_gqa") ||
+             !check_cuda(launch_sigmoid_gate_reference_cuda(
+                             views_.projection[1], packed_gates,
+                             kFullQueryElements, views_.projection[1],
+                             stream_),
+                         "mtp_full_output_gate")) {
+    return fail_mtp_draft(launch_failure);
+  }
+  if (!project(attention->o_proj, views_.projection[1], views_.hidden[1],
+               "mtp_full_output_projection") ||
+      !check_cuda(
+          launch_decode_runner_post_attention_residual_norm_mlp_gate_up_silu_dead_up_to_bf16_cuda(
+              projection_backend_, layer_weights.mlp.gate_proj,
+              layer_weights.mlp.up_proj, views_.hidden[0],
+              views_.hidden[1],
+              layer_weights.post_attention_layernorm.data, kRmsEpsilon,
+              views_.fp32_scratch, views_.fp32_scratch_elements,
+              views_.hidden[2], views_.projection[0],
+              views_.projection[1], stream_),
+          "mtp_attention_residual_norm_mlp_gate_up_silu") ||
+      !check_cuda(launch_mlp_down_residual_norm_to_bf16_cuda(
+                      projection_backend_, layer_weights.mlp.down_proj,
+                      views_.projection[0], views_.hidden[2],
+                      mtp_weights_->final_norm().data, kRmsEpsilon,
+                      views_.fp32_scratch, views_.fp32_scratch_elements,
+                      views_.projection[1], views_.hidden[0],
+                      views_.hidden[1], stream_),
+                  "mtp_mlp_down_residual_final_norm")) {
+    return fail_mtp_draft(launch_failure);
+  }
+
+  const bool use_sm87_bf16_logits =
+      options.compute_logits &&
+      projection_backend_ == ProjectionBackend::kSm87WeightOnly &&
+      linear_weight_kind(weights_->lm_head()) != LinearWeightKind::kBf16;
+  if (options.compute_logits) {
+    if (use_sm87_bf16_logits) {
+      auto* const device_bf16_logits =
+          reinterpret_cast<std::uint16_t*>(views_.fp32_scratch);
+      constexpr std::size_t kGreedyWorkspaceBytes =
+          kReferenceVocabularySize * sizeof(std::uint16_t) +
+          kBf16GreedyArgmaxWorkspaceResults *
+              sizeof(Bf16GreedyArgmaxResult);
+      if (views_.fp32_scratch_elements <
+          (kGreedyWorkspaceBytes + sizeof(float) - 1U) / sizeof(float)) {
+        return fail_mtp_draft(runner_status(
+            ReferenceRunnerError::kInvalidRequestState,
+            "mtp_bf16_greedy_argmax_workspace"));
+      }
+      auto* const greedy_workspace =
+          reinterpret_cast<Bf16GreedyArgmaxResult*>(
+              device_bf16_logits + kReferenceVocabularySize);
+      if (!check_cuda(launch_projection_to_bf16_cuda(
+                          projection_backend_, weights_->lm_head(),
+                          views_.hidden[1], nullptr, 0U,
+                          device_bf16_logits, stream_),
+                      "mtp_lm_head_sm87_bf16") ||
+          !check_cuda(launch_bf16_greedy_argmax_cuda(
+                          device_bf16_logits, kReferenceVocabularySize,
+                          greedy_workspace, stream_),
+                      "mtp_bf16_greedy_argmax") ||
+          !check_cuda(static_cast<int>(cudaMemcpyAsync(
+                          pinned_logits_, greedy_workspace,
+                          sizeof(Bf16GreedyArgmaxResult),
+                          cudaMemcpyDeviceToHost, stream)),
+                      "mtp_logits_prediction_d2h")) {
+        return fail_mtp_draft(launch_failure);
+      }
+    } else if (!check_cuda(launch_projection_reference_cuda(
+                               weights_->lm_head(), views_.hidden[1],
+                               views_.fp32_scratch, stream_),
+                           "mtp_lm_head") ||
+               !check_cuda(static_cast<int>(cudaMemcpyAsync(
+                               pinned_logits_, views_.fp32_scratch,
+                               kReferenceVocabularySize * sizeof(float),
+                               cudaMemcpyDeviceToHost, stream)),
+                           "mtp_logits_d2h")) {
+      return fail_mtp_draft(launch_failure);
+    }
+  }
+
+  const cudaError_t sync_status = cudaStreamSynchronize(stream);
+  if (sync_status != cudaSuccess) {
+    return fail_mtp_draft(runner_status(
+        ReferenceRunnerError::kCudaFailure, "mtp_draft_synchronize",
+        0U, static_cast<int>(sync_status)));
+  }
+
+  ReferenceMtpDraftResult result;
+  result.position = position;
+  result.input_token_id = input_token_id;
+  if (options.compute_logits) {
+    std::uint32_t predicted_token = 0U;
+    if (use_sm87_bf16_logits) {
+      const auto& greedy =
+          *static_cast<const Bf16GreedyArgmaxResult*>(pinned_logits_);
+      if (greedy.has_nonfinite != 0U) {
+        return fail_mtp_draft(runner_status(
+            ReferenceRunnerError::kNonFiniteLogits,
+            "mtp_bf16_greedy_argmax"));
+      }
+      if (greedy.index >= kReferenceVocabularySize) {
+        return fail_mtp_draft(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "mtp_bf16_greedy_argmax_result"));
+      }
+      predicted_token = greedy.index;
+    } else {
+      const reference_runner_detail::LogitsAnalysis analysis =
+          reference_runner_detail::analyze_bf16_argmax_in_place(
+              static_cast<float*>(pinned_logits_),
+              kReferenceVocabularySize);
+      if (!analysis.ok()) {
+        return fail_mtp_draft(runner_status(
+            ReferenceRunnerError::kNonFiniteLogits,
+            "mtp_bf16_logits_analysis"));
+      }
+      predicted_token =
+          static_cast<std::uint32_t>(analysis.predicted_index);
+    }
+    result.prediction.emplace(
+        ReferenceStepPrediction{predicted_token});
+  }
+  mtp_sequence_length_ = position + 1U;
+  if (options.measure_timing) {
+    const std::chrono::duration<double, std::milli> elapsed =
+        Clock::now() - started;
+    result.timing.emplace(ReferenceStepTiming{elapsed.count()});
+  }
+  ReferenceMtpDraftOutcome outcome;
+  outcome.value.emplace(std::move(result));
+  return outcome;
 }
 
 ReferenceDecodeGraphP1PrepareOutcome
@@ -2756,7 +3182,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 }
 
 ReferenceRunnerFactoryResult create_reference_runner(
-    const ModelWeights* const weights, RequestState* const state,
+    const ModelWeights* const weights,
+    const MtpWeights* const mtp_weights, RequestState* const state,
     const ReferenceRunnerOptions& options) noexcept {
   ReferenceRunnerFactoryResult result;
   if (!is_valid_projection_backend(options.projection_backend)) {
@@ -2769,9 +3196,16 @@ ReferenceRunnerFactoryResult create_reference_runner(
     result.diagnostic = weights_status;
     return result;
   }
+  const ReferenceRunnerStatus mtp_weights_status =
+      validate_mtp_weights(mtp_weights);
+  if (!mtp_weights_status) {
+    result.diagnostic = mtp_weights_status;
+    return result;
+  }
 
   ReferenceRunner runner;
   runner.weights_ = weights;
+  runner.mtp_weights_ = mtp_weights;
   runner.state_ = state;
   runner.projection_backend_ = options.projection_backend;
   const ReferenceRunnerStatus state_status =
@@ -2791,6 +3225,38 @@ ReferenceRunnerFactoryResult create_reference_runner(
     return result;
   }
   runner.stream_ = reinterpret_cast<void*>(stream);
+
+  if (mtp_weights != nullptr) {
+    const std::size_t maximum_sequence_length =
+        state->max_sequence_length();
+    if (maximum_sequence_length == 0U ||
+        maximum_sequence_length >
+            std::numeric_limits<std::size_t>::max() /
+                kFullKvElements / sizeof(std::uint16_t)) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kAllocationFailure,
+          "mtp_kv_cache_size");
+      return result;
+    }
+    const std::size_t mtp_cache_bytes =
+        maximum_sequence_length * kFullKvElements *
+        sizeof(std::uint16_t);
+    status = cudaMalloc(
+        reinterpret_cast<void**>(&runner.mtp_key_cache_),
+        mtp_cache_bytes);
+    if (status == cudaSuccess) {
+      status = cudaMalloc(
+          reinterpret_cast<void**>(&runner.mtp_value_cache_),
+          mtp_cache_bytes);
+    }
+    if (status != cudaSuccess) {
+      result.diagnostic = runner_status(
+          ReferenceRunnerError::kAllocationFailure,
+          "cudaMalloc(mtp_kv_cache)", kReferenceNoLayer,
+          static_cast<int>(status));
+      return result;
+    }
+  }
 
   if (options.projection_backend == ProjectionBackend::kSm87WeightOnly) {
     cudaStream_t auxiliary_stream = nullptr;
@@ -2855,6 +3321,12 @@ ReferenceRunnerFactoryResult create_reference_runner(
 
   result.value.emplace(std::move(runner));
   return result;
+}
+
+ReferenceRunnerFactoryResult create_reference_runner(
+    const ModelWeights* const weights, RequestState* const state,
+    const ReferenceRunnerOptions& options) noexcept {
+  return create_reference_runner(weights, nullptr, state, options);
 }
 
 }  // namespace q3x::runtime

@@ -121,6 +121,31 @@ struct ReferenceStepOutcome {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+struct ReferenceMtpDraftOptions {
+  // False advances the independent MTP KV state without running the shared
+  // lm_head. Prompt-transition warmup uses this mode.
+  bool compute_logits = true;
+  bool measure_timing = false;
+};
+
+struct ReferenceMtpDraftResult {
+  // MTP position p combines verifier hidden[p] with input_token_id at p+1.
+  std::uint32_t position = 0U;
+  std::uint32_t input_token_id = 0U;
+  std::optional<ReferenceStepPrediction> prediction;
+  std::optional<ReferenceStepTiming> timing;
+};
+
+struct ReferenceMtpDraftOutcome {
+  std::optional<ReferenceMtpDraftResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 inline constexpr std::size_t kReferenceDecodeGraphP2MaximumSlots = 64U;
 
 // Test-only screening surface for a short fixed-position full Decode CUDA
@@ -314,10 +339,11 @@ struct LogitsAnalysis {
 
 struct ReferenceRunnerFactoryResult;
 
-// Correctness-first, batch-one CUDA runner. ModelWeights and RequestState are
-// non-owning dependencies: both exact objects, their backing CUDA allocations,
-// and all bound ResidentWeights storage must outlive this runner. They must not
-// be moved, reset externally, or used from another stream while it is alive.
+// Correctness-first, batch-one CUDA runner. ModelWeights, optional MtpWeights,
+// and RequestState are non-owning dependencies: every supplied exact object,
+// its backing CUDA allocation, and all bound ResidentWeights storage must
+// outlive this runner. They must not be moved, reset externally, or used from
+// another stream while it is alive.
 class ReferenceRunner {
  public:
   ~ReferenceRunner();
@@ -334,6 +360,14 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceStepOutcome step(
       std::uint32_t input_token_id,
       const ReferenceStepOptions& options = {}) noexcept;
+
+  // Experimental MTP-1 shadow proposer. A successful base step at position p
+  // must immediately precede exactly one call with the known/predicted token
+  // at p+1. The method advances only its independent MTP KV state and never
+  // commits RequestState or changes production token selection.
+  [[nodiscard]] ReferenceMtpDraftOutcome shadow_mtp_draft(
+      std::uint32_t input_token_id,
+      const ReferenceMtpDraftOptions& options = {}) noexcept;
 
   // Strict SM87 predicted-token-only experiment. Each prepared slot fixes one
   // current_position(); replay updates its root embedding node even when the
@@ -388,6 +422,9 @@ class ReferenceRunner {
  private:
   friend struct ReferenceRunnerFactoryResult;
   friend ReferenceRunnerFactoryResult create_reference_runner(
+      const ModelWeights*, const MtpWeights*, RequestState*,
+      const ReferenceRunnerOptions&) noexcept;
+  friend ReferenceRunnerFactoryResult create_reference_runner(
       const ModelWeights*, RequestState*, const ReferenceRunnerOptions&) noexcept;
 
   struct Views {
@@ -410,6 +447,8 @@ class ReferenceRunner {
   ReferenceRunner() noexcept = default;
   void release() noexcept;
   [[nodiscard]] ReferenceStepOutcome fail_step(
+      ReferenceRunnerStatus status) noexcept;
+  [[nodiscard]] ReferenceMtpDraftOutcome fail_mtp_draft(
       ReferenceRunnerStatus status) noexcept;
   [[nodiscard]] ReferencePrefillTileOutcome fail_prefill_tile(
       ReferenceRunnerStatus status) noexcept;
@@ -446,6 +485,7 @@ class ReferenceRunner {
   void destroy_decode_graph_p1() noexcept;
 
   const ModelWeights* weights_ = nullptr;
+  const MtpWeights* mtp_weights_ = nullptr;
   RequestState* state_ = nullptr;
   void* stream_ = nullptr;
   void* prefill_auxiliary_stream_ = nullptr;
@@ -453,6 +493,8 @@ class ReferenceRunner {
   void* prefill_branch_done_event_ = nullptr;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
+  std::uint16_t* mtp_key_cache_ = nullptr;
+  std::uint16_t* mtp_value_cache_ = nullptr;
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
       decode_graph_p1_slots_{};
   bool decode_graph_capture_active_ = false;
@@ -463,6 +505,7 @@ class ReferenceRunner {
   bool poisoned_ = false;
   std::uint32_t trace_position_ = 0U;
   std::uint32_t trace_input_token_ = 0U;
+  std::uint32_t mtp_sequence_length_ = 0U;
 };
 
 struct ReferenceRunnerFactoryResult {
@@ -479,8 +522,20 @@ struct ReferenceRunnerFactoryResult {
 // error tests without creating CUDA state. Valid runners retain non-owning
 // references exactly as documented on ReferenceRunner.
 [[nodiscard]] ReferenceRunnerFactoryResult create_reference_runner(
+    const ModelWeights* weights, const MtpWeights* mtp_weights,
+    RequestState* state,
+    const ReferenceRunnerOptions& options = {}) noexcept;
+
+[[nodiscard]] ReferenceRunnerFactoryResult create_reference_runner(
     const ModelWeights* weights, RequestState* state,
     const ReferenceRunnerOptions& options = {}) noexcept;
+
+[[nodiscard]] inline ReferenceRunnerFactoryResult create_reference_runner(
+    const ModelWeights& weights, const MtpWeights& mtp_weights,
+    RequestState& state,
+    const ReferenceRunnerOptions& options = {}) noexcept {
+  return create_reference_runner(&weights, &mtp_weights, &state, options);
+}
 
 [[nodiscard]] inline ReferenceRunnerFactoryResult create_reference_runner(
     const ModelWeights& weights, RequestState& state,
