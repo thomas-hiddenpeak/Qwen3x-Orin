@@ -489,6 +489,16 @@ void test_schedule_and_workspace(TestContext& test) {
                   !detail::use_fused_gqa_sigmoid_gate_tile(60U, 5U) &&
                   !detail::use_fused_gqa_sigmoid_gate_tile(0U, 0U),
               "fused GQA selector accepts only complete tiles ending by sequence 64");
+  test.expect(
+      detail::fused_gqa_sigmoid_gate_prefix_token_count(0U, 512U) == 64U &&
+          detail::fused_gqa_sigmoid_gate_prefix_token_count(31U, 512U) ==
+              33U &&
+          detail::fused_gqa_sigmoid_gate_prefix_token_count(63U, 512U) ==
+              1U &&
+          detail::fused_gqa_sigmoid_gate_prefix_token_count(64U, 512U) ==
+              0U &&
+          detail::fused_gqa_sigmoid_gate_prefix_token_count(0U, 0U) == 0U,
+      "large Prefill tiles retain exactly their position-bounded fused GQA prefix");
 
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();
@@ -512,16 +522,22 @@ void test_schedule_and_workspace(TestContext& test) {
           32U, runtime::kReferenceHiddenSize) &&
           detail::use_m32_prefill_residual_rms_fusion(
               64U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
+              256U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
+              512U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               31U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               33U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               63U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(
+              513U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'119U) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'121U),
-      "Prefill residual/RMS schedule selects exact C32/C64 hidden-5120 and "
-      "preserves every other tile fallback");
+      "Prefill residual/RMS schedule preserves ordered M32 boundaries through "
+      "C512 and every non-multiple fallback");
 
   const runtime::RequestPlanResult built =
       runtime::build_request_memory_plan();
@@ -541,13 +557,14 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::build_request_memory_plan(chunk_options);
   const runtime::ReferencePrefillTileResult tile_result;
   test.expect(chunk_built &&
-                  runtime::kMaximumRequestPrefillChunkSize == 64U &&
-                  chunk_built.value->prefill_chunk_size == 64U &&
-                  tile_result.steps.size() == 64U &&
+                  runtime::kMaximumRequestPrefillChunkSize == 512U &&
+                  runtime::kMaximumProjectionTileTokenCount == 64U &&
+                  chunk_built.value->prefill_chunk_size == 512U &&
+                  tile_result.steps.size() == 512U &&
                   detail::validate_reference_workspace_plan(
                       *chunk_built.value) ==
                       runtime::ReferenceRunnerError::kNone,
-              "chunk-sixty-four plan and tile result satisfy the runner workspace ABI");
+              "C512 plan and tile result satisfy the runner workspace ABI");
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
@@ -558,7 +575,7 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::kMaximumRequestPrefillChunkSize + 1U;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidRequestState,
-              "chunk-sixty-five runner metadata is rejected");
+              "C513 runner metadata is rejected");
   plan = *built.value;
   plan.prefill_chunk_size = 0U;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
@@ -713,6 +730,10 @@ void test_fake_linear_weight_validation(TestContext& test) {
               attention_output.data(), 63U) &&
           !detail::use_fp8_m64_prefill_attention_output_projection(
               runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, attention_input.data(),
+              attention_output.data(), 512U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
               attention_output_near_miss, attention_input.data(),
               attention_output.data(), 64U) &&
           !detail::use_fp8_m64_prefill_attention_output_projection(
@@ -727,8 +748,8 @@ void test_fake_linear_weight_validation(TestContext& test) {
               runtime::ProjectionBackend::kSm87WeightOnly,
               attention_output_projection, attention_input.data(),
               odd_attention_output, 64U),
-      "runner FP8 C64 selector rejects decode/C32/near-miss/alignment "
-      "cases");
+      "runner FP8 C64 selector rejects decode/C32/C512/near-miss/alignment "
+      "cases without inheriting the request maximum");
 
   alignas(16) std::array<std::uint8_t, 16U> gate_packed{};
   alignas(16) std::array<std::uint8_t, 16U> up_packed{};

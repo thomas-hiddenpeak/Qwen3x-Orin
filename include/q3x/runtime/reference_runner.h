@@ -178,8 +178,8 @@ struct ReferencePrefillTileOptions {
   bool measure_timing = false;
 };
 
-// A prefix tile never produces logits or trace data. The 64-entry fixed-
-// capacity result keeps the runner boundary allocation-free while retaining
+// A prefix tile never produces logits or trace data. The C512 fixed-capacity
+// result keeps the runner boundary allocation-free while retaining
 // one position/input record per committed token for the high-level generation
 // transcript. When timing is requested, timing contains the aggregate tile
 // latency. Individual step timings are absent for M>1; M=1 preserves the
@@ -283,16 +283,22 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_fused_gqa_sigmoid_gate_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Returns the leading token count whose causal positions remain within the
+// fused GQA/Gate kernel limit. A C256/C512 tile beginning before position 64
+// keeps this prefix fused while its suffix follows the reference fallback.
+[[nodiscard]] std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
+    std::size_t first_position, std::size_t token_count) noexcept;
+
 // Pure-host selector for the fixed Q=24, KV=4, D=256, rotary=64 fused
 // full-attention preprocessing tile. It also rejects position-table
 // arithmetic overflow; callers retain the split/norm/RoPE fallback.
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
-// Selects the exact-M32 residual-add plus centered-RMSNorm schedule for C32 or
-// its ordered two-M32 C64 form. When selected, layer 0 retains its standalone
-// input norm; each MLP residual produces the normalized input for the next
-// layer (or the final norm after the final layer), so no subsequent standalone
+// Selects the exact-M32 residual-add plus centered-RMSNorm schedule for every
+// non-empty C32 multiple through C512. When selected, layer 0 retains its
+// standalone input norm; each MLP residual produces the normalized input for
+// the next layer (or the final norm after the final layer), so no subsequent
 // input/final norm is scheduled.
 [[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
     std::size_t token_count, std::size_t hidden_size) noexcept;
@@ -378,9 +384,9 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceStepOutcome replay_fixed_position_decode_graph_p1(
       std::uint32_t input_token_id, bool measure_timing = false) noexcept;
 
-  // Executes 1..64 non-logit prompt-prefix tokens in layer-major order. The
+  // Executes 1..512 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Operations
-  // with a 16-token kernel contract are enqueued as ordered subtiles.
+  // with a narrower kernel contract are enqueued as ordered subtiles.
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
   // SM87 FP8 C64 attention-output projection uses one exact kernel. The exact
   // aligned NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream

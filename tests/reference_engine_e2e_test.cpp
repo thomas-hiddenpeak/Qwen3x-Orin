@@ -53,6 +53,10 @@ std::uint64_t expected_request_arena_bytes(
       return 87'780'352U;
     case 64U:
       return 93'225'984U;
+    case 256U:
+      return 125'899'776U;
+    case 512U:
+      return 169'464'832U;
     default:
       return 0U;
   }
@@ -241,7 +245,7 @@ int main(const int argc, char** const argv) {
   }
   std::uint32_t prefill_chunk_size = 1U;
   if (!prefill_chunk_from(argc, argv, prefill_chunk_size)) {
-    std::cerr << "invalid prefill chunk: expected an integer in [1,64]\n";
+    std::cerr << "invalid prefill chunk: expected an integer in [1,512]\n";
     return 2;
   }
 

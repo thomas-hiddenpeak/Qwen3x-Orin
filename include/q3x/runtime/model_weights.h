@@ -105,9 +105,9 @@ enum class ProjectionBackend : std::uint8_t {
 // paths preserve the established schedule by splitting it into two ordered
 // C32 projection tiles; the exact FP8 attention-output and NVFP4 down shapes
 // may each use one M64 kernel.
-// Request scheduling may impose a smaller limit independently; keeping this
-// contract local to projection dispatch prevents the low-level composite
-// route from silently inheriting the request scheduler's current chunk size.
+// Request scheduling imposes its larger C512 limit independently; keeping
+// this C64 contract local to projection dispatch prevents the low-level
+// composite route from silently inheriting the request scheduler's chunk size.
 inline constexpr std::size_t kMaximumProjectionTileTokenCount = 64U;
 
 [[nodiscard]] bool is_valid_projection_backend(

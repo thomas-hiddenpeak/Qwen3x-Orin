@@ -1,5 +1,6 @@
 #include "q3x/runtime/reference_benchmark.h"
 #include "q3x/runtime/reference_engine.h"
+#include "q3x/version.h"
 
 #include <iostream>
 #include <string_view>
@@ -23,7 +24,10 @@ int main() {
       engine_options.projection_backend !=
           q3x::runtime::ProjectionBackend::kReference ||
       one_shot_options.projection_backend !=
-          q3x::runtime::ProjectionBackend::kReference) {
+          q3x::runtime::ProjectionBackend::kReference ||
+      Q3X_VERSION_MAJOR != 0 || Q3X_VERSION_MINOR != 4 ||
+      Q3X_VERSION_PATCH != 0 ||
+      q3x::runtime::kMaximumRequestPrefillChunkSize != 512U) {
     return 1;
   }
   std::cout << "installed q3x::engine consumer linked successfully\n";

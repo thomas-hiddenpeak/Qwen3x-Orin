@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
 
-project(Qwen3xOrin VERSION 0.3.0 LANGUAGES CXX CUDA)
+project(Qwen3xOrin VERSION 0.4.0 LANGUAGES CXX CUDA)
 
 include(GNUInstallDirs)
 include(CTest)
@@ -415,6 +415,26 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
     TIMEOUT 900
   )
+  add_test(NAME reference_engine_e2e_chunk256
+    COMMAND q3x_reference_engine_e2e_test "${_q3x_e2e_model_dir}"
+            "${Q3X_E2E_PROJECTION_BACKEND}" "256"
+  )
+  set_tests_properties(reference_engine_e2e_chunk256 PROPERTIES
+    LABELS "e2e;model"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 900
+  )
+  add_test(NAME reference_engine_e2e_chunk512
+    COMMAND q3x_reference_engine_e2e_test "${_q3x_e2e_model_dir}"
+            "${Q3X_E2E_PROJECTION_BACKEND}" "512"
+  )
+  set_tests_properties(reference_engine_e2e_chunk512 PROPERTIES
+    LABELS "e2e;model"
+    RUN_SERIAL TRUE
+    SKIP_RETURN_CODE 77
+    TIMEOUT 900
+  )
 
   add_executable(q3x_reference_decode_graph_p1_perf_test
     tests/reference_decode_graph_p1_perf_test.cpp
@@ -613,11 +633,11 @@ if(BUILD_TESTING)
   set_tests_properties(generate_invalid_prefill_chunk_zero
     PROPERTIES WILL_FAIL TRUE
   )
-  add_test(NAME generate_invalid_prefill_chunk_sixty_five
+  add_test(NAME generate_invalid_prefill_chunk_five_thirteen
     COMMAND qwen3x-orin generate unused-model-directory
-            --prompt test --prefill-chunk-size 65
+            --prompt test --prefill-chunk-size 513
   )
-  set_tests_properties(generate_invalid_prefill_chunk_sixty_five
+  set_tests_properties(generate_invalid_prefill_chunk_five_thirteen
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME generate_invalid_prefill_chunk_non_numeric
@@ -670,11 +690,11 @@ if(BUILD_TESTING)
   set_tests_properties(benchmark_invalid_prefill_chunk_zero
     PROPERTIES WILL_FAIL TRUE
   )
-  add_test(NAME benchmark_invalid_prefill_chunk_sixty_five
+  add_test(NAME benchmark_invalid_prefill_chunk_five_thirteen
     COMMAND qwen3x-orin benchmark unused-model-directory
-            --prompt test --prefill-chunk-size 65
+            --prompt test --prefill-chunk-size 513
   )
-  set_tests_properties(benchmark_invalid_prefill_chunk_sixty_five
+  set_tests_properties(benchmark_invalid_prefill_chunk_five_thirteen
     PROPERTIES WILL_FAIL TRUE
   )
   add_test(NAME benchmark_invalid_prefill_chunk_non_numeric

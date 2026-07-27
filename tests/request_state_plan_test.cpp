@@ -455,6 +455,51 @@ void test_prefill_chunk_sixty_four_layout(TestContext& test) {
                 "chunk-sixty-four leaves FP32 capacity fixed and advances RoPE exactly");
 }
 
+void test_prefill_chunk_large_layout(TestContext& test) {
+    runtime::RequestMemoryOptions options;
+    options.prefill_chunk_size = 256U;
+    const runtime::RequestPlanResult c256 =
+        runtime::build_request_memory_plan(options);
+    options.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
+    const runtime::RequestPlanResult c512 =
+        runtime::build_request_memory_plan(options);
+    test.expect(c256 && c512 &&
+                    runtime::kMaximumRequestPrefillChunkSize == 512U,
+                "C256 canary and public C512 request plans both build");
+    if (!c256 || !c512) {
+        return;
+    }
+
+    const runtime::RequestMemoryPlan& plan256 = *c256.value;
+    const runtime::RequestMemoryPlan& plan512 = *c512.value;
+    test.expect(plan256.prefill_chunk_size == 256U &&
+                    plan256.persistent_bytes == 86'835'200U &&
+                    plan256.workspace_offset == 86'835'200U &&
+                    plan256.workspace_bytes == 44'558'336U &&
+                    plan256.rope_offset == 131'393'536U &&
+                    plan256.rope_bytes == 32'768U &&
+                    plan256.arena_bytes == 131'426'304U,
+                "C256 canary workspace and arena totals are byte-exact");
+    test.expect(plan512.prefill_chunk_size == 512U &&
+                    plan512.persistent_bytes == 86'835'200U &&
+                    plan512.workspace_offset == 86'835'200U &&
+                    plan512.workspace_bytes == 88'123'392U &&
+                    plan512.rope_offset == 174'958'592U &&
+                    plan512.rope_bytes == 32'768U &&
+                    plan512.arena_bytes == 174'991'360U,
+                "public C512 workspace and arena totals are byte-exact");
+
+    test.expect(plan256.hidden_bf16[0U].element_capacity == 1'310'720U &&
+                    plan256.projection_bf16[0U].element_capacity ==
+                        4'456'448U &&
+                    plan512.hidden_bf16[0U].element_capacity == 2'621'440U &&
+                    plan512.projection_bf16[0U].element_capacity ==
+                        8'912'896U &&
+                    plan512.linear_a_bf16.element_capacity == 24'576U &&
+                    plan512.linear_b_bf16.element_capacity == 24'576U,
+                "C256/C512 row capacities scale exactly with the ABI tile");
+}
+
 void test_alignment_non_overlap_and_schedule(TestContext& test) {
     const runtime::RequestPlanResult result =
         runtime::build_request_memory_plan();
@@ -553,7 +598,7 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
                     result.value->arena_bytes ==
                         runtime::kMaximumRequestArenaBytes &&
                     result.value->persistent_bytes == 17'258'315'776ULL &&
-                    result.value->workspace_bytes == 36'057'088U &&
+                    result.value->workspace_bytes == 112'295'936U &&
                     result.value->rope_bytes == 67'108'864U &&
                     result.value->fp32_scratch.element_capacity == 6'291'456U &&
                     result.value->gqa_probability_scratch.element_capacity ==
@@ -585,7 +630,7 @@ void test_minimum_maximum_and_bad_options(TestContext& test) {
     result = runtime::build_request_memory_plan(options);
     test.expect(!result && result.diagnostic.code ==
                                runtime::RequestErrorCode::kInvalidOption,
-                "prefill chunk size above sixty-four is rejected");
+                "prefill chunk size above five hundred twelve is rejected");
 
     options = {};
     options.max_sequence_length = 0U;
@@ -638,6 +683,7 @@ int main() {
     test_prefill_chunk_sixteen_layout(test);
     test_prefill_chunk_thirty_two_layout(test);
     test_prefill_chunk_sixty_four_layout(test);
+    test_prefill_chunk_large_layout(test);
     test_alignment_non_overlap_and_schedule(test);
     test_minimum_maximum_and_bad_options(test);
     if (test.failures() != 0) {

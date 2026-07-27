@@ -588,9 +588,9 @@ void test_maximum_prefill_chunk_boundary(TestContext& test) {
   const auto result = detail::run_benchmark_control(
       {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
   test.expect(result && generator.calls == 1U &&
-                  result.value->prefill_chunk_size == 64U &&
+                  result.value->prefill_chunk_size == 512U &&
                   result.value->samples.size() == 1U,
-              "chunk sixty-four is accepted and preserved by benchmark control");
+              "C512 is accepted and preserved by benchmark control");
 }
 
 void test_c64_partial_prefix_timing_cardinality(TestContext& test) {

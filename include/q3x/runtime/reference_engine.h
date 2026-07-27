@@ -440,12 +440,14 @@ struct ReferenceOneShotResult {
 namespace reference_engine_detail {
 
 inline constexpr std::size_t kOptimizedPrefillSubtileTokens = 32U;
-static_assert(kMaximumRequestPrefillChunkSize ==
-              2U * kOptimizedPrefillSubtileTokens);
+inline constexpr std::size_t kPrefillM64TileTokens = 64U;
+inline constexpr std::size_t kPrefillM256TileTokens = 256U;
+static_assert(kMaximumRequestPrefillChunkSize == 512U);
 
-// Exact C64 is the only tile wider than C32 executed as one runner call. A
-// partial wide tile is split at C32 so its optimized residual/RMS and MLP
-// dual-stream schedules remain available, followed by an ordered <=31 tail.
+// The public C512 request boundary is independent from individual kernel
+// limits. Scheduler calls use only exact C512/C256/C64/C32 tiles plus an
+// ordered <=31 tail. Non-canonical request caps such as C128, C192, and C320
+// therefore decompose into the same explicit production sizes.
 [[nodiscard]] constexpr std::size_t next_prefix_tile_token_count(
     const std::size_t remaining_tokens,
     const std::size_t requested_chunk_size) noexcept {
@@ -455,10 +457,19 @@ static_assert(kMaximumRequestPrefillChunkSize ==
   const std::size_t candidate = remaining_tokens < requested_chunk_size
                                     ? remaining_tokens
                                     : requested_chunk_size;
-  return candidate > kOptimizedPrefillSubtileTokens &&
-                 candidate < kMaximumRequestPrefillChunkSize
-             ? kOptimizedPrefillSubtileTokens
-             : candidate;
+  if (candidate >= kMaximumRequestPrefillChunkSize) {
+    return kMaximumRequestPrefillChunkSize;
+  }
+  if (candidate >= kPrefillM256TileTokens) {
+    return kPrefillM256TileTokens;
+  }
+  if (candidate >= kPrefillM64TileTokens) {
+    return kPrefillM64TileTokens;
+  }
+  if (candidate >= kOptimizedPrefillSubtileTokens) {
+    return kOptimizedPrefillSubtileTokens;
+  }
+  return candidate;
 }
 
 [[nodiscard]] constexpr std::size_t prefix_execution_count(

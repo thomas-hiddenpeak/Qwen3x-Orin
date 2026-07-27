@@ -535,6 +535,67 @@ void test_explicit_phase_plans(TestContext& test) {
               "an incomplete decode plan fails before phase execution");
 }
 
+std::vector<std::size_t> prefix_schedule(
+    std::size_t remaining_tokens,
+    const std::size_t requested_chunk_size) {
+  std::vector<std::size_t> result;
+  while (remaining_tokens != 0U) {
+    const std::size_t tile = detail::next_prefix_tile_token_count(
+        remaining_tokens, requested_chunk_size);
+    if (tile == 0U || tile > remaining_tokens) {
+      return {};
+    }
+    result.push_back(tile);
+    remaining_tokens -= tile;
+  }
+  return result;
+}
+
+void test_explicit_c512_prefill_schedule(TestContext& test) {
+  constexpr std::size_t kC512 =
+      runtime::kMaximumRequestPrefillChunkSize;
+  const bool boundaries_exact =
+      prefix_schedule(31U, kC512) == std::vector<std::size_t>({31U}) &&
+      prefix_schedule(32U, kC512) == std::vector<std::size_t>({32U}) &&
+      prefix_schedule(33U, kC512) ==
+          std::vector<std::size_t>({32U, 1U}) &&
+      prefix_schedule(63U, kC512) ==
+          std::vector<std::size_t>({32U, 31U}) &&
+      prefix_schedule(64U, kC512) == std::vector<std::size_t>({64U}) &&
+      prefix_schedule(65U, kC512) ==
+          std::vector<std::size_t>({64U, 1U}) &&
+      prefix_schedule(255U, kC512) ==
+          std::vector<std::size_t>({64U, 64U, 64U, 32U, 31U}) &&
+      prefix_schedule(256U, kC512) == std::vector<std::size_t>({256U}) &&
+      prefix_schedule(257U, kC512) ==
+          std::vector<std::size_t>({256U, 1U}) &&
+      prefix_schedule(511U, kC512) ==
+          std::vector<std::size_t>({256U, 64U, 64U, 64U, 32U, 31U}) &&
+      prefix_schedule(512U, kC512) == std::vector<std::size_t>({512U}) &&
+      prefix_schedule(513U, kC512) ==
+          std::vector<std::size_t>({512U, 1U}) &&
+      prefix_schedule(769U, kC512) ==
+          std::vector<std::size_t>({512U, 256U, 1U});
+  test.expect(boundaries_exact,
+              "C512 scheduler boundaries use only 512/256/64/32/tail tiles");
+
+  const bool noncanonical_caps_exact =
+      prefix_schedule(128U, 128U) ==
+          std::vector<std::size_t>({64U, 64U}) &&
+      prefix_schedule(192U, 192U) ==
+          std::vector<std::size_t>({64U, 64U, 64U}) &&
+      prefix_schedule(320U, 320U) ==
+          std::vector<std::size_t>({256U, 64U});
+  test.expect(noncanonical_caps_exact,
+              "C128/C192/C320 caps decompose into explicit production tiles");
+
+  test.expect(detail::next_prefix_tile_token_count(1U, 0U) == 0U &&
+                  detail::next_prefix_tile_token_count(0U, kC512) == 0U &&
+                  detail::prefix_execution_count(769U, kC512) == 3U &&
+                  detail::prefix_execution_count(320U, 320U) == 2U,
+              "scheduler zero guards and execution cardinalities are exact");
+}
+
 void test_explicit_phase_plan_shape_matrix(TestContext& test) {
   constexpr std::array<std::size_t, 14U> kPromptSizes = {
       1U,  2U,  7U,  8U,  9U,  15U, 16U,
@@ -854,6 +915,23 @@ void test_chunked_prefix_tiles(TestContext& test) {
                   fake.inputs == std::vector<std::uint32_t>({627U}),
               "chunk sixty-four keeps a 63-token remainder on optimized "
               "C32+M31 runner calls");
+
+  std::vector<std::uint32_t> c512_prompt;
+  for (std::uint32_t token = 1'000U; token < 1'770U; ++token) {
+    c512_prompt.push_back(token);
+  }
+  fake = {};
+  fake.predictions = {runtime::kQwen36ImEndTokenId};
+  const auto c512_result = detail::run_generation_control(
+      c512_prompt, options(1U, 770U, false, 512U), &fake, fake_step,
+      fake_prefill_tile);
+  test.expect(c512_result && fake.tile_inputs.size() == 3U &&
+                  fake.tile_inputs[0].size() == 512U &&
+                  fake.tile_inputs[1].size() == 256U &&
+                  fake.tile_inputs[2].size() == 1U &&
+                  fake.inputs == std::vector<std::uint32_t>({1'769U}),
+              "C512 routes a 769-token prefix as C512+C256+tail before the "
+              "scalar final prompt token");
 }
 
 void test_chunk_fallbacks_and_callback_requirement(TestContext& test) {
@@ -1115,6 +1193,7 @@ int main() {
   TestContext test;
   test_prefill_decode_and_stop(test);
   test_explicit_phase_plans(test);
+  test_explicit_c512_prefill_schedule(test);
   test_explicit_phase_plan_shape_matrix(test);
   test_nvtx_phase_ranges_preserve_control_semantics(test);
   test_prediction_only_control(test);

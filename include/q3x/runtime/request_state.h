@@ -15,7 +15,7 @@ inline constexpr std::uint64_t kRequestArenaAlignment = 256U;
 inline constexpr std::uint64_t kDefaultRequestMaxSequenceLength = 128U;
 inline constexpr std::uint64_t kAbsoluteRequestMaxSequenceLength = 262'144U;
 inline constexpr std::uint32_t kDefaultRequestPrefillChunkSize = 1U;
-inline constexpr std::uint32_t kMaximumRequestPrefillChunkSize = 64U;
+inline constexpr std::uint32_t kMaximumRequestPrefillChunkSize = 512U;
 inline constexpr std::size_t kRequestLayerCount = 64U;
 inline constexpr std::size_t kRequestLinearLayerCount = 48U;
 inline constexpr std::size_t kRequestFullLayerCount = 16U;
@@ -26,7 +26,7 @@ inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
 inline constexpr std::uint64_t kDefaultRequestArenaBytes = 88'031'744U;
-inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'361'481'728ULL;
+inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'437'720'576ULL;
 
 enum class RequestErrorCode : std::uint8_t {
     kNone,

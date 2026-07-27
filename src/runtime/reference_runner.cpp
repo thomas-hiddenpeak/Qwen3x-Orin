@@ -44,12 +44,12 @@ static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
-static_assert(kMaximumRequestPrefillChunkSize == 64U);
+static_assert(kMaximumRequestPrefillChunkSize == 512U);
 static_assert(kReferenceHiddenSize == 5'120U);
 static_assert(kProductionProjectionSubtileTokens <=
               kMaximumProjectionTileTokenCount);
-static_assert(kMaximumRequestPrefillChunkSize <=
-              kMaximumProjectionTileTokenCount);
+static_assert(kMaximumProjectionTileTokenCount <=
+              kMaximumRequestPrefillChunkSize);
 
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
@@ -697,8 +697,19 @@ bool use_fused_gqa_sigmoid_gate_tile(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
   return token_count != 0U &&
-         first_position < kFusedGqaMaximumSequenceLength &&
-         token_count <= kFusedGqaMaximumSequenceLength - first_position;
+         fused_gqa_sigmoid_gate_prefix_token_count(first_position,
+                                                   token_count) == token_count;
+}
+
+std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  if (token_count == 0U ||
+      first_position >= kFusedGqaMaximumSequenceLength) {
+    return 0U;
+  }
+  return std::min(token_count,
+                  kFusedGqaMaximumSequenceLength - first_position);
 }
 
 bool use_qk_rope_tile(
@@ -717,8 +728,9 @@ bool use_qk_rope_tile(
 bool use_m32_prefill_residual_rms_fusion(
     const std::size_t token_count,
     const std::size_t hidden_size) noexcept {
-  return (token_count == kProductionProjectionSubtileTokens ||
-          token_count == 2U * kProductionProjectionSubtileTokens) &&
+  return token_count != 0U &&
+         token_count <= kMaximumRequestPrefillChunkSize &&
+         token_count % kProductionProjectionSubtileTokens == 0U &&
          hidden_size == kReferenceHiddenSize;
 }
 
@@ -735,7 +747,7 @@ bool use_fp8_m64_prefill_attention_output_projection(
            (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
   };
   return backend == ProjectionBackend::kSm87WeightOnly &&
-         token_count == kMaximumRequestPrefillChunkSize &&
+         token_count == kMaximumProjectionTileTokenCount &&
          selected != nullptr && selected->output_size == kRows &&
          selected->input_size == kColumns &&
          aligned(selected->weight, 16U) &&
@@ -2412,7 +2424,7 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                                        std::uint16_t* const output,
                                        const char* const operation,
                                        const std::size_t layer) noexcept {
-    if (token_count != kMaximumRequestPrefillChunkSize) {
+    if (token_count != kMaximumProjectionTileTokenCount) {
       return project(weight, input, output, operation, layer);
     }
     return check_cuda(launch_projection_tile_to_bf16_cuda(
@@ -2678,9 +2690,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           }
         }
       }
-      const bool fuse_gqa_gate_tile =
-          reference_runner_detail::use_fused_gqa_sigmoid_gate_tile(
-              first_position, token_count);
+      const std::size_t fused_gqa_gate_prefix_tokens =
+          reference_runner_detail::
+              fused_gqa_sigmoid_gate_prefix_token_count(first_position,
+                                                        token_count);
       for (std::size_t token = 0U; token < token_count; ++token) {
         const std::size_t sequence_length =
             static_cast<std::size_t>(first_position) + token + 1U;
@@ -2688,8 +2701,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
             tile_query + token * kFullQueryElements;
         std::uint16_t* const token_output =
             views_.projection[1] + token * kFullQueryElements;
+        const bool fuse_gqa_gate_token =
+            token < fused_gqa_gate_prefix_tokens;
         const int gqa_status =
-            fuse_gqa_gate_tile
+            fuse_gqa_gate_token
                 ? launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
                       token_query, views_.key_cache[layer],
                       views_.value_cache[layer], sequence_length,
@@ -2704,17 +2719,26 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                       kAttentionScale, views_.fp32_scratch,
                       views_.fp32_scratch_elements, token_output, stream_);
         if (!check_cuda(gqa_status,
-                        fuse_gqa_gate_tile ? "prefill_full_gqa_output_gate"
-                                           : "prefill_full_gqa",
+                        fuse_gqa_gate_token ? "prefill_full_gqa_output_gate"
+                                            : "prefill_full_gqa",
                         layer)) {
           return fail_prefill_tile(launch_failure);
         }
       }
-      if (!fuse_gqa_gate_tile &&
+      if (fused_gqa_gate_prefix_tokens < token_count &&
           !check_cuda(launch_sigmoid_gate_reference_cuda(
-                          views_.projection[1], packed_gates,
-                          token_count * kFullQueryElements,
-                          views_.projection[1], stream_),
+                          views_.projection[1] +
+                              fused_gqa_gate_prefix_tokens *
+                                  kFullQueryElements,
+                          packed_gates +
+                              fused_gqa_gate_prefix_tokens *
+                                  kFullQueryElements,
+                          (token_count - fused_gqa_gate_prefix_tokens) *
+                              kFullQueryElements,
+                          views_.projection[1] +
+                              fused_gqa_gate_prefix_tokens *
+                                  kFullQueryElements,
+                          stream_),
                       "prefill_full_output_gate", layer)) {
         return fail_prefill_tile(launch_failure);
       }
