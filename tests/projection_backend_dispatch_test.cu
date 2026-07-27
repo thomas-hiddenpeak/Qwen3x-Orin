@@ -1222,15 +1222,74 @@ void test_tile_routes(TestContext& test) {
   test.expect(production_nvfp4_gate_m64_linear_chain,
               "SM87 NVFP4 production gate/up M64 remains ordered");
 
-  bool production_fp8_m64_linear_chain = false;
+  const CapturedKernelChain production_fp8_m64 =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::launch_projection_tile_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                production_fp8, production_input, 64U, nullptr, 0U,
+                production_output, static_cast<void*>(stream));
+          },
+          "SM87 FP8 production M64 dispatch graph");
+  const CapturedKernelChain production_fp8_m64_direct =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return q3x::kernels::
+                launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
+                    production_fp8_weight, 1.0F, production_input, 5'120U,
+                    6'144U, production_output, static_cast<void*>(stream));
+          },
+          "SM87 FP8 direct public M64 graph");
+  const bool production_fp8_m64_topology =
+      production_fp8_m64.valid && production_fp8_m64.launches.size() == 1U &&
+      production_fp8_m64_direct.valid &&
+      production_fp8_m64_direct.launches.size() == 1U &&
+      production_fp8_m64.launches.front().function != nullptr &&
+      production_fp8_m64.launches.front().function ==
+          production_fp8_m64_direct.launches.front().function &&
+      production_fp8_m64.launches.front().grid.x == 40U &&
+      production_fp8_m64.launches.front().grid.y == 1U &&
+      production_fp8_m64.launches.front().grid.z == 1U &&
+      production_fp8_m64.launches.front().block.x == 256U &&
+      production_fp8_m64.launches.front().block.y == 1U &&
+      production_fp8_m64.launches.front().block.z == 1U &&
+      production_fp8_m64.launches.front().dynamic_shared_bytes == 0U &&
+      production_fp8_m64_direct.launches.front().grid.x == 40U &&
+      production_fp8_m64_direct.launches.front().block.x == 256U &&
+      production_fp8_m64_direct.launches.front().dynamic_shared_bytes == 0U;
+  test.expect(production_fp8_m64_topology,
+              "SM87 FP8 production M64 dispatch matches one direct public "
+              "grid40 block256 kernel");
+
+  const runtime::LinearWeight production_fp8_m64_near_miss =
+      runtime::Fp8LinearWeight{
+          production_fp8_weight, production_companion_scales,
+          production_companion_scales + 1U, 1.0F, 1.0F, 5'119U, 6'144U};
+  bool production_fp8_m64_near_miss_linear_chain = false;
   test.expect(
       capture_production_nvfp4_tile(
-          production_fp8, production_input, 64U, production_output,
-          "SM87 FP8 production M64 dispatch graph",
-          &production_fp8_m64_linear_chain) == 2U,
-      "SM87 FP8 production M64 preserves two direct M32 kernels");
-  test.expect(production_fp8_m64_linear_chain,
-              "SM87 FP8 production M64 remains ordered");
+          production_fp8_m64_near_miss, production_input, 64U,
+          production_output, "SM87 FP8 near-miss M64 fallback graph",
+          &production_fp8_m64_near_miss_linear_chain) == 8U,
+      "SM87 FP8 near-miss M64 preserves two public M32 fallbacks");
+  test.expect(production_fp8_m64_near_miss_linear_chain,
+              "SM87 FP8 near-miss M64 fallback remains ordered");
+
+  const runtime::LinearWeight production_fp8_m64_weight4 =
+      runtime::Fp8LinearWeight{
+          production_fp8_weight + 4U, production_companion_scales,
+          production_companion_scales + 1U, 1.0F, 1.0F, 5'120U, 6'144U};
+  bool production_fp8_m64_weight4_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_fp8_m64_weight4, production_input, 64U,
+          production_output, "SM87 FP8 weight4 M64 fallback graph",
+          &production_fp8_m64_weight4_linear_chain) == 8U,
+      "SM87 FP8 non-16-byte weight M64 preserves two public M32 fallbacks");
+  test.expect(production_fp8_m64_weight4_linear_chain,
+              "SM87 FP8 weight-alignment M64 fallback remains ordered");
 
   bool production_nvfp4_down_m63_linear_chain = false;
   test.expect(

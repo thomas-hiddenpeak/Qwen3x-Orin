@@ -4222,7 +4222,7 @@ fp8_w8a16_small_m32_gemm_bf16_wmma_dual_resident_a_kernel(
   }
 }
 
-// Test-only exact-M64 attention-output projection candidate.  A single
+// Exact-M64 attention-output projection.  A single
 // decoded B[K64,N128] tile feeds four independent M16 accumulator chains.
 // Only two activation panels are resident at once: tokens 0..31 consume B,
 // then shared A is replaced with tokens 32..63 while B remains resident.
@@ -4232,7 +4232,7 @@ fp8_w8a16_small_m32_gemm_bf16_wmma_dual_resident_a_kernel(
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U>
 __global__ __launch_bounds__(kThreads, 3) void
-fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_test_kernel(
+fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output) {
   constexpr unsigned int kResidentTokenCount = 32U;
@@ -14826,14 +14826,14 @@ void launch_fp8_small_m32_wmma_dual_resident_a_unchecked(
 
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U>
-void launch_fp8_small_m64_attention_output_wmma_test_unchecked(
+void launch_fp8_small_m64_attention_output_wmma_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
   constexpr unsigned int kOutputColumnsPerBlock = 128U;
   constexpr unsigned int kBlocks =
       static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
-  fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_test_kernel<
+  fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
       kRows, kColumns, kSharedLeadingDimension>
       <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
                                          output);
@@ -17258,8 +17258,8 @@ int query_sm87_fp8_w8a16_small_m32_wmma_dual_resident_a_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only exact-shape entry for the M64 attention-output projection
-// candidate.  It is intentionally absent from the public header and dispatch.
+// Test-only direct entry retained as the frozen screened control for the
+// production exact-M64 attention-output projection.
 int launch_sm87_fp8_w8a16_small_m64_attention_output_wmma_test_cuda(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, const std::size_t rows,
@@ -17281,8 +17281,7 @@ int launch_sm87_fp8_w8a16_small_m64_attention_output_wmma_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  launch_fp8_small_m64_attention_output_wmma_test_unchecked<5'120U, 6'144U,
-                                                             72U>(
+  launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U, 72U>(
       weights, weight_scale, activations, output, stream);
   return static_cast<int>(cudaGetLastError());
 }
@@ -17301,7 +17300,7 @@ int query_sm87_fp8_w8a16_small_m64_attention_output_wmma_resources_test_cuda(
 
   cudaFuncAttributes attributes{};
   const auto kernel =
-      fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_test_kernel<
+      fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel<
           5'120U, 6'144U, 72U>;
   cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
   int active_blocks = 0;
@@ -22158,6 +22157,36 @@ int launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda(
   return launch_sm87_fp8_w8a16_m16_gemm_bf16_cuda(
       weights, weight_scale, activations + kHalfTokens * columns, rows,
       columns, output + kHalfTokens * rows, cuda_stream);
+}
+
+int launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 6'144U) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m64_launch(
+      weights, weight_scale, activations, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U, 72U>(
+      weights, weight_scale, activations, output, stream);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(

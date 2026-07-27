@@ -103,7 +103,8 @@ enum class ProjectionBackend : std::uint8_t {
 
 // The projection dispatcher accepts one C64 Prefill supertile. Non-specialized
 // paths preserve the established schedule by splitting it into two ordered
-// C32 projection tiles; the exact NVFP4 down shape may use one M64 kernel.
+// C32 projection tiles; the exact FP8 attention-output and NVFP4 down shapes
+// may each use one M64 kernel.
 // Request scheduling may impose a smaller limit independently; keeping this
 // contract local to projection dispatch prevents the low-level composite
 // route from silently inheriting the request scheduler's current chunk size.
@@ -425,9 +426,10 @@ struct WeightBindResult {
 // production shapes and the two exact aligned NVFP4 MLP shapes use one fixed-
 // M32 kernel; every other weight-only case uses two ordered M16 launches.
 // M=33..63 preserves one M32 prefix followed by the established <=31 tail.
-// At M=64, exact aligned NVFP4 [5120,17408] down uses one weight-reuse M64
-// kernel; all other cases preserve two ordered M32 schedules. M=2..15 uses
-// the same at-most-eight-token fused launches. The reference
+// At M=64, exact aligned FP8 [5120,6144] attention output and NVFP4
+// [5120,17408] down each use one weight-reuse M64 kernel; all other cases
+// preserve two ordered M32 schedules. M=2..15 uses the same at-most-eight-
+// token fused launches. The reference
 // backend and BF16 weights enqueue the existing FP32-scratch reference path
 // in token order while reusing the same output-sized buffer; only M=1 may
 // select the exact-shape BF16 direct-output route described above. The

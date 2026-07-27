@@ -722,6 +722,27 @@ bool use_m32_prefill_residual_rms_fusion(
          hidden_size == kReferenceHiddenSize;
 }
 
+bool use_fp8_m64_prefill_attention_output_projection(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 6'144U;
+  const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  return backend == ProjectionBackend::kSm87WeightOnly &&
+         token_count == kMaximumRequestPrefillChunkSize &&
+         selected != nullptr && selected->output_size == kRows &&
+         selected->input_size == kColumns &&
+         aligned(selected->weight, 16U) &&
+         aligned(input, alignof(std::uint64_t)) &&
+         aligned(output, alignof(std::uint16_t));
+}
+
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -2338,6 +2359,23 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                            const std::size_t layer) noexcept {
     return project_on_stream(weight, input, output, operation, layer, stream_);
   };
+  const auto project_attention_output =
+      [this, token_count, &check_cuda, &project](
+          const LinearWeight& weight, const std::uint16_t* const input,
+          std::uint16_t* const output, const char* const operation,
+          const std::size_t layer) noexcept {
+        if (!reference_runner_detail::
+                use_fp8_m64_prefill_attention_output_projection(
+                    projection_backend_, weight, input, output,
+                    token_count)) {
+          return project(weight, input, output, operation, layer);
+        }
+        return check_cuda(launch_projection_tile_to_bf16_cuda(
+                              projection_backend_, weight, input,
+                              token_count, views_.fp32_scratch,
+                              views_.fp32_scratch_elements, output, stream_),
+                          operation, layer);
+      };
   const auto project_pair = [this, token_count, &check_cuda](
                                 const LinearWeight& first_weight,
                                 const LinearWeight& second_weight,
@@ -2515,9 +2553,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                   kGdnHeadDimension, kRmsEpsilon, views_.projection[2],
                   stream_),
               "prefill_linear_output_norm_gate", layer) ||
-          !project(attention->out_proj, views_.projection[2],
-                   views_.hidden[1], "prefill_linear_output_projection",
-                   layer)) {
+          !project_attention_output(
+              attention->out_proj, views_.projection[2], views_.hidden[1],
+              "prefill_linear_output_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
     } else if (expected == model::LayerType::kFullAttention) {
@@ -2680,9 +2718,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                       "prefill_full_output_gate", layer)) {
         return fail_prefill_tile(launch_failure);
       }
-      if (!project(attention->o_proj, views_.projection[1],
-                   views_.hidden[1], "prefill_full_output_projection",
-                   layer)) {
+      if (!project_attention_output(
+              attention->o_proj, views_.projection[1], views_.hidden[1],
+              "prefill_full_output_projection", layer)) {
         return fail_prefill_tile(launch_failure);
       }
     } else {

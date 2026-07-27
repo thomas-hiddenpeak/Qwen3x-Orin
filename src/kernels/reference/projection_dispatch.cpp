@@ -794,11 +794,23 @@ int launch_projection_tile_to_bf16_cuda(
   if (token_count > 32U) {
     // Validate the complete supertile above before enqueueing any prefix or
     // tail work.
-    // The exact aligned NVFP4 down projection reuses each decoded weight tile
-    // across all 64 rows. Every other backend/shape preserves the established
-    // C32 schedule followed by one ordered tail operation.
+    // The exact aligned FP8 attention-output and NVFP4 down projections reuse
+    // each decoded weight tile across all 64 rows. Every other backend/shape
+    // preserves the established C32 schedule followed by one ordered tail
+    // operation.
     if (token_count == 64U &&
         backend == ProjectionBackend::kSm87WeightOnly) {
+      if (const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
+          selected != nullptr && spans.rows == 5'120U &&
+          spans.columns == 6'144U &&
+          pointer_is_aligned(selected->weight, 16U) &&
+          pointer_is_aligned(input, alignof(std::uint64_t)) &&
+          pointer_is_aligned(output, alignof(std::uint16_t))) {
+        return kernels::
+            launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
+                selected->weight, selected->weight_scale, input, spans.rows,
+                spans.columns, output, cuda_stream);
+      }
       if (const auto* const selected =
               std::get_if<NvFp4LinearWeight>(&weight);
           selected != nullptr && spans.rows == 5'120U &&

@@ -304,6 +304,20 @@ launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Fixed-M64 FP8 attention-output projection. activations is contiguous
+// token-major BF16 [64, 6144] and output is contiguous token-major BF16
+// [64, 5120]. The exact aligned checkpoint shape uses one tensor-core kernel
+// whose four M16 accumulator panels reuse each decoded weight tile. Every
+// near-miss shape, invalid range, or unsupported alignment is rejected before
+// enqueue; the projection dispatcher owns the ordered two-M32 fallback for
+// every other M64 FP8 projection.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
     const std::uint8_t* packed_weights,
     const std::uint8_t* block_scales, float weight_scale_2,

@@ -297,6 +297,15 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
     std::size_t token_count, std::size_t hidden_size) noexcept;
 
+// Pure-host selector for the only prefill projection that may bypass the
+// runner's fixed C32 subtiles. Exact aligned FP8 C64 [5120, 6144] is handed to
+// the tile dispatcher once; C32, decode, near-miss alignment/shape, and all
+// other weights preserve the established runner schedule.
+[[nodiscard]] bool use_fp8_m64_prefill_attention_output_projection(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count) noexcept;
+
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
 // exact aligned direct-output projections, so every route that could touch the
@@ -373,8 +382,9 @@ class ReferenceRunner {
   // request plan must reserve at least token_count workspace rows. Operations
   // with a 16-token kernel contract are enqueued as ordered subtiles.
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
-  // SM87 NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream and
-  // an event join; C64 preserves two ordered C32 launches on each branch.
+  // SM87 FP8 C64 attention-output projection uses one exact kernel. The exact
+  // aligned NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream
+  // and an event join; C64 preserves two ordered C32 launches on each branch.
   // Every fallback remains on the main stream, and the logical request length
   // is committed only after the complete tile synchronizes.
   [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(

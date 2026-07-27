@@ -666,6 +666,70 @@ void test_fake_linear_weight_validation(TestContext& test) {
               "decode K/V pair selector preserves the split fallback for "
               "shape mismatches");
 
+  alignas(16) std::array<std::uint8_t, 16U> attention_output_weight{};
+  alignas(8) std::array<std::uint16_t, 8U> attention_input{};
+  std::array<std::uint16_t, 8U> attention_output{};
+  const runtime::LinearWeight attention_output_projection =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data(), &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 5'120U, 6'144U};
+  test.expect(
+      detail::use_fp8_m64_prefill_attention_output_projection(
+          runtime::ProjectionBackend::kSm87WeightOnly,
+          attention_output_projection, attention_input.data(),
+          attention_output.data(), 64U),
+      "runner selects exact aligned FP8 C64 attention output for one "
+      "dispatcher call");
+  const runtime::LinearWeight attention_output_near_miss =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data(), &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 5'119U, 6'144U};
+  const runtime::LinearWeight attention_output_unaligned_weight =
+      runtime::Fp8LinearWeight{
+          attention_output_weight.data() + 1U, &device_weight_scale,
+          &device_input_scale, 0.25F, 0.5F, 5'120U, 6'144U};
+  const auto* const unaligned_attention_input =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<const std::uint8_t*>(attention_input.data()) +
+          sizeof(std::uint16_t));
+  auto* const odd_attention_output = reinterpret_cast<std::uint16_t*>(
+      reinterpret_cast<std::uint8_t*>(attention_output.data()) + 1U);
+  test.expect(
+      !detail::use_fp8_m64_prefill_attention_output_projection(
+          runtime::ProjectionBackend::kReference,
+          attention_output_projection, attention_input.data(),
+          attention_output.data(), 64U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, attention_input.data(),
+              attention_output.data(), 1U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, attention_input.data(),
+              attention_output.data(), 32U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, attention_input.data(),
+              attention_output.data(), 63U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_near_miss, attention_input.data(),
+              attention_output.data(), 64U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_unaligned_weight, attention_input.data(),
+              attention_output.data(), 64U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, unaligned_attention_input,
+              attention_output.data(), 64U) &&
+          !detail::use_fp8_m64_prefill_attention_output_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              attention_output_projection, attention_input.data(),
+              odd_attention_output, 64U),
+      "runner FP8 C64 selector rejects decode/C32/near-miss/alignment "
+      "cases");
+
   alignas(16) std::array<std::uint8_t, 16U> gate_packed{};
   alignas(16) std::array<std::uint8_t, 16U> up_packed{};
   alignas(2) std::array<std::uint8_t, 2U> gate_scales{};
