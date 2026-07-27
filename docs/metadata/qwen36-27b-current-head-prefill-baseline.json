@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-current-head-prefill-baseline",
+  "status": "current-head direct Prefill baseline and Decode handoff",
+  "recorded_at": "2026-07-27T20:17:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "edef543f3fe2f626227a69630ce277d498dfc453",
+    "tree": "fadad459cfc6bfe3375365472278f36f5664129d",
+    "subject": "docs: reject LM-head Q20 schedule family",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "binary": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 5175456,
+      "sha256": "c63d6dbc187abace4539f7b0915e75b7abd31a89a93967390d947ac176a5e6bb",
+      "elf_build_id": "de12fb2fbb7fa3d24fc1bfa0c6dbb0c25b85f11d",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "fixed_frequency": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz_before_and_after": 1300500000,
+      "emc_hz_before_and_after": 3200000000,
+      "emc_mrq_rate_locked_before_and_after": 1
+    }
+  },
+  "protocol": {
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "requested_prefill_chunk_size": 32,
+    "effective_prefill_chunk_size": 32,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompt_order": ["P33", "P65", "P129", "P513"],
+    "shared_reusable_engine": true,
+    "logits_mode": "predicted_token_only",
+    "decode_graph_cache": "disabled",
+    "nvtx_phase_ranges": false,
+    "command_contract": "qwen3x-orin benchmark MODEL_DIR --prompt P33_TEXT --prompt P65_TEXT --prompt P129_TEXT --prompt P513_TEXT --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 1024 --prefill-chunk-size 32 --projection-backend sm87",
+    "prompt_construction": "P(N) uses N-12 space-separated copies of ASCII hello and the pinned non-thinking single-user chat template"
+  },
+  "load": {
+    "total_ms": 14893.179,
+    "tokenizer_ms": 1147.094,
+    "resident_ms": 11376.027,
+    "weight_bind_ms": 19.941,
+    "request_state_ms": 6.797,
+    "fp8_output_sidecar_ms": 223.126,
+    "nvfp4_down_scale6_sidecar_ms": 2105.282,
+    "runner_factory_ms": 0.683,
+    "request_arena_bytes": 152256512,
+    "fp8_output_sidecar_bytes": 2013265920,
+    "nvfp4_down_scale6_sidecar_bytes": 221429760,
+    "sha256_backend": "linux_af_alg"
+  },
+  "prefill_results": [
+    {
+      "id": "P33-C32-max1",
+      "prompt_tokens": 33,
+      "prefix_tokens": 32,
+      "prefix_tiles": 1,
+      "prefix_ms": {"minimum": 270.343, "median": 271.159, "maximum": 271.603},
+      "finish_prefill_ms": {"minimum": 106.753, "median": 106.890, "maximum": 111.525},
+      "ttft_ms": {"minimum": 377.096, "median": 378.074, "maximum": 382.684},
+      "median_prefix_tokens_per_second": 118.011941,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "step_count": 33
+    },
+    {
+      "id": "P65-C32-max1",
+      "prompt_tokens": 65,
+      "prefix_tokens": 64,
+      "prefix_tiles": 2,
+      "prefix_ms": {"minimum": 543.220, "median": 543.646, "maximum": 544.754},
+      "finish_prefill_ms": {"minimum": 107.123, "median": 107.161, "maximum": 107.243},
+      "ttft_ms": {"minimum": 650.368, "median": 650.889, "maximum": 651.877},
+      "median_prefix_tokens_per_second": 117.723666,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "step_count": 65
+    },
+    {
+      "id": "P129-C32-max1",
+      "prompt_tokens": 129,
+      "prefix_tokens": 128,
+      "prefix_tiles": 4,
+      "prefix_ms": {"minimum": 1101.794, "median": 1102.542, "maximum": 1103.011},
+      "finish_prefill_ms": {"minimum": 107.366, "median": 107.413, "maximum": 114.067},
+      "ttft_ms": {"minimum": 1209.160, "median": 1209.974, "maximum": 1217.078},
+      "median_prefix_tokens_per_second": 116.095351,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "step_count": 129
+    },
+    {
+      "id": "P513-C32-max1",
+      "prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "prefix_tiles": 16,
+      "prefix_ms": {"minimum": 4601.524, "median": 4605.071, "maximum": 4607.570},
+      "finish_prefill_ms": {"minimum": 108.819, "median": 108.853, "maximum": 108.918},
+      "ttft_ms": {"minimum": 4710.378, "median": 4713.890, "maximum": 4716.418},
+      "median_prefix_tokens_per_second": 111.181782,
+      "generated_ids": [9419],
+      "generated_text": "Hello",
+      "step_count": 513
+    }
+  ],
+  "prefill_memory": {
+    "start_free_bytes": 40348286976,
+    "end_free_bytes": 40486457344,
+    "minimum_free_bytes": 40348286976,
+    "total_bytes": 65932095488,
+    "persistent_drop_bytes": 0,
+    "persistent_drop_detected": false
+  },
+  "decode_regression_anchor": {
+    "formal_fixed_clock_ms_per_token": 105.870500,
+    "formal_fixed_clock_tokens_per_second": 9.445501816,
+    "mtp_used": false,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "target_met": false,
+    "policy": "frozen regression anchor; the unmet stretch target no longer gates Prefill"
+  },
+  "decode_control_diagnostic": {
+    "prompt": "\u7528\u4e00\u53e5\u8bdd\u89e3\u91ca CUDA \u662f\u4ec0\u4e48\u3002",
+    "prompt_tokens": 19,
+    "max_new_tokens": 26,
+    "warmup_rounds": 1,
+    "measured_rounds": 5,
+    "decode_graph_replays": 125,
+    "decode_graph_serial_fallbacks": 0,
+    "prompt_prefix_median_ms": 317.723,
+    "finish_prefill_median_ms": 106.840,
+    "ttft_median_ms": 424.564,
+    "decode_after_first_median_ms": 2656.858,
+    "subsequent_token_median_ms": 106.136,
+    "exact_oracle": true,
+    "persistent_drop_bytes": 164122624,
+    "persistent_drop_detected": true,
+    "claim": "correctness and route diagnostic only; late thermal drift and memory warning prevent replacement of the formal Decode anchor"
+  },
+  "priority_decision": {
+    "primary": "large-tile dense Prefill projection and cross-tile weight reuse",
+    "parallel": "single-worker OpenAI-compatible external-evaluation gateway",
+    "attention_backend_evidence": "The user reports 2k-8k token/s in an independently optimized vLLM/FlashInfer setup; retain as an opportunity signal until workload contracts are matched.",
+    "general_single_request_buffering": "deferred because the latest P513 prefix span is only about 1.97 percent idle and already has narrow M32 gate/up overlap",
+    "closed_mechanisms": "Do not restore previously rejected M32 pair-CTA, N160, shared pipeline, generalized dual-stream, asymmetric E4M3, half-tile, or GDN-C32 variants without a materially different mechanism."
+  },
+  "limitations": [
+    "The Prefill baseline is one fixed-frequency process with five measured generations per prompt, not a cross-process tail-latency distribution.",
+    "The controlling console output was captured by the development session but no separate raw log file was retained; the exact aggregate fields are recorded here.",
+    "Absolute results apply to the pinned checkpoint, binary, clocks, batch-one policy, non-thinking chat template, C32 schedule, and max1 workload only.",
+    "The user-provided vLLM/FlashInfer throughput is not directly comparable until hardware, model, precision, prompt length, concurrency, output length, template, and token accounting are matched.",
+    "No OpenAI-compatible API, larger tile, general double/triple buffer, continuous batching, MTP, or FlashInfer integration is claimed by this record."
+  ]
+}

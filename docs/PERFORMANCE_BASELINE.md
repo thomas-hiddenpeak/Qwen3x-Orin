@@ -7,6 +7,11 @@ claims. The machine-readable records are
 [`qwen36-27b-reference-nsys-baseline.json`](metadata/qwen36-27b-reference-nsys-baseline.json)
 and
 [`qwen36-27b-projection-backend-benchmark.json`](metadata/qwen36-27b-projection-backend-benchmark.json).
+The current Phase 3 handoff and direct Prefill anchor are recorded in
+[`qwen36-27b-current-head-prefill-baseline.json`](metadata/qwen36-27b-current-head-prefill-baseline.json)
+and summarized in [Decode baseline lock and Prefill phase
+handoff](#decode-baseline-lock-and-prefill-phase-handoff); earlier uses of
+"current" remain historical to their individual milestones.
 The subsequent startup diagnosis and authenticated-loader result are retained
 in
 [`qwen36-27b-afalg-loader-benchmark.json`](metadata/qwen36-27b-afalg-loader-benchmark.json).
@@ -6849,3 +6854,45 @@ no seed size that passes all 25 fixtures. The q20 schedule family is closed
 before CUDA or NCU work. Production and the formal **105.870500 ms/token /
 9.445501816 token/s** anchor remain unchanged, and MTP was not used. See the
 [exact-sector rejection record](metadata/qwen36-27b-lm-head-q20-exact-sector-rejection.json).
+
+## Decode baseline lock and Prefill phase handoff
+
+The achieved non-MTP P19/C32/max26 fixed-clock result is frozen at
+**105.870500 ms/token / 9.445501816 token/s** as the Decode regression anchor.
+The original 100-ms/token / 10-token/s objective remains unmet and documented,
+but it no longer blocks dedicated Prefill work. MTP remains outside this
+optimization path. Earlier sections that placed Prefill behind that Decode
+gate describe the policy active at those historical milestones and are
+superseded by this handoff.
+
+The current-HEAD direct Prefill lock uses source `edef543`, the Release SM87
+binary SHA-256
+`c63d6dbc187abace4539f7b0915e75b7abd31a89a93967390d947ac176a5e6bb`,
+MAXN, fixed 1.3005-GHz GPU and 3.2-GHz EMC clocks, C32/max1, one warmup, and
+five measured generations per prompt:
+
+| Prompt | Prefix tokens | Prefix median | Finish-prefill median | TTFT median | Prefix throughput |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| P33 | 32 | 271.159 ms | 106.890 ms | 378.074 ms | 118.011941 token/s |
+| P65 | 64 | 543.646 ms | 107.161 ms | 650.889 ms | 117.723666 token/s |
+| P129 | 128 | 1,102.542 ms | 107.413 ms | 1,209.974 ms | 116.095351 token/s |
+| P513 | 512 | 4,605.071 ms | 108.853 ms | 4,713.890 ms | 111.181782 token/s |
+
+All 20 measured generations produce ID `9419`, text `Hello`, the expected
+prompt/step counts, and no persistent device-memory drop. The nearly linear
+C32-tile accumulation and the latest overlap-aware phase profile make larger
+Prefill tiles, cross-tile weight reuse, and a dense-prefill backend comparison
+higher priorities than a general single-request buffering rewrite. The user's
+reported 2k--8k token/s vLLM/FlashInfer result is retained as an external
+opportunity signal, not a directly comparable project baseline until model,
+hardware, prompt, concurrency, and accounting contracts are matched.
+
+The separately executed P19/max26 control reproduces the exact 26 generated
+IDs/text/stop contract and uses 125 prepared Graph replays with zero serial
+fallback. Its first two measured Decode sequences remain around the frozen
+anchor, but later samples show thermal drift and the process reports a
+164,122,624-byte persistent free-memory decrease above the 64-MiB tolerance.
+It is therefore a route/correctness diagnostic only and does not replace the
+formal mirrored Decode anchor. Full identities, ranges, claim limits, and the
+next-work decision are in the
+[machine-readable baseline record](metadata/qwen36-27b-current-head-prefill-baseline.json).

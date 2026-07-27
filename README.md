@@ -86,9 +86,12 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 | Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=32` prompt-prefix projections; C1, C8, C16, and C32 runs pass the fixed oracle gate on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
-The initial scope is text-only, batch-one correctness and decode performance.
-Paged KV cache, continuous batching, an OpenAI-compatible server, MTP, and
-vision support are staged follow-up work. See [the roadmap](docs/ROADMAP.md).
+The current scope is text-only, batch-one correctness and performance. The
+achieved non-MTP P19/C32/max26 Decode result of **105.870500 ms/token /
+9.445501816 token/s** is frozen as the regression anchor while dedicated
+Prefill optimization resumes. A minimal OpenAI-compatible evaluation gateway
+is staged alongside Prefill work; Paged KV, continuous batching, production
+serving, MTP, and vision remain later work. See [the roadmap](docs/ROADMAP.md).
 
 ## Why a new engine?
 

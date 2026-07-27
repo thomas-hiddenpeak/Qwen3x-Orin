@@ -1308,6 +1308,26 @@ not used. Reopen only for a materially different exact incumbent source or
 row-search structure without an unpriced global-progress assumption. See the
 [q20 exact-sector rejection](metadata/qwen36-27b-lm-head-q20-exact-sector-rejection.json).
 
+- [active, Decode baseline lock and Prefill handoff] Freeze the achieved
+  non-MTP P19/C32/max26 fixed-clock result at **105.870500 ms/token /
+  9.445501816 token/s** as the Phase 3 Decode regression anchor. The original
+  no-more-than-100-ms/token and at-least-10-token/s objective remains an unmet
+  stretch target, but no longer gates dedicated Prefill work. Earlier Phase 3
+  statements that placed Prefill behind that gate are historical decisions
+  superseded by this handoff. MTP remains excluded.
+- [done, current-HEAD Prefill baseline lock] At `edef543`, one fixed-frequency
+  reusable-engine process with one warmup and five measured generations per
+  prompt establishes the C32/max1 direct baseline. P33/P65/P129/P513 median
+  prefix times are **271.159/543.646/1,102.542/4,605.071 ms**, median TTFTs
+  are **378.074/650.889/1,209.974/4,713.890 ms**, and median-derived prefix
+  throughputs are **118.011941/117.723666/116.095351/111.181782 token/s**.
+  All 20 generations emit token `9419` (`Hello`) with zero persistent memory
+  drop. The separately run P19/max26 control reproduces all 26 oracle tokens
+  and 125/0 Graph/serial Decode steps, but late-process thermal drift and a
+  164,122,624-byte free-memory drop make it diagnostic rather than a
+  replacement for the frozen formal Decode anchor. See the
+  [current-HEAD Prefill baseline](metadata/qwen36-27b-current-head-prefill-baseline.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission
@@ -1338,11 +1358,35 @@ Exit criteria:
 - End-to-end 27B decode and time-to-first-token measurements are published with
   enough environment detail to reproduce them.
 
-The current single-request Decode stage target is now fixed at no more than
-100 ms/token and at least 10 token/s on the named P19/C32/max26 fixed-clock
-Orin workload, with exact output preserved. Prefill work resumes after that
-incremental Decode gate is met; multi-request serving throughput remains a
-separate later target.
+The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
+The 100-ms/token / 10-token/s objective remains documented but is no longer a
+prerequisite for Prefill work. Active optimization now prioritizes
+current-production large-tile Prefill measurement and phase-local improvements
+while retaining exact output and Decode non-regression gates. Multi-request
+serving throughput remains a separate later target.
+
+## Phase 3.5 — External evaluation gateway
+
+Deliverables:
+
+- One resident model and one serialized batch-one GPU worker behind a bounded
+  request queue; this is an evaluation adapter, not continuous batching.
+- Text-only `POST /v1/chat/completions` and raw text/token-ID
+  `POST /v1/completions`, with explicit supported-field validation.
+- True per-token SSE, non-streaming responses, exact token usage, cancellation
+  at a committed token boundary, `GET /v1/models`, and `GET /healthz`.
+- Pinned EvalScope capability smoke tests plus single-request Prefill, Decode,
+  and end-to-end latency matrices.
+
+Exit criteria:
+
+- CLI, non-streaming API, and reassembled streaming output are identical for
+  deterministic supported requests.
+- The first SSE content event is emitted only after a real generated token;
+  post-hoc pseudo-streaming is rejected for TTFT claims.
+- Direct CUDA/engine timing and HTTP-visible timing remain separate reports.
+- Unsupported sampling, tool, media, and concurrency semantics fail clearly
+  rather than being silently ignored.
 
 ## Phase 4 — 35B-A3B MoE
 
@@ -1372,7 +1416,8 @@ Deliverables:
 - Paged KV/state allocation and request lifecycle management.
 - FP8 KV option after independent accuracy validation.
 - Continuous batching and cancellation-safe scheduler.
-- Streaming OpenAI-compatible text API with explicit supported fields.
+- Harden and extend the Phase 3.5 evaluation gateway into a concurrency-safe
+  production server.
 - Memory admission control, structured metrics, and graceful error responses.
 
 Exit criteria:
