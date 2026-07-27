@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-vllm-flashinfer-prefill-reference",
+  "status": "three_process_reference_complete_native_mirror_pending",
+  "recorded_at": "2026-07-28T02:12:45+08:00",
+  "timezone": "Asia/Shanghai",
+  "tool": {
+    "path": "tools/reference/qwen36_27b_vllm_prefill.py",
+    "commit": "ee74ba2c9859bf9d91646759eac34adb9645717d",
+    "profiles": ["P65", "P129", "P257", "P513", "P1025"],
+    "warmups_per_profile": 3,
+    "measurements_per_profile": 10,
+    "independent_processes": 3,
+    "records": 150
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "python": "3.13.14",
+    "vllm": "0.23.1rc1.dev269+gccd49f682",
+    "vllm_distribution": "0.23.1rc1.dev269+gccd49f682.cu133",
+    "torch": "2.11.0",
+    "cuda": "13.3",
+    "flashinfer_python": "0.6.12",
+    "transformers": "5.12.1",
+    "tokenizers": "0.22.2",
+    "path": "/home/rm01/setup/.venv/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin"
+  },
+  "model_identity": {
+    "path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "vocab_size": 248320,
+    "quantization": "modelopt_mixed"
+  },
+  "protocol": {
+    "batch_size": 1,
+    "output_tokens": 1,
+    "temperature": 0.0,
+    "max_num_seqs": 1,
+    "max_model_len": 1026,
+    "max_num_batched_tokens": 1026,
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": false,
+    "speculation_mtp": false,
+    "kv_cache_dtype": "bfloat16",
+    "mamba_cache_dtype": "bfloat16",
+    "mamba_ssm_cache_dtype": "bfloat16",
+    "attention_backend": "FLASHINFER",
+    "metric": "P / (RequestOutput.metrics.first_token_ts - scheduled_ts)",
+    "timing_scope": "engine-core scheduled request through first generated token",
+    "engine_initialization_excluded": true
+  },
+  "actual_backends": [
+    {
+      "name": "FLASHINFER",
+      "class_path": "vllm.v1.attention.backends.flashinfer.FlashInferBackend",
+      "layer_count": 16
+    },
+    {
+      "name": "GDN_ATTN",
+      "class_path": "vllm.v1.attention.backends.gdn_attn.GDNAttentionBackend",
+      "layer_count": 48,
+      "runtime_log_detail": "Triton/FLA GDN Prefill"
+    }
+  ],
+  "linear_backends_from_runtime_log": [
+    "MarlinFP8ScaledMMLinearKernel",
+    "Marlin weight-only FP4 for NVFP4"
+  ],
+  "processes": [
+    {
+      "run": 1,
+      "engine_init_ms": 242943.279563,
+      "jsonl": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run1.jsonl",
+        "bytes": 163665,
+        "sha256": "bf91ec9bc3b98c3cc3f77f1dda7bc8e925606d15e395b678b9e806f158f2f828"
+      },
+      "log": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run1.log",
+        "bytes": 189855,
+        "sha256": "51f7f1a56c1e0647d11ca7537afa9123960554eb8d9f3a3dbf53bf497cf0f259"
+      },
+      "median_prompt_tokens_per_second": {
+        "P65": 236.38009356707784,
+        "P129": 313.127818467739,
+        "P257": 375.1779892426023,
+        "P513": 410.7971663508477,
+        "P1025": 432.73750065988895
+      }
+    },
+    {
+      "run": 2,
+      "engine_init_ms": 90770.792682,
+      "jsonl": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run2.jsonl",
+        "bytes": 163594,
+        "sha256": "1beedc638a69d3f9601b93f0c68146d8f0c2ba808ca3682afb82d12adf00830d"
+      },
+      "log": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run2.log",
+        "bytes": 15350,
+        "sha256": "6a28a7bb42962586e46dc4504fb772d3200c3493a2855b2cada96f47e25bfcbc"
+      },
+      "median_prompt_tokens_per_second": {
+        "P65": 237.08563205231533,
+        "P129": 312.82830890300465,
+        "P257": 372.9108745320194,
+        "P513": 411.6294964823878,
+        "P1025": 436.0373684202035
+      }
+    },
+    {
+      "run": 3,
+      "engine_init_ms": 77296.054197,
+      "jsonl": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run3.jsonl",
+        "bytes": 163610,
+        "sha256": "03ff1a86cd9bd7ec2298f71ecc206b528c1f5e66366acec77f3c57437f6ed6fc"
+      },
+      "log": {
+        "path": "/tmp/q3x-vllm-prefill-flashinfer-formal-run3.log",
+        "bytes": 15133,
+        "sha256": "9a5f368a3d05ea018c4f42f8ddb3670ef5733a8f316a97f5bf4edbc63bd14144"
+      },
+      "median_prompt_tokens_per_second": {
+        "P65": 236.11456095940082,
+        "P129": 312.5317339006891,
+        "P257": 373.5793994695759,
+        "P513": 411.3850533338813,
+        "P1025": 431.9686946642727
+      }
+    }
+  ],
+  "aggregate_process_medians": [
+    {
+      "profile": "P65",
+      "scheduled_to_first_token_ms": 274.98085756087676,
+      "prompt_tokens_per_second": 236.38009356707784,
+      "pooled_tps_range": [233.29554297544578, 237.24554972154905]
+    },
+    {
+      "profile": "P129",
+      "scheduled_to_first_token_ms": 412.36678598215804,
+      "prompt_tokens_per_second": 312.82830890300465,
+      "pooled_tps_range": [309.94617269047933, 314.11476685266405]
+    },
+    {
+      "profile": "P257",
+      "scheduled_to_first_token_ms": 687.9395020077936,
+      "prompt_tokens_per_second": 373.5793994695759,
+      "pooled_tps_range": [369.65794165685924, 375.33461665257187]
+    },
+    {
+      "profile": "P513",
+      "scheduled_to_first_token_ms": 1247.0069019473158,
+      "prompt_tokens_per_second": 411.3850533338813,
+      "pooled_tps_range": [407.9004545451838, 413.02534304690835]
+    },
+    {
+      "profile": "P1025",
+      "scheduled_to_first_token_ms": 2368.641724984627,
+      "prompt_tokens_per_second": 432.73750065988895,
+      "pooled_tps_range": [428.57701709848976, 436.4563704827101]
+    }
+  ],
+  "correctness_and_metric_checks": {
+    "trusted_scheduled_timestamp_records": 150,
+    "total_records": 150,
+    "first_token_ids": [9419],
+    "maximum_outer_wall_minus_scheduled_ms": 10.327956981304851,
+    "zero_cached_tokens": true,
+    "raw_prompt_ids_roundtrip": true,
+    "greedy_repeatability": true
+  },
+  "directional_native_gap": {
+    "warning": "Native Prefix omits the final prompt token and LM head, while vLLM scheduled-to-first-token includes the complete TTFT. These ratios prioritize work but are not formal same-boundary speedups.",
+    "native_prefix_over_vllm_ttft": {
+      "P65": 1.829036,
+      "P129": 2.476813,
+      "P513": 3.426133
+    },
+    "native_old_throughput_to_vllm_prompt_throughput_ratio": {
+      "P65": 1.857615,
+      "P129": 2.496163,
+      "P513": 3.432825
+    }
+  },
+  "decision": {
+    "reference_baseline": "accepted for vLLM-side Prefill comparison",
+    "next": [
+      "emit a native complete-prompt scheduled-to-first-token-equivalent boundary",
+      "run native-vLLM-vLLM-native mirrored ordering on that common boundary",
+      "profile the remaining approximately 3.4x P513 gap across projections, GDN, full attention, and runtime traffic",
+      "treat the user's separately optimized 2k-8k token/s range as a later tuned target rather than this stock matched vLLM reference"
+    ]
+  },
+  "limitations": [
+    "The formal vLLM-side matrix is complete, but the prescribed mirrored native comparison is pending because native does not yet expose the same complete-prompt timing boundary.",
+    "The first process paid one-time P1025 compilation and FlashInfer JIT preparation before measurement warmups; request timing excludes engine initialization.",
+    "vLLM warns that this hybrid model does not officially support disabling chunked Prefill, although all 150 records completed with exact repeated first-token identity.",
+    "No MTP, prefix cache, chunked Prefill, HTTP, or EvalScope layer was used."
+  ]
+}

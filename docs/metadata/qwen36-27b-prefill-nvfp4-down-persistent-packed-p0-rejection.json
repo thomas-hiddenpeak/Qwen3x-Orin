@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection",
+  "status": "rejected",
+  "recorded_at": "2026-07-28T02:20:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "03336b6e83b10c8cc16a98fb062bf1a76c1e6b17",
+    "tree": "0cc36be7faf9a7699377b38f442e8cb347b7742b",
+    "subject": "test: reject persistent packed NVFP4 Down P0",
+    "files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 8366280,
+      "sha256": "d27f47c4072d43d43b4bbe932162d1cf0c5036ec27b3c27b7c5098c97fb0f6de",
+      "elf_build_id": "a200fcb867c590e0d3cb42bdc0323d18178a2d2a",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "claim_scope": "one fixed-clock stop-loss process for one exact Down M256 mechanism probe"
+  },
+  "experiment": {
+    "shape": {
+      "tokens": 256,
+      "rows": 5120,
+      "columns": 17408,
+      "weight_format": "NVFP4 E2M1 packed with FP8 block-16 scales",
+      "activation_and_output_format": "BF16"
+    },
+    "baseline": "selected whole-chunk N-major M256 kernel, grid 160",
+    "candidate": "fixed grid 16, static stride over 160 M64xN128 logical tasks",
+    "sidecars": {
+      "weights": "projection-local NK64 reorder, byte count equal to the canonical Down packed weights",
+      "scales": "projection-local NK256 reorder, byte count equal to the canonical Down scales",
+      "packing_in_timing": false
+    },
+    "implemented": [
+      "fixed one-CTA-per-SM launch count",
+      "static logical-task stride",
+      "projection-local contiguous packed sidecars",
+      "established synchronous K64 shared-memory WMMA arithmetic"
+    ],
+    "not_implemented_or_claimed": [
+      "four-stage cp.async pipeline",
+      "register-resident E2M1 decode plus direct MMA",
+      "B arithmetic reuse across more than one M64 task",
+      "Marlin implementation",
+      "production dispatcher or checkpoint-layout change"
+    ],
+    "production_dispatch_changed": false,
+    "mtp_used": false
+  },
+  "resources": {
+    "baseline": {
+      "registers_per_thread": 79,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "grid": 160
+    },
+    "candidate": {
+      "registers_per_thread": 80,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm_capability": 3,
+      "grid": 16,
+      "effective_launched_ctas_per_sm": 1
+    },
+    "result": "contract_pass_but_parallelism_collapsed"
+  },
+  "correctness": {
+    "scale_distributions": [
+      "checkpoint_like",
+      "same_bank_stress",
+      "finite_special"
+    ],
+    "elements_per_distribution": 1310720,
+    "candidate_mismatches_per_distribution": 0,
+    "replay_mismatches_per_distribution": 0,
+    "unexpected_nonfinite": 0,
+    "guards": "intact",
+    "canonical_and_sidecar_inputs_preserved": true,
+    "graph_nodes": {
+      "baseline": 1,
+      "candidate": 1
+    },
+    "invalid_cases": 8,
+    "invalid_graph_nodes": 0,
+    "result": "pass"
+  },
+  "timing": {
+    "warmup_iterations": 10,
+    "measured_logical_launches_per_span": 24,
+    "rounds_per_distribution": 6,
+    "total_rounds": 18,
+    "order": "B-C-C-B",
+    "stop_loss_speedup": 1.0,
+    "frozen_selection_speedup": 1.2,
+    "baseline_ms": 4.383274,
+    "candidate_ms": 8.576229,
+    "aggregate_speedup": 0.511096,
+    "round_speedup_range": [0.510571, 0.511604],
+    "nonregressing_rounds": 0,
+    "result": "reject"
+  },
+  "evidence": {
+    "focused_rejection_log": {
+      "path": "/tmp/q3x-prefill-nvfp4-down-persistent-packed-p0-corrected.log",
+      "bytes": 7923,
+      "sha256": "8a571a021a86a054dd8515e16961540cc75a7f88df282401d07e2aed39245d39",
+      "expected_exit_code": 1,
+      "terminal_summary": "19 NVFP4 down persistent packed P0 assertion(s) failed"
+    },
+    "default_bypass_log": {
+      "path": "/tmp/q3x-sm87-weight-only-default-after-persistent-p0.log",
+      "bytes": 68965,
+      "sha256": "4a41098a1681384913b2f0b11255aac09d23f1bea0fbe573e0d45126170189e7",
+      "result": "pass"
+    }
+  },
+  "decision": {
+    "rejected_mechanism": "fixed 16-CTA persistence plus byte-reordered sidecars without intra-CTA B arithmetic reuse or a real asynchronous pipeline",
+    "reason": "Reducing the selected 160-CTA grid to 16 CTAs lowers realized parallelism from up to three resident CTAs/SM to one launched CTA/SM, while each logical M64 task still repeats the same B decode and WMMA work. The approximately 0.511x result is the expected near-2x regression.",
+    "next_valid_probe": "A future persistent design must make each CTA reuse one B tile across at least M128/M256 work and/or implement the actual multistage packed-B/register-decode pipeline before reducing the grid. Static persistence alone is closed."
+  },
+  "limitations": [
+    "This deliberately incomplete P0 isolates and rejects a scheduling mechanism; it does not reject a true Marlin-style dataflow.",
+    "Sidecar preparation and its temporary memory cost are excluded from timing.",
+    "The strong stop-loss rejection uses one process rather than three because every one of 18 mirrored rounds regresses by about 49%.",
+    "Production code and default dispatch are unchanged."
+  ]
+}

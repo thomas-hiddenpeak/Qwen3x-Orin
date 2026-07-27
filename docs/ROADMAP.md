@@ -1409,23 +1409,33 @@ row-search structure without an unpriced global-progress assumption. See the
   occupancy loss. The phase-local P513 opportunity is 1.03392x; production
   dispatch remains unchanged. See the
   [Gate/Up pair screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
-- [active, direct FP8 and persistent large-M projection work] Measure direct
+- [active, direct FP8 and true large-M projection work] Measure direct
   FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]` whole-chunk routes against
-  their production chains. In parallel, build the first Marlin-inspired but
-  native exact Down M256 prototype: versioned prepack, fixed 16 persistent
-  CTAs, M64xN128xK64, four-stage `cp.async`, and register-side E2M1 decode/MMA.
-  Advance to N256, Gate/Up, and FP8 only after exact numerical, no-spill,
-  resource, memory-layout, and direct-speed gates. Do not directly import the
-  general vLLM template or retain two full-model weight copies.
-- [active, one C512 public Prefill boundary] Integrate the selected down,
-  Gate/Up, FP8, and bulk-attention routes behind explicit
-  `{512,256,64,32,tail}` scheduling and
-  publish one ABI/package 0.4.0 boundary. C256 remains an internal canary.
-  Preserve the generic projection tile cap at 64, existing exact C64 down and
-  FP8 output routes, residual/RMS M32 tiling, Gate/Up stream ownership, and
-  Decode Graph admission. Default max-sequence workspace grows from
-  98,752,512 to 174,991,360 bytes; update the absolute arena ceiling and exact
-  layout/package-consumer tests together.
+  their production chains. Commit `03336b6` rejects a scheduling-only Down
+  M256 P0: equal-byte NK64/NK256 sidecars plus 16 static-stride CTAs are
+  bit-exact but reach only **0.511096x**, with all 18 rounds regressing. Grid
+  reduction without B arithmetic reuse is closed. A next attempt must reuse
+  each staged B tile across at least M128/M256 work and/or implement the real
+  four-stage `cp.async` plus register-side E2M1 MMA pipeline before reducing
+  concurrency. Advance to N256, Gate/Up, and FP8 only after exact numerical,
+  no-spill, resource, memory-layout, and direct-speed gates. Do not import the
+  general vLLM template or retain two full-model weight copies. See the
+  [P0 rejection](metadata/qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection.json).
+- [done, one C512 public Prefill boundary] Commit `6be943e` publishes
+  ABI/package 0.4.0, explicit `{512,256,64,32,tail<=31}` scheduling, C256
+  canary coverage, exact 131,426,304/174,991,360-byte default arenas, and the
+  17,437,720,576-byte absolute ceiling. Generic projections remain capped at
+  C64; FP8 output/down selectors no longer inherit the request maximum;
+  residual/RMS and the first-64 fused GQA prefix retain their old arithmetic.
+  The 62-test suite has 51 passes, 11 expected skips, and no failures. Default
+  remains C1 and no candidate route is enabled, so this is not a performance
+  result. See the
+  [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
+- [active, C512 optimized-route admission] Route exact C256/C512 full-attention
+  tiles to the selected bulk GQA API and promote the selected NVFP4 Gate/Up and
+  down narrow routes behind the same boundary. Preserve C64/C32/tail fallbacks,
+  dual-stream event ownership, Decode Graph, and default C1 until P257/P513
+  exact-token, persistent-state, memory, and fixed-clock Prefix gates pass.
 - [selected, native bulk attention; queued WY GDN] Commit `3044ab5` validates
   the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
   Three processes reach **6.33538x C256** and **4.53722x C512**, every round is
@@ -1493,6 +1503,15 @@ validate the harness and narrow the practical comparison, but remain below the
 formal three-process gate and below the separately optimized 2k--8k target.
 See the
 [vLLM smoke record](metadata/qwen36-27b-vllm-flashinfer-prefill-smoke.json).
+
+The vLLM-side formal matrix is also complete: three 3-warmup/10-measure
+processes reach 236.380/312.828/373.579/411.385/432.738 prompt token/s at
+P65/P129/P257/P513/P1025, with 150/150 trusted timestamps and first token ID
+9419. This accepts the external runtime reference and reduces the directional
+P513 gap to about 3.43x. The remaining cross-framework gate is a native
+complete-prompt timing boundary plus mirrored ordering, since current native
+`Prefix` excludes the final prompt token and LM head. See the
+[formal vLLM record](metadata/qwen36-27b-vllm-flashinfer-prefill-reference.json).
 
 ## Phase 3.5 — External evaluation gateway
 

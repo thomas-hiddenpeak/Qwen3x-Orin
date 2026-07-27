@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-c512-request-boundary",
+  "status": "abi_and_fallback_complete_optimized_routes_pending",
+  "recorded_at": "2026-07-28T02:17:57+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "6be943e2fd0e41a9171dd66c59fe84892a5cb1be",
+    "tree": "7469359f77ca99dcb215803bf39bf2eeb8e20f1c",
+    "subject": "feat: establish C512 Prefill request boundary",
+    "package_version": "0.4.0"
+  },
+  "contract": {
+    "maximum_request_prefill_chunk_tokens": 512,
+    "default_request_prefill_chunk_tokens": 1,
+    "scheduler_palette": [512, 256, 64, 32, "tail<=31"],
+    "generic_projection_maximum_tokens": 64,
+    "public_result_step_capacity": 512,
+    "public_abi_changed": true,
+    "production_candidate_routes_enabled": false,
+    "mtp_used": false,
+    "prefill_graph_added": false,
+    "decode_graph_changed": false
+  },
+  "memory": {
+    "default_max_sequence_length": 128,
+    "c256": {
+      "persistent_bytes": 86835200,
+      "workspace_bytes": 44558336,
+      "rope_bytes": 32768,
+      "arena_bytes": 131426304
+    },
+    "c512": {
+      "persistent_bytes": 86835200,
+      "workspace_bytes": 88123392,
+      "rope_bytes": 32768,
+      "arena_bytes": 174991360
+    },
+    "absolute_max_sequence_length": 262144,
+    "absolute_c512_arena_bytes": 17437720576
+  },
+  "compatibility_fixes": [
+    "FP8 attention-output selection is explicitly C64 and no longer aliases the request maximum.",
+    "NVFP4 down selection is explicitly C64; C256/C512 retain ordered M32 fallback until their narrow routes are promoted.",
+    "Residual plus RMS fusion preserves ordered M32 boundaries for every C32 multiple through C512.",
+    "A large full-attention tile keeps the causally eligible prefix through position 64 on the existing fused per-token GQA/Gate route, while only the suffix uses reference GQA plus tile Gate.",
+    "C128, C192, and C320 request caps decompose into the explicit production palette instead of entering unsupported wide routes."
+  ],
+  "test_matrix": {
+    "scheduler_boundaries": [31, 32, 33, 63, 64, 65, 255, 256, 257, 511, 512, 513, 769],
+    "noncanonical_caps": [128, 192, 320],
+    "release_build": "pass",
+    "werror_build": "pass",
+    "release_ctest": {
+      "total": 62,
+      "passed": 51,
+      "expected_model_or_external_skips": 11,
+      "failed": 0,
+      "wall_seconds": 6.57
+    },
+    "package_consumer_exact_version": "pass",
+    "cli_c513_rejection": "pass",
+    "request_layout_and_arena_exact": "pass",
+    "default_cuda_suites": "pass"
+  },
+  "decision": {
+    "boundary": "accepted",
+    "next": [
+      "route exact C256/C512 full-attention tiles to the selected bulk causal GQA production API on SM87",
+      "promote exact C256/C512 NVFP4 Gate/Up and down narrow routes while retaining current fallback",
+      "run P257/P513/P769/P1025 full-model exact-output and persistent-state validation",
+      "publish fixed-clock end-to-end Prefix results before enabling C512 as the performance default"
+    ]
+  },
+  "limitations": [
+    "The ABI and scheduler are production code, but C256/C512 currently use existing narrow-kernel fallback loops unless an already supported exact C64 subroute applies.",
+    "C256/C512 model E2E tests are registered but skipped in this run because Q3X_E2E_MODEL_DIR was not configured.",
+    "The default Prefill chunk remains C1, so this commit alone is not a performance promotion.",
+    "No end-to-end throughput improvement is claimed."
+  ]
+}

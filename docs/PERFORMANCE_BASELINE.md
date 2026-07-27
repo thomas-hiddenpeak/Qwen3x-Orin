@@ -7197,3 +7197,78 @@ Prefix opportunity. This projection excludes Q/K preprocessing, KV placement,
 GDN, projection, and runner interactions. Production promotion therefore
 requires full-path integration and token/memory/Prefix validation. Evidence is
 in the [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
+
+## Matched vLLM plus FlashInfer Prefill reference
+
+The offline raw-token probe now has three independent processes across
+P65/P129/P257/P513/P1025. Each process uses three warmups and ten measured
+batch-one/output-one requests, disables prefix cache, chunked Prefill, and
+speculation/MTP, and verifies BF16 caches plus the actual loaded backends.
+All 150 engine-core timing records are trusted and all return first token ID
+9419.
+
+| Profile | Process median token/s | Median of processes | Median scheduled-to-first-token |
+| --- | --- | ---: | ---: |
+| P65 | 236.380, 237.086, 236.115 | **236.380 token/s** | 274.981 ms |
+| P129 | 313.128, 312.828, 312.532 | **312.828 token/s** | 412.367 ms |
+| P257 | 375.178, 372.911, 373.579 | **373.579 token/s** | 687.940 ms |
+| P513 | 410.797, 411.629, 411.385 | **411.385 token/s** | 1,247.007 ms |
+| P1025 | 432.738, 436.037, 431.969 | **432.738 token/s** | 2,368.642 ms |
+
+The worker reports FlashInfer for 16 full-attention layers, GDN for 48 layers,
+Triton/FLA GDN Prefill, and Marlin FP8/NVFP4 projections. The vLLM-side
+reference is therefore established. Native's current P513 `Prefix` divided by
+vLLM TTFT is directionally about 3.43x, far smaller than the prior 16--67x
+surface comparison. It is not yet a formal speedup ratio: native `Prefix`
+omits the final prompt token and LM head, while vLLM scheduled-to-first-token
+includes them. A native complete-prompt boundary and mirrored ordering remain
+required. Full records and hashes are in the
+[vLLM reference](metadata/qwen36-27b-vllm-flashinfer-prefill-reference.json).
+
+## C512 request boundary and fallback baseline
+
+Commit `6be943e` publishes package/ABI 0.4.0 with a 512-token Prefill request
+capacity and an explicit `{512,256,64,32,tail<=31}` scheduler. This is a
+correctness and ownership boundary, not a performance promotion: exact C256
+and C512 tiles initially retain the existing M32/C64 fallbacks until their
+narrow optimized routes pass full-model admission.
+
+The generic projection contract remains capped at C64. FP8 attention-output
+and NVFP4 down selectors now test exact C64 rather than inheriting the request
+maximum; residual/RMS preserves ordered M32 arithmetic through C512. For large
+full-attention tiles that start before position 64, the eligible prefix keeps
+the existing fused per-token GQA/Gate route and only the suffix uses the
+reference split path.
+
+At default max sequence 128, C256/C512 arenas are exactly 131,426,304 and
+174,991,360 bytes. The absolute C512 arena ceiling is 17,437,720,576 bytes.
+Release and Werror builds pass; the default suite reports 51 passes, 11
+expected model/external-data skips, and zero failures across 62 tests. C256 and
+C512 model E2E registrations remain skipped without the model environment, so
+no throughput or output promotion is claimed. See the
+[C512 boundary record](metadata/qwen36-27b-prefill-c512-request-boundary.json).
+
+## Persistent packed NVFP4 Down P0 rejection
+
+Commit `03336b6` tests the smallest scheduling-only precursor to a
+Marlin-inspired Down kernel. The exact M256 candidate reorders one Down
+projection into NK64/NK256 sidecars and replaces the selected 160-CTA N-major
+grid with 16 persistent CTAs statically striding over the same 160 M64xN128
+logical tasks. It intentionally retains the old synchronous shared-memory
+decode/WMMA body; it does not implement four-stage `cp.async`, register E2M1
+MMA, or reuse B arithmetic across multiple M64 tasks.
+
+All three scale distributions are bit-exact across 1,310,720 outputs, replay,
+guards, inputs, invalid capture, and single-node Graph contracts. The candidate
+uses 80 registers, 23,552 bytes shared, zero local memory, and has a theoretical
+three-CTA/SM occupancy, but grid 16 launches only one CTA per SM. Performance
+is **0.511096x**: baseline 4.383274 ms versus candidate 8.576229 ms, with all
+18 rounds between 0.510571x and 0.511604x. It fails both the 1.0 stop-loss and
+the frozen 1.20x selection gate.
+
+This closes fixed-grid persistence plus byte reordering without computational
+reuse. It does not reject a true persistent kernel: the next valid attempt must
+reuse each staged B tile across at least M128/M256 work and/or implement the
+actual asynchronous packed-B/register-decode pipeline before reducing the
+grid. See the
+[P0 rejection](metadata/qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection.json).

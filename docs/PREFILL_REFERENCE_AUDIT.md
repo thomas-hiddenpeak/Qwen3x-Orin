@@ -219,29 +219,28 @@ Machine-readable evidence is in the
 
 The same Orin has a dedicated Python 3.13 reference environment with PyTorch
 2.11.0, vLLM `ccd49f682`, installed FlashInfer 0.6.12, and the exact
-`Qwen3.6-27B-NVFP4` checkpoint revision used by native fixtures. Existing
-oracle records prove successful Marlin NVFP4/FP8 model loading and exact greedy
-outputs, but no retained run proves a FlashInfer attention route or a vLLM
-Prefill performance number. The source checkout and installed FlashInfer
-versions also differ, so a formal run must pin the installed runtime rather
-than mix its AOT binaries with a newer source tree.
+`Qwen3.6-27B-NVFP4` checkpoint revision used by native fixtures. The retained
+formal run now proves the installed runtime's Marlin NVFP4/FP8 projections,
+16-layer FlashInfer full-attention route, 48-layer GDN route, and exact greedy
+first token. The source checkout and installed FlashInfer versions differ, so
+the record pins the installed runtime and does not mix its AOT binaries with a
+newer source tree.
 
 The latest native production measurements are 127.249/125.324/119.839 token/s
-at P65/P129/P513 under the repository's `(P-1)/Prefix` definition. The user's
-2k--8k token/s result is therefore a surface distance of roughly 16--67x, not
-a valid cross-framework ratio. Native `Prefix` excludes the final prompt token
-and LM head, while standard vLLM throughput/TTFT accounting differs.
+at P65/P129/P513 under the repository's `(P-1)/Prefix` definition. Before the
+matched run, the user's 2k--8k token/s result implied an invalid 16--67x surface
+distance. The installed matched vLLM reference instead reaches
+236.380/312.828/411.385 prompt token/s and puts the directional P513 gap near
+3.43x. Native `Prefix` still excludes the final prompt token and LM head, so a
+formal same-boundary ratio remains pending.
 
-Before the OpenAI-compatible API and EvalScope gateway, run an offline matched
-matrix using raw token IDs at P65/P129/P257/P513/P1025, batch one, output one,
-no prefix cache, no chunked Prefill, no MTP/speculation, BF16 KV/state, and an
-explicit FlashInfer attention request. The cross-framework primary metric is
-`P / scheduled-to-first-token`; native maps that to complete prompt Prefill,
-not the historical `(P-1)/Prefix` metric. Use three warmups, ten measurements,
-three independent fixed-clock processes, and native-vLLM-vLLM-native mirrored
-ordering. A P65/P513 smoke must first confirm the actual vLLM linear,
-attention, and GDN backends. This converts the external target into a real
-engineering gap without waiting for the HTTP evaluation adapter.
+The vLLM side of the pre-API matrix is complete with raw P65/P129/P257/P513/
+P1025 token IDs, batch one, output one, no prefix cache, no chunked Prefill, no
+MTP/speculation, BF16 KV/state, explicit FlashInfer, three warmups, ten
+measurements, and three fixed-clock processes. The remaining alignment task is
+to expose native complete-prompt timing and perform native-vLLM-vLLM-native
+mirrored ordering on the same boundary. This keeps HTTP/EvalScope work out of
+the kernel critical path without treating unlike historical metrics as equal.
 
 No MTP, FlashInfer dependency, paged-KV rewrite, generic double/triple
 buffering, Prefill Graph, or Prefill/Decode overlap is admitted by this audit.
@@ -297,3 +296,36 @@ the matched route works but does not replace the P65--P1025 three-process
 matrix. The native historical `Prefix` boundary also omits the last prompt
 token and LM head, so no formal native/vLLM ratio is published yet. See the
 [vLLM FlashInfer smoke](metadata/qwen36-27b-vllm-flashinfer-prefill-smoke.json).
+
+The full vLLM-side matrix is now complete. Three independent processes, each
+with three warmups and ten measurements, produce process-median throughput of
+236.380/312.828/373.579/411.385/432.738 prompt token/s at
+P65/P129/P257/P513/P1025. All 150 records trust the engine-core timestamps and
+return ID 9419. The P513 directional gap from current native `Prefix` is about
+3.43x, not 16--67x. This still is not a formal cross-framework ratio because
+native omits the final prompt token and LM head. The next measurement task is
+to expose that complete-prompt native boundary and run mirrored ordering; the
+kernel priority remains projections, GDN, bulk attention, and global traffic.
+See the
+[formal vLLM reference](metadata/qwen36-27b-vllm-flashinfer-prefill-reference.json).
+
+Commit `6be943e` establishes the native request-side boundary needed for the
+selected architecture. ABI/package 0.4.0 admits C512, the scheduler emits only
+`{512,256,64,32,tail<=31}`, and default C256/C512 arena sizes are
+131,426,304/174,991,360 bytes. All old projection limits remain explicit, so a
+C512 request cannot enter a C64-only kernel accidentally. Large tiles retain
+their causally eligible first-64 fused GQA prefix. The 62-test default suite
+passes with 11 expected skips. This commit deliberately enables no candidate
+route and keeps default C1; full-model bulk-attention and Gate/Up admission is
+the next step. See the
+[C512 request record](metadata/qwen36-27b-prefill-c512-request-boundary.json).
+
+The first persistent scheduling P0 is now explicitly closed. Commit `03336b6`
+keeps the selected M64 arithmetic but adds equal-byte NK64/NK256 sidecars and
+reduces the M256 Down grid from 160 to 16 static-stride CTAs. Correctness and
+resources pass, yet all 18 rounds regress to **0.511096x** aggregate because
+only one CTA is launched per SM while every logical task still repeats B
+decode and WMMA work. This is not a failed Marlin implementation: no
+multistage `cp.async`, register-side E2M1 MMA, or cross-M64 B reuse was claimed.
+It proves those mechanisms are prerequisites, not optional refinements. See
+the [P0 rejection](metadata/qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection.json).
