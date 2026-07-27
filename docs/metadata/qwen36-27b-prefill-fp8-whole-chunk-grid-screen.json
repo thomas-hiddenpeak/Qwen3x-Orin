@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-whole-chunk-grid-screen",
+  "status": "selected_for_workspace_integration",
+  "recorded_at": "2026-07-28T00:54:23+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "019675179516aa9cf2f620e905ce5453765a9fab",
+    "tree": "b762e1e09a0ce41fbf5ca2e16d86a9b053cd2dfc",
+    "base_commit": "1ec7d8ff5f0b51e12c73387535b71ccea7467208",
+    "subject": "test: screen FP8 whole-chunk Prefill grids",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7954240,
+      "sha256": "2c94bfcb25d2fee0d98551c8122802f7274710f7fddff79cac862e527130484c",
+      "elf_build_id": "bf798c18978ca953e4b9567bd625759d12d4dd2a",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "l2_bytes": 4194304,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_current_hz": 3200000000,
+      "emc_mrq_rate_locked": 1
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one exact FP8 attention-output shape, and direct CUDA-event whole-chunk timing"
+  },
+  "experiment": {
+    "production_baseline": "four/eight ordered public exact-M64 attention-output launches",
+    "m_major_control": "one grid with complete N128 traversal before the next M64 token tile",
+    "n_major_candidate": "one grid with four/eight adjacent M64 CTAs per N128 weight panel",
+    "shape": {
+      "rows": 5120,
+      "columns": 6144,
+      "tokens": [
+        256,
+        512
+      ],
+      "weight_format": "FP8 E4M3FN",
+      "activation_and_output_format": "BF16"
+    },
+    "cta_work": "the promoted M64 four-accumulator CTA body is unchanged",
+    "grid": {
+      "m256_baseline_nodes": 4,
+      "m256_candidate_grid_x": 160,
+      "m512_baseline_nodes": 8,
+      "m512_candidate_grid_x": 320,
+      "candidate_nodes": 1,
+      "block_x": 256,
+      "dynamic_shared_bytes": 0
+    },
+    "production_dispatch_changed": false,
+    "runner_or_workspace_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false
+  },
+  "resource_gate": {
+    "production_m64": {
+      "registers_per_thread": 69,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "n_major_m256_m512": {
+      "registers_per_thread": 70,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "m_major_m256_m512": {
+      "registers_per_thread": 71,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3
+    },
+    "result": "pass_without_occupancy_loss"
+  },
+  "correctness": {
+    "invalid_capture": {
+      "invalid_cases": 15,
+      "invalid_graph_nodes": 0,
+      "result": "pass"
+    },
+    "checkpoint_like_finite": {
+      "m256_elements_per_route": 1310720,
+      "m512_elements_per_route": 2621440,
+      "m_major_mismatches": 0,
+      "n_major_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "result": "pass"
+    },
+    "exhaustive_e4m3fn_m512": {
+      "raw_codes_per_byte_position": 256,
+      "byte_positions": 4,
+      "elements_per_route": 2621440,
+      "m_major_mismatches": 0,
+      "n_major_mismatches": 0,
+      "replay_mismatches": 0,
+      "classified_nan_outputs": 4096,
+      "expected_nan_outputs": 4096,
+      "nan_class_or_sign_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true,
+      "result": "pass"
+    },
+    "release_suite": {
+      "total_tests": 60,
+      "passed": 51,
+      "skipped_model_or_external_data": 9,
+      "failed": 0,
+      "result": "pass"
+    }
+  },
+  "timing_protocol": {
+    "warmup_launches_per_route": 10,
+    "logical_whole_chunk_launches_per_pass": 24,
+    "measurement_rounds_per_process": 6,
+    "processes": 3,
+    "orders_per_round": [
+      "B-C-C-B",
+      "S-C-C-S"
+    ],
+    "required_every_baseline_round_speedup": 1.0,
+    "required_m512_aggregate_speedup": 1.25
+  },
+  "results": {
+    "m256": {
+      "process_aggregate_speedups": [
+        1.26628,
+        1.26451,
+        1.26591
+      ],
+      "process_median_speedup": 1.26591,
+      "all_round_minimum_speedup": 1.26413,
+      "all_round_maximum_speedup": 1.26706,
+      "process_median_n_major_vs_m_major_speedup": 1.01234,
+      "positive_rounds": 18,
+      "measured_rounds": 18,
+      "result": "pass"
+    },
+    "m512": {
+      "process_aggregate_speedups": [
+        1.29047,
+        1.28893,
+        1.29167
+      ],
+      "process_median_speedup": 1.29047,
+      "all_round_minimum_speedup": 1.28859,
+      "all_round_maximum_speedup": 1.29184,
+      "process_median_n_major_vs_m_major_speedup": 1.01153,
+      "process_median_baseline_vs_m_major_speedup": 1.27510498,
+      "positive_rounds": 18,
+      "measured_rounds": 18,
+      "required_speedup": 1.25,
+      "result": "pass"
+    }
+  },
+  "hotspot_projection": {
+    "p513_prefix_milliseconds": 4278.702,
+    "attention_output_milliseconds": 279.108,
+    "qkv_z_output_fp8_milliseconds": 906.445,
+    "output_only_projected_prefix_speedup": 1.01490176,
+    "all_fp8_if_same_speedup_projected_prefix_speedup": 1.05007284,
+    "all_fp8_speedup_required_for_1_05_prefix": 1.28995091,
+    "interpretation": "The output-only shape cannot justify workspace integration by itself. The three-process M512 median barely clears the arithmetic all-FP8 projection, but one process is below that derived threshold; QKV and Z require direct shape screens before any full-Prefix claim."
+  },
+  "decision": {
+    "result": "pass_test_only_mechanism",
+    "selected_next_step": "raise the Prefill workspace boundary to C256, then C512, and directly screen QKV and Z whole-chunk shapes before production dispatch",
+    "attribution": "Most gain comes from replacing repeated under-filled 40-CTA kernels with one continuous grid; N-major weight locality adds about 1.15 percent over the M-major one-grid control at M512.",
+    "production_status": "unchanged",
+    "decode_status": "frozen",
+    "limitations": [
+      "CUDA does not guarantee strict block-ID scheduling, so N-major locality is an observed timing effect rather than a direct L2-counter claim.",
+      "Nsight Compute performance counters are unavailable in this environment.",
+      "The candidate adds one N-major address register but does not change shared memory, local memory, or CTA residency.",
+      "No end-to-end Prefill throughput improvement is claimed until workspace and all eligible production shapes are integrated and measured."
+    ]
+  },
+  "evidence_files": [
+    "/tmp/q3x-prefill-fp8-whole-chunk-0196751-run1.log",
+    "/tmp/q3x-prefill-fp8-whole-chunk-0196751-run2.log",
+    "/tmp/q3x-prefill-fp8-whole-chunk-0196751-run3.log",
+    "/tmp/q3x-prefill-fp8-m64-regression.log"
+  ]
+}

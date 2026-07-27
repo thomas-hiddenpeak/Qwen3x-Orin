@@ -7045,3 +7045,45 @@ remains frozen at **105.870500 ms/token / 9.445501816 token/s**. FlashInfer
 has not been introduced by this native projection promotion. Full binary identities,
 protocol, evidence hashes, gates, and limitations are in the
 [FP8 M64 production record](metadata/qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json).
+
+## FP8 M256/M512 whole-chunk grid screen
+
+Commit `0196751` adds a test-only whole-chunk form of the promoted FP8
+attention-output CTA. M256/M512 execute the same total CTA arithmetic as
+four/eight public production M64 launches. The candidate flattens all token
+tiles into one grid and orders M64 CTAs N-major; a second M-major one-grid
+variant separates grid-boundary/tail-wave gains from weight-locality gains.
+Production dispatch, runner workspace, Decode, and the C64 request ABI are
+unchanged.
+
+Under MAXN, fixed 1.3005-GHz GPU and locked 3.2-GHz EMC clocks, each process
+uses 10 warmups, 24 whole-chunk operations per timing pass, six mirrored
+`B-C-C-B` and `S-C-C-S` rounds, and the exact public M64 production entry as
+baseline:
+
+| Shape | Process speedups | Median | All-round range | N-major / M-major |
+| --- | --- | ---: | ---: | ---: |
+| M256 | 1.26628x, 1.26451x, 1.26591x | **1.26591x** | 1.26413x--1.26706x | 1.01234x |
+| M512 | 1.29047x, 1.28893x, 1.29167x | **1.29047x** | 1.28859x--1.29184x | 1.01153x |
+
+The M512 M-major control is 1.27510x faster than repeated production M64, so
+most of the selected result comes from eliminating repeated under-filled
+40-CTA grid boundaries. N-major ordering adds a smaller, stable locality gain;
+CUDA scheduling is not strict and performance-counter access is unavailable,
+so this is not labeled a direct L2-hit-rate measurement.
+
+Production M64 remains at 69 registers/thread, 23,552 bytes shared, zero local
+memory, and three CTA/SM. N-major uses 70 registers and M-major 71 without
+changing shared/local memory or occupancy. Finite M256/M512 results are
+bit-exact. The exhaustive M512 fixture covers all E4M3FN byte codes and reports
+zero mismatches across 2,621,440 elements, zero replay mismatches, exact class
+and sign for 4,096 NaNs, intact guards, preserved inputs, and zero-node invalid
+captures. The full Release suite remains 51 pass, 9 existing model/external
+skips, and 0 fail.
+
+This passes the 1.25x M512 mechanism gate, but is not an end-to-end result.
+Output-only arithmetic projects to 1.01490x P513 Prefix; applying the median to
+all current FP8 QKV/Z/output hotspots projects 1.05007x and still requires
+direct shape measurements. The next milestone is a C256 then C512 Prefill
+workspace plus QKV/Z screens. Full evidence is in the
+[whole-chunk screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).

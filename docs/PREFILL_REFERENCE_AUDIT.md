@@ -160,6 +160,34 @@ whole-chunk weight-reuse screen:
    publish absolute/relative error distributions, preserve generated tokens,
    and show a material full-Prefix gain before integration.
 
+## Whole-chunk screen result
+
+Commit `0196751` completed the first bounded experiment. Three fixed-clock
+processes measured M256 at 1.26591x median and M512 at 1.29047x median against
+four/eight ordered production M64 launches. All 18 rounds per shape improved.
+An M-major single-grid control shows that about 1.27510x of the M512 result
+comes from replacing repeated under-filled 40-CTA grids with one continuous
+grid; N-major ordering contributes another 1.01153x. The result therefore
+selects a whole-chunk scheduling boundary, not an unqualified L2 optimization.
+
+The M512 exhaustive fixture covers all 256 E4M3FN codes in four byte
+positions. M-major, N-major, and replay match 2,621,440 baseline BF16 elements
+bit-for-bit, including 4,096 classified NaNs, while preserving guards and
+inputs. Invalid calls capture zero nodes. The N-major instance uses 70
+registers rather than the production CTA's 69, but shared memory remains
+23,552 bytes, local memory remains zero, and residency remains three CTA/SM.
+This is acceptable for the test-only mechanism screen; production integration
+must retain the same occupancy and re-evaluate the address-register cost for
+each shape.
+
+The measured output shape alone projects to only 1.01490x P513 Prefix. Applying
+the M512 median hypothetically to QKV, Z, and output projects 1.05007x, almost
+exactly the 1.05 gate, but one of three processes is below the derived 1.28995x
+all-FP8 requirement. The next step is therefore C256 then C512 workspace work
+and direct QKV/Z screens, not an output-only production promotion. Full inputs,
+resources, per-process results, hashes, and claim limits are in the
+[machine-readable screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).
+
 No MTP, FlashInfer dependency, paged-KV rewrite, generic double/triple
 buffering, Prefill Graph, or Prefill/Decode overlap is admitted by this audit.
 The Decode anchor remains frozen at 105.870500 ms/token and 9.445501816

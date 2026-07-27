@@ -1378,19 +1378,33 @@ row-search structure without an unpriced global-progress assumption. See the
   recurrence. SM110 TMA/UMMA/PDL and external performance numbers are not
   portable evidence. See the
   [Prefill reference audit](PREFILL_REFERENCE_AUDIT.md).
-- [active, whole-chunk large-M weight-reuse screen] Before another narrow
-  production promotion, build a test-only exact M256/M512
-  `[N5120,K6144]` FP8 launcher from the validated M64 CTA and issue all row
-  tiles in one N-major grid. Compare against four/eight ordered production M64
-  launches to measure cross-CTA L2 weight reuse separately from new arithmetic.
-  Advance only with exact correctness, one Graph node, no resource regression,
-  every round non-regressive, at least 1.25x at M512, and a hotspot-based
-  projection of at least 1.05x P513 Prefix across eligible shapes.
-- [queued, FP8 M64 linear-QKV and Z controls] Preserve the exact
-  `[M64,N10240,K5120]` and `[M64,N6144,K5120]` screens as bounded fallbacks.
-  QKV currently accounts for 384.251 ms/768 launches and Z for
-  243.086 ms/768 launches in P513, but isolated M64 promotion cannot explain
-  the gap to the external 2k--8k token/s region.
+- [done, whole-chunk large-M grid screen] Commit `0196751` keeps the promoted
+  `[M64,N5120,K6144]` CTA arithmetic and compares repeated production M64
+  launches with one M-major control grid and one N-major candidate grid. Three
+  fixed-clock processes put M256 at 1.26591x median and M512 at **1.29047x**
+  median; all 36 baseline-comparison rounds improve. N-major adds only 1.01153x
+  over the M-major one-grid control at M512, so most gain is removal of repeated
+  under-filled 40-CTA grid boundaries, not a standalone L2 claim. Exhaustive
+  E4M3FN, 4,096 classified NaNs, replay, guards, inputs, invalid capture, and
+  Graph topology pass. N-major adds one address register but preserves
+  23,552-byte shared memory, zero local memory, and three CTA/SM. Production
+  dispatch remains unchanged. See the
+  [whole-chunk screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-grid-screen.json).
+- [active, C256 then C512 Prefill workspace and FP8 shape screens] Raise the
+  request-local Prefill workspace boundary incrementally without changing the
+  Decode arena or KV ownership. Directly screen whole-chunk QKV
+  `[N10240,K5120]`, Z `[N6144,K5120]`, and output `[N5120,K6144]` before any
+  production dispatch. The M512 output-only hotspot projects to only 1.01490x
+  P513 Prefix. Applying the measured median to all three current FP8 hotspots
+  projects 1.05007x, but one of three processes is below the derived 1.28995x
+  all-FP8 threshold; this is an integration hypothesis, not a performance
+  claim.
+- [queued, FP8 M64 QKV/Z controls and NVFP4 whole-chunk screens] Preserve
+  exact M64 QKV/Z as bounded fallbacks. After the workspace boundary is proven,
+  separately screen Gate/Up and down with their native NVFP4 CTA bodies; do not
+  infer NVFP4 behavior from the FP8 result. These projections dominate the
+  remaining P513 time and are necessary to approach the external 2k--8k
+  token/s region.
 - [parallel reference, native bulk attention and WY GDN] Use FlashInfer's
   online-softmax and chunked-delta-rule contracts as design references only.
   A dependency-free SM87 attention prototype must include Q/K preprocessing,
