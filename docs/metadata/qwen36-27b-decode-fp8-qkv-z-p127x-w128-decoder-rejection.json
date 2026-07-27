@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection",
+  "status": "rejected-test-only-decode-fp8-qkv-z-p127x-w128-decoder",
+  "recorded_at": "2026-07-27T12:46:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 non-MTP single-request Decode toward 100 ms/token and 10 token/s",
+  "scope": {
+    "phase": "Decode",
+    "token_count": 1,
+    "subject": "standalone actual-checkpoint FP8 QKV/Z P127X-W128 decoder and sector screen",
+    "mtp_allowed": false,
+    "mtp_used": false,
+    "production_dispatch_reachable": false,
+    "production_kernel_modified": false,
+    "production_launcher_modified": false,
+    "prefill_modified": false,
+    "full_qkv_z_gemv_implemented": false,
+    "model_modified": false
+  },
+  "source": {
+    "base_commit": "0ac4d142684382245f318eea6f8ac83710552557",
+    "base_tree": "19e9d2b4131c52338589f6ec1b17a1c5af4e782f",
+    "base_subject": "docs: admit QKV lossless payload screen",
+    "admission_record": "qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json",
+    "admission_record_sha256": "19d45e03f8333f39b49529528d989a21269b3e2cfd95581f453bb65c33d74b3f",
+    "candidate_source_path_before_cleanup": "tests/sm87_fp8_qkv_z_p127x_decoder_perf_test.cu",
+    "candidate_source_bytes_before_cleanup": 41427,
+    "candidate_source_sha256_before_cleanup": "52db458ee29ed82876c588cb7d6b3b7a1a485216527e074757440ad9f315447d",
+    "candidate_source_git_blob_before_cleanup": "ccee9ed2ae6eb5a19795d9d1a3cdbc0630d626bc",
+    "candidate_cmake_blob_before_cleanup": "aa3d9abde6bb4e22de7f266e448424a27809539f",
+    "standalone_binary_path_before_cleanup": "build/orin-release/q3x_sm87_fp8_qkv_z_p127x_decoder_perf_test",
+    "standalone_binary_bytes": 151176,
+    "standalone_binary_sha256": "bd27e12ccd283d02289ac805286c2b81629ee7e5f5f389a3ad999eecc50898ab",
+    "candidate_committed": false,
+    "cleanup": "The complete standalone CUDA source, test-only CMake target, binary, and object were removed after the actual fixture and an impossible optimistic lower bound both triggered the frozen stop-loss."
+  },
+  "checkpoint": {
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "shard_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "layer": 0,
+    "qkv": {
+      "absolute_offset": 3485125152,
+      "shape": [10240, 5120],
+      "bytes": 52428800,
+      "sha256": "66eeb8a7cfd3f577a4f7bafdb5b68f4f7ba3cb1aa9717801082791b2de696ed7"
+    },
+    "z": {
+      "absolute_offset": 3537553952,
+      "shape": [6144, 5120],
+      "bytes": 31457280,
+      "sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae"
+    },
+    "combined_canonical_bytes": 83886080
+  },
+  "design_progression": {
+    "admitted_capacity_format": "P127E-W128-v1: per-tensor top-127 palette, seven-bit codes, row u32 escape base, per-tile u16 escape prefix, and a sparse raw-byte pool",
+    "v1_sector_rejection_before_cuda_expansion": "A 112-byte code tile still requests four 32-byte sectors in the production warp/row/K-stage topology, exactly like the canonical 128-byte tile. Prefix and sparse raw lookup add sector requests, so logical capacity alone was not a runtime saving.",
+    "stronger_screened_format": "P127X-W128-hybrid: fixed 112-byte code stream in row-quad/K128/row consumption order; 41 interleaved u16 boundary entries per row with the high bit marking raw fallback; a separate sorted (u8 position,u8 raw) pair pool; and canonical raw-tile fallback for escape count >=8.",
+    "raw_fallback_threshold": 8,
+    "threshold_reason": "112 code bytes plus two bytes per escape reaches the canonical 128-byte capacity at eight escapes and still has decode overhead.",
+    "code_load_contract": "28 lanes issue aligned u32 loads over each fixed 112-byte code tile; two warp shuffles reconstruct one 28-bit four-code group per consuming lane.",
+    "palette_contract": "The exact P127X kernel cooperatively stages both 128-byte padded per-tensor palettes into 256 bytes of block shared memory before any code lookup.",
+    "directory_contract": "row-quad/tile interleaving; lane 0 loads current and next u16 entries then broadcasts them within the warp",
+    "fallback_contract": "The sidecar leaves fallback code bytes allocated but unread; the decoder reads the retained canonical 128-byte tile. Canonical weights already remain resident for Prefill and fallback."
+  },
+  "actual_pack": {
+    "qkv": {
+      "canonical_bytes": 52428800,
+      "sidecar_bytes": 48151748,
+      "sidecar_fraction_percent": 91.842171,
+      "all_top127_escapes": 770604,
+      "escape_fraction_percent": 1.469810,
+      "maximum_tile_escapes": 67,
+      "raw_fallback_tiles": 3468,
+      "compressed_tiles": 406132,
+      "compressed_code_tiles_touching_five_sectors": 0
+    },
+    "z": {
+      "canonical_bytes": 31457280,
+      "sidecar_bytes": 28845860,
+      "sidecar_fraction_percent": 91.698519,
+      "all_top127_escapes": 400319,
+      "escape_fraction_percent": 1.272580,
+      "maximum_tile_escapes": 17,
+      "raw_fallback_tiles": 445,
+      "compressed_tiles": 245315,
+      "compressed_code_tiles_touching_five_sectors": 0
+    },
+    "combined": {
+      "canonical_bytes": 83886080,
+      "sidecar_bytes": 76997608,
+      "sidecar_fraction_percent": 91.788301468,
+      "logical_saved_bytes": 6888472,
+      "logical_saved_fraction_percent": 8.211698532,
+      "raw_fallback_tiles": 3913,
+      "all_tiles": 655360,
+      "raw_fallback_fraction_percent": 0.597076416
+    },
+    "interpretation": "The hybrid intentionally spends about 0.44 MiB on unread code slots for fallback tiles so every compressed code tile retains the exact four-sector fixed-stride main path. This is a stronger runtime screen than the admitted variable-prefix v1 despite slightly weaker capacity."
+  },
+  "correctness": {
+    "host_pack_unpack_full_qkv_bit_exact": true,
+    "host_pack_unpack_full_z_bit_exact": true,
+    "host_bytes_checked": 83886080,
+    "device_topology": "64 blocks x 256 threads; 512 warp checksums cover every QKV/Z source byte in production row-quad/K128/row order",
+    "device_canonical_candidate_checksum_mismatches": "0/512",
+    "device_checksum_gate": "pass",
+    "device_materialized_output_guard_test": "not expanded after the standalone decoder hard-failed; no positive correctness or production claim is made",
+    "inputs_are_const": true
+  },
+  "resources_and_sass": {
+    "source": "cudaFuncGetAttributes, cudaOccupancyMaxActiveBlocksPerMultiprocessor, cuobjdump --dump-resource-usage, and cuobjdump --dump-sass",
+    "canonical": {
+      "registers_per_thread": 20,
+      "static_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 6,
+      "sass_instruction_rows": 224
+    },
+    "p127x_exact": {
+      "registers_per_thread": 26,
+      "static_shared_bytes": 256,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 6,
+      "sass_instruction_rows": 1792,
+      "fixed_code_tile_load": "one predicated aligned LDG.E.U32 path for lanes 0..27",
+      "code_reconstruction": "two SHFL.IDX instructions before seven-bit field extraction",
+      "resource_gate": "pass: zero local and at least four active CTAs per SM"
+    },
+    "fixed_direct_impossible_lower_bound": {
+      "registers_per_thread": 28,
+      "static_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 6,
+      "sass_instruction_rows": 480,
+      "resource_gate": "pass"
+    }
+  },
+  "performance_protocol": {
+    "same_binary": true,
+    "same_process": true,
+    "same_default_stream": true,
+    "cpu_affinity": 11,
+    "grid": [64, 1, 1],
+    "block": [256, 1, 1],
+    "banks": 8,
+    "bytes_scanned_per_bank_exceed_l2": true,
+    "warmups": 4,
+    "rounds": 5,
+    "round_order": "B-C-C-B",
+    "baseline": "aligned canonical raw-byte decoder in the same warp/row/K128 topology",
+    "candidate": "exact P127X-W128 hybrid decoder",
+    "required_delta_us_per_layer": 6.25,
+    "required_projected_delta_ms_per_token": 0.3,
+    "every_round_requirement": true,
+    "stop_loss": "Reject immediately on any actual round below 6.25 us/layer; do not build a full QKV/Z GEMV or production sidecar."
+  },
+  "formal_rounds": [
+    {"round": 1, "baseline_0_us": 1110.872070, "candidate_0_us": 3002.815918, "candidate_1_us": 3002.671875, "baseline_1_us": 1108.288086, "paired_delta_us": -1893.163818, "paired_speedup": 0.369522, "gate": "fail"},
+    {"round": 2, "baseline_0_us": 1108.255981, "candidate_0_us": 3004.060059, "candidate_1_us": 3003.096191, "baseline_1_us": 1108.944092, "paired_delta_us": -1894.978149, "paired_speedup": 0.369093, "gate": "fail"},
+    {"round": 3, "baseline_0_us": 1110.095947, "candidate_0_us": 3004.543945, "candidate_1_us": 3003.328125, "baseline_1_us": 1109.112061, "paired_delta_us": -1894.332031, "paired_speedup": 0.369383, "gate": "fail"},
+    {"round": 4, "baseline_0_us": 1110.671997, "candidate_0_us": 3004.359863, "candidate_1_us": 3003.104004, "baseline_1_us": 1110.527954, "paired_delta_us": -1893.131958, "paired_speedup": 0.369740, "gate": "fail"},
+    {"round": 5, "baseline_0_us": 1110.407959, "candidate_0_us": 3004.048096, "candidate_1_us": 3003.027832, "baseline_1_us": 1110.003906, "paired_delta_us": -1893.332153, "paired_speedup": 0.369633, "gate": "fail"}
+  ],
+  "selection_summary": {
+    "median_paired_delta_us_per_layer": -1893.332153,
+    "median_paired_speedup": 0.369522,
+    "projected_48_layer_delta_ms_per_token": -90.879944,
+    "rounds_passing": 0,
+    "rounds_required": 5,
+    "selection": "reject"
+  },
+  "matched_ncu": {
+    "tool": "Nsight Compute 2026.2.0",
+    "method": "one matched cold-cache launch from the final standalone binary; replay-mode kernel, cache-control all, requested clock-control base",
+    "warning": "Nsight Compute reported that collection occurred without fixed GPU frequencies on integrated Orin. The report diagnoses traffic; unprofiled eight-bank B-C-C-B timings decide rejection.",
+    "canonical": {
+      "report_path": "/tmp/q3x-p127x-layer0-canonical-ncu.ncu-rep",
+      "report_bytes": 65563,
+      "report_sha256": "2fd7f3069e627ea2b969b546ccf04c3589d3c915c3b810bed48324d84f79c935",
+      "duration_us": 1099.200,
+      "l1_global_request_bytes": 83886080,
+      "l1_global_hit_bytes": 0,
+      "l1_global_miss_bytes": 83886080,
+      "lts_total_bytes": 83919136,
+      "lts_global_load_miss_equivalent_bytes": 83886080,
+      "dram_read_throughput_percent": 37.71
+    },
+    "p127x": {
+      "report_path": "/tmp/q3x-p127x-layer0-candidate-ncu.ncu-rep",
+      "report_bytes": 65809,
+      "report_sha256": "ad7828215939a8fa3196e629233b4fc9107a2bf4176cfa4dd6e752da1ad3cd36",
+      "duration_us": 3004.000,
+      "l1_global_request_bytes": 182734432,
+      "l1_global_hit_bytes": 94878432,
+      "l1_global_miss_bytes": 87856000,
+      "lts_total_bytes": 87915648,
+      "lts_global_load_miss_equivalent_bytes": 87856000,
+      "dram_read_throughput_percent": 13.00
+    },
+    "comparison": {
+      "l1_global_request_increase_percent": 117.836418152,
+      "l1_global_miss_increase_percent": 4.732513428,
+      "lts_total_increase_percent": 4.762336924,
+      "candidate_l1_hit_fraction_percent": 51.921485711,
+      "finding": "The fixed code stream itself preserves four sectors per tile, but per-tile directory and sparse pair instructions more than double L1 request bytes. They also raise L2-facing traffic above canonical, so the logical 8.21% sidecar reduction never becomes physical traffic reduction."
+    }
+  },
+  "fixed_direct_common_only_hard_lower_bound": {
+    "purpose": "Close the remaining hypothesis that a fixed direct raw-code mapping could remove shared-palette lookup cost.",
+    "mapping": "codes 0..62 map to magnitudes [0x2a,0x2c,0x30..0x6c], codes 63..125 map to those magnitudes with sign bit 0x80, code 126 maps to 0xae, and escape 127 becomes zero",
+    "exact": false,
+    "omitted_work": ["all directory loads", "all escape-pair/raw loads", "all exact escape reconstruction", "all shared palette loads/lookups"],
+    "qkv_escape_placeholders": 1210587,
+    "z_escape_placeholders": 400319,
+    "protocol": "same 8-bank B-L-L-B screen and 6.25-us/layer gate",
+    "rounds": [
+      {"round": 1, "baseline_0_us": 1111.179932, "lower_0_us": 1951.276001, "lower_1_us": 1954.444092, "baseline_1_us": 1109.280029, "paired_delta_us": -842.630005, "paired_speedup": 0.568515, "gate": "fail"},
+      {"round": 2, "baseline_0_us": 1110.543945, "lower_0_us": 1954.036011, "lower_1_us": 1955.687988, "baseline_1_us": 1110.064087, "paired_delta_us": -844.557983, "paired_speedup": 0.567971, "gate": "fail"},
+      {"round": 3, "baseline_0_us": 1110.088013, "lower_0_us": 1954.807983, "lower_1_us": 1954.363892, "baseline_1_us": 1110.216064, "paired_delta_us": -844.434082, "paired_speedup": 0.567973, "gate": "fail"},
+      {"round": 4, "baseline_0_us": 1109.195923, "lower_0_us": 1951.744019, "lower_1_us": 1951.248047, "baseline_1_us": 1109.119995, "paired_delta_us": -842.337891, "paired_speedup": 0.568363, "gate": "fail"},
+      {"round": 5, "baseline_0_us": 1109.832031, "lower_0_us": 1953.624023, "lower_1_us": 1952.723999, "baseline_1_us": 1109.552002, "paired_delta_us": -843.481812, "paired_speedup": 0.568148, "gate": "fail"}
+    ],
+    "median_paired_delta_us_per_layer": -843.481812,
+    "median_paired_speedup": 0.568148,
+    "projected_48_layer_delta_ms_per_token": -40.487129,
+    "conclusion": "hard reject: even this impossible zero-escape-overhead lower bound is much slower than canonical, so fixed-direct P127 cannot be rescued by a better exact escape representation"
+  },
+  "decision": {
+    "selection": "reject",
+    "formal_anchor_changed": false,
+    "full_qkv_z_kernel": "not implemented",
+    "full_model_sidecar": "not allocated",
+    "production_dispatch": "unchanged",
+    "reopen_conditions": "Do not reopen fixed 7-bit W128 P127E/P127X or fixed-direct variants on SM87. A materially different representation must reduce physical sectors in the exact consumption topology and pass a standalone decoder lower bound before GEMV integration."
+  },
+  "reproduction_before_cleanup": {
+    "configure": "cmake -S . -B build/orin-release -DCMAKE_BUILD_TYPE=Release -DQ3X_CUDA_ARCHITECTURES=87",
+    "build": "cmake --build build/orin-release --target q3x_sm87_fp8_qkv_z_p127x_decoder_perf_test -j2",
+    "formal": "taskset -c 11 build/orin-release/q3x_sm87_fp8_qkv_z_p127x_decoder_perf_test /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "expected_exit_code": 2,
+    "terminal_line": "P127_DIRECT_LOWER_SELECTED median_delta_us=-843.481812 projected_48_layer_delta_ms=-40.487129 escape_work_omitted=true directory_work_omitted=true exact=false conclusion=HARD_REJECT"
+  }
+}

@@ -1209,6 +1209,14 @@ The diagnostic Phase 3 records are:
   112-byte warp tiles may retain four L1 request sectors, so measured L2
   reduction, decode instructions, resources, and at least 0.30 ms/token net
   benefit remain hard gates. O projection is rank-2 only.
+- [`qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json`](qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json),
+  which closes the admitted seven-bit FP8 family on SM87. The stronger
+  row-quad P127X hybrid is bit exact with 26 registers, 256 bytes shared, zero
+  local memory, and six CTA/SM, but all five cold rounds regress to 0.369522x.
+  NCU records 117.84% more L1 request bytes and 4.76% more LTS traffic. An
+  impossible fixed-direct lower bound that omits every directory and escape
+  operation still reaches only 0.568148x. The standalone source/target are
+  removed; neither QKV/Z nor the narrower O-projection backup proceeds.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

@@ -1236,6 +1236,16 @@ every-round non-regression, and at least **6.25 us/layer / 0.30 ms/token** net
 saving. Do not allocate the 3.391-GiB full sidecar before that gate. See the
 [P127E admission](metadata/qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json).
 
+That implementation gate is now closed. The bit-exact row-quad P127X hybrid
+passes its resource screen (`26r / 256 B shared / 0 local / 6 CTA-SM`) but
+regresses every cold actual round to **0.369522x**. Its L1 request traffic rises
+**117.84%** and LTS traffic rises **4.76%**, so the logical 8.21% compression
+does not reduce physical traffic. More decisively, a non-exact fixed-direct
+lower bound that removes all directory and escape work still reaches only
+**0.568148x**. Close P127E, P127X, fixed-direct P127, P63, and the narrower O
+backup on SM87; do not build a full GEMV or sidecar from this admission. See
+the [decoder rejection](metadata/qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

@@ -6684,3 +6684,36 @@ stress non-regression in every round, and net at least 0.30 ms/token before any
 rank-2 backup with a narrower 12.46-us/layer overhead budget. Full tensor
 hashes, byte decomposition, closed-route deduplication, and stop-loss gates are
 in the [capacity admission](metadata/qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json).
+
+## Decode QKV/Z P127 decoder rejection
+
+The actual-first implementation replaced the risky row-prefix/raw-pool design
+with a stronger row-quad P127X hybrid: fixed aligned 112-byte code tiles,
+sorted `(position, raw-byte)` exception pairs, and canonical 128-byte fallback
+for tiles with at least eight escapes. Layer 0 packs 83,886,080 raw bytes into
+76,997,608 sidecar bytes, reconstructs every host byte, and matches all 512
+device warp checksums. Resources also pass at 26 registers, 256 bytes shared,
+zero local memory, and six active CTA/SM. Performance does not:
+
+| Decoder | Median paired speedup | Median delta/layer | 48-layer projection |
+| --- | ---: | ---: | ---: |
+| exact P127X hybrid | 0.369522x | -1,893.332 us | -90.879944 ms/token |
+| fixed-direct impossible lower bound | 0.568148x | -843.482 us | -40.487129 ms/token |
+
+The fixed-direct row deliberately omits every directory read, escape load,
+exact escape reconstruction, and shared-palette lookup. Its failure is thus a
+hard lower-bound rejection, not merely a poor exception encoding. Matched NCU
+explains the exact P127X result:
+
+| Metric | Canonical | P127X | Change |
+| --- | ---: | ---: | ---: |
+| L1 global request | 83,886,080 B | 182,734,432 B | +117.836% |
+| L1 global miss | 83,886,080 B | 87,856,000 B | +4.733% |
+| LTS total | 83,919,136 B | 87,915,648 B | +4.762% |
+| duration | 1,099.2 us | 3,004.0 us | regression |
+
+The candidate source, CMake target, binary, and object are removed; the default
+SM87 GEMV suite passes and production is unchanged. This closes seven-bit W128
+P127E/P127X/fixed-direct compression and its lower-margin O-projection backup
+on SM87. Complete rounds, report hashes, SASS resources, and cleanup evidence
+are in the [decoder rejection](metadata/qwen36-27b-decode-fp8-qkv-z-p127x-w128-decoder-rejection.json).
