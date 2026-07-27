@@ -6793,3 +6793,22 @@ free would still miss the frozen 0.30-ms admission gate. Reserving 2.75 MiB
 would also leave only 1.25 MiB of ordinary L2 and could regress much larger
 projection streams. No APW probe or production change is therefore created.
 See the [ceiling rejection](metadata/qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json).
+
+## Decode cross-kernel/core-flow ceiling rejection
+
+The remaining serial intermediate boundaries were re-audited after the GDN,
+QKV compression, and Gate/Up decoder stop-losses. No individual boundary has a
+credible 0.30-ms/token ceiling. QKV-to-convolution and convolution-to-GDN each
+combine only about 0.065 ms of observed GPU gap with 1.966 MB/token of BF16
+write/read traffic, or roughly **0.077 ms/token** under perfect removal.
+O-to-Gate and Down-to-next are each below about **0.095 ms/token**.
+
+The superficially large Gate-to-Down and Down-to-next request counts are not
+removable DRAM traffic. Gate-to-Down needs a global all-to-all broadcast for 32
+consumer CTAs, while production QKV/Z evidence puts the normalized activation
+at **99.568176% inferred L1 hits**. Existing fusion and shared-staging screens
+also regress. Even the impossible sum of both adjacent linear boundaries is
+only about **0.154 ms/token**, and broader sums would double-count gaps while
+requiring one cooperative mega-kernel across incompatible topologies. Generic
+core-flow fusion is therefore closed without new code. See the
+[core-flow ceiling record](metadata/qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json).

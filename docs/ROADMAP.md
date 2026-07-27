@@ -1276,6 +1276,15 @@ production traces, below the 0.30-ms gate even under impossible free removal.
 No default-off APW experiment is implemented. See the
 [L2 ceiling rejection](metadata/qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json).
 
+The remaining cross-kernel/core-flow boundaries likewise fail admission.
+Ordinary single boundaries top out near **0.077--0.095 ms/token** after adding
+their observed GPU gaps and unique BF16 publication traffic. Gate-to-Down still
+requires a cross-CTA global broadcast, and Down-to-next's large logical reads
+are overwhelmingly L1 hits. Even an impossible additive treatment of both
+adjacent linear boundaries reaches only about **0.154 ms/token**. Generic
+fusion and a topology-mismatched mega-kernel are not next-step candidates. See
+the [core-flow rejection](metadata/qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

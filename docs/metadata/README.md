@@ -1238,6 +1238,13 @@ The diagnostic Phase 3 records are:
   44/45 coverage of all read/write bytes is worth only 0.034833 ms/token. Two
   production traces put the complete causal-convolution kernel at only
   0.260622--0.283672 ms/token, so even free removal misses the 0.30-ms gate.
+- [`qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json`](qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection.json),
+  which closes generic intermediate-flow fusion after an updated boundary
+  inventory. Individual credible ceilings are at most about 0.095 ms/token;
+  both adjacent linear boundaries total only about 0.154 ms/token even under
+  impossible perfect removal. Gate-to-Down still requires global cross-CTA
+  broadcast, while Down-to-next activation requests are 99.568176% inferred
+  L1 hits, so neither logical byte count is a removable DRAM opportunity.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

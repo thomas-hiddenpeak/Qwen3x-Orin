@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-cross-kernel-core-flow-ceiling-rejection",
+  "status": "rejected-static-cross-kernel-core-flow-ceilings",
+  "recorded_at": "2026-07-27T13:47:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "scope": {
+    "phase": "Decode",
+    "token_count": 1,
+    "subject": "remaining global intermediate publication and serial GPU boundary gaps",
+    "analysis_only": true,
+    "candidate_implemented": false,
+    "production_changed": false,
+    "mtp_used": false
+  },
+  "source": {
+    "base_commit": "d4a089b91fe49b4c1a1931eefe43f0764e56e797",
+    "formal_anchor_ms_per_token": 105.8705,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "boundary_trace": "projection-palette-v2 production Nsys trace",
+    "gate_down_static_record": "qwen36-27b-decode-gate-up-down-cooperative-fusion-static-rejection.json",
+    "activation_cache_record": "qwen36-27b-fp8-m1-qkv-z-activation-staged-rejection.json",
+    "down_flow_record": "qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json",
+    "parent_traffic_audit": "qwen36-27b-decode-non-mtp-global-traffic-state-audit.json"
+  },
+  "boundary_inventory": [
+    {
+      "boundary": "QKV_to_causal_conv",
+      "layers": 48,
+      "tensor": "QKV BF16",
+      "tensor_bytes_per_layer": 20480,
+      "publication_and_read_bytes_per_layer": 40960,
+      "publication_and_read_bytes_per_token": 1966080,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.011874825,
+      "observed_gpu_gap_ms_per_token_approx": 0.0654,
+      "optimistic_combined_ceiling_ms_per_token_approx": 0.077275
+    },
+    {
+      "boundary": "causal_conv_to_GDN",
+      "layers": 48,
+      "tensor": "convolved QKV BF16",
+      "tensor_bytes_per_layer": 20480,
+      "publication_and_read_bytes_per_layer": 40960,
+      "publication_and_read_bytes_per_token": 1966080,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.011874825,
+      "observed_gpu_gap_ms_per_token_approx": 0.065,
+      "optimistic_combined_ceiling_ms_per_token_approx": 0.076875
+    },
+    {
+      "boundary": "projection_Z_A_B_to_GDN",
+      "layers": 48,
+      "tensor": "Z plus A plus B BF16",
+      "tensor_bytes_per_layer": 12480,
+      "publication_and_read_bytes_per_layer": 24960,
+      "publication_and_read_bytes_per_token": 1198080,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.007236222
+    },
+    {
+      "boundary": "GDN_to_O_projection",
+      "layers": 48,
+      "tensor": "gated output BF16",
+      "tensor_bytes_per_layer": 12288,
+      "publication_and_read_bytes_per_layer": 24576,
+      "publication_and_read_bytes_per_token": 1179648,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.007124895,
+      "observed_gpu_gap_ms_per_token_approx": 0.065
+    },
+    {
+      "boundary": "O_projection_to_gate_up",
+      "layers": 64,
+      "tensor": "attention output BF16",
+      "tensor_bytes_per_layer": 10240,
+      "publication_and_read_bytes_per_layer": 20480,
+      "publication_and_read_bytes_per_token": 1310720,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.00791655,
+      "observed_gpu_gap_ms_per_token_approx": 0.0859,
+      "optimistic_combined_ceiling_ms_per_token_approx": 0.093817
+    },
+    {
+      "boundary": "gate_up_to_down",
+      "layers": 64,
+      "tensor": "gated activation BF16",
+      "tensor_bytes_per_layer": 34816,
+      "logical_write_plus_32_CTA_reads_bytes_per_layer": 1148928,
+      "logical_request_bytes_per_token": 73531392,
+      "eliminable_global_bytes": 0,
+      "observed_gpu_gap_ms_per_token": 0.0857856,
+      "reason": "The 32 down CTAs require an all-to-all activation broadcast. Fusion still needs global publication plus a cooperative grid barrier; register or CTA-shared retention cannot cross CTAs."
+    },
+    {
+      "boundary": "gate_up_residual_to_down",
+      "layers": 64,
+      "tensor": "residual BF16",
+      "tensor_bytes_per_layer": 10240,
+      "publication_and_read_bytes_per_token": 1310720,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.00791655
+    },
+    {
+      "boundary": "down_internal_dead_raw",
+      "layers": 64,
+      "tensor": "dead raw down output BF16",
+      "write_only_bytes_per_token": 655360,
+      "traffic_ceiling_ms_at_165_567067_GBps": 0.003958275
+    },
+    {
+      "boundary": "down_to_next_layer_projections",
+      "layers": 63,
+      "tensor": "normalized BF16 activation",
+      "logical_request_bytes_per_token": 2570076160,
+      "observed_gpu_gap_ms_per_token_approx": 0.085,
+      "cache_evidence": "For production QKV/Z, 41,943,040 activation request bytes have only 181,120 inferred miss bytes, or 99.568176 percent L1 hit. The large logical request count is not a DRAM-saving ceiling."
+    }
+  ],
+  "non_additivity": {
+    "two_linear_boundaries_impossible_extreme_ms_per_token_approx": 0.15415,
+    "interpretation": "Even adding both QKV-to-conv and conv-to-GDN gap-plus-traffic ceilings remains below 0.30 ms/token. Wider sums are not a credible candidate because they double-count adjacent gaps and require one mega-kernel to combine incompatible 1536x256, 40x256, 32x512, and 1024x256 topologies while still publishing all-to-all data globally."
+  },
+  "closed_implementations": [
+    {"family": "QKV plus causal-conv epilogue", "result": "0.800019x and -5.38834 ms/token"},
+    {"family": "O to prerounded residual to Gate/Up", "result": "0.994944x and -0.235329 ms/token"},
+    {"family": "O CTA512 shared activation", "result": "0.915945x"},
+    {"family": "O resident grid64", "result": "0.967290x"},
+    {"family": "Gate/Up plus Down cooperative fusion", "result": "0.0857856-ms/token static ceiling"},
+    {"family": "Down dead-raw elimination", "result": "0.999333x and -0.013344 ms/token"},
+    {"family": "QKV/Z shared activation staging", "result": "0.913426x actual and 0.905513x stress"},
+    {"family": "Down transaction/layout idealization", "result": "0.157985-ms/token impossible combined ceiling"},
+    {"family": "GDN transient-register and transposed/native encoder", "result": "rejected by actual cold-state screens"}
+  ],
+  "decision": {
+    "result": "reject_without_implementation",
+    "reason": "No remaining single cross-kernel boundary has a credible 0.30-ms/token ceiling. The best ordinary boundaries are below about 0.095 ms/token, and the two adjacent linear boundaries remain below about 0.155 ms/token under impossible additive assumptions.",
+    "generic_fusion_reopened": false,
+    "mega_kernel_recommended": false,
+    "candidate_source_created": false,
+    "production_changed": false,
+    "formal_anchor_changed": false,
+    "next_priority": "Return to the incremental global-traffic ranking for a payload or algorithmic mechanism whose independently measured or zero-code ceiling exceeds 0.30 ms/token; do not restore any closed fusion family."
+  },
+  "claim_limits": [
+    "Observed GPU gaps are trace-specific upper bounds, not universal CUDA launch overhead constants.",
+    "Logical activation request bytes that hit L1 are not counted as eliminable DRAM traffic.",
+    "Isolated boundary ceilings cannot be summed across a hypothetical mega-kernel without double counting and topology costs.",
+    "No MTP, multi-request overlap, buffering, or Prefill work is included."
+  ]
+}
