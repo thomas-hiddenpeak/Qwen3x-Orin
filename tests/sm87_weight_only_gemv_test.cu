@@ -1154,6 +1154,19 @@ query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_raw_weight_cp_async_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -5979,6 +5992,20 @@ decode_gate_up_silu_table_performance_enabled() noexcept {
 [[nodiscard]] bool nvfp4_m64_down_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_M64_DOWN_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m64_gate_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M64_GATE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool nvfp4_m64_gate_up_pair_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_M64_GATE_UP_PAIR_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -26229,13 +26256,14 @@ void run_nvfp4_m32_candidate_smoke(
               label + " captures exactly one direct CUDA kernel node");
 }
 
-void run_nvfp4_m64_down_candidate_smoke(
+void run_nvfp4_m64_candidate_smoke(
     TestContext& test, cudaStream_t stream,
     const DeviceBuffer<std::uint8_t>& packed,
     const std::uint8_t* const scales,
     const DeviceBuffer<std::uint16_t>& activations,
     const std::size_t rows, const std::size_t columns,
-    const float weight_scale_2, const std::string& label) {
+    const float weight_scale_2, const NvFp4M32TestLaunch launch,
+    const std::string& label) {
   constexpr std::size_t kTokenCount = 64U;
   constexpr std::size_t kHalfTokenCount = 32U;
   constexpr std::size_t kGuardElements = 64U;
@@ -26288,10 +26316,8 @@ void run_nvfp4_m64_down_candidate_smoke(
     return status;
   };
   const auto launch_m64 = [&](std::uint16_t* const output) noexcept {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
-            packed.get(), scales, weight_scale_2, activations.get(), rows,
-            columns, output, static_cast<void*>(stream));
+    return launch(packed.get(), scales, weight_scale_2, activations.get(),
+                  rows, columns, output, static_cast<void*>(stream));
   };
   ready = test.cuda_ok(static_cast<cudaError_t>(launch_two_m32()),
                        label + " launch two production M32 baseline");
@@ -26365,9 +26391,7 @@ void run_nvfp4_m64_down_candidate_smoke(
   }
 
   const NvFp4M32CapturedKernel captured = capture_nvfp4_m32_kernel(
-      test, stream,
-      q3x::kernels::
-          launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda,
+      test, stream, launch,
       packed.get(), scales, weight_scale_2, activations.get(), rows, columns,
       candidate_output, label + " graph");
   const bool graph_gate = captured.valid && captured.grid.x == rows / 128U &&
@@ -26376,7 +26400,7 @@ void run_nvfp4_m64_down_candidate_smoke(
   const bool gate = baseline_mismatches == 0U && replay_mismatches == 0U &&
                     output_finite && guards_intact &&
                     panel_boundaries_exact && graph_gate;
-  std::cout << "NVFP4_M64_DOWN_SMOKE: " << label
+  std::cout << "NVFP4_M64_SMOKE: " << label
             << " candidate_vs_two_m32_mismatches=" << baseline_mismatches
             << '/' << output_elements
             << " replay_mismatches=" << replay_mismatches << '/'
@@ -26579,8 +26603,7 @@ void run_nvfp4_m32_wmma_smoke_case(
     const NvFp4M1ScaleDistribution scale_distribution,
     const std::string& label) {
   constexpr std::size_t kTokens = 32U;
-  const std::size_t fixture_tokens =
-      rows == 5'120U && columns == 17'408U ? 64U : kTokens;
+  constexpr std::size_t fixture_tokens = 64U;
   constexpr std::size_t kPanelTokens = 16U;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   const std::size_t packed_columns = columns / 2U;
@@ -26810,10 +26833,19 @@ void run_nvfp4_m32_wmma_smoke_case(
       q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda,
       0x69U, 0x96U, distribution_label + " public production M32");
   if (rows == 5'120U && columns == 17'408U) {
-    run_nvfp4_m64_down_candidate_smoke(
+    run_nvfp4_m64_candidate_smoke(
         test, stream, packed, scales, activations, rows, columns,
         kWeightScale2,
+        q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda,
         distribution_label + " K64/LD72 table-free quad-A M64");
+  } else if (rows == 17'408U && columns == 5'120U) {
+    run_nvfp4_m64_candidate_smoke(
+        test, stream, packed, scales, activations, rows, columns,
+        kWeightScale2,
+        q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda,
+        distribution_label + " K64/LD72 table-free quad-A M64 gate");
   }
 }
 
@@ -26974,6 +27006,36 @@ void run_nvfp4_m32_wmma_resource_gates(TestContext& test) {
             << " gate=" << (m64_gate ? "PASS" : "FAIL") << '\n';
   test.expect(m64_gate,
               "NVFP4 M64 down quad-A clears its resource gate");
+
+  registers_per_thread = -1;
+  static_shared_bytes = std::numeric_limits<std::size_t>::max();
+  local_bytes = std::numeric_limits<std::size_t>::max();
+  maximum_threads_per_block = -1;
+  active_blocks_per_sm = -1;
+  const cudaError_t gate_status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+              17'408U, 5'120U, &registers_per_thread,
+              &static_shared_bytes, &local_bytes,
+              &maximum_threads_per_block, &active_blocks_per_sm));
+  const bool m64_gate_shape_resource_gate =
+      gate_status == cudaSuccess && registers_per_thread <= 80 &&
+      static_shared_bytes == 23'552U && local_bytes == 0U &&
+      maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  std::cout << "NVFP4_M64_GATE_RESOURCES: status="
+            << static_cast<int>(gate_status)
+            << " registers=" << registers_per_thread
+            << " maximum_registers=80"
+            << " static_shared_bytes=" << static_shared_bytes
+            << " expected_static_shared_bytes=23552"
+            << " local_bytes=" << local_bytes
+            << " maximum_threads_per_block=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " minimum_active_blocks=3"
+            << " gate="
+            << (m64_gate_shape_resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(m64_gate_shape_resource_gate,
+              "NVFP4 M64 gate quad-A clears its resource gate");
 }
 
 void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
@@ -27169,6 +27231,108 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
         resource_null == static_cast<int>(cudaErrorInvalidValue);
     const bool contract = launch_contract && resource_contract;
     std::cout << "NVFP4_M64_DOWN_INVALID_GRAPH: invalid_launches="
+              << statuses.size() << " total_nodes=" << node_count
+              << " resource_near_miss_status=" << resource_near_miss
+              << " resource_null_status=" << resource_null
+              << " gate=" << (contract ? "PASS" : "FAIL") << '\n';
+    test.expect(contract,
+                label + " rejects invalid launches and resource queries");
+  }
+
+  {
+    constexpr std::size_t kM64Rows = 17'408U;
+    constexpr std::size_t kM64Columns = 5'120U;
+    constexpr std::uintptr_t kPackedAddress = 0x5'0000'0000ULL;
+    constexpr std::uintptr_t kScaleAddress = 0x6'0000'0000ULL;
+    constexpr std::uintptr_t kActivationAddress = 0x7'0000'0000ULL;
+    const auto* const gate_packed =
+        reinterpret_cast<const std::uint8_t*>(kPackedAddress);
+    const auto* const gate_scales =
+        reinterpret_cast<const std::uint8_t*>(kScaleAddress);
+    const auto* const gate_activations =
+        reinterpret_cast<const std::uint16_t*>(kActivationAddress);
+    auto* const gate_output =
+        reinterpret_cast<std::uint16_t*>(0x8'0000'0000ULL);
+    auto* const overlapping_output = reinterpret_cast<std::uint16_t*>(
+        kActivationAddress + 32U * kM64Columns * sizeof(std::uint16_t));
+    const std::string label =
+        "NVFP4 test-only M64 gate invalid capture";
+    const NvFp4M32TestLaunch launch =
+        q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda;
+    cudaGraph_t graph = nullptr;
+    bool ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        label + " begin");
+    std::array<int, 8U> statuses{};
+    if (ready) {
+      statuses = {
+          launch(nullptr, gate_scales, 1.0F, gate_activations, kM64Rows,
+                 kM64Columns, gate_output, static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales,
+                 std::numeric_limits<float>::quiet_NaN(), gate_activations,
+                 kM64Rows, kM64Columns, gate_output,
+                 static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales, -1.0F, gate_activations,
+                 kM64Rows, kM64Columns, gate_output,
+                 static_cast<void*>(stream)),
+          launch(gate_packed + 1U, gate_scales, 1.0F, gate_activations,
+                 kM64Rows, kM64Columns, gate_output,
+                 static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales, 1.0F,
+                 reinterpret_cast<const std::uint16_t*>(
+                     kActivationAddress + sizeof(std::uint16_t)),
+                 kM64Rows, kM64Columns, gate_output,
+                 static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales, 1.0F, gate_activations,
+                 kM64Rows, kM64Columns,
+                 reinterpret_cast<std::uint16_t*>(0x8'0000'0001ULL),
+                 static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales, 1.0F, gate_activations,
+                 kM64Rows - 1U, kM64Columns, gate_output,
+                 static_cast<void*>(stream)),
+          launch(gate_packed, gate_scales, 1.0F, gate_activations,
+                 kM64Rows, kM64Columns, overlapping_output,
+                 static_cast<void*>(stream)),
+      };
+      ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " end") &&
+              ready;
+    }
+    std::size_t node_count = 0U;
+    if (ready) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           label + " query nodes") &&
+              ready;
+    }
+    if (graph != nullptr) {
+      ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") &&
+              ready;
+    }
+    int registers = -1;
+    std::size_t shared = 0U;
+    std::size_t local = 0U;
+    int maximum_threads = -1;
+    int active_blocks = -1;
+    const int resource_near_miss =
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kM64Rows - 1U, kM64Columns, &registers, &shared, &local,
+                &maximum_threads, &active_blocks);
+    const int resource_null =
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kM64Rows, kM64Columns, nullptr, &shared, &local,
+                &maximum_threads, &active_blocks);
+    const bool contract =
+        ready &&
+        std::all_of(statuses.begin(), statuses.end(), [](const int status) {
+          return status == static_cast<int>(cudaErrorInvalidValue);
+        }) &&
+        node_count == 0U &&
+        resource_near_miss == static_cast<int>(cudaErrorInvalidValue) &&
+        resource_null == static_cast<int>(cudaErrorInvalidValue);
+    std::cout << "NVFP4_M64_GATE_INVALID_GRAPH: invalid_launches="
               << statuses.size() << " total_nodes=" << node_count
               << " resource_near_miss_status=" << resource_near_miss
               << " resource_null_status=" << resource_null
@@ -27750,12 +27914,13 @@ constexpr std::array<NvFp4M1ScaleDistribution, 2U>
         NvFp4M1ScaleDistribution::kSameBankStress,
     }};
 
-void run_nvfp4_m64_down_performance(TestContext& test,
-                                     cudaStream_t stream) {
+void run_nvfp4_m64_projection_performance(TestContext& test,
+                                           cudaStream_t stream,
+                                           const bool gate_shape) {
   constexpr std::size_t kTokens = 64U;
   constexpr std::size_t kHalfTokens = 32U;
-  constexpr std::size_t kRows = 5'120U;
-  constexpr std::size_t kColumns = 17'408U;
+  const std::size_t kRows = gate_shape ? 17'408U : 5'120U;
+  const std::size_t kColumns = gate_shape ? 5'120U : 17'408U;
   constexpr float kWeightScale2 = 1.0F / 64.0F;
   constexpr int kWarmupPairs = 10;
   constexpr int kMeasuredIterations = 24;
@@ -27763,11 +27928,26 @@ void run_nvfp4_m64_down_performance(TestContext& test,
   constexpr double kMinimumCellSpeedup = 1.10;
   constexpr double kMinimumAggregateSpeedup = 1.15;
   constexpr double kMinimumRoundSpeedup = 1.0;
-  constexpr std::size_t kPackedColumns = kColumns / 2U;
-  constexpr std::size_t kScaleColumns = kColumns / 16U;
-  constexpr std::size_t kOutputElements = kTokens * kRows;
-  const std::string label =
-      "NVFP4 M64 down 5120x17408 table-free quad-A";
+  const std::size_t kPackedColumns = kColumns / 2U;
+  const std::size_t kScaleColumns = kColumns / 16U;
+  const std::size_t kOutputElements = kTokens * kRows;
+  const std::string label = gate_shape
+                                ? "NVFP4 M64 gate/up 17408x5120 table-free quad-A"
+                                : "NVFP4 M64 down 5120x17408 table-free quad-A";
+  const char* const metric =
+      gate_shape ? "NVFP4_M64_GATE" : "NVFP4_M64_DOWN";
+  const auto candidate_launcher =
+      gate_shape
+          ? q3x::kernels::
+                launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda
+          : q3x::kernels::
+                launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda;
+  const auto resource_query =
+      gate_shape
+          ? q3x::kernels::
+                query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda
+          : q3x::kernels::
+                query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda;
 
   int registers_per_thread = -1;
   std::size_t static_shared_bytes =
@@ -27775,17 +27955,14 @@ void run_nvfp4_m64_down_performance(TestContext& test,
   std::size_t local_bytes = std::numeric_limits<std::size_t>::max();
   int maximum_threads_per_block = -1;
   int active_blocks_per_sm = -1;
-  const cudaError_t resource_status = static_cast<cudaError_t>(
-      q3x::kernels::
-          query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
-              kRows, kColumns, &registers_per_thread, &static_shared_bytes,
-              &local_bytes, &maximum_threads_per_block,
-              &active_blocks_per_sm));
+  const cudaError_t resource_status = static_cast<cudaError_t>(resource_query(
+      kRows, kColumns, &registers_per_thread, &static_shared_bytes,
+      &local_bytes, &maximum_threads_per_block, &active_blocks_per_sm));
   const bool resource_gate =
       resource_status == cudaSuccess && registers_per_thread <= 80 &&
       static_shared_bytes == 23'552U && local_bytes == 0U &&
       maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
-  std::cout << "NVFP4_M64_DOWN_PERF_RESOURCES: status="
+  std::cout << metric << "_PERF_RESOURCES: status="
             << static_cast<int>(resource_status)
             << " registers=" << registers_per_thread
             << " shared=" << static_shared_bytes
@@ -27871,11 +28048,10 @@ void run_nvfp4_m64_down_performance(TestContext& test,
     return status;
   };
   const auto launch_candidate = [&]() noexcept {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
-            packed.get(), scales.get(), kWeightScale2, activations.get(),
-            kRows, kColumns, candidate_output.get(),
-            static_cast<void*>(stream));
+    return candidate_launcher(packed.get(), scales.get(), kWeightScale2,
+                              activations.get(), kRows, kColumns,
+                              candidate_output.get(),
+                              static_cast<void*>(stream));
   };
 
   std::vector<std::uint16_t> host_baseline(kOutputElements);
@@ -27933,15 +28109,13 @@ void run_nvfp4_m64_down_performance(TestContext& test,
                       std::isfinite(decode_bf16(host_candidate[index]));
     }
     const NvFp4M32CapturedKernel graph = capture_nvfp4_m32_kernel(
-        test, stream,
-        q3x::kernels::
-            launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda,
+        test, stream, candidate_launcher,
         packed.get(), scales.get(), kWeightScale2, activations.get(), kRows,
         kColumns, candidate_output.get(), cell_label + " graph");
     const bool correctness_gate =
         mismatches == 0U && output_finite && graph.valid &&
         graph.grid.x == kRows / 128U && graph.block.x == 256U;
-    std::cout << "NVFP4_M64_DOWN_PERF_DIFF: distribution="
+    std::cout << metric << "_PERF_DIFF: distribution="
               << distribution_name << " mismatches=" << mismatches << '/'
               << kOutputElements
               << " output_finite=" << (output_finite ? "true" : "false")
@@ -28006,7 +28180,7 @@ void run_nvfp4_m64_down_performance(TestContext& test,
         minimum_round_speedup =
             std::min(minimum_round_speedup, round_speedup);
       }
-      std::cout << "PERF_NVFP4_M64_DOWN_ROUND: distribution="
+      std::cout << "PERF_" << metric << "_ROUND: distribution="
                 << distribution_name << " round=" << round + 1
                 << " order=B-C-C-B"
                 << " iterations=" << kMeasuredIterations
@@ -28031,7 +28205,7 @@ void run_nvfp4_m64_down_performance(TestContext& test,
         std::isfinite(cell_speedup) &&
         cell_speedup >= kMinimumCellSpeedup;
     all_cells_pass = all_cells_pass && cell_gate;
-    std::cout << "PERF_NVFP4_M64_DOWN_CELL: distribution="
+    std::cout << "PERF_" << metric << "_CELL: distribution="
               << distribution_name
               << " baseline_two_m32_ms="
               << baseline_milliseconds[distribution_index]
@@ -28056,7 +28230,8 @@ void run_nvfp4_m64_down_performance(TestContext& test,
   const bool promotion_gate =
       all_cells_pass && std::isfinite(aggregate_speedup) &&
       aggregate_speedup >= kMinimumAggregateSpeedup;
-  std::cout << "PERF_NVFP4_M64_DOWN_AGGREGATE: baseline_two_m32_ms="
+  std::cout << "PERF_" << metric
+            << "_AGGREGATE: baseline_two_m32_ms="
             << aggregate_baseline
             << " candidate_m64_ms=" << aggregate_candidate
             << " speedup=" << aggregate_speedup
@@ -28066,6 +28241,444 @@ void run_nvfp4_m64_down_performance(TestContext& test,
             << (promotion_gate ? "PASS" : "FAIL") << '\n';
   test.expect(promotion_gate,
               label + " clears the aggregate promotion gate");
+}
+
+void run_nvfp4_m64_gate_up_pair_performance(TestContext& test,
+                                             cudaStream_t stream) {
+  constexpr std::size_t kTokens = 64U;
+  constexpr std::size_t kHalfTokens = 32U;
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kOutputElements = kTokens * kRows;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmupPairs = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 6;
+  // The current P513 Gate/Up union is 1,231.372 ms inside a 4,376.232-ms
+  // Prefix range.  A 1.12x pair envelope is the minimum rounded micro gate
+  // that can support the later 1.03x full-Prefix admission threshold.
+  constexpr double kMinimumCellSpeedup = 1.10;
+  constexpr double kMinimumAggregateSpeedup = 1.12;
+  constexpr double kMinimumRoundSpeedup = 1.0;
+  const std::string label =
+      "NVFP4 C64 gate/up dual-stream M64 pair envelope";
+
+  int registers_per_thread = -1;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads_per_block = -1;
+  int active_blocks_per_sm = -1;
+  const cudaError_t resource_status = static_cast<cudaError_t>(
+      q3x::kernels::
+          query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+              kRows, kColumns, &registers_per_thread, &static_shared_bytes,
+              &local_bytes, &maximum_threads_per_block,
+              &active_blocks_per_sm));
+  const bool resource_gate =
+      resource_status == cudaSuccess && registers_per_thread <= 80 &&
+      static_shared_bytes == 23'552U && local_bytes == 0U &&
+      maximum_threads_per_block == 256 && active_blocks_per_sm >= 3;
+  std::cout << "NVFP4_M64_GATE_UP_PAIR_RESOURCES: status="
+            << static_cast<int>(resource_status)
+            << " registers=" << registers_per_thread
+            << " shared=" << static_shared_bytes
+            << " local=" << local_bytes
+            << " maximum_threads=" << maximum_threads_per_block
+            << " active_blocks_per_sm=" << active_blocks_per_sm
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(resource_gate, label + " clears the M64 resource gate");
+  if (!resource_gate) {
+    return;
+  }
+
+  std::vector<std::uint8_t> host_gate_packed(kRows * kPackedColumns);
+  std::vector<std::uint8_t> host_up_packed(host_gate_packed.size());
+  for (std::size_t index = 0U; index < host_gate_packed.size(); ++index) {
+    const std::uint8_t low = static_cast<std::uint8_t>(
+        (index * 3U + (index >> 5U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>(
+        (index * 5U + (index >> 7U) * 3U + 7U) & 0x0fU);
+    host_gate_packed[index] =
+        static_cast<std::uint8_t>(low | (high << 4U));
+    host_up_packed[index] = static_cast<std::uint8_t>(
+        (low ^ 0x09U) | ((high ^ 0x05U) << 4U));
+  }
+  std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
+  std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
+  std::vector<std::uint16_t> host_activations(kTokens * kColumns);
+  for (std::size_t token = 0U; token < kTokens; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered =
+          static_cast<int>((column * 17U + token * 19U + 5U) % 127U) - 63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed;
+  DeviceBuffer<std::uint8_t> up_packed;
+  DeviceBuffer<std::uint8_t> gate_scales;
+  DeviceBuffer<std::uint8_t> up_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_gate_output;
+  DeviceBuffer<std::uint16_t> baseline_up_output;
+  DeviceBuffer<std::uint16_t> candidate_gate_output;
+  DeviceBuffer<std::uint16_t> candidate_up_output;
+  bool ready = test.cuda_ok(gate_packed.allocate(host_gate_packed.size()),
+                            label + " allocate gate weights");
+  ready = ready && test.cuda_ok(up_packed.allocate(host_up_packed.size()),
+                                label + " allocate up weights");
+  ready = ready && test.cuda_ok(gate_scales.allocate(host_gate_scales.size()),
+                                label + " allocate gate scales");
+  ready = ready && test.cuda_ok(up_scales.allocate(host_up_scales.size()),
+                                label + " allocate up scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_gate_output.allocate(kOutputElements),
+                                label + " allocate baseline gate output");
+  ready = ready && test.cuda_ok(baseline_up_output.allocate(kOutputElements),
+                                label + " allocate baseline up output");
+  ready = ready && test.cuda_ok(candidate_gate_output.allocate(kOutputElements),
+                                label + " allocate candidate gate output");
+  ready = ready && test.cuda_ok(candidate_up_output.allocate(kOutputElements),
+                                label + " allocate candidate up output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(gate_packed.get(),
+                                       host_gate_packed.data(),
+                                       host_gate_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload gate weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                                       host_up_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload up weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  if (!ready) {
+    return;
+  }
+
+  cudaStream_t auxiliary_stream = nullptr;
+  cudaEvent_t inputs_ready = nullptr;
+  cudaEvent_t auxiliary_done = nullptr;
+  ready = test.cuda_ok(
+      cudaStreamCreateWithFlags(&auxiliary_stream, cudaStreamNonBlocking),
+      label + " create auxiliary stream");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&inputs_ready,
+                                                cudaEventDisableTiming),
+                       label + " create input-ready event");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&auxiliary_done,
+                                                cudaEventDisableTiming),
+                       label + " create auxiliary-done event");
+  if (!ready) {
+    if (inputs_ready != nullptr) {
+      (void)cudaEventDestroy(inputs_ready);
+    }
+    if (auxiliary_done != nullptr) {
+      (void)cudaEventDestroy(auxiliary_done);
+    }
+    if (auxiliary_stream != nullptr) {
+      (void)cudaStreamDestroy(auxiliary_stream);
+    }
+    return;
+  }
+
+  const auto launch_two_m32 =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scales, std::uint16_t* const output,
+          cudaStream_t const launch_stream) noexcept {
+        int status =
+            q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+                packed, scales, kWeightScale2, activations.get(), kRows,
+                kColumns, output, static_cast<void*>(launch_stream));
+        if (status == static_cast<int>(cudaSuccess)) {
+          status =
+              q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+                  packed, scales, kWeightScale2,
+                  activations.get() + kHalfTokens * kColumns, kRows,
+                  kColumns, output + kHalfTokens * kRows,
+                  static_cast<void*>(launch_stream));
+        }
+        return status;
+      };
+  const auto launch_m64 =
+      [&](const std::uint8_t* const packed,
+          const std::uint8_t* const scales, std::uint16_t* const output,
+          cudaStream_t const launch_stream) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+                packed, scales, kWeightScale2, activations.get(), kRows,
+                kColumns, output, static_cast<void*>(launch_stream));
+      };
+  const auto begin_pair = [&]() noexcept {
+    cudaError_t status = cudaEventRecord(inputs_ready, stream);
+    if (status == cudaSuccess) {
+      status = cudaStreamWaitEvent(auxiliary_stream, inputs_ready, 0U);
+    }
+    return static_cast<int>(status);
+  };
+  const auto finish_pair = [&]() noexcept {
+    cudaError_t status = cudaEventRecord(auxiliary_done, auxiliary_stream);
+    if (status == cudaSuccess) {
+      status = cudaStreamWaitEvent(stream, auxiliary_done, 0U);
+    }
+    return static_cast<int>(status);
+  };
+  const auto launch_baseline = [&]() noexcept {
+    int status = begin_pair();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    status = launch_two_m32(gate_packed.get(), gate_scales.get(),
+                            baseline_gate_output.get(), stream);
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_two_m32(up_packed.get(), up_scales.get(),
+                              baseline_up_output.get(), auxiliary_stream);
+    }
+    const int join_status = finish_pair();
+    return status == static_cast<int>(cudaSuccess) ? join_status : status;
+  };
+  const auto launch_candidate = [&]() noexcept {
+    int status = begin_pair();
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    status = launch_m64(gate_packed.get(), gate_scales.get(),
+                        candidate_gate_output.get(), stream);
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = launch_m64(up_packed.get(), up_scales.get(),
+                          candidate_up_output.get(), auxiliary_stream);
+    }
+    const int join_status = finish_pair();
+    return status == static_cast<int>(cudaSuccess) ? join_status : status;
+  };
+
+  std::vector<std::uint16_t> baseline_gate(kOutputElements);
+  std::vector<std::uint16_t> baseline_up(kOutputElements);
+  std::vector<std::uint16_t> candidate_gate(kOutputElements);
+  std::vector<std::uint16_t> candidate_up(kOutputElements);
+  std::array<double, kNvFp4M16K128ScaleDistributions.size()>
+      baseline_milliseconds{};
+  std::array<double, kNvFp4M16K128ScaleDistributions.size()>
+      candidate_milliseconds{};
+  bool all_cells_pass = ready;
+  for (std::size_t distribution_index = 0U;
+       distribution_index < kNvFp4M16K128ScaleDistributions.size();
+       ++distribution_index) {
+    const NvFp4M1ScaleDistribution distribution =
+        kNvFp4M16K128ScaleDistributions[distribution_index];
+    const std::string distribution_name =
+        nvfp4_m1_scale_distribution_name(distribution);
+    const std::string cell_label = label + " " + distribution_name;
+    fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
+                                     distribution);
+    host_up_scales = host_gate_scales;
+    std::rotate(host_up_scales.begin(),
+                host_up_scales.begin() +
+                    static_cast<std::ptrdiff_t>(kScaleColumns),
+                host_up_scales.end());
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        cell_label + " upload gate scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             up_scales.get(), host_up_scales.data(),
+                             host_up_scales.size(), cudaMemcpyHostToDevice,
+                             stream),
+                         cell_label + " upload up scales");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " upload synchronize");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_baseline()),
+                         cell_label + " launch baseline pair");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         cell_label + " launch candidate pair");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline_gate.data(), baseline_gate_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy baseline gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             baseline_up.data(), baseline_up_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy baseline up");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_gate.data(),
+                             candidate_gate_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy candidate gate");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             candidate_up.data(), candidate_up_output.get(),
+                             kOutputElements * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         cell_label + " copy candidate up");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " correctness synchronize");
+    if (!ready) {
+      break;
+    }
+
+    std::size_t gate_mismatches = 0U;
+    std::size_t up_mismatches = 0U;
+    bool output_finite = true;
+    for (std::size_t index = 0U; index < kOutputElements; ++index) {
+      gate_mismatches += baseline_gate[index] != candidate_gate[index] ? 1U
+                                                                      : 0U;
+      up_mismatches += baseline_up[index] != candidate_up[index] ? 1U : 0U;
+      output_finite =
+          output_finite && std::isfinite(decode_bf16(candidate_gate[index])) &&
+          std::isfinite(decode_bf16(candidate_up[index]));
+    }
+    const bool correctness_gate = gate_mismatches == 0U &&
+                                  up_mismatches == 0U && output_finite;
+    std::cout << "NVFP4_M64_GATE_UP_PAIR_DIFF: distribution="
+              << distribution_name << " gate_mismatches=" << gate_mismatches
+              << '/' << kOutputElements << " up_mismatches=" << up_mismatches
+              << '/' << kOutputElements
+              << " output_finite=" << (output_finite ? "true" : "false")
+              << " gate=" << (correctness_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(correctness_gate,
+                cell_label + " is bit-exact and finite for both branches");
+
+    for (int pair = 0; pair < kWarmupPairs && ready; ++pair) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                           cell_label + " baseline warmup");
+      ready = ready && test.cuda_ok(
+                           static_cast<cudaError_t>(launch_candidate()),
+                           cell_label + " candidate warmup");
+    }
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell_label + " warmup synchronize");
+    if (!ready) {
+      break;
+    }
+
+    double baseline_total = 0.0;
+    double candidate_total = 0.0;
+    double minimum_round_speedup =
+        std::numeric_limits<double>::infinity();
+    bool all_rounds_pass = true;
+    for (int round = 0; round < kMeasurementRounds; ++round) {
+      const std::string round_label =
+          cell_label + " round=" + std::to_string(round + 1);
+      const float baseline_first = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B1");
+      const float candidate_first = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C1");
+      const float candidate_second = measure_small_m_tile(
+          test, stream, launch_candidate, kMeasuredIterations,
+          round_label + " C2");
+      const float baseline_second = measure_small_m_tile(
+          test, stream, launch_baseline, kMeasuredIterations,
+          round_label + " B2");
+      const bool finite =
+          std::isfinite(baseline_first) &&
+          std::isfinite(candidate_first) &&
+          std::isfinite(candidate_second) &&
+          std::isfinite(baseline_second) && baseline_first > 0.0F &&
+          candidate_first > 0.0F && candidate_second > 0.0F &&
+          baseline_second > 0.0F;
+      const double round_speedup =
+          finite ? (static_cast<double>(baseline_first) + baseline_second) /
+                       (static_cast<double>(candidate_first) +
+                        candidate_second)
+                 : std::numeric_limits<double>::quiet_NaN();
+      const bool round_gate = finite && round_speedup >= kMinimumRoundSpeedup;
+      all_rounds_pass = all_rounds_pass && round_gate;
+      if (finite) {
+        baseline_total += baseline_first + baseline_second;
+        candidate_total += candidate_first + candidate_second;
+        minimum_round_speedup =
+            std::min(minimum_round_speedup, round_speedup);
+      }
+      std::cout << "PERF_NVFP4_M64_GATE_UP_PAIR_ROUND: distribution="
+                << distribution_name << " round=" << round + 1
+                << " order=B-C-C-B iterations=" << kMeasuredIterations
+                << " baseline1_ms=" << baseline_first
+                << " candidate1_ms=" << candidate_first
+                << " candidate2_ms=" << candidate_second
+                << " baseline2_ms=" << baseline_second
+                << " speedup=" << round_speedup
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    constexpr double kTimedPasses =
+        2.0 * static_cast<double>(kMeasurementRounds);
+    baseline_milliseconds[distribution_index] =
+        baseline_total / kTimedPasses;
+    candidate_milliseconds[distribution_index] =
+        candidate_total / kTimedPasses;
+    const double cell_speedup =
+        baseline_milliseconds[distribution_index] /
+        candidate_milliseconds[distribution_index];
+    const bool cell_gate = correctness_gate && all_rounds_pass &&
+                           std::isfinite(cell_speedup) &&
+                           cell_speedup >= kMinimumCellSpeedup;
+    all_cells_pass = all_cells_pass && cell_gate;
+    std::cout << "PERF_NVFP4_M64_GATE_UP_PAIR_CELL: distribution="
+              << distribution_name
+              << " baseline_two_m32_dual_stream_ms="
+              << baseline_milliseconds[distribution_index]
+              << " candidate_m64_dual_stream_ms="
+              << candidate_milliseconds[distribution_index]
+              << " speedup=" << cell_speedup
+              << " minimum_round_speedup=" << minimum_round_speedup
+              << " required_speedup=" << kMinimumCellSpeedup
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(cell_gate, cell_label + " clears the pair-envelope gate");
+  }
+
+  const double aggregate_baseline =
+      std::accumulate(baseline_milliseconds.begin(),
+                      baseline_milliseconds.end(), 0.0);
+  const double aggregate_candidate =
+      std::accumulate(candidate_milliseconds.begin(),
+                      candidate_milliseconds.end(), 0.0);
+  const double aggregate_speedup =
+      aggregate_baseline / aggregate_candidate;
+  const bool promotion_gate =
+      all_cells_pass && std::isfinite(aggregate_speedup) &&
+      aggregate_speedup >= kMinimumAggregateSpeedup;
+  std::cout << "PERF_NVFP4_M64_GATE_UP_PAIR_AGGREGATE: "
+            << "baseline_two_m32_dual_stream_ms=" << aggregate_baseline
+            << " candidate_m64_dual_stream_ms=" << aggregate_candidate
+            << " speedup=" << aggregate_speedup
+            << " required_speedup=" << kMinimumAggregateSpeedup
+            << " distributions=checkpoint_like:same_bank_stress"
+            << " promotion_gate=" << (promotion_gate ? "PASS" : "FAIL")
+            << '\n';
+  test.expect(promotion_gate,
+              label + " clears the aggregate pair promotion gate");
+
+  (void)test.cuda_ok(cudaStreamSynchronize(stream),
+                     label + " final primary synchronize");
+  (void)test.cuda_ok(cudaStreamSynchronize(auxiliary_stream),
+                     label + " final auxiliary synchronize");
+  (void)test.cuda_ok(cudaEventDestroy(inputs_ready),
+                     label + " destroy input-ready event");
+  (void)test.cuda_ok(cudaEventDestroy(auxiliary_done),
+                     label + " destroy auxiliary-done event");
+  (void)test.cuda_ok(cudaStreamDestroy(auxiliary_stream),
+                     label + " destroy auxiliary stream");
 }
 
 struct NvFp4M16K128DistributionMeasurement {
@@ -55443,16 +56056,32 @@ int main() {
                     "create non-blocking stream")) {
     return 1;
   }
-  if (nvfp4_m64_down_performance_enabled()) {
-    run_nvfp4_m64_down_performance(test, stream);
+  if (nvfp4_m64_gate_up_pair_performance_enabled()) {
+    run_nvfp4_m64_gate_up_pair_performance(test, stream);
     (void)test.cuda_ok(cudaStreamDestroy(stream),
-                       "destroy NVFP4 M64 down performance stream");
+                       "destroy NVFP4 M64 gate/up pair performance stream");
     if (test.failures() != 0) {
       std::cerr << test.failures()
-                << " NVFP4 M64 down assertion(s) failed\n";
+                << " NVFP4 M64 gate/up pair assertion(s) failed\n";
       return 1;
     }
-    std::cout << "NVFP4 M64 down fixed-frequency screen passed; "
+    std::cout << "NVFP4 M64 gate/up pair fixed-frequency screen passed; "
+                 "production dispatch is unchanged\n";
+    return 0;
+  }
+  if (nvfp4_m64_gate_performance_enabled() ||
+      nvfp4_m64_down_performance_enabled()) {
+    const bool gate_shape = nvfp4_m64_gate_performance_enabled();
+    run_nvfp4_m64_projection_performance(test, stream, gate_shape);
+    (void)test.cuda_ok(cudaStreamDestroy(stream),
+                       "destroy NVFP4 M64 projection performance stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " NVFP4 M64 projection assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4 M64 " << (gate_shape ? "gate/up" : "down")
+              << " fixed-frequency screen passed; "
                  "production dispatch is unchanged\n";
     return 0;
   }
