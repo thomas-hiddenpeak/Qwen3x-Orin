@@ -350,8 +350,9 @@ template <typename Launch>
 }
 
 template <typename Launch>
-void expect_invalid_capture_has_no_nodes(TestContext& test, Launch&& launch,
-                                         const std::string& label) {
+void expect_failed_capture_has_no_nodes(TestContext& test, Launch&& launch,
+                                        const cudaError_t expected_status,
+                                        const std::string& label) {
   cudaStream_t stream = nullptr;
   cudaGraph_t graph = nullptr;
   bool ready = test.cuda_ok(
@@ -362,9 +363,8 @@ void expect_invalid_capture_has_no_nodes(TestContext& test, Launch&& launch,
                                               cudaStreamCaptureModeGlobal),
                        "begin invalid capture " + label);
   if (ready) {
-    test.expect(static_cast<cudaError_t>(launch(stream)) ==
-                    cudaErrorInvalidValue,
-                label + " returns cudaErrorInvalidValue");
+    test.expect(static_cast<cudaError_t>(launch(stream)) == expected_status,
+                label + " returns " + cudaGetErrorName(expected_status));
     ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
                          "end invalid capture " + label);
   }
@@ -387,6 +387,21 @@ void expect_invalid_capture_has_no_nodes(TestContext& test, Launch&& launch,
     (void)test.cuda_ok(cudaStreamDestroy(stream),
                        "destroy invalid capture stream " + label);
   }
+}
+
+template <typename Launch>
+void expect_invalid_capture_has_no_nodes(TestContext& test, Launch&& launch,
+                                         const std::string& label) {
+  expect_failed_capture_has_no_nodes(test, std::forward<Launch>(launch),
+                                     cudaErrorInvalidValue, label);
+}
+
+template <typename Launch>
+void expect_not_supported_capture_has_no_nodes(TestContext& test,
+                                               Launch&& launch,
+                                               const std::string& label) {
+  expect_failed_capture_has_no_nodes(test, std::forward<Launch>(launch),
+                                     cudaErrorNotSupported, label);
 }
 
 [[nodiscard]] bool expect_output(TestContext& test,
@@ -1896,6 +1911,249 @@ void test_tile_routes(TestContext& test) {
             output.get(), static_cast<void*>(stream));
       },
       "SM87 NVFP4 M65 tile guard");
+}
+
+void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
+  constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr std::size_t kIntermediateSize = 17'408U;
+  constexpr std::size_t kM64Tokens = 64U;
+  const auto* const packed_weight =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const block_scale =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const companion_scales =
+      reinterpret_cast<const float*>(0x30'0000'0000ULL);
+  const auto* const hidden_input =
+      reinterpret_cast<const std::uint16_t*>(0x40'0000'0000ULL);
+  const auto* const intermediate_input =
+      reinterpret_cast<const std::uint16_t*>(0x50'0000'0000ULL);
+  auto* const intermediate_output =
+      reinterpret_cast<std::uint16_t*>(0x60'0000'0000ULL);
+  auto* const hidden_output =
+      reinterpret_cast<std::uint16_t*>(0x70'0000'0000ULL);
+
+  const runtime::LinearWeight gate_up = runtime::NvFp4LinearWeight{
+      packed_weight, block_scale, companion_scales, companion_scales + 1U,
+      1.0F, 1.0F, kIntermediateSize, kHiddenSize};
+  const runtime::LinearWeight down = runtime::NvFp4LinearWeight{
+      packed_weight, block_scale, companion_scales, companion_scales + 1U,
+      1.0F, 1.0F, kHiddenSize, kIntermediateSize};
+
+  test.expect(runtime::kMaximumProjectionTileTokenCount == kM64Tokens,
+              "whole-chunk entry leaves the generic projection cap at C64");
+
+  const auto expect_exact_grid =
+      [&](const runtime::LinearWeight& weight,
+          const std::uint16_t* const input, std::uint16_t* const output,
+          const std::size_t token_count, const bool gate_up_shape,
+          const std::string& label) {
+        const CapturedKernelChain dispatch = capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+                      runtime::ProjectionBackend::kSm87WeightOnly, weight,
+                      input, token_count, output,
+                      static_cast<void*>(stream));
+            },
+            label + " dispatch graph");
+        const CapturedKernelChain direct = capture_ordered_kernel_chain(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              if (gate_up_shape) {
+                return q3x::kernels::
+                    launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+                        packed_weight, block_scale, 1.0F, input, token_count,
+                        kIntermediateSize, kHiddenSize, output,
+                        static_cast<void*>(stream));
+              }
+              return q3x::kernels::
+                  launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+                      packed_weight, block_scale, 1.0F, input, token_count,
+                      kHiddenSize, kIntermediateSize, output,
+                      static_cast<void*>(stream));
+            },
+            label + " direct production graph");
+        const unsigned int expected_grid =
+            static_cast<unsigned int>((gate_up_shape ? kIntermediateSize
+                                                     : kHiddenSize) /
+                                      128U * (token_count / kM64Tokens));
+        const bool exact =
+            dispatch.valid && dispatch.launches.size() == 1U &&
+            direct.valid && direct.launches.size() == 1U &&
+            dispatch.launches.front().function != nullptr &&
+            dispatch.launches.front().function ==
+                direct.launches.front().function &&
+            dispatch.launches.front().grid.x == expected_grid &&
+            dispatch.launches.front().grid.y == 1U &&
+            dispatch.launches.front().grid.z == 1U &&
+            dispatch.launches.front().block.x == 256U &&
+            dispatch.launches.front().block.y == 1U &&
+            dispatch.launches.front().block.z == 1U &&
+            dispatch.launches.front().dynamic_shared_bytes == 0U &&
+            direct.launches.front().grid.x == expected_grid &&
+            direct.launches.front().block.x == 256U &&
+            direct.launches.front().dynamic_shared_bytes == 0U;
+        test.expect(exact, label + " is one exact N-major production grid");
+      };
+
+  expect_exact_grid(gate_up, hidden_input, intermediate_output, 256U, true,
+                    "NVFP4 Gate/Up C256 whole chunk");
+  expect_exact_grid(gate_up, hidden_input, intermediate_output, 512U, true,
+                    "NVFP4 Gate/Up C512 whole chunk");
+  expect_exact_grid(down, intermediate_input, hidden_output, 256U, false,
+                    "NVFP4 Down C256 whole chunk");
+  expect_exact_grid(down, intermediate_input, hidden_output, 512U, false,
+                    "NVFP4 Down C512 whole chunk");
+
+  const auto expect_not_supported =
+      [&](const runtime::ProjectionBackend backend,
+          const runtime::LinearWeight& weight,
+          const std::uint16_t* const input, const std::size_t token_count,
+          std::uint16_t* const output, const std::string& label) {
+        expect_not_supported_capture_has_no_nodes(
+            test,
+            [&](cudaStream_t stream) noexcept {
+              return runtime::
+                  launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+                      backend, weight, input, token_count, output,
+                      static_cast<void*>(stream));
+            },
+            label);
+      };
+  expect_not_supported(runtime::ProjectionBackend::kReference, gate_up,
+                       hidden_input, 256U, intermediate_output,
+                       "whole chunk rejects the reference backend");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+                       hidden_input, 64U, intermediate_output,
+                       "whole chunk rejects C64");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+                       hidden_input, 255U, intermediate_output,
+                       "whole chunk rejects C255");
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+                       hidden_input, 513U, intermediate_output,
+                       "whole chunk rejects C513");
+
+  const runtime::LinearWeight fp8_near_miss = runtime::Fp8LinearWeight{
+      packed_weight, companion_scales, companion_scales + 1U, 1.0F, 1.0F,
+      kIntermediateSize, kHiddenSize};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       fp8_near_miss, hidden_input, 256U,
+                       intermediate_output,
+                       "whole chunk rejects a non-NVFP4 payload");
+  const runtime::LinearWeight shape_near_miss = runtime::NvFp4LinearWeight{
+      packed_weight, block_scale, companion_scales, companion_scales + 1U,
+      1.0F, 1.0F, kIntermediateSize - 1U, kHiddenSize};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       shape_near_miss, hidden_input, 256U,
+                       intermediate_output,
+                       "whole chunk rejects a Gate/Up N near miss");
+  const runtime::LinearWeight weight_alignment_near_miss =
+      runtime::NvFp4LinearWeight{
+          packed_weight + 4U, block_scale, companion_scales,
+          companion_scales + 1U, 1.0F, 1.0F, kIntermediateSize,
+          kHiddenSize};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       weight_alignment_near_miss, hidden_input, 256U,
+                       intermediate_output,
+                       "whole chunk rejects a 4-byte packed-weight alignment");
+  const runtime::LinearWeight scale_alignment_near_miss =
+      runtime::NvFp4LinearWeight{
+          packed_weight, block_scale + 1U, companion_scales,
+          companion_scales + 1U, 1.0F, 1.0F, kIntermediateSize,
+          kHiddenSize};
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly,
+                       scale_alignment_near_miss, hidden_input, 256U,
+                       intermediate_output,
+                       "whole chunk rejects a byte-aligned block scale");
+  const auto* const input_alignment_near_miss =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(hidden_input) + 2U);
+  expect_not_supported(runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+                       input_alignment_near_miss, 256U,
+                       intermediate_output,
+                       "whole chunk rejects a 2-byte BF16 input alignment");
+
+  const runtime::LinearWeight missing_payload = runtime::NvFp4LinearWeight{
+      nullptr, block_scale, companion_scales, companion_scales + 1U, 1.0F,
+      1.0F, kIntermediateSize, kHiddenSize};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, missing_payload,
+            hidden_input, 256U, intermediate_output,
+            static_cast<void*>(stream));
+      },
+      "whole chunk rejects a missing packed-weight payload");
+  const runtime::LinearWeight missing_companion =
+      runtime::NvFp4LinearWeight{
+          packed_weight, block_scale, nullptr, companion_scales + 1U, 1.0F,
+          1.0F, kIntermediateSize, kHiddenSize};
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, missing_companion,
+            hidden_input, 256U, intermediate_output,
+            static_cast<void*>(stream));
+      },
+      "whole chunk rejects a missing companion scale");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+            hidden_input, 256U,
+            const_cast<std::uint16_t*>(hidden_input),
+            static_cast<void*>(stream));
+      },
+      "whole chunk rejects an input/output alias across the full chunk");
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+            hidden_input, 256U,
+            reinterpret_cast<std::uint16_t*>(
+                const_cast<float*>(companion_scales)),
+            static_cast<void*>(stream));
+      },
+      "whole chunk rejects output over a companion scale");
+
+  std::size_t fallback_total_nodes = 0U;
+  bool fallback_linear_chain = false;
+  const std::size_t fallback_kernel_nodes = captured_kernel_node_count(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        int status =
+            runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+                runtime::ProjectionBackend::kSm87WeightOnly,
+                shape_near_miss, hidden_input, 256U, intermediate_output,
+                static_cast<void*>(stream));
+        if (static_cast<cudaError_t>(status) != cudaErrorNotSupported) {
+          return status;
+        }
+        for (std::size_t offset = 0U; offset < 256U;
+             offset += runtime::kMaximumProjectionTileTokenCount) {
+          status = runtime::launch_projection_tile_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              shape_near_miss, hidden_input + offset * kHiddenSize,
+              runtime::kMaximumProjectionTileTokenCount, nullptr, 0U,
+              intermediate_output + offset * (kIntermediateSize - 1U),
+              static_cast<void*>(stream));
+          if (status != static_cast<int>(cudaSuccess)) {
+            return status;
+          }
+        }
+        return static_cast<int>(cudaSuccess);
+      },
+      "NVFP4 C256 near-miss whole-chunk fallback graph",
+      &fallback_total_nodes, &fallback_linear_chain);
+  test.expect(fallback_kernel_nodes == 32U && fallback_total_nodes == 32U &&
+                  fallback_linear_chain,
+              "whole-chunk near miss retains four ordered generic C64 "
+              "fallback schedules");
 }
 
 void test_bf16_projection_pair_dispatch(TestContext& test) {
@@ -6004,6 +6262,7 @@ int main() {
   test_fp8_m1_output_sidecar_dispatch(test);
   test_bf16_direct_production_dispatch(test);
   test_tile_routes(test);
+  test_exact_nvfp4_whole_chunk_branch_dispatch(test);
   test_bf16_projection_pair_dispatch(test);
   test_fp8_projection_pair_dispatch(test);
   test_fp8_qkv_z_projection_pair_dispatch(test);

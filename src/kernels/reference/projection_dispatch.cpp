@@ -80,10 +80,12 @@ struct ProjectionTileSpans {
     const std::uint16_t* const input, const std::size_t token_count,
     float* const fp32_scratch, const std::size_t scratch_elements,
     std::uint16_t* const output, ProjectionTileSpans* const spans,
-    const bool direct_output = false) noexcept {
+    const bool direct_output = false,
+    const std::size_t maximum_token_count =
+        kMaximumProjectionTileTokenCount) noexcept {
   if (!is_valid_projection_backend(backend) ||
       weight.valueless_by_exception() || token_count == 0U ||
-      token_count > kMaximumProjectionTileTokenCount || input == nullptr ||
+      token_count > maximum_token_count || input == nullptr ||
       output == nullptr || spans == nullptr ||
       !pointer_is_aligned(input, alignof(std::uint16_t)) ||
       !pointer_is_aligned(output, alignof(std::uint16_t))) {
@@ -966,6 +968,61 @@ int launch_projection_tile_to_bf16_cuda(
     }
   }
   return static_cast<int>(cudaSuccess);
+}
+
+int launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, const std::size_t token_count,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  constexpr std::size_t kMaximumWholeChunkTokens = 512U;
+  constexpr std::size_t kHiddenSize = 5'120U;
+  constexpr std::size_t kIntermediateSize = 17'408U;
+
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      weight.valueless_by_exception() ||
+      (token_count != 256U && token_count != 512U)) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
+  if (selected == nullptr) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+  const bool gate_up_shape =
+      selected->output_size == kIntermediateSize &&
+      selected->input_size == kHiddenSize;
+  const bool down_shape = selected->output_size == kHiddenSize &&
+                          selected->input_size == kIntermediateSize;
+  if (!gate_up_shape && !down_shape) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  ProjectionTileSpans spans;
+  const int validation = validate_projection_tile(
+      backend, weight, input, token_count, nullptr, 0U, output, &spans, true,
+      kMaximumWholeChunkTokens);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool whole_chunk_aligned =
+      pointer_is_aligned(selected->packed_weight, 16U) &&
+      pointer_is_aligned(selected->block_scale, alignof(std::uint16_t)) &&
+      pointer_is_aligned(input, alignof(std::uint64_t)) &&
+      pointer_is_aligned(output, alignof(std::uint16_t));
+  if (!whole_chunk_aligned) {
+    return static_cast<int>(cudaErrorNotSupported);
+  }
+
+  if (gate_up_shape) {
+    return kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, token_count, spans.rows,
+            spans.columns, output, cuda_stream);
+  }
+  return kernels::launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+      selected->packed_weight, selected->block_scale,
+      selected->weight_scale_2, input, token_count, spans.rows,
+      spans.columns, output, cuda_stream);
 }
 
 int launch_projection_pair_tile_to_bf16_cuda(

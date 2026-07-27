@@ -15079,9 +15079,9 @@ void launch_nvfp4_lm_head_activation_staged_cs_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only whole-chunk validator. Validate the complete M256/M512 activation
-// and output spans before enqueue so an output alias into another M64 tile is
-// rejected rather than hidden by per-tile validation.
+// Production whole-chunk validator. Validate the complete M256/M512
+// activation and output spans before enqueue so an output alias into another
+// M64 tile is rejected rather than hidden by per-tile validation.
 [[nodiscard]] int validate_nvfp4_m64_tiles_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -22058,15 +22058,13 @@ int query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resour
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only whole-chunk down entry. The production M64 launcher and dispatch
-// remain unchanged; these instances only change the one-grid M64-tile order.
-int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+int launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations,
-    const std::size_t token_count, const bool n_major,
-    const std::size_t rows, const std::size_t columns,
-    std::uint16_t* const output, void* const cuda_stream) noexcept {
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
   if (rows != 5'120U || columns != 17'408U) {
     return invalid_value();
   }
@@ -22091,19 +22089,106 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (token_count == 256U && n_major) {
+  if (token_count == 256U) {
     launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
         5'120U, 17'408U, 72U, 4U>(
         packed_weights, block_scales, weight_scale_2, activations, output,
         stream);
-  } else if (token_count == 256U) {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        5'120U, 17'408U, 72U, 4U, false>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
-  } else if (n_major) {
+  } else {
     launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
         5'120U, 17'408U, 72U, 8U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (token_count == 256U) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        17'408U, 5'120U, 72U, 4U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        17'408U, 5'120U, 72U, 8U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// The legacy screen keeps its M-major control, while its N-major candidate
+// delegates to the exact production entry above.
+int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const bool n_major,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  if (n_major) {
+    return launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+        packed_weights, block_scales, weight_scale_2, activations,
+        token_count, rows, columns, output, cuda_stream);
+  }
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (token_count == 256U) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 4U, false>(
         packed_weights, block_scales, weight_scale_2, activations, output,
         stream);
   } else {
@@ -22259,8 +22344,8 @@ int query_sm87_nvfp4_w4a16_down_m256_persistent_m64_n128_k64_packed_p0_resources
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only whole-chunk gate/up entry. Production dispatch remains unchanged;
-// these exact-shape instances only screen one-grid M64-tile ordering.
+// The legacy screen keeps its M-major control, while its N-major candidate
+// delegates to the exact production entry above.
 int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -22268,6 +22353,11 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
     const std::size_t token_count, const bool n_major,
     const std::size_t rows, const std::size_t columns,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
+  if (n_major) {
+    return launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+        packed_weights, block_scales, weight_scale_2, activations,
+        token_count, rows, columns, output, cuda_stream);
+  }
   if (rows != 17'408U || columns != 5'120U) {
     return invalid_value();
   }
@@ -22292,19 +22382,9 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (token_count == 256U && n_major) {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 4U>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
-  } else if (token_count == 256U) {
+  if (token_count == 256U) {
     launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
         17'408U, 5'120U, 72U, 4U, false>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
-  } else if (n_major) {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 8U>(
         packed_weights, block_scales, weight_scale_2, activations, output,
         stream);
   } else {

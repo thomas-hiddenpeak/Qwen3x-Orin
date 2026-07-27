@@ -440,6 +440,21 @@ struct WeightBindResult {
     float* fp32_scratch, std::size_t scratch_elements,
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
+// Narrow exact-shape entry for one dense-MLP projection branch over a full
+// Prefill chunk. Only the explicitly selected SM87 backend, an NVFP4
+// [17408,5120] Gate/Up branch or [5120,17408] Down branch, C256/C512, and the
+// whole-chunk kernel's production alignments are supported. Eligible calls
+// enqueue one N-major grid and write BF16 directly, so no FP32 scratch is
+// accepted or required. Structurally unsupported calls return
+// cudaErrorNotSupported before enqueue so a caller may retain its established
+// sequence of <=64-token projection tiles; malformed payloads, ranges, or
+// aliases return cudaErrorInvalidValue. This entry does not widen
+// kMaximumProjectionTileTokenCount or alter launch_projection_tile_to_bf16_cuda.
+[[nodiscard]] int launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::size_t token_count,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
 // Validates and launches two projections over the same token-major input.
 // The two weights may have different output sizes but must have the same
 // input size. All host-visible arguments, byte ranges, and cross-projection

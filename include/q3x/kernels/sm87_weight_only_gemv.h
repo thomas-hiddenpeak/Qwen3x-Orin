@@ -405,4 +405,30 @@ launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
     std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Exact C256/C512 NVFP4 dense-MLP Gate or Up branch. activations is
+// contiguous token-major BF16 [token_count, 5120] and output is contiguous
+// token-major BF16 [token_count, 17408]. The complete chunk is validated
+// before one N-major grid is enqueued. Only token_count=256 or 512 and the
+// exact aligned checkpoint shape are accepted; every near miss fails closed.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Exact C256/C512 NVFP4 dense-MLP Down branch. activations is contiguous
+// token-major BF16 [token_count, 17408] and output is contiguous token-major
+// BF16 [token_count, 5120]. The complete chunk is validated before one
+// N-major grid is enqueued. Only token_count=256 or 512 and the exact aligned
+// checkpoint shape are accepted; every near miss fails closed.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+    const std::uint8_t* packed_weights,
+    const std::uint8_t* block_scales, float weight_scale_2,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
 }  // namespace q3x::kernels
