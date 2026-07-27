@@ -1782,31 +1782,101 @@ ResidentLoadResult load_pinned_qwen36_27b_mtp(
         return load_failure(from_manifest_failure(manifest));
     }
 
-    PlanResult plan = build_resident_load_plan(
-        *manifest.value, pinned_qwen36_27b_shards(), ResidentPayload::kMtp);
-    if (!plan) {
-        return load_failure(std::move(plan.diagnostic));
-    }
-    if (plan.value->arena_bytes != kPinnedQwen36_27BMtpArenaBytes ||
-        plan.value->copied_bytes != mw::kPinnedQwen36_27BMtpBytes ||
-        plan.value->tensors.size() != mw::kPinnedQwen36_27BMtpTensorCount) {
-        return load_failure(make_diagnostic(
-            ResidentLoadErrorCode::kInvalidManifest,
-            "pinned Qwen3.6-27B MTP arena contract does not match compiled identity",
-            "manifest.summary",
-            {},
-            0U,
-            std::to_string(kPinnedQwen36_27BMtpArenaBytes) + " bytes / " +
-                std::to_string(mw::kPinnedQwen36_27BMtpTensorCount) +
-                " views",
-            std::to_string(plan.value->arena_bytes) + " bytes / " +
-                std::to_string(plan.value->tensors.size()) + " views"));
-    }
+    try {
+        constexpr std::string_view kMtpShard =
+            "model-00003-of-00003.safetensors";
+        const ShardIdentity* mtp_identity = nullptr;
+        for (const ShardIdentity& identity : pinned_qwen36_27b_shards()) {
+            if (identity.filename != kMtpShard) {
+                continue;
+            }
+            if (mtp_identity != nullptr) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kDuplicateShard,
+                    "pinned MTP shard identity is not unique",
+                    std::string(kMtpShard),
+                    std::string(kMtpShard)));
+            }
+            mtp_identity = &identity;
+        }
+        if (mtp_identity == nullptr) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kMissingShardIdentity,
+                "pinned MTP shard identity is unavailable",
+                std::string(kMtpShard),
+                std::string(kMtpShard)));
+        }
+        mw::WeightManifest mtp_manifest;
+        mtp_manifest.checkpoint = manifest.value->checkpoint;
+        mtp_manifest.summary.shard_count = 1U;
+        mtp_manifest.summary.arena_alignment = kResidentTensorAlignment;
+        for (const auto& item : manifest.value->tensors) {
+            if (item.second.category != mw::TensorCategory::kMtp) {
+                continue;
+            }
+            if (item.second.shard != mtp_identity->filename) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kInvalidManifest,
+                    "pinned MTP tensor is not stored in the authenticated MTP shard",
+                    item.first,
+                    item.second.shard,
+                    item.second.file_begin,
+                    mtp_identity->filename,
+                    item.second.shard));
+            }
+            if (!checked_add(mtp_manifest.summary.mtp_bytes,
+                             item.second.byte_size,
+                             mtp_manifest.summary.mtp_bytes)) {
+                return load_failure(make_diagnostic(
+                    ResidentLoadErrorCode::kArithmeticOverflow,
+                    "pinned MTP byte total overflows uint64",
+                    item.first,
+                    item.second.shard,
+                    item.second.file_begin));
+            }
+            mtp_manifest.tensors.emplace(item.first, item.second);
+        }
+        mtp_manifest.summary.tensor_count = mtp_manifest.tensors.size();
+        mtp_manifest.summary.mtp_tensor_count = mtp_manifest.tensors.size();
 
-    ResidentLoadOptions mtp_options = options;
-    mtp_options.payload = ResidentPayload::kMtp;
-    return load_resident_weights(directory, *manifest.value,
-                                 pinned_qwen36_27b_shards(), mtp_options);
+        const std::vector<ShardIdentity> mtp_identities = {*mtp_identity};
+        PlanResult plan = build_resident_load_plan(
+            mtp_manifest, mtp_identities, ResidentPayload::kMtp);
+        if (!plan) {
+            return load_failure(std::move(plan.diagnostic));
+        }
+        if (plan.value->arena_bytes != kPinnedQwen36_27BMtpArenaBytes ||
+            plan.value->copied_bytes != mw::kPinnedQwen36_27BMtpBytes ||
+            plan.value->tensors.size() !=
+                mw::kPinnedQwen36_27BMtpTensorCount) {
+            return load_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidManifest,
+                "pinned Qwen3.6-27B MTP arena contract does not match compiled identity",
+                "manifest.summary",
+                {},
+                0U,
+                std::to_string(kPinnedQwen36_27BMtpArenaBytes) + " bytes / " +
+                    std::to_string(mw::kPinnedQwen36_27BMtpTensorCount) +
+                    " views",
+                std::to_string(plan.value->arena_bytes) + " bytes / " +
+                    std::to_string(plan.value->tensors.size()) + " views"));
+        }
+
+        ResidentLoadOptions mtp_options = options;
+        mtp_options.payload = ResidentPayload::kMtp;
+        return load_resident_weights(directory, mtp_manifest,
+                                     mtp_identities, mtp_options);
+    } catch (const std::bad_alloc&) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "allocation failed while constructing the pinned MTP manifest",
+            "manifest"));
+    } catch (const std::length_error&) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kAllocationFailure,
+            "container size exceeded while constructing the pinned MTP manifest",
+            "manifest"));
+    }
 }
 
 std::string_view to_string(ResidentLoadErrorCode code) noexcept {

@@ -309,6 +309,51 @@ class ModelWeights {
   WeightBindingStats stats_;
 };
 
+// Non-owning, allocation-free-after-bind view of the checkpoint's single MTP
+// proposer layer. The MTP ResidentWeights arena must outlive this object and
+// every queued kernel that consumes one of its pointers. Token embeddings and
+// lm_head remain shared with ModelWeights and are intentionally not duplicated
+// here.
+class MtpWeights {
+ public:
+  MtpWeights(const MtpWeights&) = delete;
+  MtpWeights& operator=(const MtpWeights&) = delete;
+  MtpWeights(MtpWeights&&) noexcept = default;
+  MtpWeights& operator=(MtpWeights&&) noexcept = default;
+  ~MtpWeights() = default;
+
+  [[nodiscard]] const Bf16VectorWeight&
+  pre_fc_norm_embedding() const noexcept {
+    return pre_fc_norm_embedding_;
+  }
+  [[nodiscard]] const Bf16VectorWeight&
+  pre_fc_norm_hidden() const noexcept {
+    return pre_fc_norm_hidden_;
+  }
+  [[nodiscard]] const Bf16LinearWeight& fc() const noexcept { return fc_; }
+  [[nodiscard]] const DecoderLayerWeights& layer() const noexcept {
+    return layer_;
+  }
+  [[nodiscard]] const Bf16VectorWeight& final_norm() const noexcept {
+    return final_norm_;
+  }
+  [[nodiscard]] const WeightBindingStats& stats() const noexcept {
+    return stats_;
+  }
+
+ private:
+  friend class ModelWeightBinder;
+
+  MtpWeights() = default;
+
+  Bf16VectorWeight pre_fc_norm_embedding_;
+  Bf16VectorWeight pre_fc_norm_hidden_;
+  Bf16LinearWeight fc_;
+  DecoderLayerWeights layer_;
+  Bf16VectorWeight final_norm_;
+  WeightBindingStats stats_;
+};
+
 enum class WeightBindErrorCode : std::uint8_t {
   kNone,
   kInvalidSource,
@@ -368,6 +413,16 @@ struct WeightBindResult {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+struct MtpWeightBindResult {
+  std::optional<MtpWeights> value;
+  WeightBindDiagnostic diagnostic;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && diagnostic.code == WeightBindErrorCode::kNone;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 // Binds a checked view source. This does not require the arena byte count to
 // equal the official pinned allocation, allowing compact/fake lookup adapters
 // in tests; all individual tensors must nevertheless satisfy the exact ABI.
@@ -377,6 +432,17 @@ struct WeightBindResult {
 // Production entry point. In addition to all view checks, this requires the
 // exact pinned 20,150,786,560-byte ResidentWeights arena contract.
 [[nodiscard]] WeightBindResult bind_qwen36_27b_weights(
+    const ResidentWeights& resident);
+
+// Binds the exact 15-tensor, single-layer BF16 MTP proposer ABI from a checked
+// view source. Compact/fake arenas are accepted for deterministic tests.
+[[nodiscard]] MtpWeightBindResult bind_qwen36_27b_mtp_weights(
+    const WeightBindingSource& source);
+
+// Production entry point. Requires the exact pinned 849,398,784-byte MTP
+// ResidentWeights arena and all 15 views, and verifies that every view is
+// consumed by the typed binding.
+[[nodiscard]] MtpWeightBindResult bind_qwen36_27b_mtp_weights(
     const ResidentWeights& resident);
 
 [[nodiscard]] std::string_view to_string(WeightBindErrorCode code) noexcept;

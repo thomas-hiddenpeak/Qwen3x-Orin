@@ -61,10 +61,15 @@ class SyntheticArena {
  public:
   explicit SyntheticArena(
       const bool force_fp8_attention_outputs = false,
-      const bool force_nvfp4_down_projections = false)
+      const bool force_nvfp4_down_projections = false,
+      const bool mtp_only = false)
       : force_fp8_attention_outputs_(force_fp8_attention_outputs),
         force_nvfp4_down_projections_(force_nvfp4_down_projections) {
-    build();
+    if (mtp_only) {
+      build_mtp();
+    } else {
+      build();
+    }
   }
 
   [[nodiscard]] runtime::WeightBindingSource source() const noexcept {
@@ -263,6 +268,46 @@ class SyntheticArena {
     arena_bytes_ = aligned(cursor_) + runtime::kResidentTensorAlignment;
   }
 
+  void build_mtp() {
+    const q3x::model::ModelConfig* const config =
+        q3x::model::find_known_model(q3x::model::KnownModel::kQwen36_27B);
+    if (config == nullptr) {
+      return;
+    }
+    add("mtp.pre_fc_norm_embedding.weight", st::DType::kBf16,
+        {config->hidden_size});
+    add("mtp.pre_fc_norm_hidden.weight", st::DType::kBf16,
+        {config->hidden_size});
+    add("mtp.fc.weight", st::DType::kBf16,
+        {config->hidden_size, 2U * config->hidden_size});
+
+    constexpr std::string_view kPrefix = "mtp.layers.0.";
+    add(std::string(kPrefix) + "input_layernorm.weight", st::DType::kBf16,
+        {config->hidden_size});
+    add(std::string(kPrefix) + "post_attention_layernorm.weight",
+        st::DType::kBf16, {config->hidden_size});
+    add(std::string(kPrefix) + "mlp.gate_proj.weight", st::DType::kBf16,
+        {config->intermediate_size, config->hidden_size});
+    add(std::string(kPrefix) + "mlp.up_proj.weight", st::DType::kBf16,
+        {config->intermediate_size, config->hidden_size});
+    add(std::string(kPrefix) + "mlp.down_proj.weight", st::DType::kBf16,
+        {config->hidden_size, config->intermediate_size});
+    add(std::string(kPrefix) + "self_attn.q_proj.weight", st::DType::kBf16,
+        {config->q_projection_dim(), config->hidden_size});
+    add(std::string(kPrefix) + "self_attn.k_proj.weight", st::DType::kBf16,
+        {config->kv_dim(), config->hidden_size});
+    add(std::string(kPrefix) + "self_attn.v_proj.weight", st::DType::kBf16,
+        {config->kv_dim(), config->hidden_size});
+    add(std::string(kPrefix) + "self_attn.o_proj.weight", st::DType::kBf16,
+        {config->hidden_size, config->q_dim()});
+    add(std::string(kPrefix) + "self_attn.q_norm.weight", st::DType::kBf16,
+        {config->head_dim});
+    add(std::string(kPrefix) + "self_attn.k_norm.weight", st::DType::kBf16,
+        {config->head_dim});
+    add("mtp.norm.weight", st::DType::kBf16, {config->hidden_size});
+    arena_bytes_ = aligned(cursor_) + runtime::kResidentTensorAlignment;
+  }
+
   std::map<std::string, runtime::DeviceTensorView, std::less<>> tensors_;
   std::map<std::uintptr_t, float> scalars_;
   std::uint64_t cursor_ = 0U;
@@ -428,6 +473,66 @@ void test_successful_bind(TestContext& test) {
   runtime::ModelWeights moved = std::move(*result.value);
   test.expect(moved.embed_tokens().weight != nullptr,
               "non-owning model view is movable");
+}
+
+void test_successful_mtp_bind(TestContext& test) {
+  static_assert(!std::is_copy_constructible_v<runtime::MtpWeights>);
+  static_assert(!std::is_copy_assignable_v<runtime::MtpWeights>);
+  static_assert(std::is_nothrow_move_constructible_v<runtime::MtpWeights>);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*mtp_only=*/true);
+  runtime::MtpWeightBindResult result =
+      runtime::bind_qwen36_27b_mtp_weights(arena.source());
+  test.expect(result.ok(), "complete synthetic 15-tensor MTP ABI binds");
+  if (!result) {
+    std::cerr << "MTP bind diagnostic: " << result.diagnostic.message << " ("
+              << result.diagnostic.tensor << ")\n";
+    return;
+  }
+
+  const runtime::MtpWeights& weights = *result.value;
+  test.expect(weights.pre_fc_norm_embedding().element_count == 5120U &&
+                  weights.pre_fc_norm_hidden().element_count == 5120U &&
+                  weights.fc().output_size == 5120U &&
+                  weights.fc().input_size == 10240U &&
+                  weights.final_norm().element_count == 5120U,
+              "MTP fusion boundary and final norm dimensions are exact");
+  test.expect(weights.stats().tensor_views == 15U &&
+                  weights.stats().bf16_projections == 8U &&
+                  weights.stats().scalar_reads == 0U &&
+                  weights.stats().fp8_projections == 0U &&
+                  weights.stats().nvfp4_projections == 0U &&
+                  weights.stats().linear_attention_layers == 0U &&
+                  weights.stats().full_attention_layers == 1U &&
+                  arena.tensor_count() == 15U,
+              "MTP binding consumes exactly 15 BF16 views and one layer");
+  test.expect(std::holds_alternative<runtime::FullAttentionWeights>(
+                  weights.layer().attention),
+              "MTP proposer layer uses full attention");
+  const auto& attention = std::get<runtime::FullAttentionWeights>(
+      weights.layer().attention);
+  test.expect(runtime::linear_weight_kind(attention.q_proj) ==
+                      runtime::LinearWeightKind::kBf16 &&
+                  runtime::linear_output_size(attention.q_proj) == 12288U &&
+                  runtime::linear_output_size(attention.k_proj) == 1024U &&
+                  runtime::linear_output_size(attention.v_proj) == 1024U &&
+                  runtime::linear_output_size(attention.o_proj) == 5120U &&
+                  attention.q_norm.element_count == 256U &&
+                  attention.k_norm.element_count == 256U,
+              "MTP full-attention tensors have exact BF16 shapes");
+  test.expect(runtime::linear_weight_kind(weights.layer().mlp.gate_proj) ==
+                      runtime::LinearWeightKind::kBf16 &&
+                  runtime::linear_output_size(
+                      weights.layer().mlp.gate_proj) == 17408U &&
+                  runtime::linear_input_size(
+                      weights.layer().mlp.down_proj) == 17408U,
+              "MTP dense MLP tensors have exact BF16 shapes");
+
+  runtime::MtpWeights moved = std::move(*result.value);
+  test.expect(moved.fc().weight != nullptr,
+              "non-owning MTP view is movable");
 }
 
 void test_fp8_m1_output_projection_sidecar_attachment(TestContext& test) {
@@ -1161,6 +1266,64 @@ void test_source_and_tensor_failures(TestContext& test) {
   }
 }
 
+void test_mtp_source_and_tensor_failures(TestContext& test) {
+  runtime::WeightBindingSource invalid;
+  test.expect(runtime::bind_qwen36_27b_mtp_weights(invalid)
+                      .diagnostic.code ==
+                  runtime::WeightBindErrorCode::kInvalidSource,
+              "null MTP source is rejected");
+  test.expect(runtime::bind_qwen36_27b_mtp_weights(
+                  runtime::ResidentWeights{})
+                      .diagnostic.code ==
+                  runtime::WeightBindErrorCode::kInvalidPinnedArena,
+              "MTP production overload rejects a non-pinned arena");
+
+  {
+    SyntheticArena arena(false, false, true);
+    arena.erase("mtp.fc.weight");
+    test.expect(runtime::bind_qwen36_27b_mtp_weights(arena.source())
+                        .diagnostic.code ==
+                    runtime::WeightBindErrorCode::kMissingTensor,
+                "missing MTP projection is rejected");
+  }
+  {
+    SyntheticArena arena(false, false, true);
+    arena.at("mtp.fc.weight").dtype = st::DType::kF8E4M3;
+    test.expect(runtime::bind_qwen36_27b_mtp_weights(arena.source())
+                        .diagnostic.code ==
+                    runtime::WeightBindErrorCode::kDTypeMismatch,
+                "non-BF16 MTP projection is rejected");
+  }
+  {
+    SyntheticArena arena(false, false, true);
+    arena.at("mtp.layers.0.self_attn.q_proj.weight").shape =
+        {12287U, 5120U};
+    test.expect(runtime::bind_qwen36_27b_mtp_weights(arena.source())
+                        .diagnostic.code ==
+                    runtime::WeightBindErrorCode::kShapeMismatch,
+                "MTP projection shape mismatch is rejected");
+  }
+  {
+    SyntheticArena arena(false, false, true);
+    ++arena.at("mtp.norm.weight").byte_size;
+    test.expect(runtime::bind_qwen36_27b_mtp_weights(arena.source())
+                        .diagnostic.code ==
+                    runtime::WeightBindErrorCode::kByteSizeMismatch,
+                "MTP tensor byte-size mismatch is rejected");
+  }
+  {
+    SyntheticArena arena(false, false, true);
+    auto& view = arena.at("mtp.pre_fc_norm_embedding.weight");
+    ++view.arena_offset;
+    view.device_data = reinterpret_cast<const void*>(
+        reinterpret_cast<std::uintptr_t>(view.device_data) + 1U);
+    test.expect(runtime::bind_qwen36_27b_mtp_weights(arena.source())
+                        .diagnostic.code ==
+                    runtime::WeightBindErrorCode::kMisalignedTensor,
+                "misaligned MTP tensor is rejected");
+  }
+}
+
 void test_scalar_failures(TestContext& test) {
   constexpr std::string_view kInputScale =
       "model.language_model.layers.0.mlp.up_proj.input_scale";
@@ -1208,6 +1371,7 @@ void test_scalar_failures(TestContext& test) {
 int main() {
   TestContext test;
   test_successful_bind(test);
+  test_successful_mtp_bind(test);
   test_fp8_m1_output_projection_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
@@ -1215,6 +1379,7 @@ int main() {
   test_linear_attention_qkv_z_ab_projection_fusion_eligibility(test);
   test_nvfp4_gate_up_silu_fusion_eligibility(test);
   test_source_and_tensor_failures(test);
+  test_mtp_source_and_tensor_failures(test);
   test_scalar_failures(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " model-weight binding test(s) failed\n";

@@ -249,6 +249,101 @@ class ModelWeightBinder {
     return result;
   }
 
+  [[nodiscard]] MtpWeightBindResult run_mtp() {
+    MtpWeightBindResult result;
+    if (!validate_source() || !validate_config()) {
+      result.diagnostic = std::move(diagnostic_);
+      return result;
+    }
+    if (config_->mtp_num_hidden_layers != 1U ||
+        config_->mtp_uses_dedicated_embeddings) {
+      fail(WeightBindErrorCode::kInvalidLayerSchedule, "model catalog",
+           "exact Qwen3.6-27B MTP architecture constants are unavailable",
+           "one MTP layer with shared embeddings");
+      result.diagnostic = std::move(diagnostic_);
+      return result;
+    }
+
+    MtpWeights weights;
+    weights.pre_fc_norm_embedding_ = bind_bf16_vector(
+        "mtp.pre_fc_norm_embedding.weight", config_->hidden_size);
+    weights.pre_fc_norm_hidden_ = bind_bf16_vector(
+        "mtp.pre_fc_norm_hidden.weight", config_->hidden_size);
+    weights.fc_ = bind_bf16_projection(
+        "mtp.fc.weight", config_->hidden_size,
+        2U * static_cast<std::uint64_t>(config_->hidden_size));
+
+    constexpr std::string_view kLayerPrefix = "mtp.layers.0.";
+    DecoderLayerWeights layer;
+    layer.input_layernorm = bind_bf16_vector(
+        std::string(kLayerPrefix) + "input_layernorm.weight",
+        config_->hidden_size);
+    layer.post_attention_layernorm = bind_bf16_vector(
+        std::string(kLayerPrefix) + "post_attention_layernorm.weight",
+        config_->hidden_size);
+    layer.mlp.gate_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "mlp.gate_proj.weight",
+        config_->intermediate_size, config_->hidden_size);
+    layer.mlp.up_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "mlp.up_proj.weight",
+        config_->intermediate_size, config_->hidden_size);
+    layer.mlp.down_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "mlp.down_proj.weight",
+        config_->hidden_size, config_->intermediate_size);
+
+    FullAttentionWeights attention;
+    attention.q_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "self_attn.q_proj.weight",
+        config_->q_projection_dim(), config_->hidden_size);
+    attention.k_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "self_attn.k_proj.weight",
+        config_->kv_dim(), config_->hidden_size);
+    attention.v_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "self_attn.v_proj.weight",
+        config_->kv_dim(), config_->hidden_size);
+    attention.o_proj = bind_bf16_projection(
+        std::string(kLayerPrefix) + "self_attn.o_proj.weight",
+        config_->hidden_size, config_->q_dim());
+    attention.q_norm = bind_bf16_vector(
+        std::string(kLayerPrefix) + "self_attn.q_norm.weight",
+        config_->head_dim);
+    attention.k_norm = bind_bf16_vector(
+        std::string(kLayerPrefix) + "self_attn.k_norm.weight",
+        config_->head_dim);
+    layer.attention = std::move(attention);
+    ++stats_.full_attention_layers;
+    weights.layer_ = std::move(layer);
+    weights.final_norm_ =
+        bind_bf16_vector("mtp.norm.weight", config_->hidden_size);
+
+    if (!ok()) {
+      result.diagnostic = std::move(diagnostic_);
+      return result;
+    }
+    constexpr std::size_t kExpectedTensorViews = 15U;
+    constexpr std::size_t kExpectedBf16Projections = 8U;
+    if (stats_.tensor_views != kExpectedTensorViews ||
+        stats_.bf16_projections != kExpectedBf16Projections ||
+        stats_.scalar_reads != 0U || stats_.fp8_projections != 0U ||
+        stats_.nvfp4_projections != 0U ||
+        stats_.linear_attention_layers != 0U ||
+        stats_.full_attention_layers != 1U) {
+      fail(WeightBindErrorCode::kInvalidLayerSchedule, "MTP weights",
+           "bound MTP tensor statistics do not match the exact proposer ABI",
+           "15 views / 8 BF16 projections / 1 full-attention layer",
+           std::to_string(stats_.tensor_views) + " views / " +
+               std::to_string(stats_.bf16_projections) +
+               " BF16 projections / " +
+               std::to_string(stats_.full_attention_layers) +
+               " full-attention layers");
+      result.diagnostic = std::move(diagnostic_);
+      return result;
+    }
+    weights.stats_ = stats_;
+    result.value.emplace(std::move(weights));
+    return result;
+  }
+
  private:
   [[nodiscard]] bool ok() const noexcept {
     return diagnostic_.code == WeightBindErrorCode::kNone;
@@ -473,6 +568,17 @@ class ModelWeightBinder {
                      static_cast<const std::uint16_t*>(view->device_data),
                      static_cast<std::size_t>(output_size),
                      static_cast<std::size_t>(input_size)};
+  }
+
+  [[nodiscard]] Bf16LinearWeight bind_bf16_projection(
+      const std::string& name, const std::uint64_t output_size,
+      const std::uint64_t input_size) {
+    Bf16LinearWeight weight =
+        bind_bf16_matrix(name, output_size, input_size);
+    if (weight.weight != nullptr) {
+      ++stats_.bf16_projections;
+    }
+    return weight;
   }
 
   [[nodiscard]] bool read_scalar(const std::string& name,
@@ -961,6 +1067,62 @@ WeightBindResult bind_qwen36_27b_weights(const ResidentWeights& resident) {
     result.diagnostic.tensor = "ResidentWeights view table";
     result.diagnostic.message =
         "typed binding did not consume every pinned text tensor view";
+    result.diagnostic.expected = std::to_string(resident.tensor_count());
+    result.diagnostic.actual = std::to_string(consumed_views);
+  }
+  return result;
+}
+
+MtpWeightBindResult bind_qwen36_27b_mtp_weights(
+    const WeightBindingSource& source) {
+  try {
+    return ModelWeightBinder(source).run_mtp();
+  } catch (const std::bad_alloc&) {
+    MtpWeightBindResult result;
+    result.diagnostic.code = WeightBindErrorCode::kAllocationFailure;
+    result.diagnostic.message =
+        "allocation failed while constructing MTP bind diagnostics";
+    return result;
+  }
+}
+
+MtpWeightBindResult bind_qwen36_27b_mtp_weights(
+    const ResidentWeights& resident) {
+  if (!resident || resident.arena_data() == nullptr ||
+      resident.size_bytes() != kPinnedQwen36_27BMtpArenaBytes ||
+      resident.tensor_count() !=
+          model::weights::kPinnedQwen36_27BMtpTensorCount) {
+    MtpWeightBindResult result;
+    result.diagnostic.code = WeightBindErrorCode::kInvalidPinnedArena;
+    result.diagnostic.tensor = "MTP ResidentWeights arena";
+    result.diagnostic.message =
+        "production MTP binding requires the exact pinned Qwen3.6-27B "
+        "arena and view count";
+    result.diagnostic.expected =
+        std::to_string(kPinnedQwen36_27BMtpArenaBytes) + " bytes / " +
+        std::to_string(model::weights::kPinnedQwen36_27BMtpTensorCount) +
+        " views";
+    result.diagnostic.actual = std::to_string(resident.size_bytes()) +
+                               " bytes / " +
+                               std::to_string(resident.tensor_count()) +
+                               " views";
+    return result;
+  }
+
+  WeightBindingSource source;
+  source.lookup_context = &resident;
+  source.lookup = &resident_lookup;
+  source.arena_data = resident.arena_data();
+  source.arena_bytes = resident.size_bytes();
+  MtpWeightBindResult result = bind_qwen36_27b_mtp_weights(source);
+  const std::size_t consumed_views =
+      result ? result.value->stats().tensor_views : 0U;
+  if (result && consumed_views != resident.tensor_count()) {
+    result.value.reset();
+    result.diagnostic.code = WeightBindErrorCode::kInvalidPinnedArena;
+    result.diagnostic.tensor = "MTP ResidentWeights view table";
+    result.diagnostic.message =
+        "typed MTP binding did not consume every pinned tensor view";
     result.diagnostic.expected = std::to_string(resident.tensor_count());
     result.diagnostic.actual = std::to_string(consumed_views);
   }

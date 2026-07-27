@@ -164,9 +164,6 @@ struct ResidentLoadStats {
 };
 
 struct ResidentLoadOptions {
-    // Selects the only tensor category copied into the device arena. Every
-    // full shard is authenticated regardless of this selection.
-    ResidentPayload payload = ResidentPayload::kText;
     // Each active shard worker uses two page-locked staging buffers of this
     // size in ping-pong fashion.
     std::uint64_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
@@ -182,6 +179,11 @@ struct ResidentLoadOptions {
     // Bound concurrent shard read/hash/scatter pipelines. The effective count
     // is also capped by the number of authenticated shards in the plan.
     std::size_t max_parallel_shards = 3U;
+    // Selects the only tensor category copied into the device arena. Every
+    // full shard included in the plan is authenticated regardless of this
+    // selection. Kept last to preserve positional aggregate initialization of
+    // the original public option fields.
+    ResidentPayload payload = ResidentPayload::kText;
 };
 
 struct ResidentLoadResult;
@@ -256,9 +258,10 @@ struct ResidentLoadResult {
     const std::filesystem::path& directory,
     const ResidentLoadOptions& options = {});
 
-// Builds the same strict pinned manifest, authenticates every byte of all
-// three official shards, and loads only the 15 BF16 MTP tensors into their
-// exact 849,398,784-byte arena. The payload option is forced to MTP.
+// Builds the same strict pinned manifest, authenticates every byte of the
+// official shard that owns all MTP tensors, and loads only the 15 BF16 MTP
+// tensors into their exact 849,398,784-byte arena. The payload option is
+// forced to MTP.
 [[nodiscard]] ResidentLoadResult load_pinned_qwen36_27b_mtp(
     const std::filesystem::path& directory,
     const ResidentLoadOptions& options = {});

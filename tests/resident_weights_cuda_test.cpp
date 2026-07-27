@@ -1,5 +1,6 @@
 #include "q3x/core/sha256.h"
 #include "q3x/model/weight_manifest.h"
+#include "q3x/runtime/model_weights.h"
 #include "q3x/runtime/resident_weights.h"
 
 #include <cuda_runtime_api.h>
@@ -759,6 +760,86 @@ void test_official_checkpoint_if_requested(TestContext& test) {
               << runtime::to_string(stats.sha256_backend) << '\n';
 }
 
+void test_official_mtp_checkpoint_if_requested(TestContext& test) {
+    const char* const root = std::getenv("Q3X_OFFICIAL_27B_MTP_ROOT");
+    if (root == nullptr || *root == '\0') {
+        return;
+    }
+    const weights::ManifestResult manifest =
+        weights::build_qwen36_27b_text_manifest(root);
+    test.expect(manifest.ok(),
+                "official manifest validates before MTP resident load");
+    if (!manifest) {
+        return;
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    runtime::ResidentLoadResult loaded =
+        runtime::load_pinned_qwen36_27b_mtp(root);
+    const double seconds = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - started)
+                               .count();
+    if (!loaded) {
+        print_diagnostic(loaded.diagnostic);
+    }
+    test.expect(loaded.ok(),
+                "official 27B authenticated MTP resident load succeeds");
+    if (!loaded) {
+        return;
+    }
+
+    const runtime::ResidentLoadStats& stats = loaded.value->stats();
+    test.expect(loaded.value->size_bytes() ==
+                        runtime::kPinnedQwen36_27BMtpArenaBytes &&
+                    loaded.value->tensor_count() ==
+                        weights::kPinnedQwen36_27BMtpTensorCount,
+                "official MTP loader owns exact 849MB arena and 15 views");
+    test.expect(stats.bytes_read == 1'970'287'640ULL &&
+                    stats.bytes_copied == 849'398'784ULL &&
+                    stats.bytes_skipped == 1'120'888'856ULL &&
+                    stats.shards.size() == 1U &&
+                    stats.shards[0].filename ==
+                        "model-00003-of-00003.safetensors" &&
+                    stats.shards[0].sha256 ==
+                        "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845",
+                "official MTP loader authenticates only the complete MTP shard");
+
+    for (const std::string_view name : {
+             std::string_view("mtp.fc.weight"),
+             std::string_view("mtp.layers.0.self_attn.q_proj.weight"),
+             std::string_view("mtp.norm.weight")}) {
+        const weights::TensorLocator* source = manifest.value->find(name);
+        const runtime::DeviceTensorView* device = loaded.value->find(name);
+        if (source == nullptr || device == nullptr) {
+            test.expect(false, "official MTP sample tensor locator exists");
+            continue;
+        }
+        const std::vector<char> expected = read_source_sample(*source, 32U);
+        std::vector<char> actual(expected.size());
+        const cudaError_t status = cudaMemcpy(actual.data(),
+                                              device->device_data,
+                                              actual.size(),
+                                              cudaMemcpyDeviceToHost);
+        test.expect(!expected.empty() && status == cudaSuccess &&
+                        actual == expected,
+                    "official sampled MTP tensor bytes round-trip from device");
+    }
+
+    runtime::MtpWeightBindResult bound =
+        runtime::bind_qwen36_27b_mtp_weights(*loaded.value);
+    test.expect(bound.ok() && bound.value->stats().tensor_views == 15U &&
+                    bound.value->stats().bf16_projections == 8U &&
+                    bound.value->stats().full_attention_layers == 1U,
+                "official MTP arena binds the exact typed proposer ABI");
+    std::cout << "Official MTP resident load: seconds=" << seconds
+              << " bytes_read=" << stats.bytes_read
+              << " bytes_copied=" << stats.bytes_copied
+              << " chunks=" << stats.chunks
+              << " memcpy_ops=" << stats.memcpy_operations
+              << " sha256_backend="
+              << runtime::to_string(stats.sha256_backend) << '\n';
+}
+
 }  // namespace
 
 int main() {
@@ -787,6 +868,7 @@ int main() {
                 "resident loader defaults to three bounded shard workers");
     test_success_security_and_failures(test);
     test_parallel_shard_loading(test);
+    test_official_mtp_checkpoint_if_requested(test);
     test_official_checkpoint_if_requested(test);
     if (test.failures() != 0) {
         std::cerr << test.failures() << " resident loader CUDA test(s) failed\n";
