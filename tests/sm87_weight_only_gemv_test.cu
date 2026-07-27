@@ -27064,6 +27064,119 @@ void run_nvfp4_m32_wmma_invalid_capture_contract(TestContext& test,
                 label + " rejects both launches without capturing a node");
   }
 
+  {
+    constexpr std::size_t kM64Rows = 5'120U;
+    constexpr std::size_t kM64Columns = 17'408U;
+    constexpr std::uintptr_t kM64PackedAddress = 0x5'0000'0000ULL;
+    constexpr std::uintptr_t kM64ScaleAddress = 0x6'0000'0000ULL;
+    constexpr std::uintptr_t kM64ActivationAddress = 0x7'0000'0000ULL;
+    auto* const m64_packed =
+        reinterpret_cast<const std::uint8_t*>(kM64PackedAddress);
+    auto* const m64_scales =
+        reinterpret_cast<const std::uint8_t*>(kM64ScaleAddress);
+    auto* const m64_activations =
+        reinterpret_cast<const std::uint16_t*>(kM64ActivationAddress);
+    auto* const m64_overlapping_output = reinterpret_cast<std::uint16_t*>(
+        kM64ActivationAddress + 32U * kM64Columns * sizeof(std::uint16_t));
+    auto* const m64_output =
+        reinterpret_cast<std::uint16_t*>(0x8'0000'0000ULL);
+    const std::string label = "NVFP4 test-only M64 invalid capture";
+    cudaGraph_t graph = nullptr;
+    bool ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        label + " begin");
+    std::array<int, 12U> statuses{};
+    if (ready) {
+      const auto launch =
+          [&](const std::uint8_t* const packed,
+              const std::uint8_t* const scales, const float weight_scale_2,
+              const std::uint16_t* const activations,
+              const std::size_t rows, const std::size_t columns,
+              std::uint16_t* const output) noexcept {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+                    packed, scales, weight_scale_2, activations, rows,
+                    columns, output, static_cast<void*>(stream));
+          };
+      statuses = {
+          launch(nullptr, m64_scales, 1.0F, m64_activations, kM64Rows,
+                 kM64Columns, m64_output),
+          launch(m64_packed, nullptr, 1.0F, m64_activations, kM64Rows,
+                 kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, 1.0F, nullptr, kM64Rows,
+                 kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, 1.0F, m64_activations, kM64Rows,
+                 kM64Columns, nullptr),
+          launch(m64_packed, m64_scales,
+                 std::numeric_limits<float>::quiet_NaN(), m64_activations,
+                 kM64Rows, kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, -1.0F, m64_activations, kM64Rows,
+                 kM64Columns, m64_output),
+          launch(m64_packed + 1U, m64_scales, 1.0F, m64_activations,
+                 kM64Rows, kM64Columns, m64_output),
+          launch(m64_packed, m64_scales + 1U, 1.0F, m64_activations,
+                 kM64Rows, kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, 1.0F,
+                 reinterpret_cast<const std::uint16_t*>(
+                     kM64ActivationAddress + sizeof(std::uint16_t)),
+                 kM64Rows, kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, 1.0F, m64_activations, kM64Rows,
+                 kM64Columns,
+                 reinterpret_cast<std::uint16_t*>(0x8'0000'0001ULL)),
+          launch(m64_packed, m64_scales, 1.0F, m64_activations,
+                 kM64Rows - 1U, kM64Columns, m64_output),
+          launch(m64_packed, m64_scales, 1.0F, m64_activations, kM64Rows,
+                 kM64Columns, m64_overlapping_output),
+      };
+      ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           label + " end") &&
+              ready;
+    }
+    std::size_t node_count = 0U;
+    if (ready) {
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           label + " query nodes") &&
+              ready;
+    }
+    if (graph != nullptr) {
+      ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") &&
+              ready;
+    }
+    const bool launch_contract =
+        ready &&
+        std::all_of(statuses.begin(), statuses.end(), [](const int status) {
+          return status == static_cast<int>(cudaErrorInvalidValue);
+        }) &&
+        node_count == 0U;
+
+    int registers = -1;
+    std::size_t shared = 0U;
+    std::size_t local = 0U;
+    int maximum_threads = -1;
+    int active_blocks = -1;
+    const int resource_near_miss =
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kM64Rows - 1U, kM64Columns, &registers, &shared, &local,
+                &maximum_threads, &active_blocks);
+    const int resource_null =
+        q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kM64Rows, kM64Columns, nullptr, &shared, &local,
+                &maximum_threads, &active_blocks);
+    const bool resource_contract =
+        resource_near_miss == static_cast<int>(cudaErrorInvalidValue) &&
+        resource_null == static_cast<int>(cudaErrorInvalidValue);
+    const bool contract = launch_contract && resource_contract;
+    std::cout << "NVFP4_M64_DOWN_INVALID_GRAPH: invalid_launches="
+              << statuses.size() << " total_nodes=" << node_count
+              << " resource_near_miss_status=" << resource_near_miss
+              << " resource_null_status=" << resource_null
+              << " gate=" << (contract ? "PASS" : "FAIL") << '\n';
+    test.expect(contract,
+                label + " rejects invalid launches and resource queries");
+  }
+
   const std::string public_label =
       "NVFP4 public M32 invalid alias capture";
   cudaGraph_t public_graph = nullptr;
