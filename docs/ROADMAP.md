@@ -1267,6 +1267,15 @@ Gate/Up kernel or production change. Further Decode work returns to measured
 cross-kernel flow and state/L2 ceilings; MTP remains outside the current target
 path. See the [Delta4 decoder rejection](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json).
 
+The bounded causal-convolution L2-persistence backup is also closed at the
+admission stage. Its 2.8125-MiB history barely exceeds Orin's 2.75-MiB
+persisting budget, but optimistically retaining 44/45 of all history reads and
+writes is worth only **0.034833 ms/token**. More decisively, the complete
+causal-convolution kernel costs only **0.260622--0.283672 ms/token** in two
+production traces, below the 0.30-ms gate even under impossible free removal.
+No default-off APW experiment is implemented. See the
+[L2 ceiling rejection](metadata/qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

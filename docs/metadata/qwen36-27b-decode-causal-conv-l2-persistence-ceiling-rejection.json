@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection",
+  "status": "rejected-static-causal-conv-l2-access-policy-window-ceiling",
+  "recorded_at": "2026-07-27T13:41:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "scope": {
+    "phase": "Decode",
+    "token_count": 1,
+    "subject": "causal-convolution history persisting-L2 access-policy-window admission",
+    "analysis_only": true,
+    "gpu_candidate_implemented": false,
+    "gpu_candidate_measured": false,
+    "production_changed": false,
+    "mtp_used": false
+  },
+  "source": {
+    "base_commit": "4e2ea510a154590d2c282148ec5bd31d87b6ce03",
+    "gdn_decode_path": "src/kernels/reference/gdn_decode.cu",
+    "gdn_decode_git_blob": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+    "same_blob_profiled_commit": "0372d41b6785aba1095f22bd245b2b95682d0440",
+    "primary_profile": "qwen36-27b-post-down-cta-coarsen-decode-phase-profile.json",
+    "independent_ceiling_record": "qwen36-27b-decode-fp8-qkv-z-bf16-ab-causal-conv-epilogue-rejection.json",
+    "parent_traffic_audit": "qwen36-27b-decode-non-mtp-global-traffic-state-audit.json"
+  },
+  "history_working_set": {
+    "linear_attention_layers": 48,
+    "elements_per_layer": 10240,
+    "history_width": 3,
+    "element_bytes": 2,
+    "bytes_per_layer": 61440,
+    "all_layer_bytes": 2949120,
+    "all_layer_mib": 2.8125,
+    "unique_read_bytes_per_token": 2949120,
+    "unique_write_bytes_per_token": 2949120,
+    "unique_read_plus_write_bytes_per_token": 5898240,
+    "unique_read_plus_write_mib_per_token": 5.625
+  },
+  "orin_l2": {
+    "physical_l2_bytes": 4194304,
+    "maximum_persisting_l2_bytes": 2883584,
+    "maximum_persisting_l2_mib": 2.75,
+    "history_bytes_above_maximum_persisting_budget": 65536,
+    "maximum_history_coverage_fraction": 0.9777777777777777,
+    "maximum_history_coverage_exact": "44/45",
+    "current_persisting_limit_bytes": 786432,
+    "current_history_coverage_fraction": 0.26666666666666666,
+    "maximum_access_policy_window_bytes": 134213632
+  },
+  "optimistic_traffic_ceiling": {
+    "assumption": "Treat the covered fraction as eliminating both the history read and write, even though persisting-L2 policy is a replacement hint and cannot guarantee either behavior.",
+    "maximum_affected_bytes_per_token": 5767168,
+    "maximum_affected_mib_per_token": 5.5,
+    "projection_effective_bandwidth_gb_per_second": 165.567067,
+    "optimistic_read_plus_write_saving_ms_per_token": 0.034832828,
+    "optimistic_read_only_saving_ms_per_token": 0.017416414,
+    "required_saving_ms_per_token": 0.3,
+    "fraction_of_required_gate": 0.116109427
+  },
+  "whole_kernel_ceiling": {
+    "primary_profile": {
+      "decode_steps": 25,
+      "kernel_instances": 1200,
+      "launches_per_decode_step": 48,
+      "average_kernel_us": 5.429626667,
+      "whole_kernel_ms_per_token": 0.26062208,
+      "fraction_of_required_gate": 0.868740267
+    },
+    "independent_profile_whole_kernel_ms_per_token": 0.28367232,
+    "independent_fraction_of_required_gate": 0.9455744,
+    "hard_bound": "Even deleting all 48 causal-convolution kernels for free remains below the 0.30-ms/token admission threshold in both independent production traces. An access-policy window can affect only a subset of that time."
+  },
+  "minimum_future_probe": {
+    "allowed_only_if_gate_changes": true,
+    "device_limit": "cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, 2883584)",
+    "graph_node_api": "cudaGraphKernelNodeSetAttribute with cudaAccessPolicyWindow for the 48 causal_conv1d_silu_update_kernel nodes",
+    "window_bytes": 2949120,
+    "hit_ratio": 0.9777777777777777,
+    "risk": "Reserving 2.75 MiB leaves only 1.25 MiB of ordinary L2 and may regress projection weights, scales, and metadata. Persisting policy is a cache replacement hint, not a writeback-elimination guarantee."
+  },
+  "decision": {
+    "result": "reject_without_implementation",
+    "reason": "The optimistic affected-traffic ceiling is only 0.034833 ms/token, and even impossible free removal of the complete causal-convolution kernel reaches only 0.260622-0.283672 ms/token.",
+    "stop_loss_triggered": "static whole-kernel and byte ceilings are both below the frozen 0.30-ms/token admission gate",
+    "candidate_source_created": false,
+    "default_off_probe_created": false,
+    "production_changed": false,
+    "formal_anchor_changed": false,
+    "reopen_when": "Only if the per-candidate admission threshold is deliberately lowered after larger Decode opportunities are exhausted, or if causal convolution is removed as part of a distinct fusion that demonstrates an independently quantified larger benefit."
+  },
+  "claim_limits": [
+    "This is a static and existing-production-evidence ceiling rejection, not a measured access-policy-window experiment.",
+    "The 0.034833-ms/token traffic estimate is deliberately optimistic and does not account for cache contention, policy overhead, or unavoidable dirty-line writeback.",
+    "The whole-kernel durations come from production Nsys traces whose gdn_decode.cu blob matches current main; they are upper bounds on any causal-conv-only optimization.",
+    "No MTP, buffering, extra stream, or Prefill work is included."
+  ]
+}

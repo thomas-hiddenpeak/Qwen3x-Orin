@@ -6776,3 +6776,20 @@ valid layer-50 run and full GEMV integration. The standalone source, target,
 binary, and object directory are removed; production and the formal
 **105.870500 ms/token / 9.445501816 token/s** anchor remain unchanged. See the
 [decoder rejection record](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json).
+
+## Decode causal-convolution L2-persistence ceiling rejection
+
+The bounded persisting-L2 follow-up is rejected before implementation. The 48
+linear-attention histories occupy 2.8125 MiB and generate 5.625 MiB of unique
+read-plus-write traffic per token. Orin can reserve at most 2.75 MiB, covering
+44/45 of that state. Even granting the unrealistic assumption that every
+covered byte removes both a read and a write, the ceiling is only **0.034833
+ms/token** at the measured projection bandwidth.
+
+Production Nsys provides a stronger bound: all 48 causal-convolution kernels
+together cost **0.260622 ms/token** in a current-source-identical trace, and
+**0.283672 ms/token** in an independent trace. Deleting the entire kernel for
+free would still miss the frozen 0.30-ms admission gate. Reserving 2.75 MiB
+would also leave only 1.25 MiB of ordinary L2 and could regress much larger
+projection streams. No APW probe or production change is therefore created.
+See the [ceiling rejection](metadata/qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json).

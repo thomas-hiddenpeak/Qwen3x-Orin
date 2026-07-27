@@ -1232,6 +1232,12 @@ The diagnostic Phase 3 records are:
   92.76%. All five actual layer-0 rounds regress to a 0.598319x median, so the
   valid layer-50 run and full GEMV integration are skipped and all candidate
   code/build artifacts are removed.
+- [`qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json`](qwen36-27b-decode-causal-conv-l2-persistence-ceiling-rejection.json),
+  which rejects a persisting-L2 access-policy-window probe before coding. The
+  2.8125-MiB history exceeds the 2.75-MiB persisting budget, and an optimistic
+  44/45 coverage of all read/write bytes is worth only 0.034833 ms/token. Two
+  production traces put the complete causal-convolution kernel at only
+  0.260622--0.283672 ms/token, so even free removal misses the 0.30-ms gate.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
