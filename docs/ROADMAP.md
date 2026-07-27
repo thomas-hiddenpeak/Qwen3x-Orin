@@ -1409,17 +1409,24 @@ row-search structure without an unpriced global-progress assumption. See the
   occupancy loss. The phase-local P513 opportunity is 1.03392x; production
   dispatch remains unchanged. See the
   [Gate/Up pair screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
-- [active, direct FP8 and true large-M projection work] Measure direct
-  FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]` whole-chunk routes against
-  their production chains. Commit `03336b6` rejects a scheduling-only Down
-  M256 P0: equal-byte NK64/NK256 sidecars plus 16 static-stride CTAs are
-  bit-exact but reach only **0.511096x**, with all 18 rounds regressing. Grid
-  reduction without B arithmetic reuse is closed. A next attempt must reuse
-  each staged B tile across at least M128/M256 work and/or implement the real
-  four-stage `cp.async` plus register-side E2M1 MMA pipeline before reducing
-  concurrency. Advance to N256, Gate/Up, and FP8 only after exact numerical,
-  no-spill, resource, memory-layout, and direct-speed gates. Do not import the
-  general vLLM template or retain two full-model weight copies. See the
+- [selected, direct FP8 whole-chunk QKV/Z] Commit `3134c38` compares the public
+  production M32 chains with repeated test-only M64, one M-major grid, and one
+  N-major grid for exact C256/C512 QKV `[N10240,K5120]` and Z
+  `[N6144,K5120]`. The sequential M512 pair reaches **1.50681x** overall,
+  including 1.56823x checkpoint-like and 1.42834x stress cells; every
+  individual and pair round improves. Exhaustive E4M3FN, replay, Graph,
+  invalid-call, guard, input, and resource gates pass at 70 registers,
+  23,552 B shared, zero local memory, and three CTA/SM. Production remains
+  unchanged. Next, add only the narrow exact-shape C256/C512 API/runner route,
+  then require P257/P513 exact-token, memory, mirrored fixed-clock Prefix, and
+  Nsight admission. See the
+  [FP8 QKV/Z screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json).
+- [closed, scheduling-only persistent Down P0] Commit `03336b6` uses equal-byte
+  NK64/NK256 sidecars plus 16 static-stride CTAs but reaches only
+  **0.511096x**, with all 18 rounds regressing. Grid reduction without B
+  arithmetic reuse is closed. Any future persistent attempt must reuse each
+  staged B tile across at least M128/M256 work and/or implement the real
+  four-stage `cp.async` plus register-side E2M1 MMA pipeline. See the
   [P0 rejection](metadata/qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection.json).
 - [done, one C512 public Prefill boundary] Commit `6be943e` publishes
   ABI/package 0.4.0, explicit `{512,256,64,32,tail<=31}` scheduling, C256

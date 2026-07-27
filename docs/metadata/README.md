@@ -1288,6 +1288,14 @@ The diagnostic Phase 3 records are:
   remain exact, persistent drop is zero, Decode stays frozen at 105.870500
   ms/token / 9.445501816 token/s, MTP is unused, and FlashInfer is not yet
   introduced.
+- [`qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json`](qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json),
+  which selects test-only N-major whole-chunk grids for exact C256/C512 FP8
+  QKV `[10240,5120]` and Z `[6144,5120]`. The sequential M512 pair reaches
+  **1.50681x** against the public production M32 chains; checkpoint-like and
+  stress cells reach 1.56823x and 1.42834x, every round improves, and
+  exhaustive E4M3FN, replay, Graph, invalid-call, guard, input, and resource
+  gates pass. Production dispatch remains unchanged pending narrow exact-shape
+  integration and full-model admission.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

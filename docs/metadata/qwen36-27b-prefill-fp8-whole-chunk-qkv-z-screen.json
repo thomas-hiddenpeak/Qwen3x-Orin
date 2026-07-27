@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen",
+  "status": "selected_for_production_admission",
+  "recorded_at": "2026-07-28T03:07:42+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "3134c38f265f0fbf2a42df6c17e28ead25e8f5c9",
+    "tree": "f63c4cc18286def632a6d963f88879e340524e4f",
+    "base_commit": "ff8f18e1b69a1a18511bfde267be1bead4bd2bb6",
+    "subject": "test: select whole-chunk FP8 Prefill QKV Z",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 8643872,
+      "sha256": "2a198b72dd1288168a39315b9d693678c52cb4c6848dacd9e1a11ae21e1646c8",
+      "elf_build_id": "fb81ff3e3d85d1806e78c7659c4e5c6534bc5bbe",
+      "build_type": "Release"
+    }
+  },
+  "evidence": {
+    "authoritative_screen": {
+      "path": "/tmp/q3x-fp8-whole-chunk-qkv-z-screen.log",
+      "bytes": 36136,
+      "sha256": "bccb52c1b397e29e0caed768299a6d03e6b8daf2c3f1c895eb715c22a5bc4ce4",
+      "command": "Q3X_RUN_SM87_FP8_WHOLE_CHUNK_QKV_Z_PERF=1 build/orin-release/q3x_sm87_weight_only_gemv_test"
+    },
+    "default_regression": {
+      "path": "/tmp/q3x-fp8-qkv-z-default-test.log",
+      "bytes": 68965,
+      "sha256": "4a41098a1681384913b2f0b11255aac09d23f1bea0fbe573e0d45126170189e7",
+      "command": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "result": "pass"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_current_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, synthetic exact FP8 QKV and Z shapes, and direct CUDA-event whole-chunk timing"
+  },
+  "experiment": {
+    "shapes": [
+      {
+        "name": "QKV",
+        "rows": 10240,
+        "columns": 5120,
+        "checkpoint_like_weight_scale": 0.00100708,
+        "distinct_scale_stress_weight_scale": 0.00390625
+      },
+      {
+        "name": "Z",
+        "rows": 6144,
+        "columns": 5120,
+        "checkpoint_like_weight_scale": 0.000523159,
+        "distinct_scale_stress_weight_scale": 0.000976562
+      }
+    ],
+    "tokens": [
+      256,
+      512
+    ],
+    "weight_format": "FP8 E4M3FN packed x4",
+    "activation_and_output_format": "BF16",
+    "baseline_B": "ordered public production M32 chain",
+    "control_R": "ordered test-only M64 chain",
+    "control_S": "one test-only M-major whole-chunk grid",
+    "candidate_C": "one test-only N-major whole-chunk grid",
+    "grid_contracts": {
+      "qkv": {
+        "baseline_or_m64_grid_x": 80,
+        "m256_baseline_nodes": 8,
+        "m256_m64_nodes": 4,
+        "m256_whole_chunk_grid_x": 320,
+        "m512_baseline_nodes": 16,
+        "m512_m64_nodes": 8,
+        "m512_whole_chunk_grid_x": 640,
+        "whole_chunk_nodes": 1
+      },
+      "z": {
+        "baseline_or_m64_grid_x": 48,
+        "m256_baseline_nodes": 8,
+        "m256_m64_nodes": 4,
+        "m256_whole_chunk_grid_x": 192,
+        "m512_baseline_nodes": 16,
+        "m512_m64_nodes": 8,
+        "m512_whole_chunk_grid_x": 384,
+        "whole_chunk_nodes": 1
+      },
+      "block_x": 256
+    },
+    "expected_peak_device_mib": 105,
+    "expected_peak_host_mib": 160,
+    "test_only": true,
+    "production_dispatch_changed": false,
+    "public_runtime_api_changed": false,
+    "runner_or_workspace_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false
+  },
+  "resource_gate": {
+    "limits": {
+      "maximum_registers_per_thread": 71,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "minimum_active_blocks_per_sm": 3,
+      "no_m64_occupancy_reduction": true
+    },
+    "qkv_and_z_identical": true,
+    "m64_anchor": {
+      "registers_per_thread": 69,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3
+    },
+    "m_major_m256_m512": {
+      "registers_per_thread": 71,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3
+    },
+    "n_major_m256_m512": {
+      "registers_per_thread": 70,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3
+    },
+    "invalid_query": {
+      "token_status": 1,
+      "shape_status": 1,
+      "null_status": 1,
+      "outputs_unchanged": true
+    },
+    "result": "pass_without_occupancy_loss"
+  },
+  "correctness": {
+    "finite_cells": {
+      "cells": 8,
+      "r_vs_b_mismatches": 0,
+      "s_vs_b_mismatches": 0,
+      "c_vs_b_mismatches": 0,
+      "c_replay_mismatches": 0,
+      "unexpected_nonfinite": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "exhaustive_e4m3fn_m512": [
+      {
+        "shape": "QKV[10240x5120]",
+        "raw_codes_per_byte_position": 256,
+        "byte_positions": 4,
+        "compared_elements_per_route": 5242880,
+        "r_vs_b_mismatches": 0,
+        "s_vs_b_mismatches": 0,
+        "c_vs_b_mismatches": 0,
+        "c_replay_mismatches": 0,
+        "classified_nan_outputs": 4096,
+        "classified_nan_expected": 4096,
+        "nan_class_or_sign_mismatches": 0
+      },
+      {
+        "shape": "Z[6144x5120]",
+        "raw_codes_per_byte_position": 256,
+        "byte_positions": 4,
+        "compared_elements_per_route": 3145728,
+        "r_vs_b_mismatches": 0,
+        "s_vs_b_mismatches": 0,
+        "c_vs_b_mismatches": 0,
+        "c_replay_mismatches": 0,
+        "classified_nan_outputs": 4096,
+        "classified_nan_expected": 4096,
+        "nan_class_or_sign_mismatches": 0
+      }
+    ],
+    "invalid_capture": {
+      "invalid_statuses": 30,
+      "expected_invalid_statuses": 30,
+      "captured_graph_nodes": 0
+    },
+    "graph": "all B/R/S/C node and grid contracts pass for both shapes, token counts, and scale cells",
+    "default_sm87_weight_only_gemv": "pass",
+    "result": "pass"
+  },
+  "timing_protocol": {
+    "independent_processes": 1,
+    "warmup_operations_per_route": 10,
+    "logical_operations_per_timed_pass": 24,
+    "mirrored_rounds_per_cell": 6,
+    "order": "B-R-S-C-C-S-R-B",
+    "individual_shape_rounds": 48,
+    "sequential_pair_rounds": 24,
+    "individual_shape_gate": "every C-versus-B round is greater than 1.0x",
+    "pair_cell_gate": "M256 greater than 1.0x; both M512 cells at least 1.25x",
+    "aggregate_gate": "combined M512 QKV-then-Z C versus B is at least 1.25x"
+  },
+  "individual_shape_cells": [
+    {
+      "shape": "QKV",
+      "tokens": 256,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 5.14360,
+      "control_m64_ms": 3.52668,
+      "m_major_ms": 3.40548,
+      "n_major_ms": 3.36730,
+      "c_vs_b_speedup": 1.52751,
+      "round_speedup_range": [1.52697, 1.52815]
+    },
+    {
+      "shape": "QKV",
+      "tokens": 256,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 3.71906,
+      "control_m64_ms": 2.83524,
+      "m_major_ms": 2.73360,
+      "n_major_ms": 2.65782,
+      "c_vs_b_speedup": 1.39929,
+      "round_speedup_range": [1.39894, 1.39960]
+    },
+    {
+      "shape": "QKV",
+      "tokens": 512,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 10.28690,
+      "control_m64_ms": 7.06358,
+      "m_major_ms": 6.75813,
+      "n_major_ms": 6.68292,
+      "c_vs_b_speedup": 1.53928,
+      "round_speedup_range": [1.53901, 1.53966]
+    },
+    {
+      "shape": "QKV",
+      "tokens": 512,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 7.43765,
+      "control_m64_ms": 5.64671,
+      "m_major_ms": 5.40215,
+      "n_major_ms": 5.25981,
+      "c_vs_b_speedup": 1.41405,
+      "round_speedup_range": [1.41386, 1.41426]
+    },
+    {
+      "shape": "Z",
+      "tokens": 256,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 3.25184,
+      "control_m64_ms": 2.17936,
+      "m_major_ms": 2.07106,
+      "n_major_ms": 2.04187,
+      "c_vs_b_speedup": 1.59258,
+      "round_speedup_range": [1.59109, 1.59359]
+    },
+    {
+      "shape": "Z",
+      "tokens": 256,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 2.28216,
+      "control_m64_ms": 1.74562,
+      "m_major_ms": 1.64104,
+      "n_major_ms": 1.59985,
+      "c_vs_b_speedup": 1.42649,
+      "round_speedup_range": [1.42584, 1.42719]
+    },
+    {
+      "shape": "Z",
+      "tokens": 512,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 6.50703,
+      "control_m64_ms": 4.35854,
+      "m_major_ms": 4.07828,
+      "n_major_ms": 4.03247,
+      "c_vs_b_speedup": 1.61366,
+      "round_speedup_range": [1.61324, 1.61436]
+    },
+    {
+      "shape": "Z",
+      "tokens": 512,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 4.55595,
+      "control_m64_ms": 3.49607,
+      "m_major_ms": 3.22365,
+      "n_major_ms": 3.13540,
+      "c_vs_b_speedup": 1.45307,
+      "round_speedup_range": [1.45247, 1.45361]
+    }
+  ],
+  "sequential_qkv_then_z_cells": [
+    {
+      "tokens": 256,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 8.40219,
+      "control_m64_ms": 5.71239,
+      "m_major_ms": 5.47684,
+      "n_major_ms": 5.41286,
+      "c_vs_b_speedup": 1.55227,
+      "round_speedup_range": [1.55204, 1.55262],
+      "required_speedup": 1.0
+    },
+    {
+      "tokens": 256,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 5.99729,
+      "control_m64_ms": 4.58472,
+      "m_major_ms": 4.37423,
+      "n_major_ms": 4.26208,
+      "c_vs_b_speedup": 1.40713,
+      "round_speedup_range": [1.40640, 1.40801],
+      "required_speedup": 1.0
+    },
+    {
+      "tokens": 512,
+      "cell": "checkpoint_like",
+      "baseline_m32_ms": 16.80020,
+      "control_m64_ms": 11.44210,
+      "m_major_ms": 10.85090,
+      "n_major_ms": 10.71280,
+      "c_vs_b_speedup": 1.56823,
+      "round_speedup_range": [1.56794, 1.56888],
+      "required_speedup": 1.25
+    },
+    {
+      "tokens": 512,
+      "cell": "distinct_scale_stress",
+      "baseline_m32_ms": 11.97630,
+      "control_m64_ms": 9.17140,
+      "m_major_ms": 8.61990,
+      "n_major_ms": 8.38478,
+      "c_vs_b_speedup": 1.42834,
+      "round_speedup_range": [1.42824, 1.42847],
+      "required_speedup": 1.25
+    }
+  ],
+  "aggregate": {
+    "m512_qkv_then_z": {
+      "baseline_m32_envelope_ms_sum": 28.77650,
+      "n_major_envelope_ms_sum": 19.09758,
+      "speedup": 1.50681,
+      "required_speedup": 1.25,
+      "checkpoint_like_speedup": 1.56823,
+      "distinct_scale_stress_speedup": 1.42834,
+      "every_pair_round_positive": true,
+      "result": "pass"
+    },
+    "result": "selected_for_production_admission"
+  },
+  "phase_projection": {
+    "p513_profile_qkv_z_basis_ms": 617.622304,
+    "m512_screen_speedup": 1.50681,
+    "projected_qkv_z_ms": 409.887314,
+    "projected_saved_ms": 207.734990,
+    "interpretation": "Arithmetic transfer of the isolated synthetic screen to the latest QKV plus Z hotspot only; not an achieved Prefix or end-to-end result."
+  },
+  "decision": {
+    "selected_mechanism": "one N-major whole-chunk grid for each exact FP8 QKV or Z projection at C256/C512",
+    "next": [
+      "add a narrow public production launcher for the exact QKV and Z shapes without changing generic projection limits",
+      "route only exact aligned SM87 C256/C512 QKV and Z calls and preserve current fallbacks",
+      "run exact P257/P513 model-oracle, memory, fixed-clock mirrored Prefix, and fresh Nsight closure before claiming production benefit"
+    ],
+    "production_promotion": false
+  },
+  "limitations": [
+    "This is one fixed-clock process over deterministic synthetic scale fixtures, not a multi-process release benchmark or actual checkpoint-payload timing.",
+    "The candidate entry points are test-only; production dispatch, public runtime APIs, runner workspace, Decode, and MTP policy are unchanged.",
+    "The result is an isolated exact-shape CUDA-event screen and does not establish end-to-end Prefill tokens per second or proximity to vLLM.",
+    "The common translation unit changed, so production cubin or SASS byte identity is not claimed; the default device regression passed instead."
+  ]
+}

@@ -7198,6 +7198,39 @@ GDN, projection, and runner interactions. Production promotion therefore
 requires full-path integration and token/memory/Prefix validation. Evidence is
 in the [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
 
+## FP8 C256/C512 whole-chunk QKV/Z screen
+
+Commit `3134c38` adds test-only exact-shape M64 and whole-chunk launchers for
+FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]`; production dispatch, public
+runtime APIs, runner workspace, Decode, and MTP policy remain unchanged. One
+fixed-clock MAXN process compares the public M32 chain (B), repeated test-only
+M64 (R), one M-major grid (S), and one N-major grid (C) with 10 warmups, 24
+logical operations per timed pass, and six `B-R-S-C-C-S-R-B` rounds.
+
+| Sequential QKV then Z pair | B M32 | C N-major | C/B | Round range |
+| --- | ---: | ---: | ---: | ---: |
+| C256 checkpoint-like | 8.40219 ms | 5.41286 ms | 1.55227x | 1.55204x--1.55262x |
+| C256 stress | 5.99729 ms | 4.26208 ms | 1.40713x | 1.40640x--1.40801x |
+| C512 checkpoint-like | 16.80020 ms | 10.71280 ms | **1.56823x** | 1.56794x--1.56888x |
+| C512 stress | 11.97630 ms | 8.38478 ms | **1.42834x** | 1.42824x--1.42847x |
+
+Combining both C512 cells yields **1.50681x**, clearing the frozen 1.25x pair
+gate. All 48 individual-shape and 24 pair rounds improve. Every finite B/R/S/C
+and replay output is bit-exact; exhaustive M512 E4M3FN coverage for both
+shapes, 4,096 classified NaNs per shape, guards, inputs, all Graph topologies,
+30 zero-node invalid captures, and invalid resource queries pass. QKV and Z
+share the same resource envelope: the N-major candidate uses 70 registers,
+23,552 bytes shared, zero local memory, 256 threads, and three active CTA/SM;
+the M-major control uses 71 registers and the same residency.
+
+Applying the isolated ratio to the current 617.622304-ms P513 QKV+Z profile
+row projects 207.735 ms saved. That is arithmetic opportunity only: the screen
+uses deterministic synthetic scale fixtures, one process, and test-only entry
+points. The result admits narrow exact C256/C512 production integration, after
+which P257/P513 model-oracle, memory, mirrored fixed-clock Prefix, and fresh
+Nsight gates remain mandatory. Full binary, log, cell, resource, and hash
+evidence is in the [FP8 QKV/Z screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json).
+
 ## Matched vLLM plus FlashInfer Prefill reference
 
 The offline raw-token probe now has three independent processes across
