@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-c64-down-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-27T21:32:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "3f8dd1058fb945075e315b5a62e06dc71732b4db",
+    "tree": "dc528dbc945d779f517f24ce2875129dbe331cf7",
+    "subject": "perf: promote C64 Prefill down schedule",
+    "base_commit": "5c3ef986cc6246d485db53e7b8279fe992cf6910",
+    "project_version": "0.3.0",
+    "abi_version": "0.3.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "measured_binary": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 5177368,
+      "sha256": "3191dba70f3646d179075457f1018776b3299f0539d2ae92919ed16f0f295a07",
+      "build_type": "Release",
+      "note": "Measured from the promotion worktree. The committed source differs only by documentation and source comments added after the formal runs. A complete post-commit rebuild and Release suite also passed."
+    },
+    "post_commit_rebuild": {
+      "bytes": 5177368,
+      "sha256": "46cba1f09d76fb56467c818f0d5f2f755b5de3043e96da1e13cd7f24051f3947",
+      "elf_build_id": "ae4d0b5d39235467f6edac9ceedda04d32c6a63f"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_current_hz": 3200000000,
+      "emc_mrq_rate_locked": 1
+    },
+    "nsight_systems_version": "2026.1.3.243-261337792075v0"
+  },
+  "production_schedule": {
+    "request_and_projection_maximum_tokens": 64,
+    "exact_c64_down": "one NVFP4 M64 [M64,N5120,K17408] tensor-core kernel",
+    "other_c64_projections": "two ordered C32 schedules",
+    "gate_up": "main/auxiliary branch overlap retained; each C64 branch contains two ordered C32 projections",
+    "residual_rms": "two ordered exact-M32 kernels",
+    "causal_state_and_rope": "ordered subtiles of at most M16",
+    "partial_wide_controller": "a candidate of 33..63 tokens is emitted as C32 followed by a recomputed <=31-token tail",
+    "mtp_used": false,
+    "double_or_triple_buffering_used": false,
+    "prefill_decode_overlap_used": false
+  },
+  "formal_protocol": {
+    "order": ["B1_C32", "C1_C64", "C2_C64", "B2_C32"],
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompts": ["P33", "P65", "P97", "P129", "P513"],
+    "prompt_construction": "P(N) uses N-12 space-separated copies of ASCII hello and the pinned non-thinking single-user chat template",
+    "comparison": "arithmetic mean of mirrored process medians",
+    "shared_engine_within_each_process": true,
+    "capture_trace": false,
+    "decode_graph_cache": "disabled"
+  },
+  "formal_results": [
+    {
+      "id": "P33",
+      "prefix_tokens": 32,
+      "baseline_c32_prefix_median_ms": 271.646500,
+      "candidate_c64_policy_prefix_median_ms": 271.367000,
+      "prefix_speedup": 1.001030,
+      "prefix_reduction_percent": 0.102891,
+      "candidate_prefix_tokens_per_second": 117.921486,
+      "baseline_ttft_median_ms": 378.392500,
+      "candidate_ttft_median_ms": 378.197000,
+      "ttft_speedup": 1.000517,
+      "candidate_schedule": "one C32 tile; exact-M64 is not selected",
+      "gate": "pass: mirrored P33 has no regression"
+    },
+    {
+      "id": "P65",
+      "prefix_tokens": 64,
+      "baseline_c32_prefix_median_ms": 545.055000,
+      "candidate_c64_policy_prefix_median_ms": 511.476500,
+      "prefix_speedup": 1.065650,
+      "prefix_reduction_percent": 6.160571,
+      "candidate_prefix_tokens_per_second": 125.127938,
+      "baseline_ttft_median_ms": 652.243500,
+      "candidate_ttft_median_ms": 618.703000,
+      "ttft_speedup": 1.054211,
+      "candidate_schedule": "one exact C64 tile",
+      "gate": "pass: 511.476500 ms <= 526.844 ms"
+    },
+    {
+      "id": "P97",
+      "prefix_tokens": 96,
+      "baseline_c32_prefix_median_ms": 824.211000,
+      "candidate_c64_policy_prefix_median_ms": 790.411500,
+      "prefix_speedup": 1.042762,
+      "prefix_reduction_percent": 4.100831,
+      "candidate_prefix_tokens_per_second": 121.455723,
+      "baseline_ttft_median_ms": 931.458500,
+      "candidate_ttft_median_ms": 897.707000,
+      "ttft_speedup": 1.037597,
+      "candidate_schedule": "one C64 tile followed by one C32 tile",
+      "gate": "pass: mixed exact/tail coverage improves without changing output"
+    },
+    {
+      "id": "P129",
+      "prefix_tokens": 128,
+      "baseline_c32_prefix_median_ms": 1104.837000,
+      "candidate_c64_policy_prefix_median_ms": 1037.894000,
+      "prefix_speedup": 1.064499,
+      "prefix_reduction_percent": 6.059084,
+      "candidate_prefix_tokens_per_second": 123.326660,
+      "baseline_ttft_median_ms": 1212.349500,
+      "candidate_ttft_median_ms": 1145.281500,
+      "ttft_speedup": 1.058560,
+      "candidate_schedule": "two exact C64 tiles",
+      "gate": "pass: 1037.894000 ms <= 1068.938 ms"
+    },
+    {
+      "id": "P513",
+      "prefix_tokens": 512,
+      "baseline_c32_prefix_median_ms": 4612.397500,
+      "candidate_c64_policy_prefix_median_ms": 4339.631500,
+      "prefix_speedup": 1.062855,
+      "prefix_reduction_percent": 5.913757,
+      "candidate_prefix_tokens_per_second": 117.982368,
+      "baseline_ttft_median_ms": 4721.136500,
+      "candidate_ttft_median_ms": 4448.348500,
+      "ttft_speedup": 1.061323,
+      "candidate_schedule": "eight exact C64 tiles",
+      "gate": "pass: 4339.631500 ms <= 4470.656 ms"
+    }
+  ],
+  "correctness": {
+    "formal_processes": 4,
+    "measured_prompt_results": 20,
+    "generated_ids_for_every_prompt": [9419],
+    "generated_text_for_every_prompt": "Hello",
+    "step_counts": {"P33": 33, "P65": 65, "P97": 97, "P129": 129, "P513": 513},
+    "direct_c64_fixed_fixture": "pass: 19 prompt IDs, 26 generated IDs, exact text, im_end, and 44 steps",
+    "m64_micro_bitwise_gate": "0/327680 BF16 mismatches for checkpoint-like and same-bank scale distributions",
+    "mtp_used": false
+  },
+  "memory": {
+    "c32_request_arena_bytes": 152256512,
+    "c64_request_arena_bytes": 157702144,
+    "delta_bytes": 5445632,
+    "formal_process_persistent_drop_detected": {
+      "B1_C32": false,
+      "C1_C64": false,
+      "C2_C64": true,
+      "B2_C32": false
+    },
+    "C2_C64_persistent_drop_bytes": 239554560,
+    "independent_C3_C64_rerun_persistent_drop_bytes": 0,
+    "independent_C3_C64_maximum_observed_drop_bytes": 131072,
+    "assessment": "The C2 warning was retained but did not reproduce in C1 or C3 and did not affect correctness or latency admission."
+  },
+  "nsight_p513_route_closure": {
+    "protocol": "one no-warmup measured P513/max1 process per C32/C64 policy with CUDA+NVTX tracing; diagnostic topology evidence, not the formal latency distribution",
+    "c32_prefix_range_ms": 4644.436928,
+    "c64_prefix_range_ms": 4376.231840,
+    "prefix_range_speedup": 1.061286764,
+    "c32_projected_gpu_span_ms": 4642.636128,
+    "c64_projected_gpu_span_ms": 4374.956000,
+    "c32_range_minus_projected_percent": 0.038773,
+    "c64_range_minus_projected_percent": 0.029154,
+    "c32_down_kernel_instances": 1024,
+    "c64_down_kernel_instances": 512,
+    "c32_down_kernel_total_ms": 934.291584,
+    "c64_down_kernel_total_ms": 737.822112,
+    "down_kernel_total_speedup": 1.266282982,
+    "down_kernel_saved_ms": 196.469472,
+    "unchanged_gate_up_kernel_instances": 2048,
+    "gate_up_cumulative_duration_ratio": 1.059059104,
+    "gate_up_note": "C64 retains branch overlap and the same instance count. Its cumulative per-kernel duration increases under overlap, while the controlling NVTX critical span improves 5.775% and idle remains below 0.04%."
+  },
+  "tests": {
+    "release_build": "pass",
+    "release_ctest": {"passed": 51, "skipped": 9, "failed": 0},
+    "sm87_weight_only_gemv": "pass",
+    "projection_backend_dispatch": "pass including M33/M63/M64, one-node exact down, two-M32 non-down, near-miss fallback, full-span alias, and M65 fail-before-enqueue",
+    "request_state_plan": "pass including exact C64 workspace and maximum arena",
+    "reference_engine_control": "pass including C33/C63 and 64+32+31 scheduling",
+    "reference_benchmark_control": "pass including shared partial-wide timing cardinality",
+    "package_consumer": "pass with Qwen3xOrin 0.3.0 EXACT"
+  },
+  "evidence_files": [
+    {"role": "formal B1 C32 log", "local_path": "/tmp/q3x-c64-production-b1.log", "bytes": 41827, "sha256": "1d66e008486a17e0a2e280e633e6aba744e39248a63c3461fbd6d791101f7993"},
+    {"role": "formal C1 C64 log", "local_path": "/tmp/q3x-c64-production-c1.log", "bytes": 41342, "sha256": "94753e9c08dcb4d39851a84840270adf1030ec684228eb3b8274656a98a6e8c3"},
+    {"role": "formal C2 C64 log", "local_path": "/tmp/q3x-c64-production-c2.log", "bytes": 41431, "sha256": "ff82c4683f7fbfc8323ad7c3a49283154d4951c94c5bc273fb6e479c08fcfa61"},
+    {"role": "formal B2 C32 log", "local_path": "/tmp/q3x-c64-production-b2.log", "bytes": 41828, "sha256": "e200364ddd8824cb14b70a797e163426a52b8779b30e191725fcd8533c60b58d"},
+    {"role": "independent C3 memory rerun", "local_path": "/tmp/q3x-c64-production-c3-memory.log", "bytes": 41347, "sha256": "8b2c17b1ec8ab55773b2c593efc3b67e8b5b43c192cd160037fd5a5dad760a57"},
+    {"role": "C32 P513 Nsight report", "local_path": "/tmp/q3x-c32-p513-profile.nsys-rep", "bytes": 3137148, "sha256": "b490442c55ee4423c39285e7ff78d707ea033936429cd23381cb33268b0a0b50"},
+    {"role": "C64 P513 Nsight report", "local_path": "/tmp/q3x-c64-p513-profile.nsys-rep", "bytes": 3029156, "sha256": "679864f83e3bd4901a5bbb30dc6f3e2103548a3ba580ab2a688db94ca9125bae"},
+    {"role": "C32 kernel summary", "local_path": "/tmp/q3x-c32-p513-kernel-summary.csv", "bytes": 9272, "sha256": "f392120e9883a9aa4ce7c39fec05029595020ae21b4e539fbe198a5ee36a2881"},
+    {"role": "C64 kernel summary", "local_path": "/tmp/q3x-c64-p513-kernel-summary.csv", "bytes": 9275, "sha256": "0b1ea04bae3bae6c8a0b37c5bfbe53ad9ba6acd85583980a20b7296ce743138d"}
+  ],
+  "decision": {
+    "result": "promote exact C64 NVFP4 down and the C64 request/runner boundary",
+    "why": "Every correctness and formal Prefix gate passes. Exact-C64 workloads reach 1.062855x-1.065650x Prefix speedup, the mixed P97 schedule reaches 1.042762x, P33 is neutral, and Nsight confirms the intended 1024-to-512 down-launch transition.",
+    "decode_policy": "The non-MTP Decode anchor remains frozen at 105.870500 ms/token and 9.445501816 token/s. Decode Graph screens remain explicitly pinned to P19/C32.",
+    "next_priority": "Re-profile the promoted C64 path, then run a bounded M64 gate/up pair experiment; if overlap fails its pair-level gate, move directly to M64 FP8 projections. FlashInfer attention remains a later isolated backend experiment because attention was only 5.763 percent of the prior P513 kernel union."
+  },
+  "limitations": [
+    "The formal latency result is batch-one, one checkpoint, fixed clocks, max1, and mirrored process medians; it is not a serving-throughput or tail-latency claim.",
+    "The independent vLLM/FlashInfer 2k-8k token/s result supplied by the user is not directly comparable until model, precision, prompt, token accounting, concurrency, and hardware are matched.",
+    "C64 increases request workspace by 5,445,632 bytes. It does not introduce double/triple buffering, continuous batching, MTP, a server, or Prefill/Decode overlap.",
+    "One formal C64 process reported a 239,554,560-byte free-memory drop; two other C64 processes did not reproduce it, including an independent rerun with only 131,072 bytes maximum observed drop."
+  ]
+}

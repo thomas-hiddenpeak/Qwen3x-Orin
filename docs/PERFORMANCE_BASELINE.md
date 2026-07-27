@@ -6928,3 +6928,46 @@ phase-local path that presents 64 contiguous MLP intermediate tokens to down
 projection without changing attention/GDN ordering, residual boundaries, or
 tail behavior. Full protocol and claim limits are in the
 [machine-readable M64 screen](metadata/qwen36-27b-prefill-nvfp4-m64-down-screen.json).
+
+## C64 Prefill and NVFP4 M64 down production promotion
+
+Commit `3f8dd10` promotes the selected schedule behind a C64 request/runner
+boundary and advances the exact package ABI to 0.3.0. Only exact aligned NVFP4
+`[M64,N5120,K17408]` down uses one M64 kernel. All other C64 projections retain
+two ordered C32 schedules; gate/up keeps its narrow layer-local branch overlap,
+residual/RMS uses two exact M32 operations, and causal Conv/GDN/QK+RoPE remains
+on ordered subtiles of at most M16. A 33..63-token controller candidate is
+issued as C32 plus a recomputed ordered tail, so partial-wide requests do not
+lose the established C32 schedules. Decode Graph admission remains explicitly
+pinned to the frozen P19/C32 baseline, and MTP is not used.
+
+The formal screen uses MAXN, 1.3005-GHz GPU, locked 3.2-GHz EMC, one warmup,
+five measured generations per prompt, and mirrored `B1-C1-C2-B2` processes.
+Each process shares one loaded model across P33/P65/P97/P129/P513; the table is
+the arithmetic mean of mirrored process medians:
+
+| Prompt | C32 Prefix | C64-policy Prefix | Prefix speedup | C64-policy TTFT | Prefix throughput |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| P33 | 271.646 ms | 271.367 ms | 1.001030x | 378.197 ms | 117.921486 token/s |
+| P65 | 545.055 ms | 511.476 ms | **1.065650x** | 618.703 ms | 125.127938 token/s |
+| P97 | 824.211 ms | 790.412 ms | **1.042762x** | 897.707 ms | 121.455723 token/s |
+| P129 | 1,104.837 ms | 1,037.894 ms | **1.064499x** | 1,145.282 ms | 123.326660 token/s |
+| P513 | 4,612.398 ms | 4,339.632 ms | **1.062855x** | 4,448.349 ms | 117.982368 token/s |
+
+All 20 formal generations emit ID `9419`, text `Hello`, and exact prompt/step
+counts. P65 is one C64 tile, P97 is C64+C32, P129 is two C64 tiles, and P513 is
+eight C64 tiles; P33 remains the unchanged C32 schedule. The C64 request arena
+adds 5,445,632 bytes. One C64 process reports a 239,554,560-byte free-memory
+drop, but C1 and an independent C3 rerun report zero persistent drop; the
+anomalous process is retained as a limitation rather than discarded.
+
+Matched no-warmup P513 Nsight diagnostics confirm the route. C32 executes
+1,024 down-M32 kernels totaling 934.292 ms; C64 executes 512 down-M64 kernels
+totaling 737.822 ms, a 1.266283x cumulative-kernel improvement. The controlling
+Prefix NVTX span falls from 4,644.437 to 4,376.232 ms (1.061287x), while
+range-minus-projected-GPU time stays below 0.04% for both policies. The complete
+Release suite reports 51 passes, 9 model/external-data skips, and zero failures;
+the direct C64 fixed fixture and the P65/P97/P129/P513 formal outputs pass on
+the target model. Full identities, hashes, per-process medians, memory evidence,
+and limitations are in the
+[C64 production record](metadata/qwen36-27b-prefill-c64-down-production-benchmark.json).

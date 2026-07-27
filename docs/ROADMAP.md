@@ -1337,12 +1337,17 @@ row-search structure without an unpriced global-progress assumption. See the
   **1.25824x** and **1.25778x**; aggregate speedup is **1.25801x**, above the
   1.15x gate. Production dispatch remains unchanged. See the
   [M64 down screen](metadata/qwen36-27b-prefill-nvfp4-m64-down-screen.json).
-- [active, phase-local M64 runtime integration] Determine the smallest
-  layer-local schedule that presents 64 contiguous MLP intermediate tokens to
-  one down projection while preserving attention/GDN order, residual/RMS
-  boundaries, exact tails, and C32 Decode behavior. Promote only after P33,
-  P65, P129, and P513 end-to-end oracle and fixed-frequency gates; do not infer
-  a whole-Prefill gain from the isolated 1.25801x result.
+- [done, C64 runtime and M64 down production promotion] ABI 0.3.0 raises the
+  request/projection boundary to C64. Exact aligned NVFP4
+  `[M64,N5120,K17408]` down uses one M64 kernel; other C64 projections retain
+  two ordered C32 schedules, residual/RMS retains two M32 operations, causal
+  work remains at most M16, and partial-wide 33..63 candidates are scheduled as
+  C32 plus an ordered tail. Fixed-clock mirrored Prefix speedups are
+  **1.065650x P65, 1.042762x P97, 1.064499x P129, and 1.062855x P513**;
+  P33 is neutral at 1.001030x. All formal outputs remain exact. P513 Nsight
+  confirms 1,024 M32 down launches become 512 M64 launches and the Prefix range
+  falls from 4,644.437 to 4,376.232 ms. See the
+  [C64 production record](metadata/qwen36-27b-prefill-c64-down-production-benchmark.json).
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not

@@ -1260,6 +1260,14 @@ The diagnostic Phase 3 records are:
   sweep has no all-fixture pass. No CUDA/NCU or production change follows, the
   105.870500-ms/token / 9.445501816-token/s anchor is unchanged, and MTP is
   unused.
+- [`qwen36-27b-prefill-c64-down-production-benchmark.json`](qwen36-27b-prefill-c64-down-production-benchmark.json),
+  which promotes the selected exact NVFP4 `[M64,N5120,K17408]` down kernel and
+  the C64 request/runner boundary under ABI 0.3.0. Fixed-clock mirrored C32/C64
+  process medians put P65/P129/P513 Prefix speedups at 1.065650x/1.064499x/
+  1.062855x, mixed P97 at 1.042762x, and P33 at 1.001030x. All 20 formal
+  generations retain ID 9419, `Hello`, and exact step counts. P513 Nsight
+  closes the intended route from 1,024 M32 down launches to 512 M64 launches;
+  no MTP, double/triple buffering, or Prefill/Decode overlap is introduced.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
