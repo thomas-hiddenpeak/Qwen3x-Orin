@@ -5157,7 +5157,8 @@ template <std::size_t kRows, std::size_t kColumns,
           unsigned int kValidTokenCount = 32U,
           bool kTableFreeE2M1 = false,
           unsigned int kTokenCount = 32U,
-          unsigned int kMinimumBlocksPerSm = 5U>
+          unsigned int kMinimumBlocksPerSm = 5U,
+          unsigned int kM64TileCount = 1U, bool kNMajor = true>
 __global__ __launch_bounds__(kThreads, kMinimumBlocksPerSm) void
 nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
@@ -5231,6 +5232,9 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
                   kValidTokenCount == kResidentTokenCount)) ||
                 (kTokenCount == 64U &&
                  kValidTokenCount == kResidentTokenCount));
+  static_assert(kM64TileCount == 1U || kM64TileCount == 4U ||
+                kM64TileCount == 8U);
+  static_assert(kM64TileCount == 1U || kTokenCount == 64U);
   static_assert((kSharedWeightWordsPerRow * sizeof(std::uint32_t)) %
                     alignof(uint4) ==
                 0U);
@@ -5301,8 +5305,24 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     wmma::fill_fragment(accumulator2, 0.0F);
     wmma::fill_fragment(accumulator3, 0.0F);
   }
+  constexpr unsigned int kOutputColumnBlockCount =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+  unsigned int output_column_block = blockIdx.x;
+  unsigned int token_tile = 0U;
+  if constexpr (kM64TileCount != 1U) {
+    output_column_block =
+        kNMajor ? blockIdx.x / kM64TileCount
+                : blockIdx.x % kOutputColumnBlockCount;
+    token_tile = kNMajor ? blockIdx.x % kM64TileCount
+                         : blockIdx.x / kOutputColumnBlockCount;
+  }
   const unsigned int first_output_column =
-      blockIdx.x * kOutputColumnsPerBlock;
+      output_column_block * kOutputColumnsPerBlock;
+  const std::size_t first_token =
+      static_cast<std::size_t>(token_tile) * 64U;
+  const std::uint16_t* const tile_activations =
+      activations + first_token * kColumns;
+  std::uint16_t* const tile_output = output + first_token * kRows;
   const unsigned int local_output_column = thread / kWeightVectorsPerRow;
   const unsigned int vector_in_row = thread % kWeightVectorsPerRow;
   const unsigned int output_column =
@@ -5352,7 +5372,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
           shared_activations[token * kSharedActivationWordsPerToken +
                              activation_word] =
               *reinterpret_cast<const std::uint64_t*>(
-                  activations + static_cast<std::size_t>(token) * kColumns +
+                  tile_activations +
+                  static_cast<std::size_t>(token) * kColumns +
                   first_k +
                   activation_word * kBf16ValuesPerActivationWord);
         } else {
@@ -5360,7 +5381,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
                              activation_word] =
               token < kValidTokenCount
                   ? *reinterpret_cast<const std::uint64_t*>(
-                        activations +
+                        tile_activations +
                         static_cast<std::size_t>(token) * kColumns + first_k +
                         activation_word * kBf16ValuesPerActivationWord)
                   : std::uint64_t{0U};
@@ -5496,7 +5517,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
               resident_token * kSharedActivationWordsPerToken +
               activation_word] =
               *reinterpret_cast<const std::uint64_t*>(
-                  activations +
+                  tile_activations +
                   static_cast<std::size_t>(resident_token +
                                            kResidentTokenCount) *
                       kColumns +
@@ -5551,12 +5572,12 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const unsigned int token = index / kOutputColumnsPerBlock;
     const unsigned int local_column = index % kOutputColumnsPerBlock;
     if constexpr (kValidTokenCount == kResidentTokenCount) {
-      output[static_cast<std::size_t>(token) * kRows + first_output_column +
-             local_column] =
+      tile_output[static_cast<std::size_t>(token) * kRows +
+                  first_output_column + local_column] =
           encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
     } else if (token < kValidTokenCount) {
-      output[static_cast<std::size_t>(token) * kRows + first_output_column +
-             local_column] =
+      tile_output[static_cast<std::size_t>(token) * kRows +
+                  first_output_column + local_column] =
           encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
     }
   }
@@ -5580,10 +5601,10 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
       const unsigned int resident_token =
           index / kOutputColumnsPerBlock;
       const unsigned int local_column = index % kOutputColumnsPerBlock;
-      output[static_cast<std::size_t>(resident_token +
-                                      kResidentTokenCount) *
-                 kRows +
-             first_output_column + local_column] =
+      tile_output[static_cast<std::size_t>(resident_token +
+                                           kResidentTokenCount) *
+                      kRows +
+                  first_output_column + local_column] =
           encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
     }
   }
@@ -14724,6 +14745,50 @@ void launch_nvfp4_lm_head_activation_staged_cs_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
+// Test-only whole-chunk validator. Validate the complete M256/M512 activation
+// and output spans before enqueue so an output alias into another M64 tile is
+// rejected rather than hidden by per-tile validation.
+[[nodiscard]] int validate_nvfp4_m64_tiles_launch(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output) noexcept {
+  if ((token_count != 256U && token_count != 512U) ||
+      (columns % kNvFp4GroupSize) != 0U ||
+      !std::isfinite(weight_scale_2) || weight_scale_2 < 0.0F ||
+      multiply_overflows(rows, columns) ||
+      multiply_overflows(token_count, columns) ||
+      multiply_overflows(token_count, rows)) {
+    return invalid_value();
+  }
+  if (rows == 0U || columns == 0U) {
+    return static_cast<int>(cudaSuccess);
+  }
+  const std::size_t activation_elements = token_count * columns;
+  const std::size_t output_elements = token_count * rows;
+  if (multiply_overflows(activation_elements, sizeof(std::uint16_t)) ||
+      multiply_overflows(output_elements, sizeof(std::uint16_t)) ||
+      packed_weights == nullptr || block_scales == nullptr ||
+      activations == nullptr || output == nullptr) {
+    return invalid_value();
+  }
+
+  const std::size_t packed_bytes =
+      rows * (columns / kNvFp4ValuesPerByte);
+  const std::size_t scale_bytes = rows * (columns / kNvFp4GroupSize);
+  const std::size_t activation_bytes =
+      activation_elements * sizeof(std::uint16_t);
+  const std::size_t output_bytes =
+      output_elements * sizeof(std::uint16_t);
+  if (ranges_overlap(output, output_bytes, packed_weights, packed_bytes) ||
+      ranges_overlap(output, output_bytes, block_scales, scale_bytes) ||
+      ranges_overlap(output, output_bytes, activations, activation_bytes)) {
+    return invalid_value();
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
 template <std::size_t TokenCount>
 void launch_fp8_small_m_vector_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
@@ -15141,7 +15206,8 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked(
 // for four WMMA accumulators; the 40-CTA down grid cannot use five CTAs/SM in
 // any case on the target Orin.
 template <std::size_t kRows, std::size_t kColumns,
-          unsigned int kSharedLeadingDimension = 72U>
+          unsigned int kSharedLeadingDimension = 72U,
+          unsigned int kM64TileCount = 1U, bool kNMajor = true>
 void launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -15149,10 +15215,11 @@ void launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked(
     cudaStream_t const stream) noexcept {
   constexpr unsigned int kOutputColumnsPerBlock = 128U;
   constexpr unsigned int kBlocks =
-      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock);
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
+      kM64TileCount;
   nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
       kRows, kColumns, kSharedLeadingDimension, true, true, 32U, true, 64U,
-      3U><<<kBlocks, kThreads, 0U, stream>>>(
+      3U, kM64TileCount, kNMajor><<<kBlocks, kThreads, 0U, stream>>>(
       packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
@@ -21645,6 +21712,130 @@ int query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resour
   if (status == cudaSuccess) {
     status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
         &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+// Test-only whole-chunk down entry. The production M64 launcher and dispatch
+// remain unchanged; these instances only change the one-grid M64-tile order.
+int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const bool n_major,
+    const std::size_t rows, const std::size_t columns,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (token_count == 256U && n_major) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 4U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else if (token_count == 256U) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 4U, false>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else if (n_major) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 8U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 8U, false>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
+    const std::size_t token_count, const bool n_major,
+    const std::size_t rows, const std::size_t columns,
+    int* const registers_per_thread, std::size_t* const static_shared_bytes,
+    std::size_t* const local_bytes, int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if ((token_count != 256U && token_count != 512U) || rows != 5'120U ||
+      columns != 17'408U || registers_per_thread == nullptr ||
+      static_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (token_count == 256U && n_major) {
+    const auto kernel =
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 32U, true, 64U, 3U, 4U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else if (token_count == 256U) {
+    const auto kernel =
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 32U, true, 64U, 3U, 4U,
+            false>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else if (n_major) {
+    const auto kernel =
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 32U, true, 64U, 3U, 8U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    const auto kernel =
+        nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<
+            5'120U, 17'408U, 72U, true, true, 32U, true, 64U, 3U, 8U,
+            false>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
   }
   if (status != cudaSuccess) {
     return static_cast<int>(status);
