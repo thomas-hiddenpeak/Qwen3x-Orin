@@ -6994,3 +6994,54 @@ stops before any full-model or production integration. A fixed-component
 projection estimates only 1.02099x Prefix gain. Full protocol, hashes, and
 claim limits are in the
 [M64 Gate/Up rejection](metadata/qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json).
+
+## FP8 M64 attention-output production promotion
+
+Commit `5df6ca6` promotes the exact aligned FP8 attention-output projection
+`[M64,N5120,K6144]` screened at base `e8f3ff5`. One four-accumulator M64
+Tensor Core kernel now replaces two ordered production M32 dual-resident-A
+launches for that shape only. Every other C64 FP8 projection retains the two-
+M32 schedule, smaller tiles and Decode remain unchanged, and near-miss shapes
+or unsupported alignments fail the exact low-level entry point before enqueue.
+No MTP, system double/triple buffering, or Prefill/Decode overlap is added.
+
+The production resource/correctness gate reports 69 registers/thread, 23,552
+bytes static shared memory, zero local memory, and three active CTAs/SM. Both
+the checkpoint-like finite fixture and exhaustive 256-code-by-four-byte-position
+fixture match two public M32 launches, the frozen control, dispatcher output,
+and replay bit-for-bit over 327,680 BF16 elements. All panel-boundary, guard,
+input-preservation, classified-NaN, invalid-contract, and one-node CUDA Graph
+checks pass. Six fixed-clock `B-C-C-B` micro rounds span 1.48995x--1.49154x
+and aggregate at **1.49086x**, above the 1.10x exact-route gate.
+
+The matched full-model protocol uses MAXN, a fixed 1.3005-GHz GPU, locked
+3.2-GHz EMC, C64/max1/max-sequence-length 1024, one warmup, five measured
+generations per prompt, and mirrored `B1-C1-C2-B2` processes. The table uses
+the arithmetic mean of mirrored process medians:
+
+| Prompt | Baseline Prefix | Candidate Prefix | Prefix speedup | TTFT speedup | Candidate Prefix throughput |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| P33 | 272.3525 ms | 273.2145 ms | 0.99684497x | 0.99758798x | 117.124091 token/s |
+| P65 | 515.5555 ms | 502.9500 ms | **1.02506313x** | 1.02059219x | 127.249230 token/s |
+| P97 | 795.9610 ms | 783.6080 ms | **1.01576426x** | 1.01387197x | 122.510235 token/s |
+| P129 | 1,046.2735 ms | 1,021.3555 ms | **1.02439699x** | 1.02206210x | 125.323651 token/s |
+| P513 | 4,374.5310 ms | 4,272.4115 ms | **1.02390208x** | 1.02330551x | **119.838644 token/s** |
+
+The unchanged P33 fallback is within its low-risk at-most-0.5% regression
+gate in the formal run. A longer 10-warmup/10-measure mirrored control instead
+reaches 1.001689x Prefix and 1.001418x TTFT, so short-route noise does not block
+the exact dispatch. Every affected P65--P513 route clears its at-least-0.5%
+Prefix gate. This admission policy is intentionally narrower than the rejected
+cross-stream Gate/Up experiment's 1.03x full-Prefix requirement.
+
+P513 Nsight closes the intended route: the target projection changes from
+1,024 M32 launches totaling 378.191584 ms to 512 M64 launches totaling
+279.108096 ms, a **1.355000x** cumulative-kernel improvement. The diagnostic
+Prefix range falls from 4,399.928 to 4,278.702 ms. All 20 formal generations
+retain ID `9419`, text `Hello`, exact 33/65/97/129/513 step counts, and zero
+persistent device-memory drop. The complete Release suite reports 51 passes,
+9 model/external-data skips, and zero failures. The non-MTP Decode anchor
+remains frozen at **105.870500 ms/token / 9.445501816 token/s**. FlashInfer
+has not been introduced by this native projection promotion. Full binary identities,
+protocol, evidence hashes, gates, and limitations are in the
+[FP8 M64 production record](metadata/qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json).

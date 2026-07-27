@@ -1357,10 +1357,26 @@ row-search structure without an unpriced global-progress assumption. See the
   derived from the later 1.03x P513 Prefix threshold, so dispatcher and runner
   remain unchanged. See the
   [M64 Gate/Up rejection](metadata/qwen36-27b-prefill-nvfp4-m64-gate-up-rejection.json).
-- [active, FP8 M64 attention output projection] Screen the exact
-  `[M64,N5120,K6144]` main-stream projection against two production M32
-  dual-resident-A launches. This shape covers all 64 layers, has a 40-CTA grid,
-  and avoids the rejected Gate/Up candidate's cross-stream admission risk.
+- [done, FP8 M64 attention output production promotion] Commit `5df6ca6`
+  selects one exact aligned `[M64,N5120,K6144]` kernel in place of two ordered
+  M32 dual-resident-A launches. The production gate passes at **69 registers /
+  23,552 B shared / zero local / 3 CTA/SM**, exhaustive E4M3FN correctness is
+  bitwise exact, and six micro rounds aggregate at **1.49086x**. Fixed-clock
+  mirrored full-model Prefix speedups are **1.025063x P65, 1.015764x P97,
+  1.024397x P129, and 1.023902x P513**; the unchanged P33 fallback remains
+  within its 0.5% gate and improves in the longer control. P513 reaches
+  **119.838644 token/s**, while Nsight confirms 1,024 M32 launches totaling
+  378.191584 ms become 512 M64 launches totaling 279.108096 ms. See the
+  [FP8 M64 production record](metadata/qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json).
+- [active, FP8 M64 linear-QKV screen] Screen exact
+  `[M64,N10240,K5120]` against two production M32 launches. The latest P513
+  profile attributes 384.251 ms and 768 launches to this 48-layer projection;
+  runner integration must later bypass its fixed C32 split just as narrowly as
+  the promoted output route. Preserve the low-risk gates: at most 0.5%
+  regression on unaffected P33 and at least 0.5% Prefix improvement on
+  affected routes. In parallel, probe FlashInfer SM87/aarch64 build and GQA
+  24:4/D256 compatibility without changing production. Decode remains frozen
+  and non-MTP.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not

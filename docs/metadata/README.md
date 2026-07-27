@@ -1277,6 +1277,17 @@ The diagnostic Phase 3 records are:
   both miss their
   1.15x/1.12x promotion gates. Production remains unchanged and the next
   bounded candidate is FP8 M64 `[M64,N5120,K6144]`.
+- [`qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json`](qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json),
+  which promotes the exact aligned FP8 `[M64,N5120,K6144]` attention-output
+  projection. Six fixed-clock micro rounds aggregate at 1.49086x with
+  69 registers, 23,552 B shared, zero local memory, and three CTA/SM. Matched
+  full-model Prefix speedups reach 1.025063x/1.015764x/1.024397x/1.023902x at
+  P65/P97/P129/P513, while the unchanged P33 fallback passes its 0.5% gate.
+  P513 Nsight confirms 1,024 M32 launches become 512 M64 launches and target
+  projection time falls from 378.191584 to 279.108096 ms. Outputs and steps
+  remain exact, persistent drop is zero, Decode stays frozen at 105.870500
+  ms/token / 9.445501816 token/s, MTP is unused, and FlashInfer is not yet
+  introduced.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
