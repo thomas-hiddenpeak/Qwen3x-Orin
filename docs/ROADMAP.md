@@ -1295,6 +1295,19 @@ only for a materially different exact topology with a credible contribution
 above 0.30 ms/token. See the
 [row16 rejection](metadata/qwen36-27b-decode-gdn-row16-register-baton-rejection.json).
 
+The LM-head q20 progressive schedule family is now closed by its formal exact
+sector gate. Canonical inputs and the directed BF16 suffix-bound proof pass,
+but the independently implementable per-CTA/`-1` schedule saves only
+**19.244--34.044 MB/call**, averaging **26.311 MB/call**, so 0/25 fixtures reach
+55 MB. Completed-wave/`-1` reaches 25/25 only as an idealized schedule: its
+worst margin is **54,752 bytes** before pricing **121 global completion
+boundaries**. One-wave lag reaches 24/25, and no contiguous-seed sweep point
+passes all fixtures. No CUDA, NCU, or production work follows; the formal
+**105.870500-ms/token / 9.445501816-token/s** anchor is unchanged and MTP was
+not used. Reopen only for a materially different exact incumbent source or
+row-search structure without an unpriced global-progress assumption. See the
+[q20 exact-sector rejection](metadata/qwen36-27b-lm-head-q20-exact-sector-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

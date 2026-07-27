@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-lm-head-q20-exact-sector-rejection",
+  "status": "canonical-per-cta-gate-failed-reject-before-cuda",
+  "recorded_at": "2026-07-27T14:59:33+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "scope": {
+    "workload": "pinned Qwen3.6-27B-NVFP4 P19/C32/max26 single-request Decode positions P19-P43",
+    "component": "prediction-only exact NVFP4 LM head",
+    "audit_kind": "CPU-only directed-bound construction and exact 32-byte request-sector admission",
+    "production_reachable": false,
+    "gpu_used": false,
+    "cuda_candidate_implemented": false,
+    "ncu_used": false,
+    "mtp_allowed": false,
+    "mtp_used": false
+  },
+  "source": {
+    "commit": "13205f1e54342899aeffe6eb4491bbd9ae499329",
+    "tree": "1d338b3ce6059f0419e360df0057373ff1620019",
+    "subject": "tools: add exact Q20 sector admission model",
+    "files": {
+      "tools/analysis/q20_sector_model.py": {
+        "git_blob": "ee28502b5499ce890a6b941d560157f3ffc0a6af",
+        "sha256": "f1a47ba9d20d23c070148086e1841e7991b4b8a34ea29d29229ffa121869f9cd"
+      },
+      "tools/analysis/test_q20_sector_model.py": {
+        "git_blob": "580bcae6b61d98dc77e7aa6f10fadd04a1016c23",
+        "sha256": "2e5ed02694271020db760523767ec9573398264cabd6fb0857d91821f41ac7d7"
+      },
+      "src/kernels/sm87/weight_only_gemv.cu": {
+        "git_blob": "609053e95ee26f24bf841026120acd65c9fe0733",
+        "sha256": "ceadf7a0b46e83ac86fe32cf047ea1b75b460d5244c1c7aaac6d855f281252a9"
+      }
+    }
+  },
+  "pinned_inputs": {
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "checkpoint_shard": "model-00003-of-00003.safetensors",
+    "checkpoint_shard_bytes": 1970287640,
+    "lm_head_weight_sha256": "746c1d13e9cf69bfca6f5901a7dec5a7f2b252359696644a1ee55953b9680205",
+    "lm_head_scale_sha256": "e20faadf62bd2b3bf88f2fc9fbf4f42462fdfdd0f4bc9f23d7eaabcc1b697f9b",
+    "weight_scale_2_bits": "0x390db6dc",
+    "finalnorm_fixture": {
+      "path": "/tmp/q3x-finalnorm-p0-p43-088ce85.bf16",
+      "checked_in": false,
+      "bytes": 450560,
+      "sha256": "fe151ccec6e38e95c41975823eb66e08f5e5dc8fc51a16ea444c1ab5f3b10017",
+      "positions": "P19-P43",
+      "count": 25
+    },
+    "canonical_hash_gate": "pass",
+    "ineligible_activation_rows": 0
+  },
+  "proof_contract": {
+    "contract_version": "q20-directed-bf16-rne-rho-v1",
+    "checkpoints": 20,
+    "columns_per_checkpoint": 256,
+    "stored_suffix_bounds_per_row": 19,
+    "exact_decode_code_combinations_checked": 4064,
+    "fp64_relative_envelope": 9.094947017729282e-13,
+    "fp64_envelope_relation": "2^-40 is greater than gamma_1024",
+    "production_fp32_gamma": "gamma_48",
+    "production_operation_path": "40 FMA + 2 local tree adds + 5 warp tree adds + 1 positive scale2 multiply",
+    "bf16_contract": "directed FP32 endpoints mapped monotonically through production BF16 RNE",
+    "nonfinite_contract": "any nonfinite checkpoint disables pruning for the complete activation/row",
+    "incumbent_publication": "only a row completed through K5120 may publish an incumbent; pruned rows cannot publish offline lower bounds"
+  },
+  "traffic_contract": {
+    "rows": 248320,
+    "columns": 5120,
+    "grid_blocks": 64,
+    "warps_per_block": 8,
+    "rows_per_warp": 4,
+    "row_stride": 2048,
+    "wave_count": 122,
+    "baseline_weight_and_scale_bytes": 715161600,
+    "weight_request": "four aligned 32-byte sectors per active row per K256 checkpoint",
+    "scale_request": "one aligned 32-byte sector per active row per K512 pair; odd K256 exit charges the whole sector",
+    "sidecar_layout": "[7760 CTA row groups][19 checkpoints][32 local rows] little-endian FP32",
+    "sidecar_bytes": 18872320,
+    "sidecar_sectors_per_cta_group": 76,
+    "sidecar_sha256": "ee222a27fb5ea9d9173b2ddd0c67fc8de9d5a4ebf7f4bd4d1c260e235a885ec5",
+    "cache_credit": false,
+    "activation_suffix_norm_global_traffic_bytes": 0,
+    "activation_suffix_norm_reason": "the production kernel already stages the complete 5120-element BF16 activation once per CTA",
+    "excluded_from_sector_model": [
+      "bound arithmetic instructions",
+      "CTA synchronization",
+      "global incumbent synchronization",
+      "argmax integration",
+      "register pressure and occupancy",
+      "latency"
+    ]
+  },
+  "frozen_admission_gate": {
+    "fixtures": 25,
+    "schedule": "per-CTA local incumbent with no global completion or bounded-lag assumption",
+    "incumbent_delta": -1.0,
+    "minimum_saved_bytes_each_fixture": 55000000,
+    "reason": "This is the only screened schedule whose progress does not depend on an unproven cross-CTA lag or a grid-wide barrier."
+  },
+  "artifacts": {
+    "checked_in": false,
+    "proof_bundle": {
+      "path": "build/q20-admission/q20-p19-p43-proof.npz",
+      "bytes": 496661084,
+      "sha256": "f5ccd0f82330b8fd245fefbc7a2b8933af79290e96b372ef9ba0f26eae685e98",
+      "upper_bounds_sha256": "d49c027be8f14a6f1f8f578ed569ff49ab5c62f849fc043186072c343b9b49be",
+      "incumbent_lowers_sha256": "b5b9f43d4552fffcb7a971cae3c03fa55e9565d448f684de1c1d70875c3f8e1f"
+    },
+    "proof_manifest": {
+      "path": "build/q20-admission/q20-p19-p43-proof.json",
+      "bytes": 6044,
+      "sha256": "be7963da5668f8f0f51f9e1e8933e2887e02e7f1b9d989cae26f453fd9670b5e"
+    },
+    "sector_simulation": {
+      "path": "build/q20-admission/q20-p19-p43-sector-simulation.json",
+      "bytes": 134968,
+      "sha256": "e29facb3e405f06b5be88415d72fc748744dab7a3b9746b6b671f5a598ce0ed5"
+    },
+    "sidecar": {
+      "path": "build/q20-admission/q20-p19-p43.sidecar.f32le",
+      "bytes": 18872320,
+      "sha256": "ee222a27fb5ea9d9173b2ddd0c67fc8de9d5a4ebf7f4bd4d1c260e235a885ec5"
+    }
+  },
+  "results": {
+    "canonical_input_gate": "pass",
+    "per_cta_minus_1": {
+      "decision_gate": "fail",
+      "steps_passing_55mb": 0,
+      "steps_total": 25,
+      "saved_bytes_min": 19244032,
+      "saved_bytes_mean": 26310977.28,
+      "saved_bytes_max": 34043904,
+      "processed_fraction_min": 0.9237046955541237,
+      "processed_fraction_mean": 0.9339555009664952,
+      "processed_fraction_max": 0.943284068943299,
+      "saved_bytes_by_p19_p43": [
+        25456064,
+        21468128,
+        19244032,
+        24618880,
+        23428832,
+        27970720,
+        25663040,
+        25295296,
+        27086080,
+        22417664,
+        29360032,
+        27771232,
+        32848224,
+        27100416,
+        23427456,
+        23171008,
+        22756800,
+        28105856,
+        27460960,
+        29147360,
+        28780160,
+        34043904,
+        32655744,
+        25782784,
+        22713760
+      ]
+    },
+    "completed_wave_minus_1": {
+      "classification": "idealized synchronization-dependent upper screen",
+      "steps_passing_55mb": 25,
+      "saved_bytes_min": 55054752,
+      "saved_bytes_mean": 82562005.76,
+      "saved_bytes_max": 113986784,
+      "minimum_margin_above_gate_bytes": 54752,
+      "required_global_completion_boundaries": 121,
+      "admission_role": "none; the frozen independent gate is per-CTA"
+    },
+    "bounded_lag_1_minus_1": {
+      "classification": "diagnostic and dependent on an external lag proof",
+      "steps_passing_55mb": 24,
+      "saved_bytes_min": 54495328,
+      "saved_bytes_mean": 81641166.08,
+      "saved_bytes_max": 112961184,
+      "worst_shortfall_bytes": 504672,
+      "admission_role": "none"
+    },
+    "contiguous_global_seed_then_per_cta_minus_1": {
+      "design": "fully evaluate a contiguous row prefix in one seed kernel, then launch one per-CTA-local q20 kernel for the remaining rows",
+      "sidecar_charged_in_full": true,
+      "seed_sweep": [
+        {"seed_waves": 1, "seed_rows": 2048, "saved_bytes_min": 24786208, "saved_bytes_mean": 47865867.52, "steps_passing": 7},
+        {"seed_waves": 2, "seed_rows": 4096, "saved_bytes_min": 26499008, "saved_bytes_mean": 51524217.60, "steps_passing": 6},
+        {"seed_waves": 4, "seed_rows": 8192, "saved_bytes_min": 27109664, "saved_bytes_mean": 53461361.92, "steps_passing": 8},
+        {"seed_waves": 8, "seed_rows": 16384, "saved_bytes_min": 30299456, "saved_bytes_mean": 55351587.84, "steps_passing": 10},
+        {"seed_waves": 16, "seed_rows": 32768, "saved_bytes_min": 27356800, "saved_bytes_mean": 54908784.64, "steps_passing": 9},
+        {"seed_waves": 24, "seed_rows": 49152, "saved_bytes_min": 24430848, "saved_bytes_mean": 49613475.84, "steps_passing": 8},
+        {"seed_waves": 32, "seed_rows": 65536, "saved_bytes_min": 25664736, "saved_bytes_mean": 44528359.68, "steps_passing": 6},
+        {"seed_waves": 48, "seed_rows": 98304, "saved_bytes_min": 27068800, "saved_bytes_mean": 45270341.12, "steps_passing": 4},
+        {"seed_waves": 64, "seed_rows": 131072, "saved_bytes_min": 18003936, "saved_bytes_mean": 38413630.72, "steps_passing": 0},
+        {"seed_waves": 80, "seed_rows": 163840, "saved_bytes_min": 8410496, "saved_bytes_mean": 23693304.32, "steps_passing": 0},
+        {"seed_waves": 96, "seed_rows": 196608, "saved_bytes_min": -2197344, "saved_bytes_mean": 7153932.80, "steps_passing": 0},
+        {"seed_waves": 112, "seed_rows": 229376, "saved_bytes_min": -12763616, "saved_bytes_mean": -9305904.64, "steps_passing": 0}
+      ],
+      "decision": "fail; no swept seed size passes all 25 fixtures"
+    }
+  },
+  "decision": {
+    "result": "reject_before_cuda_and_close_q20_schedule_family",
+    "reason": "The only schedule independent of global progress assumptions saves 19.244032-34.043904 MB and passes zero of 25 fixtures against the frozen 55-MB gate. The ideal completed-wave screen has only 54,752 bytes of worst-case margin before charging 121 global completion boundaries, while a one-wave-lag diagnostic already fails. A two-kernel contiguous seed sweep from 1 to 112 waves also never passes all fixtures.",
+    "cuda_implementation": false,
+    "resource_query": false,
+    "native_exactness_run": false,
+    "ncu_run": false,
+    "latency_benchmark": false,
+    "independent_high_precision_sidecar_checker": false,
+    "sidecar_checker_skip_reason": "The checker was a later P2 gate; the exact request-sector admission failed first.",
+    "production_change": "none",
+    "formal_decode_anchor_ms_per_token": 105.870500,
+    "formal_decode_anchor_tokens_per_second": 9.445501816,
+    "formal_anchor_unchanged": true,
+    "reopen_when": "Only with a materially different exact incumbent source or row-search structure that proves at least 55 MB saved on every frozen fixture without an unpriced global-progress assumption; do not reopen per-CTA q20, completed-wave q20, bounded-lag-1 q20, or contiguous-prefix seed q20.",
+    "mtp_used": false
+  },
+  "claim_limits": [
+    "This is a CPU proof-and-sector rejection, not a CUDA latency or achieved end-to-end Decode result.",
+    "The external proof bundle and finalnorm fixture are hash-pinned but not checked into the repository.",
+    "Completed-wave and bounded-lag results are diagnostics; neither is an independently implementable traffic guarantee under this record.",
+    "No cache reuse is credited, and all sidecar request sectors are charged.",
+    "The production LM-head route, full-statistics fallback, formal Decode anchor, Prefill anchor, and MTP policy are unchanged."
+  ]
+}

@@ -1251,6 +1251,15 @@ The diagnostic Phase 3 records are:
   zero local memory, and three CTA/SM. Two independent cold-state processes
   project 0.251234 and 0.247622 ms/token, below the frozen 0.30-ms/token hard
   gate; candidate code is removed, production is unchanged, and MTP is unused.
+- [`qwen36-27b-lm-head-q20-exact-sector-rejection.json`](qwen36-27b-lm-head-q20-exact-sector-rejection.json),
+  which closes q20 before CUDA after canonical inputs and the exact directed
+  BF16 suffix-bound proof pass. Per-CTA/`-1` saves 19.244--34.044 MB/call with a
+  26.311-MB mean, so 0/25 fixtures reach 55 MB. Ideal completed-wave/`-1`
+  reaches 25/25 but has only 54,752 B of worst-case margin and requires 121
+  global completion boundaries; lag-one reaches 24/25, and the contiguous-seed
+  sweep has no all-fixture pass. No CUDA/NCU or production change follows, the
+  105.870500-ms/token / 9.445501816-token/s anchor is unchanged, and MTP is
+  unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

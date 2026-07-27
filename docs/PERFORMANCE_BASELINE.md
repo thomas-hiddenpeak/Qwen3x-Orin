@@ -6831,3 +6831,21 @@ production integration are skipped and the candidate is removed. The clean
 default GDN test passes, production and the formal anchor remain unchanged,
 and MTP was not used. See the
 [row16 rejection record](metadata/qwen36-27b-decode-gdn-row16-register-baton-rejection.json).
+
+## Decode LM-head q20 exact-sector rejection
+
+The canonical P19--P43 activation/checkpoint hashes and directed BF16-RNE
+suffix-bound proof pass, but the only schedule independent of global-progress
+assumptions does not meet the frozen traffic gate. With a per-CTA incumbent and
+the conservative `-1` delta, all 25 fixtures fail: exact request-sector savings
+range from **19.244 to 34.044 MB/call**, average **26.311 MB/call**, versus the
+required 55 MB on every fixture.
+
+The ideal completed-wave diagnostic reaches 25/25, but its worst fixture clears
+the gate by only **54,752 bytes** and requires **121 global completion
+boundaries**. It is therefore not an independent admission path; a one-wave-lag
+diagnostic already falls to 24/25. A contiguous global-seed sweep likewise has
+no seed size that passes all 25 fixtures. The q20 schedule family is closed
+before CUDA or NCU work. Production and the formal **105.870500 ms/token /
+9.445501816 token/s** anchor remain unchanged, and MTP was not used. See the
+[exact-sector rejection record](metadata/qwen36-27b-lm-head-q20-exact-sector-rejection.json).
