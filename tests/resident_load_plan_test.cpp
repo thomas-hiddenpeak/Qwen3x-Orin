@@ -117,6 +117,42 @@ void test_valid_plan(TestContext& test) {
     }
 }
 
+void test_valid_mtp_plan(TestContext& test) {
+    constexpr std::string_view kData =
+        "01234567890123456789012345678901234567890123456789012345678901234567890123456789";
+    const std::string shard = "tiny.safetensors";
+    const weights::WeightManifest manifest = make_manifest(shard);
+    const runtime::PlanResult result = runtime::build_resident_load_plan(
+        manifest, {identity(shard, kData)}, runtime::ResidentPayload::kMtp);
+    test.expect(result.ok(), "valid synthetic MTP resident plan succeeds");
+    if (!result) {
+        return;
+    }
+    const runtime::ResidentLoadPlan& plan = *result.value;
+    test.expect(plan.arena_bytes == 256U && plan.copied_bytes == 6U &&
+                    plan.source_bytes == 80U,
+                "MTP plan reports exact arena, copied, and source bytes");
+    test.expect(plan.tensors.size() == 1U && plan.shards.size() == 1U &&
+                    plan.shards[0].tensor_indices.size() == 1U &&
+                    plan.shards[0].copied_bytes == 6U,
+                "MTP plan contains only the selected tensor");
+    if (plan.tensors.size() == 1U) {
+        test.expect(plan.tensors[0].name == "mtp.skip.weight" &&
+                        plan.tensors[0].arena_offset == 0U,
+                    "MTP tensor retains source order and alignment");
+    }
+
+    weights::WeightManifest wrong_summary = manifest;
+    wrong_summary.summary.mtp_bytes = 7U;
+    const runtime::PlanResult failed = runtime::build_resident_load_plan(
+        wrong_summary, {identity(shard, kData)},
+        runtime::ResidentPayload::kMtp);
+    test.expect(!failed &&
+                    failed.diagnostic.code ==
+                        runtime::ResidentLoadErrorCode::kInvalidManifest,
+                "incorrect MTP summary is rejected");
+}
+
 void test_identity_and_path_failures(TestContext& test) {
     constexpr std::string_view kData =
         "01234567890123456789012345678901234567890123456789012345678901234567890123456789";
@@ -218,10 +254,16 @@ void test_pinned_identity(TestContext& test) {
                         "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845",
                 "pinned loader exposes exact official full-file SHA-256");
     test.expect(runtime::kPinnedQwen36_27BArenaBytes == 20'150'786'560ULL &&
+                    runtime::kPinnedQwen36_27BMtpArenaBytes ==
+                        849'398'784ULL &&
+                    runtime::to_string(runtime::ResidentPayload::kText) ==
+                        "text" &&
+                    runtime::to_string(runtime::ResidentPayload::kMtp) ==
+                        "mtp" &&
                     runtime::to_string(
                         runtime::ResidentLoadErrorCode::kSha256Mismatch) ==
                         "sha256_mismatch",
-                "pinned arena and diagnostic names are stable");
+                "pinned arenas, payloads, and diagnostic names are stable");
 }
 
 }  // namespace
@@ -229,6 +271,7 @@ void test_pinned_identity(TestContext& test) {
 int main() {
     TestContext test;
     test_valid_plan(test);
+    test_valid_mtp_plan(test);
     test_identity_and_path_failures(test);
     test_range_summary_and_overflow_failures(test);
     test_pinned_identity(test);

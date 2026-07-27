@@ -17,6 +17,13 @@ namespace q3x::runtime {
 inline constexpr std::uint64_t kResidentTensorAlignment = 256U;
 inline constexpr std::uint64_t kPinnedQwen36_27BArenaBytes =
     20'150'786'560ULL;
+inline constexpr std::uint64_t kPinnedQwen36_27BMtpArenaBytes =
+    849'398'784ULL;
+
+enum class ResidentPayload : std::uint8_t {
+    kText,
+    kMtp,
+};
 
 struct ShardIdentity {
     std::string filename;
@@ -88,7 +95,8 @@ struct PlannedTensor {
 struct PlannedShard {
     ShardIdentity identity;
     // Indices into ResidentLoadPlan::tensors, in increasing source-offset
-    // order. Only text tensors appear here; all other bytes are hash-only.
+    // order. Only tensors in the selected payload appear here; all other
+    // bytes are hash-only.
     std::vector<std::size_t> tensor_indices;
     std::uint64_t copied_bytes = 0;
 };
@@ -114,11 +122,13 @@ struct PlanResult {
 
 // Pure CPU planning and validation. It performs no file I/O and makes no CUDA
 // calls. Every locator is range-checked against an identity; all source ranges
-// must be disjoint; text tensors receive deterministic 256-byte-aligned arena
-// offsets in (shard, source offset, tensor name) order.
+// must be disjoint; selected tensors receive deterministic 256-byte-aligned
+// arena offsets in (shard, source offset, tensor name) order. Text remains the
+// default so existing production callers retain their exact plan.
 [[nodiscard]] PlanResult build_resident_load_plan(
     const model::weights::WeightManifest& manifest,
-    const std::vector<ShardIdentity>& identities);
+    const std::vector<ShardIdentity>& identities,
+    ResidentPayload payload = ResidentPayload::kText);
 
 struct DeviceTensorView {
     std::uint64_t arena_offset = 0;
@@ -154,6 +164,9 @@ struct ResidentLoadStats {
 };
 
 struct ResidentLoadOptions {
+    // Selects the only tensor category copied into the device arena. Every
+    // full shard is authenticated regardless of this selection.
+    ResidentPayload payload = ResidentPayload::kText;
     // Each active shard worker uses two page-locked staging buffers of this
     // size in ping-pong fashion.
     std::uint64_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
@@ -243,9 +256,17 @@ struct ResidentLoadResult {
     const std::filesystem::path& directory,
     const ResidentLoadOptions& options = {});
 
+// Builds the same strict pinned manifest, authenticates every byte of all
+// three official shards, and loads only the 15 BF16 MTP tensors into their
+// exact 849,398,784-byte arena. The payload option is forced to MTP.
+[[nodiscard]] ResidentLoadResult load_pinned_qwen36_27b_mtp(
+    const std::filesystem::path& directory,
+    const ResidentLoadOptions& options = {});
+
 [[nodiscard]] std::string_view to_string(
     ResidentLoadErrorCode code) noexcept;
 [[nodiscard]] std::string_view to_string(
     ResidentSha256Backend backend) noexcept;
+[[nodiscard]] std::string_view to_string(ResidentPayload payload) noexcept;
 
 }  // namespace q3x::runtime

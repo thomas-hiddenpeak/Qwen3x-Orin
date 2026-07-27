@@ -191,6 +191,15 @@ bool is_valid_sha256_backend(const ResidentSha256Backend backend) noexcept {
     return false;
 }
 
+bool is_valid_resident_payload(const ResidentPayload payload) noexcept {
+    switch (payload) {
+        case ResidentPayload::kText:
+        case ResidentPayload::kMtp:
+            return true;
+    }
+    return false;
+}
+
 struct AfAlgOperationResult {
     std::vector<UniqueFd> operations;
     int error = 0;
@@ -950,8 +959,15 @@ const std::vector<ShardIdentity>& pinned_qwen36_27b_shards() noexcept {
 
 PlanResult build_resident_load_plan(
     const mw::WeightManifest& manifest,
-    const std::vector<ShardIdentity>& identities) {
+    const std::vector<ShardIdentity>& identities,
+    const ResidentPayload payload) {
     try {
+        if (!is_valid_resident_payload(payload)) {
+            return plan_failure(make_diagnostic(
+                ResidentLoadErrorCode::kInvalidOption,
+                "resident payload selection is invalid",
+                "payload"));
+        }
         if (identities.empty()) {
             return plan_failure(make_diagnostic(
                 ResidentLoadErrorCode::kInvalidShardIdentity,
@@ -1004,8 +1020,12 @@ PlanResult build_resident_load_plan(
             const std::string* name = nullptr;
             const mw::TensorLocator* locator = nullptr;
         };
-        std::vector<Candidate> text_tensors;
-        text_tensors.reserve(manifest.tensors.size());
+        std::vector<Candidate> selected_tensors;
+        selected_tensors.reserve(manifest.tensors.size());
+        const mw::TensorCategory selected_category =
+            payload == ResidentPayload::kText
+                ? mw::TensorCategory::kText
+                : mw::TensorCategory::kMtp;
 
         for (const auto& item : manifest.tensors) {
             const std::string& name = item.first;
@@ -1053,8 +1073,8 @@ PlanResult build_resident_load_plan(
 
             ranges[locator.shard].push_back(
                 SourceRange{name, locator.file_begin, locator.file_end});
-            if (classified == mw::TensorCategory::kText) {
-                text_tensors.push_back(Candidate{&name, &locator});
+            if (classified == selected_category) {
+                selected_tensors.push_back(Candidate{&name, &locator});
             }
         }
 
@@ -1106,8 +1126,8 @@ PlanResult build_resident_load_plan(
             }
         }
 
-        std::sort(text_tensors.begin(),
-                  text_tensors.end(),
+        std::sort(selected_tensors.begin(),
+                  selected_tensors.end(),
                   [](const Candidate& left, const Candidate& right) {
                       if (left.locator->shard != right.locator->shard) {
                           return left.locator->shard < right.locator->shard;
@@ -1121,7 +1141,7 @@ PlanResult build_resident_load_plan(
 
         ResidentLoadPlan plan;
         plan.source_bytes = source_bytes;
-        plan.tensors.reserve(text_tensors.size());
+        plan.tensors.reserve(selected_tensors.size());
         plan.shards.reserve(identity_map.size());
         std::map<std::string, std::size_t, std::less<>> shard_indices;
         for (const auto& identity : identity_map) {
@@ -1131,7 +1151,7 @@ PlanResult build_resident_load_plan(
             plan.shards.emplace_back(std::move(shard));
         }
 
-        for (const Candidate& candidate : text_tensors) {
+        for (const Candidate& candidate : selected_tensors) {
             std::uint64_t allocation_bytes = 0U;
             if (!checked_align_up(candidate.locator->byte_size,
                                   kResidentTensorAlignment,
@@ -1144,7 +1164,7 @@ PlanResult build_resident_load_plan(
                              plan.copied_bytes)) {
                 return plan_failure(make_diagnostic(
                     ResidentLoadErrorCode::kArithmeticOverflow,
-                    "text arena or copied-byte total overflows uint64",
+                    "resident arena or copied-byte total overflows uint64",
                     *candidate.name,
                     candidate.locator->shard,
                     candidate.locator->file_begin));
@@ -1175,15 +1195,27 @@ PlanResult build_resident_load_plan(
             }
         }
 
+        const std::size_t summary_tensor_count =
+            payload == ResidentPayload::kText
+                ? manifest.summary.text_tensor_count
+                : manifest.summary.mtp_tensor_count;
+        const std::uint64_t summary_payload_bytes =
+            payload == ResidentPayload::kText
+                ? manifest.summary.raw_text_bytes
+                : manifest.summary.mtp_bytes;
+        const std::uint64_t summary_arena_bytes =
+            payload == ResidentPayload::kText
+                ? manifest.summary.estimated_text_arena_bytes
+                : 0U;
         if (plan.tensors.empty() ||
-            (manifest.summary.text_tensor_count != 0U &&
-             manifest.summary.text_tensor_count != plan.tensors.size()) ||
-            (manifest.summary.raw_text_bytes != 0U &&
-             manifest.summary.raw_text_bytes != plan.copied_bytes) ||
+            (summary_tensor_count != 0U &&
+             summary_tensor_count != plan.tensors.size()) ||
+            (summary_payload_bytes != 0U &&
+             summary_payload_bytes != plan.copied_bytes) ||
             (manifest.summary.arena_alignment != 0U &&
              manifest.summary.arena_alignment != kResidentTensorAlignment) ||
-            (manifest.summary.estimated_text_arena_bytes != 0U &&
-             manifest.summary.estimated_text_arena_bytes != plan.arena_bytes)) {
+            (summary_arena_bytes != 0U &&
+             summary_arena_bytes != plan.arena_bytes)) {
             return plan_failure(make_diagnostic(
                 ResidentLoadErrorCode::kInvalidManifest,
                 "manifest summary disagrees with the deterministic resident plan",
@@ -1258,6 +1290,7 @@ ResidentLoadResult load_resident_weights(
         options.max_memcpy_operations == 0U ||
         options.max_memcpy_operations > kMaximumMemcpyOperations ||
         !is_valid_sha256_backend(options.sha256_backend) ||
+        !is_valid_resident_payload(options.payload) ||
         options.max_parallel_shards == 0U ||
         options.max_parallel_shards > kMaximumParallelShards) {
         return load_failure(make_diagnostic(
@@ -1267,7 +1300,8 @@ ResidentLoadResult load_resident_weights(
     }
 
     try {
-        PlanResult plan_result = build_resident_load_plan(manifest, identities);
+        PlanResult plan_result = build_resident_load_plan(
+            manifest, identities, options.payload);
         if (!plan_result) {
             return load_failure(std::move(plan_result.diagnostic));
         }
@@ -1733,8 +1767,46 @@ ResidentLoadResult load_pinned_qwen36_27b(
             std::to_string(
                 manifest.value->summary.estimated_text_arena_bytes)));
     }
-    return load_resident_weights(
-        directory, *manifest.value, pinned_qwen36_27b_shards(), options);
+    ResidentLoadOptions text_options = options;
+    text_options.payload = ResidentPayload::kText;
+    return load_resident_weights(directory, *manifest.value,
+                                 pinned_qwen36_27b_shards(), text_options);
+}
+
+ResidentLoadResult load_pinned_qwen36_27b_mtp(
+    const std::filesystem::path& directory,
+    const ResidentLoadOptions& options) {
+    mw::ManifestResult manifest =
+        mw::build_qwen36_27b_text_manifest(directory);
+    if (!manifest) {
+        return load_failure(from_manifest_failure(manifest));
+    }
+
+    PlanResult plan = build_resident_load_plan(
+        *manifest.value, pinned_qwen36_27b_shards(), ResidentPayload::kMtp);
+    if (!plan) {
+        return load_failure(std::move(plan.diagnostic));
+    }
+    if (plan.value->arena_bytes != kPinnedQwen36_27BMtpArenaBytes ||
+        plan.value->copied_bytes != mw::kPinnedQwen36_27BMtpBytes ||
+        plan.value->tensors.size() != mw::kPinnedQwen36_27BMtpTensorCount) {
+        return load_failure(make_diagnostic(
+            ResidentLoadErrorCode::kInvalidManifest,
+            "pinned Qwen3.6-27B MTP arena contract does not match compiled identity",
+            "manifest.summary",
+            {},
+            0U,
+            std::to_string(kPinnedQwen36_27BMtpArenaBytes) + " bytes / " +
+                std::to_string(mw::kPinnedQwen36_27BMtpTensorCount) +
+                " views",
+            std::to_string(plan.value->arena_bytes) + " bytes / " +
+                std::to_string(plan.value->tensors.size()) + " views"));
+    }
+
+    ResidentLoadOptions mtp_options = options;
+    mtp_options.payload = ResidentPayload::kMtp;
+    return load_resident_weights(directory, *manifest.value,
+                                 pinned_qwen36_27b_shards(), mtp_options);
 }
 
 std::string_view to_string(ResidentLoadErrorCode code) noexcept {
@@ -1791,6 +1863,16 @@ std::string_view to_string(const ResidentSha256Backend backend) noexcept {
             return "portable";
         case ResidentSha256Backend::kLinuxAfAlg:
             return "linux_af_alg";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const ResidentPayload payload) noexcept {
+    switch (payload) {
+        case ResidentPayload::kText:
+            return "text";
+        case ResidentPayload::kMtp:
+            return "mtp";
     }
     return "unknown";
 }

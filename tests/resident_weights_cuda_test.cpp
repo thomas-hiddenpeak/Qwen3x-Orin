@@ -114,7 +114,12 @@ weights::WeightManifest make_manifest(const std::string& shard) {
     manifest.summary.shard_count = 1U;
     manifest.summary.tensor_count = 5U;
     manifest.summary.text_tensor_count = 3U;
+    manifest.summary.vision_tensor_count = 1U;
+    manifest.summary.mtp_tensor_count = 1U;
     manifest.summary.raw_text_bytes = 40U;
+    manifest.summary.vision_bytes = 8U;
+    manifest.summary.mtp_bytes = 6U;
+    manifest.summary.skipped_bytes = 14U;
     manifest.summary.arena_alignment = runtime::kResidentTensorAlignment;
     manifest.summary.estimated_text_arena_bytes = 768U;
     return manifest;
@@ -242,6 +247,35 @@ void test_success_security_and_failures(TestContext& test) {
                         runtime::ResidentSha256Backend::kPortable,
                 "portable full-file SHA and byte statistics are exposed");
 
+    runtime::ResidentLoadOptions mtp_options = portable_options;
+    mtp_options.payload = runtime::ResidentPayload::kMtp;
+    runtime::ResidentLoadResult mtp_loaded = runtime::load_resident_weights(
+        temporary.path(), manifest, {good}, mtp_options);
+    if (!mtp_loaded) {
+        print_diagnostic(mtp_loaded.diagnostic);
+    }
+    test.expect(mtp_loaded.ok(), "tiny MTP-only resident load succeeds");
+    if (mtp_loaded) {
+        const runtime::ResidentLoadStats& mtp_stats =
+            mtp_loaded.value->stats();
+        test.expect(mtp_loaded.value->size_bytes() == 256U &&
+                        mtp_loaded.value->tensor_count() == 1U &&
+                        mtp_stats.bytes_read == 80U &&
+                        mtp_stats.bytes_copied == 6U &&
+                        mtp_stats.bytes_skipped == 74U &&
+                        mtp_stats.chunks == 8U &&
+                        mtp_stats.memcpy_operations == 2U,
+                    "MTP loader authenticates all bytes and copies only MTP");
+        expect_tensor_bytes(test,
+                            *mtp_loaded.value,
+                            "mtp.skip.weight",
+                            std::string_view(data).substr(49U, 6U),
+                            "MTP tensor round-trips from device");
+        test.expect(mtp_loaded.value->find(
+                        "model.language_model.test_a.weight") == nullptr,
+                    "MTP arena exposes no text tensor views");
+    }
+
     runtime::ResidentLoadOptions accelerated_options = tiny_options();
     accelerated_options.sha256_backend =
         runtime::ResidentSha256Backend::kLinuxAfAlg;
@@ -297,6 +331,19 @@ void test_success_security_and_failures(TestContext& test) {
                     invalid_backend.diagnostic.code ==
                         runtime::ResidentLoadErrorCode::kInvalidOption,
                 "unknown SHA-256 backend is rejected before loading");
+
+    runtime::ResidentLoadOptions invalid_payload_options = tiny_options();
+    invalid_payload_options.payload =
+        static_cast<runtime::ResidentPayload>(255U);
+    runtime::ResidentLoadResult invalid_payload =
+        runtime::load_resident_weights(temporary.path(),
+                                       manifest,
+                                       {good},
+                                       invalid_payload_options);
+    test.expect(!invalid_payload &&
+                    invalid_payload.diagnostic.code ==
+                        runtime::ResidentLoadErrorCode::kInvalidOption,
+                "unknown resident payload is rejected before loading");
 
     runtime::ResidentWeights moved;
     moved = std::move(*loaded.value);
