@@ -1302,6 +1302,20 @@ query_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_resources_test_cuda(
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -6156,6 +6170,14 @@ nvfp4_whole_chunk_down_performance_enabled() noexcept {
 nvfp4_down_persistent_packed_p0_performance_enabled() noexcept {
   const char* const value = std::getenv(
       "Q3X_RUN_SM87_NVFP4_DOWN_PERSISTENT_PACKED_P0_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_gate_m128_b_reuse_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_GATE_M128_B_REUSE_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -26727,6 +26749,1031 @@ void run_nvfp4_down_persistent_packed_p0_screen(TestContext& test,
             << " gate=" << (selected ? "PASS" : "FAIL") << '\n';
   test.expect(selected,
               "NVFP4 down persistent packed P0 clears frozen 1.20x gate");
+}
+
+struct NvFp4GateM128CanaryResult {
+  bool correctness = false;
+  bool graph = false;
+  bool every_round_nonregressive = false;
+  double baseline_ms = std::numeric_limits<double>::quiet_NaN();
+  double candidate_ms = std::numeric_limits<double>::quiet_NaN();
+  double speedup = std::numeric_limits<double>::quiet_NaN();
+};
+
+enum class NvFp4GateM128ScaleDistribution {
+  kCheckpointLike,
+  kSameBankStress,
+  kFiniteSpecial,
+};
+
+[[nodiscard]] const char* nvfp4_gate_m128_scale_distribution_name(
+    const NvFp4GateM128ScaleDistribution distribution) noexcept {
+  switch (distribution) {
+    case NvFp4GateM128ScaleDistribution::kCheckpointLike:
+      return "checkpoint_like";
+    case NvFp4GateM128ScaleDistribution::kSameBankStress:
+      return "same_bank_stress";
+    case NvFp4GateM128ScaleDistribution::kFiniteSpecial:
+      return "finite_special";
+  }
+  return "unknown";
+}
+
+void fill_nvfp4_gate_m128_scale_distribution(
+    std::vector<std::uint8_t>& scales, const std::size_t scale_columns,
+    const NvFp4GateM128ScaleDistribution distribution) {
+  if (distribution == NvFp4GateM128ScaleDistribution::kCheckpointLike) {
+    fill_nvfp4_m1_scale_distribution(
+        scales, scale_columns,
+        NvFp4M1ScaleDistribution::kCheckpointLike);
+  } else if (distribution ==
+             NvFp4GateM128ScaleDistribution::kSameBankStress) {
+    fill_nvfp4_m1_scale_distribution(
+        scales, scale_columns,
+        NvFp4M1ScaleDistribution::kSameBankStress);
+  } else {
+    fill_nvfp4_down_persistent_p0_finite_special_scales(scales,
+                                                         scale_columns);
+  }
+}
+
+[[nodiscard]] bool run_nvfp4_gate_m128_b_reuse_resource_gate(
+    TestContext& test) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr int kMaximumRegisters = 128;
+  constexpr std::size_t kExpectedSharedBytes = 37'376U;
+  constexpr int kExpectedThreads = 256;
+  constexpr int kMinimumActiveBlocks = 2;
+  bool complete = true;
+  for (const std::size_t token_count : {256U, 512U}) {
+    int registers = -1;
+    std::size_t shared = std::numeric_limits<std::size_t>::max();
+    std::size_t local = std::numeric_limits<std::size_t>::max();
+    int threads = -1;
+    int active = -1;
+    const int status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
+            token_count, kRows, kColumns, &registers, &shared, &local,
+            &threads, &active);
+    const bool gate = status == static_cast<int>(cudaSuccess) &&
+                      registers <= kMaximumRegisters &&
+                      shared == kExpectedSharedBytes && local == 0U &&
+                      threads == kExpectedThreads &&
+                      active >= kMinimumActiveBlocks;
+    std::cout << "NVFP4_GATE_M128_B_REUSE_RESOURCES: tokens=" << token_count
+              << " status=" << status
+              << " registers_per_thread=" << registers
+              << " static_shared_bytes=" << shared
+              << " local_bytes=" << local
+              << " maximum_threads_per_block=" << threads
+              << " active_blocks_per_sm=" << active
+              << " limits=regs<=128,shared=37376,local=0,threads=256,cta>=2"
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    test.expect(gate,
+                "NVFP4 Gate M128 B-reuse canary clears the hard resource "
+                "gate");
+    complete = complete && gate;
+  }
+  int registers = 123;
+  std::size_t shared = 456U;
+  std::size_t local = 789U;
+  int threads = 321;
+  int active = 654;
+  const int shape_status = q3x::kernels::
+      query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
+          128U, kRows, kColumns, &registers, &shared, &local, &threads,
+          &active);
+  const int null_status = q3x::kernels::
+      query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
+          512U, kRows, kColumns, nullptr, &shared, &local, &threads, &active);
+  const bool invalid =
+      shape_status == static_cast<int>(cudaErrorInvalidValue) &&
+      null_status == static_cast<int>(cudaErrorInvalidValue) &&
+      registers == 123 && shared == 456U && local == 789U && threads == 321 &&
+      active == 654;
+  std::cout << "NVFP4_GATE_M128_B_REUSE_RESOURCE_INVALID: shape_status="
+            << shape_status << " null_status=" << null_status
+            << " outputs_unchanged=" << (invalid ? "true" : "false")
+            << " gate=" << (invalid ? "PASS" : "FAIL") << '\n';
+  test.expect(invalid,
+              "NVFP4 Gate M128 B-reuse resource query rejects without "
+              "writing outputs");
+  complete = complete && invalid;
+  return complete;
+}
+
+[[nodiscard]] bool run_nvfp4_gate_m128_b_reuse_invalid_graph(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kTokens = 512U;
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::uintptr_t kWeightAddress = 0x1'0000'0000ULL;
+  constexpr std::uintptr_t kScaleAddress = 0x2'0000'0000ULL;
+  constexpr std::uintptr_t kActivationAddress = 0x3'0000'0000ULL;
+  constexpr std::uintptr_t kOutputAddress = 0x4'0000'0000ULL;
+  const auto* const weights =
+      reinterpret_cast<const std::uint8_t*>(kWeightAddress);
+  const auto* const scales =
+      reinterpret_cast<const std::uint8_t*>(kScaleAddress);
+  const auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(kActivationAddress);
+  auto* const output = reinterpret_cast<std::uint16_t*>(kOutputAddress);
+  const auto launch = [&](const std::uint8_t* const w,
+                          const std::uint8_t* const s, const float scale,
+                          const std::uint16_t* const a,
+                          const std::size_t tokens, const std::size_t rows,
+                          const std::size_t columns,
+                          std::uint16_t* const o) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
+            w, s, scale, a, tokens, rows, columns, o,
+            static_cast<void*>(stream));
+  };
+
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      "NVFP4 Gate M128 B-reuse invalid begin capture");
+  std::array<int, 15U> statuses{};
+  statuses.fill(static_cast<int>(cudaErrorUnknown));
+  if (ready) {
+    statuses[0] = launch(nullptr, scales, 1.0F, activations, kTokens, kRows,
+                         kColumns, output);
+    statuses[1] = launch(weights, nullptr, 1.0F, activations, kTokens, kRows,
+                         kColumns, output);
+    statuses[2] = launch(weights, scales, 1.0F, nullptr, kTokens, kRows,
+                         kColumns, output);
+    statuses[3] = launch(weights, scales, 1.0F, activations, kTokens, kRows,
+                         kColumns, nullptr);
+    statuses[4] = launch(weights, scales,
+                         std::numeric_limits<float>::quiet_NaN(), activations,
+                         kTokens, kRows, kColumns, output);
+    statuses[5] = launch(weights, scales, -1.0F, activations, kTokens, kRows,
+                         kColumns, output);
+    statuses[6] = launch(weights, scales, 1.0F, activations, 128U, kRows,
+                         kColumns, output);
+    statuses[7] = launch(weights, scales, 1.0F, activations, 513U, kRows,
+                         kColumns, output);
+    statuses[8] = launch(weights, scales, 1.0F, activations, kTokens,
+                         kRows - 1U, kColumns, output);
+    statuses[9] = launch(weights, scales, 1.0F, activations, kTokens, kRows,
+                         kColumns - 16U, output);
+    statuses[10] = launch(weights + 1U, scales, 1.0F, activations, kTokens,
+                          kRows, kColumns, output);
+    statuses[11] = launch(weights, scales + 1U, 1.0F, activations, kTokens,
+                          kRows, kColumns, output);
+    statuses[12] = launch(
+        weights, scales, 1.0F,
+        reinterpret_cast<const std::uint16_t*>(kActivationAddress + 2U),
+        kTokens, kRows, kColumns, output);
+    statuses[13] = launch(
+        weights, scales, 1.0F, activations, kTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(kOutputAddress + 1U));
+    statuses[14] = launch(
+        weights, scales, 1.0F, activations, kTokens, kRows, kColumns,
+        reinterpret_cast<std::uint16_t*>(
+            kActivationAddress + 128U * kColumns * sizeof(std::uint16_t)));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "NVFP4 Gate M128 B-reuse invalid end capture") &&
+            ready;
+  }
+  std::size_t nodes = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                         "NVFP4 Gate M128 B-reuse invalid query nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph),
+                         "NVFP4 Gate M128 B-reuse invalid destroy graph") &&
+            ready;
+  }
+  const std::size_t invalid_count = static_cast<std::size_t>(std::count(
+      statuses.begin(), statuses.end(),
+      static_cast<int>(cudaErrorInvalidValue)));
+  const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
+  std::cout << "NVFP4_GATE_M128_B_REUSE_INVALID_GRAPH: invalid_statuses="
+            << invalid_count << '/' << statuses.size()
+            << " total_nodes=" << nodes
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              "NVFP4 Gate M128 B-reuse invalid calls enqueue zero nodes");
+  return gate;
+}
+
+[[nodiscard]] NvFp4GateM128CanaryResult
+run_nvfp4_gate_m128_b_reuse_case(
+    TestContext& test, cudaStream_t stream,
+    const std::vector<std::uint8_t>& host_packed,
+    const std::size_t token_count,
+    const NvFp4GateM128ScaleDistribution distribution) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuard = 64U;
+  constexpr std::uint16_t kBaselineGuard = 0x3c3cU;
+  constexpr std::uint16_t kCandidateGuard = 0xa5a5U;
+  constexpr std::uint16_t kReplayGuard = 0x5a5aU;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmups = 10;
+  constexpr int kIterations = 24;
+  constexpr int kRounds = 6;
+  NvFp4GateM128CanaryResult result{};
+  const char* const distribution_name =
+      nvfp4_gate_m128_scale_distribution_name(distribution);
+  const std::string label =
+      "NVFP4 Gate M128 B-reuse " + std::string(distribution_name) + " M" +
+      std::to_string(token_count);
+  const std::size_t activation_elements = token_count * kColumns;
+  const std::size_t output_elements = token_count * kRows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuard;
+
+  std::vector<std::uint8_t> host_scales(kRows * kScaleColumns);
+  fill_nvfp4_gate_m128_scale_distribution(host_scales, kScaleColumns,
+                                           distribution);
+  std::vector<std::uint16_t> host_activations(activation_elements);
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 17U + token * 29U +
+                                (token >> 4U) * 7U + 5U) %
+                               127U) -
+                           63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_guarded;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate scales");
+  ready = ready && test.cuda_ok(activations.allocate(activation_elements),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_guarded.allocate(guarded_elements),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_guarded.allocate(guarded_elements),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(replay_guarded.allocate(guarded_elements),
+                                label + " allocate replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           activation_elements * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(baseline_guarded.get(), 0x3c,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison baseline output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(candidate_guarded.get(), 0xa5,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(replay_guarded.get(), 0x5a,
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison replay output");
+  if (!ready) {
+    return result;
+  }
+
+  std::uint16_t* const baseline_output = baseline_guarded.get() + kGuard;
+  std::uint16_t* const candidate_output = candidate_guarded.get() + kGuard;
+  std::uint16_t* const replay_output = replay_guarded.get() + kGuard;
+  const auto launch_baseline = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            token_count, true, kRows, kColumns, baseline_output,
+            static_cast<void*>(stream));
+  };
+  const auto launch_candidate_to =
+      [&](std::uint16_t* const destination) noexcept {
+        return q3x::kernels::
+            launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
+                packed.get(), scales.get(), kWeightScale2, activations.get(),
+                token_count, kRows, kColumns, destination,
+                static_cast<void*>(stream));
+      };
+  const auto launch_candidate = [&]() noexcept {
+    return launch_candidate_to(candidate_output);
+  };
+  const auto launch_replay = [&]() noexcept {
+    return launch_candidate_to(replay_output);
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_candidate()),
+                       label + " launch candidate");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " launch replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return result;
+  }
+
+  std::vector<std::uint16_t> baseline(guarded_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  std::vector<std::uint8_t> packed_after(host_packed.size());
+  std::vector<std::uint8_t> scales_after(host_scales.size());
+  std::vector<std::uint16_t> activations_after(host_activations.size());
+  ready = test.cuda_ok(
+      cudaMemcpyAsync(baseline.data(), baseline_guarded.get(),
+                      guarded_elements * sizeof(std::uint16_t),
+                      cudaMemcpyDeviceToHost, stream),
+      label + " copy baseline");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(candidate.data(),
+                                       candidate_guarded.get(),
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy candidate");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(replay.data(), replay_guarded.get(),
+                                       guarded_elements *
+                                           sizeof(std::uint16_t),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy replay");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed_after.data(), packed.get(),
+                                       packed_after.size(),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy weights after");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales_after.data(), scales.get(),
+                                       scales_after.size(),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy scales after");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations_after.data(), activations.get(),
+                           activations_after.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy activations after");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " copies synchronize");
+  std::size_t candidate_mismatches = 0U;
+  std::size_t replay_mismatches = 0U;
+  std::size_t unexpected_nonfinite = 0U;
+  bool guards = ready;
+  const bool inputs_preserved =
+      ready && packed_after == host_packed && scales_after == host_scales &&
+      activations_after == host_activations;
+  if (ready) {
+    for (std::size_t index = 0U; index < output_elements; ++index) {
+      const std::size_t guarded_index = kGuard + index;
+      candidate_mismatches +=
+          candidate[guarded_index] != baseline[guarded_index] ? 1U : 0U;
+      replay_mismatches +=
+          replay[guarded_index] != candidate[guarded_index] ? 1U : 0U;
+      unexpected_nonfinite +=
+          !is_bf16_finite(baseline[guarded_index]) ||
+                  !is_bf16_finite(candidate[guarded_index]) ||
+                  !is_bf16_finite(replay[guarded_index])
+              ? 1U
+              : 0U;
+    }
+    for (std::size_t guard = 0U; guard < kGuard; ++guard) {
+      guards = guards && baseline[guard] == kBaselineGuard &&
+               baseline[kGuard + output_elements + guard] == kBaselineGuard &&
+               candidate[guard] == kCandidateGuard &&
+               candidate[kGuard + output_elements + guard] ==
+                   kCandidateGuard &&
+               replay[guard] == kReplayGuard &&
+               replay[kGuard + output_elements + guard] == kReplayGuard;
+    }
+  }
+  result.correctness = ready && candidate_mismatches == 0U &&
+                       replay_mismatches == 0U &&
+                       unexpected_nonfinite == 0U && guards &&
+                       inputs_preserved;
+  std::cout << "NVFP4_GATE_M128_B_REUSE_DIFF: tokens=" << token_count
+            << " distribution=" << distribution_name
+            << " candidate_mismatches="
+            << candidate_mismatches << '/' << output_elements
+            << " replay_mismatches=" << replay_mismatches << '/'
+            << output_elements
+            << " unexpected_nonfinite=" << unexpected_nonfinite
+            << " guards=" << (guards ? "intact" : "BAD")
+            << " inputs_preserved="
+            << (inputs_preserved ? "true" : "false")
+            << " gate=" << (result.correctness ? "PASS" : "FAIL") << '\n';
+  test.expect(result.correctness,
+              label + " is bit-exact with deterministic replay and guards");
+  if (!result.correctness) {
+    return result;
+  }
+
+  constexpr unsigned int kOutputColumnBlocks = 17'408U / 128U;
+  const unsigned int baseline_grid = static_cast<unsigned int>(
+      kOutputColumnBlocks * (token_count / 64U));
+  const unsigned int candidate_grid = static_cast<unsigned int>(
+      kOutputColumnBlocks * (token_count / 128U));
+  const WholeChunkCapturedGraph baseline_graph = capture_whole_chunk_graph(
+      test, stream, launch_baseline, 1U, baseline_grid,
+      label + " baseline graph");
+  const WholeChunkCapturedGraph candidate_graph = capture_whole_chunk_graph(
+      test, stream, launch_candidate, 1U, candidate_grid,
+      label + " candidate graph");
+  result.graph = baseline_graph.valid && candidate_graph.valid;
+  std::cout << "NVFP4_GATE_M128_B_REUSE_GRAPH: tokens=" << token_count
+            << " distribution=" << distribution_name
+            << " baseline_nodes=" << baseline_graph.total_nodes
+            << " baseline_grid=" << baseline_grid
+            << " candidate_nodes=" << candidate_graph.total_nodes
+            << " candidate_grid=" << candidate_grid
+            << " block=256 dynamic_shared_bytes=0"
+            << " gate=" << (result.graph ? "PASS" : "FAIL") << '\n';
+  test.expect(result.graph,
+              label + " captures exact one-node M64 and M128 grids");
+  if (!result.graph) {
+    return result;
+  }
+
+  for (int warmup = 0; warmup < kWarmups; ++warmup) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup") &&
+            ready;
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup") &&
+            ready;
+  }
+  ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                       label + " warmup synchronize") &&
+          ready;
+  double baseline_sum = 0.0;
+  double candidate_sum = 0.0;
+  bool every_round = ready;
+  for (int round = 0; round < kRounds && ready; ++round) {
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1);
+    const float b1 = measure_small_m_tile(test, stream, launch_baseline,
+                                          kIterations, round_label + " B1");
+    const float c1 = measure_small_m_tile(test, stream, launch_candidate,
+                                          kIterations, round_label + " C1");
+    const float c2 = measure_small_m_tile(test, stream, launch_candidate,
+                                          kIterations, round_label + " C2");
+    const float b2 = measure_small_m_tile(test, stream, launch_baseline,
+                                          kIterations, round_label + " B2");
+    const bool finite = std::isfinite(b1) && std::isfinite(c1) &&
+                        std::isfinite(c2) && std::isfinite(b2) && b1 > 0.0F &&
+                        c1 > 0.0F && c2 > 0.0F && b2 > 0.0F;
+    const double speedup =
+        finite ? static_cast<double>(b1 + b2) /
+                     static_cast<double>(c1 + c2)
+               : std::numeric_limits<double>::quiet_NaN();
+    every_round = every_round && finite && speedup >= 1.0;
+    if (finite) {
+      baseline_sum += static_cast<double>(b1 + b2);
+      candidate_sum += static_cast<double>(c1 + c2);
+    }
+    std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_ROUND: tokens="
+              << token_count << " distribution=" << distribution_name
+              << " round="
+              << round + 1 << " order=B-C-C-B iterations=" << kIterations
+              << " B1_ms=" << b1 << " C1_ms=" << c1
+              << " C2_ms=" << c2 << " B2_ms=" << b2
+              << " speedup=" << speedup
+              << " nonregression_gate="
+              << (finite && speedup >= 1.0 ? "PASS" : "FAIL") << '\n';
+  }
+  result.baseline_ms = baseline_sum / (2.0 * kRounds);
+  result.candidate_ms = candidate_sum / (2.0 * kRounds);
+  result.speedup = baseline_sum / candidate_sum;
+  result.every_round_nonregressive = every_round;
+  const bool micro_gate = ready && every_round &&
+                          std::isfinite(result.speedup) &&
+                          result.speedup >= 1.05;
+  std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_CELL: tokens=" << token_count
+            << " distribution=" << distribution_name << " baseline_ms="
+            << result.baseline_ms << " candidate_ms=" << result.candidate_ms
+            << " speedup=" << result.speedup
+            << " required_speedup=1.05 every_round_nonregressive="
+            << (every_round ? "true" : "false")
+            << " gate=" << (micro_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(micro_gate,
+              label + " clears the 1.05x single-branch stop-loss gate");
+  return result;
+}
+
+struct NvFp4GateM128PairResult {
+  bool correctness = false;
+  bool every_round_positive = false;
+  double baseline_ms = std::numeric_limits<double>::quiet_NaN();
+  double candidate_ms = std::numeric_limits<double>::quiet_NaN();
+  double speedup = std::numeric_limits<double>::quiet_NaN();
+};
+
+[[nodiscard]] NvFp4GateM128PairResult
+run_nvfp4_gate_m128_b_reuse_pair_case(
+    TestContext& test, cudaStream_t stream,
+    const std::vector<std::uint8_t>& host_gate_packed,
+    const std::vector<std::uint8_t>& host_up_packed,
+    const std::size_t token_count) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuard = 64U;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmups = 10;
+  constexpr int kIterations = 24;
+  constexpr int kRounds = 6;
+  constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
+      NvFp4M1ScaleDistribution::kCheckpointLike,
+      NvFp4M1ScaleDistribution::kSameBankStress,
+  }};
+  NvFp4GateM128PairResult result{};
+  const std::string label =
+      "NVFP4 Gate/Up M128 B-reuse pair M" + std::to_string(token_count);
+  const std::size_t activation_elements = token_count * kColumns;
+  const std::size_t output_elements = token_count * kRows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuard;
+
+  std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
+  std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
+  std::vector<std::uint16_t> host_activations(activation_elements);
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 17U + token * 29U +
+                                (token >> 4U) * 7U + 5U) %
+                               127U) -
+                           63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed, up_packed, gate_scales, up_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> b_gate_store, b_up_store, c_gate_store,
+      c_up_store, r_gate_store, r_up_store;
+  bool ready = test.cuda_ok(gate_packed.allocate(host_gate_packed.size()),
+                            label + " allocate Gate weights");
+  ready = ready && test.cuda_ok(up_packed.allocate(host_up_packed.size()),
+                                label + " allocate Up weights");
+  ready = ready && test.cuda_ok(gate_scales.allocate(host_gate_scales.size()),
+                                label + " allocate Gate scales");
+  ready = ready && test.cuda_ok(up_scales.allocate(host_up_scales.size()),
+                                label + " allocate Up scales");
+  ready = ready && test.cuda_ok(activations.allocate(activation_elements),
+                                label + " allocate activations");
+  const auto allocate_output = [&](DeviceBuffer<std::uint16_t>& buffer,
+                                   const std::string& name) {
+    return test.cuda_ok(buffer.allocate(guarded_elements),
+                        label + " allocate " + name);
+  };
+  ready = ready && allocate_output(b_gate_store, "B Gate");
+  ready = ready && allocate_output(b_up_store, "B Up");
+  ready = ready && allocate_output(c_gate_store, "C Gate");
+  ready = ready && allocate_output(c_up_store, "C Up");
+  ready = ready && allocate_output(r_gate_store, "replay Gate");
+  ready = ready && allocate_output(r_up_store, "replay Up");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(gate_packed.get(),
+                                       host_gate_packed.data(),
+                                       host_gate_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload Gate weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                                       host_up_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload Up weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           activation_elements * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  if (!ready) {
+    return result;
+  }
+
+  auto* const b_gate = b_gate_store.get() + kGuard;
+  auto* const b_up = b_up_store.get() + kGuard;
+  auto* const c_gate = c_gate_store.get() + kGuard;
+  auto* const c_up = c_up_store.get() + kGuard;
+  auto* const r_gate = r_gate_store.get() + kGuard;
+  auto* const r_up = r_up_store.get() + kGuard;
+  cudaStream_t aux = nullptr;
+  cudaEvent_t inputs_ready = nullptr;
+  cudaEvent_t aux_done = nullptr;
+  ready = test.cuda_ok(cudaStreamCreateWithFlags(&aux, cudaStreamNonBlocking),
+                       label + " create auxiliary stream");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&inputs_ready,
+                                                cudaEventDisableTiming),
+                       label + " create ready event");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&aux_done,
+                                                cudaEventDisableTiming),
+                       label + " create done event");
+  if (!ready) {
+    if (inputs_ready != nullptr) (void)cudaEventDestroy(inputs_ready);
+    if (aux_done != nullptr) (void)cudaEventDestroy(aux_done);
+    if (aux != nullptr) (void)cudaStreamDestroy(aux);
+    return result;
+  }
+
+  const auto launch_m64 = [&](const std::uint8_t* const packed,
+                              const std::uint8_t* const scales,
+                              std::uint16_t* const output,
+                              cudaStream_t launch_stream) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+            packed, scales, kWeightScale2, activations.get(), token_count,
+            true, kRows, kColumns, output,
+            static_cast<void*>(launch_stream));
+  };
+  const auto launch_m128 = [&](const std::uint8_t* const packed,
+                               const std::uint8_t* const scales,
+                               std::uint16_t* const output,
+                               cudaStream_t launch_stream) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
+            packed, scales, kWeightScale2, activations.get(), token_count,
+            kRows, kColumns, output, static_cast<void*>(launch_stream));
+  };
+  const auto pair = [&](const auto& branch, std::uint16_t* const gate_output,
+                        std::uint16_t* const up_output) noexcept {
+    cudaError_t cuda_status = cudaEventRecord(inputs_ready, stream);
+    if (cuda_status == cudaSuccess) {
+      cuda_status = cudaStreamWaitEvent(aux, inputs_ready, 0U);
+    }
+    int status = static_cast<int>(cuda_status);
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = branch(gate_packed.get(), gate_scales.get(), gate_output,
+                      stream);
+    }
+    if (status == static_cast<int>(cudaSuccess)) {
+      status = branch(up_packed.get(), up_scales.get(), up_output, aux);
+    }
+    cuda_status = cudaEventRecord(aux_done, aux);
+    if (cuda_status == cudaSuccess) {
+      cuda_status = cudaStreamWaitEvent(stream, aux_done, 0U);
+    }
+    return status == static_cast<int>(cudaSuccess)
+               ? static_cast<int>(cuda_status)
+               : status;
+  };
+  const auto launch_b = [&]() noexcept { return pair(launch_m64, b_gate, b_up); };
+  const auto launch_c = [&]() noexcept {
+    return pair(launch_m128, c_gate, c_up);
+  };
+  const auto launch_r = [&]() noexcept {
+    return pair(launch_m128, r_gate, r_up);
+  };
+
+  double baseline_sum = 0.0;
+  double candidate_sum = 0.0;
+  bool all_correct = true;
+  bool every_round = true;
+  for (const NvFp4M1ScaleDistribution distribution : kDistributions) {
+    const char* const distribution_name =
+        nvfp4_m1_scale_distribution_name(distribution);
+    const std::string cell = label + " " + distribution_name;
+    fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
+                                     distribution);
+    host_up_scales = host_gate_scales;
+    std::rotate(host_up_scales.begin(),
+                host_up_scales.begin() +
+                    static_cast<std::ptrdiff_t>(kScaleColumns),
+                host_up_scales.end());
+    ready = test.cuda_ok(
+        cudaMemcpyAsync(gate_scales.get(), host_gate_scales.data(),
+                        host_gate_scales.size(), cudaMemcpyHostToDevice,
+                        stream),
+        cell + " upload Gate scales");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(up_scales.get(), host_up_scales.data(),
+                                         host_up_scales.size(),
+                                         cudaMemcpyHostToDevice, stream),
+                         cell + " upload Up scales");
+    const auto poison = [&](DeviceBuffer<std::uint16_t>& buffer,
+                            const int byte, const std::string& name) {
+      return test.cuda_ok(
+          cudaMemsetAsync(buffer.get(), byte,
+                          guarded_elements * sizeof(std::uint16_t), stream),
+          cell + " poison " + name);
+    };
+    ready = ready && poison(b_gate_store, 0x3c, "B Gate");
+    ready = ready && poison(b_up_store, 0x3c, "B Up");
+    ready = ready && poison(c_gate_store, 0xa5, "C Gate");
+    ready = ready && poison(c_up_store, 0xa5, "C Up");
+    ready = ready && poison(r_gate_store, 0x5a, "replay Gate");
+    ready = ready && poison(r_up_store, 0x5a, "replay Up");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_b()),
+                                  cell + " launch production M64 pair");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_c()),
+                                  cell + " launch M128 pair");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_r()),
+                                  cell + " launch M128 replay pair");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell + " correctness synchronize");
+    if (!ready) {
+      all_correct = false;
+      break;
+    }
+
+    std::vector<std::uint16_t> hb_gate(guarded_elements),
+        hb_up(guarded_elements), hc_gate(guarded_elements),
+        hc_up(guarded_elements), hr_gate(guarded_elements),
+        hr_up(guarded_elements);
+    const auto copy = [&](std::vector<std::uint16_t>& host,
+                          DeviceBuffer<std::uint16_t>& device,
+                          const std::string& name) {
+      return test.cuda_ok(
+          cudaMemcpyAsync(host.data(), device.get(),
+                          guarded_elements * sizeof(std::uint16_t),
+                          cudaMemcpyDeviceToHost, stream),
+          cell + " copy " + name);
+    };
+    ready = copy(hb_gate, b_gate_store, "B Gate") && ready;
+    ready = copy(hb_up, b_up_store, "B Up") && ready;
+    ready = copy(hc_gate, c_gate_store, "C Gate") && ready;
+    ready = copy(hc_up, c_up_store, "C Up") && ready;
+    ready = copy(hr_gate, r_gate_store, "replay Gate") && ready;
+    ready = copy(hr_up, r_up_store, "replay Up") && ready;
+    ready = test.cuda_ok(cudaStreamSynchronize(stream), cell + " copy sync") &&
+            ready;
+    std::size_t candidate_mismatches = 0U;
+    std::size_t replay_mismatches = 0U;
+    std::size_t unexpected_nonfinite = 0U;
+    for (std::size_t index = 0U; index < output_elements; ++index) {
+      const std::size_t guarded_index = kGuard + index;
+      candidate_mismatches +=
+          (hb_gate[guarded_index] != hc_gate[guarded_index] ? 1U : 0U) +
+          (hb_up[guarded_index] != hc_up[guarded_index] ? 1U : 0U);
+      replay_mismatches +=
+          (hc_gate[guarded_index] != hr_gate[guarded_index] ? 1U : 0U) +
+          (hc_up[guarded_index] != hr_up[guarded_index] ? 1U : 0U);
+      unexpected_nonfinite +=
+          !is_bf16_finite(hb_gate[guarded_index]) ||
+                  !is_bf16_finite(hb_up[guarded_index]) ||
+                  !is_bf16_finite(hc_gate[guarded_index]) ||
+                  !is_bf16_finite(hc_up[guarded_index])
+              ? 1U
+              : 0U;
+    }
+    const auto guards = [&](const std::vector<std::uint16_t>& host,
+                            const std::uint16_t value) {
+      for (std::size_t index = 0U; index < kGuard; ++index) {
+        if (host[index] != value ||
+            host[kGuard + output_elements + index] != value) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const bool guards_ok =
+        guards(hb_gate, 0x3c3cU) && guards(hb_up, 0x3c3cU) &&
+        guards(hc_gate, 0xa5a5U) && guards(hc_up, 0xa5a5U) &&
+        guards(hr_gate, 0x5a5aU) && guards(hr_up, 0x5a5aU);
+    const bool correctness =
+        ready && candidate_mismatches == 0U && replay_mismatches == 0U &&
+        unexpected_nonfinite == 0U && guards_ok;
+    all_correct = all_correct && correctness;
+    std::cout << "NVFP4_GATE_M128_B_REUSE_PAIR_DIFF: tokens=" << token_count
+              << " distribution=" << distribution_name
+              << " candidate_mismatches=" << candidate_mismatches << '/'
+              << 2U * output_elements
+              << " replay_mismatches=" << replay_mismatches << '/'
+              << 2U * output_elements
+              << " unexpected_nonfinite=" << unexpected_nonfinite
+              << " guards=" << (guards_ok ? "intact" : "BAD")
+              << " gate=" << (correctness ? "PASS" : "FAIL") << '\n';
+    test.expect(correctness,
+                cell + " pair is bit-exact with replay and guards");
+    if (!correctness) {
+      continue;
+    }
+
+    for (int warmup = 0; warmup < kWarmups; ++warmup) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_b()),
+                           cell + " B warmup") &&
+              ready;
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_c()),
+                           cell + " C warmup") &&
+              ready;
+    }
+    ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                         cell + " warmup synchronize") &&
+            ready;
+    double cell_baseline = 0.0;
+    double cell_candidate = 0.0;
+    for (int round = 0; round < kRounds && ready; ++round) {
+      const std::string round_label =
+          cell + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(test, stream, launch_b, kIterations,
+                                            round_label + " B1");
+      const float c1 = measure_small_m_tile(test, stream, launch_c, kIterations,
+                                            round_label + " C1");
+      const float c2 = measure_small_m_tile(test, stream, launch_c, kIterations,
+                                            round_label + " C2");
+      const float b2 = measure_small_m_tile(test, stream, launch_b, kIterations,
+                                            round_label + " B2");
+      const bool finite = std::isfinite(b1) && std::isfinite(c1) &&
+                          std::isfinite(c2) && std::isfinite(b2) &&
+                          b1 > 0.0F && c1 > 0.0F && c2 > 0.0F && b2 > 0.0F;
+      const double speedup =
+          finite ? static_cast<double>(b1 + b2) /
+                       static_cast<double>(c1 + c2)
+                 : std::numeric_limits<double>::quiet_NaN();
+      const bool round_gate = finite && speedup >= 1.0;
+      every_round = every_round && round_gate;
+      if (finite) {
+        cell_baseline += static_cast<double>(b1 + b2);
+        cell_candidate += static_cast<double>(c1 + c2);
+      }
+      std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_PAIR_ROUND: tokens="
+                << token_count << " distribution=" << distribution_name
+                << " round=" << round + 1
+                << " order=B-C-C-B iterations=" << kIterations
+                << " B1_ms=" << b1 << " C1_ms=" << c1
+                << " C2_ms=" << c2 << " B2_ms=" << b2
+                << " speedup=" << speedup
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    }
+    baseline_sum += cell_baseline;
+    candidate_sum += cell_candidate;
+    const double cell_speedup = cell_baseline / cell_candidate;
+    std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_PAIR_CELL: tokens="
+              << token_count << " distribution=" << distribution_name
+              << " baseline_ms=" << cell_baseline / (2.0 * kRounds)
+              << " candidate_ms=" << cell_candidate / (2.0 * kRounds)
+              << " speedup=" << cell_speedup
+              << " every_round_positive="
+              << (every_round ? "true" : "false") << '\n';
+  }
+
+  result.correctness = all_correct;
+  result.every_round_positive = every_round;
+  result.baseline_ms = baseline_sum / (2.0 * kRounds * kDistributions.size());
+  result.candidate_ms =
+      candidate_sum / (2.0 * kRounds * kDistributions.size());
+  result.speedup = baseline_sum / candidate_sum;
+  if (inputs_ready != nullptr) {
+    ready = test.cuda_ok(cudaEventDestroy(inputs_ready),
+                         label + " destroy ready event") &&
+            ready;
+  }
+  if (aux_done != nullptr) {
+    ready = test.cuda_ok(cudaEventDestroy(aux_done),
+                         label + " destroy done event") &&
+            ready;
+  }
+  if (aux != nullptr) {
+    ready = test.cuda_ok(cudaStreamDestroy(aux),
+                         label + " destroy auxiliary stream") &&
+            ready;
+  }
+  result.correctness = result.correctness && ready;
+  std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_PAIR_AGGREGATE: tokens="
+            << token_count << " baseline_ms=" << result.baseline_ms
+            << " candidate_ms=" << result.candidate_ms
+            << " speedup=" << result.speedup
+            << " every_round_positive="
+            << (result.every_round_positive ? "true" : "false")
+            << " baseline=production_whole_chunk_M64_pair"
+            << " candidate=test_only_M128_pair\n";
+  return result;
+}
+
+void run_nvfp4_gate_m128_b_reuse_canary(TestContext& test,
+                                         cudaStream_t stream) {
+  if (!run_nvfp4_gate_m128_b_reuse_resource_gate(test)) {
+    std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_FINAL: stage=resource "
+                 "production_dispatch=unchanged gate=FAIL\n";
+    return;
+  }
+  if (!run_nvfp4_gate_m128_b_reuse_invalid_graph(test, stream)) {
+    std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_FINAL: stage=invalid_graph "
+                 "production_dispatch=unchanged gate=FAIL\n";
+    return;
+  }
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  std::vector<std::uint8_t> host_packed(kRows * kPackedColumns);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < kPackedColumns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * kPackedColumns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
+  }
+  constexpr std::array<NvFp4GateM128ScaleDistribution, 3U> kDistributions{{
+      NvFp4GateM128ScaleDistribution::kCheckpointLike,
+      NvFp4GateM128ScaleDistribution::kSameBankStress,
+      NvFp4GateM128ScaleDistribution::kFiniteSpecial,
+  }};
+  constexpr std::array<std::size_t, 2U> kTokenCounts{{256U, 512U}};
+  std::array<std::array<NvFp4GateM128CanaryResult, kDistributions.size()>,
+             kTokenCounts.size()>
+      results{};
+  bool selected = true;
+  std::array<double, kTokenCounts.size()> minimum_speedups{{
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity(),
+  }};
+  for (std::size_t token_index = 0U; token_index < kTokenCounts.size();
+       ++token_index) {
+    for (std::size_t distribution_index = 0U;
+         distribution_index < kDistributions.size(); ++distribution_index) {
+      NvFp4GateM128CanaryResult& result =
+          results[token_index][distribution_index];
+      result = run_nvfp4_gate_m128_b_reuse_case(
+          test, stream, host_packed, kTokenCounts[token_index],
+          kDistributions[distribution_index]);
+      const bool cell = result.correctness && result.graph &&
+                        result.every_round_nonregressive &&
+                        std::isfinite(result.speedup) &&
+                        result.speedup >= 1.05;
+      selected = selected && cell;
+      minimum_speedups[token_index] =
+          std::min(minimum_speedups[token_index], result.speedup);
+    }
+  }
+  std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_FINAL: stage=complete_branch"
+            << " M256_min_speedup=" << minimum_speedups[0]
+            << " M512_min_speedup=" << minimum_speedups[1]
+            << " required_speedup=1.05 production_dispatch=unchanged"
+            << " gate=" << (selected ? "PASS" : "FAIL") << '\n';
+  test.expect(selected,
+              "NVFP4 Gate M128 B-reuse complete branch screen clears "
+              "stop-loss");
+  if (!selected) {
+    return;
+  }
+
+  std::vector<std::uint8_t> host_up_packed(host_packed.size());
+  for (std::size_t index = 0U; index < host_packed.size(); ++index) {
+    const std::uint8_t low =
+        static_cast<std::uint8_t>(host_packed[index] & 0x0fU);
+    const std::uint8_t high =
+        static_cast<std::uint8_t>(host_packed[index] >> 4U);
+    host_up_packed[index] = static_cast<std::uint8_t>(
+        (low ^ 0x09U) | ((high ^ 0x05U) << 4U));
+  }
+  const NvFp4GateM128PairResult pair_m256 =
+      run_nvfp4_gate_m128_b_reuse_pair_case(
+          test, stream, host_packed, host_up_packed, 256U);
+  const NvFp4GateM128PairResult pair_m512 =
+      run_nvfp4_gate_m128_b_reuse_pair_case(
+          test, stream, host_packed, host_up_packed, 512U);
+  constexpr double kRequiredM512PairSpeedup = 1.08;
+  const bool pair_selected =
+      pair_m256.correctness && pair_m256.every_round_positive &&
+      std::isfinite(pair_m256.speedup) && pair_m256.speedup >= 1.0 &&
+      pair_m512.correctness && pair_m512.every_round_positive &&
+      std::isfinite(pair_m512.speedup) &&
+      pair_m512.speedup >= kRequiredM512PairSpeedup;
+  std::cout << "PERF_NVFP4_GATE_M128_B_REUSE_PAIR_FINAL: M256_speedup="
+            << pair_m256.speedup << " M512_speedup=" << pair_m512.speedup
+            << " required_M512_speedup=" << kRequiredM512PairSpeedup
+            << " baseline=production_whole_chunk_M64_pair"
+            << " candidate=test_only_M128_pair"
+            << " production_dispatch=unchanged"
+            << " gate=" << (pair_selected ? "PASS" : "FAIL") << '\n';
+  test.expect(pair_selected,
+              "NVFP4 Gate/Up M128 B-reuse pair clears the 1.08x M512 "
+              "selection gate");
 }
 
 void run_nvfp4_whole_chunk_gate_screen(TestContext& test,
@@ -62553,6 +63600,20 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (nvfp4_gate_m128_b_reuse_performance_enabled()) {
+    run_nvfp4_gate_m128_b_reuse_canary(test, stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy NVFP4 Gate M128 B-reuse canary stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " NVFP4 Gate M128 B-reuse canary assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4 Gate M128 B-reuse checkpoint canary passed; "
+                 "production dispatch is unchanged\n";
+    return 0;
   }
   if (nvfp4_down_persistent_packed_p0_performance_enabled()) {
     run_nvfp4_down_persistent_packed_p0_screen(test, stream);
