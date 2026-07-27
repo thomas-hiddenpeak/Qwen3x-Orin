@@ -292,6 +292,27 @@ if(BUILD_TESTING)
   q3x_enable_warnings(q3x_gdn_decode_cuda_test)
   add_test(NAME gdn_decode_cuda COMMAND q3x_gdn_decode_cuda_test)
 
+  # Isolated Prefill block-transition selection screen. This target
+  # deliberately owns its candidate CUDA section and is never linked into
+  # q3x_kernels or the runner.
+  add_executable(q3x_gdn_prefill_b8_block_sm87_screen
+    tests/gdn_prefill_b8_block_sm87_screen.cu
+  )
+  target_link_libraries(q3x_gdn_prefill_b8_block_sm87_screen
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_gdn_prefill_b8_block_sm87_screen PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v>
+  )
+  q3x_enable_warnings(q3x_gdn_prefill_b8_block_sm87_screen)
+  add_test(NAME gdn_prefill_b8_block_sm87_screen
+    COMMAND q3x_gdn_prefill_b8_block_sm87_screen
+  )
+  set_tests_properties(gdn_prefill_b8_block_sm87_screen PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   add_executable(q3x_layout_ops_host_test
     tests/layout_ops_host_test.cpp
   )
