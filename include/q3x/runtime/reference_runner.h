@@ -153,6 +153,27 @@ struct ReferenceDecodeGraphP1PrepareOutcome {
   [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+// Engine-lifetime preparation result for a contiguous fixed-position cache.
+// graphs[0..graph_count) are packed in ascending position order. The complete
+// bank is published only after every requested slot is uploaded and ready.
+struct ReferenceDecodeGraphCachePrepareResult {
+  std::array<ReferenceDecodeGraphP1Stats,
+             kReferenceDecodeGraphP2MaximumSlots>
+      graphs{};
+  std::size_t graph_count = 0U;
+  std::uint64_t prepared_mask = 0U;
+};
+
+struct ReferenceDecodeGraphCachePrepareOutcome {
+  std::optional<ReferenceDecodeGraphCachePrepareResult> value;
+  ReferenceRunnerStatus status;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return value.has_value() && status.ok();
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
 struct ReferencePrefillTileOptions {
   bool measure_timing = false;
 };
@@ -323,6 +344,19 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceDecodeGraphP1PrepareOutcome
   prepare_fixed_position_decode_graph_p1(
       std::uint32_t input_token_id) noexcept;
+  // Transactionally prepares every position in [first_position,
+  // last_position]. The range must currently be empty. Failure leaves the
+  // live graph bank unchanged and restores the entry sequence length.
+  [[nodiscard]] ReferenceDecodeGraphCachePrepareOutcome
+  prepare_fixed_position_decode_graph_cache(
+      std::uint32_t first_position, std::uint32_t last_position,
+      std::uint32_t input_token_id) noexcept;
+  [[nodiscard]] std::uint64_t
+  fixed_position_decode_graph_cache_mask() const noexcept;
+  // Synchronizes both owned streams before detaching the complete bank. This
+  // does not reset request state, trace state, or an existing poison marker.
+  [[nodiscard]] ReferenceRunnerStatus
+  clear_fixed_position_decode_graph_cache() noexcept;
   [[nodiscard]] bool has_fixed_position_decode_graph_p1(
       std::uint32_t position) const noexcept;
   [[nodiscard]] std::optional<ReferenceDecodeGraphP1Stats>
@@ -385,9 +419,11 @@ class ReferenceRunner {
     kCaptureOnly,
     kReplay,
   };
+  struct DecodeGraphP1Slot;
   [[nodiscard]] ReferenceStepOutcome step_impl(
       std::uint32_t input_token_id, const ReferenceStepOptions& options,
-      DecodeGraphP1Action graph_action) noexcept;
+      DecodeGraphP1Action graph_action,
+      DecodeGraphP1Slot* capture_destination = nullptr) noexcept;
 
   struct DecodeGraphP1KernelLaunch {
     void* function = nullptr;
@@ -404,6 +440,8 @@ class ReferenceRunner {
     DecodeGraphP1KernelLaunch embedding_launch{};
   };
 
+  [[nodiscard]] static int destroy_decode_graph_p1_slot(
+      DecodeGraphP1Slot& slot) noexcept;
   void destroy_decode_graph_p1_slot(std::size_t position) noexcept;
   void destroy_decode_graph_p1() noexcept;
 

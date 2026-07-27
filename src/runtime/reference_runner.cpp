@@ -946,20 +946,33 @@ void ReferenceRunner::release() noexcept {
   trace_input_token_ = 0U;
 }
 
+int ReferenceRunner::destroy_decode_graph_p1_slot(
+    DecodeGraphP1Slot& slot) noexcept {
+  int first_error = static_cast<int>(cudaSuccess);
+  if (slot.exec != nullptr) {
+    const cudaError_t status = cudaGraphExecDestroy(
+        reinterpret_cast<cudaGraphExec_t>(slot.exec));
+    if (status != cudaSuccess) {
+      first_error = static_cast<int>(status);
+    }
+  }
+  if (slot.graph != nullptr) {
+    const cudaError_t status =
+        cudaGraphDestroy(reinterpret_cast<cudaGraph_t>(slot.graph));
+    if (status != cudaSuccess && first_error == static_cast<int>(cudaSuccess)) {
+      first_error = static_cast<int>(status);
+    }
+  }
+  slot = {};
+  return first_error;
+}
+
 void ReferenceRunner::destroy_decode_graph_p1_slot(
     const std::size_t position) noexcept {
   if (position >= decode_graph_p1_slots_.size()) {
     return;
   }
-  DecodeGraphP1Slot& slot = decode_graph_p1_slots_[position];
-  if (slot.exec != nullptr) {
-    (void)cudaGraphExecDestroy(
-        reinterpret_cast<cudaGraphExec_t>(slot.exec));
-  }
-  if (slot.graph != nullptr) {
-    (void)cudaGraphDestroy(reinterpret_cast<cudaGraph_t>(slot.graph));
-  }
-  slot = {};
+  (void)destroy_decode_graph_p1_slot(decode_graph_p1_slots_[position]);
 }
 
 void ReferenceRunner::destroy_decode_graph_p1() noexcept {
@@ -1092,6 +1105,229 @@ ReferenceRunner::prepare_fixed_position_decode_graph_p1(
   return outcome;
 }
 
+ReferenceDecodeGraphCachePrepareOutcome
+ReferenceRunner::prepare_fixed_position_decode_graph_cache(
+    const std::uint32_t first_position,
+    const std::uint32_t last_position,
+    const std::uint32_t input_token_id) noexcept {
+  ReferenceDecodeGraphCachePrepareOutcome outcome;
+  if (!static_cast<bool>(*this)) {
+    outcome.status = runner_status(ReferenceRunnerError::kInvalidRunner,
+                                   "decode_graph_cache_prepare");
+    return outcome;
+  }
+  if (poisoned_) {
+    outcome.status = runner_status(ReferenceRunnerError::kPoisoned,
+                                   "decode_graph_cache_prepare");
+    return outcome;
+  }
+  if (first_position > last_position ||
+      last_position >= decode_graph_p1_slots_.size()) {
+    outcome.status = runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "decode_graph_cache_range");
+    return outcome;
+  }
+  if (last_position >= state_->max_sequence_length()) {
+    outcome.status = runner_status(
+        ReferenceRunnerError::kCapacityExceeded,
+        "decode_graph_cache_capacity");
+    return outcome;
+  }
+  if (input_token_id >= kReferenceVocabularySize) {
+    outcome.status = runner_status(ReferenceRunnerError::kTokenOutOfRange,
+                                   "decode_graph_cache_input_token");
+    return outcome;
+  }
+  if (projection_backend_ != ProjectionBackend::kSm87WeightOnly ||
+      linear_weight_kind(weights_->lm_head()) == LinearWeightKind::kBf16) {
+    outcome.status = runner_status(
+        ReferenceRunnerError::kInvalidStepOptions,
+        "decode_graph_cache_contract");
+    return outcome;
+  }
+  for (std::uint32_t position = first_position;
+       position <= last_position; ++position) {
+    if (has_fixed_position_decode_graph_p1(position)) {
+      outcome.status = runner_status(
+          ReferenceRunnerError::kInvalidStepOptions,
+          "decode_graph_cache_range_not_empty");
+      return outcome;
+    }
+  }
+
+  const std::uint32_t entry_position = state_->current_position();
+  std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
+      staged_slots{};
+  ReferenceDecodeGraphCachePrepareResult prepared;
+  ReferenceStepOptions options;
+  options.compute_logits = true;
+  options.capture_trace = false;
+  options.measure_timing = false;
+  options.logits_mode = ReferenceLogitsMode::kPredictedTokenOnly;
+
+  const auto destroy_staged = [&staged_slots]() noexcept {
+    int first_error = static_cast<int>(cudaSuccess);
+    for (DecodeGraphP1Slot& slot : staged_slots) {
+      const int status = ReferenceRunner::destroy_decode_graph_p1_slot(slot);
+      if (status != static_cast<int>(cudaSuccess) &&
+          first_error == static_cast<int>(cudaSuccess)) {
+        first_error = status;
+      }
+    }
+    return first_error;
+  };
+  const auto restore_entry_position = [this, entry_position]() noexcept {
+    return state_->set_sequence_length(entry_position);
+  };
+
+  for (std::uint32_t position = first_position;
+       position <= last_position; ++position) {
+    const RequestOperationStatus position_status =
+        state_->set_sequence_length(position);
+    if (!position_status) {
+      const RequestOperationStatus restore_status = restore_entry_position();
+      const int cleanup_status = destroy_staged();
+      poisoned_ = true;
+      trace_valid_ = false;
+      if (!restore_status) {
+        outcome.status = runner_status(
+            ReferenceRunnerError::kStateCommitFailure,
+            "decode_graph_cache_restore_position", kReferenceNoLayer,
+            restore_status.cuda_error);
+      } else if (cleanup_status != static_cast<int>(cudaSuccess)) {
+        outcome.status = runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "decode_graph_cache_rollback_destroy", kReferenceNoLayer,
+            cleanup_status);
+      } else {
+        outcome.status = runner_status(
+            ReferenceRunnerError::kStateCommitFailure,
+            "decode_graph_cache_set_position", kReferenceNoLayer,
+            position_status.cuda_error);
+      }
+      return outcome;
+    }
+    ReferenceStepOutcome captured = step_impl(
+        input_token_id, options, DecodeGraphP1Action::kCaptureOnly,
+        &staged_slots[position]);
+    if (!captured) {
+      const RequestOperationStatus restore_status = restore_entry_position();
+      const int cleanup_status = destroy_staged();
+      if (!restore_status) {
+        poisoned_ = true;
+        trace_valid_ = false;
+        outcome.status = runner_status(
+            ReferenceRunnerError::kStateCommitFailure,
+            "decode_graph_cache_restore_position", kReferenceNoLayer,
+            restore_status.cuda_error);
+      } else if (cleanup_status != static_cast<int>(cudaSuccess)) {
+        poisoned_ = true;
+        trace_valid_ = false;
+        outcome.status = runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "decode_graph_cache_rollback_destroy", kReferenceNoLayer,
+            cleanup_status);
+      } else {
+        outcome.status = captured.status;
+      }
+      return outcome;
+    }
+    prepared.graphs[prepared.graph_count++] =
+        staged_slots[position].stats;
+    prepared.prepared_mask |= std::uint64_t{1U} << position;
+  }
+
+  const RequestOperationStatus restore_status = restore_entry_position();
+  if (!restore_status) {
+    const int cleanup_status = destroy_staged();
+    poisoned_ = true;
+    trace_valid_ = false;
+    outcome.status = runner_status(
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? ReferenceRunnerError::kStateCommitFailure
+            : ReferenceRunnerError::kCudaFailure,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? "decode_graph_cache_restore_position"
+            : "decode_graph_cache_rollback_destroy",
+        kReferenceNoLayer,
+        cleanup_status == static_cast<int>(cudaSuccess)
+            ? restore_status.cuda_error
+            : cleanup_status);
+    return outcome;
+  }
+
+  for (std::uint32_t position = first_position;
+       position <= last_position; ++position) {
+    decode_graph_p1_slots_[position] = staged_slots[position];
+    staged_slots[position] = {};
+  }
+  outcome.value.emplace(std::move(prepared));
+  return outcome;
+}
+
+std::uint64_t
+ReferenceRunner::fixed_position_decode_graph_cache_mask() const noexcept {
+  std::uint64_t mask = 0U;
+  for (std::uint32_t position = 0U;
+       position < decode_graph_p1_slots_.size(); ++position) {
+    if (has_fixed_position_decode_graph_p1(position)) {
+      mask |= std::uint64_t{1U} << position;
+    }
+  }
+  return mask;
+}
+
+ReferenceRunnerStatus
+ReferenceRunner::clear_fixed_position_decode_graph_cache() noexcept {
+  if (!static_cast<bool>(*this)) {
+    return runner_status(ReferenceRunnerError::kInvalidRunner,
+                         "decode_graph_cache_clear");
+  }
+  const cudaError_t main_sync_status =
+      cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream_));
+  if (main_sync_status != cudaSuccess) {
+    poisoned_ = true;
+    trace_valid_ = false;
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "decode_graph_cache_clear_main_synchronize",
+                         kReferenceNoLayer,
+                         static_cast<int>(main_sync_status));
+  }
+  if (prefill_auxiliary_stream_ != nullptr) {
+    const cudaError_t auxiliary_sync_status = cudaStreamSynchronize(
+        reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_));
+    if (auxiliary_sync_status != cudaSuccess) {
+      poisoned_ = true;
+      trace_valid_ = false;
+      return runner_status(
+          ReferenceRunnerError::kCudaFailure,
+          "decode_graph_cache_clear_auxiliary_synchronize",
+          kReferenceNoLayer, static_cast<int>(auxiliary_sync_status));
+    }
+  }
+
+  std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>
+      detached_slots = decode_graph_p1_slots_;
+  decode_graph_p1_slots_ = {};
+  int first_error = static_cast<int>(cudaSuccess);
+  for (DecodeGraphP1Slot& slot : detached_slots) {
+    const int status = destroy_decode_graph_p1_slot(slot);
+    if (status != static_cast<int>(cudaSuccess) &&
+        first_error == static_cast<int>(cudaSuccess)) {
+      first_error = status;
+    }
+  }
+  if (first_error != static_cast<int>(cudaSuccess)) {
+    poisoned_ = true;
+    trace_valid_ = false;
+    return runner_status(ReferenceRunnerError::kCudaFailure,
+                         "decode_graph_cache_clear_destroy",
+                         kReferenceNoLayer, first_error);
+  }
+  return {};
+}
+
 bool ReferenceRunner::has_fixed_position_decode_graph_p1(
     const std::uint32_t position) const noexcept {
   if (position >= decode_graph_p1_slots_.size()) {
@@ -1129,7 +1365,8 @@ ReferenceRunner::replay_fixed_position_decode_graph_p1(
 ReferenceStepOutcome ReferenceRunner::step_impl(
     const std::uint32_t input_token_id,
     const ReferenceStepOptions& options,
-    const DecodeGraphP1Action graph_action) noexcept {
+    const DecodeGraphP1Action graph_action,
+    DecodeGraphP1Slot* const capture_destination) noexcept {
   using Clock = std::chrono::steady_clock;
   Clock::time_point started{};
   if (options.measure_timing) {
@@ -1204,7 +1441,9 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
           ReferenceRunnerError::kInvalidStepOptions,
           "decode_graph_p1_position_not_cacheable"));
     }
-    decode_graph_slot = &decode_graph_p1_slots_[position];
+    decode_graph_slot = capture_destination == nullptr
+                            ? &decode_graph_p1_slots_[position]
+                            : capture_destination;
     decode_graph_prepare_started = Clock::now();
     const cudaError_t begin_status = cudaStreamBeginCapture(
         stream, cudaStreamCaptureModeThreadLocal);
@@ -1853,7 +2092,7 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
     // Publish only after the replacement is completely uploaded and ready.
     // A failed recapture retains the prior slot handles; the runner's normal
     // failure contract still requires reset before any later reuse.
-    destroy_decode_graph_p1_slot(position);
+    (void)destroy_decode_graph_p1_slot(*decode_graph_slot);
     *decode_graph_slot = prepared_slot;
     ReferenceStepOutcome outcome;
     ReferenceStepResult result;

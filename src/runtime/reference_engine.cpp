@@ -31,6 +31,14 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+inline constexpr std::uint32_t kProductionDecodeGraphFirstPosition = 19U;
+inline constexpr std::uint32_t kProductionDecodeGraphLastPosition = 43U;
+inline constexpr std::uint32_t kProductionDecodeGraphCaptureTokenId = 0U;
+inline constexpr double kProductionDecodeGraphMaximumPrepareMilliseconds =
+    1'000.0;
+inline constexpr std::uint64_t kProductionDecodeGraphMaximumFreeDropBytes =
+    256ULL * 1024ULL * 1024ULL;
+
 struct DecodeGraphP1DeviceBuffer {
   void* data = nullptr;
   std::size_t bytes = 0U;
@@ -319,6 +327,30 @@ struct NvFp4DownScale6LayerPlan {
     const Clock::time_point begin) noexcept {
   return std::chrono::duration<double, std::milli>(Clock::now() - begin)
       .count();
+}
+
+[[nodiscard]] constexpr std::uint64_t decode_graph_position_mask(
+    const std::uint32_t first_position,
+    const std::uint32_t last_position) noexcept {
+  if (first_position > last_position || last_position >= 64U) {
+    return 0U;
+  }
+  const std::uint32_t count = last_position - first_position + 1U;
+  const std::uint64_t low_bits =
+      count == 64U ? std::numeric_limits<std::uint64_t>::max()
+                   : (std::uint64_t{1U} << count) - 1U;
+  return low_bits << first_position;
+}
+
+[[nodiscard]] std::string decode_graph_prepare_fallback_reason(
+    const ReferenceRunnerStatus& status) {
+  std::string reason = "runner_prepare_failed:";
+  reason += reference_runner_error_string(status.error);
+  if (status.operation != nullptr) {
+    reason += ":";
+    reason += status.operation;
+  }
+  return reason;
 }
 
 [[nodiscard]] std::optional<std::uint64_t>
@@ -1156,6 +1188,7 @@ struct ReferenceEngine::Impl {
   std::optional<ReferenceRunner> runner;
   ReferenceEngineLoadStats load;
   bool trace_enabled = false;
+  bool decode_graph_cache_ready = false;
 
   struct BuildResult {
     std::unique_ptr<Impl> value;
@@ -1188,6 +1221,14 @@ struct ReferenceEngine::Impl {
           "unknown projection backend");
       return result;
     }
+    if (!is_valid_reference_decode_graph_cache_policy(
+            options.decode_graph_cache_policy)) {
+      result.diagnostic = engine_diagnostic(
+          ReferenceEngineError::kInvalidArgument,
+          "decode_graph_cache_policy",
+          "unknown Decode Graph cache policy");
+      return result;
+    }
     const Clock::time_point build_begin = Clock::now();
     if (std::optional<ReferenceEngineDiagnostic> diagnostic =
             sm87_device_diagnostic(options.projection_backend)) {
@@ -1200,6 +1241,8 @@ struct ReferenceEngine::Impl {
       const bool resident_was_prepared = prepared_resident.has_value();
       auto impl = std::make_unique<Impl>();
       impl->trace_enabled = options.enable_trace;
+      impl->load.decode_graph_cache_requested_policy =
+          options.decode_graph_cache_policy;
       if (prepared_tokenizer != nullptr) {
         impl->tokenizer = std::move(prepared_tokenizer);
         impl->load.tokenizer_milliseconds =
@@ -1335,6 +1378,258 @@ struct ReferenceEngine::Impl {
           return result;
         }
         impl->runner.emplace(std::move(*runner.value));
+      }
+
+      const auto rollback_decode_graph_cache =
+          [&impl, &result, &options](const std::string_view stage) -> bool {
+        const ReferenceRunnerStatus clear_status =
+            impl->runner->clear_fixed_position_decode_graph_cache();
+        const ReferenceRunnerStatus reset_status = impl->runner->reset();
+        if (!clear_status) {
+          result.diagnostic = runner_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure, stage,
+              clear_status);
+          return false;
+        }
+        if (!reset_status) {
+          result.diagnostic = runner_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure, stage,
+              reset_status);
+          return false;
+        }
+        if (impl->runner->fixed_position_decode_graph_cache_mask() != 0U) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              std::string(stage),
+              "cache rollback retained a published graph slot");
+          return false;
+        }
+        std::size_t rollback_free = 0U;
+        std::size_t rollback_total = 0U;
+        const cudaError_t memory_status =
+            cudaMemGetInfo(&rollback_free, &rollback_total);
+        if (memory_status != cudaSuccess || rollback_total == 0U) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              std::string(stage),
+              "could not verify device memory after cache rollback");
+          result.diagnostic.cuda_error = static_cast<int>(memory_status);
+          return false;
+        }
+        if (static_cast<std::uint64_t>(rollback_free) <
+            options.request_options.min_free_bytes_after_create) {
+          result.diagnostic = engine_diagnostic(
+              ReferenceEngineError::kRunnerFactoryFailure,
+              std::string(stage),
+              "cache rollback did not restore the minimum free-memory "
+              "reserve");
+          return false;
+        }
+        return true;
+      };
+
+      if (options.decode_graph_cache_policy ==
+          ReferenceDecodeGraphCachePolicy::kSm87ShortPositions) {
+        if (options.projection_backend !=
+            ProjectionBackend::kSm87WeightOnly) {
+          impl->load.decode_graph_cache_fallback_reason =
+              "requires_sm87_projection_backend";
+        } else if (impl->request_state->max_sequence_length() <=
+                   kProductionDecodeGraphFirstPosition) {
+          impl->load.decode_graph_cache_fallback_reason =
+              "window_outside_request_capacity";
+        } else {
+          const std::uint32_t first_position =
+              kProductionDecodeGraphFirstPosition;
+          const std::uint32_t last_position = std::min(
+              kProductionDecodeGraphLastPosition,
+              impl->request_state->max_sequence_length() - 1U);
+          const std::size_t expected_graph_count =
+              static_cast<std::size_t>(last_position - first_position) + 1U;
+          const std::uint64_t expected_mask =
+              decode_graph_position_mask(first_position, last_position);
+
+          (void)cudaGetLastError();
+          std::size_t free_before = 0U;
+          std::size_t total_before = 0U;
+          const cudaError_t memory_before_status =
+              cudaMemGetInfo(&free_before, &total_before);
+          if (memory_before_status != cudaSuccess) {
+            impl->load.decode_graph_cache_fallback_reason =
+                "memory_probe_before_failed";
+            if (!rollback_decode_graph_cache(
+                    "decode_graph_cache_memory_before_rollback")) {
+              return result;
+            }
+          } else {
+            impl->load.decode_graph_cache_free_bytes_before =
+                static_cast<std::uint64_t>(free_before);
+            const std::uint64_t free_before_bytes =
+                static_cast<std::uint64_t>(free_before);
+            const std::uint64_t minimum_free_bytes =
+                options.request_options.min_free_bytes_after_create;
+            if (free_before_bytes < minimum_free_bytes ||
+                free_before_bytes - minimum_free_bytes <
+                    kProductionDecodeGraphMaximumFreeDropBytes) {
+              impl->load.decode_graph_cache_free_bytes_after =
+                  static_cast<std::uint64_t>(free_before);
+              impl->load.decode_graph_cache_fallback_reason =
+                  "cache_memory_budget_unavailable_before_prepare";
+              if (!rollback_decode_graph_cache(
+                      "decode_graph_cache_admission_rollback")) {
+                return result;
+              }
+            } else {
+              const Clock::time_point prepare_begin = Clock::now();
+              ReferenceDecodeGraphCachePrepareOutcome prepared =
+                  impl->runner->prepare_fixed_position_decode_graph_cache(
+                      first_position, last_position,
+                      kProductionDecodeGraphCaptureTokenId);
+              impl->load.decode_graph_cache_prepare_milliseconds =
+                  elapsed_milliseconds(prepare_begin);
+
+              std::size_t free_after = 0U;
+              std::size_t total_after = 0U;
+              const cudaError_t memory_after_status =
+                  cudaMemGetInfo(&free_after, &total_after);
+              if (memory_after_status == cudaSuccess) {
+                impl->load.decode_graph_cache_free_bytes_after =
+                    static_cast<std::uint64_t>(free_after);
+                impl->load.decode_graph_cache_free_drop_bytes =
+                    free_before >= free_after
+                        ? static_cast<std::uint64_t>(free_before - free_after)
+                        : 0U;
+              }
+
+              bool preparation_exact = prepared.ok();
+              if (preparation_exact) {
+                preparation_exact =
+                    prepared.value->graph_count == expected_graph_count &&
+                    prepared.value->prepared_mask == expected_mask &&
+                    impl->runner->fixed_position_decode_graph_cache_mask() ==
+                        expected_mask;
+              }
+              if (preparation_exact) {
+                for (std::size_t index = 0U;
+                     index < expected_graph_count; ++index) {
+                  const ReferenceDecodeGraphP1Stats& stats =
+                      prepared.value->graphs[index];
+                  const std::uint32_t expected_position =
+                      first_position + static_cast<std::uint32_t>(index);
+                  const bool timing_valid =
+                      std::isfinite(stats.capture_enqueue_milliseconds) &&
+                      stats.capture_enqueue_milliseconds >= 0.0 &&
+                      std::isfinite(
+                          stats.topology_inspection_milliseconds) &&
+                      stats.topology_inspection_milliseconds >= 0.0 &&
+                      std::isfinite(stats.instantiate_milliseconds) &&
+                      stats.instantiate_milliseconds >= 0.0 &&
+                      std::isfinite(stats.upload_ready_milliseconds) &&
+                      stats.upload_ready_milliseconds >= 0.0 &&
+                      std::isfinite(stats.total_prepare_milliseconds) &&
+                      stats.total_prepare_milliseconds >= 0.0;
+                  if (stats.position != expected_position ||
+                      stats.input_token_id !=
+                          kProductionDecodeGraphCaptureTokenId ||
+                      stats.node_count != 390U ||
+                      stats.kernel_node_count != 389U ||
+                      stats.memcpy_node_count != 1U ||
+                      stats.other_node_count != 0U || !timing_valid) {
+                    preparation_exact = false;
+                    break;
+                  }
+                  impl->load
+                      .decode_graph_cache_capture_enqueue_milliseconds +=
+                      stats.capture_enqueue_milliseconds;
+                  impl->load
+                      .decode_graph_cache_topology_inspection_milliseconds +=
+                      stats.topology_inspection_milliseconds;
+                  impl->load.decode_graph_cache_instantiate_milliseconds +=
+                      stats.instantiate_milliseconds;
+                  impl->load.decode_graph_cache_upload_ready_milliseconds +=
+                      stats.upload_ready_milliseconds;
+                }
+              }
+
+              bool cache_admitted = preparation_exact;
+              if (!prepared) {
+                impl->load.decode_graph_cache_fallback_reason =
+                    decode_graph_prepare_fallback_reason(prepared.status);
+              } else if (!preparation_exact) {
+                impl->load.decode_graph_cache_fallback_reason =
+                    "prepared_cache_contract_mismatch";
+              } else if (memory_after_status != cudaSuccess ||
+                         total_after != total_before) {
+                cache_admitted = false;
+                impl->load.decode_graph_cache_fallback_reason =
+                    "memory_probe_after_failed";
+              } else if (!std::isfinite(
+                             impl->load
+                                 .decode_graph_cache_prepare_milliseconds) ||
+                         impl->load.decode_graph_cache_prepare_milliseconds <
+                             0.0 ||
+                         impl->load.decode_graph_cache_prepare_milliseconds >
+                             kProductionDecodeGraphMaximumPrepareMilliseconds) {
+                cache_admitted = false;
+                impl->load.decode_graph_cache_fallback_reason =
+                    "prepare_time_budget_exceeded";
+              } else if (
+                  impl->load.decode_graph_cache_free_drop_bytes >
+                  kProductionDecodeGraphMaximumFreeDropBytes) {
+                cache_admitted = false;
+                impl->load.decode_graph_cache_fallback_reason =
+                    "device_memory_budget_exceeded";
+              } else if (
+                  static_cast<std::uint64_t>(free_after) <
+                  options.request_options.min_free_bytes_after_create) {
+                cache_admitted = false;
+                impl->load.decode_graph_cache_fallback_reason =
+                    "minimum_free_memory_not_preserved";
+              }
+
+              if (cache_admitted) {
+                const ReferenceRunnerStatus reset_status =
+                    impl->runner->reset();
+                if (!reset_status) {
+                  if (!rollback_decode_graph_cache(
+                          "decode_graph_cache_ready_cleanup")) {
+                    return result;
+                  }
+                  result.diagnostic = runner_diagnostic(
+                      ReferenceEngineError::kRunnerFactoryFailure,
+                      "decode_graph_cache_ready_reset", reset_status);
+                  return result;
+                }
+                if (impl->runner
+                            ->fixed_position_decode_graph_cache_mask() !=
+                        expected_mask) {
+                  if (!rollback_decode_graph_cache(
+                          "decode_graph_cache_ready_contract_cleanup")) {
+                    return result;
+                  }
+                  result.diagnostic = engine_diagnostic(
+                      ReferenceEngineError::kRunnerFactoryFailure,
+                      "decode_graph_cache_ready_contract",
+                      "runner reset did not preserve the prepared cache");
+                  return result;
+                }
+                impl->decode_graph_cache_ready = true;
+                impl->load.decode_graph_cache_effective_policy =
+                    ReferenceDecodeGraphCachePolicy::kSm87ShortPositions;
+                impl->load.decode_graph_cache_first_position =
+                    first_position;
+                impl->load.decode_graph_cache_last_position = last_position;
+                impl->load.decode_graph_cache_slot_count =
+                    expected_graph_count;
+              } else {
+                if (!rollback_decode_graph_cache(
+                        "decode_graph_cache_prepare_rollback")) {
+                  return result;
+                }
+              }
+            }
+          }
+        }
       }
 
       double prepared_milliseconds = 0.0;
@@ -1480,8 +1775,12 @@ ReferenceGenerateResult ReferenceEngine::generate(
 
     reference_engine_detail::DecodePlan decode_plan;
     decode_plan.context = &step_context;
+    const bool use_production_decode_graph_cache =
+        impl_->decode_graph_cache_ready && !options.capture_trace &&
+        options.logits_mode == ReferenceLogitsMode::kPredictedTokenOnly;
     decode_plan.decode_step =
-        options.use_prepared_decode_graph_cache
+        (options.use_prepared_decode_graph_cache ||
+         use_production_decode_graph_cache)
             ? decode_with_prepared_graph_cache
             : step_with_trace;
 
@@ -1490,6 +1789,38 @@ ReferenceGenerateResult ReferenceEngine::generate(
             chat.token_ids, control_options, prefill_plan, decode_plan);
     if (!control) {
       result.diagnostic = control_diagnostic(control);
+      if (use_production_decode_graph_cache &&
+          step_context.decode_graph_replays != 0U) {
+        // Never retry the failed token. Retire the engine-lifetime cache so a
+        // later request can recover through reset and the serial scheduler
+        // instead of repeatedly launching a graph that has already failed.
+        const ReferenceRunnerStatus clear_status =
+            impl_->runner->clear_fixed_position_decode_graph_cache();
+        impl_->decode_graph_cache_ready = false;
+        impl_->load.decode_graph_cache_effective_policy =
+            ReferenceDecodeGraphCachePolicy::kDisabled;
+        impl_->load.decode_graph_cache_first_position = 0U;
+        impl_->load.decode_graph_cache_last_position = 0U;
+        impl_->load.decode_graph_cache_slot_count = 0U;
+        if (!clear_status) {
+          impl_->load.decode_graph_cache_fallback_reason =
+              "runtime_graph_failure_demote_cleanup_failed";
+          if (!result.diagnostic.context.empty()) {
+            result.diagnostic.context += "; ";
+          }
+          result.diagnostic.context +=
+              "decode_graph_cache_runtime_demote_failed:";
+          result.diagnostic.context +=
+              reference_runner_error_string(clear_status.error);
+          if (clear_status.operation != nullptr) {
+            result.diagnostic.context += ':';
+            result.diagnostic.context += clear_status.operation;
+          }
+        } else {
+          impl_->load.decode_graph_cache_fallback_reason =
+              "runtime_graph_failure_demoted_to_serial";
+        }
+      }
       return result;
     }
 
@@ -2812,7 +3143,9 @@ ReferenceOneShotResult generate_reference(
           kMaximumRequestPrefillChunkSize ||
       options.generation.stop_token_id >= kReferenceVocabularySize ||
       !is_valid_reference_logits_mode(options.generation.logits_mode) ||
-      !is_valid_projection_backend(options.projection_backend)) {
+      !is_valid_projection_backend(options.projection_backend) ||
+      !is_valid_reference_decode_graph_cache_policy(
+          options.decode_graph_cache_policy)) {
     result.diagnostic = engine_diagnostic(
         ReferenceEngineError::kInvalidArgument, "one_shot_options",
         "model directory and prompt must be non-empty; generation options "
@@ -2926,6 +3259,8 @@ ReferenceOneShotResult generate_reference(
         options.request_min_free_bytes_after_create;
     engine_options.enable_trace = options.generation.capture_trace;
     engine_options.projection_backend = options.projection_backend;
+    engine_options.decode_graph_cache_policy =
+        options.decode_graph_cache_policy;
 
     ReferenceEngine::Impl::BuildResult built;
     if (resident_future.has_value()) {

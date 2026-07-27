@@ -50,11 +50,26 @@ struct ReferenceEngineDiagnostic {
   std::string operation;
 };
 
+enum class ReferenceDecodeGraphCachePolicy : std::uint8_t {
+  kDisabled = 0,
+  kSm87ShortPositions,
+};
+
+[[nodiscard]] constexpr bool is_valid_reference_decode_graph_cache_policy(
+    const ReferenceDecodeGraphCachePolicy policy) noexcept {
+  return policy == ReferenceDecodeGraphCachePolicy::kDisabled ||
+         policy == ReferenceDecodeGraphCachePolicy::kSm87ShortPositions;
+}
+
 struct ReferenceEngineOptions {
   ResidentLoadOptions resident_options;
   RequestMemoryOptions request_options;
   bool enable_trace = false;
   ProjectionBackend projection_backend = ProjectionBackend::kReference;
+  // Engine-lifetime resource policy. The selected short-position cache is
+  // prepared during engine creation and never lazily inside generate().
+  ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
+      ReferenceDecodeGraphCachePolicy::kDisabled;
 };
 
 struct ReferenceGenerateOptions {
@@ -129,6 +144,25 @@ struct ReferenceEngineLoadStats {
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
+  ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
+      ReferenceDecodeGraphCachePolicy::kDisabled;
+  ReferenceDecodeGraphCachePolicy decode_graph_cache_effective_policy =
+      ReferenceDecodeGraphCachePolicy::kDisabled;
+  std::uint32_t decode_graph_cache_first_position = 0U;
+  std::uint32_t decode_graph_cache_last_position = 0U;
+  std::size_t decode_graph_cache_slot_count = 0U;
+  double decode_graph_cache_capture_enqueue_milliseconds = 0.0;
+  double decode_graph_cache_topology_inspection_milliseconds = 0.0;
+  double decode_graph_cache_instantiate_milliseconds = 0.0;
+  double decode_graph_cache_upload_ready_milliseconds = 0.0;
+  double decode_graph_cache_prepare_milliseconds = 0.0;
+  std::uint64_t decode_graph_cache_free_bytes_before = 0U;
+  std::uint64_t decode_graph_cache_free_bytes_after = 0U;
+  std::uint64_t decode_graph_cache_free_drop_bytes = 0U;
+  // Empty when the requested cache was completely prepared or when the
+  // policy was disabled. Any preparation/admission failure is rolled back
+  // before this stable serial-fallback reason is published.
+  std::string decode_graph_cache_fallback_reason;
   double total_milliseconds = 0.0;
   ResidentLoadStats resident;
   WeightBindingStats binding;
@@ -365,6 +399,10 @@ struct ReferenceOneShotOptions {
   // authentication/copy, so the production one-shot path overlaps them by
   // default. Disable this only for diagnostics or controlled benchmarks.
   bool overlap_tokenizer_and_resident_load = true;
+  // Keep new one-shot policy fields at the end so positional aggregate
+  // initialization of the pre-existing surface remains source-compatible.
+  ReferenceDecodeGraphCachePolicy decode_graph_cache_policy =
+      ReferenceDecodeGraphCachePolicy::kDisabled;
 };
 
 struct ReferenceOneShotGeneration {
