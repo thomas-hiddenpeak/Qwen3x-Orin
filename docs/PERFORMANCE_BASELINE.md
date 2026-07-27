@@ -7747,10 +7747,74 @@ entire state pool fits in L2; without hardware counters it is **not** evidence
 of L2 hit rate, persistence, residency, or global-memory traffic. The final
 logs also do not record a fixed-clock snapshot.
 
-Sequential FP32-B8 is selected only as the next GDN candidate; it is not a
-production or full-model result. Before routing it, require real-checkpoint
+At screen time, sequential FP32-B8 was selected only as the next GDN
+candidate; it was not a production or full-model result. Before routing it,
+the plan required real-checkpoint
 numerics, full-model exact-token and recurrent-state checks, persistent-memory
 validation, fixed-clock Prefix/TTFT measurement, Decode non-regression, and
 fresh profiler attribution. Full binary identity, evidence hashes, frozen
 gates, and limitations are in the
 [GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json).
+
+## GDN B8 real-checkpoint rejection
+
+Commits `feb18a7`, `60f376e`, and `9c4be88` turn the selected sequential
+FP32-B8 body into a private C256/C512 launcher, harden its standalone
+contracts, and run a test-only real-checkpoint admission route. The route is
+compiled only with `Q3X_BUILD_GDN_B8_ADMISSION=ON` and additionally requires
+`BUILD_TESTING=ON`; execution requires a separate environment opt-in. No
+installed header exposes the switch.
+
+The private kernel itself passes. C256 and C512 in-place and separate-state
+outputs are bitwise equal to the screened sequential implementation and an
+explicit C8 chain. Each captured call contains one node and replays exactly;
+redzones and immutable inputs pass. All 61 invalid contracts return
+`cudaErrorInvalidValue` and capture zero nodes. The selected kernel uses 109
+registers, 8,256 bytes static shared memory, no local/stack/spill storage, 256
+threads, and two active CTA/SM.
+
+The pinned-checkpoint state gate fails decisively:
+
+| Prompt / state boundary | Candidate route hits | Aggregate NRMSE | Cosine | Frozen gate |
+| --- | ---: | ---: | ---: | ---: |
+| P257 / prefix P-1 | 48 | **0.0741172** | 0.997252 | fail |
+| P513 / prefix P-1 | 48 | **0.115284** | 0.993333 | fail |
+| P769 / prefix P-1 | 96 | **0.136871** | 0.990593 | fail |
+| P1025 / prefix P-1 | 96 | **0.148576** | 0.988911 | fail |
+| P1025 / after seven Decode continuations | 96 | **0.0939356** | 0.995583 | fail |
+
+The aggregate threshold is NRMSE at most **0.01** and cosine at least
+**0.9999**; every layer must also stay at or below 0.03 NRMSE and at or above
+0.999 cosine. There are no non-finite state values. The increasing Prefix
+error confirms cumulative drift from retaining state in FP32 within B8 and
+rounding to BF16 only at block boundaries, whereas production rounds the
+recurrent state after every token.
+
+Short deterministic ability alone would have produced a false promotion.
+After proven route execution, P257 and P513 Engine outputs still match the
+current baseline exactly; P513 generates token IDs
+`9419,0,1049,5686,1040,488,599,264` and text
+`Hello! It looks like you have a`. The direct state harness also keeps up to
+eight teacher-forced predictions exact. These necessary checks do not
+override the failed recurrent-state gate.
+
+Applying the C512 micro speedup only to the measured 488.543136-ms GDN
+interval would have projected P513 Prefix from 2,913.5525 to approximately
+2,600.3968 ms, or 196.893 token/s. This was never an achieved full-model
+result and is now invalidated by correctness. Production remains the frozen
+6,205,168-byte M128 binary with SHA-256
+`ff9261596fcf6a3853949c41bef08dd49243800b258ec0bc292c67d41ff77cf6`
+and build ID `68ee24fd83eb2cdad008c289f6c8b2127c9bb849`; a forced OFF rebuild is
+bitwise identical. The final default suite has 52 passes, 12 expected skips,
+and zero failures.
+
+Do not retry FP32-B8 or WY by lowering state gates or extending token-only
+tests. Future GDN work must reproduce the production per-token BF16 state
+transition and may then reduce core movement, improve layout/L2 behavior, or
+change SSM update scheduling. The immediate whole-model selection is exact
+FP8 large-N C256/C512 M128 B-tile reuse, because the current profile assigns
+739.064832 ms, or 25.46% of Prefix union, to QKV/Z/O/full-Q. NVFP4 Down M128
+reuse follows. A bounded OpenAI-compatible API and EvalScope path proceeds in
+parallel. Full protocol, route counts, state metrics, binaries, raw-log
+hashes, and limitations are in the
+[real-checkpoint rejection record](metadata/qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json).

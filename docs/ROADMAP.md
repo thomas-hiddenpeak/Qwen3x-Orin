@@ -1501,20 +1501,24 @@ row-search structure without an unpriced global-progress assumption. See the
   (**1.287555553x**). The existing two-stream fork/join remains; the gain is
   M128 B reuse, not new buffering or overlap. See the
   [M128 production record](metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
-- [selected test-only GDN sequential FP32-B8; current WY rejected] Commit
-  `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
+- [measured and rejected on real checkpoint, GDN sequential FP32-B8 and WY]
+  Commit `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
   lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
   1.74177x W; C512 reaches **2.78551x S** versus 1.74228x W. Sequential
   latency is only **0.628852/0.625479** of WY, and S beats W in all three
   mirrored rounds at both shapes. CPU C1/C7/C8/C9/C15/C16, split-tail,
   numerical, immutable-input, invalid-contract, and 109-register/8,256-byte-
   shared/two-CTA gates pass. The 37,748,736-byte rotating state pool exceeds
-  the 4-MiB L2 but makes no hit-rate claim. Production remains unchanged.
-  With M128 admission complete, GDN is the immediate candidate and requires
-  real-checkpoint numerics, full-model
-  exact-token/state/memory, fixed-clock Prefix/TTFT, Decode non-regression,
-  and fresh-profiler gates. See the
-  [GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json).
+  the 4-MiB L2 but makes no hit-rate claim. Commits `feb18a7`, `60f376e`, and
+  `9c4be88` then prove real route execution at P257/P513/P769/P1025. Short
+  outputs remain exact, but Prefix aggregate state NRMSE grows
+  **0.0741172/0.115284/0.136871/0.148576** against the frozen 0.01 gate.
+  FP32-B8 is therefore rejected alongside WY; production remains exact M16.
+  The default OFF executable is bitwise identical to the M128 production
+  binary. See the historical
+  [GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json)
+  and the
+  [real-checkpoint rejection](metadata/qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1610,15 +1614,16 @@ P257/P513 Prefix reaches **175.547351155/175.730487094 token/s** and complete-
 prompt throughput reaches **164.104109691/169.740778038 token/s**. The layer
 still has one Gate and one Up node on the existing two-stream fork/join; no
 new double/triple buffering or Prefill/Decode overlap was introduced.
-The parallel GDN screen selects sequential FP32-B8 at **2.76977x/2.78551x**
-over production M16 and rejects the measured WY dataflow, but remains
-test-only and is now the immediate admission target. It must pass real-
-checkpoint numerical,
-full-model exact-token/state/memory, fixed-clock Prefix/TTFT, Decode, and fresh
-profiler gates before routing. Immediately after GDN admission, begin the
-bounded OpenAI-compatible API/EvalScope work and global NCU traffic audit in
-parallel. The audit then selects linear-attention FP8 QKV/Z/O or NVFP4 Down
-for the next large dataflow change after the external baseline exists.
+The parallel GDN screen measured sequential FP32-B8 at **2.76977x/2.78551x**
+over production M16 and rejected WY, but the subsequent real-checkpoint gate
+also rejects FP32-B8: Prefix aggregate state NRMSE rises from **0.0741172** at
+P257 to **0.148576** at P1025 against a 0.01 threshold. Exact short token
+output does not override recurrent-state drift. Production therefore stays
+on exact per-token BF16 M16 GDN. The immediate main line is exact FP8 large-N
+C256/C512 M128 B-tile reuse: QKV/Z/O/full-Q currently consume 739.064832 ms,
+or 25.46% of P513 Prefix union. NVFP4 Down M128 reuse follows. Bounded
+OpenAI-compatible API/EvalScope work starts in parallel so the kernel path and
+external baseline advance together.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request
 serving throughput is a separate later target.
@@ -1632,9 +1637,10 @@ These are different runtime systems and leave directional
 **2.276478024670x/2.423607680423x** gaps, not a same-kernel attribution. The
 user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
-a comparable result. Complete GDN admission, then introduce the HTTP adapter
-and EvalScope in parallel with the ensuing traffic audit so the external
-baseline precedes the next large dataflow optimization. Phase 3.5 remains
+a comparable result. GDN B8 admission is now closed as rejected. Introduce
+the HTTP adapter and EvalScope in parallel with the FP8 M128 screen and its
+traffic counters so the external baseline precedes later system-level
+optimization. Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses

@@ -1381,6 +1381,17 @@ The diagnostic Phase 3 records are:
   37,748,736-byte state pool exceeds the 4-MiB L2, but this is not an L2
   hit-rate claim. Production dispatch, runner, ABI, Decode, and MTP remain
   unchanged; real-checkpoint and fixed-clock full-model gates are still due.
+- [`qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json`](qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json),
+  which closes that admission by rejecting FP32-B8 on the pinned checkpoint.
+  Exact route counters prove 48/48/96/96 linear-layer hits at
+  P257/P513/P769/P1025, and short Engine outputs remain identical to the
+  current production baseline. Recurrent state does not: Prefix aggregate
+  NRMSE grows from **0.0741172** at P257 to **0.148576** at P1025 versus the
+  frozen **0.01** gate, while aggregate cosine falls from 0.997252 to
+  0.988911. The test-only option defaults OFF and cannot be enabled without
+  `BUILD_TESTING`; the OFF executable remains bitwise identical to the frozen
+  M128 production binary. Production stays on exact per-token BF16 M16 GDN;
+  no MTP, public ABI, Decode, or buffering policy changes.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

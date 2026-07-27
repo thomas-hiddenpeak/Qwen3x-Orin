@@ -1,0 +1,414 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection",
+  "status": "rejected-real-checkpoint-recurrent-state-admission",
+  "recorded_at": "2026-07-28T07:38:42+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_kernel_commit": "feb18a7dcffa7c6890a4d625279b2265a48b79e5",
+    "candidate_kernel_subject": "feat: add private B8 Prefill GDN candidate",
+    "private_contract_commit": "60f376efd404d98c91b0f0db26be7e14ceefa4ef",
+    "private_contract_subject": "test: harden B8 GDN admission contracts",
+    "real_checkpoint_gate_commit": "9c4be889d1ca4d8c0b00edf606ebe5f120db9c19",
+    "real_checkpoint_gate_tree": "ef81350f60d0f8d342970737aedf2a2d981e8cce",
+    "real_checkpoint_gate_subject": "test: reject B8 Prefill GDN on real checkpoint",
+    "production_runtime_commit": "676e8ad",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "build_type": "Release",
+    "cuda_architecture": 87,
+    "admission_build_option": "Q3X_BUILD_GDN_B8_ADMISSION=ON",
+    "execution_opt_in": "Q3X_RUN_GDN_B8_ADMISSION=1"
+  },
+  "candidate": {
+    "name": "sequential FP32-B8 GDN recurrent-state transition",
+    "exact_supported_tiles": [
+      256,
+      512
+    ],
+    "required_backend": "sm87_weight_only",
+    "required_first_position_alignment_tokens": 8,
+    "state_semantics": "retain the recurrent matrix in FP32 within each eight-token block and publish BF16 state at each B8 boundary",
+    "production_comparator_semantics": "publish BF16 recurrent state after every token through the exact-M16 chain",
+    "semantic_difference": "the candidate removes seven BF16 recurrent-state rounding boundaries per B8 block and is therefore not bitwise equivalent to production",
+    "scope": "linear-attention Prefill GDN only",
+    "unchanged": [
+      "causal Conv1d ordering and state",
+      "full attention",
+      "Decode",
+      "MTP",
+      "public headers and ABI",
+      "default production dispatch"
+    ]
+  },
+  "prior_micro_screen": {
+    "record": "qwen36-27b-prefill-gdn-b8-block-transition-screen.json",
+    "c256": {
+      "production_m16_ms": 5.21501,
+      "sequential_fp32_b8_ms": 1.88283,
+      "speedup": 2.76977
+    },
+    "c512": {
+      "production_m16_ms": 10.4242,
+      "sequential_fp32_b8_ms": 3.74229,
+      "speedup": 2.78551
+    },
+    "projection_if_numerically_admissible": {
+      "basis": "apply the C512 micro speedup only to the 488.543136-ms GDN interval in the M128 P513 profile and leave every other interval unchanged",
+      "production_prefix_ms": 2913.5525,
+      "projected_prefix_ms": 2600.396684814,
+      "projected_prefix_speedup": 1.120426170751,
+      "projected_prefix_tokens_per_second": 196.893036739,
+      "implemented_or_achieved": false,
+      "invalidated_by_real_checkpoint_gate": true
+    }
+  },
+  "private_kernel_contract": {
+    "c256": {
+      "in_place_exact": true,
+      "separate_state_exact": true,
+      "repeated_c8_chain_exact": true,
+      "cuda_graph_nodes": 1,
+      "graph_replay_exact": true,
+      "redzones_intact": true
+    },
+    "c512": {
+      "in_place_exact": true,
+      "separate_state_exact": true,
+      "repeated_c8_chain_exact": true,
+      "cuda_graph_nodes": 1,
+      "graph_replay_exact": true,
+      "redzones_intact": true
+    },
+    "invalid_contracts": {
+      "cases": 61,
+      "near_shapes": 4,
+      "null_pointers": 8,
+      "invalid_epsilon": 5,
+      "misalignment": 8,
+      "wrapping_spans": 8,
+      "pairwise_partial_aliases": 28,
+      "all_returned_invalid_value": true,
+      "all_captured_zero_graph_nodes": true
+    },
+    "resources": {
+      "registers_per_thread": 109,
+      "static_shared_bytes": 8256,
+      "local_bytes": 0,
+      "stack_or_spill_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2
+    },
+    "selected_body_normalized_sass_sha256_prefix": "1583f9b9",
+    "independent_review_blockers": 0
+  },
+  "real_checkpoint_protocol": {
+    "runner_path": "load pinned resident weights, bind ModelWeights, create RequestState, create ReferenceRunner with sm87_weight_only, reset between baseline and candidate",
+    "prompt_token_profiles": [
+      257,
+      513,
+      769,
+      1025
+    ],
+    "prefix_definition": "run P-1 tokens through bulk Prefill, then consume the final prompt token through step()",
+    "candidate_route_hits": {
+      "p257": 48,
+      "p513": 48,
+      "p769": 96,
+      "p1025": 96,
+      "interpretation": "one hit per linear-attention layer and exact C256/C512 candidate tile; nonzero exact counts prevent a silent production fallback from passing"
+    },
+    "continuation": "compare prediction to baseline, then teacher-force the baseline token before the next state comparison",
+    "decode_steps": {
+      "p257": 8,
+      "p513": 8,
+      "p769": 1,
+      "p1025": 8
+    },
+    "state_elements": 37748736,
+    "state_bytes": 75497472,
+    "frozen_gates": {
+      "maximum_per_layer_nrmse": 0.03,
+      "minimum_per_layer_cosine": 0.999,
+      "maximum_aggregate_nrmse": 0.01,
+      "minimum_aggregate_cosine": 0.9999,
+      "non_finite_elements": 0,
+      "generated_tokens": "exact against current production baseline"
+    }
+  },
+  "real_checkpoint_results": {
+    "profiles": [
+      {
+        "prompt_tokens": 257,
+        "route_hits": 48,
+        "prefix_p_minus_1": {
+          "aggregate_nrmse": 0.0741172,
+          "aggregate_cosine": 0.997252,
+          "worst_layer_nrmse": 0.103286,
+          "gate": "fail"
+        },
+        "prefill_final": {
+          "aggregate_nrmse": 0.0731558,
+          "aggregate_cosine": 0.997322,
+          "gate": "fail"
+        },
+        "decode7": {
+          "aggregate_nrmse": 0.0502446,
+          "aggregate_cosine": 0.998738,
+          "gate": "fail"
+        },
+        "generated_token_ids": [
+          9419,
+          0,
+          59720,
+          233,
+          1049,
+          5686,
+          1040,
+          488
+        ],
+        "generated_tokens_exact": true
+      },
+      {
+        "prompt_tokens": 513,
+        "route_hits": 48,
+        "prefix_p_minus_1": {
+          "aggregate_nrmse": 0.115284,
+          "aggregate_cosine": 0.993333,
+          "worst_layer_nrmse": 0.120185,
+          "gate": "fail"
+        },
+        "prefill_final": {
+          "aggregate_nrmse": 0.113712,
+          "aggregate_cosine": 0.993514,
+          "gate": "fail"
+        },
+        "decode7": {
+          "aggregate_nrmse": 0.0728236,
+          "aggregate_cosine": 0.997346,
+          "gate": "fail"
+        },
+        "generated_token_ids": [
+          9419,
+          0,
+          1049,
+          5686,
+          1040,
+          488,
+          599,
+          264
+        ],
+        "generated_tokens_exact": true
+      },
+      {
+        "prompt_tokens": 769,
+        "route_hits": 96,
+        "prefix_p_minus_1": {
+          "aggregate_nrmse": 0.136871,
+          "aggregate_cosine": 0.990593,
+          "worst_layer_nrmse": 0.142245,
+          "gate": "fail"
+        },
+        "prefill_final": {
+          "aggregate_nrmse": 0.135181,
+          "aggregate_cosine": 0.990828,
+          "gate": "fail"
+        },
+        "generated_token_ids": [
+          9419
+        ],
+        "generated_tokens_exact": true
+      },
+      {
+        "prompt_tokens": 1025,
+        "route_hits": 96,
+        "prefix_p_minus_1": {
+          "aggregate_nrmse": 0.148576,
+          "aggregate_cosine": 0.988911,
+          "worst_layer_nrmse": 0.16385,
+          "gate": "fail"
+        },
+        "prefill_final": {
+          "aggregate_nrmse": 0.146826,
+          "aggregate_cosine": 0.989177,
+          "gate": "fail"
+        },
+        "decode7": {
+          "aggregate_nrmse": 0.0939356,
+          "aggregate_cosine": 0.995583,
+          "gate": "fail"
+        },
+        "generated_token_ids": [
+          9419,
+          0,
+          1049,
+          5686,
+          1040,
+          488,
+          599,
+          264
+        ],
+        "generated_tokens_exact": true
+      }
+    ],
+    "trend": "prefix recurrent-state error grows monotonically over P257, P513, P769, and P1025",
+    "non_finite_elements_all_stages": 0,
+    "aggregate_gate": "fail",
+    "expected_test_exit_code": 1
+  },
+  "engine_ability_check": {
+    "scope": "current production Engine, tokenizer, checkpoint sidecars, request lifecycle, and deterministic greedy output",
+    "load": {
+      "fp8_output_sidecars": true,
+      "fp8_output_sidecar_layers": 64,
+      "nvfp4_down_scale6_sidecars": true,
+      "nvfp4_down_scale6_eligible_layers": 53,
+      "request_arena_bytes": 234993664
+    },
+    "p257": {
+      "route_hits": 48,
+      "generated_token_ids": [
+        9419
+      ],
+      "generated_text": "Hello",
+      "candidate_exact": true
+    },
+    "p513": {
+      "route_hits": 48,
+      "generated_token_ids": [
+        9419,
+        0,
+        1049,
+        5686,
+        1040,
+        488,
+        599,
+        264
+      ],
+      "generated_text": "Hello! It looks like you have a",
+      "candidate_exact": true
+    },
+    "gate": "pass",
+    "interpretation": "short deterministic token agreement is necessary but cannot override the recurrent-state gate failure"
+  },
+  "production_isolation": {
+    "admission_option_default": false,
+    "on_requires_build_testing": true,
+    "on_with_build_testing_off_configuration": "rejected",
+    "public_header_changes": 0,
+    "public_abi_changes": 0,
+    "default_runtime_branches": 0,
+    "default_production_executable": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 6205168,
+      "sha256": "ff9261596fcf6a3853949c41bef08dd49243800b258ec0bc292c67d41ff77cf6",
+      "elf_build_id": "68ee24fd83eb2cdad008c289f6c8b2127c9bb849",
+      "bitwise_equal_to_frozen_m128_production": true
+    },
+    "default_suite": {
+      "tests": 64,
+      "passed": 52,
+      "expected_skips": 12,
+      "failures": 0
+    },
+    "static_archive_note": "the private candidate CUDA object remains in q3x_kernels for isolated equivalence tests, but the default executable contains no admission route or test hook"
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "the candidate's delayed BF16 rounding changes the recurrent transition; aggregate state NRMSE is already 7.4x the gate at P257 and rises to 14.9x the gate at P1025",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "kernel_micro_speedup_claim_retained": true,
+    "whole_model_speedup_claimed": false,
+    "generated_token_agreement_overrides_state_gate": false,
+    "do_not_retry": "do not promote FP32-B8 state-boundary changes by widening token-only tests or lowering the frozen recurrent-state gates",
+    "reconsideration_rule": "require a semantics-preserving mechanism that reproduces the production per-token BF16 state transition"
+  },
+  "artifacts": [
+    {
+      "role": "real-checkpoint per-layer and aggregate state admission log",
+      "path": "/tmp/q3x-gdn-b8-admission-state-route-hit-final.log",
+      "bytes": 337566,
+      "lines": 1455,
+      "sha256": "617e438c923af90166a5001021d9757c0ec07ce62e597fb48e1a266f0c8b7293",
+      "expected_exit_code": 1
+    },
+    {
+      "role": "production Engine ability and route-hit log",
+      "path": "/tmp/q3x-gdn-b8-admission-engine-route-hit-final.log",
+      "bytes": 568,
+      "lines": 4,
+      "sha256": "070f0db5f2a85a613895bfd9693b181d07701f381decb3f0adbc5e3cd80500bf",
+      "exit_code": 0
+    },
+    {
+      "role": "private kernel exact-contract log",
+      "path": "/tmp/q3x-gdn-b8-admission-private-contract-final.log",
+      "bytes": 7325,
+      "lines": 37,
+      "sha256": "8754ed40ec2d7229aeedb67adfe5f6ba65ec064e93388dc8832d2cc588f514e7",
+      "exit_code": 0
+    },
+    {
+      "role": "admission test build log after route-hit hardening",
+      "path": "/tmp/q3x-gdn-b8-admission-route-hit-build.log",
+      "bytes": 894,
+      "lines": 14,
+      "sha256": "3eab2541b5dabd055e3787d3f6e6560bbedf215668a360921efc4f1362701751",
+      "exit_code": 0
+    },
+    {
+      "role": "default-OFF production rebuild log",
+      "path": "/tmp/q3x-gdn-b8-production-off-route-hit-build.log",
+      "bytes": 335,
+      "lines": 8,
+      "sha256": "4b09a713bdf86b32d8e9a5c9103626acb7ac6b22487abbf3cba7a392a2c49fdf",
+      "exit_code": 0
+    },
+    {
+      "role": "test-only CMake guard rejection log",
+      "path": "/tmp/q3x-gdn-b8-test-only-guard.log",
+      "bytes": 702,
+      "lines": 17,
+      "sha256": "b111b0dfeb1ae77ce00178cb5b0e2f1e061d2f962992eb481ca06012206c1da7",
+      "expected_exit_code": 1
+    },
+    {
+      "role": "final default-OFF complete CTest log",
+      "path": "/tmp/q3x-gdn-b8-production-off-route-hit-ctest.log",
+      "bytes": 9467,
+      "lines": 160,
+      "sha256": "cae0e686c2d5b404bae9d936fc1950f05540641da5ed3a043672ba783d42cd73",
+      "exit_code": 0
+    },
+    {
+      "role": "real-checkpoint state admission binary",
+      "path": "/tmp/q3x-gdn-b8-admission-build.tRZ6Ek/q3x_reference_gdn_prefill_b8_admission_e2e_test",
+      "bytes": 5948376,
+      "sha256": "e6a8f79885e5b942acd037a4b890e9ef1992a2f7e071af79596b16ef17cd3bb6"
+    },
+    {
+      "role": "production Engine ability binary",
+      "path": "/tmp/q3x-gdn-b8-admission-build.tRZ6Ek/q3x_reference_gdn_prefill_b8_engine_e2e_test",
+      "bytes": 6198152,
+      "sha256": "962460c2650c342212c7aa478e783d5554894826895482a8bffb825e6e727045"
+    }
+  ],
+  "limitations": [
+    "The real-checkpoint admission is a correctness test and does not claim fixed-clock end-to-end performance.",
+    "The exact-token evidence spans one deterministic synthetic prompt family and at most eight generated tokens; the recurrent-state gate is deliberately stricter and fails.",
+    "The microbenchmark speedup uses rotating synthetic finite state banks and does not establish whole-model speedup, L2 residency, or global-memory traffic.",
+    "The B8 rejection is specific to moving BF16 recurrent-state publication from every token to every eight tokens; it does not reject semantics-preserving GDN implementation changes.",
+    "No MTP, third-party attention backend, new buffering pipeline, or Prefill/Decode overlap was used."
+  ],
+  "next_priority": {
+    "main_line": "screen exact FP8 large-N C256/C512 M128 B-tile reuse for QKV, Z, attention O, and full-attention Q, then require NCU traffic reduction before production admission",
+    "first_candidates": [
+      "exact FP8 C256/C512 M128 B-tile reuse across linear-attention QKV/Z/O and full-attention Q/K/V",
+      "exact NVFP4 C256/C512 Down M128 decoded/staged B-tile reuse"
+    ],
+    "gdn_follow_up": "only pursue core-movement, L2, or SSM-state scheduling changes that preserve every production BF16 state boundary",
+    "parallel_work": "start the bounded OpenAI-compatible API and EvalScope alignment after the rejection record, without delaying the selected kernel experiment"
+  }
+}

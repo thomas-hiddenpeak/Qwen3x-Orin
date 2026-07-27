@@ -284,12 +284,19 @@ C512; K/V `[1024,5120]` use M-major at C256's under-filled 32-CTA grid and
 N-major at C512. Exact aligned C256/C512 NVFP4 Gate and Up `[17408,5120]`
 now each use one whole-chunk grid: Gate runs on the main stream, Up on the
 owned auxiliary stream, and the existing events join them before SiLU.
+Each M128 CTA reuses a decoded/staged B tile across eight M16 accumulator
+panels, halving grid X relative to the earlier M64 whole-chunk route.
 Generic projection APIs remain capped at C64; residual/RMS, Conv/GDN, other
 shapes, and every near miss retain their established subtiles. This layer-local
 branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
-Its fixed-clock P257/P513 Prefix result is 162.636/162.585 token/s, with full
-evidence in the
-[Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
+Its current fixed-clock P257/P513 Prefix result is 175.547/175.730 token/s,
+with full evidence in the
+[M128 Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
+The faster sequential FP32-B8 GDN micro-kernel is intentionally not routed:
+its pinned-checkpoint Prefix state NRMSE grows from 0.0741 at P257 to 0.1486
+at P1025 against the frozen 0.01 gate. The default executable remains on the
+exact per-token BF16 M16 recurrence; see the
+[real-checkpoint rejection](docs/metadata/qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json).
 
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
