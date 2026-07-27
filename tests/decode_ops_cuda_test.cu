@@ -108,6 +108,18 @@ int query_gqa_attention_sigmoid_gate_shared_tree_predecessor_24_4_256_resources_
     std::size_t* local_bytes, int* maximum_threads,
     int* active_blocks_per_multiprocessor) noexcept;
 
+int launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+    const std::uint16_t* query, const std::uint16_t* key_cache,
+    const std::uint16_t* value_cache, const std::uint16_t* gate,
+    std::size_t first_position, std::size_t token_count,
+    float attention_scale, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+int query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
+    int* registers, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads,
+    int* active_blocks_per_multiprocessor) noexcept;
+
 int launch_full_attention_preprocess_warp_rms_24_4_256_64_test_cuda(
     const std::uint16_t* interleaved_q_gate, std::uint16_t* key,
     const std::uint16_t* q_weight, const std::uint16_t* k_weight,
@@ -8007,6 +8019,770 @@ void test_fused_gqa_sigmoid_gate_warp_positions_perf(
               label + " preserves every input during timing");
 }
 
+constexpr std::size_t kBulkGqaQueryHeads = 24U;
+constexpr std::size_t kBulkGqaKvHeads = 4U;
+constexpr std::size_t kBulkGqaDimension = 256U;
+constexpr std::size_t kBulkGqaQueryElementsPerToken =
+    kBulkGqaQueryHeads * kBulkGqaDimension;
+constexpr std::size_t kBulkGqaKvElementsPerToken =
+    kBulkGqaKvHeads * kBulkGqaDimension;
+constexpr float kBulkGqaScale = 0.0625F;
+constexpr std::size_t kBulkGqaGuardElements = 16U;
+constexpr std::uint16_t kBulkGqaGuard = 0x7fc1U;
+
+struct BulkGqaResources {
+  int registers = 0;
+  std::size_t static_shared_bytes = 0U;
+  std::size_t local_bytes = 0U;
+  int maximum_threads = 0;
+  int active_blocks_per_multiprocessor = 0;
+};
+
+struct BulkGqaGraphTopology {
+  std::size_t node_count = 0U;
+  void* function = nullptr;
+  dim3 grid{};
+  dim3 block{};
+  unsigned int dynamic_shared_bytes = 0U;
+};
+
+[[nodiscard]] int launch_bulk_gqa_baseline(
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::uint16_t* const value,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    float* const scratch,
+    const std::size_t scratch_elements,
+    std::uint16_t* const output,
+    cudaStream_t stream) {
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    const int status = q3x::runtime::launch_gqa_attention_reference_cuda(
+        query + token * kBulkGqaQueryElementsPerToken, key, value,
+        kBulkGqaQueryHeads, kBulkGqaKvHeads,
+        first_position + token + 1U, kBulkGqaDimension, kBulkGqaScale,
+        scratch, scratch_elements,
+        output + token * kBulkGqaQueryElementsPerToken,
+        static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  return q3x::runtime::launch_sigmoid_gate_reference_cuda(
+      output, gate, token_count * kBulkGqaQueryElementsPerToken, output,
+      static_cast<void*>(stream));
+}
+
+template <typename Launch>
+[[nodiscard]] bool capture_bulk_gqa_graph(
+    TestContext& test,
+    cudaStream_t stream,
+    const std::string& label,
+    Launch&& launch,
+    const bool replay,
+    BulkGqaGraphTopology& topology) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return false;
+  }
+  const cudaError_t launch_status = static_cast<cudaError_t>(launch());
+  test.expect(launch_status == cudaSuccess, label + " launch succeeds");
+  cudaGraph_t graph = nullptr;
+  if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                    label + " end capture")) {
+    return false;
+  }
+  bool ready = true;
+  ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr,
+                                         &topology.node_count),
+                       label + " count nodes") &&
+          ready;
+  std::vector<cudaGraphNode_t> nodes(topology.node_count);
+  std::size_t copied_nodes = topology.node_count;
+  if (ready && copied_nodes != 0U) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(),
+                                           &copied_nodes),
+                         label + " read nodes") &&
+            ready;
+  }
+  if (ready && copied_nodes == 1U) {
+    cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+    ready = test.cuda_ok(cudaGraphNodeGetType(nodes[0], &type),
+                         label + " node type") &&
+            ready;
+    if (ready) {
+      test.expect(type == cudaGraphNodeTypeKernel,
+                  label + " sole node is a kernel");
+    }
+    cudaKernelNodeParams parameters{};
+    if (ready && type == cudaGraphNodeTypeKernel) {
+      ready = test.cuda_ok(cudaGraphKernelNodeGetParams(nodes[0], &parameters),
+                           label + " kernel parameters") &&
+              ready;
+      if (ready) {
+        topology.function = parameters.func;
+        topology.grid = parameters.gridDim;
+        topology.block = parameters.blockDim;
+        topology.dynamic_shared_bytes = parameters.sharedMemBytes;
+      }
+    }
+  }
+  cudaGraphExec_t executable = nullptr;
+  if (ready && replay) {
+    ready = test.cuda_ok(
+                cudaGraphInstantiate(&executable, graph, nullptr, nullptr, 0U),
+                label + " instantiate") &&
+            ready;
+    if (ready) {
+      ready = test.cuda_ok(cudaGraphLaunch(executable, stream),
+                           label + " replay") &&
+              ready;
+      ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                           label + " replay synchronize") &&
+              ready;
+    }
+  }
+  if (executable != nullptr) {
+    (void)test.cuda_ok(cudaGraphExecDestroy(executable),
+                       label + " destroy executable");
+  }
+  ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph") &&
+          ready;
+  return ready;
+}
+
+void expect_invalid_bulk_gqa_graph(
+    TestContext& test,
+    cudaStream_t stream,
+    const std::string& label,
+    const std::uint16_t* const query,
+    const std::uint16_t* const key,
+    const std::uint16_t* const value,
+    const std::uint16_t* const gate,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    const float scale,
+    std::uint16_t* const output) {
+  if (!test.cuda_ok(
+          cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+          label + " begin capture")) {
+    return;
+  }
+  const cudaError_t status = static_cast<cudaError_t>(
+      q3x::runtime::
+          launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+              query, key, value, gate, first_position, token_count, scale,
+              output, static_cast<void*>(stream)));
+  test.expect(status == cudaErrorInvalidValue,
+              label + " returns cudaErrorInvalidValue");
+  cudaGraph_t graph = nullptr;
+  if (!test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                    label + " end capture")) {
+    return;
+  }
+  std::size_t node_count = 0U;
+  if (test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                   label + " count nodes")) {
+    test.expect(node_count == 0U,
+                label + " rejects before enqueue and captures zero nodes");
+  }
+  (void)test.cuda_ok(cudaGraphDestroy(graph), label + " destroy graph");
+}
+
+struct BulkGqaErrorMetrics {
+  double maximum_absolute = 0.0;
+  double p99_absolute = 0.0;
+  double normalized_rmse = 0.0;
+  double cosine = 0.0;
+  double p99_relative = 0.0;
+  std::size_t relative_samples = 0U;
+  std::size_t nonfinite_mismatches = 0U;
+};
+
+[[nodiscard]] double percentile_99(std::vector<float>& values) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  const std::size_t index = 99U * (values.size() - 1U) / 100U;
+  std::nth_element(values.begin(), values.begin() + index, values.end());
+  return static_cast<double>(values[index]);
+}
+
+[[nodiscard]] BulkGqaErrorMetrics bulk_gqa_error_metrics(
+    const std::uint16_t* const candidate,
+    const std::uint16_t* const reference,
+    const std::size_t count) {
+  BulkGqaErrorMetrics metrics;
+  std::vector<float> samples;
+  samples.reserve(count);
+  double squared_error = 0.0;
+  double squared_reference = 0.0;
+  double squared_candidate = 0.0;
+  double dot = 0.0;
+  for (std::size_t index = 0U; index < count; ++index) {
+    const double expected = static_cast<double>(decode_bf16(reference[index]));
+    const double actual = static_cast<double>(decode_bf16(candidate[index]));
+    if (!std::isfinite(expected) || !std::isfinite(actual)) {
+      const bool same_nan = std::isnan(expected) && std::isnan(actual);
+      const bool same_infinity =
+          std::isinf(expected) && std::isinf(actual) &&
+          std::signbit(expected) == std::signbit(actual);
+      if (!same_nan && !same_infinity) {
+        ++metrics.nonfinite_mismatches;
+      }
+      continue;
+    }
+    const double difference = actual - expected;
+    const double absolute = std::fabs(difference);
+    metrics.maximum_absolute =
+        std::max(metrics.maximum_absolute, absolute);
+    samples.push_back(static_cast<float>(absolute));
+    squared_error += difference * difference;
+    squared_reference += expected * expected;
+    squared_candidate += actual * actual;
+    dot += actual * expected;
+  }
+  metrics.p99_absolute = percentile_99(samples);
+  metrics.normalized_rmse =
+      squared_reference == 0.0
+          ? std::sqrt(squared_error)
+          : std::sqrt(squared_error / squared_reference);
+  metrics.cosine =
+      squared_reference == 0.0 || squared_candidate == 0.0
+          ? (squared_reference == squared_candidate ? 1.0 : 0.0)
+          : dot / std::sqrt(squared_reference * squared_candidate);
+
+  samples.clear();
+  for (std::size_t index = 0U; index < count; ++index) {
+    const double expected = static_cast<double>(decode_bf16(reference[index]));
+    const double actual = static_cast<double>(decode_bf16(candidate[index]));
+    if (std::isfinite(expected) && std::isfinite(actual) &&
+        std::fabs(expected) >= 1.0 / 32.0) {
+      samples.push_back(static_cast<float>(
+          std::fabs(actual - expected) / std::fabs(expected)));
+    }
+  }
+  metrics.relative_samples = samples.size();
+  metrics.p99_relative = percentile_99(samples);
+  return metrics;
+}
+
+void run_bulk_gqa_correctness_case(
+    TestContext& test,
+    cudaStream_t stream,
+    const std::size_t first_position,
+    const std::size_t token_count,
+    const bool graph_contract) {
+  const std::string label =
+      "bulk GQA C" + std::to_string(token_count) + " P" +
+      std::to_string(first_position);
+  const std::size_t query_elements =
+      token_count * kBulkGqaQueryElementsPerToken;
+  const std::size_t cache_elements =
+      (first_position + token_count) * kBulkGqaKvElementsPerToken;
+  const std::size_t scratch_elements =
+      (first_position + token_count) * kBulkGqaQueryHeads;
+  const std::size_t guarded_query_elements =
+      query_elements + 2U * kBulkGqaGuardElements;
+  const std::size_t guarded_cache_elements =
+      cache_elements + 2U * kBulkGqaGuardElements;
+
+  ManagedBuffer<std::uint16_t> query_storage;
+  ManagedBuffer<std::uint16_t> key_storage;
+  ManagedBuffer<std::uint16_t> value_storage;
+  ManagedBuffer<std::uint16_t> gate_storage;
+  ManagedBuffer<std::uint16_t> baseline_storage;
+  ManagedBuffer<std::uint16_t> candidate_storage;
+  ManagedBuffer<std::uint16_t> replay_storage;
+  ManagedBuffer<float> scratch;
+  bool ready = test.cuda_ok(query_storage.allocate(guarded_query_elements),
+                            label + " allocate query");
+  ready = ready && test.cuda_ok(key_storage.allocate(guarded_cache_elements),
+                                label + " allocate key");
+  ready = ready && test.cuda_ok(value_storage.allocate(guarded_cache_elements),
+                                label + " allocate value");
+  ready = ready && test.cuda_ok(gate_storage.allocate(guarded_query_elements),
+                                label + " allocate gate");
+  ready = ready &&
+          test.cuda_ok(baseline_storage.allocate(guarded_query_elements),
+                       label + " allocate baseline");
+  ready = ready &&
+          test.cuda_ok(candidate_storage.allocate(guarded_query_elements),
+                       label + " allocate candidate");
+  ready = ready && test.cuda_ok(replay_storage.allocate(guarded_query_elements),
+                                label + " allocate replay");
+  ready = ready && test.cuda_ok(scratch.allocate(scratch_elements),
+                                label + " allocate scratch");
+  if (!ready) {
+    return;
+  }
+
+  std::uint16_t* const query =
+      query_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const key =
+      key_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const value =
+      value_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const gate =
+      gate_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const baseline =
+      baseline_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const candidate =
+      candidate_storage.data() + kBulkGqaGuardElements;
+  std::uint16_t* const replay =
+      replay_storage.data() + kBulkGqaGuardElements;
+  std::fill_n(query_storage.data(), query_storage.size(), kBulkGqaGuard);
+  std::fill_n(key_storage.data(), key_storage.size(), kBulkGqaGuard);
+  std::fill_n(value_storage.data(), value_storage.size(), kBulkGqaGuard);
+  std::fill_n(gate_storage.data(), gate_storage.size(), kBulkGqaGuard);
+  std::fill_n(baseline_storage.data(), baseline_storage.size(),
+              kBulkGqaGuard);
+  std::fill_n(candidate_storage.data(), candidate_storage.size(),
+              kBulkGqaGuard);
+  std::fill_n(replay_storage.data(), replay_storage.size(), kBulkGqaGuard);
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+    gate[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 23U + 3U) % 97U) -
+                           48) /
+        16.0F);
+  }
+  for (std::size_t index = 0U; index < cache_elements; ++index) {
+    key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 31U + 11U) % 109U) -
+                           54) /
+        32.0F);
+  }
+  const std::vector<std::uint16_t> query_snapshot(
+      query_storage.data(), query_storage.data() + query_storage.size());
+  const std::vector<std::uint16_t> key_snapshot(
+      key_storage.data(), key_storage.data() + key_storage.size());
+  const std::vector<std::uint16_t> value_snapshot(
+      value_storage.data(), value_storage.data() + value_storage.size());
+  const std::vector<std::uint16_t> gate_snapshot(
+      gate_storage.data(), gate_storage.data() + gate_storage.size());
+
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(launch_bulk_gqa_baseline(
+          query, key, value, gate, first_position, token_count,
+          scratch.data(), scratch.size(), baseline, stream)),
+      label + " baseline launch");
+  ready = ready && test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+              query, key, value, gate, first_position, token_count,
+              kBulkGqaScale, candidate, static_cast<void*>(stream))),
+      label + " candidate launch");
+  ready = ready &&
+          test.cuda_ok(cudaStreamSynchronize(stream), label + " synchronize");
+  if (!ready) {
+    return;
+  }
+
+  BulkGqaGraphTopology candidate_topology;
+  ready = capture_bulk_gqa_graph(
+      test, stream, label + " candidate graph",
+      [&]() {
+        return q3x::runtime::
+            launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+                query, key, value, gate, first_position, token_count,
+                kBulkGqaScale, replay, static_cast<void*>(stream));
+      },
+      true, candidate_topology);
+  if (!ready) {
+    return;
+  }
+  test.expect(candidate_topology.node_count == 1U,
+              label + " candidate graph has one node");
+  test.expect(candidate_topology.function != nullptr,
+              label + " candidate graph has a kernel identity");
+  test.expect(candidate_topology.grid.x == token_count / 2U &&
+                  candidate_topology.grid.y == 4U &&
+                  candidate_topology.grid.z == 1U &&
+                  candidate_topology.block.x == 192U &&
+                  candidate_topology.block.y == 1U &&
+                  candidate_topology.block.z == 1U &&
+                  candidate_topology.dynamic_shared_bytes == 0U,
+              label + " candidate graph has fixed QT2 topology");
+
+  if (graph_contract) {
+    BulkGqaGraphTopology baseline_topology;
+    ready = capture_bulk_gqa_graph(
+        test, stream, label + " baseline graph",
+        [&]() {
+          return launch_bulk_gqa_baseline(
+              query, key, value, gate, first_position, token_count,
+              scratch.data(), scratch.size(), baseline, stream);
+        },
+        false, baseline_topology);
+    if (!ready) {
+      return;
+    }
+    test.expect(baseline_topology.node_count == 3U * token_count + 1U,
+                label + " baseline graph has three attention nodes per token plus Gate");
+  }
+
+  const BulkGqaErrorMetrics metrics =
+      bulk_gqa_error_metrics(candidate, baseline, query_elements);
+  const bool numerical_gate =
+      metrics.nonfinite_mismatches == 0U &&
+      metrics.maximum_absolute <= 0.03125 &&
+      metrics.p99_absolute <= 0.00390625 &&
+      metrics.normalized_rmse <= 0.005 && metrics.cosine >= 0.9999 &&
+      metrics.relative_samples != 0U && metrics.p99_relative <= 0.02;
+  test.expect(numerical_gate, label + " clears online-softmax error gates");
+  test.expect(std::memcmp(replay, candidate,
+                          query_elements * sizeof(std::uint16_t)) == 0,
+              label + " candidate Graph replay is bitwise deterministic");
+  const auto guards_intact = [](const ManagedBuffer<std::uint16_t>& storage,
+                                const std::size_t payload_elements) {
+    return std::all_of(storage.data(),
+                       storage.data() + kBulkGqaGuardElements,
+                       [](const std::uint16_t value_bits) {
+                         return value_bits == kBulkGqaGuard;
+                       }) &&
+           std::all_of(storage.data() + kBulkGqaGuardElements +
+                           payload_elements,
+                       storage.data() + storage.size(),
+                       [](const std::uint16_t value_bits) {
+                         return value_bits == kBulkGqaGuard;
+                       });
+  };
+  test.expect(guards_intact(baseline_storage, query_elements),
+              label + " baseline guards are intact");
+  test.expect(guards_intact(candidate_storage, query_elements),
+              label + " candidate guards are intact");
+  test.expect(guards_intact(replay_storage, query_elements),
+              label + " replay guards are intact");
+  test.expect(std::memcmp(query_storage.data(), query_snapshot.data(),
+                          query_storage.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(key_storage.data(), key_snapshot.data(),
+                              key_storage.size() * sizeof(std::uint16_t)) ==
+                      0 &&
+                  std::memcmp(value_storage.data(), value_snapshot.data(),
+                              value_storage.size() * sizeof(std::uint16_t)) ==
+                      0 &&
+                  std::memcmp(gate_storage.data(), gate_snapshot.data(),
+                              gate_storage.size() * sizeof(std::uint16_t)) ==
+                      0,
+              label + " preserves query, K/V cache, Gate, and input guards");
+  std::cout << "BULK_GQA_CORRECTNESS: C=" << token_count
+            << " first_position=" << first_position
+            << " max_abs=" << metrics.maximum_absolute
+            << " p99_abs=" << metrics.p99_absolute
+            << " nrmse=" << metrics.normalized_rmse
+            << " cosine=" << metrics.cosine
+            << " p99_relative=" << metrics.p99_relative
+            << " relative_samples=" << metrics.relative_samples
+            << " nonfinite_mismatches=" << metrics.nonfinite_mismatches
+            << " baseline_nodes=" << (3U * token_count + 1U)
+            << " candidate_nodes=" << candidate_topology.node_count
+            << " replay=bitwise gate="
+            << (numerical_gate ? "PASS" : "FAIL") << '\n';
+
+  if (first_position == 0U && token_count == 256U) {
+    const int invalid_failures_before = test.failures();
+    const std::string invalid = "bulk GQA invalid graph ";
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "C255", query, key, value, gate, 0U, 255U,
+        kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "C513", query, key, value, gate, 0U, 513U,
+        kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "sequence overflow", query, key, value, gate,
+        262'144U - 255U, 256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "wrong scale", query, key, value, gate, 0U,
+        256U, 0.125F, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "null query", nullptr, key, value, gate, 0U,
+        256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "null key", query, nullptr, value, gate, 0U,
+        256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "null value", query, key, nullptr, gate, 0U,
+        256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "null gate", query, key, value, nullptr, 0U,
+        256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "null output", query, key, value, gate, 0U,
+        256U, kBulkGqaScale, nullptr);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "misaligned query", query + 1U, key, value,
+        gate, 0U, 256U, kBulkGqaScale, candidate);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "query-output alias", query, key, value,
+        gate, 0U, 256U, kBulkGqaScale, query);
+    expect_invalid_bulk_gqa_graph(
+        test, stream, invalid + "key-value alias", query, key, key, gate, 0U,
+        256U, kBulkGqaScale, candidate);
+    std::cout << "BULK_GQA_INVALID_GRAPH: cases=12 zero_node_contract=true "
+                 "gate="
+              << (test.failures() == invalid_failures_before ? "PASS"
+                                                              : "FAIL")
+              << '\n';
+  }
+}
+
+void test_bulk_causal_gqa_prefill_contract(TestContext& test,
+                                           cudaStream_t stream) {
+  BulkGqaResources resources;
+  for (std::size_t null_index = 0U; null_index < 5U; ++null_index) {
+    const cudaError_t status = static_cast<cudaError_t>(
+        q3x::runtime::
+            query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
+                null_index == 0U ? nullptr : &resources.registers,
+                null_index == 1U ? nullptr : &resources.static_shared_bytes,
+                null_index == 2U ? nullptr : &resources.local_bytes,
+                null_index == 3U ? nullptr : &resources.maximum_threads,
+                null_index == 4U
+                    ? nullptr
+                    : &resources.active_blocks_per_multiprocessor));
+    test.expect(status == cudaErrorInvalidValue,
+                "bulk GQA resource query rejects null output " +
+                    std::to_string(null_index));
+  }
+  const bool resources_ready = test.cuda_ok(
+      static_cast<cudaError_t>(q3x::runtime::
+          query_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_resources_test_cuda(
+              &resources.registers, &resources.static_shared_bytes,
+              &resources.local_bytes, &resources.maximum_threads,
+              &resources.active_blocks_per_multiprocessor)),
+      "bulk GQA resource query");
+  if (!resources_ready) {
+    return;
+  }
+  const bool resource_gate =
+      resources.static_shared_bytes <= 32U * 1024U &&
+      resources.local_bytes == 0U && resources.maximum_threads >= 192 &&
+      resources.active_blocks_per_multiprocessor >= 3;
+  test.expect(resources.static_shared_bytes == 16U * 1024U,
+              "bulk GQA QT2/BK16 uses exactly 16 KiB static shared memory");
+  test.expect(resources.local_bytes == 0U,
+              "bulk GQA has no local-memory spills");
+  test.expect(resources.maximum_threads >= 192,
+              "bulk GQA supports its 192-thread block");
+  test.expect(resources.active_blocks_per_multiprocessor >= 3,
+              "bulk GQA keeps at least three CTAs resident per SM");
+  std::cout << "BULK_GQA_RESOURCES: registers=" << resources.registers
+            << " static_shared=" << resources.static_shared_bytes
+            << " local=" << resources.local_bytes
+            << " max_threads=" << resources.maximum_threads
+            << " active_blocks="
+            << resources.active_blocks_per_multiprocessor
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+
+  run_bulk_gqa_correctness_case(test, stream, 0U, 256U, true);
+  run_bulk_gqa_correctness_case(test, stream, 0U, 512U, true);
+  run_bulk_gqa_correctness_case(test, stream, 17U, 256U, false);
+}
+
+void run_bulk_gqa_perf_case(TestContext& test,
+                            cudaStream_t stream,
+                            const std::size_t token_count) {
+  constexpr std::size_t kWarmupIterations = 2U;
+  constexpr std::size_t kMeasuredIterations = 2U;
+  constexpr std::size_t kRounds = 6U;
+  const std::string label =
+      "bulk GQA Prefill perf C" + std::to_string(token_count);
+  const std::size_t query_elements =
+      token_count * kBulkGqaQueryElementsPerToken;
+  const std::size_t cache_elements =
+      token_count * kBulkGqaKvElementsPerToken;
+  const std::size_t scratch_elements =
+      token_count * kBulkGqaQueryHeads;
+  ManagedBuffer<std::uint16_t> query;
+  ManagedBuffer<std::uint16_t> key;
+  ManagedBuffer<std::uint16_t> value;
+  ManagedBuffer<std::uint16_t> gate;
+  ManagedBuffer<std::uint16_t> baseline_output;
+  ManagedBuffer<std::uint16_t> candidate_output;
+  ManagedBuffer<float> scratch;
+  bool ready = test.cuda_ok(query.allocate(query_elements),
+                            label + " allocate query");
+  ready = ready && test.cuda_ok(key.allocate(cache_elements),
+                                label + " allocate key");
+  ready = ready && test.cuda_ok(value.allocate(cache_elements),
+                                label + " allocate value");
+  ready = ready && test.cuda_ok(gate.allocate(query_elements),
+                                label + " allocate gate");
+  ready = ready && test.cuda_ok(baseline_output.allocate(query_elements),
+                                label + " allocate baseline output");
+  ready = ready && test.cuda_ok(candidate_output.allocate(query_elements),
+                                label + " allocate candidate output");
+  ready = ready && test.cuda_ok(scratch.allocate(scratch_elements),
+                                label + " allocate scratch");
+  if (!ready) {
+    return;
+  }
+  for (std::size_t index = 0U; index < query_elements; ++index) {
+    query[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 17U + 5U) % 127U) -
+                           63) /
+        64.0F);
+    gate[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 23U + 3U) % 97U) -
+                           48) /
+        16.0F);
+  }
+  for (std::size_t index = 0U; index < cache_elements; ++index) {
+    key[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 29U + 7U) % 113U) -
+                           56) /
+        64.0F);
+    value[index] = encode_bf16(
+        static_cast<float>(static_cast<int>((index * 31U + 11U) % 109U) -
+                           54) /
+        32.0F);
+  }
+  const std::vector<std::uint16_t> query_snapshot(
+      query.data(), query.data() + query.size());
+  const std::vector<std::uint16_t> key_snapshot(
+      key.data(), key.data() + key.size());
+  const std::vector<std::uint16_t> value_snapshot(
+      value.data(), value.data() + value.size());
+  const std::vector<std::uint16_t> gate_snapshot(
+      gate.data(), gate.data() + gate.size());
+
+  const auto launch_baseline = [&]() {
+    return launch_bulk_gqa_baseline(
+        query.data(), key.data(), value.data(), gate.data(), 0U, token_count,
+        scratch.data(), scratch.size(), baseline_output.data(), stream);
+  };
+  const auto launch_candidate = [&]() {
+    return q3x::runtime::
+        launch_bulk_causal_gqa_sigmoid_24_4_256_qt2_bk16_test_cuda(
+            query.data(), key.data(), value.data(), gate.data(), 0U,
+            token_count, kBulkGqaScale, candidate_output.data(),
+            static_cast<void*>(stream));
+  };
+  for (std::size_t iteration = 0U;
+       iteration < kWarmupIterations && ready; ++iteration) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " baseline warmup");
+    ready = ready &&
+            test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                         label + " candidate warmup");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  if (!ready) {
+    return;
+  }
+
+  std::array<double, kRounds> baseline_pairs{};
+  std::array<double, kRounds> candidate_pairs{};
+  std::array<double, kRounds> speedups{};
+  bool every_round_nonregressing = true;
+  for (std::size_t round = 0U; round < kRounds; ++round) {
+    const bool baseline_first = (round & 1U) == 0U;
+    const std::string round_label =
+        label + " round=" + std::to_string(round + 1U);
+    double baseline1 = std::numeric_limits<double>::quiet_NaN();
+    double baseline2 = std::numeric_limits<double>::quiet_NaN();
+    double candidate1 = std::numeric_limits<double>::quiet_NaN();
+    double candidate2 = std::numeric_limits<double>::quiet_NaN();
+    const auto measure_baseline = [&]() {
+      return static_cast<double>(measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " baseline",
+          launch_baseline));
+    };
+    const auto measure_candidate = [&]() {
+      return static_cast<double>(measure_cuda_span_milliseconds(
+          test, stream, kMeasuredIterations, round_label + " candidate",
+          launch_candidate));
+    };
+    if (baseline_first) {
+      baseline1 = measure_baseline();
+      candidate1 = measure_candidate();
+      candidate2 = measure_candidate();
+      baseline2 = measure_baseline();
+    } else {
+      candidate1 = measure_candidate();
+      baseline1 = measure_baseline();
+      baseline2 = measure_baseline();
+      candidate2 = measure_candidate();
+    }
+    baseline_pairs[round] = 0.5 * (baseline1 + baseline2);
+    candidate_pairs[round] = 0.5 * (candidate1 + candidate2);
+    speedups[round] = baseline_pairs[round] / candidate_pairs[round];
+    const bool round_gate =
+        std::isfinite(baseline_pairs[round]) &&
+        baseline_pairs[round] > 0.0 &&
+        std::isfinite(candidate_pairs[round]) &&
+        candidate_pairs[round] > 0.0 && std::isfinite(speedups[round]) &&
+        speedups[round] >= 1.0;
+    every_round_nonregressing = every_round_nonregressing && round_gate;
+    std::cout << "PERF_BULK_GQA_ROUND: C=" << token_count
+              << " round=" << round + 1U << " order="
+              << (baseline_first ? "B-C-C-B" : "C-B-B-C")
+              << " iterations=" << kMeasuredIterations
+              << " baseline1_ms=" << baseline1
+              << " candidate1_ms=" << candidate1
+              << " candidate2_ms=" << candidate2
+              << " baseline2_ms=" << baseline2
+              << " paired_speedup=" << speedups[round]
+              << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+  }
+  std::array<double, kRounds> sorted_speedups = speedups;
+  std::sort(sorted_speedups.begin(), sorted_speedups.end());
+  const double median_speedup =
+      0.5 * (sorted_speedups[kRounds / 2U - 1U] +
+             sorted_speedups[kRounds / 2U]);
+  const bool speed_gate =
+      every_round_nonregressing && std::isfinite(median_speedup) &&
+      (token_count != 512U || median_speedup >= 2.0);
+  test.expect(every_round_nonregressing,
+              label + " keeps every mirrored round nonregressing");
+  if (token_count == 512U) {
+    test.expect(median_speedup >= 2.0,
+                label + " clears the 2.0x C512 gate");
+  }
+  test.expect(std::memcmp(query.data(), query_snapshot.data(),
+                          query.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(key.data(), key_snapshot.data(),
+                              key.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(value.data(), value_snapshot.data(),
+                              value.size() * sizeof(std::uint16_t)) == 0 &&
+                  std::memcmp(gate.data(), gate_snapshot.data(),
+                              gate.size() * sizeof(std::uint16_t)) == 0,
+              label + " timing preserves all inputs");
+  std::cout << "PERF_BULK_GQA: C=" << token_count
+            << " paired_median_speedup=" << median_speedup
+            << " every_round_nonregressing="
+            << (every_round_nonregressing ? "true" : "false")
+            << " required_C512_speedup="
+            << (token_count == 512U ? 2.0 : 1.0)
+            << " baseline_nodes=" << (3U * token_count + 1U)
+            << " candidate_nodes=1 gate="
+            << (speed_gate ? "PASS" : "FAIL") << '\n';
+}
+
+void test_bulk_causal_gqa_prefill_perf(TestContext& test,
+                                       cudaStream_t stream) {
+  const char* const enabled =
+      std::getenv("Q3X_RUN_BULK_CAUSAL_GQA_PREFILL_PERF");
+  if (enabled == nullptr || std::strcmp(enabled, "1") != 0) {
+    std::cout << "SKIP: bulk causal GQA Prefill performance gate; set "
+                 "Q3X_RUN_BULK_CAUSAL_GQA_PREFILL_PERF=1 to enable\n";
+    return;
+  }
+  run_bulk_gqa_perf_case(test, stream, 256U);
+  run_bulk_gqa_perf_case(test, stream, 512U);
+}
+
 void test_nonfinite(TestContext& test, cudaStream_t stream) {
   ManagedBuffer<std::uint16_t> left;
   ManagedBuffer<std::uint16_t> right;
@@ -8127,6 +8903,8 @@ int main() {
   test_attention_values_exact(test, stream);
   test_attention_values_exact_graph_contract(test, stream);
   test_attention_values_exact_perf(test, stream);
+  test_bulk_causal_gqa_prefill_contract(test, stream);
+  test_bulk_causal_gqa_prefill_perf(test, stream);
   test_fused_gqa_sigmoid_gate_warp_positions_contract(test, stream);
   test_fused_gqa_sigmoid_gate_exact(test, stream);
   test_fused_gqa_sigmoid_gate_perf(test, stream);
