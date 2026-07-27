@@ -289,6 +289,14 @@ struct LogitsAnalysis {
 [[nodiscard]] std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
     std::size_t first_position, std::size_t token_count) noexcept;
 
+// Pure-host selector for the production bulk causal full-attention Prefill
+// route. Only an explicitly selected SM87 backend, a full-attention layer,
+// and an exact C256/C512 tile whose complete global causal range fits the
+// kernel ABI may bypass the established per-token GQA/Gate schedule.
+[[nodiscard]] bool use_bulk_causal_gqa_sigmoid_gate_prefill(
+    ProjectionBackend backend, model::LayerType layer_type,
+    std::size_t first_position, std::size_t token_count) noexcept;
+
 // Pure-host selector for the fixed Q=24, KV=4, D=256, rotary=64 fused
 // full-attention preprocessing tile. It also rejects position-table
 // arithmetic overflow; callers retain the split/norm/RoPE fallback.
@@ -391,8 +399,10 @@ class ReferenceRunner {
   // SM87 FP8 C64 attention-output projection uses one exact kernel. The exact
   // aligned NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream
   // and an event join; C64 preserves two ordered C32 launches on each branch.
-  // Every fallback remains on the main stream, and the logical request length
-  // is committed only after the complete tile synchronizes.
+  // Exact SM87 C256/C512 full-attention tiles use one bulk causal GQA/Gate
+  // launch with tile-local Q/Gate/output and global NHD K/V caches. Every
+  // fallback remains on the main stream, and the logical request length is
+  // committed only after the complete tile synchronizes.
   [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;

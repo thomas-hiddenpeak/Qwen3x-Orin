@@ -712,6 +712,17 @@ std::size_t fused_gqa_sigmoid_gate_prefix_token_count(
                   kFusedGqaMaximumSequenceLength - first_position);
 }
 
+bool use_bulk_causal_gqa_sigmoid_gate_prefill(
+    const ProjectionBackend backend, const model::LayerType layer_type,
+    const std::size_t first_position,
+    const std::size_t token_count) noexcept {
+  return backend == ProjectionBackend::kSm87WeightOnly &&
+         layer_type == model::LayerType::kFullAttention &&
+         (token_count == 256U || token_count == 512U) &&
+         first_position <=
+             kBulkCausalGqaMaximumSequenceLength - token_count;
+}
+
 bool use_qk_rope_tile(
     const std::size_t first_position,
     const std::size_t token_count) noexcept {
@@ -2690,57 +2701,75 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           }
         }
       }
-      const std::size_t fused_gqa_gate_prefix_tokens =
+      const bool use_bulk_gqa_gate =
           reference_runner_detail::
-              fused_gqa_sigmoid_gate_prefix_token_count(first_position,
-                                                        token_count);
-      for (std::size_t token = 0U; token < token_count; ++token) {
-        const std::size_t sequence_length =
-            static_cast<std::size_t>(first_position) + token + 1U;
-        const std::uint16_t* const token_query =
-            tile_query + token * kFullQueryElements;
-        std::uint16_t* const token_output =
-            views_.projection[1] + token * kFullQueryElements;
-        const bool fuse_gqa_gate_token =
-            token < fused_gqa_gate_prefix_tokens;
-        const int gqa_status =
-            fuse_gqa_gate_token
-                ? launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
-                      token_query, views_.key_cache[layer],
-                      views_.value_cache[layer], sequence_length,
-                      kAttentionScale, views_.fp32_scratch,
-                      views_.fp32_scratch_elements,
-                      packed_gates + token * kFullQueryElements,
-                      token_output, stream_)
-                : launch_gqa_attention_reference_cuda(
-                      token_query, views_.key_cache[layer],
-                      views_.value_cache[layer], kFullQueryHeads,
-                      kFullKvHeads, sequence_length, kFullHeadDimension,
-                      kAttentionScale, views_.fp32_scratch,
-                      views_.fp32_scratch_elements, token_output, stream_);
-        if (!check_cuda(gqa_status,
-                        fuse_gqa_gate_token ? "prefill_full_gqa_output_gate"
-                                            : "prefill_full_gqa",
-                        layer)) {
+              use_bulk_causal_gqa_sigmoid_gate_prefill(
+                  projection_backend_, expected, first_position,
+                  token_count);
+      if (use_bulk_gqa_gate) {
+        if (!check_cuda(
+                launch_bulk_causal_gqa_sigmoid_gate_24_4_256_cuda(
+                    tile_query, views_.key_cache[layer],
+                    views_.value_cache[layer], packed_gates,
+                    first_position, token_count, views_.projection[1],
+                    stream_),
+                "prefill_full_bulk_gqa_output_gate", layer)) {
           return fail_prefill_tile(launch_failure);
         }
-      }
-      if (fused_gqa_gate_prefix_tokens < token_count &&
-          !check_cuda(launch_sigmoid_gate_reference_cuda(
-                          views_.projection[1] +
-                              fused_gqa_gate_prefix_tokens *
-                                  kFullQueryElements,
-                          packed_gates +
-                              fused_gqa_gate_prefix_tokens *
-                                  kFullQueryElements,
-                          (token_count - fused_gqa_gate_prefix_tokens) *
-                              kFullQueryElements,
-                          views_.projection[1] +
-                              fused_gqa_gate_prefix_tokens *
-                                  kFullQueryElements,
-                          stream_),
-                      "prefill_full_output_gate", layer)) {
-        return fail_prefill_tile(launch_failure);
+      } else {
+        const std::size_t fused_gqa_gate_prefix_tokens =
+            reference_runner_detail::
+                fused_gqa_sigmoid_gate_prefix_token_count(first_position,
+                                                          token_count);
+        for (std::size_t token = 0U; token < token_count; ++token) {
+          const std::size_t sequence_length =
+              static_cast<std::size_t>(first_position) + token + 1U;
+          const std::uint16_t* const token_query =
+              tile_query + token * kFullQueryElements;
+          std::uint16_t* const token_output =
+              views_.projection[1] + token * kFullQueryElements;
+          const bool fuse_gqa_gate_token =
+              token < fused_gqa_gate_prefix_tokens;
+          const int gqa_status =
+              fuse_gqa_gate_token
+                  ? launch_gqa_attention_sigmoid_gate_24_4_256_cuda(
+                        token_query, views_.key_cache[layer],
+                        views_.value_cache[layer], sequence_length,
+                        kAttentionScale, views_.fp32_scratch,
+                        views_.fp32_scratch_elements,
+                        packed_gates + token * kFullQueryElements,
+                        token_output, stream_)
+                  : launch_gqa_attention_reference_cuda(
+                        token_query, views_.key_cache[layer],
+                        views_.value_cache[layer], kFullQueryHeads,
+                        kFullKvHeads, sequence_length, kFullHeadDimension,
+                        kAttentionScale, views_.fp32_scratch,
+                        views_.fp32_scratch_elements, token_output, stream_);
+          if (!check_cuda(
+                  gqa_status,
+                  fuse_gqa_gate_token ? "prefill_full_gqa_output_gate"
+                                      : "prefill_full_gqa",
+                  layer)) {
+            return fail_prefill_tile(launch_failure);
+          }
+        }
+        if (fused_gqa_gate_prefix_tokens < token_count &&
+            !check_cuda(launch_sigmoid_gate_reference_cuda(
+                            views_.projection[1] +
+                                fused_gqa_gate_prefix_tokens *
+                                    kFullQueryElements,
+                            packed_gates +
+                                fused_gqa_gate_prefix_tokens *
+                                    kFullQueryElements,
+                            (token_count - fused_gqa_gate_prefix_tokens) *
+                                kFullQueryElements,
+                            views_.projection[1] +
+                                fused_gqa_gate_prefix_tokens *
+                                    kFullQueryElements,
+                            stream_),
+                        "prefill_full_output_gate", layer)) {
+          return fail_prefill_tile(launch_failure);
+        }
       }
       if (!project_attention_output(
               attention->o_proj, views_.projection[1], views_.hidden[1],

@@ -172,6 +172,9 @@ void print_diagnostic(const runtime::ReferenceEngineDiagnostic& diagnostic) {
   if (diagnostic.cuda_error != 0) {
     std::cerr << " cuda_error=" << diagnostic.cuda_error;
   }
+  if (diagnostic.layer != runtime::kReferenceNoLayer) {
+    std::cerr << " layer=" << diagnostic.layer;
+  }
   if (!diagnostic.operation.empty()) {
     std::cerr << " operation=" << diagnostic.operation;
   }

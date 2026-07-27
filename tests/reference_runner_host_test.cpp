@@ -500,6 +500,51 @@ void test_schedule_and_workspace(TestContext& test) {
           detail::fused_gqa_sigmoid_gate_prefix_token_count(0U, 0U) == 0U,
       "large Prefill tiles retain exactly their position-bounded fused GQA prefix");
 
+  test.expect(
+      detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+          runtime::ProjectionBackend::kSm87WeightOnly,
+          q3x::model::LayerType::kFullAttention, 0U, 256U) &&
+          detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 17U, 512U) &&
+          detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention,
+              runtime::kBulkCausalGqaMaximumSequenceLength - 512U, 512U),
+      "bulk causal GQA/Gate selector accepts exact SM87 full-attention "
+      "C256/C512 tiles through the final legal append");
+  test.expect(
+      !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+          runtime::ProjectionBackend::kReference,
+          q3x::model::LayerType::kFullAttention, 0U, 256U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kLinearAttention, 0U, 256U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 32U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 64U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 255U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 257U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 511U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention, 0U, 513U) &&
+          !detail::use_bulk_causal_gqa_sigmoid_gate_prefill(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              q3x::model::LayerType::kFullAttention,
+              runtime::kBulkCausalGqaMaximumSequenceLength - 511U, 512U),
+      "bulk causal GQA/Gate selector preserves reference, non-full-layer, "
+      "C32/C64/tail, near-M, and causal-range fallbacks");
+
   constexpr std::size_t kMaximum =
       std::numeric_limits<std::size_t>::max();
   test.expect(
