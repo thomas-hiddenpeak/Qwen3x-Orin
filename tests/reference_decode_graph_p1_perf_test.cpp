@@ -134,7 +134,7 @@ int main(const int argc, char** const argv) {
       runtime::ProjectionBackend::kSm87WeightOnly;
   engine_options.request_options.max_sequence_length = 64U;
   engine_options.request_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   runtime::ReferenceEngineCreateResult created =
       runtime::create_reference_engine(model_directory, engine_options);
   if (!created) {
@@ -151,7 +151,7 @@ int main(const int argc, char** const argv) {
   screen_options.expected_alternate_prediction =
       kExpectedAlternatePrediction;
   screen_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   runtime::ReferenceDecodeGraphP1ScreenOutcome screened =
       created.value->screen_fixed_position_decode_graph_p1(
           kPrompt, screen_options);

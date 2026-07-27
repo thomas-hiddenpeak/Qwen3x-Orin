@@ -791,6 +791,43 @@ int launch_projection_tile_to_bf16_cuda(
     return validation;
   }
 
+  if (token_count > 32U) {
+    // Validate the complete supertile above before enqueueing any prefix or
+    // tail work.
+    // The exact aligned NVFP4 down projection reuses each decoded weight tile
+    // across all 64 rows. Every other backend/shape preserves the established
+    // C32 schedule followed by one ordered tail operation.
+    if (token_count == 64U &&
+        backend == ProjectionBackend::kSm87WeightOnly) {
+      if (const auto* const selected =
+              std::get_if<NvFp4LinearWeight>(&weight);
+          selected != nullptr && spans.rows == 5'120U &&
+          spans.columns == 17'408U &&
+          pointer_is_aligned(selected->packed_weight, 16U) &&
+          pointer_is_aligned(selected->block_scale,
+                             alignof(std::uint16_t)) &&
+          pointer_is_aligned(input, alignof(std::uint64_t)) &&
+          pointer_is_aligned(output, alignof(std::uint16_t))) {
+        return kernels::launch_sm87_nvfp4_w4a16_m64_down_gemm_bf16_cuda(
+            selected->packed_weight, selected->block_scale,
+            selected->weight_scale_2, input, spans.rows, spans.columns,
+            output, cuda_stream);
+      }
+    }
+
+    constexpr std::size_t kPrefixTokens = 32U;
+    int status = launch_projection_tile_to_bf16_cuda(
+        backend, weight, input, kPrefixTokens, fp32_scratch, scratch_elements,
+        output, cuda_stream);
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+    return launch_projection_tile_to_bf16_cuda(
+        backend, weight, input + kPrefixTokens * spans.columns,
+        token_count - kPrefixTokens, fp32_scratch, scratch_elements,
+        output + kPrefixTokens * spans.rows, cuda_stream);
+  }
+
   if (backend == ProjectionBackend::kSm87WeightOnly) {
     if (const auto* const selected = std::get_if<Fp8LinearWeight>(&weight);
         selected != nullptr) {

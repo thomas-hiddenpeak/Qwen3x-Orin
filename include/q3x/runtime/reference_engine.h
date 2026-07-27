@@ -248,6 +248,10 @@ struct ReferenceDecodeGraphP1ScreenOutcome {
 
 inline constexpr std::size_t kReferenceDecodeGraphP2ScreenRounds = 5U;
 inline constexpr std::size_t kReferenceDecodeGraphP2ContinuousSteps = 25U;
+// Decode Graph admission remains pinned to the frozen P19/C32 baseline even
+// when the independent request Prefill capacity grows.
+inline constexpr std::uint32_t kReferenceDecodeGraphScreenPrefillChunkSize =
+    32U;
 
 struct ReferenceDecodeGraphP2ScreenOptions {
   std::uint32_t first_decode_position = 19U;
@@ -256,7 +260,8 @@ struct ReferenceDecodeGraphP2ScreenOptions {
   std::uint32_t capture_input_token_id = 0U;
   std::uint32_t boundary_input_token_id = 9'419U;
   std::uint32_t max_new_tokens = 26U;
-  std::uint32_t prefill_chunk_size = kMaximumRequestPrefillChunkSize;
+  std::uint32_t prefill_chunk_size =
+      kReferenceDecodeGraphScreenPrefillChunkSize;
 };
 
 struct ReferenceDecodeGraphP2RoundTiming {
@@ -433,6 +438,47 @@ struct ReferenceOneShotResult {
 [[nodiscard]] std::string_view to_string(ReferenceStopReason reason) noexcept;
 
 namespace reference_engine_detail {
+
+inline constexpr std::size_t kOptimizedPrefillSubtileTokens = 32U;
+static_assert(kMaximumRequestPrefillChunkSize ==
+              2U * kOptimizedPrefillSubtileTokens);
+
+// Exact C64 is the only tile wider than C32 executed as one runner call. A
+// partial wide tile is split at C32 so its optimized residual/RMS and MLP
+// dual-stream schedules remain available, followed by an ordered <=31 tail.
+[[nodiscard]] constexpr std::size_t next_prefix_tile_token_count(
+    const std::size_t remaining_tokens,
+    const std::size_t requested_chunk_size) noexcept {
+  if (remaining_tokens == 0U || requested_chunk_size == 0U) {
+    return 0U;
+  }
+  const std::size_t candidate = remaining_tokens < requested_chunk_size
+                                    ? remaining_tokens
+                                    : requested_chunk_size;
+  return candidate > kOptimizedPrefillSubtileTokens &&
+                 candidate < kMaximumRequestPrefillChunkSize
+             ? kOptimizedPrefillSubtileTokens
+             : candidate;
+}
+
+[[nodiscard]] constexpr std::size_t prefix_execution_count(
+    const std::size_t prefix_token_count,
+    const std::size_t effective_prefill_chunk_size) noexcept {
+  if (effective_prefill_chunk_size == 0U) {
+    return 0U;
+  }
+  if (effective_prefill_chunk_size == 1U) {
+    return prefix_token_count;
+  }
+  std::size_t count = 0U;
+  std::size_t remaining = prefix_token_count;
+  while (remaining != 0U) {
+    remaining -= next_prefix_tile_token_count(
+        remaining, effective_prefill_chunk_size);
+    ++count;
+  }
+  return count;
+}
 
 enum class GenerationControlError : std::uint8_t {
   kNone = 0,

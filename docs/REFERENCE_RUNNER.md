@@ -2,7 +2,7 @@
 
 `q3x::runtime::ReferenceRunner` 是当前 Qwen3.6-27B dense text 模型的高层
 correctness 路径。它把已经绑定的 `ModelWeights`、一个 `RequestState` 以及 reference
-CUDA kernels 串成完整的 64 层单 token step，并提供最大 32 token 的 prompt-prefix tile。
+CUDA kernels 串成完整的 64 层单 token step，并提供最大 64 token 的 prompt-prefix tile。
 它优先固定执行语义和检查点，不承诺大 prefill 或 serving 吞吐。
 
 ## 所有权和创建
@@ -12,10 +12,10 @@ CUDA kernels 串成完整的 64 层单 token step，并提供最大 32 token 的
 - 全局和 64 层权重的精确 shape、非空 payload 与 3-linear/1-full variant schedule；
 - batch 必须为 1，hidden/P0..P3/a/b/FP32 scratch、RoPE、48 份 conv/GDN state、
   16 对 KV cache 的容量和 schedule slot 必须满足精确 ABI；tile activation region
-  必须覆盖 request plan 中声明的 `prefill_chunk_size`（1 到 32）；
+  必须覆盖 request plan 中声明的 `prefill_chunk_size`（1 到 64）；
 - `RequestState` 必须有效，logical length 不能超过 capacity。
 
-factory 创建一个自有 `cudaStreamNonBlocking` 主 stream，并为精确对齐的 NVFP4 C32
+factory 创建一个自有 `cudaStreamNonBlocking` 主 stream，并为精确对齐的 NVFP4 C32/C64
 MLP gate/up 尝试创建一个 auxiliary nonblocking stream 和一对 event；auxiliary 资源创建
 失败时保留可用的串行 runner。factory 还通过一次 `cudaHostAlloc` 预留
 `float[248320]` logits。`ReferenceRunnerOptions::enable_trace=true` 时再通过一次
@@ -68,8 +68,8 @@ norm，只跳过 lm_head 与 logits D2H，适合调用方逐 token 建立 prompt
 
 ## Prompt-prefix tile
 
-`prefill_prefix_tile(ids, M)` 接受 `M=1..32`，且不能超过 request plan 预留的 chunk
-容量或剩余 sequence capacity。M1 直接委托给上述 `step(compute_logits=false)`；M2..M32
+`prefill_prefix_tile(ids, M)` 接受 `M=1..64`，且不能超过 request plan 预留的 chunk
+容量或剩余 sequence capacity。M1 直接委托给上述 `step(compute_logits=false)`；M2..M64
 按 layer-major 顺序执行：每层先批量做 norm 与 projection，再按 token 顺序推进 causal
 conv/GDN，或逐 position 写 K/V 并以 `first_position+t+1` 作为 GQA 的 causal length。
 完整 tile 成功同步后才一次性提交新的 sequence length；任何校验、launch 或同步失败都
@@ -90,29 +90,41 @@ exact aligned NVFP4 `[17408,5120]` gate/up 和 `[5120,17408]` down，使用单�
 fixed-M32 Tensor Core kernel。NVFP4 走 K64/LD72 WMMA：两个 16-token activation panel
 同时驻留，并由两条独立 accumulator chain 复用同一份 decoded weight tile。其他合法
 FP8/NVFP4 M32 case 使用两个有序 M16 launch。reference backend 和 BF16 weight 保留
-逐行 M1 fallback，因此接口语义不依赖 optimized backend。outer C17..C32 tile 中的
-causal conv/GDN 继续按至多 16 token 的有序子块更新同一份 BF16 history/state；完整
+逐行 M1 fallback，因此接口语义不依赖 optimized backend。M33..M63 projection 先执行
+一个 M32，再执行有序的至多 M31 tail。精确 C64 只有 aligned NVFP4
+`[5120,17408]` down 使用一个 M64 weight-reuse kernel；其余 projection 保持两个有序
+C32 schedule。production generation controller 不直接发出 M33..M63 runner call：
+每当下一个候选为 33..63 时先执行 C32，再按剩余 token 重新计算；因此 C64 的
+partial-wide remainder 会在下一次调用提交至多 M31 的有序 tail。只有 exact C64 候选
+保持一个 runner call。C64 residual-add 和 centered-RMS 边界同样执行两个有序的
+exact-M32 kernel。outer C17..C64 tile 中的 causal conv/GDN 继续按至多 16 token 的
+有序子块更新同一份 BF16 history/state；完整
 outer tile 仍只同步并提交一次。full-attention Q/K+RoPE preprocessing 同样按至多 16
 token 子块执行，避免因为 outer M>16 落回逐 token RoPE launch。
-`ReferencePrefillTileResult::steps` 因此从 16 项扩为 32 项；这是 0.x 系列的公开
-C++ ABI 变更，包版本随之从 0.1.0 提升到 0.2.0，调用方必须按 exact-version 策略
-重新编译，不能把旧对象与新静态库混链。
+在历史 C32 扩展中，`ReferencePrefillTileResult::steps` 从 16 项扩为 32 项；这是
+0.x 系列的公开 C++ ABI 变更，包版本随之从 0.1.0 提升到 0.2.0，调用方必须按
+exact-version 策略重新编译，不能把旧对象与新静态库混链。
+
+C64 production supertile 随后把 `ReferencePrefillTileResult::steps` 从 32 项扩为
+64 项；这同样是公开 C++ ABI 变更，包版本因此从 0.2.0 提升到 0.3.0。C64 中只有
+exact aligned NVFP4 `[5120,17408]` down projection 使用单个 M64 kernel；其余
+projection 保持两个有序 C32 schedule。调用方仍须按 exact-version 重新编译。
 
 projection-pair API 对 exact M17、M19..M31 以及 fixed M18 先完整校验两个
 projection、自然对齐和交叉 range，再按 first-then-second 顺序各发出一个
 masked-M32 kernel；任一侧不满足 direct gate 时，fallback 在每个有序 subtile 内也
 保留 first-then-second 顺序，不会在发现第二侧 host validation 错误前先入队第一侧。
 当前 runner 的这些 MLP gate/up 均在主 stream 上串行执行。只有 exact aligned
-NVFP4 C32 gate/up 可把 gate 发到主 stream、up 发到 auxiliary stream，再用 event join。
-这里没有双缓冲、三缓冲或 Prefill/Decode overlap；C32 特例只是单层内两个独立分支的
-窄范围并发。
+NVFP4 C32/C64 gate/up 可把 gate 发到主 stream、up 发到 auxiliary stream，再用 event
+join；C64 的每条分支各自保持两个有序 C32 projection。这里没有双缓冲、三缓冲或
+Prefill/Decode overlap；C32/C64 特例只是单层内两个独立分支的窄范围并发。
 
 tile 不计算 logits，也不采集 trace；generation controller 只对 prompt 的最后一个 token
 执行标量 logits step。启用 trace 时 controller 会把 effective chunk 强制为 1，以保留
 逐 token trace ABI。
 
 `prefill_prefix_tile(..., 1)` 直接委托标量 step，因此可选中上述 QKV/Z
-融合。C2..C32 的 layer-major prefix 路径继续调用两个独立 tile
+融合。C2..C64 的 layer-major prefix 路径继续调用两个独立 tile
 projection；这个优化不改变 prefix 分片、causal state 更新或对齐不足时的
 fallback 语义。
 
@@ -157,9 +169,13 @@ view 在 reset、runner 析构或下一次 captured step 后失效。trace 只�
 `reference_runner_host` 不加载 20GB 权重，验证纯 host BF16/logits oracle、tie/nonfinite
 策略、trace offsets、固定 layer schedule、默认 `RequestMemoryPlan` 以及 null dependency
 factory 错误。controller/unit gates 覆盖 19-token prompt 的 `8+8+2` prefix 拆分、C1/trace
-fallback、tile malformed result 和失败传播，以及 C16/C32 边界与拆分；完整模型 fixture
-在目标 Orin 上以 C1、C8、C16、C32 分别执行，四者都要求保留精确的 19 个 prompt IDs、26 个
-output IDs、decoded text、`<|im_end|>` 和 44 个 runner steps。runner 本身不会把缺少
+fallback、tile malformed result 和失败传播、C16/C32/C64 selector/plan 边界、exact C64
+以及 `64+32+31` partial-wide 拆分。projection dispatch 的合成 CUDA gate 另行覆盖
+M33/M50/M63/M64 composition、exact one-node M64 down 和 M64 near-miss fallback。
+完整模型 fixture 在目标 Orin 上以 C1、C8、C16、C32 分别执行，四者都要求保留精确的
+19 个 prompt IDs、26 个 output IDs、decoded text、`<|im_end|>` 和 44 个 runner steps；
+C64 CTest 已注册，但固定 prompt 只有 18 个 prefix token，因此只覆盖 C64 配置/arena，
+不能替代 P65 或更长 prompt 的 exact-M64 full-model gate。runner 本身不会把缺少
 checkpoint 误报为通过。当前 M17/M19..M31 production 变更的 Release suite 为
 49 passed / 5 skipped / 0 failed；host C++ ASan/UBSan suite 为 48 passed /
 5 skipped / 0 failed，CUDA translation units 不在该 host sanitizer 声明内。

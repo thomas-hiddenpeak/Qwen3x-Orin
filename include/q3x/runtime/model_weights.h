@@ -101,11 +101,13 @@ enum class ProjectionBackend : std::uint8_t {
   kSm87WeightOnly,
 };
 
-// The projection dispatcher accepts two production prefill tiles at once.
+// The projection dispatcher accepts one C64 Prefill supertile. Non-specialized
+// paths preserve the established schedule by splitting it into two ordered
+// C32 projection tiles; the exact NVFP4 down shape may use one M64 kernel.
 // Request scheduling may impose a smaller limit independently; keeping this
 // contract local to projection dispatch prevents the low-level composite
 // route from silently inheriting the request scheduler's current chunk size.
-inline constexpr std::size_t kMaximumProjectionTileTokenCount = 32U;
+inline constexpr std::size_t kMaximumProjectionTileTokenCount = 64U;
 
 [[nodiscard]] bool is_valid_projection_backend(
     ProjectionBackend backend) noexcept;
@@ -414,7 +416,7 @@ struct WeightBindResult {
 // Sequence-tile form of launch_projection_to_bf16_cuda. input is contiguous
 // token-major BF16 [token_count, linear_input_size(weight)] and output is
 // contiguous token-major BF16 [token_count, linear_output_size(weight)].
-// token_count must be in [1, 32]. M=1 delegates to the single-token entry
+// token_count must be in [1, 64]. M=1 delegates to the single-token entry
 // point above. At M=17 and M=19..31, the two exact aligned NVFP4 MLP shapes
 // use one runtime-masked M32 kernel that reads and writes exactly token_count
 // rows. M=18 retains its fixed masked-M32 specialization. Other NVFP4 shapes
@@ -422,7 +424,10 @@ struct WeightBindResult {
 // at most eight tokens for the remaining tail. At M=32, the exact aligned FP8
 // production shapes and the two exact aligned NVFP4 MLP shapes use one fixed-
 // M32 kernel; every other weight-only case uses two ordered M16 launches.
-// M=2..15 uses the same at-most-eight-token fused launches. The reference
+// M=33..63 preserves one M32 prefix followed by the established <=31 tail.
+// At M=64, exact aligned NVFP4 [5120,17408] down uses one weight-reuse M64
+// kernel; all other cases preserve two ordered M32 schedules. M=2..15 uses
+// the same at-most-eight-token fused launches. The reference
 // backend and BF16 weights enqueue the existing FP32-scratch reference path
 // in token order while reusing the same output-sized buffer; only M=1 may
 // select the exact-shape BF16 direct-output route described above. The
@@ -442,9 +447,9 @@ struct WeightBindResult {
 //
 // supports_bf16_projection_pair(...) selects the fused SM87 BF16 A/B route in
 // subtiles of at most 16 tokens. An exact M16 subtile uses one fixed-shape
-// projection-fused kernel; M1..M15 retain the generic pair kernel. C17..C32 is
-// validated as one complete operation before its M16 prefix and generic tail
-// (or two M16 subtiles for C32) are enqueued.
+// projection-fused kernel; M1..M15 retain the generic pair kernel. C17..C64 is
+// validated as one complete operation before ordered M16 subtiles are
+// enqueued.
 // supports_fp8_projection_pair(...) selects the fused SM87 FP8 K/V kernel only
 // for M=1.
 // supports_fp8_qkv_z_projection_pair(...) selects the fused SM87 FP8 QKV/Z

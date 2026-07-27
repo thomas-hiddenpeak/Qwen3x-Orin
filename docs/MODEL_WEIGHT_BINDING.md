@@ -93,7 +93,7 @@ and incomplete companion payloads return `cudaErrorInvalidValue`; no dispatch
 path allocates or synchronizes.
 
 `launch_projection_tile_to_bf16_cuda` extends that boundary to caller-owned
-row-major BF16 input/output tiles with `M=1..32`. M1 delegates to the scalar
+row-major BF16 input/output tiles with `M=1..64`. M1 delegates to the scalar
 projection API. For explicit SM87 FP8/NVFP4 weights, M2..M8 use small-M
 kernels that reuse each loaded weight across all M activation rows; M9..M15
 are split into M8 plus the remaining M1..M7 rows. M16 first reaches a
@@ -106,10 +106,18 @@ C18 contract. Every FP8 M17..M31 case and each NVFP4 shape/alignment near-miss
 uses the ordered M16 plus at-most-M8 tail path. At M32, the four exact aligned FP8
 production shapes and the two exact aligned NVFP4 MLP shapes use one fixed-M32
 Tensor Core kernel. Other valid FP8 and NVFP4 M32 cases use two ordered M16
-launches. BF16 weights and the reference backend enqueue M checked M1
-projections. The launcher validates natural BF16 alignment, complete tile
-spans, scratch capacity, overflow, and input/output overlap before enqueueing
-any work.
+launches. M33..M63 is one ordered M32 prefix followed by the established
+at-most-M31 tail. At M64, only exact aligned NVFP4 `[5120,17408]` down uses one
+weight-reuse M64 kernel; every other weight/backend combination preserves two
+ordered M32 schedules. BF16 weights and the reference backend ultimately
+enqueue checked M1 projections in token order. The launcher validates natural
+BF16 alignment, complete supertile spans, scratch capacity, overflow, and
+input/output overlap before enqueueing any work.
+
+The public `ReferencePrefillTileResult` capacity grows with the request boundary
+from 32 to 64 entries. That C++ ABI change advances the exact package version
+from 0.2.0 to 0.3.0; consumers must rebuild instead of mixing old objects with
+the new static libraries.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and
@@ -152,10 +160,20 @@ The fixed-M32 NVFP4 route accepts those same two shapes and alignment gates.
 Its single K64/LD72 WMMA kernel keeps two 16-token activation panels resident
 in shared memory and reuses each decoded 64-by-128 weight tile across two
 independent accumulator chains. Every other valid NVFP4 M32 projection falls
-back to two ordered public M16 launches. At runner level only, an exact C32
-gate/up pair may overlap gate on the main stream with up on one auxiliary
-stream before an event join; that narrow branch overlap is separate from the
-projection binding API and does not generalize to M17..M31 or Decode.
+back to two ordered public M16 launches.
+
+The exact-M64 NVFP4 down route accepts only `[M=64,N=5120,K=17408]` with the
+same packed-weight, block-scale, BF16-input, and BF16-output alignment gates.
+One kernel keeps four M16 accumulator panels and reuses each decoded K64 weight
+tile across all 64 rows while retaining the established M32 shared-memory
+footprint. Near-miss shapes or alignments remain on two ordered public M32
+dispatches.
+
+At runner level only, an exact C32 or C64 gate/up pair may overlap gate on the
+main stream with up on one auxiliary stream before an event join. C64 issues
+two ordered C32 projections on each branch. That narrow branch overlap is
+separate from the projection binding API and does not generalize to M17..M31,
+Decode, double/triple buffering, or Prefill/Decode overlap.
 
 Within the SM87 NVFP4 launcher, aligned canonical weights with K divisible by
 256 use a packed-x8 route: one 32-bit load supplies eight E2M1 values per lane,
@@ -172,7 +190,9 @@ preserve the existing 8-byte activation alignment contract; they add no repack
 or 16-byte public alignment requirement. Near-miss shapes, packed-weight or
 activation misalignment retain their preceding routes. M2 through M15 do
 likewise; exact M17/M19..M31 use the runtime-count dispatch, while M18 and M32
-use the fixed-tile dispatches described above.
+use the fixed-tile dispatches described above. M33..M63 compose M32 plus the
+ordered tail; M64 selects the exact down route only for its one admitted shape
+and otherwise composes two M32 dispatches.
 
 Within the SM87 FP8 launcher, canonical weights with K divisible by 1,024,
 4-byte-aligned weights, and an 8-byte-aligned BF16 activation use a packed-x4
@@ -187,7 +207,7 @@ checkpoint-layout change.
 matrices under the explicit SM87 backend. For M1 and aligned operands,
 `launch_projection_pair_tile_to_bf16_cuda` uses one K/V cross-matrix row-quad
 kernel that shares activation decode and codebook setup while preserving each
-single projection's BF16 bits. Eligible unaligned calls, M2..M32 tiles, other
+single projection's BF16 bits. Eligible unaligned calls, M2..M64 tiles, other
 shapes/types, and other backends retain the existing first-then-second path.
 The runner applies the pair only to full-attention K/V on prompt-final and
 decode steps; chunked prefix projection remains unchanged.
@@ -198,10 +218,10 @@ backend. At aligned M1, one 1,536-CTA two-phase launch first preserves the QKV
 row-quad grid/stride and then lets its first 768 CTAs preserve the Z
 grid/stride. Both phases reuse one decoded E4M3FN codebook and retain the two
 production single-projection BF16 results bit-for-bit. Reversed or near-miss
-shapes, M2..M32, other backends, 4-byte weight misalignment, 8-byte activation
+shapes, M2..M64, other backends, 4-byte weight misalignment, 8-byte activation
 misalignment, or 2-byte output misalignment retain two ordered projections.
 The scalar runner step, including `prefill_prefix_tile(..., 1)`, uses the pair
-dispatcher; layer-major C2..C32 prefix tiles remain independent QKV and Z
+dispatcher; layer-major C2..C64 prefix tiles remain independent QKV and Z
 projections.
 
 The SM87 kernels preserve the documented FP32-accumulation/BF16-RNE formula,
@@ -245,13 +265,15 @@ checks the caller-scratch FP32-to-BF16 convenience path. It does not reload
 the official 20 GB checkpoint.
 
 `projection_backend_dispatch` is a small SM87 CUDA gate for all three
-production routes at M1 through M32, BF16/reference fallback, M9..M15
+production routes at M1 through M64, BF16/reference fallback, M9..M15
 segmentation, and M16 Tensor Core selection/two-M8 fallback. For both NVFP4
 MLP shapes, the registry unit checks every one of the 14 runtime counts M17
 and M19..M31 for the direct route and `launch_count=1`. CUDA Graph samples
 cover one-node single projections, two-node ordered pairs, and the M24/M25
 fallback boundaries. It retains exact fixed-M18 masked-M32 selection/M16+M2
-fallback and fixed-M32 Tensor Core selection/two-M16 fallback coverage. Odd
+fallback and fixed-M32 Tensor Core selection/two-M16 fallback coverage, and
+adds M33/M50/M63/M64 composition, exact one-node M64 down, two-M32 M64
+gate/up/FP8, and M64 near-miss fallback graph gates. Odd
 BF16 input/output addresses, complete-span aliases, wrapping/size overflows, and a malformed
 second pair projection all fail with zero graph nodes; one-sided pair
 ineligibility retains the recursive first-then-second order. The same test also

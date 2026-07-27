@@ -97,6 +97,7 @@ struct FakeGenerator {
   bool preserve_full_arm = false;
   bool add_both_arms = false;
   bool add_prefix_prediction = false;
+  bool c64_partial_prefix = false;
   std::vector<std::string> prompts;
 };
 
@@ -129,6 +130,40 @@ runtime::ReferenceGenerateResult fake_generate(
       {5.0, 15.0}, {6.0, 7.0, 17.0}, {10.0, 30.0}};
   runtime::ReferenceGeneration generation = make_generation(
       prompt, kTtft[call], kTotal[call], kSubsequent[call]);
+  if (fake.c64_partial_prefix) {
+    constexpr std::size_t kPromptTokens = 128U;
+    generation.prompt_token_ids.resize(kPromptTokens);
+    generation.steps.clear();
+    generation.steps.reserve(kPromptTokens +
+                             generation.generated_token_ids.size() - 1U);
+    for (std::size_t index = 0U; index < kPromptTokens; ++index) {
+      generation.prompt_token_ids[index] =
+          static_cast<std::uint32_t>(1'000U + index);
+      runtime::ReferenceStepResult step;
+      step.position = static_cast<std::uint32_t>(index);
+      step.input_token_id = generation.prompt_token_ids[index];
+      if (index + 1U == kPromptTokens) {
+        runtime::ReferenceStepLogits logits;
+        logits.predicted_token_id = generation.generated_token_ids.front();
+        step.logits.emplace(logits);
+      }
+      generation.steps.push_back(std::move(step));
+    }
+    for (std::size_t index = 1U;
+         index < generation.generated_token_ids.size(); ++index) {
+      runtime::ReferenceStepResult step;
+      step.position = static_cast<std::uint32_t>(kPromptTokens + index - 1U);
+      step.input_token_id = generation.generated_token_ids[index - 1U];
+      runtime::ReferenceStepLogits logits;
+      logits.predicted_token_id = generation.generated_token_ids[index];
+      step.logits.emplace(logits);
+      generation.steps.push_back(std::move(step));
+    }
+    generation.timing.prefix_execution_milliseconds =
+        {kTtft[call] / 4.0, kTtft[call] / 4.0,
+         kTtft[call] / 4.0};
+    generation.timing.finish_prefill_milliseconds = kTtft[call] / 4.0;
+  }
   if (options.logits_mode ==
           runtime::ReferenceLogitsMode::kPredictedTokenOnly &&
       !fake.preserve_full_arm) {
@@ -553,9 +588,44 @@ void test_maximum_prefill_chunk_boundary(TestContext& test) {
   const auto result = detail::run_benchmark_control(
       {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
   test.expect(result && generator.calls == 1U &&
-                  result.value->prefill_chunk_size == 32U &&
+                  result.value->prefill_chunk_size == 64U &&
                   result.value->samples.size() == 1U,
-              "chunk thirty-two is accepted and preserved by benchmark control");
+              "chunk sixty-four is accepted and preserved by benchmark control");
+}
+
+void test_c64_partial_prefix_timing_cardinality(TestContext& test) {
+  FakeGenerator generator;
+  generator.expected_prefill_chunk_size = 64U;
+  generator.c64_partial_prefix = true;
+  FakeMemory memory;
+  memory.free_bytes = {1'000U, 1'000U};
+  runtime::ReferenceBenchmarkOptions options = benchmark_options();
+  options.warmup_rounds = 0U;
+  options.measured_rounds = 1U;
+  options.prefill_chunk_size = 64U;
+  const auto result = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(result && result.value->samples.size() == 1U &&
+                  result.value->samples.front()
+                          .timing.prefix_execution_milliseconds.size() == 3U,
+              "C64 benchmark timing accepts the optimized 64+32+31 "
+              "execution schedule for a 127-token prefix");
+
+  generator = {};
+  generator.expected_prefill_chunk_size = 64U;
+  generator.c64_partial_prefix = true;
+  generator.invalid_prefix_cardinality = true;
+  memory = {};
+  memory.free_bytes = {1'000U, 1'000U};
+  const auto invalid = detail::run_benchmark_control(
+      {"alpha"}, options, &generator, fake_generate, &memory, fake_memory);
+  test.expect(!invalid &&
+                  invalid.diagnostic.code ==
+                      runtime::ReferenceBenchmarkError::kInvalidTiming &&
+                  invalid.diagnostic.mismatch_field ==
+                      "prefix_execution_milliseconds.size",
+              "C64 benchmark timing rejects a cardinality that differs from "
+              "the shared controller schedule");
 }
 
 void test_step_comparison(TestContext& test) {
@@ -599,6 +669,7 @@ int main() {
   test_repeatability_and_failures(test);
   test_zero_warmup_and_memory_boundary(test);
   test_maximum_prefill_chunk_boundary(test);
+  test_c64_partial_prefix_timing_cardinality(test);
   test_step_comparison(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " benchmark control assertion(s) failed\n";

@@ -79,6 +79,17 @@ template <typename T>
       "upload " + label);
 }
 
+template <std::size_t OutputCount, typename T, std::size_t InputCount>
+[[nodiscard]] constexpr std::array<T, OutputCount> repeat_array(
+    const std::array<T, InputCount>& input) noexcept {
+  static_assert(InputCount != 0U);
+  std::array<T, OutputCount> output{};
+  for (std::size_t index = 0U; index < OutputCount; ++index) {
+    output[index] = input[index % InputCount];
+  }
+  return output;
+}
+
 template <typename Launch>
 [[nodiscard]] std::size_t captured_kernel_node_count(
     TestContext& test, Launch&& launch, const std::string& label,
@@ -816,42 +827,30 @@ void test_tile_routes(TestContext& test) {
   constexpr std::size_t kMaximumTokens =
       runtime::kMaximumProjectionTileTokenCount;
   constexpr std::uint16_t kBf16One = 0x3f80U;
-  constexpr std::array<std::uint16_t, kMaximumTokens> kActivationValues{
+  constexpr auto kActivationValues = repeat_array<kMaximumTokens>(
+      std::array<std::uint16_t, 16U>{
       0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
       0x3e80U, 0xbf00U, 0x4080U, 0xc000U,
       0x3f40U, 0xbf40U, 0x4040U, 0xc040U,
-      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U,
-      0x3f80U, 0x3f00U, 0xbf80U, 0x4000U,
-      0x3e80U, 0xbf00U, 0x4080U, 0xc000U,
-      0x3f40U, 0xbf40U, 0x4040U, 0xc040U,
-      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U};
-  constexpr std::array<std::uint16_t, kMaximumTokens> kFp8Expected{
+      0x3fc0U, 0xbfc0U, 0x4100U, 0xc100U});
+  constexpr auto kFp8Expected = repeat_array<kMaximumTokens>(
+      std::array<std::uint16_t, 16U>{
       0x4480U, 0x4400U, 0xc480U, 0x4500U,
       0x4380U, 0xc400U, 0x4580U, 0xc500U,
       0x4440U, 0xc440U, 0x4540U, 0xc540U,
-      0x44c0U, 0xc4c0U, 0x4600U, 0xc600U,
-      0x4480U, 0x4400U, 0xc480U, 0x4500U,
-      0x4380U, 0xc400U, 0x4580U, 0xc500U,
-      0x4440U, 0xc440U, 0x4540U, 0xc540U,
-      0x44c0U, 0xc4c0U, 0x4600U, 0xc600U};
-  constexpr std::array<std::uint16_t, kMaximumTokens> kNvFp4Expected{
+      0x44c0U, 0xc4c0U, 0x4600U, 0xc600U});
+  constexpr auto kNvFp4Expected = repeat_array<kMaximumTokens>(
+      std::array<std::uint16_t, 16U>{
       0x4380U, 0x4300U, 0xc380U, 0x4400U,
       0x4280U, 0xc300U, 0x4480U, 0xc400U,
       0x4340U, 0xc340U, 0x4440U, 0xc440U,
-      0x43c0U, 0xc3c0U, 0x4500U, 0xc500U,
-      0x4380U, 0x4300U, 0xc380U, 0x4400U,
-      0x4280U, 0xc300U, 0x4480U, 0xc400U,
-      0x4340U, 0xc340U, 0x4440U, 0xc440U,
-      0x43c0U, 0xc3c0U, 0x4500U, 0xc500U};
-  constexpr std::array<std::uint16_t, kMaximumTokens> kBf16Expected{
+      0x43c0U, 0xc3c0U, 0x4500U, 0xc500U});
+  constexpr auto kBf16Expected = repeat_array<kMaximumTokens>(
+      std::array<std::uint16_t, 16U>{
       0x4080U, 0x4000U, 0xc080U, 0x4100U,
       0x3f80U, 0xc000U, 0x4180U, 0xc100U,
       0x4040U, 0xc040U, 0x4140U, 0xc140U,
-      0x40c0U, 0xc0c0U, 0x4200U, 0xc200U,
-      0x4080U, 0x4000U, 0xc080U, 0x4100U,
-      0x3f80U, 0xc000U, 0x4180U, 0xc100U,
-      0x4040U, 0xc040U, 0x4140U, 0xc140U,
-      0x40c0U, 0xc0c0U, 0x4200U, 0xc200U};
+      0x40c0U, 0xc0c0U, 0x4200U, 0xc200U});
 
   DeviceBuffer<std::uint16_t> fp8_activation;
   DeviceBuffer<std::uint16_t> nvfp4_activation;
@@ -992,7 +991,9 @@ void test_tile_routes(TestContext& test) {
   for (std::size_t token_count = 1U; token_count <= kMaximumTokens;
        ++token_count) {
     if (token_count > 16U && token_count != 17U && token_count != 18U &&
-        token_count != 24U && token_count != 31U && token_count != 32U) {
+        token_count != 24U && token_count != 31U && token_count != 32U &&
+        token_count != 33U && token_count != 50U && token_count != 63U &&
+        token_count != 64U) {
       continue;
     }
     const std::string suffix = " M=" + std::to_string(token_count);
@@ -1066,6 +1067,18 @@ void test_tile_routes(TestContext& test) {
               "SM87 FP8 generic M32 uses two public M16 fallbacks");
   test.expect(fp8_m32_linear_chain,
               "SM87 FP8 generic M32 preserves one ordered kernel chain");
+  bool fp8_m33_linear_chain = false;
+  test.expect(capture_fp8(33U, "SM87 FP8 generic M33 dispatch graph",
+                          &fp8_m33_linear_chain) == 5U,
+              "SM87 FP8 generic M33 preserves M32+M1 scheduling");
+  test.expect(fp8_m33_linear_chain,
+              "SM87 FP8 generic M33 preserves one ordered kernel chain");
+  bool fp8_m64_linear_chain = false;
+  test.expect(capture_fp8(64U, "SM87 FP8 generic M64 dispatch graph",
+                          &fp8_m64_linear_chain) == 8U,
+              "SM87 FP8 generic M64 preserves two M32 schedules");
+  test.expect(fp8_m64_linear_chain,
+              "SM87 FP8 generic M64 preserves one ordered kernel chain");
   const auto capture_nvfp4 = [&](const std::size_t token_count,
                                  const std::string& label,
                                  bool* const linear_chain = nullptr) {
@@ -1105,6 +1118,18 @@ void test_tile_routes(TestContext& test) {
               "SM87 NVFP4 generic M32 uses two public M16 fallbacks");
   test.expect(nvfp4_m32_linear_chain,
               "SM87 NVFP4 generic M32 preserves one ordered kernel chain");
+  bool nvfp4_m33_linear_chain = false;
+  test.expect(capture_nvfp4(33U, "SM87 NVFP4 generic M33 dispatch graph",
+                            &nvfp4_m33_linear_chain) == 5U,
+              "SM87 NVFP4 generic M33 preserves M32+M1 scheduling");
+  test.expect(nvfp4_m33_linear_chain,
+              "SM87 NVFP4 generic M33 preserves one ordered kernel chain");
+  bool nvfp4_m64_linear_chain = false;
+  test.expect(capture_nvfp4(64U, "SM87 NVFP4 generic M64 dispatch graph",
+                            &nvfp4_m64_linear_chain) == 8U,
+              "SM87 NVFP4 generic M64 preserves two M32 schedules");
+  test.expect(nvfp4_m64_linear_chain,
+              "SM87 NVFP4 generic M64 preserves one ordered kernel chain");
 
   const auto* const production_fp8_weight =
       reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
@@ -1176,6 +1201,46 @@ void test_tile_routes(TestContext& test) {
             },
             label, &total_nodes, linear_chain);
       };
+
+  bool production_nvfp4_down_m64_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_down, production_input, 64U, production_output,
+          "SM87 NVFP4 production down M64 dispatch graph",
+          &production_nvfp4_down_m64_linear_chain) == 1U,
+      "SM87 NVFP4 production down M64 uses one exact weight-reuse kernel");
+  test.expect(production_nvfp4_down_m64_linear_chain,
+              "SM87 NVFP4 production down M64 is a single-node chain");
+
+  bool production_nvfp4_gate_m64_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4, production_input, 64U, production_output,
+          "SM87 NVFP4 production gate/up M64 dispatch graph",
+          &production_nvfp4_gate_m64_linear_chain) == 2U,
+      "SM87 NVFP4 production gate/up M64 preserves two direct M32 kernels");
+  test.expect(production_nvfp4_gate_m64_linear_chain,
+              "SM87 NVFP4 production gate/up M64 remains ordered");
+
+  bool production_fp8_m64_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_fp8, production_input, 64U, production_output,
+          "SM87 FP8 production M64 dispatch graph",
+          &production_fp8_m64_linear_chain) == 2U,
+      "SM87 FP8 production M64 preserves two direct M32 kernels");
+  test.expect(production_fp8_m64_linear_chain,
+              "SM87 FP8 production M64 remains ordered");
+
+  bool production_nvfp4_down_m63_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_down, production_input, 63U, production_output,
+          "SM87 NVFP4 production down M63 dispatch graph",
+          &production_nvfp4_down_m63_linear_chain) == 2U,
+      "SM87 NVFP4 production down M63 preserves direct M32+M31 kernels");
+  test.expect(production_nvfp4_down_m63_linear_chain,
+              "SM87 NVFP4 production down M63 remains ordered");
 
   bool production_nvfp4_m18_gate_linear_chain = false;
   test.expect(
@@ -1297,6 +1362,22 @@ void test_tile_routes(TestContext& test) {
       "SM87 NVFP4 near-miss M18 uses two M8 kernels plus M2");
   test.expect(production_nvfp4_m18_near_miss_linear_chain,
               "SM87 NVFP4 near-miss M18 fallback remains ordered");
+
+  const runtime::LinearWeight production_nvfp4_down_near_miss =
+      runtime::NvFp4LinearWeight{
+          production_nvfp4_weight, production_nvfp4_scale,
+          production_companion_scales, production_companion_scales + 1U,
+          1.0F, 1.0F, 5'119U, 17'408U};
+  bool production_nvfp4_down_near_miss_m64_linear_chain = false;
+  test.expect(
+      capture_production_nvfp4_tile(
+          production_nvfp4_down_near_miss, production_input, 64U,
+          production_output,
+          "SM87 NVFP4 down near-miss M64 fallback graph",
+          &production_nvfp4_down_near_miss_m64_linear_chain) == 8U,
+      "SM87 NVFP4 down near-miss M64 preserves two public M32 fallbacks");
+  test.expect(production_nvfp4_down_near_miss_m64_linear_chain,
+              "SM87 NVFP4 down near-miss M64 fallback remains ordered");
 
   bool production_nvfp4_m25_weight4_linear_chain = false;
   bool production_nvfp4_m24_weight4_linear_chain = false;
@@ -1645,7 +1726,7 @@ void test_tile_routes(TestContext& test) {
             [&](cudaStream_t stream) noexcept {
               return runtime::launch_projection_tile_to_bf16_cuda(
                   runtime::ProjectionBackend::kSm87WeightOnly, weight,
-                  production_input, kMaximumTokens, nullptr, 0U,
+                  production_input, 32U, nullptr, 0U,
                   production_output, static_cast<void*>(stream));
             },
             label, &total_nodes, linear_chain);
@@ -1746,7 +1827,7 @@ void test_tile_routes(TestContext& test) {
             fp8_activation.get(), kMaximumTokens + 1U, nullptr, 0U,
             output.get(), static_cast<void*>(stream));
       },
-      "SM87 FP8 M33 tile guard");
+      "SM87 FP8 M65 tile guard");
   expect_invalid_capture_has_no_nodes(
       test,
       [&](cudaStream_t stream) noexcept {
@@ -1755,7 +1836,7 @@ void test_tile_routes(TestContext& test) {
             nvfp4_activation.get(), kMaximumTokens + 1U, nullptr, 0U,
             output.get(), static_cast<void*>(stream));
       },
-      "SM87 NVFP4 M33 tile guard");
+      "SM87 NVFP4 M65 tile guard");
 }
 
 void test_bf16_projection_pair_dispatch(TestContext& test) {
@@ -1887,6 +1968,8 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
         capture_production_pair(17U, "SM87 BF16 pair M17 identity graph");
     const CapturedKernelChain m32 =
         capture_production_pair(32U, "SM87 BF16 pair M32 identity graph");
+    const CapturedKernelChain m64 =
+        capture_production_pair(64U, "SM87 BF16 pair M64 identity graph");
     test.expect(m1.valid && m1.launches.size() == 1U,
                 "SM87 BF16 pair M1 remains one generic kernel");
     test.expect(m15.valid && m15.launches.size() == 1U,
@@ -1897,6 +1980,8 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
                 "SM87 BF16 pair M17 is an ordered exact-plus-generic chain");
     test.expect(m32.valid && m32.launches.size() == 2U,
                 "SM87 BF16 pair M32 is an ordered two-exact chain");
+    test.expect(m64.valid && m64.launches.size() == 4U,
+                "SM87 BF16 pair M64 is an ordered four-exact chain");
     if (m1.valid && m1.launches.size() == 1U) {
       expect_launch(m1.launches[0], generic_oracle.launches[0].function, 1U,
                     2U, "SM87 BF16 pair M1 generic launch");
@@ -1921,9 +2006,18 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
       expect_launch(m32.launches[1], exact_oracle.launches[0].function, 1U,
                     1U, "SM87 BF16 pair M32 second exact tile");
     }
+    if (m64.valid && m64.launches.size() == 4U) {
+      for (std::size_t index = 0U; index < m64.launches.size(); ++index) {
+        expect_launch(m64.launches[index],
+                      exact_oracle.launches[0].function, 1U, 1U,
+                      "SM87 BF16 pair M64 exact tile " +
+                          std::to_string(index));
+      }
+    }
     std::cout << "GRAPH_BF16_PAIR_DISPATCH: M1=generic(48x1x2) "
                  "M15=generic(48x15x2) M16=exact(48x1x1) "
-                 "M17=exact+generic M32=exact+exact block=256 shared=0\n";
+                 "M17=exact+generic M32=exact+exact "
+                 "M64=4xexact block=256 shared=0\n";
   }
 
   const auto run_fast = [&](const std::size_t token_count,
@@ -2009,6 +2103,9 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
   run_fast(24U, "SM87 production BF16 pair M24");
   run_fast(31U, "SM87 production BF16 pair M31");
   run_fast(32U, "SM87 production BF16 pair M32");
+  run_fast(33U, "SM87 production BF16 pair M33");
+  run_fast(63U, "SM87 production BF16 pair M63");
+  run_fast(64U, "SM87 production BF16 pair M64");
 
   const int mlp_status = runtime::launch_mlp_gate_up_silu_to_bf16_cuda(
       runtime::ProjectionBackend::kSm87WeightOnly, first, second,
@@ -2113,7 +2210,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
                  "pair rejects M=0");
   expect_invalid(first, second, activation.get(), kTokens + 1U, nullptr, 0U,
                  first_output.get(), second_output.get(),
-                 "pair rejects M=33");
+                 "pair rejects M=65");
   expect_invalid_capture_has_no_nodes(
       test,
       [&](cudaStream_t stream) noexcept {
@@ -2123,7 +2220,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
             first_output.get(), second_output.get(),
             static_cast<void*>(stream));
       },
-      "SM87 BF16 pair M33 guard");
+      "SM87 BF16 pair M65 guard");
   expect_invalid_capture_has_no_nodes(
       test,
       [&](cudaStream_t stream) noexcept {
@@ -2132,7 +2229,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
             activation.get(), kTokens, nullptr, 0U, first_output.get(),
             first_output.get() + 16U * kRows, static_cast<void*>(stream));
       },
-      "SM87 BF16 pair C32 cross-subtile output alias");
+      "SM87 BF16 pair C64 cross-subtile output alias");
   expect_invalid_capture_has_no_nodes(
       test,
       [&](cudaStream_t stream) noexcept {
@@ -2142,7 +2239,7 @@ void test_bf16_projection_pair_dispatch(TestContext& test) {
             first_output.get(), second_output.get(),
             static_cast<void*>(stream));
       },
-      "SM87 BF16 pair C32 invalid second weight");
+      "SM87 BF16 pair C64 invalid second weight");
   expect_invalid(first, second, activation.get(), 1U, nullptr, 0U,
                  reinterpret_cast<std::uint16_t*>(second_weights.get()),
                  second_output.get(),
@@ -5627,7 +5724,7 @@ void test_tile_validation(TestContext& test) {
                  "tile rejects M=0");
   expect_invalid(runtime::ProjectionBackend::kSm87WeightOnly, fp8,
                  activation.get(), kTokens + 1U, nullptr, 0U, output.get(),
-                 "tile rejects M=33");
+                 "tile rejects M=65");
   expect_invalid(static_cast<runtime::ProjectionBackend>(0xffU), fp8,
                  activation.get(), kTokens, nullptr, 0U, output.get(),
                  "tile rejects unknown backend");
@@ -5705,30 +5802,30 @@ void test_tile_validation(TestContext& test) {
   ready = upload(test, activation,
                  std::vector<std::uint16_t>(kTokens * kFp8Columns,
                                             0x3f80U),
-                 "C32 validation activation sentinel");
+                 "C64 validation activation sentinel");
   ready = ready && test.cuda_ok(
                        cudaMemset(fp8_weight.get(), 0x38,
                                   kRows * kFp8Columns),
-                       "initialize C32 validation FP8 weights");
+                       "initialize C64 validation FP8 weights");
   if (ready) {
     std::uint16_t* const overlapping_output =
-        activation.get() + 17U * kFp8Columns;
+        activation.get() + 33U * kFp8Columns;
     const int overlap_status =
         runtime::launch_projection_tile_to_bf16_cuda(
             runtime::ProjectionBackend::kSm87WeightOnly, fp8,
             activation.get(), kTokens, nullptr, 0U, overlapping_output);
     test.expect(static_cast<cudaError_t>(overlap_status) ==
                     cudaErrorInvalidValue,
-                "C32 tile rejects output overlapping only the second M16 input");
+                "C64 tile rejects output overlapping only the second C32 input");
     std::uint16_t preserved = 0U;
     ready = test.cuda_ok(cudaMemcpy(&preserved, overlapping_output,
                                     sizeof(preserved),
                                     cudaMemcpyDeviceToHost),
-                         "read C32 validation activation sentinel");
+                         "read C64 validation activation sentinel");
     if (ready) {
       test.expect(
           preserved == 0x3f80U,
-          "C32 whole-tile validation rejects before the first SM87 launch");
+          "C64 whole-tile validation rejects before the first SM87 launch");
     }
   }
   expect_invalid(

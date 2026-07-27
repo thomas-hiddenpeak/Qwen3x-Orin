@@ -4909,8 +4909,8 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, std::uint16_t* const output) {
-  // The production M32 instances keep two resident M16 panels.  The
-  // test-only M64 instance below deliberately reuses that same shared-A
+  // The production M32 instances keep two resident M16 panels. The exact
+  // production M64 down instance deliberately reuses that same shared-A
   // footprint for a second pair of panels so every decoded weight tile is
   // consumed by 64 tokens without increasing shared memory.
   constexpr unsigned int kResidentTokenCount = 32U;
@@ -5308,7 +5308,7 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   }
   if constexpr (kTokenCount == 64U) {
     // Reuse the 32-token C overlay after every thread has consumed the first
-    // pair.  This keeps the M64 experiment at the production 23,552-byte
+    // pair. This keeps M64 at the established 23,552-byte
     // shared-memory footprint.
     __syncthreads();
     wmma::store_matrix_sync(
@@ -14354,9 +14354,8 @@ void launch_nvfp4_lm_head_activation_staged_cs_test_unchecked(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only exact-M64 validator.  Keep this separate from the public M32
-// contract until the large-M schedule clears correctness and performance
-// gates on the target device.
+// Exact-M64 validator kept separate from the generic M32 contract so the
+// public production launcher can fail closed before enqueue.
 [[nodiscard]] int validate_nvfp4_m64_launch(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -14793,7 +14792,7 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
-// Test-only large-M down-projection schedule.  Four M16 accumulator panels
+// Production exact-M64 down-projection schedule. Four M16 accumulator panels
 // consume each decoded B tile while only two panels are resident in shared A
 // at a time.  The lower launch-bound occupancy target leaves enough registers
 // for four WMMA accumulators; the 40-CTA down grid cannot use five CTAs/SM in
@@ -21056,42 +21055,17 @@ int query_sm87_nvfp4_w4a16_small_m32_wmma_k64_dual_a_table_free_e2m1_resources_t
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only exact-M64 down-projection entry.  Production dispatch remains on
-// exact-M32 tiles until this schedule clears its fixed-frequency gates.
+// Test-only compatibility entry for the exact-M64 down projection. Production
+// dispatch reaches the same public launcher after the fixed-frequency gates.
 int launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (rows != 5'120U || columns != 17'408U) {
-    return invalid_value();
-  }
-  const int validation = validate_nvfp4_m64_launch(
+  return launch_sm87_nvfp4_w4a16_m64_down_gemm_bf16_cuda(
       packed_weights, block_scales, weight_scale_2, activations, rows, columns,
-      output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  const bool aligned =
-      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
-          0U &&
-      (reinterpret_cast<std::uintptr_t>(block_scales) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(output) %
-       alignof(std::uint16_t)) == 0U;
-  if (!aligned) {
-    return invalid_value();
-  }
-
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-      5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
-                       activations, output, stream);
-  return static_cast<int>(cudaGetLastError());
+      output, cuda_stream);
 }
 
 int query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
@@ -21179,9 +21153,8 @@ int query_sm87_nvfp4_w4a16_small_m18_masked_m32_wmma_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only direct entry for one runtime-valid masked-M32 kernel. Production
-// dispatch remains on the fixed M18/M32 specializations and existing
-// decompositions while this candidate is evaluated.
+// Test-only direct entry for the runtime-valid masked-M32 kernel also reached
+// by the production M17/M19..31 dispatcher.
 int launch_sm87_nvfp4_w4a16_small_m17_m31_runtime_masked_m32_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -22128,6 +22101,42 @@ int launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
       packed_weights, block_scales, weight_scale_2,
       activations + kHalfTokens * columns, rows, columns,
       output + kHalfTokens * rows, cuda_stream);
+}
+
+int launch_sm87_nvfp4_w4a16_m64_down_gemm_bf16_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_launch(
+      packed_weights, block_scales, weight_scale_2, activations, rows, columns,
+      output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+      5'120U, 17'408U>(packed_weights, block_scales, weight_scale_2,
+                       activations, output, stream);
+  return static_cast<int>(cudaGetLastError());
 }
 
 int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(

@@ -183,10 +183,8 @@ using reference_benchmark_detail::DeviceMemorySnapshot;
   const std::size_t effective_prefill_chunk_size =
       generation.effective_prefill_chunk_size;
   const std::size_t expected_prefix_execution_count =
-      effective_prefill_chunk_size > 1U
-          ? prefix_token_count / effective_prefill_chunk_size +
-                (prefix_token_count % effective_prefill_chunk_size != 0U)
-          : prefix_token_count;
+      reference_engine_detail::prefix_execution_count(
+          prefix_token_count, effective_prefill_chunk_size);
   if (timing.prefix_execution_milliseconds.size() !=
       expected_prefix_execution_count) {
     return "prefix_execution_milliseconds.size";

@@ -103,13 +103,18 @@ three measured rounds, and a shared request capacity of 512 positions.
 sequence capacity large enough for the longest formatted prompt plus its
 decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
-weights. `--prefill-chunk-size` accepts 1 through 32 and defaults to 1. The
+weights. `--prefill-chunk-size` accepts 1 through 64 and defaults to 1. The
 engine's request arena reserves activation workspace for the selected maximum
-before weights are loaded. C2 through C32 tile only the prompt prefix; the final
-prompt token and all decode steps remain M=1. Projection dispatch defaults to
-`reference`; `sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16
-layer path and checks the active device capability before loading model
-weights.
+before weights are loaded. C2 through C64 tile only the prompt prefix; the final
+prompt token and all decode steps remain M=1. The chunk value is an upper bound:
+only an exact C64 candidate is one runner call. A next candidate of 33 through
+63 emits C32 and then recomputes the next tile size from the remaining tokens,
+so a partial C64 remainder becomes C32 plus an ordered tail of at most 31. In
+exact C64, only the aligned
+NVFP4 `[5120,17408]` down projection uses one M64 kernel; every other projection
+retains two ordered C32 schedules. Projection dispatch defaults to `reference`;
+`sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16 layer path and
+checks the active device capability before loading model weights.
 
 The command creates the engine once, then invokes the runtime harness. Stdout
 is escaped line-oriented `key=value` data containing model directory, actual
@@ -121,7 +126,15 @@ Progress, diagnostics, and the persistent-memory-drop warning go to stderr.
 The pure-host `reference_benchmark_control` test supplies fake generation and
 memory callbacks. It covers round ordering, warmup exclusion, per-sample and
 aggregate statistics, exact replay mismatches, nested failures, and memory-drop
-classification without loading a model or executing a CUDA kernel.
+classification without loading a model or executing a CUDA kernel. Its C64
+regression covers the maximum accepted chunk and validates that a 127-token
+prefix has three timing records for the shared `64+32+31` controller schedule;
+any other timing-record cardinality is rejected.
+
+The public Prefill result capacity changed from 32 to 64 entries with this
+runtime contract. That C++ ABI change is published as exact package version
+0.3.0; installed consumers must rebuild rather than mix 0.2.0 objects with the
+new static libraries.
 
 The first matched reference/SM87 run and its machine-readable samples are in
 the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md). The same document

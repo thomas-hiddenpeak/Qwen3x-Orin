@@ -178,7 +178,7 @@ struct ReferencePrefillTileOptions {
   bool measure_timing = false;
 };
 
-// A prefix tile never produces logits or trace data. The 32-entry fixed-
+// A prefix tile never produces logits or trace data. The 64-entry fixed-
 // capacity result keeps the runner boundary allocation-free while retaining
 // one position/input record per committed token for the high-level generation
 // transcript. When timing is requested, timing contains the aggregate tile
@@ -289,16 +289,18 @@ struct LogitsAnalysis {
 [[nodiscard]] bool use_qk_rope_tile(
     std::size_t first_position, std::size_t token_count) noexcept;
 
-// Selects the exact-M32 residual-add plus centered-RMSNorm schedule. When
-// selected, layer 0 retains its standalone input norm; each MLP residual
-// produces the normalized input for the next layer (or the final norm after
-// the final layer), so no subsequent standalone input/final norm is scheduled.
+// Selects the exact-M32 residual-add plus centered-RMSNorm schedule for C32 or
+// its ordered two-M32 C64 form. When selected, layer 0 retains its standalone
+// input norm; each MLP residual produces the normalized input for the next
+// layer (or the final norm after the final layer), so no subsequent standalone
+// input/final norm is scheduled.
 [[nodiscard]] bool use_m32_prefill_residual_rms_fusion(
     std::size_t token_count, std::size_t hidden_size) noexcept;
 
-// Pure-host selector for the narrow C32 NVFP4 MLP scheduling optimization.
-// It accepts only the two exact aligned direct-output projections, so every
-// route that could touch the shared FP32 fallback scratch remains serial.
+// Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
+// C64 retains two ordered C32 launches per branch. It accepts only the two
+// exact aligned direct-output projections, so every route that could touch the
+// shared FP32 fallback scratch remains serial.
 [[nodiscard]] bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* input,
@@ -367,13 +369,14 @@ class ReferenceRunner {
   [[nodiscard]] ReferenceStepOutcome replay_fixed_position_decode_graph_p1(
       std::uint32_t input_token_id, bool measure_timing = false) noexcept;
 
-  // Executes 1..32 non-logit prompt-prefix tokens in layer-major order. The
+  // Executes 1..64 non-logit prompt-prefix tokens in layer-major order. The
   // request plan must reserve at least token_count workspace rows. Operations
   // with a 16-token kernel contract are enqueued as ordered subtiles.
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
-  // SM87 NVFP4 C32 MLP gate/up pair may use one owned auxiliary stream and an
-  // event join; every fallback remains on the main stream, and the logical
-  // request length is committed only after the complete tile synchronizes.
+  // SM87 NVFP4 C32/C64 MLP gate/up pair may use one owned auxiliary stream and
+  // an event join; C64 preserves two ordered C32 launches on each branch.
+  // Every fallback remains on the main stream, and the logical request length
+  // is committed only after the complete tile synchronizes.
   [[nodiscard]] ReferencePrefillTileOutcome prefill_prefix_tile(
       const std::uint32_t* input_token_ids, std::size_t token_count,
       const ReferencePrefillTileOptions& options = {}) noexcept;

@@ -33,6 +33,7 @@ constexpr std::size_t kFullKvElements =
     kFullKvHeads * kFullHeadDimension;
 constexpr std::size_t kRopePairs = 32U;
 constexpr std::size_t kPrefillKernelTileMaximumTokens = 16U;
+constexpr std::size_t kProductionProjectionSubtileTokens = 32U;
 constexpr float kRmsEpsilon = 1.0e-6F;
 constexpr float kAttentionScale = 1.0F / 16.0F;
 
@@ -43,8 +44,10 @@ static_assert(kFullQueryElements <= kReferenceIntermediateSize);
 static_assert(kFullKvElements <= kReferenceIntermediateSize);
 static_assert(kPrefillKernelTileMaximumTokens ==
               kQkRopeTileMaximumTokens);
-static_assert(kMaximumRequestPrefillChunkSize == 32U);
+static_assert(kMaximumRequestPrefillChunkSize == 64U);
 static_assert(kReferenceHiddenSize == 5'120U);
+static_assert(kProductionProjectionSubtileTokens <=
+              kMaximumProjectionTileTokenCount);
 static_assert(kMaximumRequestPrefillChunkSize <=
               kMaximumProjectionTileTokenCount);
 
@@ -714,7 +717,8 @@ bool use_qk_rope_tile(
 bool use_m32_prefill_residual_rms_fusion(
     const std::size_t token_count,
     const std::size_t hidden_size) noexcept {
-  return token_count == kMaximumRequestPrefillChunkSize &&
+  return (token_count == kProductionProjectionSubtileTokens ||
+          token_count == 2U * kProductionProjectionSubtileTokens) &&
          hidden_size == kReferenceHiddenSize;
 }
 
@@ -733,7 +737,8 @@ bool use_nvfp4_m32_prefill_gate_up_dual_stream(
            (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
   };
   return backend == ProjectionBackend::kSm87WeightOnly &&
-         token_count == kMaximumProjectionTileTokenCount &&
+         (token_count == kProductionProjectionSubtileTokens ||
+          token_count == 2U * kProductionProjectionSubtileTokens) &&
          gate != nullptr && up != nullptr &&
          gate->output_size == kRows && gate->input_size == kColumns &&
          up->output_size == kRows && up->input_size == kColumns &&
@@ -2299,18 +2304,110 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                                    operation, layer, status);
     return false;
   };
-  const auto project = [this, token_count, &check_cuda](
+  const auto project_on_stream =
+      [this, token_count, &check_cuda](
+          const LinearWeight& weight, const std::uint16_t* const input,
+          std::uint16_t* const output, const char* const operation,
+          const std::size_t layer, void* const launch_stream) noexcept {
+        const std::size_t columns = linear_input_size(weight);
+        const std::size_t rows = linear_output_size(weight);
+        for (std::size_t token_offset = 0U; token_offset < token_count;
+             token_offset += kProductionProjectionSubtileTokens) {
+          const std::size_t remaining = token_count - token_offset;
+          const std::size_t subtile_tokens =
+              remaining < kProductionProjectionSubtileTokens
+                  ? remaining
+                  : kProductionProjectionSubtileTokens;
+          if (!check_cuda(launch_projection_tile_to_bf16_cuda(
+                              projection_backend_, weight,
+                              input + token_offset * columns, subtile_tokens,
+                              views_.fp32_scratch,
+                              views_.fp32_scratch_elements,
+                              output + token_offset * rows, launch_stream),
+                          operation, layer)) {
+            return false;
+          }
+        }
+        return true;
+      };
+  const auto project = [this, &project_on_stream](
                            const LinearWeight& weight,
                            const std::uint16_t* const input,
                            std::uint16_t* const output,
                            const char* const operation,
                            const std::size_t layer) noexcept {
+    return project_on_stream(weight, input, output, operation, layer, stream_);
+  };
+  const auto project_pair = [this, token_count, &check_cuda](
+                                const LinearWeight& first_weight,
+                                const LinearWeight& second_weight,
+                                const std::uint16_t* const input,
+                                std::uint16_t* const first_output,
+                                std::uint16_t* const second_output,
+                                const char* const operation,
+                                const std::size_t layer) noexcept {
+    const std::size_t columns = linear_input_size(first_weight);
+    const std::size_t first_rows = linear_output_size(first_weight);
+    const std::size_t second_rows = linear_output_size(second_weight);
+    for (std::size_t token_offset = 0U; token_offset < token_count;
+         token_offset += kProductionProjectionSubtileTokens) {
+      const std::size_t remaining = token_count - token_offset;
+      const std::size_t subtile_tokens =
+          remaining < kProductionProjectionSubtileTokens
+              ? remaining
+              : kProductionProjectionSubtileTokens;
+      if (!check_cuda(launch_projection_pair_tile_to_bf16_cuda(
+                          projection_backend_, first_weight, second_weight,
+                          input + token_offset * columns, subtile_tokens,
+                          views_.fp32_scratch, views_.fp32_scratch_elements,
+                          first_output + token_offset * first_rows,
+                          second_output + token_offset * second_rows, stream_),
+                      operation, layer)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const auto project_down = [this, token_count, &check_cuda,
+                             &project](const LinearWeight& weight,
+                                       const std::uint16_t* const input,
+                                       std::uint16_t* const output,
+                                       const char* const operation,
+                                       const std::size_t layer) noexcept {
+    if (token_count != kMaximumRequestPrefillChunkSize) {
+      return project(weight, input, output, operation, layer);
+    }
     return check_cuda(launch_projection_tile_to_bf16_cuda(
                           projection_backend_, weight, input, token_count,
                           views_.fp32_scratch,
                           views_.fp32_scratch_elements, output, stream_),
                       operation, layer);
   };
+  const auto residual_norm_m32_tiles =
+      [this, token_count, &check_cuda](
+          const std::uint16_t* const left,
+          const std::uint16_t* const right,
+          const std::uint16_t* const norm_weight,
+          std::uint16_t* const residual_output,
+          std::uint16_t* const normalized_output,
+          const char* const operation, const std::size_t layer) noexcept {
+        for (std::size_t token_offset = 0U; token_offset < token_count;
+             token_offset += kProductionProjectionSubtileTokens) {
+          const std::size_t element_offset =
+              token_offset * kReferenceHiddenSize;
+          if (!check_cuda(
+                  launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
+                      left + element_offset, right + element_offset,
+                      norm_weight, kProductionProjectionSubtileTokens,
+                      kReferenceHiddenSize, kRmsEpsilon,
+                      residual_output + element_offset,
+                      normalized_output + element_offset, stream_),
+                  operation, layer)) {
+            return false;
+          }
+        }
+        return true;
+      };
   const bool use_m32_residual_rms_fusion =
       reference_runner_detail::use_m32_prefill_residual_rms_fusion(
           token_count, kReferenceHiddenSize);
@@ -2329,8 +2426,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   for (std::size_t layer = 0U; layer < kReferenceDecoderLayerCount; ++layer) {
     const DecoderLayerWeights& layer_weights = weights_->layer(layer);
-    // The exact-M32 layer-(N-1) MLP boundary already produced layer N's
-    // normalized input. Layer 0 still normalizes the embedding explicitly.
+    // The M32-tiled C32/C64 layer-(N-1) MLP boundary already produced layer
+    // N's normalized input. Layer 0 still normalizes the embedding explicitly.
     if ((!use_m32_residual_rms_fusion || layer == 0U) &&
         !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                         views_.hidden[0],
@@ -2362,13 +2459,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       if (supports_bf16_projection_pair(
               projection_backend_, attention->in_proj_a,
               attention->in_proj_b)) {
-        if (!check_cuda(launch_projection_pair_tile_to_bf16_cuda(
-                            projection_backend_, attention->in_proj_a,
-                            attention->in_proj_b, views_.hidden[1],
-                            token_count, views_.fp32_scratch,
-                            views_.fp32_scratch_elements, views_.linear_a,
-                            views_.linear_b, stream_),
-                        "prefill_linear_a_b_projection", layer)) {
+        if (!project_pair(attention->in_proj_a, attention->in_proj_b,
+                          views_.hidden[1], views_.linear_a, views_.linear_b,
+                          "prefill_linear_a_b_projection", layer)) {
           return fail_prefill_tile(launch_failure);
         }
       } else if (!project(attention->in_proj_a, views_.hidden[1],
@@ -2599,12 +2692,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
     }
 
     if (use_m32_residual_rms_fusion) {
-      if (!check_cuda(
-              launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
-                  views_.hidden[0], views_.hidden[1],
-                  layer_weights.post_attention_layernorm.data, token_count,
-                  kReferenceHiddenSize, kRmsEpsilon, views_.hidden[2],
-                  views_.hidden[1], stream_),
+      if (!residual_norm_m32_tiles(
+              views_.hidden[0], views_.hidden[1],
+              layer_weights.post_attention_layernorm.data, views_.hidden[2],
+              views_.hidden[1],
               "prefill_attention_residual_post_attention_layernorm", layer)) {
         return fail_prefill_tile(launch_failure);
       }
@@ -2649,13 +2740,10 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           !project(layer_weights.mlp.gate_proj, views_.hidden[1],
                    views_.projection[0], "prefill_mlp_gate_projection",
                    layer) ||
-          !check_cuda(
-              launch_projection_tile_to_bf16_cuda(
-                  projection_backend_, layer_weights.mlp.up_proj,
-                  views_.hidden[1], token_count, views_.fp32_scratch,
-                  views_.fp32_scratch_elements, views_.projection[1],
-                  prefill_auxiliary_stream_),
-              "prefill_mlp_up_projection_auxiliary", layer) ||
+          !project_on_stream(layer_weights.mlp.up_proj, views_.hidden[1],
+                             views_.projection[1],
+                             "prefill_mlp_up_projection_auxiliary", layer,
+                             prefill_auxiliary_stream_) ||
           !check_cuda(
               static_cast<int>(cudaEventRecord(branch_done,
                                                auxiliary_stream)),
@@ -2678,8 +2766,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                         token_count * kReferenceIntermediateSize,
                         views_.projection[0], stream_),
                     "prefill_mlp_silu_mul", layer) ||
-        !project(layer_weights.mlp.down_proj, views_.projection[0],
-                 views_.hidden[1], "prefill_mlp_down_projection", layer)) {
+        !project_down(layer_weights.mlp.down_proj, views_.projection[0],
+                      views_.hidden[1], "prefill_mlp_down_projection", layer)) {
       return fail_prefill_tile(launch_failure);
     }
     if (use_m32_residual_rms_fusion) {
@@ -2692,12 +2780,9 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
       const char* const operation =
           is_final_layer ? "prefill_layer_residual_final_norm"
                          : "prefill_layer_residual_next_input_layernorm";
-      if (!check_cuda(
-              launch_residual_add_headwise_centered_rms_norm_m32_5120_cuda(
-                  views_.hidden[2], views_.hidden[1], next_norm_weight,
-                  token_count, kReferenceHiddenSize, kRmsEpsilon,
-                  views_.hidden[0], views_.hidden[1], stream_),
-              operation, layer)) {
+      if (!residual_norm_m32_tiles(
+              views_.hidden[2], views_.hidden[1], next_norm_weight,
+              views_.hidden[0], views_.hidden[1], operation, layer)) {
         return fail_prefill_tile(launch_failure);
       }
     } else if (!check_cuda(launch_residual_add_reference_cuda(
@@ -2711,7 +2796,8 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
 
   // Match the non-logit step boundary even though this output is not consumed
   // by the following layer-major tile or by persistent state.
-  // Exact M32 folded this norm into the final layer's MLP residual boundary.
+  // The C32/C64 M32-tiled path folded this norm into the final layer's MLP
+  // residual boundary.
   if (!use_m32_residual_rms_fusion &&
       !check_cuda(launch_headwise_centered_rms_norm_reference_cuda(
                       views_.hidden[0], weights_->final_norm().data,

@@ -3,7 +3,7 @@
 `q3x::engine` is the correctness-first, text-only generation surface for the
 exact pinned `nvidia/Qwen3.6-27B-NVFP4` artifact. It is batch-one, decodes one
 token at a time, and may execute prompt prefixes in bounded tiles of up to
-32 tokens. The implementation remains a bring-up and oracle-alignment path,
+64 tokens. The implementation remains a bring-up and oracle-alignment path,
 not a large-prefill or serving engine.
 
 ## Ownership and creation
@@ -42,10 +42,17 @@ Prefill preserves token semantics while optionally batching projections:
 
 - with `prefill_chunk_size=1` (the default), every prompt-prefix token executes
   all 64 layers with `compute_logits=false`, preserving the original order;
-- with `prefill_chunk_size=2..32`, the prefix is split into bounded layer-major
-  tiles. Quantized projections consume all tile rows together, while causal
-  Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths remain ordered
-  per token;
+- with `prefill_chunk_size=2..64`, the value is an upper bound for bounded
+  layer-major tiles. Only an exact 64-token candidate reaches the runner as one
+  C64 supertile. Whenever the next candidate is 33 through 63 tokens, the
+  controller emits C32 and recomputes the next tile size from the remaining
+  tokens; a partial C64
+  remainder therefore becomes C32 plus an ordered tail of at most 31 tokens.
+  This preserves the established C32 residual/RMS and MLP branch schedules;
+- within exact C64, only the aligned NVFP4 `[5120,17408]` down projection uses
+  one M64 kernel. Every other projection preserves two ordered C32 schedules,
+  while causal Conv/GDN updates, RoPE positions, K/V writes, and GQA lengths
+  remain ordered per token;
 - the final prompt token executes with `compute_logits=true` and produces the
   first greedy token;
 - each later step consumes the previous prediction and produces the next one;
@@ -58,7 +65,9 @@ plan, the final prompt/logits step is `finish_prefill`, and only later feedback
 steps use `decode_step`. Production currently binds both plans to the same
 `ReferenceRunner`, request state, workspace, and serialized CUDA schedule.
 This is a logical control-plane split, not separate device executors,
-multi-stream overlap, or double/triple buffering.
+double/triple buffering, or Prefill/Decode overlap. The existing exact aligned
+NVFP4 C32/C64 gate/up branch may use one auxiliary stream inside a layer; that
+narrow event-joined overlap is not a phase-level scheduler.
 
 The required request capacity is therefore
 `prompt_token_count + max_new_tokens - 1`: the first generated token is a
@@ -127,17 +136,19 @@ statistics, and explicit tolerances rather than requiring equal hashes.
 ```bash
 qwen3x-orin generate MODEL_DIR --prompt TEXT \
   [--max-tokens N] [--trace] \
-  [--prefill-chunk-size 1..32] \
+  [--prefill-chunk-size 1..64] \
   [--projection-backend reference|sm87]
 ```
 
 `N` defaults to 16 and the CLI admits 1 through 4096. Duplicate flags,
 unknown arguments, empty prompts, malformed integers, and values outside the
-range fail before model loading. Prefill chunk size defaults to 1. The request
-arena is created for the selected maximum, and a later generation request may
-not exceed that capacity. Trace capture forces an effective chunk size of 1 so
-its per-token boundary ordering remains unchanged; stdout reports both the
-requested and effective values. Projection dispatch defaults to `reference`;
+range fail before model loading. Prefill chunk size accepts 1 through 64 and
+defaults to 1. The request arena is created for the selected maximum, and a
+later generation request may not exceed that capacity. Requested/effective
+chunk values report this upper-bound policy; a reported value from 33 through
+63 does not imply that the controller emits an M33..M63 runner call. Trace
+capture forces an effective chunk size of 1 so its per-token boundary ordering
+remains unchanged. Projection dispatch defaults to `reference`;
 `sm87` is an explicit, default-off selection for direct FP8/NVFP4-to-BF16
 layer projections. `ReferenceEngineOptions` and `ReferenceOneShotOptions`
 expose the same strongly typed policy. Engine creation verifies that `sm87`
@@ -267,14 +278,17 @@ decoded text, and stop decision match exactly.
 
 `reference_engine_control_test` exercises the pure host controller without
 CUDA or model files. It gates independent Prefill/Decode callback contexts,
-scalar, `8+8+2`, `16+2`, and one-tile C32 prefix scheduling, the final-prompt transition,
-trace-to-C1 fallback, sequential inputs, prefix-logit suppression, first-token
-timing, stop/max behavior, capacity checks, nested runner errors, missing result
-fields, and the terminal-stop text rule. Its boundary matrix covers 14 prompt
-lengths and C1/C2/C8/C16/C32, for 70 host-controller combinations, and incomplete
-plans fail before a callback executes. CUDA runner tests cover factory and
+scalar, `8+8+2`, `16+2`, one-tile C32, one-tile C64, and C64 `64+32+31`
+partial-wide prefix scheduling, the final-prompt transition, trace-to-C1
+fallback, sequential inputs, prefix-logit suppression, first-token timing,
+stop/max behavior, capacity checks, nested runner errors, missing result fields,
+and the terminal-stop text rule. Its 112-case boundary matrix covers 14 prompt
+lengths across C1/C2/C8/C16/C32/C33/C63/C64, and incomplete plans fail before a
+callback executes. CUDA runner tests cover factory and
 primitive behavior separately. An installed-package consumer also configures
-against and links `q3x::engine`. These synthetic routing cases are not broader
+against exact package version 0.3.0 and links `q3x::engine`; the version bump is
+required because the public fixed-capacity Prefill result expanded from 32 to
+64 entries. These synthetic routing cases are not broader
 model-prompt evidence: the fixed-prompt 27B token/text gate is passed, while
 repeatability across more real prompts and tolerance-based native-versus-vLLM
 boundary characterization remain release gates.
@@ -286,4 +300,7 @@ projection policy defaults to `reference`; configure
 `-DQ3X_E2E_PROJECTION_BACKEND=sm87` to gate the optimized path. Without the
 external pinned model directory it exits with the standard skip code 77. The
 test executable also accepts an optional prefill chunk argument, so target
-validation can run the same oracle at C1, C8, C16, and C32.
+validation can run the same oracle at C1, C8, C16, C32, and C64. The registered
+C64 case uses the fixed 19-token prompt and therefore validates C64 capacity and
+configuration with an 18-token prefix; exact-M64 full-model evidence requires a
+prompt with at least 64 prefix tokens and is a separate promotion gate.

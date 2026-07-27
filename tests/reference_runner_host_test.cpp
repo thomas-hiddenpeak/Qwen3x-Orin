@@ -510,13 +510,17 @@ void test_schedule_and_workspace(TestContext& test) {
   test.expect(
       detail::use_m32_prefill_residual_rms_fusion(
           32U, runtime::kReferenceHiddenSize) &&
+          detail::use_m32_prefill_residual_rms_fusion(
+              64U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               31U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(
               33U, runtime::kReferenceHiddenSize) &&
+          !detail::use_m32_prefill_residual_rms_fusion(
+              63U, runtime::kReferenceHiddenSize) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'119U) &&
           !detail::use_m32_prefill_residual_rms_fusion(32U, 5'121U),
-      "Prefill residual/RMS schedule selects only exact M32 hidden-5120 and "
+      "Prefill residual/RMS schedule selects exact C32/C64 hidden-5120 and "
       "preserves every other tile fallback");
 
   const runtime::RequestPlanResult built =
@@ -537,13 +541,13 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::build_request_memory_plan(chunk_options);
   const runtime::ReferencePrefillTileResult tile_result;
   test.expect(chunk_built &&
-                  runtime::kMaximumRequestPrefillChunkSize == 32U &&
-                  chunk_built.value->prefill_chunk_size == 32U &&
-                  tile_result.steps.size() == 32U &&
+                  runtime::kMaximumRequestPrefillChunkSize == 64U &&
+                  chunk_built.value->prefill_chunk_size == 64U &&
+                  tile_result.steps.size() == 64U &&
                   detail::validate_reference_workspace_plan(
                       *chunk_built.value) ==
                       runtime::ReferenceRunnerError::kNone,
-              "chunk-thirty-two plan and tile result satisfy the runner workspace ABI");
+              "chunk-sixty-four plan and tile result satisfy the runner workspace ABI");
 
   plan.prefill_chunk_size = runtime::kMaximumRequestPrefillChunkSize;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
@@ -554,7 +558,7 @@ void test_schedule_and_workspace(TestContext& test) {
       runtime::kMaximumRequestPrefillChunkSize + 1U;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
                   runtime::ReferenceRunnerError::kInvalidRequestState,
-              "chunk-thirty-three runner metadata is rejected");
+              "chunk-sixty-five runner metadata is rejected");
   plan = *built.value;
   plan.prefill_chunk_size = 0U;
   test.expect(detail::validate_reference_workspace_plan(plan) ==
@@ -682,8 +686,11 @@ void test_fake_linear_weight_validation(TestContext& test) {
   test.expect(
       detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-          input.data(), gate_output.data(), up_output.data(), 32U),
-      "exact aligned NVFP4 C32 MLP gate/up pair selects dual-stream prefill");
+          input.data(), gate_output.data(), up_output.data(), 32U) &&
+          detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output.data(), up_output.data(), 64U),
+      "exact aligned NVFP4 C32/C64 MLP gate/up pair selects dual-stream prefill");
   test.expect(
       !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kReference, gate, up, input.data(),
@@ -691,6 +698,9 @@ void test_fake_linear_weight_validation(TestContext& test) {
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
               input.data(), gate_output.data(), up_output.data(), 31U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output.data(), up_output.data(), 63U) &&
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
               input.data(), gate_output.data(), gate_output.data(), 32U),

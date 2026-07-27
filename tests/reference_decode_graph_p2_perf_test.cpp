@@ -275,7 +275,7 @@ int main(const int argc, char** const argv) {
   engine_options.enable_trace = true;
   engine_options.request_options.max_sequence_length = 65U;
   engine_options.request_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   runtime::ReferenceEngineCreateResult created =
       runtime::create_reference_engine(model_directory, engine_options);
   if (!created) {
@@ -293,7 +293,7 @@ int main(const int argc, char** const argv) {
   screen_options.max_new_tokens =
       static_cast<std::uint32_t>(kExpectedGeneratedIds.size());
   screen_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   runtime::ReferenceDecodeGraphP2ScreenOutcome screened =
       created.value->screen_short_decode_graph_cache_p2(
           kPrompt, screen_options);
@@ -325,7 +325,7 @@ int main(const int argc, char** const argv) {
       runtime::ProjectionBackend::kReference;
   reference_engine_options.request_options.max_sequence_length = 64U;
   reference_engine_options.request_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   runtime::ReferenceEngineCreateResult reference_created =
       runtime::create_reference_engine(model_directory,
                                        reference_engine_options);
@@ -338,7 +338,7 @@ int main(const int argc, char** const argv) {
   runtime::ReferenceGenerateOptions reference_generate_options;
   reference_generate_options.max_new_tokens = 2U;
   reference_generate_options.prefill_chunk_size =
-      runtime::kMaximumRequestPrefillChunkSize;
+      runtime::kReferenceDecodeGraphScreenPrefillChunkSize;
   reference_generate_options.logits_mode =
       runtime::ReferenceLogitsMode::kPredictedTokenOnly;
   runtime::ReferenceGenerateResult reference_cache_off =

@@ -246,10 +246,8 @@ GenerationControlResult run_generation_control_impl(
       return failure(GenerationControlError::kInvalidArgument);
     }
     const std::size_t prefix_execution_count =
-        effective_prefill_chunk_size > 1U
-            ? prefix_token_count / effective_prefill_chunk_size +
-                  (prefix_token_count % effective_prefill_chunk_size != 0U)
-            : prefix_token_count;
+        reference_engine_detail::prefix_execution_count(
+            prefix_token_count, effective_prefill_chunk_size);
     control.timing.prefix_execution_milliseconds.reserve(
         prefix_execution_count);
 
@@ -257,8 +255,9 @@ GenerationControlResult run_generation_control_impl(
     if (effective_prefill_chunk_size > 1U) {
       while (prefix_index < prefix_token_count) {
         const std::size_t tile_token_count =
-            std::min(effective_prefill_chunk_size,
-                     prefix_token_count - prefix_index);
+            reference_engine_detail::next_prefix_tile_token_count(
+                prefix_token_count - prefix_index,
+                effective_prefill_chunk_size);
         ReferencePrefillTileOptions tile_options;
         tile_options.measure_timing = true;
         const auto invoke_prefix_tile = [&]() {
