@@ -1488,6 +1488,19 @@ row-search structure without an unpriced global-progress assumption. See the
   fixture; then route exact C256/C512 and require fixed-clock full-model and
   fresh-Nsight admission. See the
   [M128 screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).
+- [selected test-only GDN sequential FP32-B8; current WY rejected] Commit
+  `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
+  lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
+  1.74177x W; C512 reaches **2.78551x S** versus 1.74228x W. Sequential
+  latency is only **0.628852/0.625479** of WY, and S beats W in all three
+  mirrored rounds at both shapes. CPU C1/C7/C8/C9/C15/C16, split-tail,
+  numerical, immutable-input, invalid-contract, and 109-register/8,256-byte-
+  shared/two-CTA gates pass. The 37,748,736-byte rotating state pool exceeds
+  the 4-MiB L2 but makes no hit-rate claim. Production remains unchanged.
+  After M128 admission, GDN requires real-checkpoint numerics, full-model
+  exact-token/state/memory, fixed-clock Prefix/TTFT, Decode non-regression,
+  and fresh-profiler gates. See the
+  [GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1497,8 +1510,9 @@ row-search structure without an unpriced global-progress assumption. See the
   **1.01871x**, both below the frozen 1.03x gate. First-process stop-loss skips
   replication, runner/full-model, NCU, and Nsys work; production is unchanged.
   Do not repeat longer lifetime with the same sequential recurrence body. A
-  future GDN screen requires a materially different algorithm/dataflow after
-  the selected attention and projection admissions. See the
+  future GDN screen required a materially different algorithm/dataflow; the
+  B8 block-transition screen above now supplies that new test-only direction,
+  while this whole-span result remains rejected. See the
   [GDN rejection](metadata/qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json).
 - [closed, scheduling-only persistent Down P0] Commit `03336b6` uses equal-byte
   NK64/NK256 sidecars plus 16 static-stride CTAs but reaches only
@@ -1583,9 +1597,12 @@ CTA/SM. It is selected for production admission, not yet production-routed.
 First freeze pair Graph topology, partial-alias rejection, and the exact
 checkpoint-hash fixture; then require exact C256/C512 routing, full-model
 fixed-clock Prefix/TTFT, memory, Decode non-regression, and fresh Nsight.
-The parallel GDN screen selects sequential FP32-B8 over WY, but remains
-test-only and follows M128 admission. Global NCU traffic evidence then selects
-linear-attention FP8 QKV/Z/O or NVFP4 Down for the next dataflow change.
+The parallel GDN screen selects sequential FP32-B8 at **2.76977x/2.78551x**
+over production M16 and rejects the measured WY dataflow, but remains
+test-only and follows M128 admission. It must pass real-checkpoint numerical,
+full-model exact-token/state/memory, fixed-clock Prefix/TTFT, Decode, and fresh
+profiler gates before routing. Global NCU traffic evidence then selects linear-
+attention FP8 QKV/Z/O or NVFP4 Down for the next dataflow change.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request
 serving throughput is a separate later target.

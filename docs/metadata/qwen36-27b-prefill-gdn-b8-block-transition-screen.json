@@ -1,0 +1,304 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-b8-block-transition-screen",
+  "status": "selected_test_only_sequential_fp32_b8_wy_rejected",
+  "recorded_at": "2026-07-28T06:04:54+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "eaa09f48737746268cc3101a8be83d17cf4a4b5d",
+    "tree": "f5ace9c1fd45f98c1b073c354f97db7d63a18a62",
+    "parent_commit": "cb1504fac31eb3ac1205af3c9c662fb6c167af15",
+    "subject": "test: select sequential B8 Prefill GDN",
+    "files": [
+      "CMakeLists.txt",
+      "tests/gdn_prefill_b8_block_sm87_screen.cu"
+    ],
+    "scope": "standalone test executable only",
+    "production_library_changed": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "public_abi_changed": false,
+    "decode_changed": false,
+    "mtp_changed": false,
+    "measured_binary": {
+      "path": "build/orin-release/q3x_gdn_prefill_b8_block_sm87_screen",
+      "bytes": 1244624,
+      "sha256": "593386d07372f1abbc45371c3009601460eb3ccad4776e0fd955176f526e7708",
+      "elf_build_id": "c8a5963ec4f544bf4145f918589b3b35f62e21d0",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "l2_cache_bytes": 4194304,
+    "fixed_clock_evidence_recorded_for_this_screen": false,
+    "claim_scope": "one test-only Release-binary process on one Orin; no full-model, fixed-clock production, L2-hit-rate, power, energy, concurrency, or tail-latency claim"
+  },
+  "experiment": {
+    "performance_token_counts": [256, 512],
+    "correctness_token_counts": [1, 7, 8, 9, 15, 16],
+    "block_tokens": 8,
+    "dimensions": {
+      "qk_heads": 16,
+      "value_heads": 48,
+      "head_dimension": 128,
+      "state_elements": 786432,
+      "state_bytes_per_bank": 1572864,
+      "activation_state_and_output_format": "BF16"
+    },
+    "baseline_B": "ordered chain of the production M16 BF16-state GDN kernel",
+    "sequential_S": "test-only kernel retaining one recurrent-state row in FP32 for eight ordered updates and publishing a BF16 state boundary after each complete B8 block or final short tail",
+    "wy_W": "test-only lower-triangular B8 dependency solve followed by ordered elementwise state-FMA replay and the same BF16 B8 boundary",
+    "selected": "sequential_fp32_b8",
+    "rejected": "wy_for_current_dataflow",
+    "mtp_used": false
+  },
+  "frozen_gates": {
+    "performance": {
+      "minimum_baseline_to_sequential_speedup_each_shape": 1.25,
+      "sequential_must_beat_baseline_in_every_round": true,
+      "wy_rejection_requires_sequential_to_beat_wy_in_every_round": true
+    },
+    "selected_sequential_resources": {
+      "maximum_registers_per_thread": 112,
+      "required_static_shared_bytes": 8256,
+      "required_local_bytes": 0,
+      "required_threads_per_block": 256,
+      "minimum_active_blocks_per_sm": 2
+    },
+    "numerics": {
+      "relative_denominator_floor": 0.01,
+      "wy_vs_sequential_output": {
+        "maximum_absolute": 0.0001,
+        "maximum_relative": 0.01,
+        "maximum_p99_relative": 0.01,
+        "maximum_nrmse": 0.0001,
+        "minimum_cosine": 0.999999
+      },
+      "wy_vs_sequential_state": {
+        "maximum_absolute": 0.001953125,
+        "maximum_p99_absolute": 0.00048828125,
+        "maximum_p99_relative": 0.025,
+        "maximum_nrmse": 0.0001,
+        "minimum_cosine": 0.999999,
+        "maximum_relative": "reported_not_gated"
+      },
+      "sequential_vs_independent_cpu": {
+        "maximum_absolute": 0.00390625,
+        "maximum_p99_absolute": 0.0009765625,
+        "maximum_p99_relative": 0.025,
+        "maximum_nrmse": 0.01,
+        "minimum_cosine": 0.9999,
+        "maximum_relative": "reported_not_gated"
+      }
+    }
+  },
+  "correctness": {
+    "result": "pass",
+    "independent_cpu_oracle": "FP32 B8 recurrence for C1/C7/C8/C9/C15/C16",
+    "split_tail_equivalence": {
+      "variants": ["sequential", "WY"],
+      "whole_token_counts": [9, 16],
+      "split": "C8 plus C1 or C8",
+      "output": "bitwise_equal",
+      "final_state": "bitwise_equal"
+    },
+    "immutable_inputs_preserved": true,
+    "unused_output_tail_preserved": true,
+    "invalid_contracts": "pass",
+    "observed_maxima": {
+      "wy_vs_sequential_fp32_b8": {
+        "output": {
+          "max_abs": 0.0000305176,
+          "max_rel_floor_1e_2": 0.00305176,
+          "p99_abs": 0.0,
+          "p99_rel_floor_1e_2": 0.0,
+          "max_nrmse": 0.0000810552,
+          "min_cosine": 1.0,
+          "non_finite": 0
+        },
+        "state": {
+          "max_abs": 0.000976562,
+          "max_rel_floor_1e_2": 0.0213623,
+          "p99_abs": 0.0,
+          "p99_rel_floor_1e_2": 0.0,
+          "max_nrmse": 0.0000350118,
+          "min_cosine": 1.0,
+          "non_finite": 0
+        }
+      },
+      "sequential_fp32_b8_vs_independent_cpu": {
+        "output": {
+          "max_abs": 0.0000305176,
+          "max_rel_floor_1e_2": 0.00305176,
+          "p99_abs": 0.0,
+          "p99_rel_floor_1e_2": 0.0,
+          "max_nrmse": 0.0000505552,
+          "min_cosine": 1.0,
+          "non_finite": 0
+        },
+        "state": {
+          "max_abs": 0.000488281,
+          "max_rel_floor_1e_2": 0.0152588,
+          "p99_abs": 0.0,
+          "p99_rel_floor_1e_2": 0.0,
+          "max_nrmse": 0.0000262377,
+          "min_cosine": 1.0,
+          "non_finite": 0
+        }
+      },
+      "selected_sequential_vs_production_m16_at_c16": {
+        "output": {
+          "max_abs": 0.0000915527,
+          "max_rel_floor_1e_2": 0.00915527,
+          "p99_abs": 0.0000305176,
+          "p99_rel_floor_1e_2": 0.00305176,
+          "nrmse": 0.00401498,
+          "cosine": 0.999992,
+          "non_finite": 0
+        },
+        "state": {
+          "max_abs": 0.00195312,
+          "max_rel_floor_1e_2": 0.0976562,
+          "p99_abs": 0.000488281,
+          "p99_rel_floor_1e_2": 0.0213623,
+          "nrmse": 0.00313941,
+          "cosine": 0.999995,
+          "non_finite": 0
+        }
+      },
+      "wy_vs_production_m16_at_c16": {
+        "output_nrmse": 0.00401527,
+        "output_cosine": 0.999992,
+        "state_nrmse": 0.00313939,
+        "state_cosine": 0.999995,
+        "non_finite": 0
+      }
+    }
+  },
+  "resources": {
+    "selected_sequential": {
+      "registers_per_thread": 109,
+      "static_shared_bytes": 8256,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2,
+      "gate": "pass"
+    },
+    "rejected_wy_control": {
+      "registers_per_thread": 127,
+      "static_shared_bytes": 9312,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "spill_store_bytes": 0,
+      "spill_load_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2
+    }
+  },
+  "performance_protocol": {
+    "processes": 1,
+    "rounds_per_shape": 3,
+    "mirrored_order_each_round": "B-S-W-W-S-B",
+    "warmup_operations_each_pass": 24,
+    "measured_operations_each_pass": 72,
+    "passes_per_variant_each_round": 2,
+    "samples_per_variant_each_shape": 432,
+    "aggregate": "median of all 432 per-operation CUDA-event samples for each variant and shape",
+    "state_banks": 24,
+    "state_working_set_bytes": 37748736,
+    "l2_cache_bytes": 4194304,
+    "working_set_to_l2_ratio": 9.0,
+    "state_reset_before_each_timed_pass": true,
+    "state_bank_rotation": "one bank per logical operation",
+    "interpretation": "the aggregate state pool exceeds nominal L2 capacity; no counter-based L2 hit-rate, residency, persistence, or traffic conclusion is claimed"
+  },
+  "performance": {
+    "c256": {
+      "production_m16_baseline_p50_ms": 5.21501,
+      "sequential_fp32_b8_p50_ms": 1.88283,
+      "wy_p50_ms": 2.99408,
+      "baseline_to_sequential_speedup": 2.76977,
+      "baseline_to_wy_speedup": 1.74177,
+      "sequential_relative_to_wy": 0.628852,
+      "sequential_rounds_faster_than_baseline": 3,
+      "wy_rounds_slower_than_sequential": 3,
+      "rounds_total": 3,
+      "selected_gate": "pass",
+      "wy_rejection_gate": "pass"
+    },
+    "c512": {
+      "production_m16_baseline_p50_ms": 10.4242,
+      "sequential_fp32_b8_p50_ms": 3.74229,
+      "wy_p50_ms": 5.98307,
+      "baseline_to_sequential_speedup": 2.78551,
+      "baseline_to_wy_speedup": 1.74228,
+      "sequential_relative_to_wy": 0.625479,
+      "sequential_rounds_faster_than_baseline": 3,
+      "wy_rounds_slower_than_sequential": 3,
+      "rounds_total": 3,
+      "selected_gate": "pass",
+      "wy_rejection_gate": "pass"
+    }
+  },
+  "test_suite": {
+    "total": 64,
+    "passed": 52,
+    "expected_skips": 12,
+    "failed": 0,
+    "skip_breakdown": {
+      "tokenizer": 1,
+      "external_model_or_performance": 11
+    }
+  },
+  "evidence": {
+    "build_log": {
+      "path": "/tmp/q3x-gdn-b8-block-final-build.log",
+      "bytes": 1495,
+      "sha256": "c5cc99982ba40a20c1a59c408c8c3c1dfb2fe3a925676e2f8ecaed73e7b85df0"
+    },
+    "default_log": {
+      "path": "/tmp/q3x-gdn-b8-block-final-default.log",
+      "bytes": 6879,
+      "sha256": "eb69af173f9765872e869b5b41865ac825d6431866d61639d798af70c180f8f7",
+      "result": "pass"
+    },
+    "performance_log": {
+      "path": "/tmp/q3x-gdn-b8-block-final-perf.log",
+      "bytes": 9902,
+      "sha256": "79a717c8b6e0af59f0d1a041d213204cd73e603aae96c9eda9e5900c16e00fdf",
+      "result": "pass"
+    },
+    "full_ctest_log": {
+      "path": "/tmp/q3x-gdn-b8-block-full-ctest.log",
+      "bytes": 9466,
+      "sha256": "1e99ef9b223ba5ec7784cf01cb4d0e788592ae8d19f8f53da84774a8eeebb3a3",
+      "result": "pass_with_12_expected_skips"
+    }
+  },
+  "decision": {
+    "selected_mechanism": "sequential FP32 B8 block-transition GDN",
+    "rejected_mechanism": "the measured WY formulation for the current dataflow",
+    "production_promotion": false,
+    "production_status": "unchanged",
+    "next_required_gates": [
+      "real-checkpoint numerical validation",
+      "full-model exact-token and recurrent-state validation",
+      "full-model persistent-memory validation",
+      "fixed-clock Prefix and TTFT benchmark",
+      "fresh profiler attribution before any production dispatch change"
+    ]
+  },
+  "limitations": [
+    "This is a standalone test executable, not a production route or an achieved full-model Prefill result.",
+    "The working-set-over-L2 assertion does not measure L2 hit rate, traffic, residency, or persistence.",
+    "The performance result is from one process and the final logs do not record a fixed-clock control snapshot.",
+    "Production dispatch, runner, public ABI, Decode, MTP, and model output policy remain unchanged.",
+    "Rejecting this WY implementation closes only its current measured dataflow, not all possible associative GDN formulations."
+  ]
+}

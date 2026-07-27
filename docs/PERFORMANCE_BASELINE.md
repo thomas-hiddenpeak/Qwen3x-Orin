@@ -7609,7 +7609,68 @@ routing it, freeze the pair Graph topology, partial-alias rejection, and exact
 checkpoint-hash fixture. Then admit only the exact C256/C512 Gate/Up routes
 and rerun fixed-clock exact-output, memory, Prefix/TTFT, and fresh Nsight
 gates. The parallel GDN study now favors its test-only sequential FP32-B8
-formulation over WY, but neither GDN candidate is production-routed; M128
-Gate/Up admission remains first. Full binary identity, raw-log hashes, gates,
-and limitations are in the
+formulation over WY, but neither GDN candidate is production-routed; that
+screen is recorded below and M128 Gate/Up admission remains first. Full binary
+identity, raw-log hashes, gates, and limitations are in the
 [M128 B-tile-reuse screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).
+
+## GDN B8 block-transition selection
+
+Commit `eaa09f4` adds a standalone SM87 screen comparing three C256/C512 GDN
+paths: the production M16 BF16-state chain (`B`), a test-only sequential
+FP32-B8 recurrence (`S`), and a test-only B8 lower-triangular WY formulation
+(`W`). Both B8 paths publish BF16 recurrent state after each complete
+eight-token block or final short tail. No production library, dispatch,
+runner, public ABI, Decode, or MTP path changes.
+
+The final 1,244,624-byte Release binary uses three mirrored
+`B-S-W-W-S-B` rounds per shape. Every pass has 24 warmup and 72 measured
+logical operations; the aggregate is the median of 432 CUDA-event samples per
+variant and shape. Each operation rotates across 24 recurrent-state banks and
+each pass begins from a reset copy:
+
+| Shape | Production B | Sequential S | WY W | B / S | B / W | S latency / W latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| C256 | 5.21501 ms | **1.88283 ms** | 2.99408 ms | **2.76977x** | 1.74177x | **0.628852** |
+| C512 | 10.4242 ms | **3.74229 ms** | 5.98307 ms | **2.78551x** | 1.74228x | **0.625479** |
+
+Sequential clears the frozen 1.25x baseline gate and beats WY in every one of
+the three rounds at both shapes. WY also improves over production M16, but it
+is 59--60% slower than sequential for this measured dataflow and is therefore
+rejected. This rejection does not rule out all possible associative GDN
+formulations.
+
+Correctness covers C1/C7/C8/C9/C15/C16 against an independent CPU FP32-B8
+oracle. Sequential and WY whole-chunk output/final-state results are bitwise
+equal to explicit C8-plus-tail execution at C9 and C16; immutable inputs,
+unused output tails, and invalid contracts pass. Across all shapes, WY versus
+sequential has at most 8.10552e-5 output NRMSE and 3.50118e-5 state NRMSE,
+with cosine 1.0. Sequential versus the independent CPU oracle has at most
+5.05552e-5 output NRMSE and 2.62377e-5 state NRMSE, also with cosine 1.0.
+Against the production M16 C16 reference, selected sequential output has
+NRMSE **0.00401498** / cosine **0.999992**, and final state has NRMSE
+**0.00313941** / cosine **0.999995**.
+
+| Test kernel | Registers | Static shared | Local | Stack/spill | Active CTA/SM |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Selected sequential FP32-B8 | **109** | **8,256 B** | 0 B | 0 B | **2** |
+| Rejected WY control | 127 | 9,312 B | 0 B | 0 B | 2 |
+
+The selected route passes the frozen limits of at most 112 registers, exactly
+8,256 bytes shared memory, zero local memory, and at least two 256-thread
+CTA/SM. The complete suite has 64 tests: 52 pass, 12 expected skips
+(one tokenizer plus 11 external-model/performance tests), and zero failures.
+
+The 24 state banks occupy 37,748,736 bytes, exactly 9x the reported 4,194,304-
+byte L2 capacity. This only prevents the benchmark from assuming that the
+entire state pool fits in L2; without hardware counters it is **not** evidence
+of L2 hit rate, persistence, residency, or global-memory traffic. The final
+logs also do not record a fixed-clock snapshot.
+
+Sequential FP32-B8 is selected only as the next GDN candidate; it is not a
+production or full-model result. Before routing it, require real-checkpoint
+numerics, full-model exact-token and recurrent-state checks, persistent-memory
+validation, fixed-clock Prefix/TTFT measurement, Decode non-regression, and
+fresh profiler attribution. Full binary identity, evidence hashes, frozen
+gates, and limitations are in the
+[GDN B8 screen](metadata/qwen36-27b-prefill-gdn-b8-block-transition-screen.json).

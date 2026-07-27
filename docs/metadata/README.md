@@ -1357,6 +1357,16 @@ The diagnostic Phase 3 records are:
   gates. The production route is unchanged. Applying the
   conservative M512 pair minimum to the current Gate/Up union projects, but
   does not achieve, **2,912.933316 ms / 175.767841 token/s** P513 Prefix.
+- [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
+  which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
+  measured WY control. C256 reaches **2.76977x** versus production M16 while
+  WY reaches 1.74177x; C512 reaches **2.78551x** versus 1.74228x. Sequential
+  beats WY in all six mirrored rounds. Independent CPU C1/C7/C8/C9/C15/C16,
+  split-tail, frozen numerical, immutable-input, invalid-call, and
+  109-register/8,256-byte-shared/two-CTA resource gates pass. The 24-bank
+  37,748,736-byte state pool exceeds the 4-MiB L2, but this is not an L2
+  hit-rate claim. Production dispatch, runner, ABI, Decode, and MTP remain
+  unchanged; real-checkpoint and fixed-clock full-model gates are still due.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
