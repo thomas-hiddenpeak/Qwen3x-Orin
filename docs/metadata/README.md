@@ -1176,6 +1176,30 @@ The diagnostic Phase 3 records are:
   ms/token, but the prior scale6 decoder regressed in all 30 rounds, so a
   same-binary decoder/sector stop-loss remains mandatory before any full
   gate/up candidate or production allocation.
+- [`qwen36-27b-lm-head-exact-progressive-mips-admission.json`](qwen36-27b-lm-head-exact-progressive-mips-admission.json),
+  which closes the prediction-only LM-head fixed-cut/two-kernel route on 25
+  captured P19--P43 final-norm activations. Its best 4,864-column cut saves
+  only 34.584 MB/call on average and 33.912 MB/call at worst, so 0/25 steps
+  reach the frozen 55-MB traffic gate. A distinct single-kernel q20
+  progressive design remains conditional P2 only: its zero-code simulation
+  saves 89.591 MB/call on average and 59.539 MB/call at worst, but it has no
+  implementation or performance claim until per-row transaction suppression,
+  incumbent publication, exactness, resources, and measured traffic pass.
+- [`qwen36-27b-decode-gate-up-p15e-t128-decoder-rejection.json`](qwen36-27b-decode-gate-up-p15e-t128-decoder-rejection.json),
+  which rejects the admitted P15E-T128 payload after an actual layer-0
+  standalone decoder screen. Full host/device decode is bit exact with zero
+  local memory and three CTA/SM, and LTS traffic falls 40.27%, but sparse
+  directory/raw access raises L1 request sectors 32.01% and the decoder body
+  grows to 368 instructions. All five rounds regress; the paired median is
+  0.620662x and projects to a 4.785536-ms/token loss. Candidate source and its
+  CMake target are removed, with no production allocation or dispatch change.
+- [`qwen36-27b-decode-gdn-transposed-state-native-encoder-rejection.json`](qwen36-27b-decode-gdn-transposed-state-native-encoder-rejection.json),
+  which closes the deeper GDN transposed-state and native-BF16-encoder family.
+  The second transposed-state global read does hit L1, but 24-bank cold-state
+  screens reach only 0.8430x for double-global, 0.9027x for BF16 shared retain,
+  and 0.5792x for cooperative loading. The isolated native encoder reaches
+  only 0.996115x. All test-only candidates are removed, production source and
+  tests are restored byte-for-byte, and the default CUDA GDN suite passes.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

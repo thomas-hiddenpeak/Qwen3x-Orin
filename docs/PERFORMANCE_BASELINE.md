@@ -6591,3 +6591,68 @@ only a same-binary decoder/sector stop-loss; it is not allocated or reachable
 from production. The formal anchor is unchanged. Exact byte decomposition,
 hashes, risk comparison, and gates are in the
 [capacity record](metadata/qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json).
+
+## Decode gate/up P15E-T128 decoder rejection
+
+The byte admission was followed by an actual layer-0, same-binary standalone
+decoder screen. Host and device unpacking match every canonical E4M3 scale
+byte; checksums, guards, and input immutability pass. The candidate uses 27
+registers, 16 bytes of shared memory, zero local memory, and three active
+CTA/SM. Nevertheless, every formal `B-C-C-B` round regresses:
+
+| Metric | Canonical | P15E-T128 | Result |
+| --- | ---: | ---: | ---: |
+| Selection median | 122.343 us/layer | 197.127 us/layer | 0.620662x |
+| L1 request sectors | 348,192 | 459,649 | +32.010% |
+| LTS sector equivalents | 349,244 | 208,588 | -40.274% |
+| Projected 64-layer delta | -- | -- | -4.785536 ms/token |
+
+Palette lookup, tile-directory reads, sparse raw escape ranking, ballot, and
+popcount more than erase the lower L2-facing payload. Layer 50 and full GEMV
+integration are skipped by the predeclared first-fixture stop-loss. The
+standalone source and CMake target are deleted; production dispatch and the
+formal anchor remain unchanged. Full round and NCU identities are in the
+[decoder rejection record](metadata/qwen36-27b-decode-gate-up-p15e-t128-decoder-rejection.json).
+
+## Decode GDN transposed-state and native-encoder rejection
+
+The follow-up tested whether a one-time Prefill-to-Decode transpose from
+`[head][value][key]` to `[head][key][value]` could give each row-owner warp
+coalesced state access and eliminate further shared-state flows. Correctness
+passes bitwise over the complete state, three recurrence steps, directed
+nonfinite patterns, and Graph replay. The phase-boundary transpose costs about
+1.01--1.03 ms/request, but the decisive 24-bank cold-state results all regress:
+
+| Candidate | Cold speedup | Projected 48-layer delta |
+| --- | ---: | ---: |
+| four-warp double-global state | 0.843005x | -0.283054 ms/token |
+| four-warp BF16 shared retain | 0.902691x | -0.163734 ms/token |
+| eight-warp cooperative load | 0.579271x | -1.103440 ms/token |
+| canonical layout, native BF16 encoder only | 0.996115x | -0.005874 ms/token |
+
+NCU confirms the second global state pass is almost entirely an L1 hit. The
+failure instead comes from exposed cold first-read latency, too few useful
+state-work warps, and, for cooperative loading, a phase barrier. Resident-only
+speedups up to 1.50276x are therefore cache artifacts rather than promotion
+evidence. Candidate code is removed, the production source/test hashes are
+restored, the default CUDA GDN suite passes, and the formal anchor remains
+**105.870500 ms/token / 9.445501816 token/s**. See the
+[structural rejection record](metadata/qwen36-27b-decode-gdn-transposed-state-native-encoder-rejection.json).
+
+## Decode LM-head exact progressive traffic audit
+
+An offline audit captured all 25 P19--P43 final-norm activation vectors and
+tested exact prediction-only branch-and-bound traffic. The best fixed-cut,
+two-kernel scheme reads 4,864 of 5,120 columns before fully recomputing
+survivors. Although survivor ratios are tiny, duplicated prefix work limits
+the mean/worst saving to **34.584/33.912 MB per call**; no step reaches the
+55-MB admission gate, so that route is closed without code.
+
+A different q20 single-kernel simulation, with 20 256-column checkpoints and
+register-resident partial accumulators, saves **89.591 MB/call** on average and
+**59.539 MB/call** at worst. It remains conditional P2 only: no implementation,
+timing, or production claim exists until per-row predicates demonstrably stop
+future weight transactions, completed-wave incumbents are published
+deterministically, exact native argmax/tie behavior passes, and measured
+traffic stays above the gate after the 18.872-MB suffix-norm sidecar. See the
+[progressive audit record](metadata/qwen36-27b-lm-head-exact-progressive-mips-admission.json).

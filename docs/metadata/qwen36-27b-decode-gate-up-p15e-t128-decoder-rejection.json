@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gate-up-p15e-t128-decoder-rejection",
+  "status": "rejected-test-only-gate-up-p15e-t128-decoder",
+  "recorded_at": "2026-07-27T12:19:31+08:00",
+  "timezone": "Asia/Shanghai",
+  "scope": {
+    "phase": "Decode",
+    "token_count": 1,
+    "subject": "standalone gate/up block-scale decoder and sector screen",
+    "mtp_used": false,
+    "production_dispatch_reachable": false,
+    "full_gate_up_kernel_implemented": false,
+    "production_kernel_modified": false,
+    "model_modified": false
+  },
+  "source": {
+    "base_commit": "c023a86dd839daae2b0dc9d3fafa97f0d995fd97",
+    "base_subject": "docs: close Down flow and admit Gate scale payload",
+    "candidate_source_path_before_cleanup": "tests/sm87_nvfp4_p15e_decoder_perf_test.cu",
+    "candidate_source_sha256_before_cleanup": "2960d437d366bd071aaea08591204cab24038e831cea46275d0f8f3d1b6bec0a",
+    "standalone_binary_path_before_cleanup": "build/orin-release/q3x_sm87_nvfp4_p15e_decoder_perf_test",
+    "standalone_binary_bytes": 151696,
+    "standalone_binary_sha256": "072724fd4b4004af3a358d059cb899571853179030d43b9864d820b805906c76",
+    "candidate_committed": false,
+    "cleanup": "The standalone CMake target and complete candidate CUDA source were deleted with apply_patch after the first actual fixture triggered the frozen stop-loss."
+  },
+  "checkpoint": {
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "fixture": "actual layer 0 gate/up weight_scale tensors",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "gate_absolute_offset": 3606039072,
+    "up_absolute_offset": 3611609632,
+    "bytes_per_tensor": 5570560,
+    "dtype": "F8_E4M3",
+    "shape": [
+      17408,
+      320
+    ],
+    "gate_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+  },
+  "candidate_format": {
+    "name": "P15E-T128-v1",
+    "palette_scope": "one shared deterministic top-15 raw E4M3 palette for the layer's gate and up tensors; frequency ties use ascending raw byte",
+    "code_contract": "four-bit codes 0..14 index the shared palette and code 15 is an exact raw-byte escape",
+    "consumption_order": "row_quad, K512 tile, lane_pair, phase, row",
+    "tile_values": 128,
+    "code_bytes_per_tile": 64,
+    "directory": "one little-endian uint32 raw-escape prefix per tile",
+    "raw_escape_order": "lane-major [lane][row] within each tile",
+    "section_alignment_bytes": 128,
+    "tensor_alignment_bytes": 256,
+    "gate_escapes": 164067,
+    "up_escapes": 137507,
+    "gate_sidecar_bytes": 3123712,
+    "up_sidecar_bytes": 3097088,
+    "pair_sidecar_bytes": 6220800,
+    "pair_canonical_bytes": 11141120,
+    "pair_ratio_percent": 55.836397,
+    "gate_sidecar_sha256": "a065ec308c6ebce45d81b50a66c01d6eaf1db16afc3486c656528805c7d1eb4a",
+    "up_sidecar_sha256": "5b40bfb2623a5080d724528daf975c256b1329d3e54e074e6ea7be23dfb78806"
+  },
+  "decoder_topology": {
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "warps_per_block": 16,
+    "row_quad_stride": 512,
+    "tiles_per_row_quad": 10,
+    "subjects_per_launch": 2,
+    "description": "The standalone kernels consume both gate and up in the same row-quad/K512 order as the selected pair kernel. They reduce decoded raw bytes to one checksum per warp; separate validation kernels materialize every decoded byte."
+  },
+  "correctness": {
+    "host_pack_unpack_bit_exact": true,
+    "device_scale6_full_payload_bit_exact": true,
+    "device_p15e_full_payload_bit_exact": true,
+    "canonical_scale6_p15e_checksums_equal": true,
+    "prefix_and_suffix_guard_bytes": 256,
+    "all_input_output_guards_preserved": true,
+    "lane_major_escape_rank": "sum popc(row_mask & lower_lane_mask) over all four rows, plus escape count in earlier rows of the current lane",
+    "result": "pass"
+  },
+  "resources_and_sass": {
+    "resource_source": "cuobjdump --dump-resource-usage plus cudaFuncGetAttributes/cudaOccupancyMaxActiveBlocksPerMultiprocessor",
+    "canonical": {
+      "registers_per_thread": 28,
+      "static_shared_bytes": 16,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "instruction_count": 136,
+      "ldg_rows": 9,
+      "lds_rows": 1,
+      "vote_rows": 0,
+      "popc_rows": 0,
+      "shfl_rows": 5,
+      "normalized_encoding_sha256": "5bb08dbfd381a9bd236da06b3fbde799ec4d13049726fb6d93da5593e4da08b9"
+    },
+    "scale6": {
+      "registers_per_thread": 21,
+      "static_shared_bytes": 16,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "instruction_count": 216,
+      "ldg_rows": 3,
+      "lds_rows": 1,
+      "vote_rows": 0,
+      "popc_rows": 0,
+      "shfl_rows": 11,
+      "normalized_encoding_sha256": "4b1e7a266ed2c42b07d6701758803d206ecb4a64ea2b3b8c353577c06fa5cfc0"
+    },
+    "p15e": {
+      "registers_per_thread": 27,
+      "static_shared_bytes": 16,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "instruction_count": 368,
+      "ldg_rows": 13,
+      "lds_rows": 9,
+      "vote_rows": 9,
+      "popc_rows": 8,
+      "shfl_rows": 9,
+      "normalized_encoding_sha256": "ef499139603209d445f39623f9e6be8a294d2403818422e50b0a23ca8213fbc1"
+    },
+    "hard_resource_gate": "P15E local bytes must equal zero and active blocks per SM must be at least two",
+    "hard_resource_gate_result": "pass"
+  },
+  "performance_protocol": {
+    "same_binary": true,
+    "same_stream": true,
+    "cpu_affinity": 11,
+    "warmups_per_backend": 10,
+    "launches_per_measurement": 256,
+    "rounds": 5,
+    "order": "B-C-C-B in every round, with an independent B-S-S-B diagnostic for scale6",
+    "baseline": "canonical byte scales",
+    "candidate": "P15E-T128 with a layer-shared gate/up palette",
+    "diagnostic": "existing consumption-aligned scale6 decoder",
+    "required_delta_microseconds_per_layer": 4.6875,
+    "required_projected_delta_milliseconds_per_token": 0.3,
+    "every_round_requirement": true,
+    "stop_loss": "Reject immediately if any actual round regresses or saves less than 4.6875 us/layer. Skip layer 50 and full gate/up integration when layer 0 fails all five rounds."
+  },
+  "formal_rounds": [
+    {
+      "round": 1,
+      "baseline_0_us": 122.386999,
+      "candidate_0_us": 197.112381,
+      "candidate_1_us": 197.121501,
+      "baseline_1_us": 122.298874,
+      "paired_delta_us": -74.774005,
+      "paired_speedup": 0.620662,
+      "scale6_paired_delta_us": -7.093996,
+      "gate": "fail"
+    },
+    {
+      "round": 2,
+      "baseline_0_us": 122.086003,
+      "candidate_0_us": 197.126627,
+      "candidate_1_us": 197.12837,
+      "baseline_1_us": 122.043625,
+      "paired_delta_us": -75.062685,
+      "paired_speedup": 0.619218,
+      "scale6_paired_delta_us": -7.053811,
+      "gate": "fail"
+    },
+    {
+      "round": 3,
+      "baseline_0_us": 122.127123,
+      "candidate_0_us": 197.185874,
+      "candidate_1_us": 197.049245,
+      "baseline_1_us": 121.993497,
+      "paired_delta_us": -75.05725,
+      "paired_speedup": 0.619226,
+      "scale6_paired_delta_us": -6.494317,
+      "gate": "fail"
+    },
+    {
+      "round": 4,
+      "baseline_0_us": 123.731121,
+      "candidate_0_us": 197.271243,
+      "candidate_1_us": 197.333381,
+      "baseline_1_us": 123.832375,
+      "paired_delta_us": -73.520564,
+      "paired_speedup": 0.627371,
+      "scale6_paired_delta_us": -5.745187,
+      "gate": "fail"
+    },
+    {
+      "round": 5,
+      "baseline_0_us": 124.297127,
+      "candidate_0_us": 197.272494,
+      "candidate_1_us": 197.20462,
+      "baseline_1_us": 122.158498,
+      "paired_delta_us": -74.010745,
+      "paired_speedup": 0.624765,
+      "scale6_paired_delta_us": -7.046934,
+      "gate": "fail"
+    }
+  ],
+  "selection_summary": {
+    "median_paired_delta_us_per_layer": -74.774005,
+    "median_paired_speedup": 0.620662,
+    "projected_64_layer_delta_ms_per_token": -4.785536,
+    "median_scale6_delta_us_per_layer": -7.046934,
+    "rounds_passing": 0,
+    "rounds_required": 5,
+    "layer_0_gate": "fail",
+    "layer_50_timing": "skipped by frozen first-fixture stop-loss",
+    "selection": "reject"
+  },
+  "matched_ncu": {
+    "method": {
+      "tool": "Nsight Compute 2026.2.0",
+      "privilege": "sudo root performance-counter access",
+      "replay_mode": "kernel",
+      "cache_control": "all",
+      "requested_clock_control": "base",
+      "launches_per_report": 1,
+      "passes_per_report": 1,
+      "warning": "Nsight Compute reported that data collection happened without fixed GPU frequencies on integrated Orin. These rows diagnose traffic; unprofiled B-C-C-B timings decide rejection.",
+      "dram_sector_availability": "GA10B exposed only MCC DRAM read throughput, not a DRAM byte/sector counter. L1 and LTS byte counts divide exactly by 32 for sector-equivalent counts."
+    },
+    "canonical": {
+      "report_path": "/tmp/q3x-p15e-layer0-canonical-ncu.ncu-rep",
+      "report_bytes": 66522,
+      "report_sha256": "860af6e6a2ad1065b0e052efa3572ad8609b4aa0d1b30f9759a9a4246c95da9b",
+      "duration_us": 124.928,
+      "l1_global_request_bytes": 11142144,
+      "l1_global_request_sectors": 348192,
+      "l1_global_hit_bytes": 512,
+      "l1_global_miss_bytes": 11141632,
+      "l1_global_miss_sectors": 348176,
+      "lts_total_bytes": 11175808,
+      "lts_total_sector_equivalents": 349244,
+      "lts_global_load_miss_equivalent_bytes": 11141632,
+      "dram_read_throughput_percent": 44.0
+    },
+    "scale6": {
+      "report_path": "/tmp/q3x-p15e-layer0-scale6-ncu.ncu-rep",
+      "report_bytes": 66507,
+      "report_sha256": "0f60f6dd5b22682159fb66f72923bde54b21af82bc1a84baded36e2b3c123932",
+      "duration_us": 135.808,
+      "l1_global_request_bytes": 8356864,
+      "l1_global_request_sectors": 261152,
+      "l1_global_hit_bytes": 512,
+      "l1_global_miss_bytes": 8356352,
+      "l1_global_miss_sectors": 261136,
+      "lts_total_bytes": 8393728,
+      "lts_total_sector_equivalents": 262304,
+      "lts_global_load_miss_equivalent_bytes": 8356352,
+      "dram_read_throughput_percent": 30.46
+    },
+    "p15e": {
+      "report_path": "/tmp/q3x-p15e-layer0-p15e-ncu.ncu-rep",
+      "report_bytes": 66506,
+      "report_sha256": "9e9a0249c9492cd0ef29f1e71247cecec79fd2f230b3cdf2a18c8cdf56319159",
+      "duration_us": 200.768,
+      "l1_global_request_bytes": 14708768,
+      "l1_global_request_sectors": 459649,
+      "l1_global_hit_bytes": 8077728,
+      "l1_global_miss_bytes": 6631040,
+      "l1_global_miss_sectors": 207220,
+      "lts_total_bytes": 6674816,
+      "lts_total_sector_equivalents": 208588,
+      "lts_global_load_miss_equivalent_bytes": 6631040,
+      "dram_read_throughput_percent": 15.52
+    },
+    "interpretation": {
+      "p15e_l1_request_increase_vs_canonical_percent": 32.010212756181,
+      "p15e_l1_miss_reduction_vs_canonical_percent": 40.48412297229,
+      "p15e_lts_total_reduction_vs_canonical_percent": 40.274421321483,
+      "scale6_l1_request_reduction_vs_canonical_percent": 24.997702417057,
+      "finding": "P15E lowers L2/DRAM-facing bytes, but directory and sparse raw accesses amplify L1 sector requests above canonical while ballot, popcount, palette lookup, and escape-rank instructions more than double the decoder body. Lower sidecar capacity therefore does not translate to lower decoder latency."
+    }
+  },
+  "reproduction": {
+    "configure": "cmake -S . -B build/orin-release",
+    "build_before_cleanup": "cmake --build build/orin-release --target q3x_sm87_nvfp4_p15e_decoder_perf_test -j2",
+    "formal_before_cleanup": "taskset -c 11 build/orin-release/q3x_sm87_nvfp4_p15e_decoder_perf_test layer0 MODEL/model-00001-of-00003.safetensors 3606039072 MODEL/model-00001-of-00003.safetensors 3611609632",
+    "ncu_template_before_cleanup": "sudo -n /usr/local/cuda/bin/ncu --replay-mode kernel --cache-control all --clock-control base --target-processes all --launch-count 1 --metrics gpu__time_duration.sum,l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum,l1tex__t_bytes_pipe_lsu_mem_global_op_ld_lookup_hit.sum,l1tex__t_bytes_pipe_lsu_mem_global_op_ld_lookup_miss.sum,lts__t_bytes.sum,lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum,mcc__dram_throughput_srcnode_gpu_op_read.avg.pct_of_peak_sustained_elapsed --force-overwrite -o REPORT taskset -c 11 BINARY layer0 SHARD 3606039072 SHARD 3611609632 --profile canonical|scale6|p15e",
+    "note": "The exact temporary source was intentionally removed rather than retained behind a test flag because the frozen stop-loss rejected the decoder on the first actual fixture."
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "All five actual layer-0 rounds regress by approximately 74 us/layer instead of saving the required 4.6875 us/layer.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "layer_50_run": false,
+    "end_to_end_run": false,
+    "production_anchor_changed": false,
+    "repository_candidate_cleaned": true,
+    "stop_loss": "Do not implement the variable-directory P15E-T128 decoder inside the full gate/up kernel and do not keep its standalone CUDA candidate. A materially different escape-location mechanism requires a new independent zero-code admission and may not reuse this result as positive evidence."
+  },
+  "claim_limits": [
+    "This is a standalone scale-decoder screen, not a full gate/up kernel or end-to-end model result.",
+    "The checksum timing intentionally excludes NVFP4 weight loads and GEMV arithmetic so a decoder that fails here cannot plausibly recover the frozen 0.30-ms/token gate inside the larger kernel.",
+    "The NCU reports are traffic diagnostics under replay and an integrated-device clock warning; only the unprofiled same-binary rounds establish rejection.",
+    "Layer 50 was intentionally skipped after layer 0 failed every formal round, as required by the predeclared stop-loss.",
+    "MTP is outside this candidate and outside the current 100-ms/token path."
+  ]
+}

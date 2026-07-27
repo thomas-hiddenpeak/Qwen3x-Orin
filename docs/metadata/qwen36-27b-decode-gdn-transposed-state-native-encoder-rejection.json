@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-27",
+  "status": "rejected",
+  "scope": "Decode GDN M=1 structural state-flow and BF16 encoder audit",
+  "base_revision": "e22616e",
+  "hardware": {
+    "device": "NVIDIA Orin",
+    "compute_capability": "sm_87",
+    "sm_count": 16,
+    "l2_capacity_bytes": 4194304
+  },
+  "constraints": {
+    "mtp_allowed": false,
+    "production_abi_changed": false,
+    "production_dispatch_changed": false,
+    "required_speedup": 1.2448,
+    "required_saved_ms_per_48_layers": 0.3,
+    "bit_exact_required": true,
+    "cold_state_required": true,
+    "paired_round_non_regression_required": true
+  },
+  "baseline": {
+    "kernel": "gated_delta_net_update_warp_eight_row_plain_rms_norm_silu_gate_kernel<true>",
+    "topology": "48x256",
+    "state_layout": "[head][value_row][key] BF16",
+    "registers_per_thread": 40,
+    "static_shared_bytes": 34568,
+    "local_bytes": 0,
+    "active_blocks_per_sm_theoretical": 4,
+    "actual_grid_blocks_per_sm": 3,
+    "cold_24_bank_median_us": 31.64
+  },
+  "candidate_family": {
+    "persistent_decode_shadow_layout": "[head][key][value_row] BF16",
+    "phase_boundary": "one out-of-place bitwise transpose at Prefill-to-Decode; never per token",
+    "row_owner_shapes": [
+      "4 warps x 32 rows",
+      "8 warps x 16 rows"
+    ],
+    "ordered_arithmetic_contract": [
+      "prediction advances key 0..127 with the original scalar FMA order",
+      "update and result advance key 0..127 with the original scalar FMA order",
+      "no partial dot reduction, MMA, tensor core, or MTP",
+      "state and raw GDN output retain the BF16 boundary before fused RMSNorm/SiLU gate"
+    ]
+  },
+  "correctness": {
+    "canonical_transposed_round_trip": "bitwise pass over all 786432 state words",
+    "multistep": "three in-place recurrence steps bitwise matched production state and output",
+    "directed_state_patterns": [
+      "positive_zero",
+      "negative_zero",
+      "positive_subnormal",
+      "negative_subnormal",
+      "positive_infinity",
+      "negative_infinity",
+      "quiet_nan",
+      "signaling_nan"
+    ],
+    "graph_topology": "single 48x256 kernel pass",
+    "native_encoder_equivalence": {
+      "patterns": 327680,
+      "coverage": [
+        "all 65536 BF16 bit patterns expanded to FP32",
+        "low halves 0x7fff, 0x8000, and 0x8001 for every FP32 high half",
+        "65536 deterministic full-width random FP32 bit patterns"
+      ],
+      "result": "native BF16 RNE plus explicit NaN override matched the integer encoder bitwise"
+    }
+  },
+  "resources": {
+    "row32_double_global": {
+      "registers_per_thread": 27,
+      "static_shared_bytes": 2056,
+      "local_bytes": 0,
+      "active_blocks_per_sm_theoretical": 6,
+      "active_state_work_warps_per_sm_at_grid_48": 12
+    },
+    "row16_double_global": {
+      "registers_per_thread": 29,
+      "static_shared_bytes": 2056,
+      "local_bytes": 0,
+      "active_blocks_per_sm_theoretical": 6,
+      "active_state_work_warps_per_sm_at_grid_48": 24
+    },
+    "row32_cooperative_bf16_shared": {
+      "registers_per_thread": 30,
+      "static_shared_bytes": 34824,
+      "local_bytes": 0,
+      "active_blocks_per_sm_theoretical": 4
+    },
+    "canonical_native_encoder_only": {
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34568,
+      "local_bytes": 0,
+      "active_blocks_per_sm_theoretical": 4
+    }
+  },
+  "phase_transpose": {
+    "payload_bytes_per_layer": 1572864,
+    "read_write_traffic_bytes_per_layer": 3145728,
+    "measured_us_per_layer": [21.0039, 21.3548],
+    "measured_ms_for_48_layers": [1.00819, 1.02503],
+    "amortized_ms_per_token_at_26_decode_tokens": [0.03878, 0.03942],
+    "boundary_rule": "transpose back only if a later Prefill continuation requires canonical state"
+  },
+  "resident_screen": {
+    "purpose": "directional mechanism check only; not promotion evidence",
+    "row32_double_global": {
+      "baseline_us": 28.7389,
+      "candidate_us": 21.8279,
+      "speedup": 1.31661
+    },
+    "row16_double_global": {
+      "baseline_us": 28.7389,
+      "candidate_us": 27.4635,
+      "speedup": 1.04644
+    },
+    "row32_piggyback_bf16_shared": {
+      "baseline_us": 28.7459,
+      "candidate_us": 19.1287,
+      "speedup": 1.50276
+    },
+    "interpretation": "large resident gains disappear when 24 independent states exceed L2; they cannot support production promotion"
+  },
+  "cold_24_bank_screens": {
+    "method": {
+      "order": "B-C-C-B",
+      "rounds": 5,
+      "state_banks": 24,
+      "state_bytes_per_variant": 37748736,
+      "warmup_launches_per_pass": 48,
+      "measured_launches_per_pass": 480,
+      "gate": "every paired round >=1.0 and median paired speedup >=1.2448"
+    },
+    "row32_double_global": {
+      "baseline_us": 31.6644,
+      "candidate_us": 37.5614,
+      "independent_median_speedup": 0.843005,
+      "saved_ms_per_48_layers": -0.283054,
+      "result": "reject"
+    },
+    "row32_piggyback_bf16_shared": {
+      "baseline_us": 31.6435,
+      "candidate_us": 35.0547,
+      "independent_median_speedup": 0.902691,
+      "paired_speedup_range": [0.902645, 0.903508],
+      "saved_ms_per_48_layers": -0.163734,
+      "result": "reject"
+    },
+    "row32_cooperative_8warp_load_then_4warp_compute": {
+      "baseline_us": 31.6408,
+      "candidate_us": 54.629,
+      "independent_median_speedup": 0.579194,
+      "paired_speedups": [0.579029, 0.579045, 0.579271, 0.579416, 0.579622],
+      "paired_median_speedup": 0.579271,
+      "saved_ms_per_48_layers": -1.10344,
+      "result": "reject"
+    },
+    "canonical_native_encoder_only": {
+      "baseline_us": 31.6294,
+      "candidate_us": 31.7518,
+      "independent_median_speedup": 0.996146,
+      "paired_speedups": [0.996091, 0.995967, 0.996951, 0.996115, 0.99637],
+      "paired_median_speedup": 0.996115,
+      "saved_ms_per_48_layers": -0.00587368,
+      "result": "reject"
+    }
+  },
+  "ncu_row32_double_global": {
+    "kernel_registers_per_thread": 27,
+    "global_load_sectors": 101184,
+    "global_load_l1_lookup_hit_sectors": 50306,
+    "l2_read_sectors": 51750,
+    "l1_sector_hit_rate_percent": 65.08,
+    "shared_load_wavefronts": 39868,
+    "shared_store_wavefronts": 2400,
+    "barrier_stall_percent_per_warp_active": 48.02,
+    "long_scoreboard_stall_percent_per_warp_active": 33.89,
+    "achieved_occupancy_percent": 48.7,
+    "interpretation": [
+      "one full state pass is 49152 sectors, so approximately the entire second state read hit L1",
+      "the double-read failure is not caused by the second pass falling through to L2",
+      "the cold first pass with only four state-work warps per CTA exposes latency and leaves too few eligible warps",
+      "the cooperative-load variant serializes cold loading behind a block barrier and performs still worse"
+    ]
+  },
+  "calibrated_structural_bound": {
+    "production_us": 31.6569,
+    "target_us_at_1_2448x": 25.4313,
+    "required_saved_us_per_layer": 6.2256,
+    "observed_single_flow_plus_pair_encoder_saved_us_per_layer": 1.5917,
+    "zero_cost_four_more_flow_projection_us": 25.2901,
+    "zero_cost_projection_margin_us": 0.1412,
+    "conclusion": "current-layout BF16 shared transpose or register/warp transpose has no credible margin after shuffle, transpose, accumulator-baton, or transaction costs"
+  },
+  "decision": {
+    "production_changed": false,
+    "candidate_source_retained": false,
+    "candidate_tests_retained": false,
+    "mtp_used": false,
+    "reason": "all cold-state structural candidates regress and the isolated native encoder also regresses; resident-only wins are non-production cache artifacts"
+  },
+  "priority_after_rejection": [
+    "Run a decode-wide global traffic audit before opening another GDN micro-kernel candidate.",
+    "Do not use per-token state transpose or explicit L2 persistence for all 72 MiB of layer states; the payload exceeds 4 MiB L2 and the second intra-kernel read already hits L1.",
+    "Revisit SSM state update only with a mechanism that preserves at least 24 useful state-work warps per SM without adding a phase barrier or global transaction amplification.",
+    "Prefer cross-kernel/core-flow reductions with a quantified whole-token benefit above 0.30 ms before implementation."
+  ]
+}

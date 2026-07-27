@@ -1208,6 +1208,23 @@ separate capacity admission: lossless P15E-T128 uses **55.945506%** of canonical
 bytes across all 128 tensors, but it remains test-only until decoder cost is
 measured. See the [down-flow rejection](metadata/qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json)
 and [gate/up payload admission](metadata/qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json).
+
+The admitted gate/up payload does not survive its decoder gate. P15E-T128 is
+bit exact and reduces LTS traffic by **40.27%**, but its sparse directory/raw
+access raises L1 request traffic by **32.01%** and all five actual layer-0
+rounds regress to a **0.620662x** paired median, projecting a **4.785536
+ms/token loss**. The candidate is removed. The deeper GDN structural screen is
+also closed: transposed-state cold results are 0.8430x, 0.9027x, and 0.5792x,
+while the isolated native BF16 encoder is 0.996115x. Resident-only GDN wins are
+cache artifacts and may not justify promotion. Fixed-cut LM pruning likewise
+misses its traffic gate; q20 single-kernel progressive pruning remains a
+conditional P2 without an implementation or performance claim. The immediate
+mainline returns to decode-wide projection bytes and requires a new mechanism
+with a measured **at least 0.30 ms/token** contribution. See the
+[gate decoder rejection](metadata/qwen36-27b-decode-gate-up-p15e-t128-decoder-rejection.json),
+[GDN structural rejection](metadata/qwen36-27b-decode-gdn-transposed-state-native-encoder-rejection.json),
+and [LM progressive audit](metadata/qwen36-27b-lm-head-exact-progressive-mips-admission.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission
