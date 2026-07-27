@@ -6387,3 +6387,43 @@ Prefill/Decode executor, or Prefill/Decode overlap; bulk Prefill is unchanged.
 Failure-injection coverage for transactional rollback and runtime demotion
 remains test debt. Complete hashes, commands, gates, and claim limits are in
 the [production benchmark record](metadata/qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json).
+
+## Decode M1 gate/up table-free E2M1 rejection
+
+The next actual-first P1 screen cloned the exact production-CS `32x512` M1
+gate/up kernel and changed only E2M1 decoding: the baseline's shared 16-entry
+FP32 LUT became the already exhaustive BF16 PRMT constructor. Packed weights
+and block scales retain the same evict-first `__ldcs` loads, the E4M3FN scale
+table remains shared, and residual/RMSNorm, projection arithmetic, independent
+gate/up rounding, CTA-local staging, SiLU, stream, and launch topology are
+unchanged. The 262,144-combination PRMT gate has zero word/half mismatches and
+preserves signed zero. Actual residual and gate outputs, including a second
+direct replay, are bit exact; finite, guard, and dead-workspace gates pass.
+
+Resources do not explain a residency loss: baseline and candidate both use 64
+registers, zero local memory, and two active CTAs/SM, while removal of the
+E2M1 table lowers static shared memory from 13,632 to 13,568 bytes. Static SASS
+does expose the tradeoff: total instructions rise from 1,352 to 1,568, `LDS`
+falls from 89 to 25, `PRMT` rises from 3 to 131, and both retain twelve
+`LDG.E.EF` plus zero `LDL`/`STL` rows.
+
+Ten warmups precede five alternating 64-launch rounds. Frozen gates require
+at least 1.0135x, at least 0.0078125 ms/layer (0.5 ms over 64 layers), and
+strict improvement in every round:
+
+| Round | Order | Baseline 1 | Candidate 1 | Candidate 2 | Baseline 2 | Paired speedup | Paired delta/layer | Result |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | B-C-C-B | 0.589707 ms | 0.949269 ms | 0.949386 ms | 0.589633 ms | 0.621145x | -0.359657 ms | fail |
+| 2 | C-B-B-C | 0.589563 ms | 0.949135 ms | 0.949183 ms | 0.589683 ms | 0.621206x | -0.359536 ms | fail |
+| 3 | B-C-C-B | 0.589787 ms | 0.948672 ms | 0.948848 ms | 0.590051 ms | 0.621779x | -0.358841 ms | fail |
+| 4 | C-B-B-C | 0.589942 ms | 0.949548 ms | 0.949651 ms | 0.589505 ms | 0.621024x | -0.359876 ms | fail |
+| 5 | B-C-C-B | 0.589285 ms | 0.949283 ms | 0.949280 ms | 0.589586 ms | 0.620928x | -0.359846 ms | fail |
+
+Baseline/candidate medians are **0.589658/0.949274 ms/layer**. The paired
+median is **0.621145x** and **-0.359657 ms/layer**, projecting to a
+**23.0181-ms/token loss** over 64 layers. First-process stop-loss therefore
+skips stress timing, candidate Graph/invalid matrices, full-model validation,
+Nsys, and production integration. Candidate source and test hooks are removed;
+production and the formal **105.870500-ms/token / 9.445501816-token/s** anchor
+remain unchanged. Full identities and claim limits are in the
+[machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection.json).

@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection",
+  "status": "rejected-test-only-decode-nvfp4-m1-gate-up-table-free-e2m1-p1",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "P1 Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "base_commit": "ba686e7773fccfc2f02b7900ad5a94f020264b04",
+    "base_tree": "6c3bffbc7370900618ae0fe154eb7f9b1bb92bae",
+    "base_subject": "docs: promote production Decode Graph cache",
+    "branch": "experiment/decode-m1-table-free-e2m1",
+    "candidate_commit": "0b56a3887d34c8132b99735d2f9406e318466ac0",
+    "candidate_tree": "83cc264a06b2699855a9e6725fa1104719f93158",
+    "candidate_parent": "ba686e7773fccfc2f02b7900ad5a94f020264b04",
+    "candidate_subject": "bench: screen Decode M1 table-free E2M1",
+    "kernel_source_base_blob": "609053e95ee26f24bf841026120acd65c9fe0733",
+    "kernel_source_candidate_blob": "64a23c727de850ff9bc9d15333a468d77e7667ce",
+    "cuda_test_base_blob": "2f695459bacc162a4453654fe8a13adfa3695083",
+    "cuda_test_candidate_blob": "54329b10ccd78c78ede12dc73d22b0ce635cc90f",
+    "candidate_diff": {
+      "files_changed": 2,
+      "insertions": 535,
+      "deletions": 29,
+      "kernel_source_insertions": 400,
+      "kernel_source_deletions": 0,
+      "cuda_test_insertions": 135,
+      "cuda_test_deletions": 29
+    },
+    "candidate_scope": "committed test-only table-free E2M1 kernel twin, launch/resource query, and actual-first same-binary P1 harness",
+    "candidate_reachable_from_production": false,
+    "candidate_source_and_test_hooks_retained_after_rejection": false,
+    "candidate_identity_retained_by_git_commit": true,
+    "production_dispatch_changed": false,
+    "production_runner_changed": false,
+    "public_abi_changed": false,
+    "prefill_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404"
+  },
+  "related_records": {
+    "current_production_anchor": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json",
+    "production_gate_up_route": "qwen36-27b-nvfp4-m1-gate-up-dead-up-production-benchmark.json",
+    "exact_m32_table_free_e2m1_promotion": "qwen36-27b-nvfp4-m32-table-free-e2m1-benchmark.json",
+    "earlier_m1_full_product_table_rejection": "qwen36-27b-nvfp4-m1-full-product-table-rejection.json"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.870500,
+    "remaining_tokens_per_second": 0.554498184,
+    "target_met": false,
+    "anchor_changed_by_this_candidate": false
+  },
+  "candidate": {
+    "name": "Decode M1 gate/up table-free E2M1 PRMT",
+    "phase": "Decode",
+    "token_count": 1,
+    "shape_n_by_k": [17408, 5120],
+    "projected_calls_per_token": 64,
+    "topology": {
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "warps_per_block": 16,
+      "stream_count": 1
+    },
+    "baseline": "public production-CS residual-add, centered-RMSNorm, NVFP4 gate/up, independently rounded CTA-local gate/up, SiLU, and dead-up-publication-elision kernel",
+    "test_only_change": "Remove only the shared 16-entry FP32 E2M1 value table. Construct each packed E2M1 pair as exact BF16 encodings with the exhaustively checked PRMT path, decode those BF16 values to FP32, and retain the original scale multiply and FFMA order.",
+    "unchanged_contract": [
+      "canonical packed NVFP4 weights and E4M3FN block scales",
+      "evict-first __ldcs loads for both packed weights and block scales",
+      "the shared 256-entry FP32 E4M3FN scale table",
+      "post-attention residual add and centered-RMSNorm arithmetic",
+      "staged BF16 activation layout",
+      "four-row projection schedule, FP32 scale multiplication, FFMA order, and warp reductions",
+      "independent BF16-RNE gate and up boundaries",
+      "CTA-local gate/up staging and the final SiLU-times-up epilogue",
+      "32x512 launch topology, one stream, output addresses, and untouched dead-up workspace"
+    ],
+    "removed_table": {
+      "encoding": "E2M1",
+      "elements": 16,
+      "element_type": "FP32",
+      "bytes": 64
+    },
+    "retained_table": {
+      "encoding": "E4M3FN block scales",
+      "elements": 256,
+      "element_type": "FP32",
+      "bytes": 1024
+    },
+    "environment_variable": "Q3X_RUN_SM87_DECODE_GATE_UP_TABLE_FREE_E2M1_PERF",
+    "production_status": "not promoted"
+  },
+  "environment": {
+    "device_reported_by_formal_log": "Orin",
+    "architecture": "aarch64",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "request_concurrency": 1,
+    "streams": 1,
+    "baseline_and_candidate_same_binary": true,
+    "baseline_and_candidate_same_process": true,
+    "baseline_and_candidate_same_stream": true,
+    "clock_readback_in_formal_log": false,
+    "measurement_scope": "one same-binary actual-checkpoint-first isolated-kernel P1 process"
+  },
+  "checkpoint_fixture": {
+    "shard_path": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "safetensors_data_base": 126512,
+    "gate_weight": {
+      "absolute_offset": 6757009952,
+      "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+    },
+    "up_weight": {
+      "absolute_offset": 6801574432,
+      "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+    },
+    "gate_block_scales": {
+      "absolute_offset": 3606039072,
+      "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+    },
+    "up_block_scales": {
+      "absolute_offset": 3611609632,
+      "sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+    },
+    "gate_scale2_offset": 126548,
+    "up_scale2_offset": 126556,
+    "scale2_bits_decimal": 958298600,
+    "weights_and_scales": "hash-pinned real layer-0 checkpoint payload",
+    "activation_residual_and_norm_inputs": "deterministic synthetic fixture"
+  },
+  "resources": {
+    "production_cs_baseline": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "table_free_candidate": {
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13568,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 512,
+      "active_ctas_per_sm": 2
+    },
+    "difference": "candidate removes exactly the 64-byte shared E2M1 FP32 table; registers, local memory, launch bounds, and active residency are unchanged",
+    "gate": "pass"
+  },
+  "correctness": {
+    "exhaustive_prmt_constructor": {
+      "combinations": 262144,
+      "word_mismatches": 0,
+      "half_mismatches": 0,
+      "signed_zero_all_positions": true,
+      "gate": "pass"
+    },
+    "actual_checkpoint": {
+      "residual_mismatches": "0/5120",
+      "final_gate_mismatches": "0/17408",
+      "second_direct_replay_residual_mismatches": "0/5120",
+      "second_direct_replay_gate_mismatches": "0/17408",
+      "finite_outputs": true,
+      "output_guards": "pass",
+      "baseline_and_candidate_dead_up_workspaces_untouched": true,
+      "gate": "pass"
+    },
+    "cuda_graph_candidate_gate": "not_run_after_actual_stop_loss",
+    "candidate_invalid_matrix": "not_run_after_actual_stop_loss",
+    "overall_executed_gate": "pass"
+  },
+  "benchmark_protocol": {
+    "actual_checkpoint_first": true,
+    "same_binary": true,
+    "same_process": true,
+    "same_nonblocking_stream": true,
+    "warmup_launches_per_route": 10,
+    "logical_kernels_per_timed_pass": 64,
+    "rounds": 5,
+    "round_order": [
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B",
+      "C-B-B-C",
+      "B-C-C-B"
+    ],
+    "baseline": "public production-CS kernel with E2M1 LUT",
+    "candidate": "test-only production-CS twin with table-free E2M1 PRMT",
+    "frozen_gates": {
+      "actual_paired_median_speedup_at_least": 1.0135,
+      "paired_median_delta_ms_per_layer_at_least": 0.0078125,
+      "projected_64_layer_delta_ms_at_least": 0.5,
+      "each_round_strictly_improves": true
+    },
+    "stop_loss": "Stop after the actual-checkpoint P1 process if any performance gate fails; skip stress, candidate Graph/invalid matrices, full-model gates, profiling, and production integration."
+  },
+  "formal_first_process": {
+    "actual_checkpoint": {
+      "rounds": [
+        {
+          "round": 1,
+          "order": "B-C-C-B",
+          "baseline1_ms": 0.589707,
+          "candidate1_ms": 0.949269,
+          "candidate2_ms": 0.949386,
+          "baseline2_ms": 0.589633,
+          "paired_delta_ms_per_layer": -0.359657,
+          "paired_speedup": 0.621145,
+          "gate": "fail"
+        },
+        {
+          "round": 2,
+          "order": "C-B-B-C",
+          "baseline1_ms": 0.589563,
+          "candidate1_ms": 0.949135,
+          "candidate2_ms": 0.949183,
+          "baseline2_ms": 0.589683,
+          "paired_delta_ms_per_layer": -0.359536,
+          "paired_speedup": 0.621206,
+          "gate": "fail"
+        },
+        {
+          "round": 3,
+          "order": "B-C-C-B",
+          "baseline1_ms": 0.589787,
+          "candidate1_ms": 0.948672,
+          "candidate2_ms": 0.948848,
+          "baseline2_ms": 0.590051,
+          "paired_delta_ms_per_layer": -0.358841,
+          "paired_speedup": 0.621779,
+          "gate": "fail"
+        },
+        {
+          "round": 4,
+          "order": "C-B-B-C",
+          "baseline1_ms": 0.589942,
+          "candidate1_ms": 0.949548,
+          "candidate2_ms": 0.949651,
+          "baseline2_ms": 0.589505,
+          "paired_delta_ms_per_layer": -0.359876,
+          "paired_speedup": 0.621024,
+          "gate": "fail"
+        },
+        {
+          "round": 5,
+          "order": "B-C-C-B",
+          "baseline1_ms": 0.589285,
+          "candidate1_ms": 0.949283,
+          "candidate2_ms": 0.949280,
+          "baseline2_ms": 0.589586,
+          "paired_delta_ms_per_layer": -0.359846,
+          "paired_speedup": 0.620928,
+          "gate": "fail"
+        }
+      ],
+      "baseline_pass_median_ms_per_layer": 0.589658,
+      "candidate_pass_median_ms_per_layer": 0.949274,
+      "paired_round_median_speedup": 0.621145,
+      "paired_round_median_delta_ms_per_layer": -0.359657,
+      "projected_64_layer_delta_ms_per_token": -23.0181,
+      "rounds_strictly_improving": 0,
+      "rounds_regressing": 5,
+      "all_rounds_improve": false,
+      "speedup_gate": "fail",
+      "per_layer_delta_gate": "fail",
+      "projected_delta_gate": "fail",
+      "every_round_gate": "fail",
+      "overall_gate": "fail"
+    }
+  },
+  "static_sass": {
+    "method": "Count static instruction rows and selected mnemonics between demangled Function boundaries in cuobjdump --dump-sass output.",
+    "production_function": "nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_shared_pair_cache_policy_test_kernel<NvFp4TestCachePolicy::kStreaming>",
+    "candidate_function": "nvfp4_w4a16_gemv_bf16_residual_norm_gate_up_silu_dead_up_table_free_e2m1_test_kernel",
+    "production": {
+      "static_instructions": 1352,
+      "LDS": 89,
+      "PRMT": 3,
+      "LDG_E_EF": 12,
+      "LDL": 0,
+      "STL": 0
+    },
+    "candidate": {
+      "static_instructions": 1568,
+      "LDS": 25,
+      "PRMT": 131,
+      "LDG_E_EF": 12,
+      "LDL": 0,
+      "STL": 0
+    },
+    "interpretation": "The candidate removes 64 static LDS rows but adds 128 static PRMT rows while preserving the twelve evict-first global-load rows and zero local-load/store rows. These are static counts, not dynamic instruction or timing measurements."
+  },
+  "stop_loss": {
+    "triggered": true,
+    "reason": "All executed resource and correctness gates passed, but every actual-checkpoint round regressed. The paired median is 0.621145x with a -0.359657-ms/layer delta, projecting to a 23.0181-ms/token loss over 64 layers.",
+    "same_bank_stress_timing_run": false,
+    "candidate_cuda_graph_gate_run": false,
+    "candidate_invalid_matrix_run": false,
+    "full_model_oracle_run": false,
+    "full_model_end_to_end_run": false,
+    "nsight_systems_run": false,
+    "nsight_compute_run": false,
+    "production_integration_attempted": false,
+    "decision": "reject the exact Decode M1 production-CS table-free E2M1 PRMT mechanism at P1"
+  },
+  "decision": {
+    "result": "reject",
+    "classification": "performance-gate rejection; exhaustive E2M1, actual-checkpoint bitwise, finite, guard, dead-workspace, and resource gates pass",
+    "closed_scope": "Replacing only the production-CS Decode M1 gate/up E2M1 LUT loads with the tested inline PRMT constructor while preserving the existing packed-weight and block-scale __ldcs policy.",
+    "reason": "The lower shared-memory load count does not offset the much larger PRMT/static instruction body; the final candidate is about 61% as fast as the production baseline and loses in all five rounds.",
+    "candidate_promoted": false,
+    "candidate_source_and_test_hooks_removed": true,
+    "production_dispatch_changed": false,
+    "reopen_when": "Only with a materially different M1 decode/dequantization mechanism and a credible at-least-0.5-ms/token ceiling; the exact inline pairwise PRMT substitution stays closed."
+  },
+  "validation": {
+    "candidate_release_target_build": "pass",
+    "formal_opt_in_test": "expected failure because the frozen performance assertion failed",
+    "failed_assertions": 1,
+    "terminal_line": "1 SM87 weight-only GEMV assertion(s) failed"
+  },
+  "production_impact": {
+    "candidate_promoted": false,
+    "production_dispatch_unchanged": true,
+    "production_runner_unchanged": true,
+    "production_abi_unchanged": true,
+    "production_memory_increase_bytes": 0,
+    "production_launch_count_changed": false,
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "prefill_changed": false
+  },
+  "artifacts": {
+    "formal_binary": {
+      "local_path": "/tmp/q3x-decode-tablefree-m1-build-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 7680088,
+      "sha256": "3d994d819731aac4150f56ef71e952b2f497b3c9446345b31de38b58b3f91dc0",
+      "elf_build_id": "1c1b536c08d24c4280c62b7caa28d7aab8678907",
+      "checked_in": false
+    },
+    "kernel_library": {
+      "local_path": "/tmp/q3x-decode-tablefree-m1-build-release/libq3x_kernels.a",
+      "bytes": 4690324,
+      "sha256": "c63c560baded4fd05c33380c92794319b34044c9b34c0078d53cc637170ba416",
+      "checked_in": false
+    },
+    "formal_process_1_log": {
+      "local_path": "/tmp/q3x-decode-tablefree-m1.P1.log",
+      "bytes": 72891,
+      "lines": 436,
+      "sha256": "bbdd18db9c3f15d5b1e24d628bb50f2b29a00e6e02a9bd97923b067f2ba69844",
+      "checked_in": false
+    },
+    "static_sass_summary": {
+      "local_path": "/tmp/q3x-decode-tablefree-m1.SASS.txt",
+      "bytes": 1179,
+      "lines": 21,
+      "sha256": "b61ed6a8c330ee5c4ae90c3a5ea5a255ffaa5d6b2da3f35e4b94d4d8330f74f1",
+      "checked_in": false
+    },
+    "command": "Q3X_RUN_SM87_DECODE_GATE_UP_TABLE_FREE_E2M1_PERF=1 Q3X_NVFP4_M1_GATE_UP_ACTUAL_CHECKPOINT_FILE=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors ctest --test-dir /tmp/q3x-decode-tablefree-m1-build-release -R '^sm87_weight_only_gemv$' -V"
+  },
+  "claim_limits": [
+    "This is one same-binary actual-checkpoint-first isolated-kernel P1 rejection on one Orin, not an achieved end-to-end Decode, TTFT, serving-throughput, energy, or cross-device result.",
+    "The -23.0181-ms/token value is a 64-layer projection of the isolated paired-median regression and is not added to the 105.870500-ms/token production anchor.",
+    "The baseline and candidate pass medians are separate statistics from the median of the five paired-round speedups and deltas.",
+    "The static SASS counts explain the measured direction but are neither dynamic instruction counts nor direct timing measurements.",
+    "No formal clock readback is present in the retained P1 log; same-binary paired ordering is the available noise control.",
+    "Stress timing, candidate Graph and invalid matrices, full-model oracles, end-to-end timing, Nsys, NCU, and production integration were intentionally skipped after first-process stop-loss.",
+    "The candidate implementation remains auditable at commit 0b56a3887d34c8132b99735d2f9406e318466ac0 but is removed from the rejection tree; production remains at 105.870500 ms/token / 9.445501816 token/s."
+  ]
+}

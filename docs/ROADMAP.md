@@ -283,6 +283,14 @@ Deliverables:
   5.870500 ms/token and 0.554498184 token/s away. Execution stays on one stream
   without double/triple buffering or phase overlap; bulk Prefill is unchanged.
   Transaction-rollback and runtime-demotion failure injection remain test debt.
+- [measured and rejected by actual-first P1 stop-loss] Replace only the
+  production-CS Decode M1 gate/up E2M1 LUT with the exhaustive PRMT constructor
+  while preserving packed-weight and block-scale `__ldcs` loads. Resources and
+  actual bitwise gates pass, but baseline/candidate medians are
+  0.589658/0.949274 ms/layer and all five rounds regress. The 0.621145x paired
+  median projects to a 23.0181-ms/token loss, so stress, Graph/invalid matrices,
+  model, profiling, and production work are skipped. Candidate hooks are
+  removed; the 105.870500-ms/token / 9.445501816-token/s anchor is unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
@@ -1144,6 +1152,15 @@ all golden results are exact, and no process reports a persistent memory drop.
 Production correctness closes P19-P43, full-statistics, trace, reset, and the
 P44 serial miss; cold preparation and free-memory drop pass their budgets.
 See the [production Decode Graph record](metadata/qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json).
+
+The production-CS M1 gate/up table-free E2M1 probe is closed at actual-first
+P1. Although exhaustive PRMT, exact output, guard/workspace, and resource gates
+pass, its paired median is **0.621145x** and all five rounds regress, projecting
+a **23.0181-ms/token loss** over 64 layers. Candidate hooks are removed and the
+formal anchor remains **105.870500 ms/token / 9.445501816 token/s**. Do not
+reopen the exact inline PRMT substitution without a materially different
+dequantization mechanism and a credible at-least-0.5-ms/token ceiling. See the
+[rejection record](metadata/qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection.json).
 
 The 100-ms/token / 10-token/s gate is still open by **5.870500 ms/token and
 0.554498184 token/s**. Re-rank structural Decode candidates from the fresh

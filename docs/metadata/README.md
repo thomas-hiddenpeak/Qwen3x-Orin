@@ -1123,6 +1123,18 @@ The diagnostic Phase 3 records are:
   execution stays on one stream without double/triple buffering, overlap, or a
   dedicated Prefill performance change. Fault-injection coverage for
   transactional rollback and runtime demotion remains explicit test debt.
+- [`qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection.json`](qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection.json),
+  which rejects an exact production-CS M1 gate/up twin that replaces only the
+  16-entry E2M1 LUT with the already exhaustive PRMT constructor. Resources
+  remain `64r/0local/2CTA-SM` and shared memory falls from 13,632 to 13,568
+  bytes; actual residual/gate and second-direct replay are bit exact. Static
+  SASS changes from 1,352 to 1,568 instructions, with `LDS` 89 to 25 and
+  `PRMT` 3 to 131. All five actual-first rounds regress: baseline/candidate
+  medians are 0.589658/0.949274 ms/layer, paired speedup is 0.621145x, and the
+  projected 64-layer delta is -23.0181 ms/token. Stop-loss skips stress, Graph,
+  invalid-matrix, model, profiling, and production work; the candidate hooks
+  are removed and the 105.870500-ms/token / 9.445501816-token/s anchor is
+  unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
