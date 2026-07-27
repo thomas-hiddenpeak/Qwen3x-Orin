@@ -103,16 +103,15 @@ three measured rounds, and a shared request capacity of 512 positions.
 sequence capacity large enough for the longest formatted prompt plus its
 decode input steps. Capacity is also bounded by the default 2 GiB request
 arena; the CLI validates the complete host memory plan before loading model
-weights. `--prefill-chunk-size` accepts 1 through 64 and defaults to 1. The
+weights. `--prefill-chunk-size` accepts 1 through 512 and defaults to 1. The
 engine's request arena reserves activation workspace for the selected maximum
-before weights are loaded. C2 through C64 tile only the prompt prefix; the final
-prompt token and all decode steps remain M=1. The chunk value is an upper bound:
-only an exact C64 candidate is one runner call. A next candidate of 33 through
-63 emits C32 and then recomputes the next tile size from the remaining tokens,
-so a partial C64 remainder becomes C32 plus an ordered tail of at most 31. In
-exact C64, only the aligned
-NVFP4 `[5120,17408]` down projection uses one M64 kernel; every other projection
-retains two ordered C32 schedules. Projection dispatch defaults to `reference`;
+before weights are loaded. C2 through C512 tile only the prompt prefix; the
+final prompt token and all decode steps remain M=1. The chunk value is an upper
+bound, and the controller emits only `{C512,C256,C64,C32,tail<=31}`. Exact SM87
+C256/C512 full-attention tiles use one bulk causal GQA plus Gate launch and
+exact aligned NVFP4 `[5120,17408]` Down uses one N-major whole-chunk grid.
+Generic projections remain capped at C64 and use ordered fallback schedules for
+wide tiles and near misses. Projection dispatch defaults to `reference`;
 `sm87` explicitly selects the direct SM87 FP8/NVFP4-to-BF16 layer path and
 checks the active device capability before loading model weights.
 
@@ -127,14 +126,14 @@ The pure-host `reference_benchmark_control` test supplies fake generation and
 memory callbacks. It covers round ordering, warmup exclusion, per-sample and
 aggregate statistics, exact replay mismatches, nested failures, and memory-drop
 classification without loading a model or executing a CUDA kernel. Its C64
-regression covers the maximum accepted chunk and validates that a 127-token
-prefix has three timing records for the shared `64+32+31` controller schedule;
-any other timing-record cardinality is rejected.
+regression validates that a 127-token prefix has three timing records for the
+shared `64+32+31` controller schedule; a separate boundary case accepts and
+preserves the public C512 maximum. Any other timing-record cardinality is
+rejected.
 
-The public Prefill result capacity changed from 32 to 64 entries with this
-runtime contract. That C++ ABI change is published as exact package version
-0.3.0; installed consumers must rebuild rather than mix 0.2.0 objects with the
-new static libraries.
+The public Prefill result capacity is now 512 entries. This C++ ABI change is
+published as exact package version 0.4.0; installed consumers must rebuild
+rather than mix older objects with the new static libraries.
 
 The first matched reference/SM87 run and its machine-readable samples are in
 the [Phase 3 performance evidence](PERFORMANCE_BASELINE.md). The same document

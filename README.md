@@ -15,7 +15,7 @@ fixture's 19 prompt IDs, all 26 greedy output IDs, decoded text, and stop token
 exactly. Broader prompt coverage, cross-backend boundary analysis, and
 aggressive performance tuning remain in progress. An explicit, default-off
 SM87 weight-only projection backend now passes the same full-model gate and
-supports bounded `C=1..64` prompt-prefix tiles. In the historical two-prompt,
+supports bounded `C=1..512` prompt-prefix tiles. In the historical two-prompt,
 two-output-token diagnostic, the first `C=8` path reduced median TTFT from
 6,107.420 ms to 2,005.784 ms. The kernel-optimization chain through `5fe0ae0`
 reaches 1,020.755 ms TTFT, 1,205.989 ms total generation, and 185.108 ms for
@@ -83,7 +83,7 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 
 | Model family | Topology | ModelOpt weights | Initial status |
 | --- | --- | --- | --- |
-| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=64` prompt-prefix projections; C1, C8, C16, C32, and C64 runs pass the fixed oracle gate on Orin |
+| Qwen3.6 27B pinned NVIDIA revision | Dense | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Native reference generation plus opt-in SM87 M=1 decode and `C<=512` prompt-prefix execution; matched P257/C256 and P513/C512 exact-output gates pass on Orin |
 | Qwen3.5 / Qwen3.6 35B-A3B | MoE | FP8 W8A16 + NVFP4 W4A16 + BF16 fallback | Planned, after the dense path |
 
 The current scope is text-only, batch-one correctness and performance. The
@@ -227,16 +227,16 @@ build/orin-release/qwen3x-orin benchmark MODEL_DIR \
   --prefill-chunk-size 32
 ```
 
-`--prefill-chunk-size` accepts 1 through 64 and defaults to 1. Values above 1
+`--prefill-chunk-size` accepts 1 through 512 and defaults to 1. Values above 1
 batch the prompt prefix into layer-major projection tiles while preserving
 causal Conv/GDN/KV updates; the final prompt token and all decode steps remain
-single-token operations. Extending `ReferencePrefillTileResult::steps` from 32
-to 64 entries is a public C++ ABI change; the current project/package ABI is
-`0.3.0`, and exact-version consumers must rebuild rather than mix older objects
-with the new static library. At the default 128-token sequence capacity, C64
-uses an exact 11,884,544-byte workspace and 98,752,512-byte request arena. At
-the absolute 262,144-token capacity those values are 36,057,088 and
-17,361,481,728 bytes, respectively.
+single-token operations. Extending `ReferencePrefillTileResult::steps` to 512
+entries is a public C++ ABI change; the current project/package ABI is `0.4.0`,
+and exact-version consumers must rebuild rather than mix older objects with the
+new static library. At the default 128-token sequence capacity, C512 uses an
+exact 88,123,392-byte workspace and 174,991,360-byte request arena. At the
+absolute 262,144-token capacity those values are 112,295,936 and
+17,437,720,576 bytes, respectively.
 
 With the SM87 backend, M9 through M15 quantized tiles
 are split into an M8 launch plus the remaining M1..M7 rows. M16 selects the
@@ -273,6 +273,15 @@ M64 kernel; every other projection route preserves two ordered C32 schedules.
 The runner keeps non-down projections on at-most-C32 subtiles, applies residual
 add/RMSNorm as two exact M32 operations, and retains the ordered at-most-M16
 causal Conv/GDN and Q/K+RoPE subtiles.
+
+The request controller schedules larger prefixes with the explicit palette
+`{C512,C256,C64,C32,tail<=31}`. On SM87, exact C256/C512 full-attention tiles
+use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
+`[5120,17408]` Down uses one N-major whole-chunk grid. Generic projection APIs
+remain capped at C64: FP8 QKV/Z/output, NVFP4 Gate/Up, residual/RMS, Conv/GDN,
+and every near miss retain their established ordered subtiles. In particular,
+the whole-chunk Gate/Up route is not enabled because its current-binary C512
+dual-stream recheck did not clear the frozen performance gate.
 
 Exact aligned SM87 FP8 M1 full-attention Q/K/V projections use one launch for
 the ordered `[12288,5120]`, `[1024,5120]`, and `[1024,5120]` weights. Near-miss
@@ -606,17 +615,20 @@ and supported chat subset are documented in
 [the tokenizer contract](docs/TOKENIZER.md).
 
 Native inference is currently a bounded, batch-one surface with a correctness
-reference, opt-in shape-gated projection optimization, and opt-in `C<=64`
-prompt-prefix tiling. Recurrent state and causal attention still advance token
-by token inside each tile. It does not yet provide a complete large-Prefill backend,
+reference, opt-in shape-gated projection optimization, and opt-in `C<=512`
+prompt-prefix tiling. Exact C256/C512 full-attention work is bulked, while
+linear-attention recurrent state still advances in ordered C16 subtiles. It
+does not yet provide a complete large-Prefill backend,
 continuous batching, a server, or a release-grade performance claim. Prefill
 and Decode have distinct internal host-control plans but still execute through
 the same runner, without double/triple buffering or Prefill/Decode overlap.
 Most work, including exact M17 through M31 gate/up, remains serialized on the
 main stream.
-The narrow exception is exact aligned NVFP4 C32/C64 MLP gate/up: the runner may
+The narrow exception is exact aligned NVFP4 C32/C64 and wide fallback MLP
+gate/up: the runner may
 overlap gate on its main stream with up on one owned auxiliary stream and join
-them with events. C64 issues two ordered C32 projections on each branch. This
+them with events. Wide tiles still issue ordered C32 projections on each
+branch; the rejected C256/C512 whole-chunk Gate/Up kernel is not selected. This
 is layer-local branch overlap, not a general multi-stream scheduler. The
 independent target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is

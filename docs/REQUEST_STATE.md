@@ -11,8 +11,8 @@ optional stream is passed as `void*`.
 
 ## Fixed layer and persistent-state ABI
 
-The current public C++ ABI and package version is `0.3.0`. Expanding
-`ReferencePrefillTileResult::steps` from 32 to 64 entries is an ABI change;
+The current public C++ ABI and package version is `0.4.0`. Expanding
+`ReferencePrefillTileResult::steps` to 512 entries is an ABI change;
 exact-version consumers must rebuild and must not mix older objects with the
 current static library.
 
@@ -37,7 +37,7 @@ exactly `[4,256]` BF16 elements and reject `position >= max_seq`.
 ## Reusable decode workspace
 
 The same request arena contains activation workspace for the configured
-`prefill_chunk_size` `C` (1 through 64):
+`prefill_chunk_size` `C` (1 through 512):
 
 - three independent `[C,5120]` BF16 hidden/residual buffers;
 - four independent `[C,17408]` BF16 projection buffers (`P3` can hold the
@@ -54,17 +54,18 @@ Aliasing is restricted to the documented FP32/GQA pair. Every owning region
 starts at a deterministic 256-byte-aligned offset and otherwise does not
 overlap.
 
-C33 through C63 are partial-wide public tiles. The projection dispatcher
-validates the complete tile and all ranges before the first enqueue, then
-executes one ordered C32 prefix plus the exact C1..C31 tail. At C64, exact
-aligned NVFP4 `[5120,17408]` down uses one M64 kernel; every other projection
-route preserves two ordered C32 schedules. The runner keeps non-down
-projections on at-most-C32 subtiles, executes residual add/RMSNorm as two exact
-M32 operations, and retains ordered at-most-M16 causal Conv/GDN and Q/K+RoPE
-subtiles. Eligible exact aligned NVFP4 C64 gate/up work may use the existing
-layer-local dual-stream branch overlap, with two ordered C32 projections on
-each branch; this is not request double/triple buffering or Prefill/Decode
-overlap.
+The request scheduler decomposes prefixes with the explicit palette
+`{512,256,64,32,tail<=31}`. C33 through C63 therefore remain C32 plus an exact
+C1..C31 tail, and noncanonical caps such as C128/C192/C320 are decomposed rather
+than presented to an unsupported kernel. At C64, exact aligned NVFP4
+`[5120,17408]` Down uses one M64 kernel. On SM87, exact C256/C512 full-attention
+tiles use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
+Down uses one N-major whole-chunk grid. Generic projections remain capped at
+C64; every unsupported or misaligned wide route preserves ordered C32
+projection schedules. Residual/RMS stays on M32 and causal Conv/GDN plus
+Q/K+RoPE stays on at-most-M16 subtiles. Gate/Up may use the existing
+layer-local dual-stream overlap, but its C256/C512 whole-chunk candidate is not
+enabled; this is not request double/triple buffering or Prefill/Decode overlap.
 
 ## RoPE cache policy
 
@@ -156,19 +157,27 @@ capacity, C64 uses 93,225,984 bytes; at the 64-position end-to-end capacity it
 uses 94,541,824 bytes. Persistent state, FP32/GQA scratch capacity, and RoPE
 capacity retain the same sequence-length-only policy.
 
+C256 and C512 extend only the activation workspace while keeping the same
+persistent and RoPE contracts:
+
+| Default-128 plan | Persistent bytes | Workspace bytes | RoPE bytes | Arena bytes |
+| --- | ---: | ---: | ---: | ---: |
+| C256 canary | 86,835,200 | 44,558,336 | 32,768 | 131,426,304 |
+| C512 public maximum | 86,835,200 | 88,123,392 | 32,768 | 174,991,360 |
+
 At the absolute supported capacity of 262,144 tokens, the caller must
 explicitly raise `max_arena_bytes`:
 
 | Maximum region | Bytes |
 | --- | ---: |
 | Persistent storage | 17,258,315,776 |
-| C64 workspace (`24*max_seq` dominates FP32 scratch) | 36,057,088 |
+| C512 workspace (`24*max_seq` dominates FP32 scratch) | 112,295,936 |
 | RoPE cosine + sine | 67,108,864 |
-| **Single request arena** | **17,361,481,728** |
+| **Single request arena** | **17,437,720,576** |
 
 The planner computes these values with checked `uint64_t` arithmetic before
 CUDA is touched. It rejects batch sizes other than one, chunk sizes outside
-1 through 64, zero sequence capacity,
+1 through 512, zero sequence capacity,
 capacities over 262,144, malicious arithmetic overflow, invalid resource
 limits, and plans larger than `max_arena_bytes`.
 
@@ -196,8 +205,8 @@ empty.
 
 ## Verification
 
-`request_state_plan` checks exact C1, C8, C16, C32, and C64 byte totals, the
-C8/C16/C32/C64 workspace-only deltas, default/minimum/maximum sequence totals,
+`request_state_plan` checks exact C1, C8, C16, C32, C64, C256, and C512 byte
+totals, the workspace-only deltas, default/minimum/maximum sequence totals,
 overflow and bad options, schedule counts, slot mappings, alignment, and
 non-overlap.
 `request_state_cuda` uses a small four-token capacity and verifies true device

@@ -114,10 +114,11 @@ enqueue checked M1 projections in token order. The launcher validates natural
 BF16 alignment, complete supertile spans, scratch capacity, overflow, and
 input/output overlap before enqueueing any work.
 
-The public `ReferencePrefillTileResult` capacity grows with the request boundary
-from 32 to 64 entries. That C++ ABI change advances the exact package version
-from 0.2.0 to 0.3.0; consumers must rebuild instead of mixing old objects with
-the new static libraries.
+The public `ReferencePrefillTileResult` capacity is 512 entries at the C512
+request boundary. That C++ ABI change advances the exact package version to
+0.4.0; consumers must rebuild instead of mixing older objects with the new
+static libraries. Generic projection dispatch remains a separate C64-bounded
+contract; the runner admits only narrowly shape-gated wide kernels.
 
 The fixed-M16 FP8 route accepts `[10240,5120]`, `[5120,6144]`,
 `[6144,5120]`, and `[12288,5120]` when weights are 16-byte aligned and

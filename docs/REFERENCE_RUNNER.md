@@ -110,6 +110,14 @@ C64 production supertile 随后把 `ReferencePrefillTileResult::steps` 从 32 �
 exact aligned NVFP4 `[5120,17408]` down projection 使用单个 M64 kernel；其余
 projection 保持两个有序 C32 schedule。调用方仍须按 exact-version 重新编译。
 
+C512 request boundary 进一步把 fixed-capacity result 扩为 512 项，并把 package ABI
+从 0.3.0 提升到 0.4.0。generation controller 只发出
+`{C512,C256,C64,C32,tail<=31}`。exact SM87 C256/C512 full-attention tile 使用一个
+bulk causal GQA 加 sigmoid-Gate kernel；exact aligned NVFP4 `[5120,17408]` Down
+使用一个 N-major whole-chunk grid。generic projection API 仍以 C64 为上限；FP8
+projection、NVFP4 Gate/Up、residual/RMS、Conv/GDN 和所有 near miss 保持有序
+fallback。whole-chunk Gate/Up candidate 不由 runner 选择。
+
 projection-pair API 对 exact M17、M19..M31 以及 fixed M18 先完整校验两个
 projection、自然对齐和交叉 range，再按 first-then-second 顺序各发出一个
 masked-M32 kernel；任一侧不满足 direct gate 时，fallback 在每个有序 subtile 内也
@@ -124,9 +132,9 @@ tile 不计算 logits，也不采集 trace；generation controller 只对 prompt
 逐 token trace ABI。
 
 `prefill_prefix_tile(..., 1)` 直接委托标量 step，因此可选中上述 QKV/Z
-融合。C2..C64 的 layer-major prefix 路径继续调用两个独立 tile
-projection；这个优化不改变 prefix 分片、causal state 更新或对齐不足时的
-fallback 语义。
+融合。layer-major prefix 路径继续调用两个独立 QKV/Z tile projection；C256/C512
+wide request 当前会把这些 generic projection 分解为有序 C32 schedule。这个优化不改变
+prefix 分片、causal state update 或 alignment 不足时的 fallback 语义。
 
 projection 的具体 BF16/FP8/NVFP4 计算策略完全由 `launch_projection_*` dispatch 决定；
 runner 不复制也不改变底层量化语义。GDN canonical reference 保留 FP32 beta。vLLM
