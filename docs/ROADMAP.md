@@ -1225,6 +1225,17 @@ with a measured **at least 0.30 ms/token** contribution. See the
 [GDN structural rejection](metadata/qwen36-27b-decode-gdn-transposed-state-native-encoder-rejection.json),
 and [LM progressive audit](metadata/qwen36-27b-lm-head-exact-progressive-mips-admission.json).
 
+The next zero-code admission is QKV/Z P127E-W128 lossless FP8 payload. All 96
+actual tensors fit in **90.437571%** of their raw bytes in aggregate, removing
+**385,034,240 bytes/token** for a **2.197907-ms/token** zero-decode-overhead
+ceiling. This is not yet a performance result: a 112-byte warp code tile can
+still request four 32-byte L1 sectors, and escape ranking adds instructions and
+metadata traffic. Advance only through a production-unreachable layer-0
+actual/stress screen with bit-exact outputs, zero local memory, four CTA/SM,
+every-round non-regression, and at least **6.25 us/layer / 0.30 ms/token** net
+saving. Do not allocate the 3.391-GiB full sidecar before that gate. See the
+[P127E admission](metadata/qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

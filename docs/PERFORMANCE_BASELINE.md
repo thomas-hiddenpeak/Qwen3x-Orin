@@ -6656,3 +6656,31 @@ future weight transactions, completed-wave incumbents are published
 deterministically, exact native argmax/tie behavior passes, and measured
 traffic stays above the gate after the 18.872-MB suffix-norm sidecar. See the
 [progressive audit record](metadata/qwen36-27b-lm-head-exact-progressive-mips-admission.json).
+
+## Decode QKV/Z P127E-W128 payload admission
+
+An exact scan of all 48 linear-attention QKV and Z pairs selects a lossless
+per-tensor 127-entry FP8 palette, seven-bit code stream, 128-value tile prefix,
+row escape base, and sparse raw-byte escape pool for an actual-first test. All
+96 tensors pass the frozen 92% capacity ceiling:
+
+| Payload | Raw | Encoded | Saving |
+| --- | ---: | ---: | ---: |
+| all QKV/Z layers | 4,026,531,840 B | 3,641,497,600 B | 385,034,240 B (9.562429%) |
+| actual layer 0 | 83,886,080 B | 75,948,032 B | 7,938,048 B (9.463%) |
+
+At the current 175.182-GB/s effective stage rate, free decoding would save
+**2.197907 ms/token**. Reaching the 0.30-ms admission requires only 1.013070x
+stage speedup, or 6.25 us/layer, and leaves an ideal 39.54-us/layer budget for
+new decode work. Those values are ceilings, not achieved performance. Each
+112-byte row tile may still span four L1 sectors, while shuffle extraction,
+escape rank, directory reads, and palette lookup can erase its L2 byte saving.
+
+The first implementation is therefore test-only and layer-0 bounded. It must
+reconstruct every FP8 byte, preserve QKV/Z/A/B BF16 outputs and the production
+arithmetic order, use no local memory, retain four CTA/SM, pass actual and
+stress non-regression in every round, and net at least 0.30 ms/token before any
+3.391-GiB full-model sidecar or production integration. O projection remains a
+rank-2 backup with a narrower 12.46-us/layer overhead budget. Full tensor
+hashes, byte decomposition, closed-route deduplication, and stop-loss gates are
+in the [capacity admission](metadata/qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json).

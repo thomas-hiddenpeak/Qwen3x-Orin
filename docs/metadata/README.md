@@ -1200,6 +1200,15 @@ The diagnostic Phase 3 records are:
   and 0.5792x for cooperative loading. The isolated native encoder reaches
   only 0.996115x. All test-only candidates are removed, production source and
   tests are restored byte-for-byte, and the default CUDA GDN suite passes.
+- [`qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json`](qwen36-27b-decode-fp8-qkv-z-p127e-w128-payload-admission.json),
+  which selects only the byte-capacity of a lossless per-tensor top-127 FP8
+  palette with seven-bit codes and sparse raw escapes. All 96 QKV/Z tensors
+  pass the 92% cap: 4,026,531,840 raw bytes become 3,641,497,600 encoded bytes,
+  saving 385,034,240 bytes/token with a 2.197907-ms zero-overhead ceiling. The
+  candidate still requires a production-unreachable actual-payload screen;
+  112-byte warp tiles may retain four L1 request sectors, so measured L2
+  reduction, decode instructions, resources, and at least 0.30 ms/token net
+  benefit remain hard gates. O projection is rank-2 only.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
