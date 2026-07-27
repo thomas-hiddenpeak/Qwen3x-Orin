@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-down-adaptive-scale-bitwidth-ceiling-rejection",
+  "status": "rejected-zero-code-decode-down-adaptive-scale-bitwidth-ceiling",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "Decode toward 100 ms/token and 10 token/s",
+  "source": {
+    "analysis_commit": "e15571104d5d7c445902e8bca15cb0de4d8f14b4",
+    "analysis_tree": "7ff513134c87df6bd00f0e4a91ea3249fb4c386a",
+    "analysis_subject": "bench: reject Decode M1 table-free E2M1",
+    "branch_created": false,
+    "code_changed": false,
+    "build_run": false,
+    "gpu_run": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "pinned_model_record": "qwen36-27b-nvfp4.report.json"
+  },
+  "related_records": {
+    "production_scale6": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "original_scale6_screen": "qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json",
+    "current_anchor": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.870500,
+    "remaining_tokens_per_second": 0.554498184,
+    "target_met": false,
+    "anchor_changed_by_this_analysis": false
+  },
+  "scan": {
+    "tensor_name_pattern": "model.language_model.layers.<0..63>.mlp.down_proj.weight_scale",
+    "tensors_found": 64,
+    "dtype": "F8_E4M3",
+    "shape_per_tensor": [5120, 1088],
+    "bytes_per_tensor": 5570560,
+    "payload_bytes_scanned": 356515840,
+    "nonfinite_interpretation": "raw one-byte E4M3FN codes; this scan classifies lossless code payloads and does not decode values",
+    "direct_base_plus_delta": {
+      "rule": "bits is the smallest of 5, 6, 7, or 8 for which max_code - min_code is at most 2^bits - 1",
+      "observed_span_min": 46,
+      "observed_span_max": 69,
+      "bits_5_layers": 0,
+      "bits_6_layers": 53,
+      "bits_7_layers": 11,
+      "bits_7_layer_indices": [2, 24, 30, 31, 54, 55, 56, 57, 58, 59, 60],
+      "bits_8_layers": 0
+    },
+    "dictionary_index": {
+      "rule": "bits is the smallest of 5, 6, 7, or 8 that can index every distinct raw code in the layer",
+      "unique_code_count_min": 46,
+      "unique_code_count_max": 67,
+      "unique_code_count_distribution": {
+        "46": 3,
+        "47": 2,
+        "48": 2,
+        "50": 2,
+        "51": 3,
+        "52": 4,
+        "53": 2,
+        "54": 4,
+        "55": 4,
+        "56": 4,
+        "57": 2,
+        "58": 12,
+        "59": 8,
+        "60": 5,
+        "61": 4,
+        "62": 1,
+        "64": 1,
+        "67": 1
+      },
+      "bits_5_layers": 0,
+      "bits_6_layers": 63,
+      "bits_7_layers": 1,
+      "bits_7_layer_indices": [59],
+      "bits_8_layers": 0
+    }
+  },
+  "current_hot_scale_payload": {
+    "scale6_layers": 53,
+    "scale6_bytes_per_layer": 4177920,
+    "scale6_bytes": 221429760,
+    "canonical_fallback_layers": 11,
+    "canonical_bytes_per_layer": 5570560,
+    "canonical_fallback_bytes": 61276160,
+    "equation": "53*4177920 + 11*5570560",
+    "bytes": 282705920,
+    "all_canonical_64_layer_bytes": 356515840,
+    "existing_scale6_saving_vs_all_canonical_bytes": 73809920
+  },
+  "direct_adaptive_ceiling": {
+    "assumption": "ideal padding-free payload with the existing 53 six-bit layers and direct seven-bit base-plus-delta payloads for the 11 current fallbacks",
+    "six_bit_bytes": 221429760,
+    "seven_bit_bytes_per_layer": 4874240,
+    "seven_bit_bytes": 53616640,
+    "equation": "53*4177920 + 11*4874240",
+    "ideal_payload_bytes": 275046400,
+    "saving_vs_current_hot_bytes": 7659520,
+    "saving_vs_current_hot_percent": 2.709359606,
+    "minimum_payload_reduction_percent": 15.0,
+    "payload_gate": "fail",
+    "incremental_saving_vs_existing_scale6_saving_percent": 10.377358491,
+    "existing_scale6_projected_deltas_ms_per_token": [0.434494, 0.268021, 0.199822],
+    "optimistic_linear_incremental_projections_ms_per_token": [0.045089000, 0.027813500, 0.020736245],
+    "optimistic_linear_incremental_median_ms_per_token": 0.027813500,
+    "minimum_decode_contribution_ms_per_token": 0.30,
+    "performance_gate": "fail",
+    "excluded_costs": "seven-bit unpack, packing, alignment, descriptor, and dispatch overhead are all treated as zero"
+  },
+  "dictionary_ceiling": {
+    "assumption": "ideal dense per-layer dictionary indices: 63 layers at six bits and one layer at seven bits, before any codebook, padding, metadata, or lookup cost",
+    "equation_before_codebooks": "63*4177920 + 1*4874240",
+    "ideal_index_payload_bytes_before_codebooks": 268083200,
+    "saving_vs_current_hot_bytes_before_codebooks": 14622720,
+    "saving_vs_current_hot_percent_before_codebooks": 5.172413793,
+    "minimum_payload_reduction_percent": 15.0,
+    "payload_gate": "fail",
+    "incremental_saving_vs_existing_scale6_saving_percent": 19.811320755,
+    "optimistic_linear_incremental_projections_ms_per_token": [0.086079000, 0.053098500, 0.039587377],
+    "optimistic_linear_incremental_median_ms_per_token": 0.053098500,
+    "minimum_decode_contribution_ms_per_token": 0.30,
+    "performance_gate": "fail",
+    "excluded_costs": "per-layer codebooks, index remapping, lookup/unpack instructions, padding, metadata, packing, and dispatch overhead are all treated as zero"
+  },
+  "decision": {
+    "result": "reject_at_ceiling",
+    "reason": "Even padding-free direct adaptive widths save only 2.709359606% of the current hot scale payload and optimistically project to a 0.027813500-ms/token median. The more aggressive dictionary-index ideal saves only 5.172413793% before codebooks and optimistically projects to 0.053098500 ms/token. Both miss the 15% byte and 0.30-ms/token admission gates before paying new unpack or lookup overhead.",
+    "candidate_implemented": false,
+    "candidate_built": false,
+    "candidate_measured_on_gpu": false,
+    "production_changed": false,
+    "reopen_when": "Only a materially different lossless representation or fused consumer with a new exact scan showing at least 15% hot-payload reduction and a credible at-least-0.30-ms/token Decode contribution."
+  },
+  "production_impact": {
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "scale6_layers_unchanged": 53,
+    "canonical_fallback_layers_unchanged": 11,
+    "persistent_sidecar_bytes_unchanged": 221429760,
+    "prefill_changed": false
+  },
+  "reproduction": {
+    "shell": "bash invoking Perl core JSON::PP; no model or repository file is modified",
+    "command": "Q3X_SCALE_SCAN_MODEL_DIR=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 perl -MJSON::PP=decode_json -e 'use strict; use warnings; my $dir=$ENV{Q3X_SCALE_SCAN_MODEL_DIR}; my(@rows,%unique,%bits); for my $path(sort glob(\"$dir/model-*.safetensors\")){open my $fh,\"<:raw\",$path or die $!; read($fh,my $prefix,8)==8 or die \"short prefix\"; my $header_len=unpack(\"Q<\",$prefix); read($fh,my $header,$header_len)==$header_len or die \"short header\"; my $meta=decode_json($header); for my $name(keys %$meta){next unless $name=~/^model\\.language_model\\.layers\\.(\\d+)\\.mlp\\.down_proj\\.weight_scale$/; my $layer=0+$1; my($start,$end)=@{$meta->{$name}{data_offsets}}; my $bytes=$end-$start; die \"unexpected tensor\" unless $meta->{$name}{dtype} eq \"F8_E4M3\" && join(\"x\",@{$meta->{$name}{shape}}) eq \"5120x1088\" && $bytes==5570560; seek($fh,8+$header_len+$start,0) or die \"seek\"; my($min,$max)=(255,0); my %seen; my $left=$bytes; while($left){my $want=$left>1048576?1048576:$left; read($fh,my $buf,$want)==$want or die \"short payload\"; for my $value(unpack(\"C*\",$buf)){$min=$value if $value<$min; $max=$value if $value>$max; $seen{$value}=1} $left-=$want} my $span=$max-$min; my $direct_bits=$span<=31?5:$span<=63?6:$span<=127?7:8; my $count=scalar keys %seen; my $dictionary_bits=$count<=32?5:$count<=64?6:$count<=128?7:8; push @rows,[$layer,$bytes,$min,$max,$span,$count,$direct_bits,$dictionary_bits]; $unique{$count}++; $bits{\"direct:$direct_bits\"}++; $bits{\"dictionary:$dictionary_bits\"}++; }} @rows=sort{$a->[0]<=>$b->[0]}@rows; print join(\"\\t\",qw(layer bytes min max span unique direct_bits dictionary_bits)),\"\\n\"; print join(\"\\t\",@$_),\"\\n\" for @rows; print \"unique=\",join(\",\",map{\"$_:$unique{$_}\"}sort{$a<=>$b}keys %unique),\"\\n\"; print \"bits=\",join(\",\",map{\"$_:$bits{$_}\"}sort keys %bits),\"\\n\";'",
+    "safetensors_offset_rule": "the first eight bytes are a little-endian U64 header length; each tensor data offset is relative to byte 8 + header_length",
+    "payload_read_policy": "seek directly to each selected tensor and scan its exact payload in 1-MiB chunks",
+    "classification": "track raw-code min, max, and a 256-entry presence set per layer; derive direct width from span and dictionary width from distinct-code count",
+    "observed_stdout": {
+      "lines": 67,
+      "sha256": "3363690f448f5b562d379dcc3b7cc4313ac78db78c007b72155d9d223a31e2bd",
+      "retained_as_file": false,
+      "direct_seven_bit_layers": "2,24,30,31,54,55,56,57,58,59,60",
+      "terminal_unique_distribution": "unique=46:3,47:2,48:2,50:2,51:3,52:4,53:2,54:4,55:4,56:4,57:2,58:12,59:8,60:5,61:4,62:1,64:1,67:1",
+      "terminal_width_distribution": "bits=dictionary:6:63,dictionary:7:1,direct:6:53,direct:7:11"
+    }
+  },
+  "claim_limits": [
+    "This is a zero-code payload-ceiling rejection. There is no candidate binary, GPU timing, kernel result, end-to-end result, or achieved speedup.",
+    "The direct and dictionary payloads are ideal padding-free lower bounds; production would retain canonical scales for Prefill and fallbacks, so these values are not model-memory reductions.",
+    "The dictionary payload excludes even its small codebooks and all lookup cost, making 5.172413793% an optimistic byte ceiling rather than an implementation result.",
+    "The millisecond values linearly scale prior isolated scale6 projections by incremental byte saving and assume zero new overhead. They are screening estimates, not measured latency or guaranteed upper bounds.",
+    "The scan covers exactly the pinned 64 down-projection scale tensors on the locally materialized revision; it does not generalize to another checkpoint revision or projection family.",
+    "Production remains unchanged at 105.870500 ms/token / 9.445501816 token/s."
+  ]
+}

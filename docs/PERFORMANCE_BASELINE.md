@@ -6427,3 +6427,30 @@ Nsys, and production integration. Candidate source and test hooks are removed;
 production and the formal **105.870500-ms/token / 9.445501816-token/s** anchor
 remain unchanged. Full identities and claim limits are in the
 [machine-readable rejection record](metadata/qwen36-27b-decode-nvfp4-m1-gate-up-table-free-e2m1-rejection.json).
+
+## Decode down adaptive scale-width ceiling rejection
+
+An exact raw-code scan of all 64 pinned
+`model.language_model.layers.i.mlp.down_proj.weight_scale` tensors finds
+5,570,560 `F8_E4M3` bytes per layer. Direct base-plus-delta spans range from 46
+to 69: 53 layers fit six bits, while layers 2, 24, 30, 31, 54-60 require seven
+bits; none fits five bits. The current selected hot scale payload is
+`53*4,177,920 + 11*5,570,560 = 282,705,920` bytes. Ideal padding-free adaptive
+packing lowers that to 275,046,400 bytes, only **7,659,520 bytes or
+2.709359606%**. Its incremental saving is 10.377358491% of the existing
+73,809,920-byte scale6 saving.
+
+Linearly scaling the three existing 53-layer projections
+`0.434494/0.268021/0.199822` by that incremental ratio gives optimistic
+`0.045089000/0.027813500/0.020736245 ms/token`, with a **0.027813500-ms/token
+median** before seven-bit unpack overhead. A more aggressive dictionary ideal
+uses six-bit indices for 63 layers and seven bits for one. Before even its
+codebooks and lookup cost, it reaches 268,083,200 bytes: only **5.172413793%**
+below current, with an optimistic **0.053098500-ms/token** median.
+
+Both lower bounds miss the frozen 15% payload-reduction and 0.30-ms/token
+admission gates. This is therefore a zero-code ceiling rejection: no branch,
+candidate, build, GPU run, or production change exists, and the formal anchor
+remains **105.870500 ms/token / 9.445501816 token/s**. The exact shell scanner,
+unique-code distribution, equations, and claim limits are in the
+[machine-readable rejection record](metadata/qwen36-27b-decode-down-adaptive-scale-bitwidth-ceiling-rejection.json).

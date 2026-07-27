@@ -291,6 +291,13 @@ Deliverables:
   median projects to a 23.0181-ms/token loss, so stress, Graph/invalid matrices,
   model, profiling, and production work are skipped. Candidate hooks are
   removed; the 105.870500-ms/token / 9.445501816-token/s anchor is unchanged.
+- [rejected at zero-code ceiling] Adapt down-projection scale payload width per
+  layer. Exact scanning yields 53 six-bit and 11 seven-bit direct layers; the
+  ideal padding-free saving is only 2.709359606%, with a 0.027813500-ms/token
+  optimistic median. Even dictionary indices save only 5.172413793% before
+  codebooks and project to 0.053098500 ms/token. Both miss the 15% byte and
+  0.30-ms/token gates, so no implementation or GPU run is admitted and the
+  105.870500-ms/token / 9.445501816-token/s anchor remains unchanged.
 - Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
   paths.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness

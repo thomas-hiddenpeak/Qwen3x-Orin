@@ -1135,6 +1135,13 @@ The diagnostic Phase 3 records are:
   invalid-matrix, model, profiling, and production work; the candidate hooks
   are removed and the 105.870500-ms/token / 9.445501816-token/s anchor is
   unchanged.
+- [`qwen36-27b-decode-down-adaptive-scale-bitwidth-ceiling-rejection.json`](qwen36-27b-decode-down-adaptive-scale-bitwidth-ceiling-rejection.json),
+  which closes adaptive lossless down-scale widths without code. Exact scanning
+  finds 53 direct six-bit and 11 seven-bit layers. An ideal padding-free direct
+  payload saves only 2.709359606% and projects to a 0.027813500-ms/token median;
+  even dictionary indices save only 5.172413793% before codebooks and project
+  to 0.053098500 ms/token. Both miss the 15% byte and 0.30-ms/token gates, so no
+  branch, build, GPU run, or production change is warranted.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
