@@ -2442,10 +2442,11 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
                       static_cast<void*>(stream));
             },
             label + " direct production graph");
-        const unsigned int expected_grid =
-            static_cast<unsigned int>((gate_up_shape ? kIntermediateSize
-                                                     : kHiddenSize) /
-                                      128U * (token_count / kM64Tokens));
+        const std::size_t tokens_per_cta =
+            gate_up_shape ? 128U : kM64Tokens;
+        const unsigned int expected_grid = static_cast<unsigned int>(
+            (gate_up_shape ? kIntermediateSize : kHiddenSize) / 128U *
+            (token_count / tokens_per_cta));
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U &&
             direct.valid && direct.launches.size() == 1U &&
@@ -2585,7 +2586,7 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
                                    nodes[index], &parameters),
                                "read fork/join kernel " + label);
           const unsigned int expected_grid = static_cast<unsigned int>(
-              (kIntermediateSize / 128U) * (token_count / kM64Tokens));
+              (kIntermediateSize / 128U) * (token_count / 128U));
           test.expect(
               ready && parameters.func == direct.launches.front().function &&
                   parameters.gridDim.x == expected_grid &&
@@ -2637,8 +2638,33 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
 #endif
       }
     }
+    std::array<std::size_t, 2U> kernel_dependency_counts{
+        std::numeric_limits<std::size_t>::max(),
+        std::numeric_limits<std::size_t>::max()};
+    if (ready && kernel_nodes.size() == 2U) {
+      for (std::size_t index = 0U; index < kernel_nodes.size(); ++index) {
+#if CUDART_VERSION >= 12030
+        ready = test.cuda_ok(
+                    cudaGraphNodeGetDependencies(kernel_nodes[index], nullptr,
+                                                 nullptr,
+                                                 &kernel_dependency_counts[
+                                                     index]),
+                    "count fork/join kernel dependencies " + label) &&
+                ready;
+#else
+        ready = test.cuda_ok(
+                    cudaGraphNodeGetDependencies(
+                        kernel_nodes[index], nullptr,
+                        &kernel_dependency_counts[index]),
+                    "count fork/join kernel dependencies " + label) &&
+                ready;
+#endif
+      }
+    }
     const bool independent_and_joined =
         ready && nodes.size() == 3U && kernel_nodes.size() == 2U &&
+        kernel_dependency_counts[0U] == 0U &&
+        kernel_dependency_counts[1U] == 0U &&
         joined_marker_node != nullptr && join_dependencies.size() == 2U &&
         std::find(join_dependencies.begin(), join_dependencies.end(),
                   kernel_nodes[0U]) != join_dependencies.end() &&

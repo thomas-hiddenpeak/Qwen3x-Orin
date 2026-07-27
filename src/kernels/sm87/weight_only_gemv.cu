@@ -5614,16 +5614,14 @@ nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel(
   }
 }
 
-// Test-only exact Gate/Up branch canary that makes one CTA own an M128xN128
-// output tile.  Unlike the production whole-chunk M64 schedule, all 128 A
-// rows for one K64 stage are resident together.  The CTA therefore decodes
-// the canonical NVFP4 B tile once and each warp loads one WMMA B fragment per
-// K16 before applying it to eight ordered M16 accumulator panels.  This is a
-// bounded data-reuse probe: production dispatch, checkpoint layout, and the
-// public kernel ABI deliberately remain unchanged.
+// Exact Gate/Up production kernel. One CTA owns an M128xN128 output tile, so
+// all 128 A rows for one K64 stage are resident together. The CTA decodes the
+// canonical NVFP4 B tile once and each warp loads one WMMA B fragment per K16
+// before applying it to eight ordered M16 accumulator panels. Checkpoint
+// layout and the public launcher ABI remain unchanged.
 template <unsigned int kM128TileCount>
 __global__ __launch_bounds__(kThreads, 2) void
-nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_test_kernel(
+nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, std::uint16_t* const output) {
@@ -22788,9 +22786,10 @@ int launch_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_test_
       output, cuda_stream);
 }
 
-// Test-only exact-M64 gate/up projection. This deliberately leaves the public
-// production dispatcher unchanged while pricing the same four-panel
-// weight-reuse schedule on the transposed checkpoint MLP shape.
+// Test-only exact-M64 gate/up projection. This remains an independently
+// callable historical control after the public production route advances to
+// M128, and prices the same four-panel weight-reuse schedule on the transposed
+// checkpoint MLP shape.
 int launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -22936,20 +22935,21 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
+  constexpr unsigned int kOutputColumnBlockCount = 17'408U / 128U;
   if (token_count == 256U) {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 4U>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
+    nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>
+        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
   } else {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 8U>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
+    nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>
+        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
   }
   return static_cast<int>(cudaGetLastError());
 }
 
+// Test compatibility entry for the promoted M128 implementation. Keep the
+// validation, launch geometry, and function identity anchored to production.
 int launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -22957,42 +22957,9 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_test_cuda(
     const std::size_t token_count, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if ((token_count != 256U && token_count != 512U) || rows != 17'408U ||
-      columns != 5'120U) {
-    return invalid_value();
-  }
-  const int validation = validate_nvfp4_m64_tiles_launch(
+  return launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
       packed_weights, block_scales, weight_scale_2, activations, token_count,
-      rows, columns, output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  const bool aligned =
-      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
-          0U &&
-      (reinterpret_cast<std::uintptr_t>(block_scales) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(output) %
-       alignof(std::uint16_t)) == 0U;
-  if (!aligned) {
-    return invalid_value();
-  }
-
-  constexpr unsigned int kOutputColumnBlockCount = 17'408U / 128U;
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  if (token_count == 256U) {
-    nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>
-        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  } else {
-    nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>
-        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  }
-  return static_cast<int>(cudaGetLastError());
+      rows, columns, output, cuda_stream);
 }
 
 int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
@@ -23014,7 +22981,7 @@ int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
   int active_blocks = 0;
   if (token_count == 256U) {
     const auto kernel =
-        nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>;
+        nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>;
     status = cudaFuncGetAttributes(&attributes, kernel);
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -23022,7 +22989,7 @@ int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
     }
   } else {
     const auto kernel =
-        nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>;
+        nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>;
     status = cudaFuncGetAttributes(&attributes, kernel);
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -23236,8 +23203,9 @@ int query_sm87_nvfp4_w4a16_down_m256_persistent_m64_n128_k64_packed_p0_resources
   return static_cast<int>(cudaSuccess);
 }
 
-// The legacy screen keeps its M-major control, while its N-major candidate
-// delegates to the exact production entry above.
+// Frozen historical M64 Gate/Up control. Neither layout delegates to the
+// public exact-whole-chunk entry: production now owns the M128 schedule, while
+// this test-only launcher must retain the independently callable M64 baseline.
 int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -23245,11 +23213,6 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
     const std::size_t token_count, const bool n_major,
     const std::size_t rows, const std::size_t columns,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
-  if (n_major) {
-    return launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
-        packed_weights, block_scales, weight_scale_2, activations,
-        token_count, rows, columns, output, cuda_stream);
-  }
   if (rows != 17'408U || columns != 5'120U) {
     return invalid_value();
   }
@@ -23275,15 +23238,29 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   if (token_count == 256U) {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 4U, false>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
+    if (n_major) {
+      launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+          17'408U, 5'120U, 72U, 4U>(
+          packed_weights, block_scales, weight_scale_2, activations, output,
+          stream);
+    } else {
+      launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+          17'408U, 5'120U, 72U, 4U, false>(
+          packed_weights, block_scales, weight_scale_2, activations, output,
+          stream);
+    }
   } else {
-    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
-        17'408U, 5'120U, 72U, 8U, false>(
-        packed_weights, block_scales, weight_scale_2, activations, output,
-        stream);
+    if (n_major) {
+      launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+          17'408U, 5'120U, 72U, 8U>(
+          packed_weights, block_scales, weight_scale_2, activations, output,
+          stream);
+    } else {
+      launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+          17'408U, 5'120U, 72U, 8U, false>(
+          packed_weights, block_scales, weight_scale_2, activations, output,
+          stream);
+    }
   }
   return static_cast<int>(cudaGetLastError());
 }
