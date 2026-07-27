@@ -796,6 +796,105 @@ void test_fake_linear_weight_validation(TestContext& test) {
       "runner FP8 C64 selector rejects decode/C32/C512/near-miss/alignment "
       "cases without inheriting the request maximum");
 
+  alignas(16) std::array<std::uint8_t, 16U> down_packed{};
+  alignas(2) std::array<std::uint8_t, 2U> down_scales{};
+  alignas(8) std::array<std::uint16_t, 4U> down_input{};
+  std::array<std::uint16_t, 4U> down_output{};
+  float nvfp4_down_weight_scale = 1.0F / 64.0F;
+  float nvfp4_down_input_scale = 1.0F;
+  const runtime::LinearWeight down = runtime::NvFp4LinearWeight{
+      down_packed.data(), down_scales.data(), &nvfp4_down_weight_scale,
+      &nvfp4_down_input_scale, nvfp4_down_weight_scale,
+      nvfp4_down_input_scale, runtime::kReferenceHiddenSize,
+      runtime::kReferenceIntermediateSize};
+  test.expect(
+      detail::use_nvfp4_whole_chunk_prefill_down_projection(
+          runtime::ProjectionBackend::kSm87WeightOnly, down,
+          down_input.data(), down_output.data(), 256U) &&
+          detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_input.data(), down_output.data(), 512U),
+      "runner selects exact aligned NVFP4 Down C256/C512 whole chunks");
+
+  const runtime::LinearWeight down_n_near_miss =
+      runtime::NvFp4LinearWeight{
+          down_packed.data(), down_scales.data(),
+          &nvfp4_down_weight_scale, &nvfp4_down_input_scale,
+          nvfp4_down_weight_scale, nvfp4_down_input_scale,
+          runtime::kReferenceHiddenSize - 1U,
+          runtime::kReferenceIntermediateSize};
+  const runtime::LinearWeight down_k_near_miss =
+      runtime::NvFp4LinearWeight{
+          down_packed.data(), down_scales.data(),
+          &nvfp4_down_weight_scale, &nvfp4_down_input_scale,
+          nvfp4_down_weight_scale, nvfp4_down_input_scale,
+          runtime::kReferenceHiddenSize,
+          runtime::kReferenceIntermediateSize - 16U};
+  const runtime::LinearWeight gate_shape = runtime::NvFp4LinearWeight{
+      down_packed.data(), down_scales.data(), &nvfp4_down_weight_scale,
+      &nvfp4_down_input_scale, nvfp4_down_weight_scale,
+      nvfp4_down_input_scale, runtime::kReferenceIntermediateSize,
+      runtime::kReferenceHiddenSize};
+  const runtime::LinearWeight down_unaligned_weight =
+      runtime::NvFp4LinearWeight{
+          down_packed.data() + 4U, down_scales.data(),
+          &nvfp4_down_weight_scale, &nvfp4_down_input_scale,
+          nvfp4_down_weight_scale, nvfp4_down_input_scale,
+          runtime::kReferenceHiddenSize,
+          runtime::kReferenceIntermediateSize};
+  const runtime::LinearWeight down_unaligned_scale =
+      runtime::NvFp4LinearWeight{
+          down_packed.data(), down_scales.data() + 1U,
+          &nvfp4_down_weight_scale, &nvfp4_down_input_scale,
+          nvfp4_down_weight_scale, nvfp4_down_input_scale,
+          runtime::kReferenceHiddenSize,
+          runtime::kReferenceIntermediateSize};
+  const auto* const down_unaligned_input =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<const std::uint8_t*>(down_input.data()) + 2U);
+  auto* const down_unaligned_output = reinterpret_cast<std::uint16_t*>(
+      reinterpret_cast<std::uint8_t*>(down_output.data()) + 1U);
+  test.expect(
+      !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+          runtime::ProjectionBackend::kReference, down, down_input.data(),
+          down_output.data(), 256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_input.data(), down_output.data(), 64U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_input.data(), down_output.data(), 255U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_input.data(), down_output.data(), 513U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              down_n_near_miss, down_input.data(), down_output.data(),
+              256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              down_k_near_miss, down_input.data(), down_output.data(),
+              256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate_shape,
+              down_input.data(), down_output.data(), 256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              down_unaligned_weight, down_input.data(), down_output.data(),
+              256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly,
+              down_unaligned_scale, down_input.data(), down_output.data(),
+              256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_unaligned_input, down_output.data(), 256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_down_projection(
+              runtime::ProjectionBackend::kSm87WeightOnly, down,
+              down_input.data(), down_unaligned_output, 256U),
+      "runner NVFP4 Down whole-chunk selector rejects reference/C64/C255/"
+      "C513/Gate/shape/alignment near misses");
+
   alignas(16) std::array<std::uint8_t, 16U> gate_packed{};
   alignas(16) std::array<std::uint8_t, 16U> up_packed{};
   alignas(2) std::array<std::uint8_t, 2U> gate_scales{};

@@ -766,6 +766,28 @@ bool use_fp8_m64_prefill_attention_output_projection(
          aligned(output, alignof(std::uint16_t));
 }
 
+bool use_nvfp4_whole_chunk_prefill_down_projection(
+    const ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  const auto* const selected = std::get_if<NvFp4LinearWeight>(&weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  return backend == ProjectionBackend::kSm87WeightOnly &&
+         (token_count == 256U || token_count == 512U) &&
+         selected != nullptr && selected->output_size == kRows &&
+         selected->input_size == kColumns &&
+         aligned(selected->packed_weight, 16U) &&
+         aligned(selected->block_scale, alignof(std::uint16_t)) &&
+         aligned(input, alignof(std::uint64_t)) &&
+         aligned(output, alignof(std::uint16_t));
+}
+
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -2435,6 +2457,16 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                                        std::uint16_t* const output,
                                        const char* const operation,
                                        const std::size_t layer) noexcept {
+    if (reference_runner_detail::
+            use_nvfp4_whole_chunk_prefill_down_projection(
+                projection_backend_, weight, input, output, token_count)) {
+      const int status = launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+          projection_backend_, weight, input, token_count, output, stream_);
+      if (status == static_cast<int>(cudaErrorNotSupported)) {
+        return project(weight, input, output, operation, layer);
+      }
+      return check_cuda(status, operation, layer);
+    }
     if (token_count != kMaximumProjectionTileTokenCount) {
       return project(weight, input, output, operation, layer);
     }

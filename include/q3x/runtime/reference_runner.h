@@ -320,6 +320,15 @@ struct LogitsAnalysis {
     const std::uint16_t* input, std::uint16_t* output,
     std::size_t token_count) noexcept;
 
+// Pure-host selector for the exact NVFP4 Down whole-chunk projection. Only
+// explicitly selected SM87, [5120,17408], C256/C512, and the narrow kernel's
+// production alignments may bypass the runner's established C32 schedule.
+// Gate/Up is intentionally ineligible for this selector.
+[[nodiscard]] bool use_nvfp4_whole_chunk_prefill_down_projection(
+    ProjectionBackend backend, const LinearWeight& weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count) noexcept;
+
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
 // exact aligned direct-output projections, so every route that could touch the
