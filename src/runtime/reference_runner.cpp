@@ -827,6 +827,35 @@ bool use_nvfp4_whole_chunk_prefill_down_projection(
          aligned(output, alignof(std::uint16_t));
 }
 
+bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+    const ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* const input,
+    std::uint16_t* const gate_output, std::uint16_t* const up_output,
+    const std::size_t token_count) noexcept {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  const auto* const gate = std::get_if<NvFp4LinearWeight>(&gate_weight);
+  const auto* const up = std::get_if<NvFp4LinearWeight>(&up_weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  return backend == ProjectionBackend::kSm87WeightOnly &&
+         (token_count == 256U || token_count == 512U) &&
+         gate != nullptr && up != nullptr &&
+         gate->output_size == kRows && gate->input_size == kColumns &&
+         up->output_size == kRows && up->input_size == kColumns &&
+         aligned(gate->packed_weight, 16U) &&
+         aligned(up->packed_weight, 16U) &&
+         aligned(gate->block_scale, alignof(std::uint16_t)) &&
+         aligned(up->block_scale, alignof(std::uint16_t)) &&
+         aligned(input, alignof(std::uint64_t)) &&
+         aligned(gate_output, alignof(std::uint16_t)) &&
+         aligned(up_output, alignof(std::uint16_t)) &&
+         gate_output != up_output;
+}
+
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -2528,6 +2557,24 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                           views_.fp32_scratch_elements, output, stream_),
                       operation, layer);
   };
+  const auto project_nvfp4_whole_chunk_on_stream =
+      [this, token_count, &check_cuda, &project_on_stream](
+          const LinearWeight& weight, const std::uint16_t* const input,
+          std::uint16_t* const output, const char* const operation,
+          const std::size_t layer, void* const launch_stream) noexcept {
+        const int status =
+            launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+                projection_backend_, weight, input, token_count, output,
+                launch_stream);
+        if (status == static_cast<int>(cudaSuccess)) {
+          return true;
+        }
+        if (status == static_cast<int>(cudaErrorNotSupported)) {
+          return project_on_stream(weight, input, output, operation, layer,
+                                   launch_stream);
+        }
+        return check_cuda(status, operation, layer);
+      };
   const auto residual_norm_m32_tiles =
       [this, token_count, &check_cuda](
           const std::uint16_t* const left,
@@ -2891,14 +2938,26 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         return fail_prefill_tile(launch_failure);
       }
     }
-    const bool use_gate_up_dual_stream =
+    const bool gate_up_fork_join_available =
         prefill_auxiliary_stream_ != nullptr &&
         prefill_branch_ready_event_ != nullptr &&
-        prefill_branch_done_event_ != nullptr &&
+        prefill_branch_done_event_ != nullptr;
+    const bool use_gate_up_whole_chunk_dual_stream =
+        gate_up_fork_join_available &&
+        reference_runner_detail::
+            use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+                projection_backend_, layer_weights.mlp.gate_proj,
+                layer_weights.mlp.up_proj, views_.hidden[1],
+                views_.projection[0], views_.projection[1], token_count);
+    const bool use_gate_up_m32_dual_stream =
+        gate_up_fork_join_available &&
         reference_runner_detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
             projection_backend_, layer_weights.mlp.gate_proj,
             layer_weights.mlp.up_proj, views_.hidden[1],
             views_.projection[0], views_.projection[1], token_count);
+    const bool use_gate_up_dual_stream =
+        use_gate_up_whole_chunk_dual_stream ||
+        use_gate_up_m32_dual_stream;
     if (use_gate_up_dual_stream) {
       const auto auxiliary_stream =
           reinterpret_cast<cudaStream_t>(prefill_auxiliary_stream_);
@@ -2906,19 +2965,36 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
           reinterpret_cast<cudaEvent_t>(prefill_branch_ready_event_);
       const auto branch_done =
           reinterpret_cast<cudaEvent_t>(prefill_branch_done_event_);
+      const auto project_gate = [&]() noexcept {
+        if (use_gate_up_whole_chunk_dual_stream) {
+          return project_nvfp4_whole_chunk_on_stream(
+              layer_weights.mlp.gate_proj, views_.hidden[1],
+              views_.projection[0], "prefill_mlp_gate_projection", layer,
+              stream_);
+        }
+        return project(layer_weights.mlp.gate_proj, views_.hidden[1],
+                       views_.projection[0], "prefill_mlp_gate_projection",
+                       layer);
+      };
+      const auto project_up = [&]() noexcept {
+        if (use_gate_up_whole_chunk_dual_stream) {
+          return project_nvfp4_whole_chunk_on_stream(
+              layer_weights.mlp.up_proj, views_.hidden[1],
+              views_.projection[1], "prefill_mlp_up_projection_auxiliary",
+              layer, prefill_auxiliary_stream_);
+        }
+        return project_on_stream(
+            layer_weights.mlp.up_proj, views_.hidden[1], views_.projection[1],
+            "prefill_mlp_up_projection_auxiliary", layer,
+            prefill_auxiliary_stream_);
+      };
       if (!check_cuda(
               static_cast<int>(cudaEventRecord(branch_ready, stream)),
               "prefill_mlp_branch_ready_record", layer) ||
           !check_cuda(static_cast<int>(cudaStreamWaitEvent(
                           auxiliary_stream, branch_ready, 0U)),
                       "prefill_mlp_branch_ready_wait", layer) ||
-          !project(layer_weights.mlp.gate_proj, views_.hidden[1],
-                   views_.projection[0], "prefill_mlp_gate_projection",
-                   layer) ||
-          !project_on_stream(layer_weights.mlp.up_proj, views_.hidden[1],
-                             views_.projection[1],
-                             "prefill_mlp_up_projection_auxiliary", layer,
-                             prefill_auxiliary_stream_) ||
+          !project_gate() || !project_up() ||
           !check_cuda(
               static_cast<int>(cudaEventRecord(branch_done,
                                                auxiliary_stream)),

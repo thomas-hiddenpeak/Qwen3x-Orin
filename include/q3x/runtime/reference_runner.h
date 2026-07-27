@@ -341,6 +341,17 @@ struct LogitsAnalysis {
     const std::uint16_t* input, std::uint16_t* output,
     std::size_t token_count) noexcept;
 
+// Pure-host selector for the exact NVFP4 Gate/Up whole-chunk pair. Only
+// explicitly selected SM87, two aligned [17408,5120] branches, C256/C512,
+// and distinct aligned outputs may use the runner's existing auxiliary-stream
+// fork/join. Device companion-scale pointers remain launcher-validation state:
+// a malformed selected payload must fail instead of becoming a serial fallback.
+[[nodiscard]] bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+    ProjectionBackend backend, const LinearWeight& gate_weight,
+    const LinearWeight& up_weight, const std::uint16_t* input,
+    std::uint16_t* gate_output, std::uint16_t* up_output,
+    std::size_t token_count) noexcept;
+
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
 // exact aligned direct-output projections, so every route that could touch the
@@ -419,8 +430,9 @@ class ReferenceRunner {
   // Persistent conv/GDN/KV state is updated in token order. The exact aligned
   // SM87 FP8 C64 attention-output projection uses one exact kernel. Exact
   // aligned C256/C512 FP8 QKV/Z/O and NVFP4 Down projections each use one
-  // whole-chunk grid. The exact aligned NVFP4 C32/C64 MLP gate/up pair may use
-  // one owned auxiliary stream and an event join; C64 preserves two ordered
+  // whole-chunk grid. Exact aligned NVFP4 C256/C512 Gate/Up uses one
+  // whole-chunk grid per branch on the owned two-stream event fork/join;
+  // C32/C64 retains the M32 dual-stream schedule and C64 preserves two ordered
   // C32 launches on each branch.
   // Exact SM87 C256/C512 full-attention tiles use one bulk causal GQA/Gate
   // launch with tile-local Q/Gate/output and global NHD K/V caches. Every

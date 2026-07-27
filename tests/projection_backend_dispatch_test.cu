@@ -2474,6 +2474,202 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
   expect_exact_grid(down, intermediate_input, hidden_output, 512U, false,
                     "NVFP4 Down C512 whole chunk");
 
+  // Mirror the runner's existing ready/done event fork/join without exposing
+  // a pair-specific runtime entry. Gate stays on the main stream, Up runs on
+  // the auxiliary stream, and a post-wait marker proves that both independent
+  // one-node branches rejoin before the next main-stream operation.
+  const auto expect_gate_up_fork_join = [&](const std::size_t token_count) {
+    const std::string label = "NVFP4 Gate/Up C" +
+                              std::to_string(token_count) +
+                              " production fork/join";
+    const CapturedKernelChain direct = capture_ordered_kernel_chain(
+        test,
+        [&](cudaStream_t stream) noexcept {
+          return q3x::kernels::
+              launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+                  packed_weight, block_scale, 1.0F, hidden_input,
+                  token_count, kIntermediateSize, kHiddenSize,
+                  intermediate_output, static_cast<void*>(stream));
+        },
+        label + " direct branch");
+
+    cudaStream_t main_stream = nullptr;
+    cudaStream_t auxiliary_stream = nullptr;
+    cudaEvent_t branch_ready = nullptr;
+    cudaEvent_t branch_done = nullptr;
+    cudaGraph_t graph = nullptr;
+    DeviceBuffer<std::uint8_t> joined_marker;
+    bool ready = direct.valid && direct.launches.size() == 1U;
+    ready = ready &&
+            joined_marker.allocate(test, 1U, "fork/join marker " + label);
+    ready = ready && test.cuda_ok(
+                         cudaStreamCreateWithFlags(&main_stream,
+                                                   cudaStreamNonBlocking),
+                         "create main stream " + label);
+    ready = ready && test.cuda_ok(
+                         cudaStreamCreateWithFlags(&auxiliary_stream,
+                                                   cudaStreamNonBlocking),
+                         "create auxiliary stream " + label);
+    ready = ready && test.cuda_ok(
+                         cudaEventCreateWithFlags(&branch_ready,
+                                                  cudaEventDisableTiming),
+                         "create ready event " + label);
+    ready = ready && test.cuda_ok(
+                         cudaEventCreateWithFlags(&branch_done,
+                                                  cudaEventDisableTiming),
+                         "create done event " + label);
+    ready = ready && test.cuda_ok(
+                         cudaStreamBeginCapture(main_stream,
+                                                cudaStreamCaptureModeGlobal),
+                         "begin fork/join capture " + label);
+    if (ready) {
+      ready = test.cuda_ok(cudaEventRecord(branch_ready, main_stream),
+                           "record ready event " + label) &&
+              test.cuda_ok(cudaStreamWaitEvent(auxiliary_stream,
+                                               branch_ready, 0U),
+                           "wait ready event " + label);
+    }
+    if (ready) {
+      const int gate_status =
+          runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+              hidden_input, token_count, intermediate_output,
+              static_cast<void*>(main_stream));
+      const int up_status =
+          runtime::launch_exact_nvfp4_whole_chunk_branch_to_bf16_cuda(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate_up,
+              hidden_input, token_count,
+              reinterpret_cast<std::uint16_t*>(0x68'0000'0000ULL),
+              static_cast<void*>(auxiliary_stream));
+      test.expect(static_cast<cudaError_t>(gate_status) == cudaSuccess &&
+                      static_cast<cudaError_t>(up_status) == cudaSuccess,
+                  label + " enqueues both exact branches");
+      ready = gate_status == static_cast<int>(cudaSuccess) &&
+              up_status == static_cast<int>(cudaSuccess);
+    }
+    if (ready) {
+      ready = test.cuda_ok(cudaEventRecord(branch_done, auxiliary_stream),
+                           "record done event " + label) &&
+              test.cuda_ok(cudaStreamWaitEvent(main_stream, branch_done, 0U),
+                           "wait done event " + label) &&
+              test.cuda_ok(cudaMemsetAsync(joined_marker.get(), 0, 1U,
+                                           main_stream),
+                           "enqueue joined marker " + label);
+    }
+    if (main_stream != nullptr) {
+      ready = test.cuda_ok(cudaStreamEndCapture(main_stream, &graph),
+                           "end fork/join capture " + label) &&
+              ready;
+    }
+
+    std::vector<cudaGraphNode_t> nodes;
+    std::vector<cudaGraphNode_t> kernel_nodes;
+    cudaGraphNode_t joined_marker_node = nullptr;
+    if (ready && graph != nullptr) {
+      std::size_t node_count = 0U;
+      ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                           "count fork/join nodes " + label);
+      nodes.resize(node_count);
+      if (ready && node_count != 0U) {
+        ready = test.cuda_ok(cudaGraphGetNodes(graph, nodes.data(),
+                                               &node_count),
+                             "read fork/join nodes " + label);
+      }
+      for (std::size_t index = 0U; ready && index < node_count; ++index) {
+        cudaGraphNodeType type = cudaGraphNodeTypeEmpty;
+        ready = test.cuda_ok(cudaGraphNodeGetType(nodes[index], &type),
+                             "read fork/join node type " + label);
+        if (ready && type == cudaGraphNodeTypeKernel) {
+          cudaKernelNodeParams parameters{};
+          ready = test.cuda_ok(cudaGraphKernelNodeGetParams(
+                                   nodes[index], &parameters),
+                               "read fork/join kernel " + label);
+          const unsigned int expected_grid = static_cast<unsigned int>(
+              (kIntermediateSize / 128U) * (token_count / kM64Tokens));
+          test.expect(
+              ready && parameters.func == direct.launches.front().function &&
+                  parameters.gridDim.x == expected_grid &&
+                  parameters.gridDim.y == 1U &&
+                  parameters.gridDim.z == 1U &&
+                  parameters.blockDim.x == 256U &&
+                  parameters.blockDim.y == 1U &&
+                  parameters.blockDim.z == 1U &&
+                  parameters.sharedMemBytes == 0U,
+              label + " branch is the function-identical N-major node");
+          kernel_nodes.push_back(nodes[index]);
+        } else if (ready && type == cudaGraphNodeTypeMemset) {
+          test.expect(joined_marker_node == nullptr,
+                      label + " contains one post-join marker");
+          joined_marker_node = nodes[index];
+        }
+      }
+    }
+
+    std::vector<cudaGraphNode_t> join_dependencies;
+    if (ready && joined_marker_node != nullptr) {
+      std::size_t dependency_count = 0U;
+#if CUDART_VERSION >= 12030
+      ready = test.cuda_ok(
+          cudaGraphNodeGetDependencies(joined_marker_node, nullptr, nullptr,
+                                       &dependency_count),
+          "count fork/join marker dependencies " + label);
+#else
+      ready = test.cuda_ok(
+          cudaGraphNodeGetDependencies(joined_marker_node, nullptr,
+                                       &dependency_count),
+          "count fork/join marker dependencies " + label);
+#endif
+      join_dependencies.resize(dependency_count);
+      if (ready && dependency_count != 0U) {
+#if CUDART_VERSION >= 12030
+        std::vector<cudaGraphEdgeData> edge_data(dependency_count);
+        ready = test.cuda_ok(
+            cudaGraphNodeGetDependencies(
+                joined_marker_node, join_dependencies.data(), edge_data.data(),
+                &dependency_count),
+            "read fork/join marker dependencies " + label);
+#else
+        ready = test.cuda_ok(
+            cudaGraphNodeGetDependencies(joined_marker_node,
+                                         join_dependencies.data(),
+                                         &dependency_count),
+            "read fork/join marker dependencies " + label);
+#endif
+      }
+    }
+    const bool independent_and_joined =
+        ready && nodes.size() == 3U && kernel_nodes.size() == 2U &&
+        joined_marker_node != nullptr && join_dependencies.size() == 2U &&
+        std::find(join_dependencies.begin(), join_dependencies.end(),
+                  kernel_nodes[0U]) != join_dependencies.end() &&
+        std::find(join_dependencies.begin(), join_dependencies.end(),
+                  kernel_nodes[1U]) != join_dependencies.end();
+    test.expect(independent_and_joined,
+                label + " contains two independent branches and one join");
+
+    if (graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(graph), "destroy graph " + label);
+    }
+    if (branch_done != nullptr) {
+      (void)test.cuda_ok(cudaEventDestroy(branch_done),
+                         "destroy done event " + label);
+    }
+    if (branch_ready != nullptr) {
+      (void)test.cuda_ok(cudaEventDestroy(branch_ready),
+                         "destroy ready event " + label);
+    }
+    if (auxiliary_stream != nullptr) {
+      (void)test.cuda_ok(cudaStreamDestroy(auxiliary_stream),
+                         "destroy auxiliary stream " + label);
+    }
+    if (main_stream != nullptr) {
+      (void)test.cuda_ok(cudaStreamDestroy(main_stream),
+                         "destroy main stream " + label);
+    }
+  };
+  expect_gate_up_fork_join(256U);
+  expect_gate_up_fork_join(512U);
+
   const auto expect_not_supported =
       [&](const runtime::ProjectionBackend backend,
           const runtime::LinearWeight& weight,
