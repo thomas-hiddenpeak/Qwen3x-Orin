@@ -1197,6 +1197,17 @@ must remove at least two scratch transfers and independently establish a
 credible 0.30-ms/token ceiling. The immediate path returns to zero-code
 projection payload admissions and measured global-flow changes. See the
 [GDN rejection record](metadata/qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json).
+
+The first global-flow follow-up also closes down-only physical repacking.
+Fresh transaction tables show **99.520% load-sector utilization** and
+48,797,696 L2-miss bytes versus 48,742,400 mandatory bytes. Perfecting every
+remaining load transaction projects to only **0.093974 ms/token**; an even more
+optimistic bound that removes all store-sector waste reaches **0.157985
+ms/token**, still below the 0.30-ms gate. Gate/up scale payload does pass a
+separate capacity admission: lossless P15E-T128 uses **55.945506%** of canonical
+bytes across all 128 tensors, but it remains test-only until decoder cost is
+measured. See the [down-flow rejection](metadata/qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json)
+and [gate/up payload admission](metadata/qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json).
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

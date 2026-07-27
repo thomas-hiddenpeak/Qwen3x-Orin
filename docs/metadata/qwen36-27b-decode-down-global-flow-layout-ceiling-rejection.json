@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-down-global-flow-layout-ceiling-rejection",
+  "status": "rejected-measured-decode-down-global-flow-layout-ceiling",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "Decode toward 100 ms/token and 10 token/s without MTP",
+  "source": {
+    "analysis_commit": "e22616e8611d287e2851fc5e22d6a1404a4da144",
+    "analysis_tree": "539bb479bfdf2f065ccec43f4fc40445a227f39b",
+    "analysis_subject": "bench: reject Decode GDN transient register state",
+    "branch_created": false,
+    "code_changed": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "mtp_used": false
+  },
+  "related_records": {
+    "global_traffic_audit": "qwen36-27b-decode-non-mtp-global-traffic-state-audit.json",
+    "production_down_scale6": "qwen36-27b-decode-projection-palette-v2-production-benchmark.json",
+    "current_anchor": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.870500,
+    "remaining_tokens_per_second": 0.554498184,
+    "minimum_candidate_contribution_ms_per_token": 0.30,
+    "anchor_changed_by_this_analysis": false
+  },
+  "binary": {
+    "path": "build/orin-release/qwen3x-orin",
+    "bytes": 5175456,
+    "sha256": "fc116d262d65d7735c31de56abd4bc6edf6f7f115a8a285869fa4eb50294f8c7"
+  },
+  "ncu": {
+    "tool": "Nsight Compute 2026.2.0.0 build 37790515",
+    "report_path": "/tmp/q3x-nonmtp-down-memory-tables.ncu-rep",
+    "report_bytes": 2487298,
+    "report_sha256": "0290d0786e692cda18aad9b9133704db0570dcb25a6ab7bfdc6b8e2db57e7cbc",
+    "kernel": "nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel",
+    "replay_mode": "kernel",
+    "launch_count": 1,
+    "replay_passes": 24,
+    "cache_control": "all",
+    "clock_control": "base",
+    "sections": ["MemoryWorkloadAnalysis_Tables", "LaunchStats"],
+    "duration_us": 322.432000,
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "registers_per_thread": 64,
+    "static_shared_bytes": 35904,
+    "local_bytes": 0,
+    "active_ctas_per_sm": 2
+  },
+  "global_loads": {
+    "requests": 404040,
+    "sectors": 1573753,
+    "sector_bytes": 50360096,
+    "average_useful_bytes_per_32_byte_sector": 31.846437,
+    "sector_utilization_percent": 99.520115625,
+    "l1_lookup_hits": 22848,
+    "l1_lookup_misses": 1550905,
+    "l1_miss_percent": 98.548184,
+    "l2_read_sectors": 1548699,
+    "l2_read_bytes": 49558368,
+    "l2_read_lookup_miss_sectors": 1524928,
+    "l2_read_lookup_miss_bytes": 48797696,
+    "mandatory_weight_plus_scale6_payload_bytes": 48742400,
+    "ncu_estimated_local_speedup_percent_if_remaining_load_pattern_were_ideal": 0.4654,
+    "ncu_rule": "31.8 of 32 bytes per sector are used, and the observation applies to the 98.4 percent of sectors that miss L2"
+  },
+  "global_stores": {
+    "requests": 5440,
+    "sectors": 5760,
+    "sector_bytes": 184320,
+    "average_useful_bytes_per_32_byte_sector": 5.333333,
+    "estimated_useful_bytes": 30719.998080,
+    "l1_lookup_hits": 4826,
+    "l1_lookup_misses": 934,
+    "l2_write_sectors": 5727,
+    "l2_write_bytes": 183264,
+    "l2_write_lookup_misses": 0,
+    "interpretation": "The sparse output/epilogue stores are only 0.366 percent of load-sector bytes and generate no measured L2 write lookup miss. The NCU store-pattern rule is therefore not a whole-kernel 49.93-percent opportunity."
+  },
+  "ceiling": {
+    "current_down_stage_ms_per_token": 20.192096,
+    "required_fraction_of_down_stage_percent_for_0_30_ms": 1.485729862,
+    "load_pattern_linear_ceiling_percent": 0.4654,
+    "load_pattern_linear_ceiling_ms_per_token": 0.093974015,
+    "ideal_load_sector_bytes_avoided_from_measured_utilization": 241670.231939,
+    "ideal_store_sector_bytes_avoided": 153600.001920,
+    "combined_ideal_sector_bytes_avoided": 395270.233859,
+    "combined_fraction_of_measured_load_and_store_sector_bytes_percent": 0.782412,
+    "combined_linear_traffic_ceiling_ms_per_token": 0.157985,
+    "minimum_candidate_contribution_ms_per_token": 0.30,
+    "gate": "fail"
+  },
+  "decision": {
+    "result": "reject_at_measured_ceiling",
+    "reason": "The current down global loads already use 99.520 percent of each sector and L2-miss bytes are within 0.114 percent of the mandatory packed-weight plus scale6 payload. Removing every remaining measured load-sector inefficiency projects to only 0.093974 ms/token. Even adding an impossible perfect elimination of all store-sector waste reaches only 0.157985 ms/token, below the frozen 0.30-ms/token admission gate.",
+    "rejected_mechanisms": [
+      "wavefront-major or K512-major preswizzle whose only benefit is better global coalescing",
+      "cross-core movement reduction based only on repacking the existing down byte stream",
+      "a 2.20-GiB full down sidecar without an independently demonstrated instruction-level mechanism"
+    ],
+    "candidate_implemented": false,
+    "production_changed": false,
+    "reopen_when": "Only a materially different mechanism that removes payload bytes or demonstrates an instruction/synchronization saving independent of coalescing, with a credible at-least-0.30-ms/token whole-Decode contribution."
+  },
+  "reproduction": {
+    "command": "sudo /opt/nvidia/nsight-compute/2026.2.0/target/linux-desktop-t210-a64/ncu --target-processes all --replay-mode kernel --kernel-name regex:nvfp4_w4a16_down_residual_norm_activation_staged_scale6_test_kernel --launch-count 1 --kill yes --cache-control all --clock-control base --section MemoryWorkloadAnalysis_Tables --section LaunchStats --force-overwrite -o /tmp/q3x-nonmtp-down-memory-tables /usr/bin/taskset -c 11 /home/rm01/Qwen3x-Orin/build/orin-release/qwen3x-orin generate /home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4 --prompt '用一句话解释 CUDA 是什么。' --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87",
+    "raw_export": "/usr/local/cuda/bin/ncu --import /tmp/q3x-nonmtp-down-memory-tables.ncu-rep --page raw --csv",
+    "details_export": "/usr/local/cuda/bin/ncu --import /tmp/q3x-nonmtp-down-memory-tables.ncu-rep --page details"
+  },
+  "production_impact": {
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "down_dispatch_unchanged": true,
+    "persistent_sidecars_unchanged": true,
+    "prefill_changed": false,
+    "mtp_changed": false
+  },
+  "claim_limits": [
+    "This is a measured traffic-ceiling rejection, not an implemented candidate or achieved performance result.",
+    "The 0.093974-ms/token value linearly applies NCU's local load-pattern estimate to the current 20.192096-ms down stage; it is a screening ceiling, not a directly timed whole-model delta.",
+    "The 0.157985-ms/token combined value additionally assumes every unused load and store sector byte can be removed at zero cost, so it is deliberately optimistic.",
+    "The result rejects layout changes whose only mechanism is global transaction efficiency. It does not reject a future byte-removing representation or a separately proven instruction/dependency change.",
+    "MTP is outside this analysis and remains outside the current target path."
+  ]
+}

@@ -6553,3 +6553,41 @@ integration. Both candidate kernels, launchers, and tests are removed with
 clean target build and default GDN CUDA suite pass, and the formal anchor stays
 **105.870500 ms/token / 9.445501816 token/s**. Complete rounds and claim limits
 are in the [rejection record](metadata/qwen36-27b-decode-gdn-m1-transient-register-state-rejection.json).
+
+## Decode down global-flow layout ceiling
+
+A fresh 24-pass NCU transaction-table capture closes down-only preswizzle and
+cross-core repacking whose sole mechanism is improved global coalescing. The
+production scale6 kernel issues 1,573,753 load sectors at **31.846437 useful
+bytes per 32-byte sector**, or **99.520116% utilization**. It records 48,797,696
+L2 read-miss bytes against 48,742,400 mandatory packed-weight plus scale6
+bytes. Stores occupy only 184,320 sector bytes and have zero L2 write lookup
+misses.
+
+NCU estimates only **0.4654% local speedup** from an ideal remaining load
+pattern. Applied to the 20.192096-ms/token down stage, that is **0.093974
+ms/token**. Even an impossible zero-cost removal of every unused load and store
+sector byte projects to **0.157985 ms/token**, below the frozen 0.30-ms gate.
+No candidate kernel, sidecar, or dispatch change is created, and the formal
+anchor remains **105.870500 ms/token / 9.445501816 token/s**. Report identity,
+raw counters, command, and claim limits are in the
+[measured ceiling record](metadata/qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json).
+
+## Decode gate/up P15E-T128 payload admission
+
+The gate/up lossless-scale scan does clear its byte-only gate. Across all 128
+`F8_E4M3 [17408,320]` tensors, a per-tensor top-15 palette with four-bit codes,
+128-value escape-prefix tiles, raw escapes, headers, and padding occupies
+**398,909,184 bytes**, or **55.945506%** of the 713,031,680 canonical bytes.
+All tensors round-trip bit exactly and independently stay under 60%; the worst
+is layer-50 gate at 58.363971%. A shared palette for each layer's gate/up pair
+costs only 255,488 additional bytes over the full model and is the selected
+test-only decoder fixture.
+
+The **1.897253-ms/token** free-decode projection is only a byte ceiling. The
+older scale6 gate/up sidecar, despite removing 25% of scale bytes, regressed in
+all 30 formal rounds by about 0.0210-0.0224 ms/layer. P15E-T128 therefore enters
+only a same-binary decoder/sector stop-loss; it is not allocated or reachable
+from production. The formal anchor is unchanged. Exact byte decomposition,
+hashes, risk comparison, and gates are in the
+[capacity record](metadata/qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json).

@@ -1160,6 +1160,22 @@ The diagnostic Phase 3 records are:
   to only 0.074424/0.076402 ms/token, however, far below the frozen 1.2448x /
   0.30-ms/token gate. Stop-loss removes all candidate code, restores the exact
   production blobs, and leaves the formal anchor unchanged.
+- [`qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json`](qwen36-27b-decode-down-global-flow-layout-ceiling-rejection.json),
+  which closes down-projection global-flow repacking with fresh NCU transaction
+  evidence. Loads use 31.846 of every 32-byte sector and measured L2-miss bytes
+  are within 0.114% of mandatory packed-weight plus scale6 payload. NCU's ideal
+  load-pattern estimate projects to only 0.093974 ms/token; even also removing
+  every unused store-sector byte reaches only 0.157985 ms/token. Both miss the
+  0.30-ms/token gate, so no 2.20-GiB preswizzle sidecar or production change is
+  created.
+- [`qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json`](qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission.json),
+  which admits only the capacity of a lossless gate/up four-bit top-15 palette
+  plus raw-escape scale sidecar. All 128 pinned tensors round-trip bit exactly;
+  the exact 398,909,184-byte representation is 55.945506% of canonical and all
+  tensors pass the frozen 60% bound. The free-decode byte ceiling is 1.897253
+  ms/token, but the prior scale6 decoder regressed in all 30 rounds, so a
+  same-binary decoder/sector stop-loss remains mandatory before any full
+  gate/up candidate or production allocation.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

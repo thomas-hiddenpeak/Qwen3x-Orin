@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gate-up-p15e-t128-scale-payload-admission",
+  "status": "capacity-admitted-test-only-performance-pending",
+  "recorded_at": "2026-07-27",
+  "timezone": "Asia/Shanghai",
+  "priority": "Decode toward 100 ms/token and 10 token/s without MTP",
+  "source": {
+    "analysis_commit": "e22616e8611d287e2851fc5e22d6a1404a4da144",
+    "analysis_tree": "539bb479bfdf2f065ccec43f4fc40445a227f39b",
+    "analysis_subject": "bench: reject Decode GDN transient register state",
+    "repository_changed_by_scan": false,
+    "model_changed_by_scan": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "mtp_used": false
+  },
+  "related_records": {
+    "global_traffic_audit": "qwen36-27b-decode-non-mtp-global-traffic-state-audit.json",
+    "scale6_rejection": "qwen36-27b-decode-nvfp4-scale6-sidecar-rejection.json",
+    "current_anchor": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json"
+  },
+  "current_stage_target": {
+    "workload": "P19/C32/max26 hot single-request Decode",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "minimum_candidate_contribution_ms_per_token": 0.30,
+    "anchor_changed_by_this_analysis": false
+  },
+  "inventory": {
+    "tensor_name_pattern": "model.language_model.layers.<0..63>.mlp.<gate|up>_proj.weight_scale",
+    "tensor_count": 128,
+    "dtype": "F8_E4M3",
+    "shape_per_tensor": [17408, 320],
+    "canonical_bytes_per_tensor": 5570560,
+    "canonical_bytes": 713031680,
+    "source_payload_sha256": "f6ac572b41cce52176f82ff0e7cfb40dd982a28d6cedfc556a1d48178966ebda"
+  },
+  "format": {
+    "name": "P15E-T128-v1",
+    "logical_order": "row_quad, K512_tile, lane_pair, phase, row",
+    "palette_entries": 15,
+    "code_bits": 4,
+    "direct_codes": "0..14",
+    "escape_code": "0xf",
+    "tile_values": 128,
+    "code_bytes_per_tile": 64,
+    "escape_prefix_type": "uint32",
+    "escape_prefix_entries_per_tensor": 43520,
+    "raw_escape_order": "tile and code order",
+    "section_alignment_bytes": 128,
+    "tensor_alignment_bytes": 256,
+    "roundtrip": "bit exact for every raw E4M3 code in all 128 tensors"
+  },
+  "per_tensor_palette_scan": {
+    "palette_policy": "stable top-15 raw codes per tensor, frequency descending then raw value ascending",
+    "escape_bytes": 20077137,
+    "escape_percent_of_canonical": 2.815742633,
+    "header_and_palette_bytes": 16384,
+    "four_bit_code_bytes": 356515840,
+    "tile_prefix_directory_bytes": 22282240,
+    "padding_bytes": 17583,
+    "exact_sidecar_bytes": 398909184,
+    "exact_sidecar_percent_of_canonical": 55.945506376,
+    "saving_bytes": 314122496,
+    "saving_percent": 44.054493624,
+    "capacity_gate_maximum_percent_of_canonical": 60.0,
+    "capacity_gate_margin_bytes": 28909824,
+    "tensors_passing_capacity_gate": 128,
+    "tensors_scanned": 128,
+    "worst_tensor": {
+      "layer": 50,
+      "projection": "gate",
+      "escape_count": 291651,
+      "sidecar_bytes": 3251200,
+      "percent_of_canonical": 58.363970588
+    },
+    "encoded_payload_sha256": "75220548fd851ca0d6b2f6dad1ec471659941f9aafb203fba1437f0c25c5a91b",
+    "sixteen_column_audit_csv_sha256": "906b3e92a5188eb20a030db257c2b258af7aa661df6b8c90e9026c567f417fe9",
+    "capacity_gate": "pass"
+  },
+  "palette_scope_comparison": {
+    "per_tensor_sidecar_bytes": 398909184,
+    "per_tensor_percent": 55.945506376,
+    "per_layer_shared_gate_up_palette_sidecar_bytes": 399164672,
+    "per_layer_shared_gate_up_palette_percent": 55.981338,
+    "per_layer_shared_incremental_bytes": 255488,
+    "global_single_palette_nibble_plus_escape_lower_bound_percent": 63.759420,
+    "global_single_palette_capacity_gate": "fail",
+    "selected_for_test_only_decoder_screen": "one shared palette per layer gate/up pair"
+  },
+  "optimistic_traffic_projection": {
+    "saved_bytes_per_token_with_per_tensor_palettes": 314122496,
+    "saved_bytes_per_layer_gate_up_pair": 4908164,
+    "current_gate_up_mandatory_weight_plus_scale_bytes_per_layer": 100270080,
+    "fraction_of_gate_up_payload_removed_percent": 4.895,
+    "projection_payload_effective_bandwidth_gb_per_second": 165.567,
+    "free_decode_optimistic_ceiling_ms_per_token": 1.897253,
+    "required_net_saving_us_per_layer_for_0_30_ms": 4.6875,
+    "classification": "byte-only upper bound before nibble unpack, palette lookup, ballot/rank, escape addressing, sparse loads, metadata, and cache effects"
+  },
+  "performance_risk": {
+    "prior_scale6_sidecar_scale_reduction_percent": 25.0,
+    "prior_scale6_gate_up_formal_process_speedups": [0.964139, 0.966421, 0.963405],
+    "prior_scale6_gate_up_actual_delta_ms_per_layer": [-0.0219458, -0.0205518, -0.0223831],
+    "prior_scale6_gate_up_formal_rounds": 30,
+    "prior_scale6_gate_up_improving_rounds": 0,
+    "additional_bytes_saved_by_shared_palette_vs_scale6_per_layer_pair": 2118892,
+    "additional_free_traffic_time_vs_scale6_us_per_layer_at_167_284_gb_per_second": 12.666,
+    "interpretation": "Even granting the new representation its extra byte saving at zero cost leaves most prior scale6 regression unresolved. P15E-T128 must therefore pass an isolated same-binary decoder/sector stop-loss before any full gate/up kernel is written."
+  },
+  "decision": {
+    "capacity_result": "pass",
+    "performance_result": "pending_test_only_decoder_screen",
+    "production_selected": false,
+    "production_changed": false,
+    "next_gate": {
+      "scope": "same-binary canonical, scale6, and P15E-T128 decoder/sector microbenchmark using actual checkpoint distributions",
+      "required_correctness": "bit-exact reconstruction, guards intact",
+      "required_local_memory_bytes": 0,
+      "required_active_ctas_per_sm": 2,
+      "required_projected_net_contribution_ms_per_token": 0.30,
+      "required_every_round_nonregressing": true,
+      "stop_loss": "If the decoder cannot preserve enough of the 4.6875-us/layer budget, remove it without adding a production descriptor or dispatch."
+    }
+  },
+  "production_impact": {
+    "formal_anchor_unchanged": true,
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "sidecar_allocated": false,
+    "model_memory_changed": false,
+    "dispatch_changed": false,
+    "prefill_changed": false,
+    "mtp_changed": false
+  },
+  "reproduction": {
+    "runtime": "python3 plus numpy; safetensors payloads are read directly and encoded only in process memory",
+    "algorithm": "For every gate/up scale tensor, build a stable top-15 palette; transpose raw bytes into current kernel consumption order; encode two nibbles per byte; store a uint32 prefix for each 128-value tile and raw escapes in encounter order; decode and transpose back; require byte-for-byte source equality.",
+    "safetensors_offset_rule": "the first eight bytes are a little-endian U64 header length; each tensor data offset is relative to byte 8 + header_length",
+    "retained_encoded_file": false,
+    "retained_csv_file": false
+  },
+  "claim_limits": [
+    "This record admits only encoded capacity. It reports no CUDA decoder timing, full gate/up timing, end-to-end timing, or achieved speedup.",
+    "Canonical scale tensors remain required by Prefill and fallback routes; the sidecar would be additional resident memory rather than a model-memory saving.",
+    "The 1.897253-ms/token value assumes every saved byte translates linearly at 165.567 GB/s and all decoding is free. It is an optimistic screening ceiling.",
+    "Only the palette and current layer directory are small enough to consider for L2 persistence; the roughly 399-MB full sidecar cannot persist in the 2.75-MiB window.",
+    "MTP is explicitly excluded from this candidate and the current target path."
+  ]
+}
