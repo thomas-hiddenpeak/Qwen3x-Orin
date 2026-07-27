@@ -1368,15 +1368,35 @@ row-search structure without an unpriced global-progress assumption. See the
   **119.838644 token/s**, while Nsight confirms 1,024 M32 launches totaling
   378.191584 ms become 512 M64 launches totaling 279.108096 ms. See the
   [FP8 M64 production record](metadata/qwen36-27b-prefill-fp8-m64-attention-output-production-benchmark.json).
-- [active, FP8 M64 linear-QKV screen] Screen exact
-  `[M64,N10240,K5120]` against two production M32 launches. The latest P513
-  profile attributes 384.251 ms and 768 launches to this 48-layer projection;
-  runner integration must later bypass its fixed C32 split just as narrowly as
-  the promoted output route. Preserve the low-risk gates: at most 0.5%
-  regression on unaffected P33 and at least 0.5% Prefix improvement on
-  affected routes. In parallel, probe FlashInfer SM87/aarch64 build and GQA
-  24:4/D256 compatibility without changing production. Decode remains frozen
-  and non-MTP.
+- [done, Prefill reference-architecture audit] FlashInfer commit `4b969c9`
+  and qwen35-thor commit `57e2977` were inspected read-only. FlashInfer FA2's
+  bulk causal GQA contract is a source-level match for contiguous BF16 NHD
+  Q24/KV4/D256 attention on SM87, but its current GDN Prefill routes require
+  SM90 or newer. qwen35-thor does not call FlashInfer in production; its main
+  transferable mechanism is a layer-major T>1 path with up to 2,048 tokens per
+  GEMM-bearing chunk, followed by bulk attention and an eight-token WY GDN
+  recurrence. SM110 TMA/UMMA/PDL and external performance numbers are not
+  portable evidence. See the
+  [Prefill reference audit](PREFILL_REFERENCE_AUDIT.md).
+- [active, whole-chunk large-M weight-reuse screen] Before another narrow
+  production promotion, build a test-only exact M256/M512
+  `[N5120,K6144]` FP8 launcher from the validated M64 CTA and issue all row
+  tiles in one N-major grid. Compare against four/eight ordered production M64
+  launches to measure cross-CTA L2 weight reuse separately from new arithmetic.
+  Advance only with exact correctness, one Graph node, no resource regression,
+  every round non-regressive, at least 1.25x at M512, and a hotspot-based
+  projection of at least 1.05x P513 Prefix across eligible shapes.
+- [queued, FP8 M64 linear-QKV and Z controls] Preserve the exact
+  `[M64,N10240,K5120]` and `[M64,N6144,K5120]` screens as bounded fallbacks.
+  QKV currently accounts for 384.251 ms/768 launches and Z for
+  243.086 ms/768 launches in P513, but isolated M64 promotion cannot explain
+  the gap to the external 2k--8k token/s region.
+- [parallel reference, native bulk attention and WY GDN] Use FlashInfer's
+  online-softmax and chunked-delta-rule contracts as design references only.
+  A dependency-free SM87 attention prototype must include Q/K preprocessing,
+  KV placement, gating, and numerical costs, clear 2x core and 1.03x P513
+  Prefix gates, and retain final tokens. WY GDN follows only after a larger
+  request workspace exists. Decode remains frozen and non-MTP.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
