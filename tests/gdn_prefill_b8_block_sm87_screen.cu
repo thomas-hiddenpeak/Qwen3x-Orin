@@ -15,6 +15,24 @@
 #include <string>
 #include <vector>
 
+namespace q3x::runtime::gdn_prefill_b8_detail {
+
+[[nodiscard]] int launch_gated_delta_net_update_sequential_fp32_b8_exact_cuda(
+    const std::uint16_t* conv_qkv, std::size_t token_count,
+    const std::uint16_t* a, const std::uint16_t* b,
+    const std::uint16_t* A_log, const std::uint16_t* dt_bias,
+    const std::uint16_t* state_input, std::uint16_t* state_output,
+    float l2_epsilon, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_gated_delta_net_update_sequential_fp32_b8_resources_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+}  // namespace q3x::runtime::gdn_prefill_b8_detail
+
 namespace {
 
 constexpr unsigned int kThreads = 256U;
@@ -28,6 +46,7 @@ constexpr std::size_t kMaximumTokens = 512U;
 constexpr float kL2Epsilon = 1.0e-6F;
 constexpr std::array<std::size_t, 6U> kCorrectnessShapes{1U, 7U, 8U,
                                                          9U, 15U, 16U};
+constexpr std::array<std::size_t, 2U> kExactAdmissionShapes{256U, 512U};
 
 static_assert(kWarpsPerBlock * kRowsPerWarp * 2U ==
               q3x::runtime::kGdnHeadDimension);
@@ -566,6 +585,15 @@ template <bool kUseWy>
   resources.maximum_threads_per_block = attributes.maxThreadsPerBlock;
   resources.active_blocks_per_sm = active_blocks;
   return cudaSuccess;
+}
+
+[[nodiscard]] cudaError_t query_private_sequential_resources(
+    KernelResources& resources) {
+  return static_cast<cudaError_t>(q3x::runtime::gdn_prefill_b8_detail::
+      query_gated_delta_net_update_sequential_fp32_b8_resources_cuda(
+          &resources.registers_per_thread, &resources.static_shared_bytes,
+          &resources.local_bytes, &resources.maximum_threads_per_block,
+          &resources.active_blocks_per_sm));
 }
 
 void fill_inputs(ManagedBuffer<std::uint16_t>& conv_qkv,
@@ -1295,6 +1323,603 @@ void run_correctness(TestContext& test, cudaStream_t stream) {
               "selected B8 sequential kernel rejects output/conv alias");
 }
 
+void run_private_candidate_admission(TestContext& test,
+                                     cudaStream_t stream) {
+  constexpr std::size_t kGuardElements = 32U;
+  constexpr std::uint16_t kOutputPoison = 0xa5a5U;
+  constexpr std::uint16_t kStatePoison = 0x5a5aU;
+  const std::size_t maximum_output_elements =
+      kMaximumTokens * q3x::runtime::kGdnVElements;
+
+  ManagedBuffer<std::uint16_t> conv_qkv;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint16_t> A_log;
+  ManagedBuffer<std::uint16_t> dt_bias;
+  ManagedBuffer<std::uint16_t> initial_state;
+  ManagedBuffer<std::uint16_t> screened_state;
+  ManagedBuffer<std::uint16_t> private_in_place_state;
+  ManagedBuffer<std::uint16_t> private_separate_state_storage;
+  ManagedBuffer<std::uint16_t> chain_state;
+  ManagedBuffer<std::uint16_t> graph_state;
+  ManagedBuffer<std::uint16_t> screened_output;
+  ManagedBuffer<std::uint16_t> private_in_place_output_storage;
+  ManagedBuffer<std::uint16_t> private_separate_output_storage;
+  ManagedBuffer<std::uint16_t> chain_output;
+  ManagedBuffer<std::uint16_t> graph_output_storage;
+  bool ready = test.cuda_ok(
+      conv_qkv.allocate(kMaximumTokens * q3x::runtime::kGdnQkvChannels),
+      "private B8 admission allocate conv QKV");
+  ready = ready && test.cuda_ok(
+                       a.allocate(kMaximumTokens *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "private B8 admission allocate a");
+  ready = ready && test.cuda_ok(
+                       b.allocate(kMaximumTokens *
+                                  q3x::runtime::kGdnValueHeadCount),
+                       "private B8 admission allocate b");
+  ready = ready && test.cuda_ok(
+                       A_log.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "private B8 admission allocate A_log");
+  ready = ready && test.cuda_ok(
+                       dt_bias.allocate(q3x::runtime::kGdnValueHeadCount),
+                       "private B8 admission allocate dt_bias");
+  for (ManagedBuffer<std::uint16_t>* const state :
+       {&initial_state, &screened_state, &private_in_place_state,
+        &chain_state, &graph_state}) {
+    ready = ready && test.cuda_ok(
+                         state->allocate(q3x::runtime::kGdnStateElements),
+                         "private B8 admission allocate state");
+  }
+  ready = ready && test.cuda_ok(
+                       private_separate_state_storage.allocate(
+                           q3x::runtime::kGdnStateElements +
+                           2U * kGuardElements),
+                       "private B8 admission allocate separate state");
+  for (ManagedBuffer<std::uint16_t>* const output :
+       {&screened_output, &chain_output}) {
+    ready = ready && test.cuda_ok(
+                         output->allocate(maximum_output_elements),
+                         "private B8 admission allocate plain output");
+  }
+  for (ManagedBuffer<std::uint16_t>* const output :
+       {&private_in_place_output_storage,
+        &private_separate_output_storage, &graph_output_storage}) {
+    ready = ready && test.cuda_ok(
+                         output->allocate(maximum_output_elements +
+                                          2U * kGuardElements),
+                         "private B8 admission allocate guarded output");
+  }
+  if (!ready) {
+    return;
+  }
+
+  fill_inputs(conv_qkv, a, b, A_log, dt_bias, kMaximumTokens);
+  fill_state(initial_state.data(), initial_state.size(), 37U);
+  test.expect(std::any_of(initial_state.data(),
+                          initial_state.data() + initial_state.size(),
+                          [](const std::uint16_t value) {
+                            return value != encode_bf16_host(0.0F);
+                          }),
+              "private B8 admission uses a non-zero initial state");
+  const std::vector<std::uint16_t> frozen_conv_qkv(
+      conv_qkv.data(), conv_qkv.data() + conv_qkv.size());
+  const std::vector<std::uint16_t> frozen_a(a.data(), a.data() + a.size());
+  const std::vector<std::uint16_t> frozen_b(b.data(), b.data() + b.size());
+  const std::vector<std::uint16_t> frozen_A_log(
+      A_log.data(), A_log.data() + A_log.size());
+  const std::vector<std::uint16_t> frozen_dt_bias(
+      dt_bias.data(), dt_bias.data() + dt_bias.size());
+  const std::vector<std::uint16_t> frozen_initial_state(
+      initial_state.data(), initial_state.data() + initial_state.size());
+
+  std::uint16_t* const private_in_place_output =
+      private_in_place_output_storage.data() + kGuardElements;
+  std::uint16_t* const private_separate_output =
+      private_separate_output_storage.data() + kGuardElements;
+  std::uint16_t* const private_separate_state =
+      private_separate_state_storage.data() + kGuardElements;
+  std::uint16_t* const graph_output =
+      graph_output_storage.data() + kGuardElements;
+  const auto launch_private =
+      [&](const std::uint16_t* const qkv,
+          const std::size_t token_count,
+          const std::uint16_t* const scalar_a,
+          const std::uint16_t* const scalar_b,
+          const std::uint16_t* const state_input,
+          std::uint16_t* const state_output,
+          std::uint16_t* const output) noexcept {
+        return q3x::runtime::gdn_prefill_b8_detail::
+            launch_gated_delta_net_update_sequential_fp32_b8_exact_cuda(
+                qkv, token_count, scalar_a, scalar_b, A_log.data(),
+                dt_bias.data(), state_input, state_output, kL2Epsilon,
+                output, static_cast<void*>(stream));
+      };
+  const auto output_redzone_intact =
+      [&](const ManagedBuffer<std::uint16_t>& storage,
+          const std::size_t used_elements) {
+        return std::all_of(
+                   storage.data(), storage.data() + kGuardElements,
+                   [](const std::uint16_t value) {
+                     return value == kOutputPoison;
+                   }) &&
+               std::all_of(storage.data() + kGuardElements + used_elements,
+                           storage.data() + storage.size(),
+                           [](const std::uint16_t value) {
+                             return value == kOutputPoison;
+                           });
+      };
+  const auto state_redzone_intact = [&]() {
+    return std::all_of(
+               private_separate_state_storage.data(),
+               private_separate_state_storage.data() + kGuardElements,
+               [](const std::uint16_t value) {
+                 return value == kStatePoison;
+               }) &&
+           std::all_of(private_separate_state_storage.data() +
+                           kGuardElements + q3x::runtime::kGdnStateElements,
+                       private_separate_state_storage.data() +
+                           private_separate_state_storage.size(),
+                       [](const std::uint16_t value) {
+                         return value == kStatePoison;
+                       });
+  };
+
+  for (const std::size_t token_count : kExactAdmissionShapes) {
+    const std::size_t used_output_elements =
+        token_count * q3x::runtime::kGdnVElements;
+    std::copy_n(initial_state.data(), initial_state.size(),
+                screened_state.data());
+    std::copy_n(initial_state.data(), initial_state.size(),
+                private_in_place_state.data());
+    std::copy_n(initial_state.data(), initial_state.size(), chain_state.data());
+    std::fill_n(private_separate_state_storage.data(),
+                private_separate_state_storage.size(), kStatePoison);
+    std::fill_n(screened_output.data(), screened_output.size(),
+                kOutputPoison);
+    std::fill_n(chain_output.data(), chain_output.size(), kOutputPoison);
+    std::fill_n(private_in_place_output_storage.data(),
+                private_in_place_output_storage.size(), kOutputPoison);
+    std::fill_n(private_separate_output_storage.data(),
+                private_separate_output_storage.size(), kOutputPoison);
+
+    ready = test.cuda_ok(
+        static_cast<cudaError_t>(launch_b8_block<false>(
+            conv_qkv.data(), token_count, a.data(), b.data(), A_log.data(),
+            dt_bias.data(), screened_state.data(), screened_state.data(),
+            kL2Epsilon, screened_output.data(), stream)),
+        "screened sequential whole launch C" +
+            std::to_string(token_count));
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_private(
+                             conv_qkv.data(), token_count, a.data(), b.data(),
+                             private_in_place_state.data(),
+                             private_in_place_state.data(),
+                             private_in_place_output)),
+                         "private sequential in-place launch C" +
+                             std::to_string(token_count));
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_private(
+                             conv_qkv.data(), token_count, a.data(), b.data(),
+                             initial_state.data(), private_separate_state,
+                             private_separate_output)),
+                         "private sequential separate-state launch C" +
+                             std::to_string(token_count));
+    for (std::size_t token_offset = 0U;
+         ready && token_offset < token_count; token_offset += kBlockTokens) {
+      ready = test.cuda_ok(
+          static_cast<cudaError_t>(launch_b8_block<false>(
+              conv_qkv.data() +
+                  token_offset * q3x::runtime::kGdnQkvChannels,
+              kBlockTokens,
+              a.data() + token_offset * q3x::runtime::kGdnValueHeadCount,
+              b.data() + token_offset * q3x::runtime::kGdnValueHeadCount,
+              A_log.data(), dt_bias.data(), chain_state.data(),
+              chain_state.data(), kL2Epsilon,
+              chain_output.data() +
+                  token_offset * q3x::runtime::kGdnVElements,
+              stream)),
+          "screened sequential C8 chain launch offset=" +
+              std::to_string(token_offset));
+    }
+    ready = ready && test.cuda_ok(
+                         cudaStreamSynchronize(stream),
+                         "private B8 admission synchronize C" +
+                             std::to_string(token_count));
+    if (!ready) {
+      return;
+    }
+
+    const bool in_place_output_exact = std::equal(
+        screened_output.data(),
+        screened_output.data() + used_output_elements,
+        private_in_place_output);
+    const bool separate_output_exact = std::equal(
+        screened_output.data(),
+        screened_output.data() + used_output_elements,
+        private_separate_output);
+    const bool in_place_state_exact = std::equal(
+        screened_state.data(),
+        screened_state.data() + q3x::runtime::kGdnStateElements,
+        private_in_place_state.data());
+    const bool separate_state_exact = std::equal(
+        screened_state.data(),
+        screened_state.data() + q3x::runtime::kGdnStateElements,
+        private_separate_state);
+    const bool chain_output_exact = std::equal(
+        private_in_place_output,
+        private_in_place_output + used_output_elements, chain_output.data());
+    const bool chain_state_exact = std::equal(
+        private_in_place_state.data(),
+        private_in_place_state.data() + q3x::runtime::kGdnStateElements,
+        chain_state.data());
+    const bool direct_redzones_intact =
+        output_redzone_intact(private_in_place_output_storage,
+                              used_output_elements) &&
+        output_redzone_intact(private_separate_output_storage,
+                              used_output_elements) &&
+        state_redzone_intact();
+    test.expect(in_place_output_exact && in_place_state_exact,
+                "private sequential in-place is bitwise screened-exact C" +
+                    std::to_string(token_count));
+    test.expect(separate_output_exact && separate_state_exact,
+                "private sequential separate-state is bitwise screened-exact C" +
+                    std::to_string(token_count));
+    test.expect(chain_output_exact && chain_state_exact,
+                "private sequential whole equals consecutive C8 chain C" +
+                    std::to_string(token_count));
+    test.expect(direct_redzones_intact,
+                "private sequential direct output/state redzones remain intact C" +
+                    std::to_string(token_count));
+    test.expect(std::equal(initial_state.data(),
+                           initial_state.data() + initial_state.size(),
+                           frozen_initial_state.begin()),
+                "private sequential separate state_input remains immutable C" +
+                    std::to_string(token_count));
+
+    cudaGraph_t graph = nullptr;
+    cudaGraphExec_t graph_exec = nullptr;
+    std::copy_n(initial_state.data(), initial_state.size(), graph_state.data());
+    std::fill_n(graph_output_storage.data(), graph_output_storage.size(),
+                kOutputPoison);
+    bool graph_ready = test.cuda_ok(
+        cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+        "private sequential begin Graph capture C" +
+            std::to_string(token_count));
+    if (graph_ready) {
+      const cudaError_t launch_status = static_cast<cudaError_t>(
+          launch_private(conv_qkv.data(), token_count, a.data(), b.data(),
+                         graph_state.data(), graph_state.data(), graph_output));
+      graph_ready = test.cuda_ok(
+                        launch_status,
+                        "private sequential Graph capture launch C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+      graph_ready = test.cuda_ok(
+                        cudaStreamEndCapture(stream, &graph),
+                        "private sequential end Graph capture C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+    }
+    std::size_t node_count = 0U;
+    cudaGraphNodeType node_type{};
+    cudaKernelNodeParams kernel_params{};
+    if (graph_ready && graph != nullptr) {
+      graph_ready = test.cuda_ok(
+                        cudaGraphGetNodes(graph, nullptr, &node_count),
+                        "private sequential count Graph nodes C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+    }
+    if (graph_ready && node_count == 1U) {
+      cudaGraphNode_t node = nullptr;
+      std::size_t capacity = 1U;
+      graph_ready = test.cuda_ok(
+                        cudaGraphGetNodes(graph, &node, &capacity),
+                        "private sequential get Graph node C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+      graph_ready = capacity == 1U &&
+                    test.cuda_ok(
+                        cudaGraphNodeGetType(node, &node_type),
+                        "private sequential get Graph node type C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+      if (graph_ready && node_type == cudaGraphNodeTypeKernel) {
+        graph_ready = test.cuda_ok(
+                          cudaGraphKernelNodeGetParams(node, &kernel_params),
+                          "private sequential get Graph params C" +
+                              std::to_string(token_count)) &&
+                      graph_ready;
+      }
+    }
+    if (graph_ready) {
+      graph_ready = test.cuda_ok(
+                        cudaGraphInstantiate(&graph_exec, graph, nullptr,
+                                             nullptr, 0U),
+                        "private sequential instantiate Graph C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+    }
+    std::copy_n(initial_state.data(), initial_state.size(), graph_state.data());
+    std::fill_n(graph_output_storage.data(), graph_output_storage.size(),
+                kOutputPoison);
+    if (graph_ready) {
+      graph_ready = test.cuda_ok(
+                        cudaGraphLaunch(graph_exec, stream),
+                        "private sequential replay Graph C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+      graph_ready = test.cuda_ok(
+                        cudaStreamSynchronize(stream),
+                        "private sequential synchronize Graph replay C" +
+                            std::to_string(token_count)) &&
+                    graph_ready;
+    }
+    const bool graph_output_exact =
+        graph_ready &&
+        std::equal(private_in_place_output,
+                   private_in_place_output + used_output_elements,
+                   graph_output);
+    const bool graph_state_exact =
+        graph_ready &&
+        std::equal(private_in_place_state.data(),
+                   private_in_place_state.data() +
+                       q3x::runtime::kGdnStateElements,
+                   graph_state.data());
+    const bool graph_gate =
+        graph_ready && node_count == 1U &&
+        node_type == cudaGraphNodeTypeKernel && kernel_params.func != nullptr &&
+        kernel_params.gridDim.x == q3x::runtime::kGdnValueHeadCount &&
+        kernel_params.gridDim.y == 1U && kernel_params.gridDim.z == 1U &&
+        kernel_params.blockDim.x == kThreads &&
+        kernel_params.blockDim.y == 1U && kernel_params.blockDim.z == 1U &&
+        kernel_params.sharedMemBytes == 0U && graph_output_exact &&
+        graph_state_exact &&
+        output_redzone_intact(graph_output_storage, used_output_elements);
+    test.expect(graph_gate,
+                "private sequential Graph is one kernel node and replays bitwise C" +
+                    std::to_string(token_count));
+    std::cout << "GDN_B8_PRIVATE_ADMISSION: token_count=" << token_count
+              << " in_place_exact="
+              << (in_place_output_exact && in_place_state_exact ? "true"
+                                                                  : "false")
+              << " separate_exact="
+              << (separate_output_exact && separate_state_exact ? "true"
+                                                                  : "false")
+              << " c8_chain_exact="
+              << (chain_output_exact && chain_state_exact ? "true" : "false")
+              << " graph_nodes=" << node_count
+              << " graph_replay_exact="
+              << (graph_output_exact && graph_state_exact ? "true" : "false")
+              << " redzones="
+              << (direct_redzones_intact &&
+                          output_redzone_intact(graph_output_storage,
+                                                used_output_elements)
+                      ? "intact"
+                      : "BAD")
+              << " gate=" << (graph_gate ? "PASS" : "FAIL") << '\n';
+    if (graph_exec != nullptr) {
+      (void)test.cuda_ok(
+          cudaGraphExecDestroy(graph_exec),
+          "private sequential destroy Graph executable C" +
+              std::to_string(token_count));
+    }
+    if (graph != nullptr) {
+      (void)test.cuda_ok(cudaGraphDestroy(graph),
+                         "private sequential destroy Graph C" +
+                             std::to_string(token_count));
+    }
+  }
+
+  test.expect(std::equal(conv_qkv.data(), conv_qkv.data() + conv_qkv.size(),
+                         frozen_conv_qkv.begin()) &&
+                  std::equal(a.data(), a.data() + a.size(), frozen_a.begin()) &&
+                  std::equal(b.data(), b.data() + b.size(), frozen_b.begin()) &&
+                  std::equal(A_log.data(), A_log.data() + A_log.size(),
+                             frozen_A_log.begin()) &&
+                  std::equal(dt_bias.data(), dt_bias.data() + dt_bias.size(),
+                             frozen_dt_bias.begin()) &&
+                  std::equal(initial_state.data(),
+                             initial_state.data() + initial_state.size(),
+                             frozen_initial_state.begin()),
+              "private sequential preserves every immutable input");
+
+  struct PrivateArguments {
+    const std::uint16_t* conv_qkv;
+    std::size_t token_count;
+    const std::uint16_t* a;
+    const std::uint16_t* b;
+    const std::uint16_t* A_log;
+    const std::uint16_t* dt_bias;
+    const std::uint16_t* state_input;
+    std::uint16_t* state_output;
+    float l2_epsilon;
+    std::uint16_t* output;
+  };
+  constexpr std::array<const char*, 8U> kSpanNames{
+      "conv_qkv", "a",          "b",     "A_log",
+      "dt_bias",  "state_input", "state_output", "output"};
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<std::uint16_t*>(address);
+  };
+  const PrivateArguments valid_arguments{
+      pointer(0x0000'0001'0000'0000ULL),
+      256U,
+      pointer(0x0000'0002'0000'0000ULL),
+      pointer(0x0000'0003'0000'0000ULL),
+      pointer(0x0000'0004'0000'0000ULL),
+      pointer(0x0000'0005'0000'0000ULL),
+      pointer(0x0000'0006'0000'0000ULL),
+      pointer(0x0000'0007'0000'0000ULL),
+      kL2Epsilon,
+      pointer(0x0000'0008'0000'0000ULL),
+  };
+  const auto launch_arguments = [&](const PrivateArguments& arguments) {
+    return q3x::runtime::gdn_prefill_b8_detail::
+        launch_gated_delta_net_update_sequential_fp32_b8_exact_cuda(
+            arguments.conv_qkv, arguments.token_count, arguments.a,
+            arguments.b, arguments.A_log, arguments.dt_bias,
+            arguments.state_input, arguments.state_output,
+            arguments.l2_epsilon, arguments.output,
+            static_cast<void*>(stream));
+  };
+  const auto get_span_address = [](const PrivateArguments& arguments,
+                                   const std::size_t index) {
+    switch (index) {
+      case 0U:
+        return reinterpret_cast<std::uintptr_t>(arguments.conv_qkv);
+      case 1U:
+        return reinterpret_cast<std::uintptr_t>(arguments.a);
+      case 2U:
+        return reinterpret_cast<std::uintptr_t>(arguments.b);
+      case 3U:
+        return reinterpret_cast<std::uintptr_t>(arguments.A_log);
+      case 4U:
+        return reinterpret_cast<std::uintptr_t>(arguments.dt_bias);
+      case 5U:
+        return reinterpret_cast<std::uintptr_t>(arguments.state_input);
+      case 6U:
+        return reinterpret_cast<std::uintptr_t>(arguments.state_output);
+      default:
+        return reinterpret_cast<std::uintptr_t>(arguments.output);
+    }
+  };
+  const auto set_span_address = [](PrivateArguments& arguments,
+                                   const std::size_t index,
+                                   const std::uintptr_t address) {
+    auto* const value = reinterpret_cast<std::uint16_t*>(address);
+    switch (index) {
+      case 0U:
+        arguments.conv_qkv = value;
+        break;
+      case 1U:
+        arguments.a = value;
+        break;
+      case 2U:
+        arguments.b = value;
+        break;
+      case 3U:
+        arguments.A_log = value;
+        break;
+      case 4U:
+        arguments.dt_bias = value;
+        break;
+      case 5U:
+        arguments.state_input = value;
+        break;
+      case 6U:
+        arguments.state_output = value;
+        break;
+      default:
+        arguments.output = value;
+        break;
+    }
+  };
+
+  std::size_t invalid_case_count = 0U;
+  bool invalid_zero_node_gate = true;
+  const auto expect_invalid_zero_node =
+      [&](const PrivateArguments& arguments, const std::string& reason) {
+        cudaGraph_t graph = nullptr;
+        bool capture_ready = test.cuda_ok(
+            cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+            "private sequential begin invalid capture: " + reason);
+        int status = static_cast<int>(cudaErrorUnknown);
+        if (capture_ready) {
+          status = launch_arguments(arguments);
+          capture_ready =
+              test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                           "private sequential end invalid capture: " +
+                               reason) &&
+              capture_ready;
+        }
+        std::size_t nodes = std::numeric_limits<std::size_t>::max();
+        if (capture_ready && graph != nullptr) {
+          nodes = 0U;
+          capture_ready =
+              test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                           "private sequential count invalid nodes: " +
+                               reason) &&
+              capture_ready;
+        }
+        const bool case_gate =
+            capture_ready &&
+            status == static_cast<int>(cudaErrorInvalidValue) && nodes == 0U;
+        test.expect(case_gate,
+                    "private sequential rejects before enqueue: " + reason);
+        invalid_zero_node_gate = invalid_zero_node_gate && case_gate;
+        ++invalid_case_count;
+        if (graph != nullptr) {
+          (void)test.cuda_ok(
+              cudaGraphDestroy(graph),
+              "private sequential destroy invalid graph: " + reason);
+        }
+      };
+
+  for (const std::size_t token_count : {255U, 257U, 511U, 513U}) {
+    PrivateArguments arguments = valid_arguments;
+    arguments.token_count = token_count;
+    expect_invalid_zero_node(arguments,
+                             "near-miss C" + std::to_string(token_count));
+  }
+  for (std::size_t span = 0U; span < kSpanNames.size(); ++span) {
+    PrivateArguments arguments = valid_arguments;
+    set_span_address(arguments, span, 0U);
+    expect_invalid_zero_node(arguments,
+                             std::string("null ") + kSpanNames[span]);
+  }
+  constexpr std::array<const char*, 5U> kEpsilonNames{
+      "NaN epsilon", "+Inf epsilon", "-Inf epsilon", "zero epsilon",
+      "negative epsilon"};
+  const std::array<float, 5U> invalid_epsilons{
+      std::numeric_limits<float>::quiet_NaN(),
+      std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(), 0.0F, -1.0F};
+  for (std::size_t index = 0U; index < invalid_epsilons.size(); ++index) {
+    PrivateArguments arguments = valid_arguments;
+    arguments.l2_epsilon = invalid_epsilons[index];
+    expect_invalid_zero_node(arguments, kEpsilonNames[index]);
+  }
+  for (std::size_t span = 0U; span < kSpanNames.size(); ++span) {
+    PrivateArguments arguments = valid_arguments;
+    set_span_address(arguments, span,
+                     get_span_address(arguments, span) + 1U);
+    expect_invalid_zero_node(arguments,
+                             std::string("misaligned ") + kSpanNames[span]);
+  }
+  const std::uintptr_t wrapping_address =
+      std::numeric_limits<std::uintptr_t>::max() - 1U;
+  for (std::size_t span = 0U; span < kSpanNames.size(); ++span) {
+    PrivateArguments arguments = valid_arguments;
+    set_span_address(arguments, span, wrapping_address);
+    expect_invalid_zero_node(arguments,
+                             std::string("wrapping ") + kSpanNames[span]);
+  }
+  for (std::size_t first = 0U; first < kSpanNames.size(); ++first) {
+    for (std::size_t second = first + 1U; second < kSpanNames.size();
+         ++second) {
+      PrivateArguments arguments = valid_arguments;
+      set_span_address(arguments, second,
+                       get_span_address(arguments, first) +
+                           sizeof(std::uint16_t));
+      expect_invalid_zero_node(
+          arguments, std::string("partial alias ") + kSpanNames[first] +
+                         "/" + kSpanNames[second]);
+    }
+  }
+  constexpr std::size_t kExpectedInvalidCases =
+      4U + 8U + 5U + 8U + 8U + (8U * 7U / 2U);
+  test.expect(invalid_case_count == kExpectedInvalidCases &&
+                  invalid_zero_node_gate,
+              "private sequential rejects all invalid contracts with zero Graph nodes");
+  std::cout << "GDN_B8_PRIVATE_INVALID_CONTRACT: cases="
+            << invalid_case_count << " expected=" << kExpectedInvalidCases
+            << " pairwise_partial_alias_cases=" << 8U * 7U / 2U
+            << " zero_node_gate="
+            << (invalid_zero_node_gate ? "PASS" : "FAIL") << '\n';
+}
+
 [[nodiscard]] double median(std::vector<float> values) {
   if (values.empty()) {
     return std::numeric_limits<double>::quiet_NaN();
@@ -1532,10 +2157,11 @@ void run_optional_performance(TestContext& test, cudaStream_t stream) {
                     output.data(), stream);
               }
               if (variant == Variant::kSequential) {
-                return launch_b8_block<false>(
-                    conv_qkv.data(), token_count, a.data(), b.data(),
-                    A_log.data(), dt_bias.data(), state, state, kL2Epsilon,
-                    output.data(), stream);
+                return q3x::runtime::gdn_prefill_b8_detail::
+                    launch_gated_delta_net_update_sequential_fp32_b8_exact_cuda(
+                        conv_qkv.data(), token_count, a.data(), b.data(),
+                        A_log.data(), dt_bias.data(), state, state,
+                        kL2Epsilon, output.data(), static_cast<void*>(stream));
               }
               return launch_production_chain(
                          conv_qkv.data(), token_count, a.data(), b.data(),
@@ -1742,12 +2368,13 @@ int main() {
 
   KernelResources oracle_resources{};
   KernelResources candidate_resources{};
-  bool ready = test.cuda_ok(query_resources<false>(oracle_resources),
-                            "B8 sequential query resources");
+  bool ready = test.cuda_ok(
+      query_private_sequential_resources(oracle_resources),
+      "private B8 sequential query resources");
   ready = ready && test.cuda_ok(query_resources<true>(candidate_resources),
                                 "B8 WY query resources");
   if (ready) {
-    std::cout << "GDN_B8_SEQUENTIAL_RESOURCES: registers="
+    std::cout << "GDN_B8_PRIVATE_SEQUENTIAL_RESOURCES: registers="
               << oracle_resources.registers_per_thread
               << " static_shared_bytes="
               << oracle_resources.static_shared_bytes
@@ -1769,7 +2396,7 @@ int main() {
                 "selected B8 sequential kernel keeps the frozen shared-memory footprint");
     test.expect(oracle_resources.local_bytes == 0U,
                 "selected B8 sequential kernel has no local-memory spill allocation");
-    test.expect(oracle_resources.maximum_threads_per_block >=
+    test.expect(oracle_resources.maximum_threads_per_block ==
                     static_cast<int>(kThreads) &&
                     oracle_resources.active_blocks_per_sm >= 2,
                 "selected B8 sequential kernel retains two 256-thread CTAs per SM");
@@ -1782,6 +2409,16 @@ int main() {
                     candidate_resources.active_blocks_per_sm >= 1,
                 "B8 WY retains at least one 256-thread CTA per SM");
   }
+  const bool null_resource_query_rejected =
+      static_cast<cudaError_t>(q3x::runtime::gdn_prefill_b8_detail::
+          query_gated_delta_net_update_sequential_fp32_b8_resources_cuda(
+              nullptr, &oracle_resources.static_shared_bytes,
+              &oracle_resources.local_bytes,
+              &oracle_resources.maximum_threads_per_block,
+              &oracle_resources.active_blocks_per_sm)) ==
+      cudaErrorInvalidValue;
+  test.expect(null_resource_query_rejected,
+              "private B8 sequential resource query rejects null output");
 
   cudaStream_t stream = nullptr;
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
@@ -1789,6 +2426,7 @@ int main() {
     return 1;
   }
   run_correctness(test, stream);
+  run_private_candidate_admission(test, stream);
   run_optional_performance(test, stream);
   (void)test.cuda_ok(cudaStreamDestroy(stream), "B8 block destroy stream");
   if (test.failures() != 0) {
