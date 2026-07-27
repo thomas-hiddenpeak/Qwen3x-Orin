@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-bulk-causal-gqa-screen",
+  "status": "selected_for_runtime_integration",
+  "recorded_at": "2026-07-28T01:48:16+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "3044ab56f4a3165aff9422baf9c0cec2c06f03d7",
+    "tree": "71882f57551fde1e08a8cccf030195be25f12e12",
+    "base_commit": "d9c8aa605278745dc65a969ddda8c0bc627bc945",
+    "subject": "test: screen bulk causal GQA Prefill",
+    "candidate_files": [
+      "src/kernels/reference/decode_ops.cu",
+      "tests/decode_ops_cuda_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_decode_ops_cuda_test",
+      "bytes": 857560,
+      "sha256": "6a3f608ff221fe142c7896db1d2a8fadc1b78f0a7e12221850ee0787dcb46ab9",
+      "elf_build_id": "8d8815c120e92f0638a443961356757a1e7cf960",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, exact Q24/KV4/D256 BF16 causal GQA plus sigmoid Gate, and direct CUDA-event timing"
+  },
+  "experiment": {
+    "baseline": "the current Prefill-style loop: three reference attention kernels per query token followed by one sigmoid Gate kernel",
+    "candidate": "one dependency-free native SM87 bulk causal GQA plus fused sigmoid Gate kernel",
+    "shape": {
+      "query_heads": 24,
+      "kv_heads": 4,
+      "head_dimension": 256,
+      "tokens": [256, 512],
+      "query_key_value_gate_output_format": "BF16",
+      "attention_accumulation": "FP32 online softmax"
+    },
+    "mapping": {
+      "query_tile": 2,
+      "kv_tile": 16,
+      "threads": 192,
+      "warps": 6,
+      "cta_owner": "one KV head and two adjacent query tokens",
+      "warp_owner": "one of six Q heads mapped to that KV head",
+      "shared_kv_bytes": 16384,
+      "gate_boundary": "FP32 attention -> BF16 -> sigmoid Gate -> BF16"
+    },
+    "graph_nodes": {
+      "c256_baseline": 769,
+      "c512_baseline": 1537,
+      "candidate": 1
+    },
+    "production_dispatch_changed": false,
+    "runner_or_workspace_changed": false,
+    "flashinfer_dependency_used": false,
+    "mtp_used": false
+  },
+  "resource_gate": {
+    "registers_per_thread": 64,
+    "static_shared_bytes": 16384,
+    "local_bytes": 0,
+    "maximum_threads_per_block": 192,
+    "active_blocks_per_sm": 5,
+    "result": "pass"
+  },
+  "correctness": {
+    "c256_p0": {
+      "maximum_absolute": 0.000244141,
+      "p99_absolute": 0.0,
+      "normalized_rmse": 0.00000673111,
+      "cosine": 1.0,
+      "p99_relative": 0.0
+    },
+    "c512_p0": {
+      "maximum_absolute": 0.000244141,
+      "p99_absolute": 0.0,
+      "normalized_rmse": 0.00000742871,
+      "cosine": 1.0,
+      "p99_relative": 0.0
+    },
+    "c256_p17_append": {
+      "maximum_absolute": 0.000244141,
+      "p99_absolute": 0.0,
+      "normalized_rmse": 0.0000264286,
+      "cosine": 1.0,
+      "p99_relative": 0.0
+    },
+    "candidate_graph_replay": "bitwise",
+    "unexpected_nonfinite_mismatches": 0,
+    "guards": "intact",
+    "query_key_value_gate_inputs_preserved": true,
+    "invalid_cases": 12,
+    "invalid_graph_nodes": 0,
+    "release_suite": {
+      "total": 60,
+      "passed": 51,
+      "existing_model_or_external_skips": 9,
+      "failed": 0
+    }
+  },
+  "timing_protocol": {
+    "independent_processes": 3,
+    "warmup_iterations": 2,
+    "measured_iterations_per_span": 2,
+    "rounds_per_shape": 6,
+    "orders": ["B-C-C-B", "C-B-B-C"],
+    "frozen_hard_gate": "every mirrored round is non-regressive and the C512 median speedup is at least 2.0x"
+  },
+  "process_results": [
+    {
+      "log": "/tmp/q3x-prefill-bulk-gqa-run1.log",
+      "sha256": "a11dd00e6c9da80d1e05a579812935a0eeedc1f3ceb5b8abe2e3643bb789c145",
+      "c256_median_speedup": 6.30241,
+      "c512_median_speedup": 4.53722
+    },
+    {
+      "log": "/tmp/q3x-prefill-bulk-gqa-run2.log",
+      "sha256": "912ac977867c07565d317ef5f573c10e9e21f9532b74b6b9abffb69df3f07a8b",
+      "c256_median_speedup": 6.33538,
+      "c512_median_speedup": 4.53465
+    },
+    {
+      "log": "/tmp/q3x-prefill-bulk-gqa-run3.log",
+      "sha256": "50407d3485b340522cbd1ec5f8189eb6a74c8ac30d79b8471bd626da48f51db8",
+      "c256_median_speedup": 6.34034,
+      "c512_median_speedup": 4.56828
+    }
+  ],
+  "aggregate": {
+    "c256": {
+      "process_speedups": [6.30241, 6.33538, 6.34034],
+      "median_speedup": 6.33538,
+      "all_round_range": [6.27487, 6.35993],
+      "positive_rounds": 18,
+      "total_rounds": 18
+    },
+    "c512": {
+      "process_speedups": [4.53722, 4.53465, 4.56828],
+      "median_speedup": 4.53722,
+      "all_round_range": [4.52129, 4.57580],
+      "positive_rounds": 18,
+      "total_rounds": 18
+    },
+    "result": "pass"
+  },
+  "phase_projection": {
+    "latest_p513_prefix_ms": 4278.702,
+    "p513_attention_plus_gate_hotspot_ms": 301.050,
+    "applied_c512_speedup": 4.53722,
+    "projected_saved_ms": 234.698798,
+    "projected_prefix_ms": 4044.003202,
+    "projected_prefix_speedup": 1.05803625,
+    "projected_old_metric_tokens_per_second": 126.607219,
+    "interpretation": "The arithmetic projection assumes the test-only single-layer ratio transfers to all matching full-attention layers. It excludes Q/K preprocessing, KV placement, GDN, projections, runner integration, and full-model launch interactions."
+  },
+  "decision": {
+    "selected_mechanism": "QT2/BK16 native SM87 bulk online-softmax GQA with fused sigmoid Gate",
+    "next": "integrate into the explicit C256/C512 full-attention Prefill route, preserve decode-style tail/append fallbacks, and require full-model token, memory, Graph, and Prefix validation",
+    "production_promotion": false
+  },
+  "limitations": [
+    "This is a synthetic exact-shape kernel screen, not an achieved end-to-end Prefix or API throughput result.",
+    "Numerical equivalence is tolerance-based because online-softmax operation order differs from the baseline; Graph replay alone is bitwise deterministic.",
+    "The candidate consumes already prepared contiguous Q/K/V/Gate buffers and does not yet measure preprocessing or KV placement.",
+    "Production dispatch, public ABI, runner workspace, Decode, and MTP policy remain unchanged."
+  ]
+}

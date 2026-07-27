@@ -247,3 +247,53 @@ No MTP, FlashInfer dependency, paged-KV rewrite, generic double/triple
 buffering, Prefill Graph, or Prefill/Decode overlap is admitted by this audit.
 The Decode anchor remains frozen at 105.870500 ms/token and 9.445501816
 token/s.
+
+## Native follow-through after the reference audit
+
+The first two architecture-level native screens now select their mechanisms.
+The production-like NVFP4 Gate/Up pair replaces 8/16 public M32 launches per
+branch with one N-major whole-chunk grid per branch. Across three fixed-clock
+processes, M512 reaches **1.12867x** median versus production, clears the frozen
+1.12x gate in all processes, and remains bit-exact with unchanged occupancy.
+Its latest phase-local opportunity is 1.03392x P513 Prefix. See the
+[Gate/Up pair record](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
+
+The dependency-free SM87 bulk causal GQA prototype follows FlashInfer's
+online-softmax dataflow without importing FlashInfer. One QT2/BK16 kernel
+replaces the decode-style per-token attention loop and tile Gate: C256 reaches
+**6.33538x**, C512 reaches **4.53722x**, and Graph topology falls from 769/1537
+nodes to one. Its FP32-attention/BF16/Gate/BF16 contract passes the declared
+error distribution, append, replay, guard, input, invalid, and resource gates.
+The 1.05804x P513 projection is not an achieved Prefix result because runner
+integration, preprocessing, and KV placement have not yet been remeasured.
+See the [bulk GQA record](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
+
+The Marlin audit also bounds what whole-chunk scheduling can accomplish. The
+current CTA still decodes each weight panel independently for every M64 tile.
+The next projection prototype should use a versioned prepacked K16-by-N64
+tensor-core layout, a fixed 16-CTA persistent schedule, four-stage `cp.async`,
+and register-side E2M1 decode/MMA. Start with exact Down M256 at M64xN128xK64;
+advance to N256 and Gate/Up only if it is spill-free, numerically exact, and
+materially faster. Even a 3x NVFP4 projection improvement cannot by itself
+reach the external target, so FP8 projections, GDN, attention, and launch/global
+traffic remain co-equal workstreams.
+
+Commit `ee74ba2` adds the matched offline vLLM probe at
+`tools/reference/qwen36_27b_vllm_prefill.py`. It constructs the repository's
+raw-token P65/P129/P257/P513/P1025 profiles, enforces batch-one/output-one,
+disables prefix cache, chunked Prefill, and speculation/MTP, requests BF16
+cache/state plus explicit FlashInfer, verifies the loaded worker backends, and
+records trusted engine-core scheduled-to-first-token timing with an explicit
+wall-time fallback.
+
+The first retained P65/P513 smoke now passes. The loaded worker reports 16
+FlashInfer full-attention layers and 48 GDN layers; runtime logs select
+MarlinFP8/NVFP4 linear kernels and Triton/FLA GDN Prefill. P65 measures
+275.451 ms / 235.977 prompt token/s and P513 measures 1,237.301 ms / 414.612
+prompt token/s; both trusted engine-core spans are within one millisecond of
+the enclosing wall call and both produce first token ID 9419. This is only one
+warmup and one measurement, after compilation caches were prepared. It proves
+the matched route works but does not replace the P65--P1025 three-process
+matrix. The native historical `Prefix` boundary also omits the last prompt
+token and LM head, so no formal native/vLLM ratio is published yet. See the
+[vLLM FlashInfer smoke](metadata/qwen36-27b-vllm-flashinfer-prefill-smoke.json).

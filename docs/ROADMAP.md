@@ -1400,29 +1400,43 @@ row-search structure without an unpriced global-progress assumption. See the
   shared, zero local, and three CTA/SM. Down alone projects to 1.04647x P513
   Prefix; production dispatch remains unchanged. See the
   [NVFP4 down screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-down-grid-screen.json).
-- [active, dominant whole-chunk shape screens] Screen isolated NVFP4 Gate
-  `[N17408,K5120]`, then the actual Gate/Up main-plus-aux-stream pair. In
-  parallel, measure direct FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]`
-  against their production M32 chains; preserve exact M64 QKV/Z as controls.
-  Do not infer Gate/Up or QKV/Z behavior from down/output. The current down plus
-  all-FP8 arithmetic opportunity is 1.10144x P513 Prefix, not an achieved
-  result.
-- [queued, one C512 public Prefill boundary] After dominant shapes select
-  their routes, implement explicit `{512,256,64,32,tail}` scheduling and
+- [done, production-like NVFP4 Gate/Up whole-chunk screen] Commit `d9c8aa6`
+  measures the true main/aux-stream pair against public M32 chains. Three
+  fixed-clock processes put M256 at **1.13507x** and M512 at **1.12867x**;
+  all 72 shape/distribution rounds improve and every process clears the frozen
+  1.12x M512 gate. Candidate/control/baseline outputs are bit-exact, replay,
+  guards, inputs, invalid capture, Graph topology, and resources pass without
+  occupancy loss. The phase-local P513 opportunity is 1.03392x; production
+  dispatch remains unchanged. See the
+  [Gate/Up pair screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
+- [active, direct FP8 and persistent large-M projection work] Measure direct
+  FP8 QKV `[N10240,K5120]` and Z `[N6144,K5120]` whole-chunk routes against
+  their production chains. In parallel, build the first Marlin-inspired but
+  native exact Down M256 prototype: versioned prepack, fixed 16 persistent
+  CTAs, M64xN128xK64, four-stage `cp.async`, and register-side E2M1 decode/MMA.
+  Advance to N256, Gate/Up, and FP8 only after exact numerical, no-spill,
+  resource, memory-layout, and direct-speed gates. Do not directly import the
+  general vLLM template or retain two full-model weight copies.
+- [active, one C512 public Prefill boundary] Integrate the selected down,
+  Gate/Up, FP8, and bulk-attention routes behind explicit
+  `{512,256,64,32,tail}` scheduling and
   publish one ABI/package 0.4.0 boundary. C256 remains an internal canary.
   Preserve the generic projection tile cap at 64, existing exact C64 down and
   FP8 output routes, residual/RMS M32 tiling, Gate/Up stream ownership, and
   Decode Graph admission. Default max-sequence workspace grows from
   98,752,512 to 174,991,360 bytes; update the absolute arena ceiling and exact
   layout/package-consumer tests together.
-- [parallel reference, native bulk attention and WY GDN] Use FlashInfer's
-  online-softmax and chunked-delta-rule contracts as design references only.
-  The first dependency-free SM87 attention prototype maps one `(QT=2, KV
-  head)` CTA with six Q-head warps, BK16 shared K/V, register online softmax,
-  and fused Gate while preserving the BF16 boundary. It must include Q/K
-  preprocessing, KV placement, gating, and numerical costs, clear 2x core and
-  1.03x P513 Prefix gates, and retain final tokens. WY GDN follows only after
-  a larger request workspace exists. Decode remains frozen and non-MTP.
+- [selected, native bulk attention; queued WY GDN] Commit `3044ab5` validates
+  the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
+  Three processes reach **6.33538x C256** and **4.53722x C512**, every round is
+  positive, resources are 64 registers/16 KiB shared/zero local/five CTA-SM,
+  and the declared numerical/append/replay/Graph/invalid contracts pass. The
+  1.05804x P513 projection excludes Q/K preprocessing and KV placement, so
+  production admission still requires full-path exact-token, memory, and
+  Prefix evidence. See the
+  [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
+  WY GDN follows after the larger request boundary exists. Decode remains
+  frozen and non-MTP.
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
@@ -1470,6 +1484,15 @@ native 119.839 token/s P513 result is superficially 16--67x below the user's
 This offline gate establishes the real gap without delaying kernel work for an
 HTTP adapter; Phase 3.5 remains the point where EvalScope and user-visible TTFT
 become first-class release evidence.
+
+The first P65/P513 route smoke is complete: the exact checkpoint uses
+FlashInfer for 16 full-attention layers, GDN for 48 layers, and Marlin for
+FP8/NVFP4 projections. It returns the same first token ID 9419 and measures
+235.977/414.612 prompt token/s at P65/P513. These one-warmup/one-measure values
+validate the harness and narrow the practical comparison, but remain below the
+formal three-process gate and below the separately optimized 2k--8k target.
+See the
+[vLLM smoke record](metadata/qwen36-27b-vllm-flashinfer-prefill-smoke.json).
 
 ## Phase 3.5 — External evaluation gateway
 

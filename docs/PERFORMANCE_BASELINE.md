@@ -7139,3 +7139,61 @@ shared/local resources, occupancy, and default correctness remain unchanged;
 cubin/SASS byte identity is not claimed. Full inputs, process measurements,
 binary identity, projections, and limits are in the
 [NVFP4 down screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-down-grid-screen.json).
+
+## NVFP4 M256/M512 whole-chunk Gate/Up pair screen
+
+Commit `d9c8aa6` measures the actual production-like two-stream pair rather
+than extrapolating from one branch. Baseline B is the public M32 chain on each
+Gate/Up branch, control R is repeated test-only M64, and candidate C is one
+N-major whole-chunk grid per branch. Ready, auxiliary completion, and join
+events are included in every envelope; production dispatch and workspace are
+unchanged.
+
+| Shape | Process C/B speedups | Median | All-round range | Median C/R |
+| --- | --- | ---: | ---: | ---: |
+| M256 | 1.13439x, 1.13507x, 1.13824x | **1.13507x** | 1.13098x--1.14363x | 1.03323x |
+| M512 | 1.13072x, 1.12867x, 1.12760x | **1.12867x** | 1.12617x--1.14327x | 1.02848x |
+
+All 36 C/B rounds per shape improve, and M512 clears the predeclared 1.12x
+pair gate in every process. Both scale distributions are bit-exact across B,
+R, C, and C replay; outputs are finite, guards and inputs are preserved, and
+17 invalid calls capture zero nodes. The candidate reports 79 registers versus
+production's 76 while retaining 23,552-byte shared memory, zero local memory,
+and three CTA/SM. Per branch, Graph topology changes from 8/16 public M32 nodes
+at M256/M512 to one candidate node.
+
+Applying the M512 median to the latest 1,231.372-ms Gate/Up union inside the
+4,278.702-ms P513 Prefix projects 140.378 ms saved and **1.03392x** Prefix.
+This is an arithmetic opportunity, not achieved full-model throughput. It
+selects the route for C512 integration with C256 canary coverage; the existing
+fallbacks remain required. Full evidence is in the
+[Gate/Up pair screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
+
+## Native SM87 bulk causal GQA Prefill screen
+
+Commit `3044ab5` adds a dependency-free test-only bulk full-attention kernel
+using QT2, BK16, 192 threads, six Q-head warps per KV head, shared K/V tiles,
+register-resident FP32 online softmax, and fused sigmoid Gate. It preserves the
+production numerical boundary `FP32 attention -> BF16 -> Gate -> BF16`. The
+baseline is the current Prefill-style loop of three attention kernels per
+query token followed by one tile Gate kernel.
+
+| Shape | Process speedups | Median | All-round range | Graph nodes B/C |
+| --- | --- | ---: | ---: | ---: |
+| C256 | 6.30241x, 6.33538x, 6.34034x | **6.33538x** | 6.27487x--6.35993x | 769 / 1 |
+| C512 | 4.53722x, 4.53465x, 4.56828x | **4.53722x** | 4.52129x--4.57580x | 1,537 / 1 |
+
+All 18 mirrored rounds per shape improve and C512 more than doubles the frozen
+2x core gate. The kernel uses 64 registers, 16,384 bytes shared, zero local
+memory, and permits five CTA/SM. Against the existing attention+Gate path,
+C256/C512 max absolute error is 0.000244141, normalized RMSE stays below
+7.43e-6, P99 absolute and relative error are zero, cosine is one, and Graph
+replay is bitwise. A P17+C256 append case, guards, all inputs, and 12 zero-node
+invalid captures also pass.
+
+The latest 301.050-ms P513 attention+Gate hotspot would save 234.699 ms if the
+single-layer C512 ratio transfers across the model, a **1.05804x** projected
+Prefix opportunity. This projection excludes Q/K preprocessing, KV placement,
+GDN, projection, and runner interactions. Production promotion therefore
+requires full-path integration and token/memory/Prefix validation. Evidence is
+in the [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).

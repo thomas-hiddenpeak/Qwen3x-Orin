@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen",
+  "status": "selected_for_runtime_integration",
+  "recorded_at": "2026-07-28T01:48:16+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "d9c8aa605278745dc65a969ddda8c0bc627bc945",
+    "candidate_tree": "298813209319cbc957cadbafa896c83cc16f7509",
+    "measured_tree_commit": "3044ab56f4a3165aff9422baf9c0cec2c06f03d7",
+    "base_commit": "ee74ba2c9859bf9d91646759eac34adb9645717d",
+    "subject": "test: screen NVFP4 whole-chunk Gate Up pair",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 8297616,
+      "sha256": "931c8988065a13742d0b8cbb6cfbf6c631b4e4ca0a29471f11ce47604812e6cf",
+      "elf_build_id": "6fc607adb707363ab78592a4f747a0ade9c49d0d",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, exact NVFP4 Gate and Up shapes, and direct two-stream CUDA-event envelope timing"
+  },
+  "experiment": {
+    "shape_per_branch": {
+      "rows": 17408,
+      "columns": 5120,
+      "tokens": [256, 512],
+      "weight_format": "NVFP4 E2M1 packed, block-16 FP8 scales",
+      "activation_and_output_format": "BF16"
+    },
+    "production_baseline_B": "one public M32 chain per Gate/Up branch: 8 launches at M256 and 16 launches at M512",
+    "test_control_R": "repeated exact test-only M64 launches: 4 per branch at M256 and 8 per branch at M512",
+    "candidate_C": "one N-major whole-chunk grid per Gate/Up branch",
+    "candidate_grid_x_per_branch": {
+      "m256": 544,
+      "m512": 1088
+    },
+    "streams": "Gate on the main stream, Up on the auxiliary stream, with ready/done/join events included in every measured envelope",
+    "scale_distributions": ["checkpoint_like", "same_bank_stress"],
+    "production_dispatch_changed": false,
+    "runner_or_workspace_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false
+  },
+  "resource_gate": {
+    "production": {
+      "registers_per_thread": 76,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3
+    },
+    "candidate_m256_m512": {
+      "registers_per_thread": 79,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "maximum_threads_per_block": 256,
+      "active_blocks_per_sm": 3
+    },
+    "result": "pass_without_occupancy_loss"
+  },
+  "correctness": {
+    "distributions_per_shape": 2,
+    "baseline_control_candidate_mismatches": 0,
+    "candidate_replay_mismatches": 0,
+    "unexpected_nonfinite": 0,
+    "guards": "intact",
+    "weights_scales_activations_preserved": true,
+    "invalid_cases": 17,
+    "invalid_graph_nodes": 0,
+    "graph_nodes_per_branch": {
+      "m256_production": 8,
+      "m256_control": 4,
+      "m512_production": 16,
+      "m512_control": 8,
+      "candidate": 1
+    },
+    "release_suite": {
+      "total": 60,
+      "passed": 51,
+      "existing_model_or_external_skips": 9,
+      "failed": 0
+    }
+  },
+  "timing_protocol": {
+    "independent_processes": 3,
+    "warmup_operations_per_route": 10,
+    "logical_operations_per_timed_pass": 24,
+    "rounds_per_distribution": 6,
+    "orders": ["B-C-C-B", "R-C-C-R"],
+    "frozen_hard_gate": "aggregate M512 C versus production B is at least 1.12x and every C-versus-B round is positive",
+    "isolated_gate_1_15": "not changed and not reused as the pair gate"
+  },
+  "process_results": [
+    {
+      "log": "/tmp/q3x-prefill-nvfp4-whole-chunk-gate-up-pair-run1.log",
+      "sha256": "ab89140f65db85ee2d3aec2db2c59be73d8b5fcb7aa31cf7614581615638a957",
+      "m256": {
+        "production_ms": 9.41247,
+        "candidate_ms": 8.29742,
+        "control_m64_ms": 8.57549,
+        "candidate_over_production": 1.13439
+      },
+      "m512": {
+        "production_ms": 18.7661,
+        "candidate_ms": 16.5966,
+        "control_m64_ms": 17.0726,
+        "candidate_over_production": 1.13072
+      }
+    },
+    {
+      "log": "/tmp/q3x-prefill-nvfp4-whole-chunk-gate-up-pair-run2.log",
+      "sha256": "27cd11af0680f62d9167d37bc63c50c9c6f83449aaa476bfcf00aa6bc889e505",
+      "m256": {
+        "production_ms": 9.40613,
+        "candidate_ms": 8.28683,
+        "control_m64_ms": 8.56220,
+        "candidate_over_production": 1.13507
+      },
+      "m512": {
+        "production_ms": 18.7188,
+        "candidate_ms": 16.5849,
+        "control_m64_ms": 17.0573,
+        "candidate_over_production": 1.12867
+      }
+    },
+    {
+      "log": "/tmp/q3x-prefill-nvfp4-whole-chunk-gate-up-pair-run3.log",
+      "sha256": "96d6d394db1ef725c80b6e3f39dca86a3b3dbc4eee0f7472a48212639c656dd0",
+      "m256": {
+        "production_ms": 9.43271,
+        "candidate_ms": 8.28712,
+        "control_m64_ms": 8.56266,
+        "candidate_over_production": 1.13824
+      },
+      "m512": {
+        "production_ms": 18.7189,
+        "candidate_ms": 16.6007,
+        "control_m64_ms": 17.0463,
+        "candidate_over_production": 1.12760
+      }
+    }
+  ],
+  "aggregate": {
+    "m256": {
+      "process_speedups": [1.13439, 1.13507, 1.13824],
+      "median_speedup": 1.13507,
+      "all_round_range": [1.13098, 1.14363],
+      "positive_rounds": 36,
+      "total_rounds": 36
+    },
+    "m512": {
+      "process_speedups": [1.13072, 1.12867, 1.12760],
+      "median_speedup": 1.12867,
+      "median_candidate_over_m64_control": 1.02848,
+      "all_round_range": [1.12617, 1.14327],
+      "positive_rounds": 36,
+      "total_rounds": 36
+    },
+    "result": "pass"
+  },
+  "phase_projection": {
+    "latest_p513_prefix_ms": 4278.702,
+    "gate_up_union_hotspot_ms": 1231.372,
+    "applied_m512_speedup": 1.12867,
+    "projected_saved_ms": 140.378175,
+    "projected_prefix_ms": 4138.323825,
+    "projected_prefix_speedup": 1.03392151,
+    "interpretation": "This is a phase-local arithmetic projection. The test harness also prints the older frozen 4376.232-ms comparison basis so historical gate derivation remains auditable."
+  },
+  "decision": {
+    "selected_mechanism": "one N-major whole-chunk M64-tile grid per Gate/Up branch",
+    "next": "integrate behind an explicit C512 Prefill route with C256 canary coverage, retain the current M32/M64 fallbacks, and require full-model exact-output and Prefix gates",
+    "production_promotion": false
+  },
+  "limitations": [
+    "This is a test-only exact-shape two-stream screen, not achieved end-to-end Prefix throughput.",
+    "The candidate still repeats weight decode in each M64 CTA and is not a Marlin-style persistent large-M kernel.",
+    "Production dispatch, runner workspace, public ABI, Decode, and MTP policy remain unchanged."
+  ]
+}
