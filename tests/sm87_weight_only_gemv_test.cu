@@ -486,6 +486,58 @@ query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_fp8_w8a16_small_m64_full_attention_q_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_small_m64_full_attention_kv_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_small_m64_full_attention_q_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_small_m64_full_attention_kv_resources_test_cuda(
+    std::size_t rows, std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    bool n_major, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    bool n_major, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_whole_chunk_full_attention_q_resources_test_cuda(
+    std::size_t token_count, bool n_major, std::size_t rows,
+    std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_whole_chunk_full_attention_kv_resources_test_cuda(
+    std::size_t token_count, bool n_major, std::size_t rows,
+    std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_fp8_w8a16_small_m16_wmma_shared_ldm_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t rows, std::size_t columns,
@@ -6245,6 +6297,14 @@ fp8_whole_chunk_attention_output_performance_enabled() noexcept {
 [[nodiscard]] bool fp8_whole_chunk_qkv_z_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_FP8_WHOLE_CHUNK_QKV_Z_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+fp8_whole_chunk_full_attention_performance_enabled() noexcept {
+  const char* const value = std::getenv(
+      "Q3X_RUN_SM87_FP8_WHOLE_CHUNK_FULL_ATTENTION_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -29466,6 +29526,1100 @@ void run_fp8_whole_chunk_qkv_z_screen(TestContext& test,
   test.expect(gate,
               "FP8 QKV/Z whole-chunk screen clears frozen C512 pair 1.25 "
               "gate with every round positive");
+}
+
+struct Fp8FullAttentionShape {
+  Fp8QkvZShape fixture;
+  bool is_q;
+  std::size_t weight_rotation;
+};
+
+constexpr std::array<Fp8FullAttentionShape, 3U>
+    kFp8FullAttentionShapes{{
+        {{"Q", 12'288U, 5'120U, 0.000973225F, 1.0F / 257.0F}, true,
+         0U},
+        {{"K", 1'024U, 5'120U, 0.00114731F, 1.0F / 509.0F}, false,
+         17U},
+        {{"V", 1'024U, 5'120U, 0.000731468F, 1.0F / 1'021.0F}, false,
+         31U},
+    }};
+
+[[nodiscard]] std::vector<std::uint8_t> make_fp8_full_attention_weights(
+    const Fp8FullAttentionShape& shape, const Fp8QkvZCell cell) {
+  std::vector<std::uint8_t> weights =
+      make_fp8_qkv_z_weights(shape.fixture, cell);
+  if (shape.weight_rotation != 0U) {
+    std::rotate(weights.begin(), weights.begin() + shape.weight_rotation,
+                weights.end());
+  }
+  return weights;
+}
+
+[[nodiscard]] int launch_fp8_full_attention_baseline(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const Fp8FullAttentionShape& shape,
+    std::uint16_t* const output, cudaStream_t stream) noexcept {
+  const std::size_t tile_size = shape.is_q ? 32U : 8U;
+  for (std::size_t tile = 0U; tile < token_count / tile_size; ++tile) {
+    const std::uint16_t* const tile_activations =
+        activations + tile * tile_size * shape.fixture.columns;
+    std::uint16_t* const tile_output =
+        output + tile * tile_size * shape.fixture.rows;
+    const int status = shape.is_q
+                           ? q3x::kernels::
+                                 launch_sm87_fp8_w8a16_m32_gemm_bf16_cuda(
+                                     weights, weight_scale, tile_activations,
+                                     shape.fixture.rows,
+                                     shape.fixture.columns, tile_output,
+                                     static_cast<void*>(stream))
+                           : q3x::kernels::
+                                 launch_sm87_fp8_w8a16_small_m_gemm_bf16_cuda(
+                                     weights, weight_scale, tile_activations,
+                                     tile_size, shape.fixture.rows,
+                                     shape.fixture.columns, tile_output,
+                                     static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] int launch_fp8_full_attention_repeated_m64(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const Fp8FullAttentionShape& shape,
+    std::uint16_t* const output, cudaStream_t stream) noexcept {
+  constexpr std::size_t kTileSize = 64U;
+  for (std::size_t tile = 0U; tile < token_count / kTileSize; ++tile) {
+    const auto launch =
+        shape.is_q
+            ? q3x::kernels::
+                  launch_sm87_fp8_w8a16_small_m64_full_attention_q_wmma_test_cuda
+            : q3x::kernels::
+                  launch_sm87_fp8_w8a16_small_m64_full_attention_kv_wmma_test_cuda;
+    const int status = launch(
+        weights, weight_scale,
+        activations + tile * kTileSize * shape.fixture.columns,
+        shape.fixture.rows, shape.fixture.columns,
+        output + tile * kTileSize * shape.fixture.rows,
+        static_cast<void*>(stream));
+    if (status != static_cast<int>(cudaSuccess)) {
+      return status;
+    }
+  }
+  return static_cast<int>(cudaSuccess);
+}
+
+[[nodiscard]] int launch_fp8_full_attention_whole_chunk(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const bool n_major,
+    const Fp8FullAttentionShape& shape, std::uint16_t* const output,
+    cudaStream_t stream) noexcept {
+  const auto launch =
+      shape.is_q
+          ? q3x::kernels::
+                launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda
+          : q3x::kernels::
+                launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda;
+  return launch(weights, weight_scale, activations, token_count, n_major,
+                shape.fixture.rows, shape.fixture.columns, output,
+                static_cast<void*>(stream));
+}
+
+void run_fp8_full_attention_resource_gate(TestContext& test) {
+  constexpr int kMaximumRegisters = 71;
+  constexpr std::size_t kExpectedShared = 23'552U;
+  constexpr std::size_t kExpectedLocal = 0U;
+  constexpr int kExpectedThreads = 256;
+  constexpr int kMinimumBlocksPerSm = 3;
+  constexpr std::array<std::size_t, 2U> kTokenCounts{{256U, 512U}};
+  constexpr std::array<bool, 2U> kLayouts{{false, true}};
+  for (std::size_t shape_index = 0U; shape_index < 2U; ++shape_index) {
+    const Fp8FullAttentionShape& shape =
+        kFp8FullAttentionShapes[shape_index];
+    const auto query_anchor =
+        shape.is_q
+            ? q3x::kernels::
+                  query_sm87_fp8_w8a16_small_m64_full_attention_q_resources_test_cuda
+            : q3x::kernels::
+                  query_sm87_fp8_w8a16_small_m64_full_attention_kv_resources_test_cuda;
+    const auto query_whole =
+        shape.is_q
+            ? q3x::kernels::
+                  query_sm87_fp8_w8a16_whole_chunk_full_attention_q_resources_test_cuda
+            : q3x::kernels::
+                  query_sm87_fp8_w8a16_whole_chunk_full_attention_kv_resources_test_cuda;
+    int anchor_registers = -1;
+    std::size_t anchor_shared = std::numeric_limits<std::size_t>::max();
+    std::size_t anchor_local = std::numeric_limits<std::size_t>::max();
+    int anchor_threads = -1;
+    int anchor_blocks = -1;
+    const int anchor_status = query_anchor(
+        shape.fixture.rows, shape.fixture.columns, &anchor_registers,
+        &anchor_shared, &anchor_local, &anchor_threads, &anchor_blocks);
+    const bool anchor_gate =
+        anchor_status == static_cast<int>(cudaSuccess) &&
+        anchor_registers <= kMaximumRegisters &&
+        anchor_shared == kExpectedShared && anchor_local == kExpectedLocal &&
+        anchor_threads == kExpectedThreads &&
+        anchor_blocks >= kMinimumBlocksPerSm;
+    std::cout << "FP8_FULL_ATTENTION_M64_RESOURCES: shape="
+              << shape.fixture.name << '[' << shape.fixture.rows << 'x'
+              << shape.fixture.columns << "] status=" << anchor_status
+              << " registers_per_thread=" << anchor_registers
+              << " static_shared_bytes=" << anchor_shared
+              << " local_bytes=" << anchor_local
+              << " maximum_threads_per_block=" << anchor_threads
+              << " active_blocks_per_sm=" << anchor_blocks
+              << " limits=regs<=71,shared=23552,local=0,threads=256,cta>=3"
+              << " gate=" << (anchor_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(anchor_gate,
+                std::string("FP8 full-attention ") + shape.fixture.name +
+                    " M64 resource anchor passes");
+    for (const std::size_t token_count : kTokenCounts) {
+      for (const bool n_major : kLayouts) {
+        int registers = -1;
+        std::size_t shared = std::numeric_limits<std::size_t>::max();
+        std::size_t local = std::numeric_limits<std::size_t>::max();
+        int threads = -1;
+        int blocks = -1;
+        const int status = query_whole(
+            token_count, n_major, shape.fixture.rows, shape.fixture.columns,
+            &registers, &shared, &local, &threads, &blocks);
+        const std::size_t grid_ctas =
+            shape.fixture.rows / 128U * (token_count / 64U);
+        const bool gate = status == static_cast<int>(cudaSuccess) &&
+                          registers <= kMaximumRegisters &&
+                          shared == kExpectedShared &&
+                          local == kExpectedLocal &&
+                          threads == kExpectedThreads &&
+                          blocks >= kMinimumBlocksPerSm;
+        std::cout << "FP8_FULL_ATTENTION_WHOLE_RESOURCES: shape="
+                  << shape.fixture.name << " M=" << token_count
+                  << " layout=" << (n_major ? "N-major" : "M-major")
+                  << " status=" << status
+                  << " registers_per_thread=" << registers
+                  << " static_shared_bytes=" << shared
+                  << " local_bytes=" << local
+                  << " maximum_threads_per_block=" << threads
+                  << " active_blocks_per_sm=" << blocks
+                  << " grid_ctas=" << grid_ctas
+                  << " c256_kv_32cta_underfill_risk="
+                  << (!shape.is_q && token_count == 256U ? "true" : "false")
+                  << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+        test.expect(gate,
+                    std::string("FP8 full-attention ") +
+                        shape.fixture.name + " whole resources pass");
+      }
+    }
+  }
+
+  int registers = 123;
+  std::size_t shared = 456U;
+  std::size_t local = 789U;
+  int threads = 321;
+  int blocks = 654;
+  const int q_rejects_kv = q3x::kernels::
+      query_sm87_fp8_w8a16_small_m64_full_attention_q_resources_test_cuda(
+          1'024U, 5'120U, &registers, &shared, &local, &threads, &blocks);
+  const int kv_rejects_q = q3x::kernels::
+      query_sm87_fp8_w8a16_whole_chunk_full_attention_kv_resources_test_cuda(
+          256U, true, 12'288U, 5'120U, &registers, &shared, &local, &threads,
+          &blocks);
+  const int near_miss = q3x::kernels::
+      query_sm87_fp8_w8a16_whole_chunk_full_attention_q_resources_test_cuda(
+          255U, true, 12'288U, 5'120U, &registers, &shared, &local, &threads,
+          &blocks);
+  const bool invalid_gate =
+      q_rejects_kv == static_cast<int>(cudaErrorInvalidValue) &&
+      kv_rejects_q == static_cast<int>(cudaErrorInvalidValue) &&
+      near_miss == static_cast<int>(cudaErrorInvalidValue) &&
+      registers == 123 && shared == 456U && local == 789U && threads == 321 &&
+      blocks == 654;
+  std::cout << "FP8_FULL_ATTENTION_RESOURCE_INVALID: q_rejects_kv="
+            << q_rejects_kv << " kv_rejects_q=" << kv_rejects_q
+            << " near_miss=" << near_miss
+            << " outputs_unchanged=" << (invalid_gate ? "true" : "false")
+            << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
+  test.expect(invalid_gate,
+              "FP8 full-attention strict resource wrappers reject cross shape");
+}
+
+void run_fp8_full_attention_invalid_capture_contract(TestContext& test,
+                                                      cudaStream_t stream) {
+  constexpr std::uintptr_t kWeightAddress = 0x1'0000'0000ULL;
+  constexpr std::uintptr_t kActivationAddress = 0x2'0000'0000ULL;
+  constexpr std::uintptr_t kOutputAddress = 0x3'0000'0000ULL;
+  const auto* const weights =
+      reinterpret_cast<const std::uint8_t*>(kWeightAddress);
+  const auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(kActivationAddress);
+  auto* const output = reinterpret_cast<std::uint16_t*>(kOutputAddress);
+  const std::string label = "FP8 full-attention invalid capture";
+  std::array<int, 18U> statuses{};
+  statuses.fill(static_cast<int>(cudaErrorUnknown));
+  std::size_t index = 0U;
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      label + " begin");
+  if (ready) {
+    const auto q_launch = q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda;
+    const auto kv_launch = q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda;
+    statuses[index++] = q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+            weights, 1.0F, activations, 256U, 12'288U, 5'120U, output,
+            static_cast<void*>(stream));
+    statuses[index++] = q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+            weights, 1.0F, activations, 512U, 1'024U, 5'120U, output,
+            static_cast<void*>(stream));
+    statuses[index++] = q_launch(weights, 1.0F, activations, 256U, true,
+                                 1'024U, 5'120U, output,
+                                 static_cast<void*>(stream));
+    statuses[index++] = kv_launch(weights, 1.0F, activations, 256U, true,
+                                  12'288U, 5'120U, output,
+                                  static_cast<void*>(stream));
+    for (const std::size_t token_count : {256U, 512U}) {
+      auto* const activation_alias = reinterpret_cast<std::uint16_t*>(
+          kActivationAddress + 64U * 5'120U * sizeof(std::uint16_t));
+      auto* const weight_alias = reinterpret_cast<std::uint16_t*>(
+          kWeightAddress + 128U);
+      statuses[index++] = q_launch(
+          weights, 1.0F, activations, token_count, true, 12'288U, 5'120U,
+          activation_alias, static_cast<void*>(stream));
+      statuses[index++] = kv_launch(
+          weights, 1.0F, activations, token_count, false, 1'024U, 5'120U,
+          activation_alias, static_cast<void*>(stream));
+      statuses[index++] = q_launch(
+          weights, 1.0F, activations, token_count, false, 12'288U, 5'120U,
+          weight_alias, static_cast<void*>(stream));
+      statuses[index++] = kv_launch(
+          weights, 1.0F, activations, token_count, true, 1'024U, 5'120U,
+          weight_alias, static_cast<void*>(stream));
+    }
+    statuses[index++] = q_launch(weights, 1.0F, activations, 255U, true,
+                                 12'288U, 5'120U, output,
+                                 static_cast<void*>(stream));
+    statuses[index++] = q_launch(weights, 1.0F, activations, 513U, false,
+                                 12'288U, 5'120U, output,
+                                 static_cast<void*>(stream));
+    statuses[index++] = kv_launch(weights + 1U, 1.0F, activations, 256U,
+                                  true, 1'024U, 5'120U, output,
+                                  static_cast<void*>(stream));
+    statuses[index++] = kv_launch(
+        weights, std::numeric_limits<float>::quiet_NaN(), activations, 512U,
+        false, 1'024U, 5'120U, output, static_cast<void*>(stream));
+    statuses[index++] = q_launch(weights, 1.0F, nullptr, 256U, true, 12'288U,
+                                 5'120U, output,
+                                 static_cast<void*>(stream));
+    statuses[index++] = kv_launch(weights, 1.0F, activations, 512U, true,
+                                  1'024U, 5'120U, nullptr,
+                                  static_cast<void*>(stream));
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph), label + " end") &&
+            ready;
+  }
+  std::size_t node_count = 0U;
+  if (ready) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &node_count),
+                         label + " query nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph), label + " destroy") && ready;
+  }
+  const bool statuses_valid =
+      index == statuses.size() &&
+      std::all_of(statuses.begin(), statuses.end(), [](const int status) {
+        return status == static_cast<int>(cudaErrorInvalidValue);
+      });
+  const bool gate = ready && statuses_valid && node_count == 0U;
+  std::cout << "FP8_FULL_ATTENTION_INVALID_GRAPH: invalid_statuses="
+            << std::count(statuses.begin(), statuses.end(),
+                          static_cast<int>(cudaErrorInvalidValue))
+            << '/' << statuses.size() << " total_nodes=" << node_count
+            << " full_span_aliases=C256_Q_KV_and_C512_Q_KV"
+            << " production_public_rejects=Q_and_KV"
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              "FP8 full-attention invalid paths enqueue zero graph nodes");
+}
+
+struct Fp8FullAttentionCaseResult {
+  bool correctness = false;
+  bool graph = false;
+  bool every_round_positive = false;
+  double baseline_sum = 0.0;
+  double repeated_sum = 0.0;
+  double m_major_sum = 0.0;
+  double candidate_sum = 0.0;
+};
+
+[[nodiscard]] Fp8FullAttentionCaseResult run_fp8_full_attention_case(
+    TestContext& test, cudaStream_t stream,
+    const Fp8FullAttentionShape& shape, const std::size_t token_count,
+    const float weight_scale,
+    const std::vector<std::uint8_t>& host_weights,
+    const std::vector<std::uint16_t>& host_activations,
+    const std::size_t expected_nan_outputs, const bool measure_performance,
+    const std::string& cell_label) {
+  constexpr std::size_t kGuardElements = 64U;
+  constexpr std::uint16_t kBaselineGuard = 0x3c3cU;
+  constexpr std::uint16_t kRepeatedGuard = 0x9696U;
+  constexpr std::uint16_t kMMajorGuard = 0xa5a5U;
+  constexpr std::uint16_t kCandidateGuard = 0x5a5aU;
+  constexpr std::uint16_t kReplayGuard = 0x6969U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 6;
+  Fp8FullAttentionCaseResult result{};
+  const std::string label =
+      std::string("FP8 full-attention ") + shape.fixture.name + " M" +
+      std::to_string(token_count) + ' ' + cell_label;
+  const std::size_t output_elements = token_count * shape.fixture.rows;
+  const std::size_t guarded_elements =
+      output_elements + 2U * kGuardElements;
+
+  DeviceBuffer<std::uint8_t> weights;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_guarded;
+  DeviceBuffer<std::uint16_t> repeated_guarded;
+  DeviceBuffer<std::uint16_t> m_major_guarded;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  bool ready = test.cuda_ok(weights.allocate(host_weights.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_guarded.allocate(guarded_elements),
+                                label + " allocate B output");
+  ready = ready && test.cuda_ok(repeated_guarded.allocate(guarded_elements),
+                                label + " allocate R output");
+  ready = ready && test.cuda_ok(m_major_guarded.allocate(guarded_elements),
+                                label + " allocate S output");
+  ready = ready && test.cuda_ok(candidate_guarded.allocate(guarded_elements),
+                                label + " allocate C output");
+  ready = ready && test.cuda_ok(replay_guarded.allocate(guarded_elements),
+                                label + " allocate C replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights.get(), host_weights.data(),
+                                       host_weights.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(baseline_guarded.get(), 0x3c,
+                                       guarded_elements * sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison B guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(repeated_guarded.get(), 0x96,
+                                       guarded_elements * sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison R guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(m_major_guarded.get(), 0xa5,
+                                       guarded_elements * sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison S guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(candidate_guarded.get(), 0x5a,
+                                       guarded_elements * sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison C guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(replay_guarded.get(), 0x69,
+                                       guarded_elements * sizeof(std::uint16_t),
+                                       stream),
+                       label + " poison replay guards");
+  if (!ready) {
+    return result;
+  }
+
+  std::uint16_t* const baseline_output =
+      baseline_guarded.get() + kGuardElements;
+  std::uint16_t* const repeated_output =
+      repeated_guarded.get() + kGuardElements;
+  std::uint16_t* const m_major_output =
+      m_major_guarded.get() + kGuardElements;
+  std::uint16_t* const candidate_output =
+      candidate_guarded.get() + kGuardElements;
+  std::uint16_t* const replay_output =
+      replay_guarded.get() + kGuardElements;
+  const auto launch_baseline = [&]() noexcept {
+    return launch_fp8_full_attention_baseline(
+        weights.get(), weight_scale, activations.get(), token_count, shape,
+        baseline_output, stream);
+  };
+  const auto launch_repeated = [&]() noexcept {
+    return launch_fp8_full_attention_repeated_m64(
+        weights.get(), weight_scale, activations.get(), token_count, shape,
+        repeated_output, stream);
+  };
+  const auto launch_m_major = [&]() noexcept {
+    return launch_fp8_full_attention_whole_chunk(
+        weights.get(), weight_scale, activations.get(), token_count, false,
+        shape, m_major_output, stream);
+  };
+  const auto launch_candidate = [&]() noexcept {
+    return launch_fp8_full_attention_whole_chunk(
+        weights.get(), weight_scale, activations.get(), token_count, true,
+        shape, candidate_output, stream);
+  };
+  const auto launch_replay = [&]() noexcept {
+    return launch_fp8_full_attention_whole_chunk(
+        weights.get(), weight_scale, activations.get(), token_count, true,
+        shape, replay_output, stream);
+  };
+
+  ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                       label + " launch B production baseline");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_repeated()),
+                       label + " launch R repeated M64");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_m_major()),
+                                label + " launch S M-major");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_candidate()),
+                                label + " launch C N-major");
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                                label + " launch C replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " correctness synchronize");
+  if (!ready) {
+    return result;
+  }
+
+  const std::size_t baseline_tile = shape.is_q ? 32U : 8U;
+  const unsigned int baseline_grid = static_cast<unsigned int>(
+      shape.is_q ? shape.fixture.rows / 128U : shape.fixture.rows / 2U);
+  const unsigned int m64_grid =
+      static_cast<unsigned int>(shape.fixture.rows / 128U);
+  const unsigned int whole_grid = static_cast<unsigned int>(
+      shape.fixture.rows / 128U * (token_count / 64U));
+  const WholeChunkCapturedGraph baseline_graph = capture_whole_chunk_graph(
+      test, stream, launch_baseline, token_count / baseline_tile,
+      baseline_grid, label + " B graph");
+  const WholeChunkCapturedGraph repeated_graph = capture_whole_chunk_graph(
+      test, stream, launch_repeated, token_count / 64U, m64_grid,
+      label + " R graph");
+  const WholeChunkCapturedGraph m_major_graph = capture_whole_chunk_graph(
+      test, stream, launch_m_major, 1U, whole_grid, label + " S graph");
+  const WholeChunkCapturedGraph candidate_graph = capture_whole_chunk_graph(
+      test, stream, launch_candidate, 1U, whole_grid, label + " C graph");
+  result.graph = baseline_graph.valid && repeated_graph.valid &&
+                 m_major_graph.valid && candidate_graph.valid;
+  std::cout << "FP8_FULL_ATTENTION_GRAPH: shape=" << shape.fixture.name
+            << " M=" << token_count << " cell=" << cell_label
+            << " B_nodes=" << baseline_graph.kernel_nodes << '/'
+            << token_count / baseline_tile
+            << " R_nodes=" << repeated_graph.kernel_nodes << '/'
+            << token_count / 64U
+            << " S_nodes=" << m_major_graph.kernel_nodes << "/1"
+            << " C_nodes=" << candidate_graph.kernel_nodes << "/1"
+            << " B_grid=" << baseline_grid << " R_grid=" << m64_grid
+            << " S_C_grid=" << whole_grid
+            << " gate=" << (result.graph ? "PASS" : "FAIL") << '\n';
+
+  std::vector<std::uint16_t> baseline(guarded_elements);
+  std::vector<std::uint16_t> repeated(guarded_elements);
+  std::vector<std::uint16_t> m_major(guarded_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  std::vector<std::uint8_t> weights_after(host_weights.size());
+  std::vector<std::uint16_t> activations_after(host_activations.size());
+  const auto copy_output = [&](std::vector<std::uint16_t>& host,
+                               const DeviceBuffer<std::uint16_t>& device) {
+    return cudaMemcpyAsync(host.data(), device.get(),
+                           guarded_elements * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream);
+  };
+  ready = test.cuda_ok(copy_output(baseline, baseline_guarded),
+                       label + " copy B output");
+  ready = ready && test.cuda_ok(copy_output(repeated, repeated_guarded),
+                                label + " copy R output");
+  ready = ready && test.cuda_ok(copy_output(m_major, m_major_guarded),
+                                label + " copy S output");
+  ready = ready && test.cuda_ok(
+                       copy_output(candidate, candidate_guarded),
+                       label + " copy C output");
+  ready = ready && test.cuda_ok(copy_output(replay, replay_guarded),
+                                label + " copy replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(weights_after.data(), weights.get(),
+                                       host_weights.size(),
+                                       cudaMemcpyDeviceToHost, stream),
+                       label + " copy weights after");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations_after.data(), activations.get(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyDeviceToHost, stream),
+                       label + " copy activations after");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " copy synchronize");
+
+  std::size_t r_vs_c_mismatches = 0U;
+  std::size_t s_vs_c_mismatches = 0U;
+  std::size_t c_replay_mismatches = 0U;
+  std::size_t q_r_vs_b_mismatches = 0U;
+  std::size_t q_s_vs_b_mismatches = 0U;
+  std::size_t q_c_vs_b_mismatches = 0U;
+  std::size_t baseline_nan_outputs = 0U;
+  std::size_t nan_class_or_sign_mismatches = 0U;
+  std::size_t unexpected_nonfinite = 0U;
+  float maximum_absolute_error = 0.0F;
+  float maximum_relative_error = 0.0F;
+  bool tolerance_gate = ready;
+  bool guards_intact = ready;
+  if (ready) {
+    for (std::size_t output_index = 0U; output_index < output_elements;
+         ++output_index) {
+      const std::size_t guarded_index = kGuardElements + output_index;
+      const std::uint16_t b = baseline[guarded_index];
+      const std::uint16_t r = repeated[guarded_index];
+      const std::uint16_t s = m_major[guarded_index];
+      const std::uint16_t c = candidate[guarded_index];
+      const std::uint16_t replay_bits = replay[guarded_index];
+      r_vs_c_mismatches += r != c ? 1U : 0U;
+      s_vs_c_mismatches += s != c ? 1U : 0U;
+      c_replay_mismatches += replay_bits != c ? 1U : 0U;
+      q_r_vs_b_mismatches += shape.is_q && r != b ? 1U : 0U;
+      q_s_vs_b_mismatches += shape.is_q && s != b ? 1U : 0U;
+      q_c_vs_b_mismatches += shape.is_q && c != b ? 1U : 0U;
+      if (is_bf16_nan(b)) {
+        ++baseline_nan_outputs;
+        const bool nan_class_and_sign =
+            is_bf16_nan(r) && is_bf16_nan(s) && is_bf16_nan(c) &&
+            is_bf16_nan(replay_bits) && ((r ^ b) & 0x8000U) == 0U &&
+            ((s ^ b) & 0x8000U) == 0U && ((c ^ b) & 0x8000U) == 0U &&
+            ((replay_bits ^ b) & 0x8000U) == 0U;
+        nan_class_or_sign_mismatches += nan_class_and_sign ? 0U : 1U;
+        continue;
+      }
+      const float baseline_value = decode_bf16(b);
+      const float candidate_value = decode_bf16(c);
+      const float absolute_error =
+          std::fabs(candidate_value - baseline_value);
+      const float relative_error =
+          absolute_error / std::max(1.0e-6F, std::fabs(baseline_value));
+      maximum_absolute_error =
+          std::max(maximum_absolute_error, absolute_error);
+      maximum_relative_error =
+          std::max(maximum_relative_error, relative_error);
+      const float tolerance =
+          2.0e-4F * std::sqrt(static_cast<float>(shape.fixture.columns)) +
+          1.0e-2F * std::max(1.0F, std::fabs(baseline_value));
+      const bool finite = is_bf16_finite(b) && is_bf16_finite(r) &&
+                          is_bf16_finite(s) && is_bf16_finite(c) &&
+                          is_bf16_finite(replay_bits);
+      unexpected_nonfinite += finite ? 0U : 1U;
+      tolerance_gate = tolerance_gate && finite && absolute_error <= tolerance;
+    }
+    const auto guard_intact = [&](const std::vector<std::uint16_t>& values,
+                                  const std::uint16_t expected) {
+      for (std::size_t guard = 0U; guard < kGuardElements; ++guard) {
+        if (values[guard] != expected ||
+            values[kGuardElements + output_elements + guard] != expected) {
+          return false;
+        }
+      }
+      return true;
+    };
+    guards_intact = guard_intact(baseline, kBaselineGuard) &&
+                    guard_intact(repeated, kRepeatedGuard) &&
+                    guard_intact(m_major, kMMajorGuard) &&
+                    guard_intact(candidate, kCandidateGuard) &&
+                    guard_intact(replay, kReplayGuard);
+  }
+  const bool inputs_preserved = ready && weights_after == host_weights &&
+                                activations_after == host_activations;
+  const bool common_exact = r_vs_c_mismatches == 0U &&
+                            s_vs_c_mismatches == 0U &&
+                            c_replay_mismatches == 0U;
+  const bool q_exact = !shape.is_q ||
+                       (q_r_vs_b_mismatches == 0U &&
+                        q_s_vs_b_mismatches == 0U &&
+                        q_c_vs_b_mismatches == 0U);
+  result.correctness =
+      ready && common_exact && q_exact && tolerance_gate &&
+      baseline_nan_outputs == expected_nan_outputs &&
+      nan_class_or_sign_mismatches == 0U && unexpected_nonfinite == 0U &&
+      guards_intact && inputs_preserved;
+  std::cout << "FP8_FULL_ATTENTION_DIFF: shape=" << shape.fixture.name
+            << " M=" << token_count << " cell=" << cell_label
+            << " baseline=" << (shape.is_q ? "production_M32"
+                                                 : "production_M8_CUDA")
+            << " R_vs_C_mismatches=" << r_vs_c_mismatches << '/'
+            << output_elements
+            << " S_vs_C_mismatches=" << s_vs_c_mismatches << '/'
+            << output_elements
+            << " C_replay_mismatches=" << c_replay_mismatches << '/'
+            << output_elements
+            << " Q_C_vs_B_mismatches=" << q_c_vs_b_mismatches << '/'
+            << output_elements
+            << " baseline_nan_outputs=" << baseline_nan_outputs << '/'
+            << expected_nan_outputs
+            << " nan_class_or_sign_mismatches="
+            << nan_class_or_sign_mismatches
+            << " max_abs_vs_cuda_baseline=" << maximum_absolute_error
+            << " max_rel_vs_cuda_baseline=" << maximum_relative_error
+            << " tolerance=" << (tolerance_gate ? "PASS" : "FAIL")
+            << " guards=" << (guards_intact ? "intact" : "BAD")
+            << " inputs_preserved=" << (inputs_preserved ? "true" : "false")
+            << " gate=" << (result.correctness ? "PASS" : "FAIL") << '\n';
+  test.expect(result.correctness,
+              label + " clears exact/tolerance/NaN/guard/input gates");
+  test.expect(result.graph, label + " captures the required B/R/S/C topology");
+  if (!measure_performance) {
+    return result;
+  }
+
+  for (int warmup = 0; warmup < kWarmupIterations && ready; ++warmup) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " warmup B");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_repeated()),
+                         label + " warmup R");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_m_major()),
+                                  label + " warmup S");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " warmup C");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  bool every_round = ready;
+  for (int round = 0; round < kMeasurementRounds && ready; ++round) {
+    const std::string round_label =
+        label + " round " + std::to_string(round + 1);
+    const float b1 = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        round_label + " B1");
+    const float r1 = measure_small_m_tile(
+        test, stream, launch_repeated, kMeasuredIterations,
+        round_label + " R1");
+    const float s1 = measure_small_m_tile(
+        test, stream, launch_m_major, kMeasuredIterations,
+        round_label + " S1");
+    const float c1 = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        round_label + " C1");
+    const float c2 = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        round_label + " C2");
+    const float s2 = measure_small_m_tile(
+        test, stream, launch_m_major, kMeasuredIterations,
+        round_label + " S2");
+    const float r2 = measure_small_m_tile(
+        test, stream, launch_repeated, kMeasuredIterations,
+        round_label + " R2");
+    const float b2 = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        round_label + " B2");
+    const bool finite =
+        std::isfinite(b1) && std::isfinite(b2) && std::isfinite(r1) &&
+        std::isfinite(r2) && std::isfinite(s1) && std::isfinite(s2) &&
+        std::isfinite(c1) && std::isfinite(c2) && b1 > 0.0F && b2 > 0.0F &&
+        r1 > 0.0F && r2 > 0.0F && s1 > 0.0F && s2 > 0.0F && c1 > 0.0F &&
+        c2 > 0.0F;
+    const double b = static_cast<double>(b1 + b2);
+    const double r = static_cast<double>(r1 + r2);
+    const double s = static_cast<double>(s1 + s2);
+    const double c = static_cast<double>(c1 + c2);
+    const double speedup =
+        finite ? b / c : std::numeric_limits<double>::quiet_NaN();
+    const bool round_gate = finite && speedup > 1.0;
+    every_round = every_round && round_gate;
+    if (finite) {
+      result.baseline_sum += b;
+      result.repeated_sum += r;
+      result.m_major_sum += s;
+      result.candidate_sum += c;
+    }
+    std::cout << "PERF_FP8_FULL_ATTENTION_ROUND: shape="
+              << shape.fixture.name << " M=" << token_count
+              << " cell=" << cell_label << " round=" << round + 1
+              << " order=B-R-S-C-C-S-R-B warmup=10 measured_ops=24"
+              << " B_ms=" << b / 2.0 << " R_M64_ms=" << r / 2.0
+              << " S_M_major_ms=" << s / 2.0
+              << " C_N_major_ms=" << c / 2.0
+              << " C_vs_B_speedup=" << speedup
+              << " C_vs_R_speedup=" << r / c
+              << " C_vs_S_speedup=" << s / c
+              << " required_C_vs_B=>1"
+              << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(round_gate,
+                round_label + " candidate beats its own production baseline");
+  }
+  result.every_round_positive = every_round;
+  const double speedup = result.baseline_sum / result.candidate_sum;
+  std::cout << "PERF_FP8_FULL_ATTENTION_CELL: shape=" << shape.fixture.name
+            << " M=" << token_count << " cell=" << cell_label
+            << " B_envelope_ms="
+            << result.baseline_sum / (2.0 * kMeasurementRounds)
+            << " R_envelope_ms="
+            << result.repeated_sum / (2.0 * kMeasurementRounds)
+            << " S_envelope_ms="
+            << result.m_major_sum / (2.0 * kMeasurementRounds)
+            << " C_envelope_ms="
+            << result.candidate_sum / (2.0 * kMeasurementRounds)
+            << " C_vs_B_speedup=" << speedup
+            << " correctness=" << (result.correctness ? "PASS" : "FAIL")
+            << " graph=" << (result.graph ? "PASS" : "FAIL")
+            << " every_round_positive=" << (every_round ? "true" : "false")
+            << " production_dispatch=unchanged"
+            << " gate="
+            << (result.correctness && result.graph && every_round &&
+                        std::isfinite(speedup) && speedup > 1.0
+                    ? "PASS"
+                    : "FAIL")
+            << '\n';
+  return result;
+}
+
+void run_fp8_full_attention_exhaustive_correctness(
+    TestContext& test, cudaStream_t stream,
+    const Fp8FullAttentionShape& shape) {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kBytePositions = 4U;
+  constexpr std::size_t kExpectedNanOutputs = kTokenCount * 8U;
+  constexpr float kWeightScale = 1.0F / 64.0F;
+  std::vector<std::uint8_t> weights(
+      shape.fixture.rows * shape.fixture.columns, 0U);
+  std::vector<std::uint16_t> activations(
+      kTokenCount * shape.fixture.columns, encode_bf16(0.0F));
+  std::array<std::array<bool, 256U>, kBytePositions> coverage{};
+  for (std::size_t code = 0U; code < 256U; ++code) {
+    for (std::size_t position = 0U; position < kBytePositions; ++position) {
+      const std::size_t row = code * kBytePositions + position;
+      weights[row * shape.fixture.columns + position] =
+          static_cast<std::uint8_t>(code);
+      coverage[position][code] = true;
+    }
+  }
+  for (std::size_t token = 0U; token < kTokenCount; ++token) {
+    const float token_factor = static_cast<float>((token & 3U) + 1U) / 8.0F;
+    for (std::size_t position = 0U; position < kBytePositions; ++position) {
+      activations[token * shape.fixture.columns + position] = encode_bf16(
+          token_factor * static_cast<float>(position + 1U));
+    }
+  }
+  const bool coverage_gate =
+      std::all_of(coverage.begin(), coverage.end(), [](const auto& values) {
+        return std::all_of(values.begin(), values.end(),
+                           [](const bool covered) { return covered; });
+      });
+  test.expect(coverage_gate,
+              std::string("FP8 full-attention ") + shape.fixture.name +
+                  " covers every E4M3FN code at four byte positions");
+  const Fp8FullAttentionCaseResult result = run_fp8_full_attention_case(
+      test, stream, shape, kTokenCount, kWeightScale, weights, activations,
+      kExpectedNanOutputs, false, "exhaustive_E4M3FN_x4");
+  std::cout << "FP8_FULL_ATTENTION_EXHAUSTIVE: shape=" << shape.fixture.name
+            << " M=512 raw_codes_per_byte_position=256 byte_positions=4"
+            << " expected_nan_outputs=" << kExpectedNanOutputs
+            << " coverage=" << (coverage_gate ? "PASS" : "FAIL")
+            << " correctness=" << (result.correctness ? "PASS" : "FAIL")
+            << " graph=" << (result.graph ? "PASS" : "FAIL")
+            << " gate="
+            << (coverage_gate && result.correctness && result.graph ? "PASS"
+                                                                    : "FAIL")
+            << '\n';
+}
+
+struct Fp8FullAttentionSequenceResult {
+  bool every_round_positive = false;
+  double baseline_sum = 0.0;
+  double repeated_sum = 0.0;
+  double m_major_sum = 0.0;
+  double candidate_sum = 0.0;
+};
+
+[[nodiscard]] Fp8FullAttentionSequenceResult
+run_fp8_full_attention_q_k_v_sequence(
+    TestContext& test, cudaStream_t stream, const Fp8QkvZCell cell) {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr int kWarmupIterations = 10;
+  constexpr int kMeasuredIterations = 24;
+  constexpr int kMeasurementRounds = 6;
+  const std::string cell_label = fp8_qkv_z_cell_name(cell);
+  const std::string label =
+      std::string("FP8 full-attention Q->K->V C512 ") + cell_label;
+  std::array<std::vector<std::uint8_t>, 3U> host_weights;
+  std::array<float, 3U> weight_scales{};
+  for (std::size_t index = 0U; index < host_weights.size(); ++index) {
+    host_weights[index] =
+        make_fp8_full_attention_weights(kFp8FullAttentionShapes[index], cell);
+    weight_scales[index] = fp8_qkv_z_weight_scale(
+        kFp8FullAttentionShapes[index].fixture, cell);
+  }
+  std::vector<std::uint16_t> host_activations =
+      make_fp8_qkv_z_activations(kFp8FullAttentionShapes[0].fixture,
+                                 kTokenCount, cell);
+  std::array<DeviceBuffer<std::uint8_t>, 3U> weights;
+  std::array<DeviceBuffer<std::uint16_t>, 3U> outputs;
+  DeviceBuffer<std::uint16_t> activations;
+  bool ready = test.cuda_ok(activations.allocate(host_activations.size()),
+                            label + " allocate activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  for (std::size_t index = 0U; index < weights.size() && ready; ++index) {
+    ready = test.cuda_ok(weights[index].allocate(host_weights[index].size()),
+                         label + " allocate weights " +
+                             kFp8FullAttentionShapes[index].fixture.name);
+    ready = ready && test.cuda_ok(
+                         outputs[index].allocate(
+                             kTokenCount *
+                             kFp8FullAttentionShapes[index].fixture.rows),
+                         label + " allocate output " +
+                             kFp8FullAttentionShapes[index].fixture.name);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             weights[index].get(), host_weights[index].data(),
+                             host_weights[index].size(),
+                             cudaMemcpyHostToDevice, stream),
+                         label + " upload weights " +
+                             kFp8FullAttentionShapes[index].fixture.name);
+  }
+  if (!ready) {
+    return {};
+  }
+
+  const auto launch_sequence = [&](const char route) noexcept {
+    for (std::size_t index = 0U; index < weights.size(); ++index) {
+      const Fp8FullAttentionShape& shape =
+          kFp8FullAttentionShapes[index];
+      int status = static_cast<int>(cudaErrorInvalidValue);
+      if (route == 'B') {
+        status = launch_fp8_full_attention_baseline(
+            weights[index].get(), weight_scales[index], activations.get(),
+            kTokenCount, shape, outputs[index].get(), stream);
+      } else if (route == 'R') {
+        status = launch_fp8_full_attention_repeated_m64(
+            weights[index].get(), weight_scales[index], activations.get(),
+            kTokenCount, shape, outputs[index].get(), stream);
+      } else {
+        status = launch_fp8_full_attention_whole_chunk(
+            weights[index].get(), weight_scales[index], activations.get(),
+            kTokenCount, route == 'C', shape, outputs[index].get(), stream);
+      }
+      if (status != static_cast<int>(cudaSuccess)) {
+        return status;
+      }
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_baseline = [&]() noexcept { return launch_sequence('B'); };
+  const auto launch_repeated = [&]() noexcept { return launch_sequence('R'); };
+  const auto launch_m_major = [&]() noexcept { return launch_sequence('S'); };
+  const auto launch_candidate = [&]() noexcept { return launch_sequence('C'); };
+
+  for (int warmup = 0; warmup < kWarmupIterations && ready; ++warmup) {
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
+                         label + " warmup B");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_repeated()),
+                         label + " warmup R");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_m_major()),
+                                  label + " warmup S");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(launch_candidate()),
+                         label + " warmup C");
+  }
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " warmup synchronize");
+  Fp8FullAttentionSequenceResult result{};
+  bool every_round = ready;
+  for (int round = 0; round < kMeasurementRounds && ready; ++round) {
+    const std::string round_label =
+        label + " round " + std::to_string(round + 1);
+    const float b1 = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        round_label + " B1");
+    const float r1 = measure_small_m_tile(
+        test, stream, launch_repeated, kMeasuredIterations,
+        round_label + " R1");
+    const float s1 = measure_small_m_tile(
+        test, stream, launch_m_major, kMeasuredIterations,
+        round_label + " S1");
+    const float c1 = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        round_label + " C1");
+    const float c2 = measure_small_m_tile(
+        test, stream, launch_candidate, kMeasuredIterations,
+        round_label + " C2");
+    const float s2 = measure_small_m_tile(
+        test, stream, launch_m_major, kMeasuredIterations,
+        round_label + " S2");
+    const float r2 = measure_small_m_tile(
+        test, stream, launch_repeated, kMeasuredIterations,
+        round_label + " R2");
+    const float b2 = measure_small_m_tile(
+        test, stream, launch_baseline, kMeasuredIterations,
+        round_label + " B2");
+    const bool finite =
+        std::isfinite(b1) && std::isfinite(b2) && std::isfinite(r1) &&
+        std::isfinite(r2) && std::isfinite(s1) && std::isfinite(s2) &&
+        std::isfinite(c1) && std::isfinite(c2) && b1 > 0.0F && b2 > 0.0F &&
+        r1 > 0.0F && r2 > 0.0F && s1 > 0.0F && s2 > 0.0F && c1 > 0.0F &&
+        c2 > 0.0F;
+    const double b = static_cast<double>(b1 + b2);
+    const double r = static_cast<double>(r1 + r2);
+    const double s = static_cast<double>(s1 + s2);
+    const double c = static_cast<double>(c1 + c2);
+    const double speedup =
+        finite ? b / c : std::numeric_limits<double>::quiet_NaN();
+    const bool round_gate = finite && speedup > 1.0;
+    every_round = every_round && round_gate;
+    if (finite) {
+      result.baseline_sum += b;
+      result.repeated_sum += r;
+      result.m_major_sum += s;
+      result.candidate_sum += c;
+    }
+    std::cout << "PERF_FP8_FULL_ATTENTION_Q_K_V_ROUND: M=512 cell="
+              << cell_label << " round=" << round + 1
+              << " order=Q_then_K_then_V/B-R-S-C-C-S-R-B"
+              << " warmup=10 measured_ops=24"
+              << " B_ms=" << b / 2.0 << " R_M64_ms=" << r / 2.0
+              << " S_M_major_ms=" << s / 2.0
+              << " C_N_major_ms=" << c / 2.0
+              << " C_vs_B_speedup=" << speedup
+              << " required_C_vs_B=>1"
+              << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+    test.expect(round_gate,
+                round_label + " Q->K->V candidate beats baseline");
+  }
+  result.every_round_positive = every_round;
+  const double speedup = result.baseline_sum / result.candidate_sum;
+  const bool gate = every_round && std::isfinite(speedup) && speedup >= 1.25;
+  std::cout << "PERF_FP8_FULL_ATTENTION_Q_K_V_CELL: M=512 cell="
+            << cell_label << " order=Q_then_K_then_V"
+            << " B_envelope_ms="
+            << result.baseline_sum / (2.0 * kMeasurementRounds)
+            << " R_envelope_ms="
+            << result.repeated_sum / (2.0 * kMeasurementRounds)
+            << " S_envelope_ms="
+            << result.m_major_sum / (2.0 * kMeasurementRounds)
+            << " C_envelope_ms="
+            << result.candidate_sum / (2.0 * kMeasurementRounds)
+            << " C_vs_B_speedup=" << speedup
+            << " required_speedup=1.25"
+            << " every_round_positive=" << (every_round ? "true" : "false")
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              label + " clears the independent C512 1.25 sequence gate");
+  return result;
+}
+
+void run_fp8_whole_chunk_full_attention_screen(TestContext& test,
+                                                cudaStream_t stream) {
+  std::cout
+      << "FP8_FULL_ATTENTION_PROTOCOL: shapes=Q[12288x5120],K/V[1024x5120]"
+         " M=256,512 cells=checkpoint_like,distinct_scale_stress"
+         " baseline=Q_production_M32,K_V_production_M8_CUDA"
+         " controls=R_repeated_M64,S_one_grid_M_major"
+         " candidate=C_one_grid_N_major order=B-R-S-C-C-S-R-B"
+         " warmup=10 measured_ops=24 rounds=6 production_dispatch=unchanged\n";
+  const int failures_before_prechecks = test.failures();
+  run_fp8_full_attention_resource_gate(test);
+  run_fp8_full_attention_invalid_capture_contract(test, stream);
+  const bool precheck_gate = test.failures() == failures_before_prechecks;
+  const int failures_before_exhaustive = test.failures();
+  run_fp8_full_attention_exhaustive_correctness(
+      test, stream, kFp8FullAttentionShapes[0]);
+  run_fp8_full_attention_exhaustive_correctness(
+      test, stream, kFp8FullAttentionShapes[1]);
+  const bool exhaustive_gate = test.failures() == failures_before_exhaustive;
+
+  constexpr std::array<std::size_t, 2U> kTokenCounts{{256U, 512U}};
+  bool q_gate = true;
+  bool kv_gate = true;
+  for (const Fp8FullAttentionShape& shape : kFp8FullAttentionShapes) {
+    for (const std::size_t token_count : kTokenCounts) {
+      for (const Fp8QkvZCell cell : kFp8QkvZCells) {
+        const std::vector<std::uint8_t> weights =
+            make_fp8_full_attention_weights(shape, cell);
+        const std::vector<std::uint16_t> activations =
+            make_fp8_qkv_z_activations(shape.fixture, token_count, cell);
+        const Fp8FullAttentionCaseResult result = run_fp8_full_attention_case(
+            test, stream, shape, token_count,
+            fp8_qkv_z_weight_scale(shape.fixture, cell), weights, activations,
+            0U, true, fp8_qkv_z_cell_name(cell));
+        const double speedup = result.baseline_sum / result.candidate_sum;
+        const bool cell_gate = result.correctness && result.graph &&
+                               result.every_round_positive &&
+                               std::isfinite(speedup) && speedup > 1.0;
+        if (shape.is_q) {
+          q_gate = q_gate && cell_gate;
+        } else {
+          kv_gate = kv_gate && cell_gate;
+        }
+        std::cout << "PERF_FP8_FULL_ATTENTION_SELECTION: shape="
+                  << shape.fixture.name << " M=" << token_count
+                  << " cell=" << fp8_qkv_z_cell_name(cell)
+                  << " C_vs_B_speedup=" << speedup
+                  << " required_speedup=>1"
+                  << " role_gate=" << (cell_gate ? "PASS" : "FAIL")
+                  << '\n';
+      }
+    }
+  }
+
+  bool sequence_gate = true;
+  double sequence_baseline_sum = 0.0;
+  double sequence_candidate_sum = 0.0;
+  for (const Fp8QkvZCell cell : kFp8QkvZCells) {
+    const Fp8FullAttentionSequenceResult result =
+        run_fp8_full_attention_q_k_v_sequence(test, stream, cell);
+    const double speedup = result.baseline_sum / result.candidate_sum;
+    const bool cell_gate = result.every_round_positive &&
+                           std::isfinite(speedup) && speedup >= 1.25;
+    sequence_gate = sequence_gate && cell_gate;
+    sequence_baseline_sum += result.baseline_sum;
+    sequence_candidate_sum += result.candidate_sum;
+    std::cout << "PERF_FP8_FULL_ATTENTION_Q_K_V_SELECTION: M=512 cell="
+              << fp8_qkv_z_cell_name(cell)
+              << " C_vs_B_speedup=" << speedup
+              << " required_speedup=1.25"
+              << " gate=" << (cell_gate ? "PASS" : "FAIL") << '\n';
+  }
+  const double aggregate_speedup =
+      sequence_baseline_sum / sequence_candidate_sum;
+  const bool gate = precheck_gate && exhaustive_gate && q_gate && kv_gate &&
+                    sequence_gate && std::isfinite(aggregate_speedup) &&
+                    aggregate_speedup >= 1.25;
+  std::cout << "PERF_FP8_FULL_ATTENTION_FINAL: C512_Q_then_K_then_V_C_vs_B="
+            << aggregate_speedup
+            << " required_each_distribution_and_aggregate_speedup=1.25"
+            << " Q_independent_gate=" << (q_gate ? "PASS" : "FAIL")
+            << " K_V_independent_gate=" << (kv_gate ? "PASS" : "FAIL")
+            << " sequence_gate=" << (sequence_gate ? "PASS" : "FAIL")
+            << " resource_and_invalid_precheck="
+            << (precheck_gate ? "PASS" : "FAIL")
+            << " exhaustive_Q_and_KV_E4M3FN_x4="
+            << (exhaustive_gate ? "PASS" : "FAIL")
+            << " K_V_failure_cannot_be_masked_by_Q=true"
+            << " Q_only_selection=" << (q_gate ? "SELECTABLE" : "REJECT")
+            << " production_dispatch=unchanged"
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              "FP8 full-attention screen clears all independent and C512 "
+              "Q->K->V gates");
 }
 
 struct Fp8M16WmmaMeasurement {
@@ -61449,6 +62603,21 @@ int main() {
     }
     std::cout << "NVFP4 whole-chunk down M256/M512 fixed-frequency screen "
                  "passed; production dispatch is unchanged\n";
+    return 0;
+  }
+  if (fp8_whole_chunk_full_attention_performance_enabled()) {
+    run_fp8_whole_chunk_full_attention_screen(test, stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy FP8 whole-chunk full-attention performance stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " FP8 whole-chunk full-attention assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "FP8 whole-chunk full-attention Q/K/V M256/M512 "
+                 "fixed-frequency screen passed; production dispatch is "
+                 "unchanged\n";
     return 0;
   }
   if (fp8_whole_chunk_qkv_z_performance_enabled()) {
