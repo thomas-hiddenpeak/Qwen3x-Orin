@@ -51,6 +51,31 @@ static_assert(kProductionProjectionSubtileTokens <=
 static_assert(kMaximumProjectionTileTokenCount <=
               kMaximumRequestPrefillChunkSize);
 
+[[nodiscard]] bool byte_range_overflows(const void* const pointer,
+                                        const std::size_t bytes) noexcept {
+  const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pointer);
+  return pointer == nullptr ||
+         bytes > std::numeric_limits<std::uintptr_t>::max() - begin;
+}
+
+// Treat address overflow as overlap so a malformed span can never select a
+// concurrent writer. Exactly adjacent half-open ranges remain disjoint.
+[[nodiscard]] bool byte_ranges_are_disjoint(
+    const void* const first, const std::size_t first_bytes,
+    const void* const second, const std::size_t second_bytes) noexcept {
+  if (byte_range_overflows(first, first_bytes) ||
+      byte_range_overflows(second, second_bytes)) {
+    return false;
+  }
+  const std::uintptr_t first_begin =
+      reinterpret_cast<std::uintptr_t>(first);
+  const std::uintptr_t second_begin =
+      reinterpret_cast<std::uintptr_t>(second);
+  const std::uintptr_t first_end = first_begin + first_bytes;
+  const std::uintptr_t second_end = second_begin + second_bytes;
+  return first_end <= second_begin || second_end <= first_begin;
+}
+
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
     const std::size_t layer = kReferenceNoLayer,
@@ -841,8 +866,12 @@ bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
     return pointer != nullptr &&
            (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
   };
+  if (token_count != 256U && token_count != 512U) {
+    return false;
+  }
+  const std::size_t output_bytes =
+      token_count * kRows * sizeof(std::uint16_t);
   return backend == ProjectionBackend::kSm87WeightOnly &&
-         (token_count == 256U || token_count == 512U) &&
          gate != nullptr && up != nullptr &&
          gate->output_size == kRows && gate->input_size == kColumns &&
          up->output_size == kRows && up->input_size == kColumns &&
@@ -853,7 +882,8 @@ bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
          aligned(input, alignof(std::uint64_t)) &&
          aligned(gate_output, alignof(std::uint16_t)) &&
          aligned(up_output, alignof(std::uint16_t)) &&
-         gate_output != up_output;
+         byte_ranges_are_disjoint(gate_output, output_bytes, up_output,
+                                  output_bytes);
 }
 
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
@@ -870,9 +900,13 @@ bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     return pointer != nullptr &&
            (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
   };
+  if (token_count != kProductionProjectionSubtileTokens &&
+      token_count != 2U * kProductionProjectionSubtileTokens) {
+    return false;
+  }
+  const std::size_t output_bytes =
+      token_count * kRows * sizeof(std::uint16_t);
   return backend == ProjectionBackend::kSm87WeightOnly &&
-         (token_count == kProductionProjectionSubtileTokens ||
-          token_count == 2U * kProductionProjectionSubtileTokens) &&
          gate != nullptr && up != nullptr &&
          gate->output_size == kRows && gate->input_size == kColumns &&
          up->output_size == kRows && up->input_size == kColumns &&
@@ -883,7 +917,8 @@ bool use_nvfp4_m32_prefill_gate_up_dual_stream(
          aligned(input, alignof(std::uint64_t)) &&
          aligned(gate_output, alignof(std::uint16_t)) &&
          aligned(up_output, alignof(std::uint16_t)) &&
-         gate_output != up_output;
+         byte_ranges_are_disjoint(gate_output, output_bytes, up_output,
+                                  output_bytes);
 }
 
 ReferenceRunnerError validate_reference_workspace_plan(

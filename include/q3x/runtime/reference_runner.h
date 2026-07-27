@@ -343,9 +343,10 @@ struct LogitsAnalysis {
 
 // Pure-host selector for the exact NVFP4 Gate/Up whole-chunk pair. Only
 // explicitly selected SM87, two aligned [17408,5120] branches, C256/C512,
-// and distinct aligned outputs may use the runner's existing auxiliary-stream
-// fork/join. Device companion-scale pointers remain launcher-validation state:
-// a malformed selected payload must fail instead of becoming a serial fallback.
+// and non-overlapping complete aligned output spans may use the runner's
+// existing auxiliary-stream fork/join. Device companion-scale pointers remain
+// launcher-validation state: a malformed selected payload must fail instead of
+// becoming a serial fallback.
 [[nodiscard]] bool use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
     ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* input,
@@ -354,8 +355,9 @@ struct LogitsAnalysis {
 
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
-// exact aligned direct-output projections, so every route that could touch the
-// shared FP32 fallback scratch remains serial.
+// exact aligned direct-output projections with non-overlapping complete output
+// spans, so every route that could touch the shared FP32 fallback scratch
+// remains serial.
 [[nodiscard]] bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* input,

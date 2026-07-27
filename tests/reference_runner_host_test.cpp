@@ -976,8 +976,13 @@ void test_fake_linear_weight_validation(TestContext& test) {
   alignas(2) std::array<std::uint8_t, 2U> gate_scales{};
   alignas(2) std::array<std::uint8_t, 2U> up_scales{};
   alignas(8) std::array<std::uint16_t, 4U> input{};
-  std::array<std::uint16_t, 4U> gate_output{};
-  std::array<std::uint16_t, 4U> up_output{};
+  constexpr std::size_t kGateUpRows = 17'408U;
+  constexpr std::uintptr_t kGateOutputAddress = 0x40'0000'0000ULL;
+  constexpr std::uintptr_t kFarUpOutputAddress = 0x60'0000'0000ULL;
+  auto* const gate_output =
+      reinterpret_cast<std::uint16_t*>(kGateOutputAddress);
+  auto* const far_up_output =
+      reinterpret_cast<std::uint16_t*>(kFarUpOutputAddress);
   float nvfp4_weight_scale = 1.0F / 64.0F;
   float nvfp4_input_scale = 1.0F;
   const runtime::LinearWeight gate = runtime::NvFp4LinearWeight{
@@ -996,41 +1001,110 @@ void test_fake_linear_weight_validation(TestContext& test) {
   test.expect(
       detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-          input.data(), gate_output.data(), up_output.data(), 256U) &&
+          input.data(), gate_output, far_up_output, 256U) &&
           detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 512U),
+              input.data(), gate_output, far_up_output, 512U),
       "exact aligned NVFP4 C256/C512 MLP Gate/Up pair selects the "
       "whole-chunk two-stream fork/join");
   test.expect(
       detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kSm87WeightOnly, gate,
-          malformed_up_companion, input.data(), gate_output.data(),
-          up_output.data(), 256U),
+          malformed_up_companion, input.data(), gate_output, far_up_output,
+          256U),
       "whole-chunk Gate/Up selector leaves malformed companion scales to "
       "the launcher's Invalid validation");
   test.expect(
       detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-          input.data(), gate_output.data(), up_output.data(), 32U) &&
+          input.data(), gate_output, far_up_output, 32U) &&
           detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 64U),
+              input.data(), gate_output, far_up_output, 64U),
       "exact aligned NVFP4 C32/C64 MLP gate/up pair selects dual-stream prefill");
+
+  const auto output_bytes = [](const std::size_t token_count) constexpr {
+    return token_count * kGateUpRows * sizeof(std::uint16_t);
+  };
+  const auto output_at_byte_offset =
+      [](const std::uintptr_t base, const std::size_t offset) noexcept {
+        return reinterpret_cast<std::uint16_t*>(base + offset);
+      };
+  auto* const wrapping_output = reinterpret_cast<std::uint16_t*>(
+      std::numeric_limits<std::uintptr_t>::max() &
+      ~(static_cast<std::uintptr_t>(alignof(std::uint16_t)) - 1U));
+  test.expect(
+      detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input.data(),
+          gate_output,
+          output_at_byte_offset(kGateOutputAddress, output_bytes(256U)),
+          256U) &&
+          detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output,
+              output_at_byte_offset(kGateOutputAddress, output_bytes(512U)),
+              512U),
+      "whole-chunk C256/C512 dual-stream selector accepts exactly adjacent "
+      "complete output spans");
+  test.expect(
+      detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input.data(),
+          gate_output,
+          output_at_byte_offset(kGateOutputAddress, output_bytes(32U)), 32U) &&
+          detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output,
+              output_at_byte_offset(kGateOutputAddress, output_bytes(64U)),
+              64U),
+      "C32/C64 dual-stream selector accepts exactly adjacent complete output "
+      "spans");
+  auto* const aligned_partial_output =
+      output_at_byte_offset(kGateOutputAddress, 128U);
+  test.expect(
+      !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input.data(),
+          gate_output, gate_output, 256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output, aligned_partial_output, 256U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), wrapping_output, far_up_output, 512U) &&
+          !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output, wrapping_output, 512U),
+      "whole-chunk dual-stream selector rejects identical, aligned partial, "
+      "and wrapping output spans");
+  test.expect(
+      !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+          runtime::ProjectionBackend::kSm87WeightOnly, gate, up, input.data(),
+          gate_output, gate_output, 32U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output, aligned_partial_output, 64U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), wrapping_output, far_up_output, 32U) &&
+          !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
+              runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
+              input.data(), gate_output, wrapping_output, 64U),
+      "C32/C64 dual-stream selector rejects identical, aligned partial, and "
+      "wrapping output spans");
   test.expect(
       !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kReference, gate, up, input.data(),
-          gate_output.data(), up_output.data(), 32U) &&
+          gate_output, far_up_output, 32U) &&
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 31U) &&
+              input.data(), gate_output, far_up_output, 31U) &&
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 63U) &&
+              input.data(), gate_output, far_up_output, 63U) &&
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), gate_output.data(), 32U),
-      "dual-stream prefill selector preserves backend, tile, and distinct-output fallbacks");
+              input.data(), gate_output, gate_output, 32U),
+      "dual-stream prefill selector preserves backend, tile, and output-span "
+      "fallbacks");
   const runtime::LinearWeight wrong_shape = runtime::NvFp4LinearWeight{
       up_packed.data(), up_scales.data(), &nvfp4_weight_scale,
       &nvfp4_input_scale, nvfp4_weight_scale, nvfp4_input_scale, 17'407U,
@@ -1045,53 +1119,53 @@ void test_fake_linear_weight_validation(TestContext& test) {
       &nvfp4_input_scale, nvfp4_weight_scale, nvfp4_input_scale, 17'408U,
       runtime::kReferenceHiddenSize};
   auto* const odd_gate_output = reinterpret_cast<std::uint16_t*>(
-      reinterpret_cast<std::uint8_t*>(gate_output.data()) + 1U);
+      kGateOutputAddress + 1U);
   test.expect(
       !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kReference, gate, up, input.data(),
-          gate_output.data(), up_output.data(), 256U) &&
+          gate_output, far_up_output, 256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 64U) &&
+              input.data(), gate_output, far_up_output, 64U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 255U) &&
+              input.data(), gate_output, far_up_output, 255U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), up_output.data(), 513U) &&
+              input.data(), gate_output, far_up_output, 513U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, wrong_shape,
-              input.data(), gate_output.data(), up_output.data(), 256U) &&
+              input.data(), gate_output, far_up_output, 256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly,
-              unaligned_gate_weight, up, input.data(), gate_output.data(),
-              up_output.data(), 256U) &&
+              unaligned_gate_weight, up, input.data(), gate_output,
+              far_up_output, 256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate,
-              unaligned_up_scale, input.data(), gate_output.data(),
-              up_output.data(), 256U) &&
+              unaligned_up_scale, input.data(), gate_output, far_up_output,
+              256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), gate_output.data(), gate_output.data(), 256U) &&
+              input.data(), gate_output, gate_output, 256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
-              input.data(), odd_gate_output, up_output.data(), 256U) &&
+              input.data(), odd_gate_output, far_up_output, 256U) &&
           !detail::use_nvfp4_whole_chunk_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
               reinterpret_cast<const std::uint16_t*>(
                   reinterpret_cast<const std::uint8_t*>(input.data()) + 2U),
-              gate_output.data(), up_output.data(), 256U),
+              gate_output, far_up_output, 256U),
       "whole-chunk Gate/Up selector preserves backend/C64/token/shape/output/"
       "alignment fallbacks");
   test.expect(
       !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
           runtime::ProjectionBackend::kSm87WeightOnly, gate, wrong_shape,
-          input.data(), gate_output.data(), up_output.data(), 32U) &&
+          input.data(), gate_output, far_up_output, 32U) &&
           !detail::use_nvfp4_m32_prefill_gate_up_dual_stream(
               runtime::ProjectionBackend::kSm87WeightOnly, gate, up,
               reinterpret_cast<const std::uint16_t*>(
                   reinterpret_cast<const std::uint8_t*>(input.data()) + 2U),
-              gate_output.data(), up_output.data(), 32U),
+              gate_output, far_up_output, 32U),
       "dual-stream prefill selector preserves shape and alignment fallbacks");
 }
 
