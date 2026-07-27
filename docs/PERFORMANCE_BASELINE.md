@@ -7338,3 +7338,54 @@ reuse each staged B tile across at least M128/M256 work and/or implement the
 actual asynchronous packed-B/register-decode pipeline before reducing the
 grid. See the
 [P0 rejection](metadata/qwen36-27b-prefill-nvfp4-down-persistent-packed-p0-rejection.json).
+
+## FP8 C256/C512 whole-chunk production promotion
+
+Commit `10c4c85` promotes one fixed N-major grid for each exact aligned FP8
+QKV `[N10240,K5120]`, Z `[N6144,K5120]`, and attention-output
+`[N5120,K6144]` projection at C256/C512. The generic projection API remains
+capped at C64. Structural or alignment near misses preserve the established
+ordered C32 route; malformed payloads and full-span aliases fail before
+enqueue. Both device companion-scale pointers remain part of the validated
+FP8 payload even though this narrow kernel uses the host weight scale. Decode,
+default C1, request workspace, and persistent allocations are unchanged.
+
+One frozen bulk-GQA-plus-Down baseline binary and one Release candidate binary
+were measured at fixed 1.3005-GHz GPU and locked 3.2-GHz EMC clocks in
+`B1-C1-C2-B2` order. Each process loaded the pinned model once, used batch one,
+C512, max1, one warmup, and five measured generations per prompt:
+
+| Prompt / phase | B1 | C1 | C2 | B2 | Mirrored B | Mirrored C | Speedup |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,983.008 ms | 1,805.168 ms | 1,804.541 ms | 1,981.938 ms | 1,982.4730 ms | 1,804.8545 ms | **1.098411534x** |
+| P257 TTFT | 2,090.958 ms | 1,913.028 ms | 1,912.768 ms | 2,089.720 ms | 2,090.3390 ms | 1,912.8980 ms | **1.092760304x** |
+| P513 Prefix | 3,970.878 ms | 3,612.650 ms | 3,608.373 ms | 3,968.961 ms | 3,969.9195 ms | 3,610.5115 ms | **1.099544898x** |
+| P513 TTFT | 4,079.767 ms | 3,721.437 ms | 3,717.176 ms | 4,077.709 ms | 4,078.7380 ms | 3,719.3065 ms | **1.096639387x** |
+
+Candidate prefix throughput is **141.839688 token/s at P257** and
+**141.808162 token/s at P513**. Complete-prompt `P/TTFT` throughput is
+**134.351126** and **137.928939 token/s**, respectively. All 40 measured
+generations return token 9419 (`Hello`) with exact 257/513 step counts. A
+streamed canonical extraction of routing, prompt IDs, generated output, and
+complete steps has SHA-256
+`6cc61feb53776048e4f9ea2542d8d95447c5643327a8cefcb77a3580b7980b5c`
+for each of the four logs; no intermediate contract file was materialized.
+Every process reports zero persistent memory drop.
+
+The post-promotion P513/C512 trace closes a 3,625.119136-ms Prefix NVTX wall
+range against 3,624.145984 ms of GPU-projected span. Exact whole-chunk rows are
+QKV 48 launches / 262.804224 ms, Z 48 / 158.643360 ms, and attention output
+64 / 212.131040 ms. Thus the intended 160 production nodes replace the exact
+previous C32 contract's theoretical 2,560 nodes. This 16x launch-count
+reduction is a topology result; the wall-time gain also includes decoded-weight
+reuse across M64 panels and is not attributed to launch overhead alone.
+
+Using the already measured stock vLLM complete-prompt accounting, P257/P513
+reach 373.579/411.385 token/s versus native's 134.351126/137.928939 token/s,
+leaving **2.780617x/2.982587x** gaps. The native implementation uses neither
+FlashInfer nor MTP, and this result is not claimed to approach the user's
+separately tuned 2k--8k token/s vLLM range. It is a fixed-clock batch-one
+production promotion, not a serving-throughput, concurrency, tail-latency,
+power, or energy claim. Full binary, log, test, Nsight, hash, and fallback
+evidence is in the
+[production benchmark](metadata/qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json).

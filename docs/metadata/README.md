@@ -1296,6 +1296,17 @@ The diagnostic Phase 3 records are:
   exhaustive E4M3FN, replay, Graph, invalid-call, guard, input, and resource
   gates pass. Production dispatch remains unchanged pending narrow exact-shape
   integration and full-model admission.
+- [`qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json`](qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json),
+  which records that production admission for exact aligned C256/C512 FP8 QKV,
+  Z, and attention output. Frozen-binary P257/P513 `B1-C1-C2-B2` measurements
+  reach **1.098411534x/1.099544898x Prefix** and
+  **1.092760304x/1.096639387x TTFT** speedups; all 40 measured generations
+  retain ID 9419, `Hello`, exact 257/513 steps, a common streamed contract hash,
+  and zero persistent memory drop. The P513 production profile confirms
+  48/48/64 QKV/Z/O whole-chunk launches totaling 633.578624 ms, replacing the
+  exact prior contract's 2,560 C32 nodes with 160 nodes. The generic projection
+  cap remains C64, all near misses retain their validated fallback, and no MTP,
+  FlashInfer, new buffering, or Prefill/Decode overlap is introduced.
 - [`qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json`](qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json),
   which rejects test-only exact C256/C512 GDN whole-span register-state
   lifetime extension. Bitwise output/state, replay, guards, inputs, Graph,

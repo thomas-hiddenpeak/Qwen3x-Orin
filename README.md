@@ -277,8 +277,9 @@ causal Conv/GDN and Q/K+RoPE subtiles.
 The request controller schedules larger prefixes with the explicit palette
 `{C512,C256,C64,C32,tail<=31}`. On SM87, exact C256/C512 full-attention tiles
 use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
-`[5120,17408]` Down uses one N-major whole-chunk grid. Generic projection APIs
-remain capped at C64: FP8 QKV/Z/output, NVFP4 Gate/Up, residual/RMS, Conv/GDN,
+`[5120,17408]` Down and FP8 QKV `[10240,5120]`, Z `[6144,5120]`, and attention
+output `[5120,6144]` each use one N-major whole-chunk grid. Generic projection
+APIs remain capped at C64: NVFP4 Gate/Up, residual/RMS, Conv/GDN, other shapes,
 and every near miss retain their established ordered subtiles. In particular,
 the whole-chunk Gate/Up route is not enabled because its current-binary C512
 dual-stream recheck did not clear the frozen performance gate.

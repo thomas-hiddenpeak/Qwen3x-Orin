@@ -1409,18 +1409,28 @@ row-search structure without an unpriced global-progress assumption. See the
   occupancy loss. The phase-local P513 opportunity is 1.03392x; production
   dispatch remains unchanged. See the
   [Gate/Up pair screen](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-pair-screen.json).
-- [selected, direct FP8 whole-chunk QKV/Z] Commit `3134c38` compares the public
+- [done, direct FP8 whole-chunk QKV/Z screen] Commit `3134c38` compares the public
   production M32 chains with repeated test-only M64, one M-major grid, and one
   N-major grid for exact C256/C512 QKV `[N10240,K5120]` and Z
   `[N6144,K5120]`. The sequential M512 pair reaches **1.50681x** overall,
   including 1.56823x checkpoint-like and 1.42834x stress cells; every
   individual and pair round improves. Exhaustive E4M3FN, replay, Graph,
   invalid-call, guard, input, and resource gates pass at 70 registers,
-  23,552 B shared, zero local memory, and three CTA/SM. Production remains
-  unchanged. Next, add only the narrow exact-shape C256/C512 API/runner route,
-  then require P257/P513 exact-token, memory, mirrored fixed-clock Prefix, and
-  Nsight admission. See the
+  23,552 B shared, zero local memory, and three CTA/SM. This admitted the narrow
+  production route below; the screen itself did not change dispatch. See the
   [FP8 QKV/Z screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json).
+- [done, production FP8 C256/C512 QKV/Z/O whole chunks] Commit `10c4c85`
+  routes exact aligned QKV `[10240,5120]`, Z `[6144,5120]`, and attention
+  output `[5120,6144]` through one N-major grid while keeping the generic
+  projection cap at C64 and every near-miss fallback. Frozen-binary
+  `B1-C1-C2-B2` reaches **1.098411534x/1.099544898x Prefix** and
+  **1.092760304x/1.096639387x TTFT** at P257/P513. All 40 generations retain
+  ID 9419, `Hello`, exact steps, one common streamed contract hash, and zero
+  persistent drop. P513 Nsight confirms 48/48/64 QKV/Z/O launches and the
+  intended 2,560-to-160 node transition. Native complete-prompt throughput is
+  now 134.351126/137.928939 token/s, still 2.780617x/2.982587x behind the
+  measured stock vLLM reference. See the
+  [production record](metadata/qwen36-27b-prefill-fp8-whole-chunk-production-benchmark.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1450,21 +1460,25 @@ row-search structure without an unpriced global-progress assumption. See the
   remains C1 and no candidate route is enabled, so this is not a performance
   result. See the
   [C512 boundary](metadata/qwen36-27b-prefill-c512-request-boundary.json).
-- [active, C512 optimized-route admission] Route exact C256/C512 full-attention
-  tiles to the selected bulk GQA API and promote the selected NVFP4 Gate/Up and
-  down narrow routes behind the same boundary. Preserve C64/C32/tail fallbacks,
-  dual-stream event ownership, Decode Graph, and default C1 until P257/P513
-  exact-token, persistent-state, memory, and fixed-clock Prefix gates pass.
-- [selected, native bulk attention; queued WY GDN] Commit `3044ab5` validates
+- [done, first C512 optimized-route bundle] Commits `1f7d6be`, `6327733`, and
+  `10c4c85` route exact C256/C512 full-attention tiles, NVFP4 Down, and FP8
+  QKV/Z/O behind the ABI-0.4 boundary. P257/P513 exact-token, persistent-state,
+  memory, fixed-clock Prefix, and fresh-profile gates pass. C64/C32/tail
+  fallbacks, Decode Graph, and default C1 remain. The current-binary
+  whole-chunk Gate/Up recheck did not clear its frozen gate, so that route is
+  deliberately not enabled from the earlier isolated screen.
+- [done, native bulk attention production route; queued new-mechanism GDN]
+  Commit `3044ab5` validates
   the dependency-free QT2/BK16 SM87 bulk causal GQA plus fused Gate prototype.
   Three processes reach **6.33538x C256** and **4.53722x C512**, every round is
   positive, resources are 64 registers/16 KiB shared/zero local/five CTA-SM,
   and the declared numerical/append/replay/Graph/invalid contracts pass. The
   1.05804x P513 projection excludes Q/K preprocessing and KV placement, so
-  production admission still requires full-path exact-token, memory, and
-  Prefix evidence. See the
+  production admission then passed in `1f7d6be` and in the combined C512
+  full-model gates summarized above. See the
   [bulk GQA screen](metadata/qwen36-27b-prefill-bulk-causal-gqa-screen.json).
-  WY GDN follows after the larger request boundary exists. Decode remains
+  A future GDN attempt must use a materially different algorithm or dataflow
+  from the rejected whole-span register-lifetime extension. Decode remains
   frozen and non-MTP.
 
 Closed
@@ -1508,11 +1522,12 @@ Before Phase 3.5, run an offline same-token vLLM/FlashInfer alignment matrix
 from the existing dedicated reference environment. Use P65/P129/P257/P513/
 P1025, batch one, output one, matched cache precision and backend controls, and
 `P / scheduled-to-first-token` as the cross-framework metric. The current
-native 119.839 token/s P513 result is superficially 16--67x below the user's
-2k--8k range, but the old `(P-1)/Prefix` metric is not directly comparable.
-This offline gate establishes the real gap without delaying kernel work for an
-HTTP adapter; Phase 3.5 remains the point where EvalScope and user-visible TTFT
-become first-class release evidence.
+native production result now reaches **134.351126/137.928939 token/s** by
+complete-prompt `P/TTFT` accounting at P257/P513. It remains far below the
+user's separately tuned 2k--8k range, which is not treated as a matched result.
+The offline gate establishes the stock-runtime gap without delaying kernel
+work for an HTTP adapter; Phase 3.5 remains the point where EvalScope and
+user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses
 FlashInfer for 16 full-attention layers, GDN for 48 layers, and Marlin for
@@ -1526,10 +1541,11 @@ See the
 The vLLM-side formal matrix is also complete: three 3-warmup/10-measure
 processes reach 236.380/312.828/373.579/411.385/432.738 prompt token/s at
 P65/P129/P257/P513/P1025, with 150/150 trusted timestamps and first token ID
-9419. This accepts the external runtime reference and reduces the directional
-P513 gap to about 3.43x. The remaining cross-framework gate is a native
-complete-prompt timing boundary plus mirrored ordering, since current native
-`Prefix` excludes the final prompt token and LM head. See the
+9419. The native production boundary and mirrored ordering are now complete:
+P257/P513 reach 134.351126/137.928939 token/s, leaving directional stock-vLLM
+gaps of **2.780617x/2.982587x**. Native `Prefix` still excludes the final
+prompt token and LM head, so cross-framework comparisons use complete-prompt
+`P/TTFT`, not `(P-1)/Prefix`. See the
 [formal vLLM record](metadata/qwen36-27b-vllm-flashinfer-prefill-reference.json).
 
 ## Phase 3.5 — External evaluation gateway

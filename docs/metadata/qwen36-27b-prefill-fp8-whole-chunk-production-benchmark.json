@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-whole-chunk-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-28T03:50:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "10c4c85ade463844eb8022db1c244d5bdfb7b2be",
+    "tree": "43572a9321c5ce4a725b388d45ba4ea5a79ddcdb",
+    "parent_commit": "e623abe4b0a97a19dd4946383829ba60b5444041",
+    "subject": "feat: route whole-chunk FP8 Prefill projections",
+    "project_version": "0.4.0",
+    "abi_version": "0.4.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "frozen_baseline_binary": {
+      "path": "/tmp/q3x-prefill-base-bulk-down",
+      "bytes": 5656656,
+      "sha256": "3988d9ecaff70f442802aae15a5f7c8a0e4ddf8d34125b9ae61663f2a01fb2cd",
+      "elf_build_id": "b1cfab21a3564782d32a79d5a570aa90cc4e8cdf",
+      "build_type": "Release",
+      "role": "C512 scheduler with the promoted bulk causal GQA and whole-chunk NVFP4 Down routes, before the FP8 whole-chunk production route",
+      "source_scope_note": "The binary, rather than an inferred source-tree identity, is the frozen comparator. Test-only FP8 QKV/Z and GDN probes present while it was built did not change the production runner route."
+    },
+    "candidate_measured_binary": {
+      "path": "/tmp/q3x-prefill-fp8-whole-candidate",
+      "bytes": 5864240,
+      "sha256": "2920420781312919cf46bd73224c3a246675938b7d5bc426b2d1598b4d24568d",
+      "elf_build_id": "8ed7656ed8022a9331f6d958a1980310742267a7",
+      "build_type": "Release",
+      "source_commit": "10c4c85ade463844eb8022db1c244d5bdfb7b2be"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_current_hz": 3200000000,
+      "emc_mrq_rate_locked": 1
+    },
+    "nsight_systems_version": "2026.1.3.243-261337792075v0",
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one pinned checkpoint, batch one, output one, and direct native-runner timing"
+  },
+  "production_route": {
+    "request_scheduler_palette": [512, 256, 64, 32, "tail<=31"],
+    "generic_projection_maximum_tokens": 64,
+    "selected_token_counts": [256, 512],
+    "selected_backend": "sm87_weight_only",
+    "weight_format": "FP8 E4M3FN",
+    "activation_and_output_format": "BF16",
+    "selected_shapes": [
+      {
+        "role": "linear-attention QKV",
+        "rows": 10240,
+        "columns": 5120,
+        "pinned_model_layers": 48,
+        "c256_grid_x": 320,
+        "c512_grid_x": 640
+      },
+      {
+        "role": "linear-attention Z",
+        "rows": 6144,
+        "columns": 5120,
+        "pinned_model_layers": 48,
+        "c256_grid_x": 192,
+        "c512_grid_x": 384
+      },
+      {
+        "role": "attention output",
+        "rows": 5120,
+        "columns": 6144,
+        "pinned_model_layers": 64,
+        "c256_grid_x": 160,
+        "c512_grid_x": 320
+      }
+    ],
+    "selected_kernel": "one fixed N-major whole-chunk grid, 256 threads, M64-by-N128 logical CTA arithmetic",
+    "replaced_c512_route": "sixteen ordered C32 projection kernels per layer and selected shape",
+    "p513_theoretical_projection_nodes": {
+      "previous_qkv": 768,
+      "previous_z": 768,
+      "previous_attention_output": 1024,
+      "previous_total": 2560,
+      "candidate_qkv": 48,
+      "candidate_z": 48,
+      "candidate_attention_output": 64,
+      "candidate_total": 160,
+      "reduction_factor": 16.0,
+      "note": "The 2,560-node value follows the exact previous C32 launch contract. The 160-node candidate count is confirmed by the production Nsight profile."
+    },
+    "eligibility": "exact C256/C512, selected SM87 backend, exact QKV/Z/O shape, 16-byte weight alignment, 8-byte input alignment, 2-byte output alignment, and a complete valid Fp8LinearWeight payload",
+    "payload_contract": "Both device companion-scale pointers remain mandatory and are validated even though the whole-chunk kernel consumes the validated host weight scale directly.",
+    "fallback": "Structural and production-alignment near misses return cudaErrorNotSupported before enqueue and retain the established ordered C32 route. Malformed scalar, pointer, byte-range, or alias contracts return cudaErrorInvalidValue without fallback or enqueue.",
+    "other_routes": "C64 FP8 attention output, smaller projection tiles, full-attention Q/K/V, BF16 and NVFP4 projections, and every other shape retain their prior routes.",
+    "additional_runtime_buffer_bytes": 0,
+    "decode_route_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false,
+    "double_or_triple_buffering_used": false,
+    "prefill_decode_overlap_used": false
+  },
+  "prerequisite_screens": {
+    "qkv_z": {
+      "artifact": "qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen",
+      "commit": "3134c38",
+      "m512_combined_speedup": 1.50681,
+      "checkpoint_like_speedup": 1.56823,
+      "stress_speedup": 1.42834,
+      "candidate_registers_per_thread": 70,
+      "static_shared_bytes": 23552,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "result": "pass"
+    },
+    "attention_output": {
+      "artifact": "qwen36-27b-prefill-fp8-whole-chunk-grid-screen",
+      "commit": "0196751",
+      "m512_process_median_speedup": 1.29047,
+      "result": "pass"
+    },
+    "interpretation": "These test-only screens admitted the arithmetic kernel. The formal whole-model result below is the production-dispatch promotion gate."
+  },
+  "formal_protocol": {
+    "order": [
+      "B1_frozen_bulk_down_baseline",
+      "C1_fp8_whole_chunk_candidate",
+      "C2_fp8_whole_chunk_candidate",
+      "B2_frozen_bulk_down_baseline"
+    ],
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompts": ["P257", "P513"],
+    "prompt_construction": "P(N) uses N-12 space-separated copies of ASCII hello and the pinned non-thinking single-user chat template.",
+    "comparison": "arithmetic mean of mirrored process medians: B=(B1+B2)/2 and C=(C1+C2)/2",
+    "prefix_definition": "all prompt tokens except the final prompt token and LM head",
+    "complete_prompt_throughput_definition": "P divided by native time_to_first_token",
+    "decode_graph_cache": "disabled",
+    "capture_trace": false
+  },
+  "raw_process_medians_ms": {
+    "B1": {
+      "binary": "baseline",
+      "P257": {"prefix": 1983.008, "ttft": 2090.958},
+      "P513": {"prefix": 3970.878, "ttft": 4079.767}
+    },
+    "C1": {
+      "binary": "candidate",
+      "P257": {"prefix": 1805.168, "ttft": 1913.028},
+      "P513": {"prefix": 3612.650, "ttft": 3721.437}
+    },
+    "C2": {
+      "binary": "candidate",
+      "P257": {"prefix": 1804.541, "ttft": 1912.768},
+      "P513": {"prefix": 3608.373, "ttft": 3717.176}
+    },
+    "B2": {
+      "binary": "baseline",
+      "P257": {"prefix": 1981.938, "ttft": 2089.720},
+      "P513": {"prefix": 3968.961, "ttft": 4077.709}
+    }
+  },
+  "formal_results": [
+    {
+      "id": "P257",
+      "prompt_tokens": 257,
+      "prefix_tokens": 256,
+      "baseline_prefix_mirrored_mean_ms": 1982.473000,
+      "candidate_prefix_mirrored_mean_ms": 1804.854500,
+      "prefix_saved_ms": 177.618500,
+      "prefix_speedup": 1.098411534,
+      "prefix_latency_reduction_percent": 8.959441062,
+      "baseline_prefix_tokens_per_second": 129.131645,
+      "candidate_prefix_tokens_per_second": 141.839688,
+      "baseline_ttft_mirrored_mean_ms": 2090.339000,
+      "candidate_ttft_mirrored_mean_ms": 1912.898000,
+      "ttft_saved_ms": 177.441000,
+      "ttft_speedup": 1.092760304,
+      "ttft_latency_reduction_percent": 8.488623137,
+      "baseline_complete_prompt_tokens_per_second": 122.946565,
+      "candidate_complete_prompt_tokens_per_second": 134.351126,
+      "route": "one exact C256 prefix tile",
+      "gate": "pass"
+    },
+    {
+      "id": "P513",
+      "prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "baseline_prefix_mirrored_mean_ms": 3969.919500,
+      "candidate_prefix_mirrored_mean_ms": 3610.511500,
+      "prefix_saved_ms": 359.408000,
+      "prefix_speedup": 1.099544898,
+      "prefix_latency_reduction_percent": 9.053281811,
+      "baseline_prefix_tokens_per_second": 128.969870,
+      "candidate_prefix_tokens_per_second": 141.808162,
+      "baseline_ttft_mirrored_mean_ms": 4078.738000,
+      "candidate_ttft_mirrored_mean_ms": 3719.306500,
+      "ttft_saved_ms": 359.431500,
+      "ttft_speedup": 1.096639387,
+      "ttft_latency_reduction_percent": 8.812321360,
+      "baseline_complete_prompt_tokens_per_second": 125.774198,
+      "candidate_complete_prompt_tokens_per_second": 137.928939,
+      "route": "one exact C512 prefix tile",
+      "gate": "pass"
+    }
+  ],
+  "correctness": {
+    "formal_processes": 4,
+    "measured_prompt_results": 40,
+    "generated_ids_for_every_prompt": [9419],
+    "generated_text_for_every_prompt": "Hello",
+    "step_counts": {"P257": 257, "P513": 513},
+    "persistent_drop_bytes_each_process": 0,
+    "persistent_drop_detected_each_process": false,
+    "streaming_canonical_extraction": {
+      "method": "For each B1/C1/C2/B2 log, stream lines matching ^(projection\\.backend|prefill\\.(requested|effective)_chunk_size|benchmark\\.(prompt_count|max_new_tokens|stop_token_id)|prompt\\.[01]\\.(prompt_ids|generated_ids|generated_text|stop_reason|step_count|steps))= through SHA-256.",
+      "materialized_intermediate_file": false,
+      "sha256_each": "6cc61feb53776048e4f9ea2542d8d95447c5643327a8cefcb77a3580b7980b5c",
+      "all_four_equal": true
+    },
+    "dedicated_bulk_e2e": {
+      "P257": {
+        "baseline_chunk": 64,
+        "candidate_chunk": 256,
+        "generated_id": 9419,
+        "generated_text": "Hello",
+        "steps": 257,
+        "token_csv_sha256": "e24c73f282d6dabf42b48ea8fb9b71a452cdbaadc9fc0d4eebf7672ee584e2ce",
+        "exact": true
+      },
+      "P513": {
+        "baseline_chunk": 64,
+        "candidate_chunk": 512,
+        "generated_id": 9419,
+        "generated_text": "Hello",
+        "steps": 513,
+        "token_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+        "exact": true
+      }
+    },
+    "full_reference_oracle": "pass: 19 prompt IDs, 26 generated IDs, exact text, im_end, and 44 steps on the SM87 backend",
+    "dispatch_contract": "pass: exact QKV/Z/O C256/C512 each capture as one direct-function-identical N-major kernel; one-node real-storage replay writes both output edges; near misses return NotSupported with zero nodes; malformed full-span payloads and aliases return Invalid with zero nodes; a C256 shape near miss retains 32 ordered fallback nodes",
+    "host_selector_contract": "pass: selects exact aligned QKV/Z/O C256/C512, rejects backend/token/shape/type/alignment near misses, and leaves malformed companion pointers to runtime validation"
+  },
+  "memory": {
+    "formal_request_arena_bytes_each_process": 233940992,
+    "formal_maximum_sequence_length": 1024,
+    "formal_process_maximum_observed_drop_bytes": {
+      "B1": 0,
+      "C1": 12353536,
+      "C2": 40239104,
+      "B2": 12656640
+    },
+    "drop_tolerance_bytes": 67108864,
+    "persistent_drop_bytes_each_process": 0,
+    "additional_candidate_workspace_bytes": 0,
+    "assessment": "The route changes launch topology only. It does not add a sidecar, request workspace, persistent allocation, or buffering tier."
+  },
+  "nsight_p513_c512": {
+    "protocol": "candidate production binary, tokenizer-pinned P513, output one, C512, SM87 backend, NVTX phase ranges enabled, no benchmark warmup; diagnostic topology and attribution rather than the formal latency distribution",
+    "prefix_nvtx_wall_ms": 3625.119136,
+    "prefix_projected_gpu_span_ms": 3624.145984,
+    "range_minus_projected_ms": 0.973152,
+    "prefix_total_gpu_ops": 12385,
+    "whole_chunk_projection_rows": [
+      {
+        "role": "QKV [10240,5120]",
+        "launches": 48,
+        "total_ms": 262.804224,
+        "average_ms": 5.475088
+      },
+      {
+        "role": "Z [6144,5120]",
+        "launches": 48,
+        "total_ms": 158.643360,
+        "average_ms": 3.305070
+      },
+      {
+        "role": "attention output [5120,6144]",
+        "launches": 64,
+        "total_ms": 212.131040,
+        "average_ms": 3.3145475
+      }
+    ],
+    "whole_chunk_projection_launches": 160,
+    "whole_chunk_projection_total_ms": 633.578624,
+    "previous_c32_projection_nodes_from_contract": 2560,
+    "launch_reduction_factor": 16.0,
+    "interpretation": "The three exact kernel rows and launch counts prove that every eligible pinned-model layer uses one whole-chunk grid. The profile does not claim all saved wall time equals removed launch overhead; the kernels also reuse decoded weights across M64 panels."
+  },
+  "external_reference": {
+    "reference_artifact": "qwen36-27b-vllm-flashinfer-prefill-reference",
+    "accounting": "P divided by scheduled-to-first-token for stock vLLM and P divided by native TTFT for this candidate",
+    "comparisons": [
+      {
+        "id": "P257",
+        "stock_vllm_complete_prompt_tokens_per_second": 373.579,
+        "native_candidate_complete_prompt_tokens_per_second": 134.351126,
+        "stock_vllm_over_native_ratio": 2.780617
+      },
+      {
+        "id": "P513",
+        "stock_vllm_complete_prompt_tokens_per_second": 411.385,
+        "native_candidate_complete_prompt_tokens_per_second": 137.928939,
+        "stock_vllm_over_native_ratio": 2.982587
+      }
+    ],
+    "stock_vllm_backend": "FlashInfer for 16 full-attention layers, Triton/FLA GDN Prefill for 48 linear-attention layers, and Marlin FP8/NVFP4 projections",
+    "native_flashinfer_used": false,
+    "native_mtp_used": false,
+    "interpretation": "This is a matched batch-one/output-one directional reference, not a same-binary benchmark. The promoted native route remains about 2.78x-2.98x behind the measured stock vLLM reference and is not claimed to approach the user's separately tuned 2k-8k token/s vLLM result."
+  },
+  "validation": {
+    "release_build": "pass",
+    "projection_backend_dispatch": "pass",
+    "sm87_weight_only_gemv_default": "pass",
+    "reference_runner_host": "pass",
+    "reference_engine_e2e": "pass",
+    "reference_prefill_bulk_attention_e2e": "pass",
+    "model_outputs": "pass",
+    "persistent_memory": "pass"
+  },
+  "evidence_files": [
+    {
+      "role": "formal B1 baseline log",
+      "local_path": "/tmp/q3x-fp8-whole-production-b1.log",
+      "bytes": 29226,
+      "sha256": "30b1df3aae316ed403d92025a25370bf8d4a3536c0d5e864325cf08b4f394d3e",
+      "checked_in": false
+    },
+    {
+      "role": "formal C1 candidate log",
+      "local_path": "/tmp/q3x-fp8-whole-production-c1.log",
+      "bytes": 29233,
+      "sha256": "1e9ab4d0acc504205d3fcc66060406db61d6f24e9cdc50bb3b073e49ccdeedf2",
+      "checked_in": false
+    },
+    {
+      "role": "formal C2 candidate log",
+      "local_path": "/tmp/q3x-fp8-whole-production-c2.log",
+      "bytes": 29233,
+      "sha256": "98979a90d4908830ffe5dcf73564841fb1e6f151f2f6a718a01388b356d4cddb",
+      "checked_in": false
+    },
+    {
+      "role": "formal B2 baseline log",
+      "local_path": "/tmp/q3x-fp8-whole-production-b2.log",
+      "bytes": 29233,
+      "sha256": "4d7a6279328e18bab2e4bbd1b9e074e20753573575a5d2bcad61562d83f5114d",
+      "checked_in": false
+    },
+    {
+      "role": "projection dispatch test log",
+      "local_path": "/tmp/q3x-fp8-whole-production-projection-dispatch.log",
+      "bytes": 190,
+      "sha256": "d2066fdf459cf8b63e693859b4ff17e52534b80b1dd2ad4b6e4422d59b14fdbb",
+      "checked_in": false
+    },
+    {
+      "role": "default SM87 weight-only test log",
+      "local_path": "/tmp/q3x-fp8-whole-production-sm87-default.log",
+      "bytes": 68965,
+      "sha256": "4a41098a1681384913b2f0b11255aac09d23f1bea0fbe573e0d45126170189e7",
+      "checked_in": false
+    },
+    {
+      "role": "full reference-engine model E2E log",
+      "local_path": "/tmp/q3x-fp8-whole-production-reference-engine-e2e.log",
+      "bytes": 652,
+      "sha256": "00afdf66bdc70ff391eb454b49b11d6c1857e8f5d4a679c475809401eabb1987",
+      "checked_in": false
+    },
+    {
+      "role": "P257/P513 bulk-attention exact-output E2E log",
+      "local_path": "/tmp/q3x-fp8-whole-production-bulk-attention-e2e.log",
+      "bytes": 370,
+      "sha256": "a7b599d15dd30035946c0045e5cafbfd2f8c6421d92c1bd789a78654baa59db3",
+      "checked_in": false
+    },
+    {
+      "role": "reference-runner host selector test log",
+      "local_path": "/tmp/q3x-fp8-whole-production-reference-runner-host.log",
+      "bytes": 35,
+      "sha256": "eb6be7da6849aa9b1effdddbdaadb0b44efcabe1e195596fe6f595a1b2f5da10",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 Nsight Systems report",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512.nsys-rep",
+      "bytes": 1140039,
+      "sha256": "6d986f106b67634c35bc00902a3c6230404f8f36edf4830106f613009d3f5264",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 Nsight console log",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512-nsys.log",
+      "bytes": 9836,
+      "sha256": "79747127c7333b415f76ac29dc9552cf82230dd25ac334613071ec335b6af388",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 NVTX wall summary",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512-nvtx-sum.csv",
+      "bytes": 660,
+      "sha256": "52a94f7621fa2b6f2da4af2580bea19a1ffd833f820435392da5a85e24df8f00",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 NVTX GPU-projected summary",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512-nvtx-gpu-proj.csv",
+      "bytes": 975,
+      "sha256": "b7156872e33b0fcd80f94b8c86424881401589e0ec7be4c126b2bf948006deec",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 kernel-by-NVTX summary",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512-kernel-by-nvtx.csv",
+      "bytes": 10773,
+      "sha256": "4e1d2f7eca4a305f7201ecfffbcc8c78acf36630a4a21b427acbdf538bc2dcbd",
+      "checked_in": false
+    },
+    {
+      "role": "candidate P513/C512 whole-process kernel summary",
+      "local_path": "/tmp/q3x-fp8-whole-production-p513-c512-kernel-sum.csv",
+      "bytes": 9557,
+      "sha256": "8c1b9fd20ea51fec947f8ce637d50957fa27c99bb35e68776c21769d02105e60",
+      "checked_in": false
+    }
+  ],
+  "decision": {
+    "result": "promote exact aligned C256/C512 FP8 QKV, Z, and attention-output whole-chunk routes",
+    "why": "All runtime/dispatch/model/memory gates pass. The isolated QKV/Z and attention-output screens had already selected the arithmetic kernel; the production-only delta now improves mirrored Prefix by 1.09841x at P257 and 1.09954x at P513, improves complete-prompt TTFT by 1.09276x and 1.09664x, and Nsight confirms all 160 eligible layer projections use one whole-chunk grid.",
+    "retained_boundaries": "The generic projection limit remains C64; unsupported cases preserve C32 fallback; Decode, default C1, persistent memory, MTP policy, and Prefill/Decode execution ownership are unchanged.",
+    "next_priority": "Use the fresh production profile to screen whole-chunk full-attention Q plus K/V projection routes, then pursue a materially different GDN or NVFP4 Gate/Up mechanism. Gate/Up whole-chunk is not enabled from an earlier binary's synthetic result alone."
+  },
+  "limitations": [
+    "The formal result is batch one, max1, one checkpoint, one Orin, fixed clocks, and mirrored process medians; it is not concurrent serving throughput, a latency-tail, power, or energy result.",
+    "Native Prefix excludes the final prompt token and LM head. The complete-prompt P/TTFT values are the proper directional cross-framework accounting, but native and vLLM clocks are still independent runtime measurements rather than a same-binary trial.",
+    "The native candidate reaches 134.351126 and 137.928939 complete-prompt token/s at P257/P513. It remains 2.780617x and 2.982587x behind the measured stock vLLM reference and is not claimed to be near the user's separately tuned 2k-8k token/s vLLM result.",
+    "FlashInfer, MTP, continuous batching, double/triple buffering, Prefill/Decode overlap, and an OpenAI-compatible server are not used or introduced.",
+    "The Nsight report is one no-warmup diagnostic process. Its route topology is authoritative for that trace; the formal B1-C1-C2-B2 logs remain authoritative for latency."
+  ]
+}
