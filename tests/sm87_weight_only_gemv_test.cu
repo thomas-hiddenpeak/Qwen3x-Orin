@@ -803,6 +803,26 @@ query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_default_resources_t
     int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_table_free_e2m1_test_cuda(
+    const std::uint8_t* gate_packed_weights,
+    const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
+    const std::uint8_t* up_packed_weights,
+    const std::uint8_t* up_block_scales, float up_weight_scale_2,
+    const std::uint16_t* residual_left,
+    const std::uint16_t* residual_right,
+    const std::uint16_t* norm_weight, float epsilon,
+    std::size_t rows, std::size_t columns,
+    std::uint16_t* residual_output,
+    std::uint16_t* gate_output, std::uint16_t* up_workspace,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_table_free_e2m1_resources_test_cuda(
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_cg_test_cuda(
     const std::uint8_t* gate_packed_weights,
     const std::uint8_t* gate_block_scales, float gate_weight_scale_2,
@@ -5880,6 +5900,14 @@ nvfp4_m1_gate_up_silu_fusion_performance_enabled() noexcept {
 [[nodiscard]] bool decode_gate_up_cs_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_CS_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+decode_gate_up_table_free_e2m1_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_DECODE_GATE_UP_TABLE_FREE_E2M1_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -40763,6 +40791,7 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       !decode_residual_chain_performance_enabled() &&
       !decode_gate_up_cg_performance_enabled() &&
       !decode_gate_up_cs_performance_enabled() &&
+      !decode_gate_up_table_free_e2m1_performance_enabled() &&
       !decode_gate_up_scale_aosoa4_performance_enabled() &&
       !decode_gate_up_silu_table_performance_enabled()) {
     std::cout
@@ -42628,31 +42657,59 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
   }
 
   if (decode_gate_up_cg_performance_enabled() ||
-      decode_gate_up_cs_performance_enabled()) {
+      decode_gate_up_cs_performance_enabled() ||
+      decode_gate_up_table_free_e2m1_performance_enabled()) {
     constexpr int kCacheWarmupIterations = 10;
     constexpr int kCacheMeasuredIterations = 64;
     constexpr int kCacheMeasurementRounds = 5;
-    constexpr float kRequiredDeltaMilliseconds = 0.25F / 64.0F;
-    constexpr double kRequiredSpeedup = 1.005;
+    constexpr float kCacheRequiredDeltaMilliseconds = 0.25F / 64.0F;
+    constexpr double kCacheRequiredSpeedup = 1.005;
+    constexpr float kTableFreeRequiredDeltaMilliseconds = 0.50F / 64.0F;
+    constexpr double kTableFreeRequiredSpeedup = 1.0135;
     const bool cache_global_policy =
         decode_gate_up_cg_performance_enabled();
     const bool streaming_policy = decode_gate_up_cs_performance_enabled();
-    const bool single_policy = cache_global_policy != streaming_policy;
+    const bool table_free_e2m1 =
+        decode_gate_up_table_free_e2m1_performance_enabled();
+    const float required_delta_milliseconds =
+        table_free_e2m1 ? kTableFreeRequiredDeltaMilliseconds
+                        : kCacheRequiredDeltaMilliseconds;
+    const double required_speedup =
+        table_free_e2m1 ? kTableFreeRequiredSpeedup
+                        : kCacheRequiredSpeedup;
+    const unsigned int selected_policy_count =
+        static_cast<unsigned int>(cache_global_policy) +
+        static_cast<unsigned int>(streaming_policy) +
+        static_cast<unsigned int>(table_free_e2m1);
+    const bool single_policy = selected_policy_count == 1U;
     test.expect(single_policy,
                 "Decode gate/up cache screen selects exactly one policy");
     if (!single_policy) {
       return;
     }
     const char* const policy_name =
-        streaming_policy ? "packed_and_scale_cs" : "packed_and_scale_cg";
+        table_free_e2m1
+            ? "production_cs_table_free_e2m1"
+            : (streaming_policy ? "packed_and_scale_cs"
+                                : "packed_and_scale_cg");
     const std::string cache_label =
-        streaming_policy
+        table_free_e2m1
+            ? "Decode gate/up production-CS table-free E2M1 P1"
+            : streaming_policy
             ? "Decode gate/up packed-weight/block-scale streaming screen"
             : "Decode gate/up packed-weight/block-scale cache-global screen";
 
     NvFp4M1DownDualKernelResources cache_candidate_resources{};
     const int cache_resource_status =
-        streaming_policy
+        table_free_e2m1
+            ? q3x::kernels::
+                  query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_table_free_e2m1_resources_test_cuda(
+                      &cache_candidate_resources.registers_per_thread,
+                      &cache_candidate_resources.static_shared_bytes,
+                      &cache_candidate_resources.local_bytes,
+                      &cache_candidate_resources.maximum_threads_per_block,
+                      &cache_candidate_resources.active_blocks_per_sm)
+        : streaming_policy
             ? q3x::kernels::
                   query_sm87_nvfp4_w4a16_m1_residual_norm_gate_up_silu_dead_up_shared_pair_resources_test_cuda(
                       &cache_candidate_resources.registers_per_thread,
@@ -42675,7 +42732,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
         cache_candidate_resources.registers_per_thread ==
             residual_norm_dead_up_default_resources.registers_per_thread &&
         cache_candidate_resources.registers_per_thread <= 64 &&
-        cache_candidate_resources.static_shared_bytes == 13'632U &&
+        cache_candidate_resources.static_shared_bytes ==
+            (table_free_e2m1 ? 13'568U : 13'632U) &&
         cache_candidate_resources.local_bytes == 0U &&
         cache_candidate_resources.maximum_threads_per_block >= 512 &&
         cache_candidate_resources.active_blocks_per_sm >= 2;
@@ -42730,6 +42788,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const auto launch_cache_baseline_to =
         [&](std::uint16_t* const residual, std::uint16_t* const gate,
             std::uint16_t* const up) noexcept {
+          if (table_free_e2m1) {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
+                    gate_packed.get(), gate_scales.get(), gate_scale2,
+                    up_packed.get(), up_scales.get(), up_scale2,
+                    residual_left.get(), residual_right.get(),
+                    norm_weight.get(), kNormEpsilon, kRows, kColumns,
+                    residual, gate, up, static_cast<void*>(stream));
+          }
           return q3x::kernels::
               launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_default_test_cuda(
                   gate_packed.get(), gate_scales.get(), gate_scale2,
@@ -42741,6 +42808,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const auto launch_cache_candidate_to =
         [&](std::uint16_t* const residual, std::uint16_t* const gate,
             std::uint16_t* const up) noexcept {
+          if (table_free_e2m1) {
+            return q3x::kernels::
+                launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_table_free_e2m1_test_cuda(
+                    gate_packed.get(), gate_scales.get(), gate_scale2,
+                    up_packed.get(), up_scales.get(), up_scale2,
+                    residual_left.get(), residual_right.get(),
+                    norm_weight.get(), kNormEpsilon, kRows, kColumns,
+                    residual, gate, up, static_cast<void*>(stream));
+          }
           if (streaming_policy) {
             return q3x::kernels::
                 launch_sm87_nvfp4_w4a16_residual_norm_gate_up_silu_dead_up_bf16_cuda(
@@ -42977,23 +43053,44 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     std::array<float, kTimedPasses> baseline_passes{};
     std::array<float, kTimedPasses> candidate_passes{};
     std::array<float, kCacheMeasurementRounds> paired_deltas{};
+    std::array<float, kCacheMeasurementRounds> paired_speedups{};
     bool all_rounds_improve = timing_ready;
     for (int round = 0;
          round < kCacheMeasurementRounds && timing_ready; ++round) {
       const std::string round_label =
           cache_label + " round=" + std::to_string(round + 1);
-      const float b1 = measure_small_m_tile(
-          test, stream, launch_cache_baseline, kCacheMeasuredIterations,
-          round_label + " B1");
-      const float c1 = measure_small_m_tile(
-          test, stream, launch_cache_candidate, kCacheMeasuredIterations,
-          round_label + " C1");
-      const float c2 = measure_small_m_tile(
-          test, stream, launch_cache_candidate, kCacheMeasuredIterations,
-          round_label + " C2");
-      const float b2 = measure_small_m_tile(
-          test, stream, launch_cache_baseline, kCacheMeasuredIterations,
-          round_label + " B2");
+      float b1 = std::numeric_limits<float>::quiet_NaN();
+      float c1 = std::numeric_limits<float>::quiet_NaN();
+      float c2 = std::numeric_limits<float>::quiet_NaN();
+      float b2 = std::numeric_limits<float>::quiet_NaN();
+      const bool candidate_first = table_free_e2m1 && (round % 2) != 0;
+      if (candidate_first) {
+        c1 = measure_small_m_tile(
+            test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+            round_label + " C1");
+        b1 = measure_small_m_tile(
+            test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+            round_label + " B1");
+        b2 = measure_small_m_tile(
+            test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+            round_label + " B2");
+        c2 = measure_small_m_tile(
+            test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+            round_label + " C2");
+      } else {
+        b1 = measure_small_m_tile(
+            test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+            round_label + " B1");
+        c1 = measure_small_m_tile(
+            test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+            round_label + " C1");
+        c2 = measure_small_m_tile(
+            test, stream, launch_cache_candidate, kCacheMeasuredIterations,
+            round_label + " C2");
+        b2 = measure_small_m_tile(
+            test, stream, launch_cache_baseline, kCacheMeasuredIterations,
+            round_label + " B2");
+      }
       const std::size_t pass = 2U * static_cast<std::size_t>(round);
       baseline_passes[pass] = b1;
       baseline_passes[pass + 1U] = b2;
@@ -43007,6 +43104,8 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       const float paired_candidate = 0.5F * (c1 + c2);
       paired_deltas[static_cast<std::size_t>(round)] =
           paired_baseline - paired_candidate;
+      paired_speedups[static_cast<std::size_t>(round)] =
+          paired_baseline / paired_candidate;
       const bool round_improves =
           finite && c1 < b1 && c2 < b2 &&
           paired_candidate < paired_baseline;
@@ -43015,12 +43114,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
       std::cout << "PERF_DECODE_GATE_UP_CACHE_POLICY_ROUND:"
                 << " policy=" << policy_name
                 << " fixture=actual_checkpoint"
-                << " round=" << round + 1 << " order=B-C-C-B"
+                << " round=" << round + 1
+                << " order=" << (candidate_first ? "C-B-B-C" : "B-C-C-B")
                 << " logical_kernels_per_pass=" << kCacheMeasuredIterations
                 << " baseline1_ms=" << b1 << " candidate1_ms=" << c1
                 << " candidate2_ms=" << c2 << " baseline2_ms=" << b2
                 << " paired_delta_ms="
                 << paired_deltas[static_cast<std::size_t>(round)]
+                << " paired_speedup="
+                << paired_speedups[static_cast<std::size_t>(round)]
                 << " gate=" << (round_improves ? "PASS" : "FAIL")
                 << '\n';
     }
@@ -43033,14 +43135,16 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
     const float delta_median =
         timing_ready ? median_fp8_kv_pair_timing(paired_deltas)
                      : std::numeric_limits<float>::quiet_NaN();
-    const double speedup = static_cast<double>(baseline_median) /
-                           static_cast<double>(candidate_median);
+    const float paired_speedup_median =
+        timing_ready ? median_fp8_kv_pair_timing(paired_speedups)
+                     : std::numeric_limits<float>::quiet_NaN();
     const double projected_decode_delta =
         64.0 * static_cast<double>(delta_median);
     const bool timing_gate =
         timing_ready && all_rounds_improve &&
-        delta_median >= kRequiredDeltaMilliseconds &&
-        std::isfinite(speedup) && speedup >= kRequiredSpeedup;
+        delta_median >= required_delta_milliseconds &&
+        std::isfinite(paired_speedup_median) &&
+        static_cast<double>(paired_speedup_median) >= required_speedup;
     const bool selected_gate =
         header_gate && pinned_payload_gate && binary_identity_gate &&
         cache_resource_gate && cache_correctness_gate && timing_gate;
@@ -43053,13 +43157,15 @@ void run_optional_nvfp4_m1_gate_up_silu_fusion_performance(
               << " candidate_median_ms=" << candidate_median
               << " median_delta_ms_per_layer=" << delta_median
               << " projected_64_layer_delta_ms="
-              << projected_decode_delta << " speedup=" << speedup
+              << projected_decode_delta << " paired_median_speedup="
+              << paired_speedup_median
               << " all_rounds_improve="
               << (all_rounds_improve ? "true" : "false")
               << " required_delta_ms_per_layer="
-              << kRequiredDeltaMilliseconds
-              << " required_projected_64_layer_delta_ms=0.25"
-              << " required_speedup=" << kRequiredSpeedup
+              << required_delta_milliseconds
+              << " required_projected_64_layer_delta_ms="
+              << 64.0 * static_cast<double>(required_delta_milliseconds)
+              << " required_speedup=" << required_speedup
               << " gate=" << (selected_gate ? "PASS" : "FAIL") << '\n';
     if (!selected_gate || !streaming_policy) {
       return;
