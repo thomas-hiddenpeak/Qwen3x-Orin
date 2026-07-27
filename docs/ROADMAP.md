@@ -1471,8 +1471,23 @@ row-search structure without an unpriced global-progress assumption. See the
   1,065.953440 ms and reduces all Prefix nodes from 10,129 to 8,209. Only
   15.839296 ms of the new pair overlaps, so whole-chunk work accounts for
   94.35% of its union saving and the result is not described as buffering.
-  The next screen is true M128 B-tile reuse, not a direct C1024 promotion. See
-  the [Gate/Up production record](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
+  The subsequent M128 B-tile-reuse screen is recorded below. See the
+  [Gate/Up production record](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
+- [selected for production admission, test-only NVFP4 Gate/Up M128 B reuse]
+  Commit `1f8779c` reuses each decoded/staged B tile across two adjacent M64
+  token panels. Three frozen-binary processes reach
+  **1.275707061x/1.283725529x** aggregate single-branch speedup at M256/M512.
+  The main/aux Gate/Up pair reaches process-minimum
+  **1.27998x/1.28465x**; every one of 72 pair rounds improves, and its
+  all-round minima are **1.27930x/1.28349x**. Branch exact/replay/guard/input,
+  pair exact/replay/guard, invalid-call, Graph, and
+  126-register/37,376-byte-shared/two-CTA resource gates pass. Production
+  remains on M64. A conservative, unimplemented P513
+  projection is **2,912.933316 ms / 175.767841 token/s**. Next freeze pair
+  Graph topology, partial-alias rejection, and an exact checkpoint-hash
+  fixture; then route exact C256/C512 and require fixed-clock full-model and
+  fresh-Nsight admission. See the
+  [M128 screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).
 - [measured and rejected, GDN whole-span register state] Commit `9572c2a`
   reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
   retaining packed BF16 recurrent state across the complete span. Bitwise,
@@ -1561,12 +1576,15 @@ The achieved non-MTP Decode result is frozen as the Phase 3 regression anchor.
 The 100-ms/token / 10-token/s objective remains documented but is no longer a
 prerequisite for Prefill work. The C256/C512 whole-chunk main/aux-stream
 Gate/Up route is now production-integrated and passes exact model, memory,
-mirrored-latency, and fresh-profile gates. Active optimization next screens a
-test-only M128 Gate/Up kernel that truly reuses each decoded B tile across 128
-token rows. The stop-loss is 1.05x for one branch plus at most 128 registers,
-zero local/spill traffic, and at least two resident CTA/SM; only a passing
-candidate advances to an M512 main/aux pair with a 1.08x gate. A GDN B8 WY
-screen is the parallel fallback. Global NCU traffic evidence then selects
+mirrored-latency, and fresh-profile gates. The test-only M128 Gate/Up kernel
+has now passed its 1.05x branch and 1.08x M512 main/aux-pair stop-losses while
+staying within 128 registers, zero local/spill traffic, and two resident
+CTA/SM. It is selected for production admission, not yet production-routed.
+First freeze pair Graph topology, partial-alias rejection, and the exact
+checkpoint-hash fixture; then require exact C256/C512 routing, full-model
+fixed-clock Prefix/TTFT, memory, Decode non-regression, and fresh Nsight.
+The parallel GDN screen selects sequential FP32-B8 over WY, but remains
+test-only and follows M128 admission. Global NCU traffic evidence then selects
 linear-attention FP8 QKV/Z/O or NVFP4 Down for the next dataflow change.
 C1024 remains a low-priority single-kernel canary rather than the main route.
 Exact output and Decode non-regression gates remain mandatory. Multi-request

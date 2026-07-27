@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen",
+  "status": "selected_for_production_admission",
+  "recorded_at": "2026-07-28T05:54:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "1f8779cb2b1cc44eb55f7bb8d53b58102a0edb47",
+    "candidate_tree": "5052d0b46a83d2b2f0459aa6f70689c844832138",
+    "parent_commit": "010df79195ce13edf744b08d729c7bf5aa4e167d",
+    "subject": "test: select M128 Gate Up weight reuse",
+    "candidate_files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "measured_binary": {
+      "path": "build/orin-release/q3x_sm87_weight_only_gemv_test",
+      "bytes": 9060136,
+      "sha256": "a09253a49971e9ff1f4912434ce10eafdfdf7c1d39c15bebf1d088f15f09baa9",
+      "elf_build_id": "bea6563f336e5fe3bce9bbea499d79699c7881b2",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_rate_locked": true
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin, exact NVFP4 Gate/Up shapes, a test-only single-branch kernel, and a direct two-stream Gate/Up pair envelope"
+  },
+  "experiment": {
+    "shape_per_branch": {
+      "rows": 17408,
+      "columns": 5120,
+      "tokens": [256, 512],
+      "weight_format": "NVFP4 E2M1 packed, block-16 FP8 scales",
+      "activation_and_output_format": "BF16"
+    },
+    "baseline_B": "production whole-chunk M64 kernel, one launch per Gate/Up branch",
+    "candidate_C": "test-only whole-chunk M128 kernel, one launch per Gate/Up branch; each decoded and staged B tile is reused across two adjacent M64 token panels",
+    "single_branch_distributions": [
+      "checkpoint_like",
+      "same_bank_stress",
+      "finite_special"
+    ],
+    "pair_distributions": [
+      "checkpoint_like",
+      "same_bank_stress"
+    ],
+    "pair_streams": "Gate on the main stream and Up on the auxiliary stream, preserving the existing event topology in the test envelope",
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "workspace_changed": false,
+    "public_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false
+  },
+  "frozen_gates": {
+    "single_branch": {
+      "minimum_speedup": 1.05,
+      "every_round_positive": true
+    },
+    "gate_up_pair": {
+      "m512_minimum_speedup": 1.08,
+      "every_round_positive": true
+    },
+    "resources": {
+      "maximum_registers_per_thread": 128,
+      "required_static_shared_bytes": 37376,
+      "maximum_local_bytes": 0,
+      "maximum_stack_bytes": 0,
+      "maximum_spill_store_bytes": 0,
+      "maximum_spill_load_bytes": 0,
+      "minimum_active_blocks_per_sm": 2
+    }
+  },
+  "correctness_and_topology": {
+    "single_branch_candidate_mismatches": 0,
+    "single_branch_replay_mismatches": 0,
+    "single_branch_guards": "intact",
+    "single_branch_inputs_preserved": true,
+    "pair_candidate_mismatches": 0,
+    "pair_replay_mismatches": 0,
+    "pair_guards": "intact",
+    "invalid_cases": 15,
+    "invalid_graph_nodes": 0,
+    "graph": {
+      "m256": {
+        "baseline_nodes": 1,
+        "baseline_grid_x": 544,
+        "candidate_nodes": 1,
+        "candidate_grid_x": 272
+      },
+      "m512": {
+        "baseline_nodes": 1,
+        "baseline_grid_x": 1088,
+        "candidate_nodes": 1,
+        "candidate_grid_x": 544
+      },
+      "block_threads": 256,
+      "dynamic_shared_bytes": 0
+    },
+    "default_test": "pass"
+  },
+  "timing_protocol": {
+    "independent_processes": 3,
+    "order": "B-C-C-B",
+    "logical_operations_per_timed_pass": 24,
+    "rounds_per_distribution": 6,
+    "single_branch_rounds_per_process": 36,
+    "pair_rounds_per_process": 24,
+    "pair_rounds_across_processes": 72,
+    "binary_frozen_across_processes": true
+  },
+  "performance": {
+    "single_branch": {
+      "aggregate_speedup_across_three_processes": {
+        "m256": 1.275707061,
+        "m512": 1.283725529
+      },
+      "all_round_min_speedup_across_processes": {
+        "m256": 1.27415,
+        "m512": 1.28148
+      },
+      "gate_result": "pass"
+    },
+    "gate_up_pair": {
+      "m256": {
+        "process_speedups": [1.27998, 1.28041, 1.28096],
+        "cross_process_min_speedup": 1.27998,
+        "all_round_min_speedup": 1.27930
+      },
+      "m512": {
+        "process_speedups": [1.28733, 1.28465, 1.28659],
+        "cross_process_min_speedup": 1.28465,
+        "all_round_min_speedup": 1.28349
+      },
+      "positive_rounds": 72,
+      "total_rounds": 72,
+      "gate_result": "pass"
+    }
+  },
+  "resources": {
+    "registers_per_thread": 126,
+    "static_shared_bytes": 37376,
+    "local_bytes": 0,
+    "stack_bytes": 0,
+    "spill_store_bytes": 0,
+    "spill_load_bytes": 0,
+    "maximum_threads_per_block": 256,
+    "active_blocks_per_sm": 2,
+    "gate_result": "pass"
+  },
+  "conservative_projection": {
+    "basis": "apply the cross-process-minimum M512 pair speedup to the post-production P513 Gate/Up interval union and leave every other Prefix component unchanged",
+    "applied_pair_speedup": 1.28465,
+    "gate_up_union_ms": 1065.953440,
+    "projected_gate_up_saved_ms": 236.191684,
+    "current_p513_prefix_ms": 3149.125,
+    "projected_p513_prefix_ms": 2912.933316,
+    "projected_p513_prefix_speedup": 1.081083794,
+    "projected_p513_prefix_tokens_per_second": 175.767841,
+    "implemented": false,
+    "interpretation": "arithmetic projection only; this is not an achieved production Prefix, TTFT, throughput, or full-model result"
+  },
+  "evidence": {
+    "process_logs": [
+      {
+        "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-full-run1.log",
+        "bytes": 18697,
+        "sha256": "4544c01688298930886f8a8407932a8c17016a27fd8e497f3a5c8c3b4eceb3eb"
+      },
+      {
+        "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-full-run2.log",
+        "bytes": 19197,
+        "sha256": "97b25329d7d2fb7bbf00138dcfe524af6b6e7b0c4147d54090611fe95d601ba4"
+      },
+      {
+        "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-full-run3.log",
+        "bytes": 19206,
+        "sha256": "ce5329eedcb7c309dad9b2cf811ed65999c8e7dbe1601bd8b57edbeb2006c21d"
+      }
+    ],
+    "environment_log": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-environment.log",
+      "bytes": 511,
+      "sha256": "6fbba18d239ed79529f9dcbe9bb332f6e072696bc6321b7ca84b37829583b071"
+    },
+    "ptxas_log": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-ptxas.log",
+      "bytes": 111535,
+      "sha256": "db22f30c50a83f1e0e111e71c0e8423b941628c8c4fcf9bffb4d9e69047f408c"
+    },
+    "default_test_log": {
+      "path": "/tmp/q3x-nvfp4-gate-m128-b-reuse-default.log",
+      "bytes": 68965,
+      "sha256": "4a41098a1681384913b2f0b11255aac09d23f1bea0fbe573e0d45126170189e7",
+      "result": "pass"
+    }
+  },
+  "decision": {
+    "selected_mechanism": "M128 Gate/Up B-tile reuse",
+    "result": "selected_for_production_admission",
+    "production_promotion": false,
+    "next": [
+      "freeze the pair CUDA Graph topology contract",
+      "add partial-alias rejection coverage",
+      "add an exact checkpoint hash fixture",
+      "route the exact C256/C512 production Gate/Up shapes only after those gates pass",
+      "rerun fixed-clock full-model Prefix/TTFT and fresh Nsight attribution after production routing"
+    ]
+  },
+  "parallel_gdn_plan_update": {
+    "screen_result": "the test-only sequential FP32-B8 formulation beat the WY formulation",
+    "production_status": "unchanged",
+    "priority": "retain as a separately gated test-only direction; complete M128 Gate/Up production admission first"
+  },
+  "limitations": [
+    "The M128 candidate is committed only as a test kernel and is not reachable from production dispatch.",
+    "The projection is deliberately conservative but remains unimplemented arithmetic, not measured end-to-end performance.",
+    "No production runner, workspace, public ABI, Decode, MTP, buffering, Prefill/Decode-overlap, or FlashInfer behavior changed.",
+    "The screen covers batch-one exact C256/C512 Gate/Up shapes on one fixed-clock Orin and is not a concurrency, tail-latency, power, or energy result."
+  ]
+}

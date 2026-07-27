@@ -7547,8 +7547,69 @@ The post-promotion P513 hotspot order is Gate/Up 1,065.953440 ms, linear FP8
 QKV/Z/O 633.897888 ms, Down 541.595488 ms, and GDN 488.590080 ms. A P1025
 diagnostic reaches 158.720465051 Prefix token/s; its second C512 causal chunk
 is about 147 ms slower, so merely publishing C1024 is not the next main
-mechanism. The next bounded screen is true M128 B-tile reuse for Gate/Up, with
-GDN B8 WY as a fallback and an NCU traffic audit after that. Full raw medians,
-binary identities, hashes, E2E evidence, profile attribution, and limitations
-are in the
+mechanism. The subsequent M128 B-tile-reuse screen is recorded below. Full raw
+medians, binary identities, hashes, E2E evidence, profile attribution, and
+limitations for the production M64 route are in the
 [Gate/Up production benchmark](metadata/qwen36-27b-prefill-nvfp4-whole-chunk-gate-up-production-benchmark.json).
+
+## NVFP4 Gate/Up M128 B-tile-reuse selection
+
+Commit `1f8779c` adds a test-only exact `[N17408,K5120]` kernel in which one
+CTA owns an M128-by-N128 output tile and reuses each decoded/staged B tile
+across two adjacent M64 token panels. The baseline is the current production
+whole-chunk M64 kernel. Production dispatch, runner, workspace, public ABI,
+Decode, MTP, FlashInfer, and buffering policy remain unchanged.
+
+The frozen 9,060,136-byte Release binary was measured in three independent
+processes at fixed 1.3005-GHz GPU and locked 3.2-GHz EMC clocks. Every timed
+cell used mirrored `B-C-C-B` order, 24 logical operations per pass, and six
+rounds per distribution. The complete single-branch aggregate and its worst
+round are:
+
+| Scope | M256 | M512 | Frozen gate |
+| --- | ---: | ---: | --- |
+| Three-process aggregate | **1.275707061x** | **1.283725529x** | at least 1.05x |
+| Cross-process all-round minimum | **1.27415x** | **1.28148x** | every round positive |
+
+The production-like main/aux Gate/Up pair also passes its frozen 1.08x M512
+gate in all three processes:
+
+| Process | M256 pair speedup | M512 pair speedup |
+| ---: | ---: | ---: |
+| 1 | 1.27998x | 1.28733x |
+| 2 | 1.28041x | 1.28465x |
+| 3 | 1.28096x | 1.28659x |
+| Cross-process minimum | **1.27998x** | **1.28465x** |
+| Cross-process all-round minimum | **1.27930x** | **1.28349x** |
+
+All **72/72** pair rounds improve. Single-branch and pair exact/replay checks
+report zero mismatches and their guards pass; single-branch inputs are
+preserved. All 15 invalid calls enqueue zero Graph nodes. Single-branch Graph
+capture retains one node while halving grid X from 544 to 272 at M256 and from
+1,088 to 544 at M512. Both candidate
+instantiations use 126 registers, 37,376 bytes static shared memory, zero
+local/stack/spill traffic, and retain two resident CTA/SM, passing the frozen
+resource gate. The default test log also passes.
+
+Applying the conservative cross-process-minimum M512 pair speedup of 1.28465x
+to only the current 1,065.953440-ms P513 Gate/Up interval union gives this
+unimplemented arithmetic projection:
+
+| P513 Prefix quantity | Current production | M128 projection |
+| --- | ---: | ---: |
+| Gate/Up union | 1,065.953440 ms | 829.761756 ms |
+| Gate/Up saving | -- | 236.191684 ms |
+| Prefix | 3,149.125000 ms | **2,912.933316 ms** |
+| Prefix speedup | 1.000000000x | **1.081083794x** |
+| Prefix throughput | 162.584844997 token/s | **175.767841 token/s** |
+
+This projection is not an achieved production Prefix, TTFT, or full-model
+result. The candidate is selected only for production admission. Before
+routing it, freeze the pair Graph topology, partial-alias rejection, and exact
+checkpoint-hash fixture. Then admit only the exact C256/C512 Gate/Up routes
+and rerun fixed-clock exact-output, memory, Prefix/TTFT, and fresh Nsight
+gates. The parallel GDN study now favors its test-only sequential FP32-B8
+formulation over WY, but neither GDN candidate is production-routed; M128
+Gate/Up admission remains first. Full binary identity, raw-log hashes, gates,
+and limitations are in the
+[M128 B-tile-reuse screen](metadata/qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json).

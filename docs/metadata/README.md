@@ -1346,6 +1346,17 @@ The diagnostic Phase 3 records are:
   2,048 nodes / 1,346.373984 ms to 128 nodes / 1,065.953440 ms. Only 5.65% of
   the union saving comes from stream overlap, so the record explicitly makes
   no double/triple-buffering or Prefill/Decode-overlap claim.
+- [`qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json`](qwen36-27b-prefill-nvfp4-gate-m128-b-reuse-screen.json),
+  which selects the test-only exact C256/C512 M128 Gate/Up B-tile-reuse kernel
+  for production admission. Three frozen-binary processes reach
+  **1.275707061x/1.283725529x** aggregate single-branch speedup at M256/M512;
+  the production-like main/aux pair reaches process-minimum
+  **1.27998x/1.28465x**, and all 72 pair rounds improve. Single-branch
+  exact/replay/guard/input and pair exact/replay/guard checks pass, as do
+  Graph, invalid-call, and 126-register/37,376-byte-shared/two-CTA resource
+  gates. The production route is unchanged. Applying the
+  conservative M512 pair minimum to the current Gate/Up union projects, but
+  does not achieve, **2,912.933316 ms / 175.767841 token/s** P513 Prefix.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
