@@ -1196,6 +1196,21 @@ query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, bool n_major, std::size_t rows,
+    std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_resources_test_cuda(
+    std::size_t token_count, bool n_major, std::size_t rows,
+    std::size_t columns, int* registers_per_thread,
+    std::size_t* static_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -6042,6 +6057,22 @@ decode_gate_up_silu_table_performance_enabled() noexcept {
 nvfp4_whole_chunk_down_performance_enabled() noexcept {
   const char* const value =
       std::getenv("Q3X_RUN_SM87_NVFP4_WHOLE_CHUNK_DOWN_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_whole_chunk_gate_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_WHOLE_CHUNK_GATE_PERF");
+  return value != nullptr && value[0] != '\0' &&
+         !(value[0] == '0' && value[1] == '\0');
+}
+
+[[nodiscard]] bool
+nvfp4_whole_chunk_gate_up_pair_performance_enabled() noexcept {
+  const char* const value =
+      std::getenv("Q3X_RUN_SM87_NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_PERF");
   return value != nullptr && value[0] != '\0' &&
          !(value[0] == '0' && value[1] == '\0');
 }
@@ -25161,9 +25192,12 @@ struct NvFp4WholeChunkCaseResult {
   double m_major_speedup = std::numeric_limits<double>::quiet_NaN();
 };
 
-void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test) {
-  constexpr std::size_t kRows = 5'120U;
-  constexpr std::size_t kColumns = 17'408U;
+void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test,
+                                               const bool gate_shape = false) {
+  const std::size_t kRows = gate_shape ? 17'408U : 5'120U;
+  const std::size_t kColumns = gate_shape ? 5'120U : 17'408U;
+  const char* const metric = gate_shape ? "NVFP4_WHOLE_CHUNK_GATE"
+                                        : "NVFP4_WHOLE_CHUNK_DOWN";
   constexpr int kExpectedProductionRegisters = 76;
   constexpr int kMaximumCandidateRegisters = 80;
   constexpr std::size_t kExpectedSharedBytes = 23'552U;
@@ -25175,17 +25209,22 @@ void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test) {
   std::size_t production_local = std::numeric_limits<std::size_t>::max();
   int production_threads = -1;
   int production_blocks = -1;
-  const int production_status = q3x::kernels::
-      query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
-          kRows, kColumns, &production_registers, &production_shared,
-          &production_local, &production_threads, &production_blocks);
+  const int production_status = gate_shape
+      ? q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kRows, kColumns, &production_registers, &production_shared,
+                &production_local, &production_threads, &production_blocks)
+      : q3x::kernels::
+            query_sm87_nvfp4_w4a16_small_m64_down_wmma_k64_quad_a_table_free_e2m1_resources_test_cuda(
+                kRows, kColumns, &production_registers, &production_shared,
+                &production_local, &production_threads, &production_blocks);
   const bool production_gate =
       production_status == static_cast<int>(cudaSuccess) &&
       production_registers == kExpectedProductionRegisters &&
       production_shared == kExpectedSharedBytes && production_local == 0U &&
       production_threads == kExpectedThreads &&
       production_blocks >= kMinimumActiveBlocks;
-  std::cout << "NVFP4_WHOLE_CHUNK_DOWN_PRODUCTION_RESOURCES: status="
+  std::cout << metric << "_PRODUCTION_RESOURCES: status="
             << production_status
             << " registers_per_thread=" << production_registers
             << " static_shared_bytes=" << production_shared
@@ -25207,16 +25246,21 @@ void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test) {
       std::size_t local = std::numeric_limits<std::size_t>::max();
       int threads = -1;
       int blocks = -1;
-      const int status = q3x::kernels::
-          query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
-              token_count, n_major, kRows, kColumns, &registers, &shared,
-              &local, &threads, &blocks);
+      const int status = gate_shape
+          ? q3x::kernels::
+                query_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_resources_test_cuda(
+                    token_count, n_major, kRows, kColumns, &registers,
+                    &shared, &local, &threads, &blocks)
+          : q3x::kernels::
+                query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
+                    token_count, n_major, kRows, kColumns, &registers,
+                    &shared, &local, &threads, &blocks);
       const bool gate =
           status == static_cast<int>(cudaSuccess) &&
           registers <= kMaximumCandidateRegisters &&
           shared == kExpectedSharedBytes && local == 0U &&
           threads == kExpectedThreads && blocks >= kMinimumActiveBlocks;
-      std::cout << "NVFP4_WHOLE_CHUNK_DOWN_RESOURCES: tokens="
+      std::cout << metric << "_RESOURCES: tokens="
                 << token_count
                 << " layout=" << (n_major ? "N-major" : "M-major")
                 << " status=" << status
@@ -25240,21 +25284,33 @@ void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test) {
   std::size_t sentinel_local = 789U;
   int sentinel_threads = 321;
   int sentinel_blocks = 654;
-  const int token_status = q3x::kernels::
-      query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
-          64U, true, kRows, kColumns, &sentinel_registers, &sentinel_shared,
-          &sentinel_local, &sentinel_threads, &sentinel_blocks);
-  const int null_status = q3x::kernels::
-      query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
-          512U, true, kRows, kColumns, nullptr, &sentinel_shared,
-          &sentinel_local, &sentinel_threads, &sentinel_blocks);
+  const int token_status = gate_shape
+      ? q3x::kernels::
+            query_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_resources_test_cuda(
+                64U, true, kRows, kColumns, &sentinel_registers,
+                &sentinel_shared, &sentinel_local, &sentinel_threads,
+                &sentinel_blocks)
+      : q3x::kernels::
+            query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
+                64U, true, kRows, kColumns, &sentinel_registers,
+                &sentinel_shared, &sentinel_local, &sentinel_threads,
+                &sentinel_blocks);
+  const int null_status = gate_shape
+      ? q3x::kernels::
+            query_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_resources_test_cuda(
+                512U, true, kRows, kColumns, nullptr, &sentinel_shared,
+                &sentinel_local, &sentinel_threads, &sentinel_blocks)
+      : q3x::kernels::
+            query_sm87_nvfp4_w4a16_whole_chunk_down_wmma_resources_test_cuda(
+                512U, true, kRows, kColumns, nullptr, &sentinel_shared,
+                &sentinel_local, &sentinel_threads, &sentinel_blocks);
   const bool invalid_gate =
       token_status == static_cast<int>(cudaErrorInvalidValue) &&
       null_status == static_cast<int>(cudaErrorInvalidValue) &&
       sentinel_registers == 123 && sentinel_shared == 456U &&
       sentinel_local == 789U && sentinel_threads == 321 &&
       sentinel_blocks == 654;
-  std::cout << "NVFP4_WHOLE_CHUNK_DOWN_RESOURCE_INVALID: token_status="
+  std::cout << metric << "_RESOURCE_INVALID: token_status="
             << token_status << " null_status=" << null_status
             << " outputs_unchanged=" << (invalid_gate ? "true" : "false")
             << " gate=" << (invalid_gate ? "PASS" : "FAIL") << '\n';
@@ -25264,10 +25320,10 @@ void run_nvfp4_whole_chunk_down_resource_gate(TestContext& test) {
 }
 
 void run_nvfp4_whole_chunk_down_invalid_capture_contract(
-    TestContext& test, cudaStream_t stream) {
+    TestContext& test, cudaStream_t stream, const bool gate_shape = false) {
   constexpr std::size_t kTokens = 512U;
-  constexpr std::size_t kRows = 5'120U;
-  constexpr std::size_t kColumns = 17'408U;
+  const std::size_t kRows = gate_shape ? 17'408U : 5'120U;
+  const std::size_t kColumns = gate_shape ? 5'120U : 17'408U;
   constexpr std::uintptr_t kPackedAddress = 0x10'0000'0000ULL;
   constexpr std::uintptr_t kScaleAddress = 0x20'0000'0000ULL;
   constexpr std::uintptr_t kActivationAddress = 0x30'0000'0000ULL;
@@ -25289,7 +25345,11 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
       reinterpret_cast<std::uint16_t*>(kPackedAddress + 128U);
   auto* const scale_alias =
       reinterpret_cast<std::uint16_t*>(kScaleAddress + 128U);
-  const std::string label = "NVFP4 whole-chunk down invalid capture";
+  const std::string label = std::string("NVFP4 whole-chunk ") +
+                            (gate_shape ? "gate" : "down") +
+                            " invalid capture";
+  const char* const metric = gate_shape ? "NVFP4_WHOLE_CHUNK_GATE"
+                                        : "NVFP4_WHOLE_CHUNK_DOWN";
 
   const auto launch =
       [&](const std::uint8_t* const candidate_packed,
@@ -25298,11 +25358,17 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
           const std::size_t token_count, const bool n_major,
           const std::size_t rows, const std::size_t columns,
           std::uint16_t* const candidate_output) noexcept {
-        return q3x::kernels::
-            launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
-                candidate_packed, candidate_scales, scale,
-                candidate_activations, token_count, n_major, rows, columns,
-                candidate_output, static_cast<void*>(stream));
+        return gate_shape
+            ? q3x::kernels::
+                  launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+                      candidate_packed, candidate_scales, scale,
+                      candidate_activations, token_count, n_major, rows,
+                      columns, candidate_output, static_cast<void*>(stream))
+            : q3x::kernels::
+                  launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+                      candidate_packed, candidate_scales, scale,
+                      candidate_activations, token_count, n_major, rows,
+                      columns, candidate_output, static_cast<void*>(stream));
       };
 
   cudaGraph_t graph = nullptr;
@@ -25365,7 +25431,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
         return status == static_cast<int>(cudaErrorInvalidValue);
       });
   const bool gate = ready && statuses_valid && node_count == 0U;
-  std::cout << "NVFP4_WHOLE_CHUNK_DOWN_INVALID_GRAPH: invalid_statuses="
+  std::cout << metric << "_INVALID_GRAPH: invalid_statuses="
             << std::count(statuses.begin(), statuses.end(),
                           static_cast<int>(cudaErrorInvalidValue))
             << '/' << statuses.size() << " total_nodes=" << node_count
@@ -25377,11 +25443,11 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
 [[nodiscard]] NvFp4WholeChunkCaseResult run_nvfp4_whole_chunk_down_case(
     TestContext& test, cudaStream_t stream,
     const std::vector<std::uint8_t>& host_packed,
-    const std::size_t token_count) {
+    const std::size_t token_count, const bool gate_shape = false) {
   constexpr std::size_t kM64Tokens = 64U;
-  constexpr std::size_t kRows = 5'120U;
-  constexpr std::size_t kColumns = 17'408U;
-  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  const std::size_t kRows = gate_shape ? 17'408U : 5'120U;
+  const std::size_t kColumns = gate_shape ? 5'120U : 17'408U;
+  const std::size_t kScaleColumns = kColumns / 16U;
   constexpr std::size_t kGuardElements = 64U;
   constexpr std::uint16_t kBaselineGuard = 0x3c3cU;
   constexpr std::uint16_t kMMajorGuard = 0xa5a5U;
@@ -25399,7 +25465,10 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
   NvFp4WholeChunkCaseResult result{};
   result.token_count = token_count;
   const std::string label =
-      "NVFP4 whole-chunk down M" + std::to_string(token_count);
+      std::string("NVFP4 whole-chunk ") + (gate_shape ? "gate M" : "down M") +
+      std::to_string(token_count);
+  const char* const metric = gate_shape ? "NVFP4_WHOLE_CHUNK_GATE"
+                                        : "NVFP4_WHOLE_CHUNK_DOWN";
   const std::size_t m64_tile_count = token_count / kM64Tokens;
   const std::size_t activation_elements = token_count * kColumns;
   const std::size_t output_elements = token_count * kRows;
@@ -25463,12 +25532,18 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
       replay_guarded.get() + kGuardElements;
   const auto launch_baseline = [&]() noexcept {
     for (std::size_t tile = 0U; tile < m64_tile_count; ++tile) {
-      const int status =
-          q3x::kernels::launch_sm87_nvfp4_w4a16_m64_down_gemm_bf16_cuda(
-              packed.get(), scales.get(), kWeightScale2,
-              activations.get() + tile * kM64Tokens * kColumns, kRows,
-              kColumns, baseline_output + tile * kM64Tokens * kRows,
-              static_cast<void*>(stream));
+      const int status = gate_shape
+          ? q3x::kernels::
+                launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+                    packed.get(), scales.get(), kWeightScale2,
+                    activations.get() + tile * kM64Tokens * kColumns, kRows,
+                    kColumns, baseline_output + tile * kM64Tokens * kRows,
+                    static_cast<void*>(stream))
+          : q3x::kernels::launch_sm87_nvfp4_w4a16_m64_down_gemm_bf16_cuda(
+                packed.get(), scales.get(), kWeightScale2,
+                activations.get() + tile * kM64Tokens * kColumns, kRows,
+                kColumns, baseline_output + tile * kM64Tokens * kRows,
+                static_cast<void*>(stream));
       if (status != static_cast<int>(cudaSuccess)) {
         return status;
       }
@@ -25476,25 +25551,37 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
     return static_cast<int>(cudaSuccess);
   };
   const auto launch_m_major = [&]() noexcept {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
-            packed.get(), scales.get(), kWeightScale2, activations.get(),
-            token_count, false, kRows, kColumns, m_major_output,
-            static_cast<void*>(stream));
+    return gate_shape
+        ? q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, false, kRows, kColumns, m_major_output,
+              static_cast<void*>(stream))
+        : q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, false, kRows, kColumns, m_major_output,
+              static_cast<void*>(stream));
   };
   const auto launch_n_major = [&]() noexcept {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
-            packed.get(), scales.get(), kWeightScale2, activations.get(),
-            token_count, true, kRows, kColumns, n_major_output,
-            static_cast<void*>(stream));
+    return gate_shape
+        ? q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, true, kRows, kColumns, n_major_output,
+              static_cast<void*>(stream))
+        : q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, true, kRows, kColumns, n_major_output,
+              static_cast<void*>(stream));
   };
   const auto launch_replay = [&]() noexcept {
-    return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
-            packed.get(), scales.get(), kWeightScale2, activations.get(),
-            token_count, true, kRows, kColumns, replay_output,
-            static_cast<void*>(stream));
+    return gate_shape
+        ? q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, true, kRows, kColumns, replay_output,
+              static_cast<void*>(stream))
+        : q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
+              packed.get(), scales.get(), kWeightScale2, activations.get(),
+              token_count, true, kRows, kColumns, replay_output,
+              static_cast<void*>(stream));
   };
 
   double baseline_sum = 0.0;
@@ -25576,7 +25663,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
     const bool graph_gate = baseline_capture.valid && m_major_capture.valid &&
                             n_major_capture.valid;
     all_graphs = all_graphs && graph_gate;
-    std::cout << "NVFP4_WHOLE_CHUNK_DOWN_GRAPH: tokens=" << token_count
+    std::cout << metric << "_GRAPH: tokens=" << token_count
               << " distribution=" << distribution_name
               << " baseline_nodes=" << baseline_capture.total_nodes
               << " m_major_nodes=" << m_major_capture.total_nodes
@@ -25652,7 +25739,9 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
           finite ? static_cast<double>(s1 + s2) /
                        static_cast<double>(c3 + c4)
                  : std::numeric_limits<double>::quiet_NaN();
-      const bool round_gate = finite && baseline_round_speedup >= 1.0;
+      const bool round_gate =
+          finite && (gate_shape ? baseline_round_speedup > 1.0
+                                : baseline_round_speedup >= 1.0);
       all_timings_finite = all_timings_finite && finite;
       cell_every_round_nonregressive =
           cell_every_round_nonregressive && round_gate;
@@ -25662,7 +25751,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
         cell_m_major_sum += static_cast<double>(s1 + s2);
         cell_m_major_candidate_sum += static_cast<double>(c3 + c4);
       }
-      std::cout << "PERF_NVFP4_WHOLE_CHUNK_DOWN_ROUND: tokens="
+      std::cout << "PERF_" << metric << "_ROUND: tokens="
                 << token_count << " distribution=" << distribution_name
                 << " round=" << round + 1
                 << " orders=B-C-C-B/S-C-C-S"
@@ -25785,7 +25874,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
         replay_mismatches == 0U && unexpected_nonfinite == 0U &&
         guards_intact && inputs_preserved;
     all_correct = all_correct && correctness_gate;
-    std::cout << "NVFP4_WHOLE_CHUNK_DOWN_DIFF: tokens=" << token_count
+    std::cout << metric << "_DIFF: tokens=" << token_count
               << " distribution=" << distribution_name
               << " m_major_mismatches=" << m_major_mismatches << '/'
               << output_elements
@@ -25809,13 +25898,14 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
   result.every_baseline_round_nonregressive = every_round_nonregressive;
   result.baseline_speedup = baseline_sum / candidate_sum;
   result.m_major_speedup = m_major_sum / m_major_candidate_sum;
-  const double required_speedup = token_count == 512U ? 1.25 : 1.0;
+  const double required_speedup =
+      token_count == 512U ? (gate_shape ? 1.15 : 1.25) : 1.0;
   const bool selection_gate =
       all_correct && all_graphs && all_timings_finite &&
       every_round_nonregressive && std::isfinite(result.baseline_speedup) &&
       result.baseline_speedup >= required_speedup &&
       std::isfinite(result.m_major_speedup);
-  std::cout << "PERF_NVFP4_WHOLE_CHUNK_DOWN_SELECTED: tokens="
+  std::cout << "PERF_" << metric << "_SELECTED: tokens="
             << token_count
             << " aggregate_n_major_vs_baseline_speedup="
             << result.baseline_speedup
@@ -25871,6 +25961,509 @@ void run_nvfp4_whole_chunk_down_screen(TestContext& test,
             << " gate=" << (complete ? "PASS" : "FAIL") << '\n';
   test.expect(complete,
               "NVFP4 whole-chunk down M256/M512 focused screen completes");
+}
+
+void run_nvfp4_whole_chunk_gate_screen(TestContext& test,
+                                        cudaStream_t stream) {
+  run_nvfp4_whole_chunk_down_resource_gate(test, true);
+  run_nvfp4_whole_chunk_down_invalid_capture_contract(test, stream, true);
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  std::vector<std::uint8_t> host_packed(kRows * kPackedColumns);
+  for (std::size_t row = 0U; row < kRows; ++row) {
+    for (std::size_t packed_column = 0U; packed_column < kPackedColumns;
+         ++packed_column) {
+      const std::uint8_t low = static_cast<std::uint8_t>(
+          (packed_column + row * 3U + (packed_column >> 3U)) & 0x0fU);
+      const std::uint8_t high = static_cast<std::uint8_t>(
+          (packed_column * 5U + row * 7U +
+           (packed_column >> 3U) * 3U + 1U) &
+          0x0fU);
+      host_packed[row * kPackedColumns + packed_column] =
+          static_cast<std::uint8_t>(low | (high << 4U));
+    }
+  }
+  const NvFp4WholeChunkCaseResult m256 =
+      run_nvfp4_whole_chunk_down_case(test, stream, host_packed, 256U, true);
+  const NvFp4WholeChunkCaseResult m512 =
+      run_nvfp4_whole_chunk_down_case(test, stream, host_packed, 512U, true);
+  const bool complete =
+      m256.correctness_gate && m256.graph_gate &&
+      m256.every_baseline_round_nonregressive && m512.correctness_gate &&
+      m512.graph_gate && m512.every_baseline_round_nonregressive &&
+      std::isfinite(m512.baseline_speedup) && m512.baseline_speedup >= 1.15;
+  std::cout << "PERF_NVFP4_WHOLE_CHUNK_GATE_FINAL: m256_speedup="
+            << m256.baseline_speedup << " m512_speedup="
+            << m512.baseline_speedup << " required_m512_speedup=1.15"
+            << " production_dispatch=unchanged"
+            << " gate=" << (complete ? "PASS" : "FAIL") << '\n';
+  test.expect(complete,
+              "NVFP4 whole-chunk gate M256/M512 focused screen completes");
+}
+
+struct NvFp4WholeChunkGateUpPairResult {
+  bool correctness = false;
+  bool graph = false;
+  bool every_round_positive = false;
+  double baseline_ms = std::numeric_limits<double>::quiet_NaN();
+  double candidate_ms = std::numeric_limits<double>::quiet_NaN();
+  double control_ms = std::numeric_limits<double>::quiet_NaN();
+  double speedup = std::numeric_limits<double>::quiet_NaN();
+};
+
+[[nodiscard]] NvFp4WholeChunkGateUpPairResult
+run_nvfp4_whole_chunk_gate_up_pair_case(
+    TestContext& test, cudaStream_t stream,
+    const std::vector<std::uint8_t>& host_gate_packed,
+    const std::vector<std::uint8_t>& host_up_packed,
+    const std::size_t token_count) {
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kGuard = 64U;
+  constexpr float kWeightScale2 = 1.0F / 64.0F;
+  constexpr int kWarmups = 10;
+  constexpr int kIterations = 24;
+  constexpr int kRounds = 6;
+  constexpr std::array<NvFp4M1ScaleDistribution, 2U> kDistributions{{
+      NvFp4M1ScaleDistribution::kCheckpointLike,
+      NvFp4M1ScaleDistribution::kSameBankStress,
+  }};
+  NvFp4WholeChunkGateUpPairResult result{};
+  const std::string label = "NVFP4 whole-chunk Gate/Up pair M" +
+                            std::to_string(token_count);
+  const std::size_t output_elements = token_count * kRows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuard;
+  const std::size_t activation_elements = token_count * kColumns;
+  const std::size_t m32_count = token_count / 32U;
+  const std::size_t m64_count = token_count / 64U;
+
+  std::vector<std::uint8_t> host_gate_scales(kRows * kScaleColumns);
+  std::vector<std::uint8_t> host_up_scales(host_gate_scales.size());
+  std::vector<std::uint16_t> host_activations(activation_elements);
+  for (std::size_t token = 0U; token < token_count; ++token) {
+    for (std::size_t column = 0U; column < kColumns; ++column) {
+      const int centered = static_cast<int>(
+                               (column * 17U + token * 19U + 5U) % 127U) -
+                           63;
+      host_activations[token * kColumns + column] =
+          encode_bf16(static_cast<float>(centered) / 256.0F);
+    }
+  }
+
+  DeviceBuffer<std::uint8_t> gate_packed, up_packed, gate_scales, up_scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> b_gate_store, b_up_store, r_gate_store,
+      r_up_store, c_gate_store, c_up_store;
+  bool ready = test.cuda_ok(gate_packed.allocate(host_gate_packed.size()),
+                            label + " allocate gate weights");
+  ready = ready && test.cuda_ok(up_packed.allocate(host_up_packed.size()),
+                                label + " allocate up weights");
+  ready = ready && test.cuda_ok(gate_scales.allocate(host_gate_scales.size()),
+                                label + " allocate gate scales");
+  ready = ready && test.cuda_ok(up_scales.allocate(host_up_scales.size()),
+                                label + " allocate up scales");
+  ready = ready && test.cuda_ok(activations.allocate(activation_elements),
+                                label + " allocate activations");
+  auto allocate_output = [&](DeviceBuffer<std::uint16_t>& buffer,
+                             const std::string& name) {
+    return test.cuda_ok(buffer.allocate(guarded_elements),
+                        label + " allocate " + name);
+  };
+  ready = ready && allocate_output(b_gate_store, "B gate");
+  ready = ready && allocate_output(b_up_store, "B up");
+  ready = ready && allocate_output(r_gate_store, "R gate/replay");
+  ready = ready && allocate_output(r_up_store, "R up/replay");
+  ready = ready && allocate_output(c_gate_store, "C gate");
+  ready = ready && allocate_output(c_up_store, "C up");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(gate_packed.get(),
+                                       host_gate_packed.data(),
+                                       host_gate_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload gate weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(up_packed.get(), host_up_packed.data(),
+                                       host_up_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload up weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           activation_elements * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  if (!ready) {
+    return result;
+  }
+
+  auto* const b_gate = b_gate_store.get() + kGuard;
+  auto* const b_up = b_up_store.get() + kGuard;
+  auto* const r_gate = r_gate_store.get() + kGuard;
+  auto* const r_up = r_up_store.get() + kGuard;
+  auto* const c_gate = c_gate_store.get() + kGuard;
+  auto* const c_up = c_up_store.get() + kGuard;
+  cudaStream_t aux = nullptr;
+  cudaEvent_t inputs_ready = nullptr;
+  cudaEvent_t aux_done = nullptr;
+  ready = test.cuda_ok(cudaStreamCreateWithFlags(&aux, cudaStreamNonBlocking),
+                       label + " create auxiliary stream");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&inputs_ready,
+                                                cudaEventDisableTiming),
+                       label + " create ready event");
+  ready = ready && test.cuda_ok(
+                       cudaEventCreateWithFlags(&aux_done,
+                                                cudaEventDisableTiming),
+                       label + " create done event");
+  if (!ready) {
+    if (inputs_ready != nullptr) (void)cudaEventDestroy(inputs_ready);
+    if (aux_done != nullptr) (void)cudaEventDestroy(aux_done);
+    if (aux != nullptr) (void)cudaStreamDestroy(aux);
+    return result;
+  }
+
+  const auto launch_m32 = [&](const std::uint8_t* packed,
+                              const std::uint8_t* scales,
+                              std::uint16_t* output,
+                              cudaStream_t launch_stream) noexcept {
+    for (std::size_t tile = 0U; tile < m32_count; ++tile) {
+      const int status =
+          q3x::kernels::launch_sm87_nvfp4_w4a16_m32_gemm_bf16_cuda(
+              packed, scales, kWeightScale2,
+              activations.get() + tile * 32U * kColumns, kRows, kColumns,
+              output + tile * 32U * kRows,
+              static_cast<void*>(launch_stream));
+      if (status != static_cast<int>(cudaSuccess)) return status;
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_m64 = [&](const std::uint8_t* packed,
+                              const std::uint8_t* scales,
+                              std::uint16_t* output,
+                              cudaStream_t launch_stream) noexcept {
+    for (std::size_t tile = 0U; tile < m64_count; ++tile) {
+      const int status = q3x::kernels::
+          launch_sm87_nvfp4_w4a16_small_m64_gate_wmma_k64_quad_a_table_free_e2m1_test_cuda(
+              packed, scales, kWeightScale2,
+              activations.get() + tile * 64U * kColumns, kRows, kColumns,
+              output + tile * 64U * kRows,
+              static_cast<void*>(launch_stream));
+      if (status != static_cast<int>(cudaSuccess)) return status;
+    }
+    return static_cast<int>(cudaSuccess);
+  };
+  const auto launch_whole = [&](const std::uint8_t* packed,
+                                const std::uint8_t* scales,
+                                std::uint16_t* output,
+                                cudaStream_t launch_stream) noexcept {
+    return q3x::kernels::launch_sm87_nvfp4_w4a16_whole_chunk_gate_wmma_test_cuda(
+        packed, scales, kWeightScale2, activations.get(), token_count, true,
+        kRows, kColumns, output, static_cast<void*>(launch_stream));
+  };
+  const auto begin_pair = [&]() noexcept {
+    cudaError_t status = cudaEventRecord(inputs_ready, stream);
+    if (status == cudaSuccess) status = cudaStreamWaitEvent(aux, inputs_ready, 0U);
+    return static_cast<int>(status);
+  };
+  const auto finish_pair = [&]() noexcept {
+    cudaError_t status = cudaEventRecord(aux_done, aux);
+    if (status == cudaSuccess) status = cudaStreamWaitEvent(stream, aux_done, 0U);
+    return static_cast<int>(status);
+  };
+  const auto pair = [&](const auto& branch, std::uint16_t* gate_output,
+                        std::uint16_t* up_output) noexcept {
+    int status = begin_pair();
+    if (status == static_cast<int>(cudaSuccess))
+      status = branch(gate_packed.get(), gate_scales.get(), gate_output, stream);
+    if (status == static_cast<int>(cudaSuccess))
+      status = branch(up_packed.get(), up_scales.get(), up_output, aux);
+    const int join_status = finish_pair();
+    return status == static_cast<int>(cudaSuccess) ? join_status : status;
+  };
+  const auto launch_b = [&]() noexcept { return pair(launch_m32, b_gate, b_up); };
+  const auto launch_r = [&]() noexcept { return pair(launch_m64, r_gate, r_up); };
+  const auto launch_c = [&]() noexcept { return pair(launch_whole, c_gate, c_up); };
+  const auto launch_replay = [&]() noexcept {
+    return pair(launch_whole, r_gate, r_up);
+  };
+
+  const unsigned int whole_grid =
+      static_cast<unsigned int>((kRows / 128U) * m64_count);
+  const WholeChunkCapturedGraph graph = capture_whole_chunk_graph(
+      test, stream,
+      [&]() noexcept {
+        return launch_whole(gate_packed.get(), gate_scales.get(), c_gate,
+                            stream);
+      },
+      1U, whole_grid, label + " candidate branch graph");
+  result.graph = graph.valid;
+  std::cout << "NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_GRAPH: tokens=" << token_count
+            << " production_nodes_per_branch=" << m32_count
+            << " repeated_m64_nodes_per_branch=" << m64_count
+            << " candidate_nodes_per_branch=" << graph.total_nodes
+            << " candidate_grid=" << whole_grid
+            << " gate=" << (graph.valid ? "PASS" : "FAIL") << '\n';
+  test.expect(graph.valid, label + " candidate branch is one exact grid");
+
+  double b_sum = 0.0, c_sum = 0.0, r_sum = 0.0, c_for_r_sum = 0.0;
+  bool all_correct = true;
+  bool all_rounds = true;
+  for (const auto distribution : kDistributions) {
+    const std::string distribution_name(
+        nvfp4_m1_scale_distribution_name(distribution));
+    const std::string cell = label + " " + distribution_name;
+    fill_nvfp4_m1_scale_distribution(host_gate_scales, kScaleColumns,
+                                     distribution);
+    host_up_scales = host_gate_scales;
+    std::rotate(host_up_scales.begin(),
+                host_up_scales.begin() +
+                    static_cast<std::ptrdiff_t>(kScaleColumns),
+                host_up_scales.end());
+    ready = test.cuda_ok(cudaMemcpyAsync(
+                             gate_scales.get(), host_gate_scales.data(),
+                             host_gate_scales.size(), cudaMemcpyHostToDevice,
+                             stream),
+                         cell + " upload gate scales");
+    ready = ready && test.cuda_ok(cudaMemcpyAsync(
+                                      up_scales.get(), host_up_scales.data(),
+                                      host_up_scales.size(),
+                                      cudaMemcpyHostToDevice, stream),
+                                  cell + " upload up scales");
+    const auto poison = [&](DeviceBuffer<std::uint16_t>& buffer,
+                            const int byte, const std::string& name) {
+      return test.cuda_ok(cudaMemsetAsync(buffer.get(), byte,
+                                          guarded_elements *
+                                              sizeof(std::uint16_t),
+                                          stream),
+                          cell + " poison " + name);
+    };
+    ready = ready && poison(b_gate_store, 0x3c, "B gate");
+    ready = ready && poison(b_up_store, 0x3c, "B up");
+    ready = ready && poison(r_gate_store, 0x69, "R gate");
+    ready = ready && poison(r_up_store, 0x69, "R up");
+    ready = ready && poison(c_gate_store, 0xa5, "C gate");
+    ready = ready && poison(c_up_store, 0xa5, "C up");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_b()),
+                                  cell + " launch B");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_r()),
+                                  cell + " launch R");
+    ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_c()),
+                                  cell + " launch C");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  cell + " correctness synchronize");
+    if (!ready) break;
+
+    std::vector<std::uint16_t> hb_gate(guarded_elements), hb_up(guarded_elements),
+        hr_gate(guarded_elements), hr_up(guarded_elements),
+        hc_gate(guarded_elements), hc_up(guarded_elements);
+    const auto copy_output = [&](std::vector<std::uint16_t>& host,
+                                 DeviceBuffer<std::uint16_t>& device,
+                                 const std::string& name) {
+      return test.cuda_ok(cudaMemcpyAsync(host.data(), device.get(),
+                                          guarded_elements *
+                                              sizeof(std::uint16_t),
+                                          cudaMemcpyDeviceToHost, stream),
+                          cell + " copy " + name);
+    };
+    ready = copy_output(hb_gate, b_gate_store, "B gate") && ready;
+    ready = copy_output(hb_up, b_up_store, "B up") && ready;
+    ready = copy_output(hr_gate, r_gate_store, "R gate") && ready;
+    ready = copy_output(hr_up, r_up_store, "R up") && ready;
+    ready = copy_output(hc_gate, c_gate_store, "C gate") && ready;
+    ready = copy_output(hc_up, c_up_store, "C up") && ready;
+    ready = test.cuda_ok(cudaStreamSynchronize(stream), cell + " copy sync") && ready;
+    std::size_t r_mismatch = 0U, c_mismatch = 0U, nonfinite = 0U;
+    for (std::size_t i = 0U; i < output_elements; ++i) {
+      const std::size_t j = kGuard + i;
+      r_mismatch += (hb_gate[j] != hr_gate[j]) + (hb_up[j] != hr_up[j]);
+      c_mismatch += (hb_gate[j] != hc_gate[j]) + (hb_up[j] != hc_up[j]);
+      nonfinite += !is_bf16_finite(hb_gate[j]) || !is_bf16_finite(hb_up[j]) ||
+                   !is_bf16_finite(hc_gate[j]) || !is_bf16_finite(hc_up[j]);
+    }
+    const auto guards = [&](const std::vector<std::uint16_t>& host,
+                            const std::uint16_t value) {
+      for (std::size_t i = 0U; i < kGuard; ++i) {
+        if (host[i] != value || host[kGuard + output_elements + i] != value)
+          return false;
+      }
+      return true;
+    };
+    bool guards_ok = guards(hb_gate, 0x3c3cU) && guards(hb_up, 0x3c3cU) &&
+                     guards(hr_gate, 0x6969U) && guards(hr_up, 0x6969U) &&
+                     guards(hc_gate, 0xa5a5U) && guards(hc_up, 0xa5a5U);
+    ready = poison(r_gate_store, 0x69, "replay gate") && ready;
+    ready = poison(r_up_store, 0x69, "replay up") && ready;
+    ready = test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
+                         cell + " launch replay") && ready;
+    ready = copy_output(hr_gate, r_gate_store, "replay gate") && ready;
+    ready = copy_output(hr_up, r_up_store, "replay up") && ready;
+    std::vector<std::uint8_t> gate_after(host_gate_packed.size()),
+        up_after(host_up_packed.size()), gate_scales_after(host_gate_scales.size()),
+        up_scales_after(host_up_scales.size());
+    std::vector<std::uint16_t> activations_after(activation_elements);
+    ready = test.cuda_ok(cudaMemcpyAsync(gate_after.data(), gate_packed.get(),
+                                         gate_after.size(), cudaMemcpyDeviceToHost,
+                                         stream), cell + " copy gate input") && ready;
+    ready = test.cuda_ok(cudaMemcpyAsync(up_after.data(), up_packed.get(),
+                                         up_after.size(), cudaMemcpyDeviceToHost,
+                                         stream), cell + " copy up input") && ready;
+    ready = test.cuda_ok(cudaMemcpyAsync(gate_scales_after.data(), gate_scales.get(),
+                                         gate_scales_after.size(), cudaMemcpyDeviceToHost,
+                                         stream), cell + " copy gate scales") && ready;
+    ready = test.cuda_ok(cudaMemcpyAsync(up_scales_after.data(), up_scales.get(),
+                                         up_scales_after.size(), cudaMemcpyDeviceToHost,
+                                         stream), cell + " copy up scales") && ready;
+    ready = test.cuda_ok(cudaMemcpyAsync(activations_after.data(), activations.get(),
+                                         activation_elements * sizeof(std::uint16_t),
+                                         cudaMemcpyDeviceToHost, stream),
+                         cell + " copy activations") && ready;
+    ready = test.cuda_ok(cudaStreamSynchronize(stream), cell + " replay sync") && ready;
+    std::size_t replay_mismatch = 0U;
+    for (std::size_t i = 0U; i < output_elements; ++i) {
+      replay_mismatch += (hc_gate[kGuard + i] != hr_gate[kGuard + i]) +
+                         (hc_up[kGuard + i] != hr_up[kGuard + i]);
+    }
+    guards_ok = guards_ok && guards(hr_gate, 0x6969U) && guards(hr_up, 0x6969U);
+    const bool inputs_ok = gate_after == host_gate_packed &&
+                           up_after == host_up_packed &&
+                           gate_scales_after == host_gate_scales &&
+                           up_scales_after == host_up_scales &&
+                           activations_after == host_activations;
+    const bool correctness = ready && r_mismatch == 0U && c_mismatch == 0U &&
+                             replay_mismatch == 0U && nonfinite == 0U &&
+                             guards_ok && inputs_ok;
+    all_correct = all_correct && correctness;
+    std::cout << "NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_DIFF: tokens=" << token_count
+              << " distribution=" << distribution_name
+              << " R_vs_B_mismatches=" << r_mismatch
+              << " C_vs_B_mismatches=" << c_mismatch
+              << " replay_mismatches=" << replay_mismatch
+              << " nonfinite=" << nonfinite
+              << " guards=" << (guards_ok ? "intact" : "BAD")
+              << " inputs=" << (inputs_ok ? "preserved" : "BAD")
+              << " gate=" << (correctness ? "PASS" : "FAIL") << '\n';
+    test.expect(correctness, cell + " preserves B/R/C/replay exactness");
+
+    for (int i = 0; i < kWarmups && ready; ++i) {
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_b()), cell + " B warmup");
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_r()), cell + " R warmup") && ready;
+      ready = test.cuda_ok(static_cast<cudaError_t>(launch_c()), cell + " C warmup") && ready;
+    }
+    ready = test.cuda_ok(cudaStreamSynchronize(stream), cell + " warmup sync") && ready;
+    for (int round = 0; round < kRounds && ready; ++round) {
+      const std::string round_label = cell + " round=" + std::to_string(round + 1);
+      const float b1 = measure_small_m_tile(test, stream, launch_b, kIterations, round_label + " B1");
+      const float c1 = measure_small_m_tile(test, stream, launch_c, kIterations, round_label + " C1");
+      const float c2 = measure_small_m_tile(test, stream, launch_c, kIterations, round_label + " C2");
+      const float b2 = measure_small_m_tile(test, stream, launch_b, kIterations, round_label + " B2");
+      const float r1 = measure_small_m_tile(test, stream, launch_r, kIterations, round_label + " R1");
+      const float c3 = measure_small_m_tile(test, stream, launch_c, kIterations, round_label + " C3");
+      const float c4 = measure_small_m_tile(test, stream, launch_c, kIterations, round_label + " C4");
+      const float r2 = measure_small_m_tile(test, stream, launch_r, kIterations, round_label + " R2");
+      const bool finite = std::isfinite(b1) && std::isfinite(c1) &&
+                          std::isfinite(c2) && std::isfinite(b2) &&
+                          std::isfinite(r1) && std::isfinite(c3) &&
+                          std::isfinite(c4) && std::isfinite(r2) &&
+                          b1 > 0 && c1 > 0 && c2 > 0 && b2 > 0 &&
+                          r1 > 0 && c3 > 0 && c4 > 0 && r2 > 0;
+      const double bc = finite ? (b1 + b2) / (c1 + c2) :
+          std::numeric_limits<double>::quiet_NaN();
+      const double cr = finite ? (r1 + r2) / (c3 + c4) :
+          std::numeric_limits<double>::quiet_NaN();
+      const double rb = finite ? (b1 + b2) / (r1 + r2) :
+          std::numeric_limits<double>::quiet_NaN();
+      const bool round_gate = finite && bc > 1.0;
+      all_rounds = all_rounds && round_gate;
+      if (finite) {
+        b_sum += b1 + b2; c_sum += c1 + c2;
+        r_sum += r1 + r2; c_for_r_sum += c3 + c4;
+      }
+      std::cout << "PERF_NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_ROUND: tokens="
+                << token_count << " distribution=" << distribution_name
+                << " round=" << round + 1
+                << " orders=B-C-C-B/R-C-C-R iterations=" << kIterations
+                << " B_envelope_ms=" << (b1 + b2) / 2.0F
+                << " C_envelope_ms=" << (c1 + c2) / 2.0F
+                << " R_envelope_ms=" << (r1 + r2) / 2.0F
+                << " C_vs_B_speedup=" << bc
+                << " C_vs_R_speedup=" << cr
+                << " R_vs_B_speedup=" << rb
+                << " required_C_vs_B_speedup=>1"
+                << " gate=" << (round_gate ? "PASS" : "FAIL") << '\n';
+      test.expect(round_gate, round_label + " C beats production B envelope");
+    }
+  }
+
+  constexpr double kPasses = 2.0 * kRounds * kDistributions.size();
+  result.correctness = all_correct;
+  result.every_round_positive = all_rounds;
+  result.baseline_ms = b_sum / kPasses;
+  result.candidate_ms = c_sum / kPasses;
+  result.control_ms = r_sum / kPasses;
+  result.speedup = b_sum / c_sum;
+  const double c_vs_r = r_sum / c_for_r_sum;
+  const double r_vs_b = b_sum / r_sum;
+  constexpr double kPrefixMs = 4'376.232;
+  constexpr double kGateUpUnionMs = 1'231.372;
+  const double projected_prefix_ms =
+      kPrefixMs - kGateUpUnionMs + kGateUpUnionMs / result.speedup;
+  const double projected_prefix_speedup = kPrefixMs / projected_prefix_ms;
+  std::cout << "PERF_NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_CELL: tokens="
+            << token_count << " production_B_envelope_ms=" << result.baseline_ms
+            << " candidate_C_envelope_ms=" << result.candidate_ms
+            << " repeated_M64_R_envelope_ms=" << result.control_ms
+            << " C_vs_B_speedup=" << result.speedup
+            << " C_vs_R_speedup=" << c_vs_r
+            << " R_vs_B_speedup=" << r_vs_b
+            << " projected_prefix_ms=" << projected_prefix_ms
+            << " projected_prefix_speedup=" << projected_prefix_speedup
+            << " projection_basis_ms=4376.232:1231.372"
+            << " every_round_positive=" << (all_rounds ? "true" : "false")
+            << " correctness=" << (all_correct ? "PASS" : "FAIL")
+            << " graph=" << (result.graph ? "PASS" : "FAIL") << '\n';
+
+  (void)test.cuda_ok(cudaStreamSynchronize(stream), label + " final main sync");
+  (void)test.cuda_ok(cudaStreamSynchronize(aux), label + " final aux sync");
+  (void)test.cuda_ok(cudaEventDestroy(inputs_ready), label + " destroy ready");
+  (void)test.cuda_ok(cudaEventDestroy(aux_done), label + " destroy done");
+  (void)test.cuda_ok(cudaStreamDestroy(aux), label + " destroy aux");
+  return result;
+}
+
+void run_nvfp4_whole_chunk_gate_up_pair_screen(TestContext& test,
+                                                cudaStream_t stream) {
+  run_nvfp4_whole_chunk_down_resource_gate(test, true);
+  run_nvfp4_whole_chunk_down_invalid_capture_contract(test, stream, true);
+  constexpr std::size_t kRows = 17'408U;
+  constexpr std::size_t kPackedColumns = 5'120U / 2U;
+  std::vector<std::uint8_t> gate_packed(kRows * kPackedColumns);
+  std::vector<std::uint8_t> up_packed(gate_packed.size());
+  for (std::size_t i = 0U; i < gate_packed.size(); ++i) {
+    const std::uint8_t low = static_cast<std::uint8_t>((i * 3U + (i >> 5U) + 1U) & 0x0fU);
+    const std::uint8_t high = static_cast<std::uint8_t>((i * 5U + (i >> 7U) * 3U + 7U) & 0x0fU);
+    gate_packed[i] = static_cast<std::uint8_t>(low | (high << 4U));
+    up_packed[i] = static_cast<std::uint8_t>((low ^ 0x09U) | ((high ^ 0x05U) << 4U));
+  }
+  const auto m256 = run_nvfp4_whole_chunk_gate_up_pair_case(
+      test, stream, gate_packed, up_packed, 256U);
+  const auto m512 = run_nvfp4_whole_chunk_gate_up_pair_case(
+      test, stream, gate_packed, up_packed, 512U);
+  constexpr double kFrozenPairSpeedup = 1.12;
+  const bool gate = m256.correctness && m256.graph &&
+                    m256.every_round_positive && m512.correctness &&
+                    m512.graph && m512.every_round_positive &&
+                    std::isfinite(m512.speedup) &&
+                    m512.speedup >= kFrozenPairSpeedup;
+  std::cout << "PERF_NVFP4_WHOLE_CHUNK_GATE_UP_PAIR_FINAL: M256_C_vs_B="
+            << m256.speedup << " M512_C_vs_B=" << m512.speedup
+            << " required_M512_C_vs_B=1.12"
+            << " baseline=production_public_M32_chain"
+            << " control=repeated_test_only_M64"
+            << " production_dispatch=unchanged"
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, "NVFP4 whole-chunk Gate/Up pair clears frozen 1.12 gate");
 }
 
 void run_fp8_whole_chunk_attention_output_resource_gate(TestContext& test) {
@@ -58709,6 +59302,34 @@ int main() {
   if (!test.cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                     "create non-blocking stream")) {
     return 1;
+  }
+  if (nvfp4_whole_chunk_gate_up_pair_performance_enabled()) {
+    run_nvfp4_whole_chunk_gate_up_pair_screen(test, stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy NVFP4 whole-chunk Gate/Up pair performance stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " NVFP4 whole-chunk Gate/Up pair assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4 whole-chunk Gate/Up pair M256/M512 fixed-frequency "
+                 "screen passed; production dispatch is unchanged\n";
+    return 0;
+  }
+  if (nvfp4_whole_chunk_gate_performance_enabled()) {
+    run_nvfp4_whole_chunk_gate_screen(test, stream);
+    (void)test.cuda_ok(
+        cudaStreamDestroy(stream),
+        "destroy NVFP4 whole-chunk gate performance stream");
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " NVFP4 whole-chunk gate assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4 whole-chunk gate M256/M512 fixed-frequency screen "
+                 "passed; production dispatch is unchanged\n";
+    return 0;
   }
   if (nvfp4_whole_chunk_down_performance_enabled()) {
     run_nvfp4_whole_chunk_down_screen(test, stream);
