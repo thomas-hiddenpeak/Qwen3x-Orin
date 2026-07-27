@@ -1257,6 +1257,16 @@ test admission. Layer 0 and worst layer 50 must both be bit exact, preserve
 us/layer** in every `B-C-C-B` round before a full Gate/Up kernel is considered.
 See the [Delta4 admission](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json).
 
+That decoder gate is now closed. The first timings were discarded because the
+canonical standalone kernel spilled 328 local bytes per thread. Under a
+symmetric zero-local schedule, Delta4 reduces L1 sectors by **27.36%** and LTS
+sectors by **29.07%**, but increases dynamic instructions by **92.76%**. Every
+actual layer-0 round regresses; the paired median is **0.598319x** and projects
+to a **6.623503-ms/token loss**. The candidate is removed without a full
+Gate/Up kernel or production change. Further Decode work returns to measured
+cross-kernel flow and state/L2 ceilings; MTP remains outside the current target
+path. See the [Delta4 decoder rejection](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json).
+
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission

@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection",
+  "status": "rejected-test-only-gate-up-delta4-row-fallback-decoder",
+  "recorded_at": "2026-07-27T13:32:42+08:00",
+  "timezone": "Asia/Shanghai",
+  "scope": {
+    "phase": "Decode",
+    "token_count": 1,
+    "subject": "standalone exact Gate/Up Delta4 row-fallback scale decoder",
+    "mtp_used": false,
+    "production_dispatch_reachable": false,
+    "full_gate_up_kernel_implemented": false,
+    "production_kernel_modified": false,
+    "model_modified": false
+  },
+  "source": {
+    "base_commit": "33f524a5326a7d2a8ea136f05dc88e31241c9d80",
+    "base_subject": "docs: admit Gate Delta4 sector screen",
+    "admission_record": "qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json",
+    "candidate_source_path_before_cleanup": "tests/sm87_nvfp4_delta4_row_fallback_decoder_perf_test.cu",
+    "candidate_source_sha256_before_cleanup": "360a6fd74d803d8b179abf570306a2371cfb950956707f4d8723b691894bfc0a",
+    "standalone_binary_path_before_cleanup": "build/orin-release/q3x_sm87_nvfp4_delta4_row_fallback_decoder_perf_test",
+    "standalone_binary_bytes": 151912,
+    "standalone_binary_sha256": "442ceb56262a08493776b6df5cdacc70ed3db158a40f4f9fdcdb598f4cbb9c5b",
+    "candidate_committed": false,
+    "cleanup": {
+      "source_removed": true,
+      "cmake_target_removed": true,
+      "binary_removed": true,
+      "object_directory_removed": true,
+      "cmake_reconfigured": true,
+      "production_files_touched": false
+    }
+  },
+  "checkpoint": {
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "model_index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "formal_fixture": "actual layer 0 gate/up weight_scale tensors",
+    "shard": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4/model-00001-of-00003.safetensors",
+    "gate_absolute_offset": 3606039072,
+    "up_absolute_offset": 3611609632,
+    "bytes_per_tensor": 5570560,
+    "dtype": "F8_E4M3",
+    "shape": [17408, 320],
+    "gate_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "up_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+  },
+  "candidate_format": {
+    "name": "Delta4-Row32-v1",
+    "contract": "For each row and K512 tile, store min(raw E4M3) plus 32 four-bit unsigned deltas when max-min is at most 15 and all bytes are below 0x80; otherwise flag the row and read its retained canonical 32-byte sector.",
+    "code_layout": "[row_quad][tile][lane_pair16][row4], 64 bytes per tile",
+    "metadata_layout": "[row_quad][tile] little-endian U32, one base-or-0x80 byte per row",
+    "code_bytes_per_tensor": 2785280,
+    "metadata_bytes_per_tensor": 174080,
+    "sidecar_bytes_per_tensor": 2959360,
+    "sidecar_ratio_percent": 53.125,
+    "gate_code_sha256": "79b6a046bf124e85e0dc5c610fdb72aaf5a07be356c0c121bcc41e90862c7bc6",
+    "gate_metadata_sha256": "9069686048479958822996ed832b1ac8127ce87542436a754ff2b782d3030ef8",
+    "up_code_sha256": "4fe57b8c35ec6015f173dcbf174a3df2ac5d1abf9427688019f9d6ee4c8fa306",
+    "up_metadata_sha256": "d712d83b8dd3017d0d075475af20bc5b27ef873a87b2b482b80c71e74f5ea7f6",
+    "gate_pass_rows": 143101,
+    "gate_fallback_rows": 30979,
+    "up_pass_rows": 143640,
+    "up_fallback_rows": 30440
+  },
+  "correctness": {
+    "host_pack_unpack_bit_exact": true,
+    "device_full_payload_bit_exact": true,
+    "canonical_delta4_checksum_mismatches": "0/512",
+    "prefix_and_suffix_guards_preserved": true,
+    "canonical_code_metadata_inputs_immutable": true,
+    "result": "pass"
+  },
+  "performance_protocol": {
+    "same_binary": true,
+    "same_stream": true,
+    "cpu_affinity": 11,
+    "banks": 8,
+    "warmup_launches": 16,
+    "launches_per_measurement": 256,
+    "rounds": 5,
+    "order": "B-C-C-B",
+    "grid_blocks": 32,
+    "threads_per_block": 512,
+    "subjects_per_launch": 2,
+    "tile_loop_unroll": 1,
+    "required_delta_microseconds_per_layer": 4.6875,
+    "required_projected_delta_milliseconds_per_token": 0.3,
+    "every_round_requirement": true,
+    "resource_gate": "Both canonical and Delta4 must use zero local memory and retain at least two active CTA/SM.",
+    "stop_loss": "Reject on the first actual fixture if any round saves less than 4.6875 us/layer; then skip layer 50 and full Gate/Up integration."
+  },
+  "fairness_correction": {
+    "invalid_provisional_protocol": "The first build fully unrolled both subject and ten-tile canonical work under launch_bounds(512,3). Ptxas spilled the canonical sink while Delta4 did not, so those timings were invalidated before selection.",
+    "invalid_resources": {
+      "canonical": {"registers_per_thread": 40, "local_bytes_per_thread": 328, "active_blocks_per_sm": 3},
+      "delta4": {"registers_per_thread": 36, "local_bytes_per_thread": 0, "active_blocks_per_sm": 3}
+    },
+    "invalid_layer0_median_delta_us": 154.573906,
+    "invalid_layer0_median_speedup": 1.611624,
+    "invalid_layer50_median_delta_us": 143.382446,
+    "invalid_layer50_median_speedup": 1.540962,
+    "correction": "Canonical gate and up are called explicitly and both backends use the same runtime ten-tile loop with pragma unroll 1, the same 64-bit checksum sink, launch bounds, topology, banks, and timing order.",
+    "validity_rule": "Only the corrected zero-local layer-0 rounds below are selection evidence."
+  },
+  "resources_and_sass": {
+    "resource_dump_path": "/tmp/q3x-delta4-fair-resources.txt",
+    "resource_dump_sha256": "1403c90a3135b5eedae1a1143ebc434a7b2d506434fe4530671ce7d85138bd2c",
+    "sass_dump_path": "/tmp/q3x-delta4-fair-sass.txt",
+    "sass_dump_sha256": "a6d438c7a615277569fd920b16e3f71da2fd00cda390206eabe91dfdf7abdbbe",
+    "canonical": {
+      "registers_per_thread": 34,
+      "static_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "static_instruction_rows": 624,
+      "static_ldg_rows": 8,
+      "static_shfl_rows": 14,
+      "static_ldl_rows": 0,
+      "static_stl_rows": 0
+    },
+    "delta4": {
+      "registers_per_thread": 39,
+      "static_shared_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 3,
+      "static_instruction_rows": 1024,
+      "static_ldg_rows": 12,
+      "static_shfl_rows": 19,
+      "static_ldl_rows": 0,
+      "static_stl_rows": 0
+    },
+    "hard_resource_gate_result": "pass",
+    "static_instruction_increase_percent": 64.102564102564
+  },
+  "formal_rounds": [
+    {"round": 1, "baseline_0_us": 153.570129, "candidate_0_us": 257.720123, "candidate_1_us": 257.840881, "baseline_1_us": 154.173126, "paired_delta_us": -103.908875, "paired_speedup": 0.596909, "gate": "fail"},
+    {"round": 2, "baseline_0_us": 154.185883, "candidate_0_us": 257.576874, "candidate_1_us": 257.574097, "baseline_1_us": 154.341125, "paired_delta_us": -103.311981, "paired_speedup": 0.598906, "gate": "fail"},
+    {"round": 3, "baseline_0_us": 154.287003, "candidate_0_us": 257.534119, "candidate_1_us": 257.673370, "baseline_1_us": 154.392746, "paired_delta_us": -103.263870, "paired_speedup": 0.599137, "gate": "fail"},
+    {"round": 4, "baseline_0_us": 154.337997, "candidate_0_us": 257.621246, "candidate_1_us": 257.485229, "baseline_1_us": 153.784012, "paired_delta_us": -103.492233, "paired_speedup": 0.598171, "gate": "fail"},
+    {"round": 5, "baseline_0_us": 154.244125, "candidate_0_us": 257.684265, "candidate_1_us": 257.698120, "baseline_1_us": 154.119003, "paired_delta_us": -103.509628, "paired_speedup": 0.598319, "gate": "fail"}
+  ],
+  "selection_summary": {
+    "median_paired_delta_us_per_layer": -103.492233,
+    "median_paired_speedup": 0.598319,
+    "projected_64_layer_delta_ms_per_token": -6.623503,
+    "rounds_passing": 0,
+    "rounds_required": 5,
+    "layer_0_gate": "fail",
+    "layer_50_valid_timing": "skipped by frozen first-fixture stop-loss",
+    "selection": "reject"
+  },
+  "matched_ncu": {
+    "method": {
+      "tool": "Nsight Compute 2026.2.0",
+      "replay_mode": "kernel",
+      "cache_control": "all",
+      "requested_clock_control": "base",
+      "launches_per_report": 1,
+      "passes_per_report": 3,
+      "warning": "NCU traffic rows are causal diagnostics; only the unprofiled same-binary B-C-C-B rounds decide rejection."
+    },
+    "canonical": {
+      "report_path": "/tmp/q3x-delta4-layer0-canonical-fair-ncu.ncu-rep",
+      "report_bytes": 64191,
+      "report_sha256": "ed9336289086a9ed645b9c1417fa2663f581a0586c9b84f35ff64aee05605183",
+      "duration_us": 153.696,
+      "l1_global_load_requests": 348160,
+      "l1_global_load_sectors": 348160,
+      "l1_global_load_hit_sectors": 0,
+      "l1_global_load_miss_sectors": 348160,
+      "lts_global_load_miss_equivalent_bytes": 11141120,
+      "lts_total_sectors": 349480,
+      "dram_read_throughput_percent": 35.625357,
+      "dynamic_instructions": 6072064,
+      "dynamic_global_load_instructions": 348160,
+      "dynamic_local_load_instructions": 0,
+      "dynamic_local_store_instructions": 0
+    },
+    "delta4": {
+      "report_path": "/tmp/q3x-delta4-layer0-delta4-fair-ncu.ncu-rep",
+      "report_bytes": 64274,
+      "report_sha256": "cce5d8ee920c44147a4780410898e004c467e8e833931734171ba524c4c684ff",
+      "duration_us": 259.552,
+      "l1_global_load_requests": 157163,
+      "l1_global_load_sectors": 252907,
+      "l1_global_load_hit_sectors": 6524,
+      "l1_global_load_miss_sectors": 246383,
+      "lts_global_load_miss_equivalent_bytes": 7884256,
+      "lts_total_sectors": 247899,
+      "dram_read_throughput_percent": 14.991694,
+      "dynamic_instructions": 11704600,
+      "dynamic_global_load_instructions": 158117,
+      "dynamic_local_load_instructions": 0,
+      "dynamic_local_store_instructions": 0
+    },
+    "interpretation": {
+      "l1_sector_reduction_percent": 27.358972886029,
+      "l1_miss_sector_reduction_percent": 29.232823988971,
+      "lts_total_sector_reduction_percent": 29.06632711457,
+      "dynamic_instruction_increase_percent": 92.761472869851,
+      "profiled_duration_increase_percent": 68.873620653758,
+      "finding": "The intended physical traffic reduction is real, but base-plus-nibble reconstruction, metadata broadcast, fallback predicates, and conditional reconstruction nearly double dynamic instructions. The decoder becomes instruction-bound enough to erase and reverse the L2 saving."
+    }
+  },
+  "reproduction": {
+    "configure_before_cleanup": "cmake -S . -B build/orin-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON",
+    "build_before_cleanup": "cmake --build build/orin-release --target q3x_sm87_nvfp4_delta4_row_fallback_decoder_perf_test -j2",
+    "formal_before_cleanup": "taskset -c 11 build/orin-release/q3x_sm87_nvfp4_delta4_row_fallback_decoder_perf_test layer0 MODEL/model-00001-of-00003.safetensors 3606039072 MODEL/model-00001-of-00003.safetensors 3611609632",
+    "formal_log_path": "/tmp/q3x-delta4-layer0-fair.log",
+    "formal_log_sha256": "e8da2a8004cbbdfb150333af6baf117fa67bb61e38fd17de9fce6fbbf79aa4f8",
+    "note": "The exact temporary source and target were intentionally removed after the corrected first-fixture stop-loss rejected the decoder."
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "With a symmetric zero-local baseline, every actual layer-0 round regresses by more than 103 us/layer instead of saving the required 4.6875 us/layer.",
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "layer_50_valid_run": false,
+    "full_gate_up_kernel_run": false,
+    "end_to_end_run": false,
+    "production_anchor_changed": false,
+    "repository_candidate_cleaned": true,
+    "closed_family": "Delta4-Row32-v1 exact Gate/Up scale sidecar and its row-fallback decoder on SM87",
+    "reopen_when": "Only a materially different representation with substantially fewer decode instructions and a new independent actual-payload admission may reopen this direction."
+  },
+  "claim_limits": [
+    "This is a standalone scale-decoder rejection, not a full Gate/Up kernel or end-to-end model result.",
+    "The initial apparent win and layer-50 run are explicitly invalid because the canonical baseline spilled 328 local bytes per thread; they are retained only as an audit trail.",
+    "The corrected comparison uses symmetric loop scheduling, zero local memory on both sides, identical topology, checksum work, banks, and timing order.",
+    "NCU reports diagnose traffic and instruction growth under replay; unprofiled same-binary rounds establish rejection.",
+    "MTP is outside this candidate and outside the current 100-ms/token path."
+  ]
+}

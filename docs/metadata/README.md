@@ -1225,6 +1225,13 @@ The diagnostic Phase 3 records are:
   26.380086% fewer L1 request sectors and a 1.136086-ms/token traffic ceiling.
   Layer 0 and worst-case layer 50 must each save at least 4.6875 us/layer in
   every round; this record contains no CUDA timing or production change.
+- [`qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json`](qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json),
+  which closes that screen after correcting an unfair canonical spill. Both
+  backends then use zero local memory and three active CTA/SM; Delta4 lowers L1
+  sectors 27.36% and LTS sectors 29.07%, but raises dynamic instructions
+  92.76%. All five actual layer-0 rounds regress to a 0.598319x median, so the
+  valid layer-50 run and full GEMV integration are skipped and all candidate
+  code/build artifacts are removed.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

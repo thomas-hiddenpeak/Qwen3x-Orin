@@ -6749,3 +6749,30 @@ local memory, retain at least two CTA/SM, and save at least 4.6875 us/layer in
 every five-round `B-C-C-B` series. No 361.25-MiB full sidecar or production
 dispatch may be created before that gate. See the
 [Delta4 admission record](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-admission.json).
+
+## Decode Gate/Up Delta4 decoder rejection
+
+The production-unreachable decoder reconstructs every host and device scale
+byte exactly, preserves all guards and inputs, and passes the corrected
+resource gate at 39 registers, zero local memory, and three active CTA/SM.
+An initial apparent win was invalidated before selection because its canonical
+baseline spilled 328 local bytes per thread. With both backends changed to the
+same runtime ten-tile loop, the canonical baseline also uses zero local memory
+and the valid layer-0 result reverses decisively:
+
+| Metric | Canonical | Delta4 | Change |
+| --- | ---: | ---: | ---: |
+| Paired median | about 154.2 us | about 257.6 us | 0.598319x |
+| L1 global-load sectors | 348,160 | 252,907 | -27.359% |
+| LTS total sectors | 349,480 | 247,899 | -29.066% |
+| Dynamic instructions | 6,072,064 | 11,704,600 | +92.761% |
+
+All five `B-C-C-B` rounds regress, with a median delta of **-103.492233
+us/layer** and a 64-layer projection of **-6.623503 ms/token**. The physical
+traffic reduction is real, but base/nibble reconstruction, metadata broadcast,
+fallback predicates, and conditional canonical reconstruction nearly double
+the instruction count. The frozen first-fixture stop-loss therefore skips a
+valid layer-50 run and full GEMV integration. The standalone source, target,
+binary, and object directory are removed; production and the formal
+**105.870500 ms/token / 9.445501816 token/s** anchor remain unchanged. See the
+[decoder rejection record](metadata/qwen36-27b-decode-gate-up-delta4-row-fallback-decoder-rejection.json).
