@@ -1142,6 +1142,16 @@ The diagnostic Phase 3 records are:
   even dictionary indices save only 5.172413793% before codebooks and project
   to 0.053098500 ms/token. Both miss the 15% byte and 0.30-ms/token gates, so no
   branch, build, GPU run, or production change is warranted.
+- [`qwen36-27b-decode-non-mtp-global-traffic-state-audit.json`](qwen36-27b-decode-non-mtp-global-traffic-state-audit.json),
+  which explicitly excludes MTP and audits the current 5.870500-ms/token gap
+  through exact projection payloads, fresh root-enabled production NCU,
+  cross-kernel movement, L2 persistence, and SSM state update. The tracked
+  minimum is 17.694 GB/token and requires at least 176.936 GB/s at 100 ms.
+  Projection traffic is already near mandatory bytes; 2.75 MiB of persisting
+  L2 covers only 3.819% of the 72-MiB GDN state. GDN is therefore selected for
+  a test-only packed-register transient-state P1 with bit-exact, zero-local,
+  at-least-three-CTA/SM, and 1.2448x / 0.30-ms/token stop-loss gates. This audit
+  changes no production code or formal performance anchor.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

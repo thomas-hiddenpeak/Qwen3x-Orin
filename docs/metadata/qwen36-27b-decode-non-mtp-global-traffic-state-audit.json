@@ -1,0 +1,393 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-decode-non-mtp-global-traffic-state-audit",
+  "status": "audit-complete-gdn-register-state-selected-p1",
+  "recorded_at": "2026-07-27T11:02:05+08:00",
+  "timezone": "Asia/Shanghai",
+  "priority": "P0 single-request Decode toward 100 ms/token and 10 token/s without MTP",
+  "scope": {
+    "workload": "pinned Qwen3.6-27B-NVFP4 P19/C32/max26 hot single-request Decode",
+    "mtp_allowed": false,
+    "mtp_policy": "MTP is isolated on an experiment branch and is not an implementation path, benchmark aid, or production dependency for the current target.",
+    "directions_audited": [
+      "global traffic",
+      "cross-core and cross-kernel movement",
+      "L2 persistence",
+      "SSM state update"
+    ]
+  },
+  "source": {
+    "analysis_commit": "e22340ea477d0dc5d617b1234224eef3247807ee",
+    "analysis_tree": "6e3dd0641e4f69e9c924bc31dcead9ef10dbe994",
+    "analysis_subject": "docs: reject adaptive Decode scale widths at ceiling",
+    "working_tree_clean_before_analysis": true,
+    "code_changed_by_this_audit": false,
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "pinned_model_record": "qwen36-27b-nvfp4.report.json",
+    "blobs": {
+      "reference_runner": "9114dba76b146bfac263262115b50cfac7bdf5ea",
+      "weight_only_gemv": "609053e95ee26f24bf841026120acd65c9fe0733",
+      "gdn_decode": "42e87dd23e54b7cf31e9b38b74720439f52c466f",
+      "model_weights_header": "d4653d22e8dafb96b326272ed0445213387903d0",
+      "request_state_header": "9306f8926f1ce027f6ccc3f66d503db2e2b863cd"
+    }
+  },
+  "binary": {
+    "path": "build/orin-release/qwen3x-orin",
+    "bytes": 5175456,
+    "sha256": "c333b703319ae645d551d19e93bfbb780eb780bfe40295cb9b0cd407cfa0a1a3",
+    "elf_build_id": "de12fb2fbb7fa3d24fc1bfa0c6dbb0c25b85f11d",
+    "build_type": "Release",
+    "cuda_architectures": "87",
+    "build_check": "cmake --build build/orin-release -j4 completed; a later dry run reported no compile or link work"
+  },
+  "environment": {
+    "device": "Jetson AGX Orin Developer Kit",
+    "gpu_name": "Orin (nvgpu)",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "l2_bytes": 4194304,
+    "max_persisting_l2_bytes": 2883584,
+    "current_persisting_l2_limit_bytes": 786432,
+    "max_access_policy_window_bytes": 134213632,
+    "shared_memory_per_sm_bytes": 166912,
+    "gpu_clock_hz": 1300500000,
+    "emc_clock_hz": 3200000000,
+    "memory_bus_bits": 256,
+    "theoretical_lpddr_gbps": 204.8,
+    "power_mode": "MAXN",
+    "kernel": "Linux 6.8.12-1021-tegra",
+    "driver_version": "595.78",
+    "ncu_version": "2026.2.0 build 37790515",
+    "nsys_version": "2026.1.3"
+  },
+  "current_stage_target": {
+    "formal_anchor_record": "qwen36-27b-decode-short-position-cuda-graph-cache-production-benchmark.json",
+    "formal_anchor_ms_per_token": 105.870500,
+    "formal_anchor_tokens_per_second": 9.445501816,
+    "target_ms_per_token": 100.0,
+    "target_tokens_per_second": 10.0,
+    "remaining_ms_per_token": 5.870500,
+    "remaining_tokens_per_second": 0.554498184,
+    "target_met": false,
+    "anchor_changed_by_this_audit": false
+  },
+  "global_traffic_lower_bound": {
+    "projection_weight_payload_bytes_per_token": {
+      "gate_up_64_layers": {
+        "packed_weights": 5704253440,
+        "block_scales": 713031680,
+        "total": 6417285120
+      },
+      "down_64_layers": {
+        "packed_weights": 2852126720,
+        "scale6_53_layers": 221429760,
+        "canonical_scales_11_layers": 61276160,
+        "total": 3134832640
+      },
+      "linear_qkv_z_a_b_48_layers": 4073717760,
+      "o_projection_64_layers": 2013265920,
+      "full_attention_qkv_16_layers": 1174405120,
+      "lm_head": {
+        "packed_weights": 635699200,
+        "block_scales": 79462400,
+        "total": 715161600
+      },
+      "total": 17528668160
+    },
+    "recurrent_and_context_unique_bytes_per_token": {
+      "gdn_state_read_plus_write": 150994944,
+      "causal_conv_logical": 11796480,
+      "short_position_kv_unique_at_mean_s32": 2097152,
+      "tracked_total_including_projection_payload": 17693556736
+    },
+    "derived": {
+      "projection_payload_effective_gbps_at_anchor": 165.567067,
+      "projection_payload_gbps_required_at_100_ms": 175.286682,
+      "tracked_minimum_gbps_required_at_100_ms": 176.935567,
+      "tracked_minimum_fraction_of_theoretical_peak": 0.8639432,
+      "projection_only_theoretical_floor_ms_at_peak": 85.589200,
+      "tracked_minimum_theoretical_floor_ms_at_peak": 86.394320,
+      "remaining_gap_equivalent_bytes_at_current_projection_effective_bandwidth": 971961466
+    },
+    "interpretation": "The target is not beyond the physical memory ceiling, but it requires sustained useful traffic near 177 GB/s while still paying computation, transactions, synchronization, and small-tensor costs. The theoretical floors are screening bounds, not achievable latency predictions."
+  },
+  "nsys_current_production_topology": {
+    "report": {
+      "path": "/tmp/q3x-decode-graph-prod-profile.nsys-rep",
+      "bytes": 806938,
+      "sha256": "0623208e6525d4583f5a3494645870efa4b43d5a0c0044a405b62238b54d5ee0",
+      "checked_in": false
+    },
+    "sqlite": {
+      "path": "/tmp/q3x-decode-graph-prod-profile.sqlite",
+      "bytes": 2170880,
+      "sha256": "77c43be9a5b0ffb31a2d8e4b09ca76a62645c30a21917d523da9e14abce7fb67",
+      "checked_in": false
+    },
+    "decode_graph_median_ms": 105.867008,
+    "major_groups_ms_per_token": {
+      "gate_up": 38.361600,
+      "linear_qkv_z_a_b": 23.254176,
+      "down": 20.192096,
+      "o_projection": 11.499296,
+      "full_attention_qkv": 6.870496,
+      "lm_head": 4.386208,
+      "sum": 104.563872
+    },
+    "stage_payload_effective_gbps": {
+      "gate_up": 167.284084,
+      "down": 155.250482,
+      "lm_head": 163.047808
+    },
+    "optimistic_175_gbps_screen": {
+      "gate_up_saving_ms": 1.691399,
+      "down_saving_ms": 2.278767,
+      "lm_head_saving_ms": 0.299570,
+      "sum_saving_ms": 4.269736,
+      "interpretation": "This is a payload-only sensitivity calculation, not a candidate speedup or a claim that 175 GB/s is attainable for each stage."
+    },
+    "single_stream": true,
+    "double_or_triple_buffering": false,
+    "cross_kernel_overlap": false,
+    "observed_idle_fraction_approx": 0.0057
+  },
+  "matched_ncu": {
+    "method": {
+      "privilege": "sudo root performance-counter access",
+      "replay_mode": "kernel",
+      "launches_per_report": 1,
+      "passes_per_report": 9,
+      "cache_control": "all",
+      "clock_control": "base",
+      "target_command": "taskset -c 11 build/orin-release/qwen3x-orin generate MODEL_DIR --prompt <pinned Chinese CUDA prompt> --max-tokens 26 --prefill-chunk-size 32 --projection-backend sm87",
+      "claim_limit": "NCU durations are causal kernel diagnostics under replay and base-clock control; they do not replace the ordinary-entry formal Decode anchor."
+    },
+    "gate_up": {
+      "report_path": "/tmp/q3x-nonmtp-current-gateup-ncu.ncu-rep",
+      "report_bytes": 2448894,
+      "report_sha256": "0b617fa5ab7c9e39c582a0b34d0198aa6efffb5f40fe20dae739b9813dcb80f7",
+      "duration_us": 606.784,
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 13632,
+      "stack_bytes": 0,
+      "occupancy_limit_blocks_per_sm": 2,
+      "l1_global_request_bytes": 101253120,
+      "l1_global_hit_bytes": 491520,
+      "l1_global_miss_bytes": 100761600,
+      "lts_total_bytes": 100865952,
+      "l1_throughput_pct": 67.3016,
+      "l2_throughput_pct": 66.6753,
+      "dram_read_throughput_pct": 81.1234,
+      "sm_throughput_pct": 71.8529,
+      "issue_active_pct": 72.7923,
+      "active_warps_pct": 66.2253,
+      "stalled_barrier_warps_per_issue_active": 0.225721,
+      "stalled_long_scoreboard_warps_per_issue_active": 5.794577,
+      "stalled_short_scoreboard_warps_per_issue_active": 0.384025
+    },
+    "down_scale6": {
+      "report_path": "/tmp/q3x-nonmtp-current-down-scale6-ncu.ncu-rep",
+      "report_bytes": 2448661,
+      "report_sha256": "123a62779bf7e5f2a9f27c16a6da7ecaa82245c147c0e8b5bf9b10127b952c64",
+      "duration_us": 319.840,
+      "grid_blocks": 32,
+      "threads_per_block": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 35904,
+      "stack_bytes": 0,
+      "occupancy_limit_blocks_per_sm": 2,
+      "l1_global_request_bytes": 50302848,
+      "l1_global_hit_bytes": 731136,
+      "l1_global_miss_bytes": 49571712,
+      "lts_total_bytes": 49807040,
+      "l1_throughput_pct": 63.2526,
+      "l2_throughput_pct": 58.9859,
+      "dram_read_throughput_pct": 74.9043,
+      "sm_throughput_pct": 71.7590,
+      "issue_active_pct": 72.6584,
+      "active_warps_pct": 67.9295,
+      "stalled_barrier_warps_per_issue_active": 0.701680,
+      "stalled_long_scoreboard_warps_per_issue_active": 4.551105,
+      "stalled_short_scoreboard_warps_per_issue_active": 0.216707,
+      "mandatory_weight_and_scale6_payload_bytes": 48742400,
+      "interpretation": "The measured LTS bytes are already close to the exact packed-weight plus scale6 payload. No open instruction-only tweak has a credible 0.30-ms/token ceiling."
+    },
+    "lm_head": {
+      "report_path": "/tmp/q3x-nonmtp-current-lm-head-ncu.ncu-rep",
+      "report_bytes": 2448647,
+      "report_sha256": "b9536db37bfa6450aa7fc6ab78444b1ac24510a9792af8a210b08d7427e3aae4",
+      "duration_us": 4417.888,
+      "grid_blocks": 64,
+      "threads_per_block": 256,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 11328,
+      "stack_bytes": 0,
+      "occupancy_limit_blocks_per_sm": 4,
+      "l1_global_request_bytes": 715816960,
+      "l1_global_hit_bytes": 491520,
+      "l1_global_miss_bytes": 715325440,
+      "lts_total_bytes": 723251936,
+      "l1_throughput_pct": 64.7932,
+      "l2_throughput_pct": 66.0528,
+      "dram_read_throughput_pct": 79.4249,
+      "sm_throughput_pct": 69.2736,
+      "issue_active_pct": 69.9271,
+      "active_warps_pct": 58.1555,
+      "stalled_barrier_warps_per_issue_active": 0.000226,
+      "stalled_long_scoreboard_warps_per_issue_active": 5.231602,
+      "stalled_short_scoreboard_warps_per_issue_active": 0.306372,
+      "mandatory_weight_and_scale_payload_bytes": 715161600
+    },
+    "gdn_state_update": {
+      "report_path": "/tmp/q3x-nonmtp-current-gdn-ncu.ncu-rep",
+      "report_bytes": 301225,
+      "report_sha256": "f2187ec6a683dcdc278c863fd1f7eb665e8a079266b31a8bb3134576c27ac4bd",
+      "duration_us": 37.376,
+      "grid_blocks": 48,
+      "threads_per_block": 256,
+      "registers_per_thread": 40,
+      "static_shared_bytes": 34568,
+      "stack_bytes": 0,
+      "occupancy_limit_blocks_per_sm": 4,
+      "l1_global_request_bytes": 1677312,
+      "l1_global_hit_bytes": 37664,
+      "l1_global_miss_bytes": 1639648,
+      "lts_total_bytes": 3322368,
+      "l1_throughput_pct": 58.5720,
+      "l2_throughput_pct": 33.1331,
+      "dram_read_throughput_pct": 21.5684,
+      "sm_throughput_pct": 57.6518,
+      "issue_active_pct": 37.9714,
+      "active_warps_pct": 45.9587,
+      "stalled_barrier_warps_per_issue_active": 1.250949,
+      "stalled_long_scoreboard_warps_per_issue_active": 2.800703,
+      "stalled_short_scoreboard_warps_per_issue_active": 0.528636,
+      "interpretation": "Unlike the projection kernels, GDN is not near the DRAM ceiling. Its shared-memory round trip and dependency path are a measured optimization surface."
+    }
+  },
+  "direction_evaluation": {
+    "reduce_cross_core_movement": {
+      "priority": "conditional P1 after GDN",
+      "finding": "The QKV reduction scratch is CTA-local shared memory, not a cross-CTA global buffer. Projection activation requests previously audited are almost entirely L1 hits, and current projection LTS traffic is close to mandatory weight payload. Same-request kernels are causal and serial.",
+      "closed_evidence": {
+        "qkv_conv_epilogue_paired_speedup": 0.800019,
+        "qkv_conv_epilogue_projected_loss_ms_per_token": 5.38834,
+        "o_projection_to_gate_chain_projected_loss_ms_per_token": 0.235329,
+        "down_dead_raw_inline_paired_speedup": 0.999333,
+        "down_dead_raw_inline_projected_loss_ms_per_token": 0.013344
+      },
+      "decision": "Do not pursue generic fusion or buffering. Admit only a topology or layout candidate that removes measured L2/DRAM transactions or improves an actual-payload gate without increasing bytes."
+    },
+    "l2_persistence": {
+      "priority": "P2 bounded default-off experiment only",
+      "finding": "The 4-MiB L2 and 2.75-MiB persisting budget cannot retain the 17.53-GB/token weight stream. The 72-MiB GDN state exceeds the persisting budget by 26.18x.",
+      "gdn_state_bytes": 75497472,
+      "max_persisting_fraction_of_gdn_state": 0.038194444,
+      "optimistic_linear_gdn_saving_ms_per_token": 0.058269,
+      "conv_state_bytes": 2949120,
+      "decision": "Do not implement weight or full-GDN persistence. A later transactional, default-off conv-state access-policy-window probe is allowed only after the higher-priority state-update and traffic-layout screens."
+    },
+    "ssm_state_update": {
+      "priority": "selected P0 implementation",
+      "gdn_layers": 48,
+      "state_bytes": 75497472,
+      "global_state_read_plus_write_bytes_per_token": 150994944,
+      "nsys_gdn_us_per_layer": 31.783,
+      "nsys_gdn_ms_per_token": 1.525591,
+      "causal_conv_ms_per_token": 0.260622,
+      "whole_ssm_disappearance_upper_bound_ms_per_token": 1.786213,
+      "candidate": "Keep each thread's eight-row transient BF16 state in packed registers across prediction and delta update, preserve the existing arithmetic and rounding order, then write global state once; remove the redundant shared-memory reload without changing persistent state format.",
+      "candidate_is_test_only_first": true,
+      "hard_gates": {
+        "all_state_bits_exact": 786432,
+        "all_output_bits_exact": 6144,
+        "required_cases": [
+          "multi-step",
+          "in-place and disjoint buffers",
+          "signed NaN fixtures",
+          "CUDA Graph replay",
+          "guards and immutability"
+        ],
+        "max_local_bytes": 0,
+        "minimum_active_ctas_per_sm": 3,
+        "minimum_speedup": 1.2448,
+        "maximum_us_per_layer_from_nsys_baseline": 25.53,
+        "minimum_projected_saving_ms_per_token": 0.30,
+        "stop_loss": "Reject and remove the candidate immediately if any exactness/resource gate fails or the first actual-payload process misses the speed and every-round gates."
+      }
+    },
+    "global_traffic": {
+      "priority": "continuous P0 audit; candidate P1 after GDN",
+      "finding": "Gate/up, down, and LM head dominate the remaining payload opportunity, but their matched NCU traffic is already close to mandatory weights and scales. A credible candidate must change useful-byte delivery or physical layout, not merely remove a tiny instruction sequence.",
+      "gate_up_and_lm_ceiling_checks": {
+        "gate_up_mandatory_payload_bytes_per_layer": 100270080,
+        "gate_up_ncu_l1_miss_bytes_per_layer": 100761600,
+        "gate_up_excess_over_mandatory_bytes": 491520,
+        "lm_mandatory_payload_bytes": 715161600,
+        "lm_ncu_l1_miss_bytes": 715325440,
+        "lm_excess_over_mandatory_bytes": 163840,
+        "lm_payload_entropy_screen": {
+          "packed_weight_entropy_bits_per_byte": 7.888162,
+          "scale_entropy_bits_per_byte": 3.959773,
+          "ideal_zero_metadata_zero_decode_saving_bytes": 49018000,
+          "ideal_saving_ms_at_ncu_effective_bandwidth": 0.302736,
+          "decision": "Reject generic LM lossless compression: its unattainable Shannon-limit screen only barely reaches the 0.30-ms/token admission gate before metadata and decode cost."
+        }
+      },
+      "gate_up_scale_palette_zero_code_admission": {
+        "candidate": "Four-bit common-scale palette with sparse raw escapes",
+        "credibility": "zero-code payload scan only; not admitted to GPU implementation",
+        "layer0_top15_coverage_gate": 0.9705,
+        "layer0_top15_coverage_up": 0.9753,
+        "estimated_scale_payload_saving_fraction": "0.455 to 0.460",
+        "ideal_payload_only_saving_ms_per_token": 1.964,
+        "full_128_tensor_sidecar_max_fraction_for_admission": 0.60,
+        "warning": "The selected six-bit gate/up scale experiment saved bytes but regressed, implying unpack cost larger than this palette's estimated byte benefit unless the common path is materially cheaper."
+      },
+      "lm_exact_progressive_pruning_zero_code_admission": {
+        "candidate": "prediction-only exact progressive MIPS or branch-and-bound with conservative rounded row/block bounds and full-production fallback",
+        "credibility": "offline activation/bound audit only; not admitted to implementation",
+        "minimum_certified_average_bytes_saved_per_call": 55000000,
+        "requirements": "Every frozen Decode final-norm activation must certify the identical argmax after counting bound sidecar, first-pass, and survivor bytes; full-statistics remains on the production path."
+      },
+      "down_layout_hypothesis": "Test-only wavefront/K-tile-major packed-weight plus scale6 preswizzle while preserving bytes, FMA order, and 32x512 topology.",
+      "down_layout_admission": {
+        "credibility": "hypothesis only; not counted toward the target",
+        "minimum_actual_and_stress_speedup": 1.018,
+        "required_registers_per_thread": 64,
+        "required_static_shared_bytes": 35904,
+        "minimum_active_ctas_per_sm": 2,
+        "maximum_lts_bytes": 49807040,
+        "full_53_layer_weight_sidecar_bytes_if_selected": 2361917440,
+        "decision": "Keep behind GDN and the zero-code admission checks because it removes no bytes and would require a 2.20-GiB Decode-only sidecar if promoted."
+      }
+    }
+  },
+  "priority_order": [
+    "P0: implement and actual-first screen the exact GDN packed-register transient state update",
+    "P1: if GDN passes, integrate and run full model/Graph/production B1-C1-C2-B2; otherwise remove it",
+    "P1: run zero-code all-layer gate/up palette and frozen-activation LM exact-pruning admissions; implement only if their byte gates pass",
+    "P1: if still justified, screen one bounded down wavefront/K-tile-major physical-layout hypothesis with a 1.018x stop-loss before allocating a full sidecar",
+    "P2: only then consider a default-off conv-state L2 access-policy-window experiment",
+    "later: independent Prefill/Decode executors, double/triple buffering, and MTP belong to multi-request or later-stage plans"
+  ],
+  "decision": {
+    "selected_next_candidate": "GDN packed-register transient state update",
+    "reason": "It is the only audited direction with a concrete redundant data path, matched NCU evidence showing substantial non-DRAM headroom, exact semantics that can be exhaustively gated, and a credible 0.30-ms/token admission threshold. Projection kernels remain the largest absolute opportunity, but no currently open exact mechanism has equally strong causal evidence.",
+    "production_changed": false,
+    "formal_anchor_changed": false,
+    "mtp_used": false
+  },
+  "claim_limits": [
+    "This record is an audit and prioritization result, not a performance promotion. No new speedup is claimed and the formal anchor is unchanged.",
+    "Traffic payload values are lower bounds based on exact tensor formats and selected sidecars. Transaction granularity, cache behavior, small tensors, and instruction costs make real traffic and latency larger.",
+    "NCU profiles one matched production kernel launch under kernel replay, cache-control all, and base-clock control. Its durations are diagnostic and are not directly substituted into the formal ordinary-entry benchmark.",
+    "The 175-GB/s and theoretical-peak calculations are sensitivity or physical-ceiling screens, not achievable-bandwidth promises.",
+    "The GDN 0.30-ms/token value is an admission gate for a future candidate, not an achieved result.",
+    "MTP is not used anywhere in the current target path."
+  ]
+}

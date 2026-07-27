@@ -6454,3 +6454,68 @@ candidate, build, GPU run, or production change exists, and the formal anchor
 remains **105.870500 ms/token / 9.445501816 token/s**. The exact shell scanner,
 unique-code distribution, equations, and claim limits are in the
 [machine-readable rejection record](metadata/qwen36-27b-decode-down-adaptive-scale-bitwidth-ceiling-rejection.json).
+
+## Non-MTP Decode global-traffic and state audit
+
+MTP is explicitly excluded from the current 100-ms/token path. A source-level
+traffic inventory and fresh root-enabled, current-production NCU pass instead
+evaluate global traffic, cross-kernel movement, L2 persistence, and SSM state
+update. The exact projection payload lower bound is **17,528,668,160 bytes per
+token**. Adding one BF16 read and write of the 48-layer GDN state, logical
+causal-conv traffic, and unique short-position KV bytes raises the tracked
+minimum to **17,693,556,736 bytes per token**. At the formal 105.870500-ms
+anchor, projection payload alone corresponds to **165.567 GB/s**. Reaching 100
+ms requires at least **176.936 GB/s** for the tracked bytes, or 86.394% of the
+204.8-GB/s theoretical LPDDR peak, before transaction, compute, synchronization,
+and small-tensor costs.
+
+The current Graph trace assigns 104.563872 ms/token to the six projection
+groups. Gate/up, down, and LM head account for 38.361600, 20.192096, and
+4.386208 ms/token; their payload-effective rates are 167.284, 155.250, and
+163.048 GB/s. Even the optimistic sensitivity of moving all three to 175 GB/s
+saves only **4.269736 ms/token**, so a non-projection contribution is also
+needed. Fresh matched NCU narrows the diagnosis:
+
+| Kernel | Duration | L1 global request | LTS total | DRAM read peak | SM peak | Resources |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| gate/up | 606.784 us | 101.253 MB | 100.866 MB | 81.12% | 71.85% | 64r, 13,632 B, 2 CTA/SM |
+| down scale6 | 319.840 us | 50.303 MB | 49.807 MB | 74.90% | 71.76% | 64r, 35,904 B, 2 CTA/SM |
+| LM head | 4,417.888 us | 715.817 MB | 723.252 MB | 79.42% | 69.27% | 64r, 11,328 B, 4 CTA/SM |
+| GDN row8 | 37.376 us | 1.677 MB | 3.322 MB | 21.57% | 57.65% | 40r, 34,568 B, 4 CTA/SM |
+
+The projection reports are already close to mandatory weight-plus-scale bytes;
+small instruction substitutions therefore lack a credible 0.30-ms/token
+ceiling. The QKV reduction scratch is CTA-local shared memory, not a global
+cross-core buffer. Prior cross-stage fusion screens also regress, and the
+single-stream Graph trace has only about 0.57% idle time, so same-request
+double/triple buffering cannot recover the 5.870500-ms gap.
+
+Payload entropy does not rescue LM head: even a free, metadata-free
+Shannon-limit codec saves only 49.018 MB, an optimistic **0.302736 ms/token**,
+so any real lossless codec misses the gate. Two projection ideas remain
+zero-code admissions rather than implementations: a gate/up four-bit common
+scale palette with sparse raw escapes must first fit all 128 scale tensors into
+at most 60% of canonical bytes, and prediction-only exact progressive LM
+pruning must certify the same argmax while saving at least 55 MB/call after all
+bounds and survivor traffic. A down wavefront-major layout is lower confidence
+still: it removes no bytes and would require a 2.20-GiB sidecar if selected.
+
+L2 persistence is not the first implementation path. The device exposes 4 MiB
+of L2 and at most 2.75 MiB of persisting cache. That cannot retain the
+17.53-GB/token weight stream and covers only 3.819% of the 72-MiB GDN state,
+whose optimistic linear ceiling is **0.058269 ms/token**. A later default-off
+conv-state window may be screened, but only after stronger candidates.
+
+GDN is the selected actual-first P1. Nsys measures 31.783 us/layer, or
+1.525591 ms/token, while NCU shows only 21.57% DRAM-read throughput and a
+shared/dependency bottleneck. The test-only candidate will retain each
+thread's eight-row transient BF16 state in packed registers across prediction
+and delta update, preserve the existing arithmetic/rounding order, and write
+global state once. It advances only if all 786,432 state bits and 6,144 output
+bits match, multi-step/in-place/disjoint/NaN/Graph gates pass, local memory
+stays zero, residency remains at least three CTA/SM, and actual timing reaches
+at least **1.2448x / 0.30 ms/token**. Otherwise it is removed immediately.
+
+The formal production anchor remains **105.870500 ms/token / 9.445501816
+token/s**. Full report identities, equations, priorities, and claim limits are
+in the [non-MTP audit record](metadata/qwen36-27b-decode-non-mtp-global-traffic-state-audit.json).

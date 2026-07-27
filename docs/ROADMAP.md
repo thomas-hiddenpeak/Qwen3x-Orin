@@ -1175,9 +1175,17 @@ production Graph profile and screen only mechanisms with a credible **at least
 0.3--0.5 ms/token** contribution before advancing to full-model validation.
 Keep the larger dedicated Prefill program behind the Decode stage gate.
 
-Current-production NCU remains unavailable on this vGPU because performance-
-counter permission is denied, so these screens use static resource/SASS checks
-followed by same-binary actual-payload gates.
+Root-enabled current-production NCU is now available and closes the earlier
+performance-counter gap. Matched one-launch reports put gate/up, down scale6,
+and LM head near mandatory weight-plus-scale traffic, at 81.12%, 74.90%, and
+79.42% of peak DRAM-read throughput. GDN is materially different: only 21.57%
+DRAM-read and 37.97% issue-active, with a concrete shared-memory state round
+trip. The next actual-first P1 is therefore an exact packed-register transient
+GDN state update, gated at least 1.2448x / 0.30 ms/token, zero local memory,
+and at least three CTA/SM. Projection physical-layout work follows only as a
+bounded hypothesis; generic L2 persistence and same-request buffering remain
+lower priority. MTP is explicitly outside this target path. See the
+[non-MTP traffic/state audit](metadata/qwen36-27b-decode-non-mtp-global-traffic-state-audit.json).
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
 candidates for restoration. Graph replay now removes repeated host submission
