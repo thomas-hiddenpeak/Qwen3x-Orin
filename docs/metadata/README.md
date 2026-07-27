@@ -1296,6 +1296,14 @@ The diagnostic Phase 3 records are:
   exhaustive E4M3FN, replay, Graph, invalid-call, guard, input, and resource
   gates pass. Production dispatch remains unchanged pending narrow exact-shape
   integration and full-model admission.
+- [`qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json`](qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json),
+  which rejects test-only exact C256/C512 GDN whole-span register-state
+  lifetime extension. Bitwise output/state, replay, guards, inputs, Graph,
+  invalid-call, and 64-register/34,056-byte-shared/four-CTA resource gates all
+  pass, and every mirrored round improves. C256 reaches only 1.02672x and C512
+  only 1.01871x, however, below the frozen 1.03x gate. The underlying
+  performance test therefore fails its two expected threshold assertions;
+  the default suite passes and production remains unchanged.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

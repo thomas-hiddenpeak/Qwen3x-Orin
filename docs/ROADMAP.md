@@ -1421,6 +1421,18 @@ row-search structure without an unpriced global-progress assumption. See the
   then require P257/P513 exact-token, memory, mirrored fixed-clock Prefix, and
   Nsight admission. See the
   [FP8 QKV/Z screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json).
+- [measured and rejected, GDN whole-span register state] Commit `9572c2a`
+  reduces exact C256/C512 production M16 chains from 16/32 nodes to one while
+  retaining packed BF16 recurrent state across the complete span. Bitwise,
+  replay, guard, input, Graph, invalid-call, and resource gates pass at
+  64 registers, 34,056 B shared, zero local memory, and four CTA/SM. Every
+  mirrored round improves, but C256 reaches only **1.02672x** and C512 only
+  **1.01871x**, both below the frozen 1.03x gate. First-process stop-loss skips
+  replication, runner/full-model, NCU, and Nsys work; production is unchanged.
+  Do not repeat longer lifetime with the same sequential recurrence body. A
+  future GDN screen requires a materially different algorithm/dataflow after
+  the selected attention and projection admissions. See the
+  [GDN rejection](metadata/qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json).
 - [closed, scheduling-only persistent Down P0] Commit `03336b6` uses equal-byte
   NK64/NK256 sidecars plus 16 static-stride CTAs but reaches only
   **0.511096x**, with all 18 rounds regressing. Grid reduction without B

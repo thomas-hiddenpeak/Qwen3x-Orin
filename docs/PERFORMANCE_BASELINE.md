@@ -7231,6 +7231,39 @@ which P257/P513 model-oracle, memory, mirrored fixed-clock Prefix, and fresh
 Nsight gates remain mandatory. Full binary, log, cell, resource, and hash
 evidence is in the [FP8 QKV/Z screen](metadata/qwen36-27b-prefill-fp8-whole-chunk-qkv-z-screen.json).
 
+## GDN C256/C512 whole-span register-state rejection
+
+Commit `9572c2a` compares the ordered production exact-M16 GDN chain with one
+isolated test-only exact-C256 or exact-C512 kernel. The candidate retains each
+thread's packed BF16 recurrent-state words in registers across the complete
+span, while preserving per-token BF16 rounding. It reduces 16/32 production
+kernel nodes to one and removes 15/31 intermediate state publication
+boundaries without changing `q3x_kernels`, public dispatch, the runner,
+Decode, or MTP policy.
+
+| GDN span | Production M16 chain | Whole-span candidate | Speedup | Round range | Frozen gate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| C256 | 5.21686 ms | 5.08111 ms | **1.02672x** | 1.02670x--1.02681x | 1.03x |
+| C512 | 10.4250 ms | 10.2336 ms | **1.01871x** | 1.01868x--1.01881x | 1.03x |
+
+All five mirrored `B-R-R-B` rounds per shape improve. Output and final state
+are bitwise against the production chain for in-place, disjoint, guarded, and
+replay paths; two R256 launches also equal one R512 launch. Input, finite,
+invalid zero-node capture, and Graph topology gates pass. Both candidates use
+64 registers, 34,056 bytes shared, zero local memory, 256 threads, and retain
+four active CTA/SM.
+
+Both shapes nevertheless miss the frozen 1.03x first-process gate, so the
+candidate is rejected. The performance-enabled test binary intentionally
+returns failure with two threshold assertions; a trailing `tee` can hide that
+status unless shell `pipefail` is enabled. The performance segment is skipped
+in the passing default test. External replication, runner/full-model work,
+NCU, and Nsys are omitted by stop-loss, and production remains unchanged. The
+result closes longer sequential register lifetime with the same recurrence
+body; a future GDN attempt must use a materially different algorithm or
+dataflow. Full log, binary, round, resource, Graph, and exit-status evidence is
+in the [GDN rejection record](metadata/qwen36-27b-prefill-gdn-whole-span-register-state-rejection.json).
+
 ## Matched vLLM plus FlashInfer Prefill reference
 
 The offline raw-token probe now has three independent processes across

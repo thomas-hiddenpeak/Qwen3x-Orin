@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-whole-span-register-state-rejection",
+  "status": "rejected-test-only-prefill-c256-c512-gdn-whole-span-register-state",
+  "recorded_at": "2026-07-28T03:12:48+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "9572c2ae38f423cf8af56420fd47071ef9589316",
+    "tree": "fcfc11048b0a7fce487e04569fbdf57e4d73c761",
+    "subject": "test: reject whole-span GDN Prefill state",
+    "files": [
+      "CMakeLists.txt",
+      "tests/gdn_decode_cuda_test.cu",
+      "tests/gdn_prefill_whole_span_sm87_candidate.cu"
+    ],
+    "scope": "test executable only",
+    "production_library_changed": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "public_abi_changed": false,
+    "candidate_test_code_retained": true,
+    "measured_binary": {
+      "path": "build/orin-release/q3x_gdn_decode_cuda_test",
+      "bytes": 1258448,
+      "sha256": "df7b71364a43ed40f1f11c8756a4ffe71e475a6d1921561ba5c9cb73c91cff08",
+      "elf_build_id": "b8d5c6abf615842edbff986c45bcc472f862113b",
+      "build_type": "Release"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "l2_cache_bytes": 4194304,
+    "claim_scope": "one fixed-clock actual-first stop-loss process for exact C256 and C512 GDN Prefill recurrence spans"
+  },
+  "experiment": {
+    "shapes": [
+      {
+        "token_count": 256,
+        "baseline_kernel_nodes": 16,
+        "candidate_kernel_nodes": 1
+      },
+      {
+        "token_count": 512,
+        "baseline_kernel_nodes": 32,
+        "candidate_kernel_nodes": 1
+      }
+    ],
+    "dimensions": {
+      "qk_heads": 16,
+      "value_heads": 48,
+      "head_dimension": 128,
+      "state_elements_per_layer": 786432,
+      "state_bytes_per_layer": 1572864,
+      "activation_state_and_output_format": "BF16"
+    },
+    "baseline": "ordered chain of the public production exact-M16 register-state GDN kernel",
+    "candidate": "one isolated exact-C256 or exact-C512 kernel retaining each thread's packed BF16 recurrent-state words in registers across the complete token span",
+    "semantic_contract": [
+      "copy the production exact-M16 arithmetic body into an isolated test-only CUDA translation unit",
+      "change only the compile-time token-loop extent to 256 or 512",
+      "load recurrent BF16 state once before token zero and store it once after the final token",
+      "preserve the per-token BF16 round-to-nearest-even state encoding before the next recurrent update",
+      "preserve the FP32 accumulation and production output ordering"
+    ],
+    "not_implemented_or_claimed": [
+      "production kernel or selector",
+      "runner integration",
+      "full-model Prefill speedup",
+      "WY or associative GDN formulation",
+      "MTP",
+      "double or triple buffering",
+      "Prefill and Decode overlap"
+    ],
+    "mtp_used": false
+  },
+  "frozen_gates": {
+    "correctness": [
+      "C256 and C512 output and final state bitwise equal to the ordered production M16 chain",
+      "in-place, disjoint-input/output, guarded, and replay paths agree bitwise",
+      "two ordered R256 launches agree bitwise with one R512 launch",
+      "all outputs and states are finite and completely overwritten",
+      "guards and every immutable input remain intact",
+      "valid candidate capture contains exactly one kernel node",
+      "at least 17 invalid calls capture zero nodes"
+    ],
+    "resources": {
+      "maximum_registers_per_thread": 85,
+      "required_static_shared_bytes": 34056,
+      "required_local_bytes": 0,
+      "required_threads_per_block": 256,
+      "minimum_active_blocks_per_sm": 3
+    },
+    "performance": {
+      "required_speedup_each_shape": 1.03,
+      "minimum_round_speedup": 1.0,
+      "mirrored_rounds_per_shape": 5,
+      "order": "B-R-R-B",
+      "required_external_process_repeats_after_first_process_pass": 5,
+      "stop_loss": "failure in the first process rejects production integration and skips external replication, full-model, NCU, and Nsys work"
+    }
+  },
+  "correctness_and_resources": {
+    "complete_default_device_test": "pass",
+    "output_bitwise": "pass",
+    "final_state_bitwise": "pass",
+    "inplace_and_disjoint_state": "pass",
+    "c512_equals_two_c256_chunks": "pass",
+    "replay": "pass",
+    "finite_and_overwritten": "pass",
+    "guards": "pass",
+    "input_preservation": "pass",
+    "cuda_graph": {
+      "c256_baseline_kernel_nodes": 16,
+      "c512_baseline_kernel_nodes": 32,
+      "candidate_kernel_nodes_each_shape": 1,
+      "candidate_replay": "pass",
+      "invalid_cases": "at least 17",
+      "invalid_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "resources": {
+      "c256": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "c512": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 34056,
+        "local_bytes": 0,
+        "maximum_threads_per_block": 256,
+        "active_blocks_per_sm": 4
+      },
+      "result": "pass"
+    }
+  },
+  "performance_protocol": {
+    "fixture": "deterministic finite BF16 GDN activations and recurrent states",
+    "state_banks": 24,
+    "state_working_set_bytes": 37748736,
+    "working_set_exceeds_l2": true,
+    "state_reset_before_each_timed_pass": true,
+    "state_bank_rotation": "every logical operation",
+    "warmup_logical_operations_per_pass": 48,
+    "measured_logical_operations_per_pass": 240,
+    "rounds_per_shape": 5,
+    "passes_per_variant_per_shape": 10,
+    "order": "B-R-R-B",
+    "correctness_checked_after_each_mirrored_pair": true,
+    "aggregate": "median of ten per-variant timed passes"
+  },
+  "performance": {
+    "c256": {
+      "rounds": [
+        {
+          "round": 1,
+          "baseline_pass1_ms": 5.21576,
+          "candidate_pass1_ms": 5.07945,
+          "candidate_pass2_ms": 5.08110,
+          "baseline_pass2_ms": 5.21649,
+          "speedup": 1.02674
+        },
+        {
+          "round": 2,
+          "baseline_pass1_ms": 5.21642,
+          "candidate_pass1_ms": 5.08079,
+          "candidate_pass2_ms": 5.08117,
+          "baseline_pass2_ms": 5.21689,
+          "speedup": 1.02670
+        },
+        {
+          "round": 3,
+          "baseline_pass1_ms": 5.21683,
+          "candidate_pass1_ms": 5.08111,
+          "candidate_pass2_ms": 5.08110,
+          "baseline_pass2_ms": 5.21751,
+          "speedup": 1.02678
+        },
+        {
+          "round": 4,
+          "baseline_pass1_ms": 5.21725,
+          "candidate_pass1_ms": 5.08086,
+          "candidate_pass2_ms": 5.08143,
+          "baseline_pass2_ms": 5.21755,
+          "speedup": 1.02681
+        },
+        {
+          "round": 5,
+          "baseline_pass1_ms": 5.21675,
+          "candidate_pass1_ms": 5.08128,
+          "candidate_pass2_ms": 5.08135,
+          "baseline_pass2_ms": 5.21762,
+          "speedup": 1.02674
+        }
+      ],
+      "summary": {
+        "baseline_pass_median_ms": 5.21686,
+        "candidate_pass_median_ms": 5.08111,
+        "paired_median_speedup": 1.02672,
+        "minimum_round_speedup": 1.02670,
+        "maximum_round_speedup": 1.02681,
+        "rounds_faster": 5,
+        "rounds_total": 5,
+        "latency_reduction_percent": 2.60214,
+        "required_speedup": 1.03,
+        "gate": "fail"
+      }
+    },
+    "c512": {
+      "rounds": [
+        {
+          "round": 1,
+          "baseline_pass1_ms": 10.4256,
+          "candidate_pass1_ms": 10.2337,
+          "candidate_pass2_ms": 10.2338,
+          "baseline_pass2_ms": 10.4247,
+          "speedup": 1.01870
+        },
+        {
+          "round": 2,
+          "baseline_pass1_ms": 10.4242,
+          "candidate_pass1_ms": 10.2333,
+          "candidate_pass2_ms": 10.2339,
+          "baseline_pass2_ms": 10.4254,
+          "speedup": 1.01868
+        },
+        {
+          "round": 3,
+          "baseline_pass1_ms": 10.4249,
+          "candidate_pass1_ms": 10.2326,
+          "candidate_pass2_ms": 10.2327,
+          "baseline_pass2_ms": 10.4254,
+          "speedup": 1.01881
+        },
+        {
+          "round": 4,
+          "baseline_pass1_ms": 10.4256,
+          "candidate_pass1_ms": 10.2344,
+          "candidate_pass2_ms": 10.2335,
+          "baseline_pass2_ms": 10.4252,
+          "speedup": 1.01871
+        },
+        {
+          "round": 5,
+          "baseline_pass1_ms": 10.4247,
+          "candidate_pass1_ms": 10.2332,
+          "candidate_pass2_ms": 10.2337,
+          "baseline_pass2_ms": 10.4247,
+          "speedup": 1.01869
+        }
+      ],
+      "summary": {
+        "baseline_pass_median_ms": 10.4250,
+        "candidate_pass_median_ms": 10.2336,
+        "paired_median_speedup": 1.01871,
+        "minimum_round_speedup": 1.01868,
+        "maximum_round_speedup": 1.01881,
+        "rounds_faster": 5,
+        "rounds_total": 5,
+        "latency_reduction_percent": 1.83597,
+        "required_speedup": 1.03,
+        "gate": "fail"
+      }
+    },
+    "result": "reject"
+  },
+  "evidence": {
+    "focused_performance_log": {
+      "path": "/tmp/q3x-gdn-prefill-whole-span-screen.log",
+      "bytes": 5228,
+      "sha256": "e7b2733ca5b48fc3e98cdf6ca233d2b9c9a410f608ff0255750814f5970653ec",
+      "reproducer": "Q3X_RUN_GDN_PREFILL_WHOLE_SPAN_PERF=1 build/orin-release/q3x_gdn_decode_cuda_test",
+      "expected_underlying_test_binary_exit_code": 1,
+      "terminal_summary": "2 CUDA GDN assertion(s) failed",
+      "interpretation": "the two expected failures are the C256 and C512 1.03x performance assertions; preceding correctness, resource, and Graph gates pass",
+      "tee_pipeline_caveat": "a shell pipeline ending in tee can report tee's zero status when pipefail is disabled; that wrapper status must not be interpreted as a passing performance gate"
+    },
+    "default_device_test_log": {
+      "path": "/tmp/q3x-gdn-whole-span-default-test.log",
+      "bytes": 1761,
+      "sha256": "48731a7850fbf499d360fca5891b58f5449f35232698800c3034ea26de238189",
+      "exit_code": 0,
+      "terminal_summary": "CUDA GDN reference tests passed"
+    }
+  },
+  "decision": {
+    "result": "reject",
+    "reason": "both exact shapes are bitwise, remove 15 or 31 intermediate M16 state publication boundaries, preserve the 64-register/four-CTA resource envelope, and improve every mirrored round, but C256 reaches only 1.02672x and C512 only 1.01871x against the frozen 1.03x gate",
+    "gate_changed_after_measurement": false,
+    "candidate_promoted": false,
+    "production_dispatch_changed": false,
+    "runner_integration_executed": false,
+    "full_model_oracle_executed": false,
+    "external_replication_executed": false,
+    "ncu_executed": false,
+    "nsys_executed": false,
+    "production_status": "unchanged"
+  },
+  "limitations": [
+    "Performance evidence is one fixed-clock process because both shapes fail the first-process frozen gate.",
+    "The deterministic finite BF16 fixture and 36-MiB rotating state pool are synthetic, not checkpoint-derived hidden trajectories.",
+    "The candidate isolates the sequential recurrent-state lifetime only; it does not change the GDN mathematical dataflow.",
+    "No whole-model Prefix or TTFT speedup may be inferred from these kernel timings.",
+    "The test-only candidate remains compiled into the dedicated CUDA test target but never enters q3x_kernels, the runner, or the public ABI."
+  ],
+  "next_priority": {
+    "closed_direction": "do not promote or repeat longer sequential register-state lifetime using the same per-token recurrence body",
+    "valid_reopen_condition": "use a materially different GDN algorithm or dataflow, such as a rigorously equivalent chunk-level WY or associative formulation, with separately frozen numerical and end-to-end gates",
+    "near_term": "continue the already selected bulk-attention and whole-chunk projection admissions before reopening GDN"
+  }
+}
