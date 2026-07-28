@@ -1182,7 +1182,8 @@ int main() {
                     : "FAIL")
             << '\n';
 
-  // The production prefill path is graph-driven.  Capture the exact
+  // The production module must remain Graph-safe even though the enclosing
+  // production Prefill loop is currently eager. Capture the exact
   // dequantize + selected-Lt chain, instantiate it, then require both the
   // first (cold) and second (warm) graph replays to match the trusted eager
   // output bit for bit.

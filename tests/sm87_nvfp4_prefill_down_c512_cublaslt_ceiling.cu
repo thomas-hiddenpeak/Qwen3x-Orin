@@ -1,3 +1,6 @@
+#include "q3x/core/sha256.h"
+#include "q3x/io/safetensors.h"
+#include "q3x/kernels/sm87_nvfp4_prefill_cublaslt.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 
 #include <cublasLt.h>
@@ -10,10 +13,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -38,6 +45,29 @@ constexpr double kMaximumProductionNrmse = 1.0e-2;
 constexpr double kMinimumProductionCosine = 0.9999;
 constexpr double kRelativeFloor = 1.0e-2;
 constexpr float kWeightScale2 = 1.25F;
+constexpr std::string_view kCheckpointWeightTensor =
+    "model.language_model.layers.0.mlp.down_proj.weight";
+constexpr std::string_view kCheckpointBlockScaleTensor =
+    "model.language_model.layers.0.mlp.down_proj.weight_scale";
+constexpr std::string_view kCheckpointWeightScale2Tensor =
+    "model.language_model.layers.0.mlp.down_proj.weight_scale_2";
+constexpr std::string_view kPinnedCheckpointWeightSha256 =
+    "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf";
+constexpr std::string_view kPinnedCheckpointBlockScaleSha256 =
+    "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019";
+constexpr std::string_view kPinnedCheckpointWeightScale2Sha256 =
+    "face5c84f9ca43eb34d792708f1c0d4bdc532c91d6419e65123a5d560245dd72";
+constexpr std::uint64_t kPinnedCheckpointShardBytes = 9'965'652'512ULL;
+constexpr std::uint64_t kPinnedCheckpointWeightBegin = 6'712'445'472ULL;
+constexpr std::uint64_t kPinnedCheckpointWeightEnd =
+    kPinnedCheckpointWeightBegin + kPackedWeightBytes;
+constexpr std::uint64_t kPinnedCheckpointBlockScaleBegin = 3'600'468'512ULL;
+constexpr std::uint64_t kPinnedCheckpointBlockScaleEnd =
+    kPinnedCheckpointBlockScaleBegin + kBlockScaleBytes;
+constexpr std::uint64_t kPinnedCheckpointWeightScale2Begin = 126'540ULL;
+constexpr std::uint64_t kPinnedCheckpointWeightScale2End =
+    kPinnedCheckpointWeightScale2Begin + sizeof(float);
+constexpr std::uint32_t kPinnedCheckpointWeightScale2Bits = 0x39b6'1862U;
 constexpr std::size_t kGuardElements = 256U;
 constexpr std::uint16_t kGuardBits = 0xa5a5U;
 constexpr double kUsefulFlops =
@@ -49,6 +79,9 @@ static_assert(kBElements == 89'128'960U);
 static_assert(kCElements == 2'621'440U);
 static_assert(kPackedWeightBytes == 44'564'480U);
 static_assert(kBlockScaleBytes == 5'570'560U);
+static_assert(kPinnedCheckpointWeightEnd == 6'757'009'952ULL);
+static_assert(kPinnedCheckpointBlockScaleEnd == 3'606'039'072ULL);
+static_assert(kPinnedCheckpointWeightScale2End == 126'544ULL);
 
 struct NumericalMetrics {
   std::size_t bitwise_mismatches = 0U;
@@ -157,6 +190,306 @@ class TestContext {
  private:
   int failures_ = 0;
 };
+
+struct CheckpointPayload {
+  std::vector<std::uint8_t> packed_weights;
+  std::vector<std::uint8_t> block_scales;
+  std::array<std::uint8_t, sizeof(float)> weight_scale_2_bytes{};
+  float weight_scale_2 = 0.0F;
+  std::uint32_t weight_scale_2_bits = 0U;
+  std::string weight_tensor;
+  std::string block_scale_tensor;
+  std::string weight_scale_2_tensor;
+  std::string shard;
+  std::string weight_sha256;
+  std::string block_scale_sha256;
+  std::string weight_scale_2_sha256;
+};
+
+[[nodiscard]] std::string describe_safetensors_error(
+    const q3x::io::safetensors::Error& error) {
+  std::string description =
+      std::string(q3x::io::safetensors::to_string(error.code)) + ": " +
+      std::string(error.message());
+  if (!error.context.empty()) {
+    description += " context=" + error.context;
+  }
+  if (!error.expected.empty()) {
+    description += " expected=" + error.expected;
+  }
+  if (!error.actual.empty()) {
+    description += " actual=" + error.actual;
+  }
+  if (error.offset != q3x::io::safetensors::kUnknownOffset) {
+    description += " offset=" + std::to_string(error.offset);
+  }
+  return description;
+}
+
+[[nodiscard]] bool path_is_strictly_within(
+    const std::filesystem::path& directory,
+    const std::filesystem::path& candidate) noexcept {
+  auto directory_component = directory.begin();
+  auto candidate_component = candidate.begin();
+  while (directory_component != directory.end() &&
+         candidate_component != candidate.end()) {
+    if (*directory_component != *candidate_component) {
+      return false;
+    }
+    ++directory_component;
+    ++candidate_component;
+  }
+  return directory_component == directory.end() &&
+         candidate_component != candidate.end();
+}
+
+[[nodiscard]] bool load_checkpoint_payload(
+    TestContext& test, const std::string& checkpoint_directory,
+    CheckpointPayload& payload) {
+  namespace fs = std::filesystem;
+  namespace st = q3x::io::safetensors;
+
+  std::error_code filesystem_error;
+  const fs::path requested_directory(checkpoint_directory);
+  const fs::file_status directory_link_status =
+      fs::symlink_status(requested_directory, filesystem_error);
+  if (filesystem_error || !fs::is_directory(directory_link_status) ||
+      fs::is_symlink(directory_link_status)) {
+    test.expect(false, "checkpoint path is an accessible non-symlink "
+                       "directory: " +
+                           checkpoint_directory);
+    return false;
+  }
+  const fs::path directory =
+      fs::canonical(requested_directory, filesystem_error);
+  if (filesystem_error || directory.empty()) {
+    test.expect(false, "checkpoint directory canonicalization succeeds");
+    return false;
+  }
+
+  const fs::path requested_index =
+      requested_directory / "model.safetensors.index.json";
+  const fs::file_status index_link_status =
+      fs::symlink_status(requested_index, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(index_link_status) ||
+      fs::is_symlink(index_link_status)) {
+    test.expect(false, "checkpoint index is a regular non-symlink file");
+    return false;
+  }
+  const fs::path index_path = fs::canonical(requested_index, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, index_path) ||
+      index_path != directory / "model.safetensors.index.json") {
+    test.expect(false, "checkpoint index resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Index> index = st::read_index(index_path.string());
+  if (!index) {
+    test.expect(false, "read checkpoint safetensors index: " +
+                           describe_safetensors_error(index.error));
+    return false;
+  }
+
+  const std::string* const weight_shard =
+      index.value->shard_for(kCheckpointWeightTensor);
+  const std::string* const block_scale_shard =
+      index.value->shard_for(kCheckpointBlockScaleTensor);
+  const std::string* const weight_scale_2_shard =
+      index.value->shard_for(kCheckpointWeightScale2Tensor);
+  const bool shard_mapping_exact =
+      weight_shard != nullptr && block_scale_shard != nullptr &&
+      weight_scale_2_shard != nullptr && *weight_shard == *block_scale_shard &&
+      *weight_shard == *weight_scale_2_shard &&
+      st::is_safe_relative_shard_path(*weight_shard);
+  test.expect(shard_mapping_exact,
+              "checkpoint index pins layer-0 Down payloads to one safe shard");
+  if (!shard_mapping_exact) {
+    return false;
+  }
+
+  const fs::path requested_shard =
+      requested_directory / fs::path(*weight_shard);
+  const fs::file_status shard_link_status =
+      fs::symlink_status(requested_shard, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(shard_link_status) ||
+      fs::is_symlink(shard_link_status)) {
+    test.expect(false, "checkpoint shard is a regular non-symlink file");
+    return false;
+  }
+  const fs::path shard_path = fs::canonical(requested_shard, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, shard_path) ||
+      shard_path != directory / fs::path(*weight_shard)) {
+    test.expect(false, "checkpoint shard resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Header> header = st::read_header(shard_path.string());
+  if (!header) {
+    test.expect(false, "read checkpoint safetensors shard header: " +
+                           describe_safetensors_error(header.error));
+    return false;
+  }
+  const bool shard_size_pinned =
+      header.value->file_size == kPinnedCheckpointShardBytes;
+  test.expect(shard_size_pinned,
+              "checkpoint layer-0 Down shard has pinned byte size");
+
+  const st::TensorInfo* const weight =
+      header.value->find_tensor(kCheckpointWeightTensor);
+  const st::TensorInfo* const block_scale =
+      header.value->find_tensor(kCheckpointBlockScaleTensor);
+  const st::TensorInfo* const weight_scale_2 =
+      header.value->find_tensor(kCheckpointWeightScale2Tensor);
+  const bool weight_exact =
+      weight != nullptr && weight->dtype == st::DType::kU8 &&
+      weight->shape.size() == 2U && weight->shape[0] == kN &&
+      weight->shape[1] == kK / 2U &&
+      weight->element_count == kPackedWeightBytes &&
+      weight->byte_size == kPackedWeightBytes &&
+      weight->file_begin == kPinnedCheckpointWeightBegin &&
+      weight->file_end == kPinnedCheckpointWeightEnd &&
+      weight->file_end <= header.value->file_size;
+  test.expect(weight_exact,
+              "checkpoint Down weight is pinned U8 [5120,8704] / "
+              "44564480B range");
+  const bool block_scale_exact =
+      block_scale != nullptr && block_scale->dtype == st::DType::kF8E4M3 &&
+      block_scale->shape.size() == 2U && block_scale->shape[0] == kN &&
+      block_scale->shape[1] == kK / 16U &&
+      block_scale->element_count == kBlockScaleBytes &&
+      block_scale->byte_size == kBlockScaleBytes &&
+      block_scale->file_begin == kPinnedCheckpointBlockScaleBegin &&
+      block_scale->file_end == kPinnedCheckpointBlockScaleEnd &&
+      block_scale->file_end <= header.value->file_size;
+  test.expect(block_scale_exact,
+              "checkpoint Down block scale is pinned F8_E4M3 "
+              "[5120,1088] / 5570560B range");
+  const bool weight_scale_2_exact =
+      weight_scale_2 != nullptr && weight_scale_2->dtype == st::DType::kF32 &&
+      weight_scale_2->shape.empty() && weight_scale_2->element_count == 1U &&
+      weight_scale_2->byte_size == sizeof(float) &&
+      weight_scale_2->file_begin == kPinnedCheckpointWeightScale2Begin &&
+      weight_scale_2->file_end == kPinnedCheckpointWeightScale2End &&
+      weight_scale_2->file_end <= header.value->file_size;
+  test.expect(weight_scale_2_exact,
+              "checkpoint Down weight_scale_2 is one pinned F32 scalar range");
+  if (!shard_size_pinned || !weight_exact || !block_scale_exact ||
+      !weight_scale_2_exact) {
+    return false;
+  }
+
+  const std::uint64_t maximum_streamoff = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamoff>::max());
+  const std::uint64_t maximum_streamsize = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamsize>::max());
+  const bool ranges_representable =
+      weight->file_begin <= maximum_streamoff &&
+      weight->file_end <= maximum_streamoff &&
+      block_scale->file_begin <= maximum_streamoff &&
+      block_scale->file_end <= maximum_streamoff &&
+      weight_scale_2->file_begin <= maximum_streamoff &&
+      weight_scale_2->file_end <= maximum_streamoff &&
+      weight->byte_size <= maximum_streamsize &&
+      block_scale->byte_size <= maximum_streamsize &&
+      weight_scale_2->byte_size <= maximum_streamsize;
+  test.expect(ranges_representable,
+              "checkpoint Down tensor ranges are stream-representable");
+  if (!ranges_representable) {
+    return false;
+  }
+
+  std::ifstream input(shard_path, std::ios::binary);
+  if (!input) {
+    test.expect(false, "open checkpoint Down shard read-only");
+    return false;
+  }
+  input.seekg(0, std::ios::end);
+  const std::streamoff observed_file_size = input.tellg();
+  const bool file_size_stable =
+      input && observed_file_size >= 0 &&
+      static_cast<std::uint64_t>(observed_file_size) ==
+          kPinnedCheckpointShardBytes &&
+      static_cast<std::uint64_t>(observed_file_size) ==
+          header.value->file_size;
+  test.expect(file_size_stable,
+              "checkpoint Down shard size remains pinned after header read");
+  if (!file_size_stable) {
+    return false;
+  }
+
+  payload.packed_weights.resize(kPackedWeightBytes);
+  payload.block_scales.resize(kBlockScaleBytes);
+  const auto read_exact =
+      [&input](const std::uint64_t offset, void* const destination,
+               const std::size_t bytes) {
+        input.clear();
+        input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!input) {
+          return false;
+        }
+        input.read(static_cast<char*>(destination),
+                   static_cast<std::streamsize>(bytes));
+        return input.gcount() == static_cast<std::streamsize>(bytes);
+      };
+  const bool weight_read =
+      read_exact(weight->file_begin, payload.packed_weights.data(),
+                 payload.packed_weights.size());
+  const bool block_scale_read =
+      read_exact(block_scale->file_begin, payload.block_scales.data(),
+                 payload.block_scales.size());
+  const bool weight_scale_2_read =
+      read_exact(weight_scale_2->file_begin,
+                 payload.weight_scale_2_bytes.data(),
+                 payload.weight_scale_2_bytes.size());
+  if (weight_scale_2_read) {
+    std::memcpy(&payload.weight_scale_2,
+                payload.weight_scale_2_bytes.data(), sizeof(float));
+    std::memcpy(&payload.weight_scale_2_bits,
+                payload.weight_scale_2_bytes.data(), sizeof(std::uint32_t));
+  }
+  const bool scale_value_exact =
+      weight_scale_2_read && std::isfinite(payload.weight_scale_2) &&
+      payload.weight_scale_2 > 0.0F &&
+      payload.weight_scale_2_bits == kPinnedCheckpointWeightScale2Bits;
+  test.expect(weight_read, "read complete bounded checkpoint Down weight");
+  test.expect(block_scale_read,
+              "read complete bounded checkpoint Down block scale");
+  test.expect(scale_value_exact,
+              "read finite positive pinned checkpoint Down weight_scale_2");
+  if (!weight_read || !block_scale_read || !scale_value_exact) {
+    payload.packed_weights.clear();
+    payload.block_scales.clear();
+    return false;
+  }
+
+  payload.weight_sha256 = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(payload.packed_weights.data()),
+      payload.packed_weights.size())).hex();
+  payload.block_scale_sha256 = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(payload.block_scales.data()),
+      payload.block_scales.size())).hex();
+  payload.weight_scale_2_sha256 = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(payload.weight_scale_2_bytes.data()),
+      payload.weight_scale_2_bytes.size())).hex();
+  const bool hashes_pinned =
+      payload.weight_sha256 == kPinnedCheckpointWeightSha256 &&
+      payload.block_scale_sha256 == kPinnedCheckpointBlockScaleSha256 &&
+      payload.weight_scale_2_sha256 ==
+          kPinnedCheckpointWeightScale2Sha256;
+  test.expect(hashes_pinned,
+              "checkpoint Down weight/scale/scale_2 SHA256 match pinned "
+              "payloads");
+  if (!hashes_pinned) {
+    payload.packed_weights.clear();
+    payload.block_scales.clear();
+    return false;
+  }
+
+  payload.weight_tensor = std::string(kCheckpointWeightTensor);
+  payload.block_scale_tensor = std::string(kCheckpointBlockScaleTensor);
+  payload.weight_scale_2_tensor =
+      std::string(kCheckpointWeightScale2Tensor);
+  payload.shard = *weight_shard;
+  return true;
+}
 
 template <typename T>
 class DeviceBuffer {
@@ -1078,6 +1411,81 @@ __global__ void validate_bf16_guards_kernel(
          static_cast<double>(iterations);
 }
 
+[[nodiscard]] bool launch_public_down_module(
+    TestContext& test,
+    q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext* const context,
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    const __nv_bfloat16* const activation,
+    __nv_bfloat16* const transient_weight, __nv_bfloat16* const output,
+    const float weight_scale_2, const cudaStream_t stream,
+    const std::string& label) {
+  const int status =
+      q3x::kernels::launch_sm87_nvfp4_prefill_cublaslt_down_c512(
+          context, packed_weights, block_scales, weight_scale_2,
+          reinterpret_cast<const std::uint16_t*>(activation), kM, kN, kK,
+          reinterpret_cast<std::uint16_t*>(transient_weight),
+          kBElements * sizeof(__nv_bfloat16),
+          reinterpret_cast<std::uint16_t*>(output),
+          static_cast<void*>(stream));
+  return test.cuda_ok(static_cast<cudaError_t>(status), label);
+}
+
+[[nodiscard]] double measure_public_down_module(
+    TestContext& test,
+    q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext* const context,
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    const __nv_bfloat16* const activation,
+    __nv_bfloat16* const transient_weight, __nv_bfloat16* const output,
+    const float weight_scale_2, const cudaStream_t stream, const int warmups,
+    const int iterations, const std::string& label) {
+  for (int warmup = 0; warmup < warmups; ++warmup) {
+    if (!launch_public_down_module(
+            test, context, packed_weights, block_scales, activation,
+            transient_weight, output, weight_scale_2, stream,
+            label + " warmup " + std::to_string(warmup))) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+  if (!test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync")) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  bool ready = test.cuda_ok(cudaEventCreate(&start), label + " create start");
+  ready = ready &&
+          test.cuda_ok(cudaEventCreate(&stop), label + " create stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(start, stream), label + " record start");
+  for (int iteration = 0; ready && iteration < iterations; ++iteration) {
+    ready = launch_public_down_module(
+        test, context, packed_weights, block_scales, activation,
+        transient_weight, output, weight_scale_2, stream,
+        label + " measured " + std::to_string(iteration));
+  }
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(stop, stream), label + " record stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventSynchronize(stop), label + " stop sync");
+  float total_milliseconds = 0.0F;
+  ready = ready && test.cuda_ok(
+                       cudaEventElapsedTime(&total_milliseconds, start, stop),
+                       label + " elapsed time");
+  if (stop != nullptr) {
+    (void)cudaEventDestroy(stop);
+  }
+  if (start != nullptr) {
+    (void)cudaEventDestroy(start);
+  }
+  if (!ready) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<double>(total_milliseconds) /
+         static_cast<double>(iterations);
+}
+
 [[nodiscard]] double median(std::vector<double> values) {
   std::sort(values.begin(), values.end());
   const std::size_t middle = values.size() / 2U;
@@ -1095,10 +1503,134 @@ __global__ void validate_bf16_guards_kernel(
   return static_cast<std::size_t>(address & (~address + 1U));
 }
 
+[[nodiscard]] bool read_u64(const std::string& path,
+                            std::uint64_t& value) {
+  std::ifstream input(path);
+  return static_cast<bool>(input >> value);
+}
+
+struct ClockState {
+  std::uint64_t gpu_min = 0U;
+  std::uint64_t gpu_current = 0U;
+  std::uint64_t gpu_max = 0U;
+  std::uint64_t emc_min = 0U;
+  std::uint64_t emc_current = 0U;
+  std::uint64_t emc_max = 0U;
+};
+
+[[nodiscard]] std::optional<ClockState> read_clock_state() {
+  constexpr const char* kGpuRoot =
+      "/sys/devices/platform/bus@0/17000000.gpu/devfreq/17000000.gpu/";
+  constexpr const char* kEmcRoot =
+      "/sys/devices/platform/bwmgr/devfreq/bwmgr/";
+  ClockState state;
+  if (!read_u64(std::string(kGpuRoot) + "min_freq", state.gpu_min) ||
+      !read_u64(std::string(kGpuRoot) + "cur_freq", state.gpu_current) ||
+      !read_u64(std::string(kGpuRoot) + "max_freq", state.gpu_max) ||
+      !read_u64(std::string(kEmcRoot) + "min_freq", state.emc_min) ||
+      !read_u64(std::string(kEmcRoot) + "cur_freq", state.emc_current) ||
+      !read_u64(std::string(kEmcRoot) + "max_freq", state.emc_max)) {
+    return std::nullopt;
+  }
+  return state;
+}
+
+[[nodiscard]] bool clocks_are_fixed(const ClockState& state) noexcept {
+  return state.gpu_min == state.gpu_max &&
+         state.gpu_current == state.gpu_max && state.emc_min == state.emc_max &&
+         state.emc_current == state.emc_max;
+}
+
+struct Options {
+  std::string checkpoint_directory;
+};
+
+[[nodiscard]] bool parse_options(const int argc, char** argv,
+                                 Options& options) {
+  bool checkpoint_seen = false;
+  for (int index = 1; index < argc; ++index) {
+    const std::string argument(argv[index]);
+    if (argument.rfind("--checkpoint=", 0U) == 0U) {
+      if (checkpoint_seen) {
+        std::cerr << "duplicate --checkpoint argument\n";
+        return false;
+      }
+      checkpoint_seen = true;
+      options.checkpoint_directory =
+          argument.substr(std::string("--checkpoint=").size());
+    } else if (argument == "--checkpoint") {
+      if (checkpoint_seen) {
+        std::cerr << "duplicate --checkpoint argument\n";
+        return false;
+      }
+      if (index + 1 >= argc) {
+        std::cerr << "--checkpoint requires a directory\n";
+        return false;
+      }
+      checkpoint_seen = true;
+      options.checkpoint_directory = argv[++index];
+    } else {
+      std::cerr << "unknown argument: " << argument << '\n';
+      return false;
+    }
+    if (options.checkpoint_directory.empty()) {
+      std::cerr << "--checkpoint requires a non-empty directory\n";
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
-int main() {
+int main(const int argc, char** argv) {
+  Options options{};
+  if (!parse_options(argc, argv, options)) {
+    return 2;
+  }
   TestContext test;
+  CheckpointPayload checkpoint_payload;
+  const CheckpointPayload* selected_checkpoint = nullptr;
+  if (!options.checkpoint_directory.empty()) {
+    if (!load_checkpoint_payload(test, options.checkpoint_directory,
+                                 checkpoint_payload)) {
+      return 1;
+    }
+    selected_checkpoint = &checkpoint_payload;
+    std::cout << std::fixed << std::setprecision(9)
+              << "NVFP4_DOWN_C512_PAYLOAD: payload=checkpoint"
+              << " weight_tensor=" << checkpoint_payload.weight_tensor
+              << " block_scale_tensor="
+              << checkpoint_payload.block_scale_tensor
+              << " weight_scale_2_tensor="
+              << checkpoint_payload.weight_scale_2_tensor
+              << " shard=" << checkpoint_payload.shard
+              << " weight_bytes=" << checkpoint_payload.packed_weights.size()
+              << " block_scale_bytes="
+              << checkpoint_payload.block_scales.size()
+              << " weight_scale_2=" << checkpoint_payload.weight_scale_2
+              << " weight_scale_2_bits=0x" << std::hex
+              << checkpoint_payload.weight_scale_2_bits << std::dec
+              << " weight_range=" << kPinnedCheckpointWeightBegin << ':'
+              << kPinnedCheckpointWeightEnd
+              << " block_scale_range=" << kPinnedCheckpointBlockScaleBegin
+              << ':' << kPinnedCheckpointBlockScaleEnd
+              << " weight_scale_2_range="
+              << kPinnedCheckpointWeightScale2Begin << ':'
+              << kPinnedCheckpointWeightScale2End
+              << " weight_sha256=" << checkpoint_payload.weight_sha256
+              << " block_scale_sha256="
+              << checkpoint_payload.block_scale_sha256
+              << " weight_scale_2_sha256="
+              << checkpoint_payload.weight_scale_2_sha256
+              << " checkpoint_read_only=true\n";
+  } else {
+    std::cout << "NVFP4_DOWN_C512_PAYLOAD: payload=synthetic"
+              << " weight_tensor=none block_scale_tensor=none"
+              << " weight_scale_2_tensor=none"
+              << " weight_bytes=" << kPackedWeightBytes
+              << " block_scale_bytes=" << kBlockScaleBytes << '\n';
+  }
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
     return 1;
@@ -1111,6 +1643,16 @@ int main() {
   if (properties.major != 8 || properties.minor != 7) {
     std::cout << "SKIP: persistent-BF16 Down ceiling requires SM87; found "
               << properties.major << '.' << properties.minor << '\n';
+    return 77;
+  }
+
+  const std::optional<ClockState> clocks = read_clock_state();
+  if (selected_checkpoint != nullptr &&
+      (!clocks.has_value() || !clocks_are_fixed(*clocks))) {
+    std::cout << "SKIP: real-checkpoint public Down module proof requires "
+                 "fixed GPU and EMC clocks"
+              << " clock_state_available="
+              << (clocks.has_value() ? "true" : "false") << '\n';
     return 77;
   }
 
@@ -1169,6 +1711,18 @@ int main() {
             << kBElements * sizeof(__nv_bfloat16)
             << " control_dequantization_timed=false workspace_bytes="
             << kWorkspaceBytes << " useful_GFLOP=" << kUsefulFlops / 1.0e9
+            << " fixed_clocks="
+            << (clocks.has_value() && clocks_are_fixed(*clocks) ? "true"
+                                                                 : "false");
+  if (clocks.has_value()) {
+    std::cout << " gpu_min_hz=" << clocks->gpu_min
+              << " gpu_current_hz=" << clocks->gpu_current
+              << " gpu_max_hz=" << clocks->gpu_max
+              << " emc_min_hz=" << clocks->emc_min
+              << " emc_current_hz=" << clocks->emc_current
+              << " emc_max_hz=" << clocks->emc_max;
+  }
+  std::cout
             << '\n';
   std::cout << "NVFP4_DEQUANT_DOWN_C512_RESOURCES: threads=256 blocks="
             << kN << " registers_per_thread=" << dequant_attributes.numRegs
@@ -1507,14 +2061,35 @@ int main() {
         buffer.get(), count, salt, block_scales);
     return test.cuda_ok(cudaGetLastError(), label);
   };
-  ready = ready && fill_canonical(
-                       canonical_packed_weight, kPackedWeightBytes,
-                       0x6a09'e667U, false,
-                       "launch canonical packed NVFP4 fill");
-  ready = ready && fill_canonical(
-                       canonical_block_scale, kBlockScaleBytes,
-                       0xbb67'ae85U, true,
-                       "launch canonical E4M3FN scale fill");
+  const float nvfp4_weight_scale_2 =
+      selected_checkpoint != nullptr ? selected_checkpoint->weight_scale_2
+                                     : kWeightScale2;
+  if (selected_checkpoint != nullptr) {
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             canonical_packed_weight.get(),
+                             selected_checkpoint->packed_weights.data(),
+                             kPackedWeightBytes, cudaMemcpyHostToDevice,
+                             stream),
+                         "upload pinned checkpoint Down weight");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             canonical_block_scale.get(),
+                             selected_checkpoint->block_scales.data(),
+                             kBlockScaleBytes, cudaMemcpyHostToDevice, stream),
+                         "upload pinned checkpoint Down block scale");
+  } else {
+    ready = ready && fill_canonical(
+                         canonical_packed_weight, kPackedWeightBytes,
+                         0x6a09'e667U, false,
+                         "launch canonical packed NVFP4 fill");
+    ready = ready && fill_canonical(
+                         canonical_block_scale, kBlockScaleBytes,
+                         0xbb67'ae85U, true,
+                         "launch canonical E4M3FN scale fill");
+  }
+  test.expect(select_hybrid_for_scale(nvfp4_weight_scale_2),
+              "selected Down weight_scale_2 is finite and positive");
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(
                            canonical_packed_weight_snapshot.get(),
@@ -1977,13 +2552,13 @@ int main() {
                        stream,
                        "launch inclusive window8 candidate dequant");
   ready = ready && launch_lt(
-                       test, lt, selected, kWeightScale2,
+                       test, lt, selected, nvfp4_weight_scale_2,
                        persistent_weight.get(), activation.get(),
                        candidate_output,
                        workspace.get(), kWorkspaceBytes, stream,
                        "launch inclusive candidate GEMM");
   ready = ready && launch_lt(
-                       test, lt, selected, kWeightScale2,
+                       test, lt, selected, nvfp4_weight_scale_2,
                        dequant_reference.get(), activation.get(),
                        trusted_output, workspace.get(),
                        kWorkspaceBytes, stream,
@@ -2015,7 +2590,7 @@ int main() {
             << " selected_dequant=window8"
             << " nonfinite=" << host_validation[1]
             << " encoded_sum=" << host_validation[2]
-            << " weight_scale_2=" << kWeightScale2
+            << " weight_scale_2=" << nvfp4_weight_scale_2
             << " scale_application=cuBLASLt_alpha_after_BF16_dequant"
             << " production_M128_bitwise_compared=deferred"
             << " gate="
@@ -2025,7 +2600,8 @@ int main() {
                     : "FAIL")
             << '\n';
 
-  // The production prefill path is graph-driven.  Capture the exact
+  // The production module must remain Graph-safe even though the enclosing
+  // production Prefill loop is currently eager. Capture the exact
   // dequantize + selected-Lt chain, instantiate it, then require both the
   // first (cold) and second (warm) graph replays to match the trusted eager
   // output bit for bit.
@@ -2041,7 +2617,7 @@ int main() {
         persistent_weight.get(), stream, "capture window8 NVFP4 dequant");
     const bool captured_lt =
         captured_dequant &&
-        launch_lt(test, lt, selected, kWeightScale2,
+        launch_lt(test, lt, selected, nvfp4_weight_scale_2,
                   persistent_weight.get(), activation.get(), candidate_output,
                   workspace.get(), kWorkspaceBytes, stream,
                   "capture selected cuBLASLt GEMM");
@@ -2144,7 +2720,7 @@ int main() {
             << '/' << kCElements
             << " warm_nonfinite=" << warm_graph_validation[1]
             << " warm_encoded_sum=" << warm_graph_validation[2]
-            << " weight_scale_2=" << kWeightScale2
+            << " weight_scale_2=" << nvfp4_weight_scale_2
             << " production_M128_bitwise_compared=deferred"
             << " gate="
             << ((graph_ready && cold_graph_validation[0] == 0U &&
@@ -2165,7 +2741,7 @@ int main() {
   const int production_status = q3x::kernels::
       launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
           canonical_packed_weight.get(), canonical_block_scale.get(),
-          kWeightScale2,
+          nvfp4_weight_scale_2,
           reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
           kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
           static_cast<void*>(stream));
@@ -2220,6 +2796,127 @@ int main() {
             << " gate="
             << (production_numerical_gate ? "PASS" : "FAIL") << '\n';
 
+  // The ceiling's local LtObjects selection is not production evidence by
+  // itself.  For a pinned checkpoint, launch the separately compiled public
+  // module over the exact same operands and require its Window8 scratch and
+  // BF16 output to agree bit-for-bit with the trusted decoder, this TU's
+  // inclusive chain, and the existing production M128 kernel.
+  q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext*
+      public_down_context = nullptr;
+  std::size_t public_scratch_bytes = 0U;
+  std::size_t public_workspace_bytes = std::numeric_limits<std::size_t>::max();
+  int public_heuristic_rank = -1;
+  bool public_module_evidence_gate = true;
+  if (selected_checkpoint != nullptr) {
+    const int public_create_status = q3x::kernels::
+        create_sm87_nvfp4_prefill_down_cublaslt_context(&public_down_context);
+    bool public_ready =
+        test.cuda_ok(static_cast<cudaError_t>(public_create_status),
+                     "create public production Down context") &&
+        public_down_context != nullptr;
+    test.expect(public_down_context != nullptr,
+                "public production Down context is non-null");
+    int public_query_status = static_cast<int>(cudaErrorInvalidValue);
+    if (public_ready) {
+      public_query_status = q3x::kernels::
+          query_sm87_nvfp4_prefill_down_cublaslt_context(
+              public_down_context, &public_scratch_bytes,
+              &public_workspace_bytes, &public_heuristic_rank);
+      public_ready =
+          test.cuda_ok(static_cast<cudaError_t>(public_query_status),
+                       "query public production Down context") &&
+          public_ready;
+    }
+    const bool public_contract_exact =
+        public_ready &&
+        public_scratch_bytes == kBElements * sizeof(__nv_bfloat16) &&
+        public_workspace_bytes == 0U && public_heuristic_rank >= 0;
+    test.expect(public_contract_exact,
+                "public Down context reports exact scratch and zero workspace");
+    public_ready = public_ready && public_contract_exact;
+
+    if (public_ready) {
+      public_ready = launch_public_down_module(
+                         test, public_down_context,
+                         canonical_packed_weight.get(),
+                         canonical_block_scale.get(), activation.get(),
+                         persistent_weight.get(), trusted_output,
+                         nvfp4_weight_scale_2, stream,
+                         "launch public production Down module") &&
+                     public_ready;
+      public_ready =
+          test.cuda_ok(cudaMemsetAsync(validation.get(), 0,
+                                       3U * sizeof(unsigned long long), stream),
+                       "zero public module scratch validation") &&
+          public_ready;
+      validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
+          persistent_weight.get(), dequant_reference.get(), kBElements,
+          validation.get(), validation.get() + 1U, validation.get() + 2U);
+      public_ready =
+          test.cuda_ok(cudaGetLastError(),
+                       "launch public module scratch validation") &&
+          public_ready;
+    }
+
+    std::array<unsigned long long, 3U> public_scratch_validation{};
+    if (public_ready) {
+      public_ready =
+          test.cuda_ok(cudaMemcpyAsync(
+                           public_scratch_validation.data(), validation.get(),
+                           sizeof(public_scratch_validation),
+                           cudaMemcpyDeviceToHost, stream),
+                       "copy public module scratch validation") &&
+          public_ready;
+      public_ready =
+          test.cuda_ok(cudaStreamSynchronize(stream),
+                       "synchronize public production Down module") &&
+          public_ready;
+    }
+
+    std::vector<std::uint16_t> public_module_host(kCElements);
+    if (public_ready) {
+      public_ready =
+          test.cuda_ok(cudaMemcpy(public_module_host.data(), trusted_output,
+                                  kCElements * sizeof(std::uint16_t),
+                                  cudaMemcpyDeviceToHost),
+                       "copy public production Down output") &&
+          public_ready;
+    }
+    const NumericalMetrics public_vs_internal =
+        compare_bf16_outputs(public_module_host, candidate_host);
+    const NumericalMetrics public_vs_production =
+        compare_bf16_outputs(public_module_host, production_host);
+    public_module_evidence_gate =
+        public_ready && public_scratch_validation[0] == 0U &&
+        public_scratch_validation[1] == 0U &&
+        public_scratch_validation[2] != 0U &&
+        public_vs_internal.bitwise_mismatches == 0U &&
+        public_vs_internal.candidate_nonfinite == 0U &&
+        public_vs_internal.production_nonfinite == 0U &&
+        public_vs_production.bitwise_mismatches == 0U &&
+        public_vs_production.candidate_nonfinite == 0U &&
+        public_vs_production.production_nonfinite == 0U;
+    test.expect(public_module_evidence_gate,
+                "public Down module is bitwise exact on pinned checkpoint");
+    ready = ready && public_module_evidence_gate;
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_EXACT:"
+              << " create_status=" << public_create_status
+              << " query_status=" << public_query_status
+              << " heuristic_rank=" << public_heuristic_rank
+              << " scratch_bytes=" << public_scratch_bytes
+              << " workspace_bytes=" << public_workspace_bytes
+              << " scratch_reference_mismatches="
+              << public_scratch_validation[0] << '/' << kBElements
+              << " scratch_nonfinite=" << public_scratch_validation[1]
+              << " scratch_encoded_sum=" << public_scratch_validation[2]
+              << " output_vs_test_TU_mismatches="
+              << public_vs_internal.bitwise_mismatches << '/' << kCElements
+              << " output_vs_production_M128_mismatches="
+              << public_vs_production.bitwise_mismatches << '/' << kCElements
+              << " checkpoint=true gate="
+              << (public_module_evidence_gate ? "PASS" : "FAIL") << '\n';
+  }
+
   std::vector<double> dequant_round_milliseconds;
   std::vector<double> inclusive_round_milliseconds;
   std::vector<double> production_round_milliseconds;
@@ -2235,7 +2932,8 @@ int main() {
     if ((round & 1) == 0) {
       production_milliseconds = measure_production_down(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
-          activation.get(), exact_production_output, kWeightScale2, stream,
+          activation.get(), exact_production_output, nvfp4_weight_scale_2,
+          stream,
           kFormalWarmups, kFormalIterations,
           "production M128 round " + std::to_string(round + 1));
       dequant_milliseconds = measure_dequantize_window8(
@@ -2246,14 +2944,14 @@ int main() {
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
           activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
-          stream, kWeightScale2, kFormalWarmups, kFormalIterations,
+          stream, nvfp4_weight_scale_2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
     } else {
       inclusive_milliseconds = measure_inclusive_window8(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
           activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
-          stream, kWeightScale2, kFormalWarmups, kFormalIterations,
+          stream, nvfp4_weight_scale_2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
       dequant_milliseconds = measure_dequantize_window8(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
@@ -2261,7 +2959,8 @@ int main() {
           "NVFP4 window8 dequant round " + std::to_string(round + 1));
       production_milliseconds = measure_production_down(
           test, canonical_packed_weight.get(), canonical_block_scale.get(),
-          activation.get(), exact_production_output, kWeightScale2, stream,
+          activation.get(), exact_production_output, nvfp4_weight_scale_2,
+          stream,
           kFormalWarmups, kFormalIterations,
           "production M128 round " + std::to_string(round + 1));
     }
@@ -2361,7 +3060,7 @@ int main() {
               << (all_round_positive ? "true" : "false")
               << " required_speedup=" << kRequiredInclusiveSpeedup
               << " comparison_scope=canonical_NVFP4_dequant_plus_cuBLASLt"
-              << " weight_scale_2=" << kWeightScale2
+              << " weight_scale_2=" << nvfp4_weight_scale_2
               << " scale_application=cuBLASLt_alpha_after_BF16_dequant"
               << " production_M128_bitwise_compared=true"
               << " production_M128_bitwise_mismatches="
@@ -2369,6 +3068,119 @@ int main() {
               << " dequantization_timed=true gate="
               << (inclusive_speed_gate ? "PASS" : "FAIL") << '\n';
   }
+
+  // A same-process B-C-C-B comparison determines whether the local ceiling
+  // chain can be extrapolated to the separately compiled public module.  B is
+  // this TU's Window8 + selected Lt chain and C is the public production
+  // launcher, including its independently autotuned zero-workspace Lt choice.
+  // A negative extrapolation result is valid evidence, not a test failure;
+  // only missing clocks, launch failures, or non-finite timings fail the gate.
+  bool public_module_timing_gate = selected_checkpoint == nullptr;
+  bool public_module_extrapolation_supported = false;
+  if (selected_checkpoint != nullptr && public_module_evidence_gate) {
+    constexpr double kMaximumExtrapolationDeltaFraction = 0.03;
+    double test_tu_sum = 0.0;
+    double public_module_sum = 0.0;
+    bool every_round_within_band = true;
+    bool every_timing_finite = true;
+    for (int round = 0; round < kFormalRounds; ++round) {
+      const std::string prefix =
+          "public module BCCB round " + std::to_string(round + 1) + ' ';
+      const double b1 = measure_inclusive_window8(
+          test, lt, selected, canonical_packed_weight.get(),
+          canonical_block_scale.get(), persistent_weight.get(),
+          activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
+          stream, nvfp4_weight_scale_2, kFormalWarmups, kFormalIterations,
+          prefix + "B1 test TU");
+      const double c1 = measure_public_down_module(
+          test, public_down_context, canonical_packed_weight.get(),
+          canonical_block_scale.get(), activation.get(),
+          persistent_weight.get(), trusted_output, nvfp4_weight_scale_2, stream,
+          kFormalWarmups, kFormalIterations, prefix + "C1 public module");
+      const double c2 = measure_public_down_module(
+          test, public_down_context, canonical_packed_weight.get(),
+          canonical_block_scale.get(), activation.get(),
+          persistent_weight.get(), trusted_output, nvfp4_weight_scale_2, stream,
+          kFormalWarmups, kFormalIterations, prefix + "C2 public module");
+      const double b2 = measure_inclusive_window8(
+          test, lt, selected, canonical_packed_weight.get(),
+          canonical_block_scale.get(), persistent_weight.get(),
+          activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
+          stream, nvfp4_weight_scale_2, kFormalWarmups, kFormalIterations,
+          prefix + "B2 test TU");
+      const bool finite =
+          std::isfinite(b1) && b1 > 0.0 && std::isfinite(c1) && c1 > 0.0 &&
+          std::isfinite(c2) && c2 > 0.0 && std::isfinite(b2) && b2 > 0.0;
+      const double test_tu_pair =
+          finite ? 0.5 * (b1 + b2)
+                 : std::numeric_limits<double>::quiet_NaN();
+      const double public_module_pair =
+          finite ? 0.5 * (c1 + c2)
+                 : std::numeric_limits<double>::quiet_NaN();
+      const double delta_fraction =
+          finite ? std::abs(public_module_pair - test_tu_pair) / test_tu_pair
+                 : std::numeric_limits<double>::quiet_NaN();
+      const bool within_band =
+          finite && delta_fraction <= kMaximumExtrapolationDeltaFraction;
+      every_timing_finite = every_timing_finite && finite;
+      every_round_within_band = every_round_within_band && within_band;
+      if (finite) {
+        test_tu_sum += b1 + b2;
+        public_module_sum += c1 + c2;
+      }
+      std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_ROUND: round="
+                << round + 1 << " order=B-C-C-B"
+                << " B1_test_TU_ms=" << b1
+                << " C1_public_module_ms=" << c1
+                << " C2_public_module_ms=" << c2
+                << " B2_test_TU_ms=" << b2
+                << " test_TU_pair_ms=" << test_tu_pair
+                << " public_module_pair_ms=" << public_module_pair
+                << " public_over_test_TU="
+                << public_module_pair / test_tu_pair
+                << " absolute_delta_fraction=" << delta_fraction
+                << " within_3pct=" << (within_band ? "true" : "false")
+                << '\n';
+    }
+    const double denominator = 2.0 * static_cast<double>(kFormalRounds);
+    const double test_tu_aggregate = test_tu_sum / denominator;
+    const double public_module_aggregate = public_module_sum / denominator;
+    const double aggregate_delta_fraction =
+        std::abs(public_module_aggregate - test_tu_aggregate) /
+        test_tu_aggregate;
+    public_module_timing_gate =
+        every_timing_finite && clocks.has_value() && clocks_are_fixed(*clocks);
+    public_module_extrapolation_supported =
+        public_module_timing_gate && every_round_within_band &&
+        aggregate_delta_fraction <= kMaximumExtrapolationDeltaFraction;
+    test.expect(public_module_timing_gate,
+                "public Down module B-C-C-B timing protocol completes");
+    ready = ready && public_module_timing_gate;
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_FINAL:"
+              << " rounds=" << kFormalRounds
+              << " iterations=" << kFormalIterations
+              << " order=B-C-C-B"
+              << " test_TU_inclusive_milliseconds=" << test_tu_aggregate
+              << " public_module_inclusive_milliseconds="
+              << public_module_aggregate
+              << " public_over_test_TU="
+              << public_module_aggregate / test_tu_aggregate
+              << " absolute_delta_fraction=" << aggregate_delta_fraction
+              << " allowed_delta_fraction="
+              << kMaximumExtrapolationDeltaFraction
+              << " every_round_within_band="
+              << (every_round_within_band ? "true" : "false")
+              << " heuristic_rank=" << public_heuristic_rank
+              << " workspace_bytes=" << public_workspace_bytes
+              << " fixed_clocks=true"
+              << " extrapolation="
+              << (public_module_extrapolation_supported ? "SUPPORTED"
+                                                        : "NOT_SUPPORTED")
+              << " timing_gate="
+              << (public_module_timing_gate ? "PASS" : "FAIL") << '\n';
+  }
+  public_module_evidence_gate =
+      public_module_evidence_gate && public_module_timing_gate;
 
   // Probe the scale boundary without admitting it to the hybrid selector.
   // Both raw routes are executed at zero solely to characterize signed-zero
@@ -2498,12 +3310,14 @@ int main() {
       nan_capture_ready &&
       nan_production_status == static_cast<int>(cudaErrorInvalidValue) &&
       nan_graph_nodes == 0U && !nan_selector_admitted &&
-      !negative_selector_admitted && select_hybrid_for_scale(kWeightScale2);
+      !negative_selector_admitted &&
+      select_hybrid_for_scale(nvfp4_weight_scale_2);
   test.expect(nan_gate,
               "hybrid selector fail-closes NaN/negative before enqueue");
   ready = ready && nan_capture_ready;
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_SCALE_SELECTOR: positive_finite="
-            << (select_hybrid_for_scale(kWeightScale2) ? "hybrid" : "reject")
+            << (select_hybrid_for_scale(nvfp4_weight_scale_2) ? "hybrid"
+                                                             : "reject")
             << " zero=route_existing_production"
             << " nan=reject_invalid negative=reject_invalid"
             << " production_nan_status=" << nan_production_status
@@ -2612,10 +3426,11 @@ int main() {
       ready && inclusive_speed_gate && production_numerical_gate &&
       graph_ready && zero_numeric_gate && nan_gate && immutable_gate &&
       guard_gate && lt_pointer_alignment_gate && window8_selected &&
+      public_module_evidence_gate &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_P0_RECOMMENDATION: action="
             << (retain_candidate
-                    ? "retain_for_guarded_production_integration"
+                    ? "retain_existing_guarded_production_route"
                     : "reject_or_continue_test_only")
             << " admitted_shape=exact_C512_Down"
             << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
@@ -2632,8 +3447,19 @@ int main() {
             << (lt_pointer_alignment_gate ? "true" : "false")
             << " input_immutable=" << (immutable_gate ? "true" : "false")
             << " guards_intact=" << (guard_gate ? "true" : "false")
+            << " public_module_evidence="
+            << (selected_checkpoint == nullptr
+                    ? "not_requested"
+                    : (public_module_evidence_gate ? "pass" : "fail"))
+            << " public_module_extrapolation="
+            << (selected_checkpoint == nullptr
+                    ? "not_requested"
+                    : (public_module_extrapolation_supported ? "supported"
+                                                             : "not_supported"))
             << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
 
+  q3x::kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
+      public_down_context);
   if (stream != nullptr) {
     (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy stream");
   }

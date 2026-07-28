@@ -12,6 +12,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace q3x::kernels {
@@ -739,6 +740,59 @@ int main() {
       q3x::kernels::create_sm87_nvfp4_prefill_down_cublaslt_context(nullptr) ==
           static_cast<int>(cudaErrorInvalidValue),
       "factory rejects null output pointer");
+
+  // Context construction may overlap across runners during process startup.
+  // Both factories must retain a valid zero-workspace algorithm even though
+  // their one-time timing streams contend for the same GPU.  Absolute tuning
+  // latency is deliberately not an availability contract.
+  constexpr std::size_t kConcurrentContextCount = 2U;
+  std::array<q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext*,
+             kConcurrentContextCount>
+      concurrent_contexts{};
+  std::array<int, kConcurrentContextCount> concurrent_statuses{};
+  std::array<std::thread, kConcurrentContextCount> context_threads;
+  for (std::size_t index = 0U; index < kConcurrentContextCount; ++index) {
+    context_threads[index] = std::thread([&, index]() {
+      const cudaError_t set_device_status = cudaSetDevice(device);
+      if (set_device_status != cudaSuccess) {
+        concurrent_statuses[index] = static_cast<int>(set_device_status);
+        return;
+      }
+      concurrent_statuses[index] = q3x::kernels::
+          create_sm87_nvfp4_prefill_down_cublaslt_context(
+              &concurrent_contexts[index]);
+    });
+  }
+  for (auto& context_thread : context_threads) {
+    context_thread.join();
+  }
+  for (std::size_t index = 0U; index < kConcurrentContextCount; ++index) {
+    test.expect(concurrent_statuses[index] == static_cast<int>(cudaSuccess),
+                "concurrent factory retains an available context");
+    test.expect(concurrent_contexts[index] != nullptr,
+                "concurrent factory returns an opaque context");
+    if (concurrent_contexts[index] != nullptr) {
+      std::size_t concurrent_scratch_bytes = 0U;
+      std::size_t concurrent_workspace_bytes =
+          std::numeric_limits<std::size_t>::max();
+      int concurrent_rank = -1;
+      test.expect(
+          q3x::kernels::query_sm87_nvfp4_prefill_down_cublaslt_context(
+              concurrent_contexts[index], &concurrent_scratch_bytes,
+              &concurrent_workspace_bytes, &concurrent_rank) ==
+              static_cast<int>(cudaSuccess),
+          "query concurrent exact-C512 module contract");
+      test.expect(concurrent_scratch_bytes == kScratchBytes,
+                  "concurrent context retains exact scratch contract");
+      test.expect(concurrent_workspace_bytes == 0U,
+                  "concurrent context retains zero-workspace algorithm");
+      test.expect(concurrent_rank >= 0,
+                  "concurrent context retains a runtime heuristic result");
+    }
+    q3x::kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
+        concurrent_contexts[index]);
+  }
+
   const int create_status =
       q3x::kernels::create_sm87_nvfp4_prefill_down_cublaslt_context(&context);
   test.expect(create_status == static_cast<int>(cudaSuccess),

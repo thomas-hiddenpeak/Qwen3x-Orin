@@ -4,6 +4,7 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -484,87 +485,167 @@ __global__ void fill_down_autotune_bf16_kernel(
     }
   }
 
-  constexpr int kWarmupIterations = 2;
-  constexpr int kTimedIterations = 4;
+  constexpr int kWarmupRounds = 2;
+  constexpr int kTimingRounds = 3;
+  constexpr int kTimedIterations = 2;
   constexpr float kAlpha = 1.0F;
   constexpr float kBeta = 0.0F;
   constexpr int kMinimumEligibleAlgorithms = 2;
-  constexpr float kMaximumAdmittedAverageMs = 5.0F;
+  std::array<int, kMaximumHeuristics> candidate_indices{};
+  std::array<bool, kMaximumHeuristics> candidate_active{};
+  std::array<float, kMaximumHeuristics> best_average_ms{};
+  best_average_ms.fill(std::numeric_limits<float>::infinity());
+  int candidate_count = 0;
+
+  for (int index = 0; index < result_count; ++index) {
+    const auto& result = results[static_cast<std::size_t>(index)];
+    if (result.state == CUBLAS_STATUS_SUCCESS &&
+        result.workspaceSize == kWorkspaceBytes) {
+      candidate_indices[static_cast<std::size_t>(candidate_count)] = index;
+      candidate_active[static_cast<std::size_t>(index)] = true;
+      ++candidate_count;
+    }
+  }
+
+  // Alternate forward/reverse order and rotate the third timing round.  This
+  // keeps clock ramp and neighboring GPU work from systematically favoring
+  // the first or last heuristic returned by cuBLASLt.
+  const auto ordered_candidate =
+      [&candidate_indices, candidate_count](const int round,
+                                            const int position) {
+        int ordered_position = position;
+        if ((round & 1) != 0) {
+          ordered_position = candidate_count - 1 - ordered_position;
+        } else if (round > 0) {
+          ordered_position = (ordered_position + 1) % candidate_count;
+        }
+        return candidate_indices[static_cast<std::size_t>(ordered_position)];
+      };
+
+  // A heuristic may be reported as supported yet fail when executed on a
+  // particular driver.  Drain its stream work and clear the runtime error so
+  // the remaining independent zero-workspace candidates can still compete.
+  // If the CUDA context carries an unrecoverable error, subsequent candidates
+  // will fail as well and the factory will correctly return not-supported.
+  const auto discard_candidate_failure = [stream]() {
+    (void)cudaStreamSynchronize(stream);
+    (void)cudaGetLastError();
+  };
+
+  const auto warmup_candidate =
+      [&](const int candidate_index) {
+        const auto& result =
+            results[static_cast<std::size_t>(candidate_index)];
+        const cublasStatus_t lt_status = cublasLtMatmul(
+            context->handle, context->operation, &kAlpha, scratch,
+            context->weight_layout, activations, context->activation_layout,
+            &kBeta, output, context->output_layout, output,
+            context->output_layout, &result.algo, nullptr, kWorkspaceBytes,
+            stream);
+        if (lt_status != CUBLAS_STATUS_SUCCESS ||
+            cudaStreamSynchronize(stream) != cudaSuccess) {
+          discard_candidate_failure();
+          return false;
+        }
+        return true;
+      };
+
+  const auto time_candidate =
+      [&](const int candidate_index, float* const average_ms) {
+        if (average_ms == nullptr || cudaEventRecord(start, stream) !=
+                                         cudaSuccess) {
+          discard_candidate_failure();
+          return false;
+        }
+        const auto& result =
+            results[static_cast<std::size_t>(candidate_index)];
+        for (int iteration = 0; iteration < kTimedIterations; ++iteration) {
+          const cublasStatus_t lt_status = cublasLtMatmul(
+              context->handle, context->operation, &kAlpha, scratch,
+              context->weight_layout, activations,
+              context->activation_layout, &kBeta, output,
+              context->output_layout, output, context->output_layout,
+              &result.algo, nullptr, kWorkspaceBytes, stream);
+          if (lt_status != CUBLAS_STATUS_SUCCESS) {
+            discard_candidate_failure();
+            return false;
+          }
+        }
+        if (cudaEventRecord(stop, stream) != cudaSuccess ||
+            cudaEventSynchronize(stop) != cudaSuccess) {
+          discard_candidate_failure();
+          return false;
+        }
+        float elapsed_ms = 0.0F;
+        if (cudaEventElapsedTime(&elapsed_ms, start, stop) != cudaSuccess) {
+          discard_candidate_failure();
+          return false;
+        }
+        *average_ms = elapsed_ms / static_cast<float>(kTimedIterations);
+        return std::isfinite(*average_ms) && *average_ms > 0.0F;
+      };
+
+  if (tuning_status == static_cast<int>(cudaSuccess) &&
+      candidate_count >= kMinimumEligibleAlgorithms) {
+    for (int round = 0; round < kWarmupRounds; ++round) {
+      for (int position = 0; position < candidate_count; ++position) {
+        const int index = ordered_candidate(round, position);
+        if (candidate_active[static_cast<std::size_t>(index)] &&
+            !warmup_candidate(index)) {
+          candidate_active[static_cast<std::size_t>(index)] = false;
+        }
+      }
+    }
+
+    for (int round = 0; round < kTimingRounds; ++round) {
+      for (int position = 0; position < candidate_count; ++position) {
+        const int index = ordered_candidate(round, position);
+        if (!candidate_active[static_cast<std::size_t>(index)]) {
+          continue;
+        }
+        float average_ms = 0.0F;
+        if (!time_candidate(index, &average_ms)) {
+          candidate_active[static_cast<std::size_t>(index)] = false;
+          best_average_ms[static_cast<std::size_t>(index)] =
+              std::numeric_limits<float>::infinity();
+          continue;
+        }
+        best_average_ms[static_cast<std::size_t>(index)] = std::min(
+            best_average_ms[static_cast<std::size_t>(index)], average_ms);
+      }
+    }
+  }
+
   float fastest_average_ms = std::numeric_limits<float>::infinity();
   cublasLtMatmulAlgo_t fastest_algorithm{};
   int fastest_rank = -1;
-  int eligible_count = 0;
-
-  if (tuning_status == static_cast<int>(cudaSuccess)) {
-    for (int index = 0; index < result_count; ++index) {
-      const auto& result = results[static_cast<std::size_t>(index)];
-      if (result.state != CUBLAS_STATUS_SUCCESS ||
-          result.workspaceSize != kWorkspaceBytes) {
-        continue;
-      }
-      ++eligible_count;
-
-      for (int iteration = 0; iteration < kWarmupIterations; ++iteration) {
-        const cublasStatus_t lt_status = cublasLtMatmul(
-            context->handle, context->operation, &kAlpha, scratch,
-            context->weight_layout, activations, context->activation_layout,
-            &kBeta, output, context->output_layout, output,
-            context->output_layout, &result.algo, nullptr, kWorkspaceBytes,
-            stream);
-        if (lt_status != CUBLAS_STATUS_SUCCESS) {
-          tuning_status = map_cublas_status(lt_status);
-          break;
-        }
-      }
-      if (tuning_status != static_cast<int>(cudaSuccess) ||
-          !record_cuda_failure(cudaStreamSynchronize(stream)) ||
-          !record_cuda_failure(cudaEventRecord(start, stream))) {
-        break;
-      }
-
-      for (int iteration = 0; iteration < kTimedIterations; ++iteration) {
-        const cublasStatus_t lt_status = cublasLtMatmul(
-            context->handle, context->operation, &kAlpha, scratch,
-            context->weight_layout, activations, context->activation_layout,
-            &kBeta, output, context->output_layout, output,
-            context->output_layout, &result.algo, nullptr, kWorkspaceBytes,
-            stream);
-        if (lt_status != CUBLAS_STATUS_SUCCESS) {
-          tuning_status = map_cublas_status(lt_status);
-          break;
-        }
-      }
-      if (tuning_status != static_cast<int>(cudaSuccess) ||
-          !record_cuda_failure(cudaEventRecord(stop, stream)) ||
-          !record_cuda_failure(cudaEventSynchronize(stop))) {
-        break;
-      }
-
-      float elapsed_ms = 0.0F;
-      if (!record_cuda_failure(
-              cudaEventElapsedTime(&elapsed_ms, start, stop))) {
-        break;
-      }
-      const float average_ms =
-          elapsed_ms / static_cast<float>(kTimedIterations);
-      if (!std::isfinite(average_ms) || average_ms <= 0.0F) {
-        tuning_status = static_cast<int>(cudaErrorUnknown);
-        break;
-      }
-      if (average_ms < fastest_average_ms) {
-        fastest_average_ms = average_ms;
-        fastest_algorithm = result.algo;
-        fastest_rank = index;
-      }
+  for (int position = 0; position < candidate_count; ++position) {
+    const int index =
+        candidate_indices[static_cast<std::size_t>(position)];
+    if (!candidate_active[static_cast<std::size_t>(index)]) {
+      continue;
+    }
+    const float candidate_ms =
+        best_average_ms[static_cast<std::size_t>(index)];
+    if (candidate_ms < fastest_average_ms) {
+      fastest_average_ms = candidate_ms;
+      fastest_algorithm =
+          results[static_cast<std::size_t>(index)].algo;
+      fastest_rank = index;
     }
   }
 
   // Heuristic ranks are not a stable cuBLASLt ABI, so admission deliberately
   // does not depend on rank zero (or on the ratio between two rank numbers).
-  // Require both meaningful choice and an absolute measured ceiling instead.
+  // The measured latency is only useful for ordering candidates.  It is not a
+  // support predicate: GPU contention, power state, and concurrent context
+  // construction can scale every valid candidate past any fixed millisecond
+  // ceiling.  Availability therefore depends only on finding meaningful
+  // zero-workspace choice and successfully timing at least one candidate.
+  // Performance admission remains the responsibility of the repeatable
+  // ceiling benchmark, not a noisy one-shot production factory call.
   if (tuning_status == static_cast<int>(cudaSuccess) &&
-      (eligible_count < kMinimumEligibleAlgorithms || fastest_rank < 0 ||
-       fastest_average_ms > kMaximumAdmittedAverageMs)) {
+      (candidate_count < kMinimumEligibleAlgorithms || fastest_rank < 0)) {
     tuning_status = static_cast<int>(cudaErrorNotSupported);
   }
 

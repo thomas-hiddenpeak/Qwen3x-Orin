@@ -111,8 +111,10 @@ eight ordered M16 panels, while both sub-CTAs reuse the same globally loaded A.
   registers.  Any increase is a resource-gate failure, even though the CTA
   still exposes 16 resident warps.
 - A: one logical M128xK64 tile is loaded from global memory, initially with
-  `cp.async.ca`, and published to both sub-CTAs through a three-slot named-
-  barrier ring.  Producer ownership alternates between the two groups.
+  `cp.async.ca`, and published to both sub-CTAs.  The architecture sketch used
+  a three-slot named-barrier ring; the executable P0/P1 cells below use a
+  two-slot ring so their 61-KiB shared-memory envelope can be measured first.
+  Producer ownership alternates between the two groups in P1.
 - Packed B: each group owns its N128 half and a private two-slot raw-B ring.
   Every packed B element and its scale are loaded once from global memory for
   one CTA K traversal, decoded to registers, and reused across M128.
@@ -124,11 +126,13 @@ eight ordered M16 panels, while both sub-CTAs reuse the same globally loaded A.
   `free` before the producer can refill it.  Each private B ring advances on
   subgroup barriers.  This protocol is a hypothesis to measure, not a claim
   that 16 warps in one CTA already equal two independently scheduled CTAs.
-- Pipeline: the first complete cell uses a three-slot common-A ring and two
-  private two-slot B/scale rings, about 79.5 KiB shared including lookup state.
-  It is intended to let one group advance A while the other computes a prior
-  stage.  Gate and Down may select different complete pipeline cells; neither
-  inherits the other's result.
+- Pipeline: P0 uses two common-A and two private B/scale slots with a CTA-wide
+  steady-state barrier.  P1 keeps the same arithmetic and slot count but uses
+  raw SM80 ready/free mbarriers and alternating A producers.  Both are complete
+  executable comparisons; the planned three-A-slot, roughly 79.5-KiB cell is
+  still unimplemented and receives no performance claim.  Gate and Down may
+  select different complete pipeline cells; neither inherits the other's
+  result.
 
 ```mermaid
 flowchart LR
@@ -294,16 +298,59 @@ Three other structures are excluded from the native target:
 - Decode P1/P2 graphs, oracle tokens/state, the full Release suite, request
   memory accounting, and MTP-off policy remain unchanged.
 
+## 2026-07-28 executable audit result
+
+The pinned payload gate and the first horizontal topology cells are complete.
+The full evidence is recorded in
+`metadata/qwen36-27b-prefill-c512-shape-specialized-dataflow-audit.json`.
+
+- Gate/Up P0 is exact and spill-free at 128 registers/thread, 61,440 dynamic
+  shared bytes, one 512-thread CTA/SM, and 16 resident warps.  Its CTA-wide
+  barrier schedule takes 12.015 ms per real-checkpoint pair versus 7.202 ms for
+  the live bridge.
+- Replacing the steady-state barrier with raw SM80 ready/free mbarriers also
+  remains exact and spill-free, but regresses the pair to 13.086 ms.  Per-K64
+  multi-barrier control is therefore rejected for this skeleton.
+- The failure is not attributed to synthetic payload sensitivity: both cells
+  were run against the SHA256-pinned layer-0 Gate and Up tensors, and every
+  eager/Graph output was bitwise equal.
+- Pinned Down produces a different decision.  The existing native M128 route
+  takes 6.660 ms; the separately compiled public Window8 plus zero-workspace
+  cuBLASLt module takes 4.652 ms, or 1.4315x.  Its decoded 89,128,960-value
+  weight image and 2,621,440-value output are bitwise exact.
+- A six-round B-C-C-B comparison measures the ceiling TU at 4.655 ms and the
+  public module at 4.652 ms, a 0.0581% difference with every round inside 3%.
+  The earlier 4.63-ms ceiling result is therefore valid production-module
+  evidence rather than an extrapolation from a duplicate implementation.
+- The Gate/Up bridge is already an exact-C512 production route from commit
+  `1632976`.  Its module is CUDA-Graph safe, but the production Prefill loop is
+  still eager and the runtime does not expose route hit/fallback counters.
+- The Down bridge is likewise already a production route from commit
+  `690b899`.  Its former one-shot 5-ms context-creation threshold could
+  silently disable the route under frequency or concurrent-startup noise.
+  Runtime availability now keeps the fastest successfully measured
+  zero-workspace candidate without an absolute latency threshold; serial
+  factory regression passes 10/10 and four-way contended creation passes 8/8.
+
+This audit rejects the concrete single-CTA synchronization structures, not
+coupled operand reuse in general.  It also removes the earlier dependency that
+made Down wait for a successful native Gate topology: Down now has its own
+live, shape-specific admission evidence.
+
 ## Immediate implementation order
 
-1. Add pinned NVFP4 Gate/Up and Down payload support to the isolated large-M
-   screens.  No more promotion timing is accepted from synthetic weights alone.
-2. Build a resource-only horizontal M128xN256 512-thread skeleton with two
-   M128xN128 named-barrier sub-CTAs and the retained table-free decoder.
-3. Admit exact/Graph/resource gates before running performance.
-4. Compare complete topology cells, not isolated cache toggles: horizontal
-   M128xN256, vertical M128xN256, M64xN512, and the frozen M64xN256 control.
-5. Only after a topology clears the pinned Gate/Up bridge gate, specialize and
-   screen the long-K Down configuration.
-6. Refresh production NSys and rank the existing FP8 families before opening a
-   new FP8 kernel line.
+1. Preserve the independent exact-C512 Gate/Up and Down production selectors
+   and add route readiness/hit/fallback observability.  Keep absolute
+   performance thresholds in repeatable ceiling/CI screens, not production
+   factory availability checks.
+2. Prefill CUDA Graph remains a separate launch-overhead project; do not
+   describe module-level Graph safety as an already captured production
+   Prefill loop.
+3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
+   barrier negative sentinel.  Do not tune either with isolated cache toggles.
+4. For the next native Gate skeleton, preserve 256-thread CTA phase independence
+   and treat A reuse as an L2/tile-order locality problem; compare it as one
+   complete cell against the pinned live bridge.
+5. Refresh production NSys and rank FP8 QKV, Z, O, full Q, and full K/V before
+   opening any FP8 kernel line.  Reuse selector and scheduling infrastructure,
+   not the NVFP4 decoder.

@@ -1,4 +1,6 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#include "q3x/core/sha256.h"
+#include "q3x/io/safetensors.h"
 
 #include <cublasLt.h>
 #include <cuda_bf16.h>
@@ -9,17 +11,21 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace q3x::kernels {
 
-// Test-only ABI for the admitted native C512 M64N256 pair-lookup candidate.
+// Test-only ABI for the admitted native C512 M64N256 pair-lookup control and
+// the complete horizontal topology comparisons selected by this screen.
 // Keep it out of the installed header until the production route is selected.
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
@@ -30,6 +36,34 @@ launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
 
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_named_p1_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_named_p1_resources_test_cuda(
     std::size_t token_count, std::size_t rows, std::size_t columns,
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
@@ -58,10 +92,37 @@ constexpr int kIterations = 8;
 constexpr int kRounds = 6;
 constexpr double kRequiredSerialVsProduction = 1.22;
 constexpr double kRequiredTwoScratchVsSerial = 1.03;
-constexpr float kGateWeightScale2 = 1.25F;
-constexpr float kUpWeightScale2 = 0.75F;
+constexpr float kSyntheticGateWeightScale2 = 1.25F;
+constexpr float kSyntheticUpWeightScale2 = 0.75F;
 constexpr std::uint8_t kGuardPoisonByte = 0x3cU;
 constexpr std::uint16_t kGuardPoison = 0x3c3cU;
+
+constexpr std::string_view kCheckpointIndex =
+    "model.safetensors.index.json";
+constexpr std::string_view kGateWeightTensor =
+    "model.language_model.layers.0.mlp.gate_proj.weight";
+constexpr std::string_view kGateBlockScaleTensor =
+    "model.language_model.layers.0.mlp.gate_proj.weight_scale";
+constexpr std::string_view kGateWeightScale2Tensor =
+    "model.language_model.layers.0.mlp.gate_proj.weight_scale_2";
+constexpr std::string_view kUpWeightTensor =
+    "model.language_model.layers.0.mlp.up_proj.weight";
+constexpr std::string_view kUpBlockScaleTensor =
+    "model.language_model.layers.0.mlp.up_proj.weight_scale";
+constexpr std::string_view kUpWeightScale2Tensor =
+    "model.language_model.layers.0.mlp.up_proj.weight_scale_2";
+constexpr std::string_view kPinnedGateWeightSha256 =
+    "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8";
+constexpr std::string_view kPinnedGateBlockScaleSha256 =
+    "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e";
+constexpr std::string_view kPinnedGateWeightScale2Sha256 =
+    "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91";
+constexpr std::string_view kPinnedUpWeightSha256 =
+    "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f";
+constexpr std::string_view kPinnedUpBlockScaleSha256 =
+    "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947";
+constexpr std::string_view kPinnedUpWeightScale2Sha256 =
+    "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91";
 
 static_assert(kAElements == 2'621'440U);
 static_assert(kBElements == 89'128'960U);
@@ -98,6 +159,378 @@ class TestContext {
  private:
   int failures_ = 0;
 };
+
+struct PayloadBytes {
+  std::vector<std::uint8_t> values;
+  std::uint64_t file_begin = 0U;
+  std::uint64_t file_end = 0U;
+  std::string sha256;
+};
+
+struct PayloadScalar {
+  float value = 0.0F;
+  std::uint32_t little_endian_bits = 0U;
+  std::uint64_t file_begin = 0U;
+  std::uint64_t file_end = 0U;
+  std::string sha256;
+};
+
+struct CheckpointPayload {
+  PayloadBytes gate_weight;
+  PayloadBytes gate_block_scale;
+  PayloadScalar gate_weight_scale_2;
+  PayloadBytes up_weight;
+  PayloadBytes up_block_scale;
+  PayloadScalar up_weight_scale_2;
+  std::string canonical_directory;
+  std::string shard;
+  std::uint64_t shard_file_bytes = 0U;
+  std::uint64_t header_bytes = 0U;
+  std::uint64_t data_offset = 0U;
+};
+
+[[nodiscard]] std::string describe_safetensors_error(
+    const q3x::io::safetensors::Error& error) {
+  std::string description =
+      std::string(q3x::io::safetensors::to_string(error.code)) + ": " +
+      std::string(error.message());
+  if (error.offset != q3x::io::safetensors::kUnknownOffset) {
+    description += " offset=" + std::to_string(error.offset);
+  }
+  if (!error.context.empty()) {
+    description += " context=" + error.context;
+  }
+  if (!error.expected.empty()) {
+    description += " expected=" + error.expected;
+  }
+  if (!error.actual.empty()) {
+    description += " actual=" + error.actual;
+  }
+  return description;
+}
+
+[[nodiscard]] bool path_is_strictly_within(
+    const std::filesystem::path& directory,
+    const std::filesystem::path& candidate) noexcept {
+  auto directory_component = directory.begin();
+  auto candidate_component = candidate.begin();
+  while (directory_component != directory.end() &&
+         candidate_component != candidate.end()) {
+    if (*directory_component != *candidate_component) {
+      return false;
+    }
+    ++directory_component;
+    ++candidate_component;
+  }
+  return directory_component == directory.end() &&
+         candidate_component != candidate.end();
+}
+
+[[nodiscard]] std::string payload_sha256(const void* const data,
+                                         const std::size_t bytes) {
+  return q3x::core::sha256(std::string_view(
+                               static_cast<const char*>(data), bytes))
+      .hex();
+}
+
+[[nodiscard]] std::uint32_t float_bits(const float value) noexcept {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+[[nodiscard]] std::string hex_u32(const std::uint32_t value) {
+  constexpr char kHex[] = "0123456789abcdef";
+  std::string result(8U, '0');
+  for (std::size_t index = 0U; index < result.size(); ++index) {
+    const unsigned int shift =
+        static_cast<unsigned int>((result.size() - 1U - index) * 4U);
+    result[index] = kHex[(value >> shift) & 0x0fU];
+  }
+  return result;
+}
+
+[[nodiscard]] bool load_checkpoint_payload(
+    TestContext& test, const std::string& checkpoint_directory,
+    CheckpointPayload& payload) {
+  namespace fs = std::filesystem;
+  namespace st = q3x::io::safetensors;
+
+  payload = CheckpointPayload{};
+  std::error_code filesystem_error;
+  const fs::path requested_directory(checkpoint_directory);
+  const fs::file_status directory_link_status =
+      fs::symlink_status(requested_directory, filesystem_error);
+  if (filesystem_error || !fs::is_directory(directory_link_status) ||
+      fs::is_symlink(directory_link_status)) {
+    test.expect(false, "checkpoint path is an accessible non-symlink "
+                       "directory: " +
+                           checkpoint_directory);
+    return false;
+  }
+  const fs::path directory =
+      fs::canonical(requested_directory, filesystem_error);
+  if (filesystem_error || directory.empty()) {
+    test.expect(false, "checkpoint directory canonicalization succeeds");
+    return false;
+  }
+
+  const fs::path requested_index =
+      requested_directory / fs::path(kCheckpointIndex);
+  const fs::file_status index_link_status =
+      fs::symlink_status(requested_index, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(index_link_status) ||
+      fs::is_symlink(index_link_status)) {
+    test.expect(false,
+                "checkpoint index is a regular non-symlink file");
+    return false;
+  }
+  const fs::path index_path = fs::canonical(requested_index, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, index_path) ||
+      index_path != directory / fs::path(kCheckpointIndex)) {
+    test.expect(false,
+                "checkpoint index resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Index> index = st::read_index(index_path.string());
+  if (!index) {
+    test.expect(false, "read checkpoint safetensors index: " +
+                           describe_safetensors_error(index.error));
+    return false;
+  }
+
+  constexpr std::array<std::string_view, 6U> kRequiredTensors{{
+      kGateWeightTensor, kGateBlockScaleTensor, kGateWeightScale2Tensor,
+      kUpWeightTensor, kUpBlockScaleTensor, kUpWeightScale2Tensor,
+  }};
+  std::array<const std::string*, kRequiredTensors.size()> shards{};
+  for (std::size_t tensor = 0U; tensor < kRequiredTensors.size(); ++tensor) {
+    shards[tensor] = index.value->shard_for(kRequiredTensors[tensor]);
+  }
+  const bool all_indexed =
+      std::all_of(shards.begin(), shards.end(),
+                  [](const std::string* const shard) {
+                    return shard != nullptr;
+                  });
+  bool one_safe_shard = all_indexed;
+  if (one_safe_shard) {
+    one_safe_shard = st::is_safe_relative_shard_path(*shards[0]);
+    for (std::size_t tensor = 1U; tensor < shards.size(); ++tensor) {
+      one_safe_shard = one_safe_shard && *shards[tensor] == *shards[0];
+    }
+  }
+  test.expect(one_safe_shard,
+              "checkpoint index pins all six Gate/Up payloads to one safe "
+              "relative shard");
+  if (!one_safe_shard) {
+    return false;
+  }
+
+  const fs::path requested_shard =
+      requested_directory / fs::path(*shards[0]);
+  const fs::file_status shard_link_status =
+      fs::symlink_status(requested_shard, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(shard_link_status) ||
+      fs::is_symlink(shard_link_status)) {
+    test.expect(false,
+                "checkpoint shard is a regular non-symlink file");
+    return false;
+  }
+  const fs::path shard_path = fs::canonical(requested_shard, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, shard_path) ||
+      shard_path != directory / fs::path(*shards[0])) {
+    test.expect(false,
+                "checkpoint shard resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Header> header = st::read_header(shard_path.string());
+  if (!header) {
+    test.expect(false, "read checkpoint safetensors shard header: " +
+                           describe_safetensors_error(header.error));
+    return false;
+  }
+
+  const st::TensorInfo* const gate_weight =
+      header.value->find_tensor(kGateWeightTensor);
+  const st::TensorInfo* const gate_block_scale =
+      header.value->find_tensor(kGateBlockScaleTensor);
+  const st::TensorInfo* const gate_weight_scale_2 =
+      header.value->find_tensor(kGateWeightScale2Tensor);
+  const st::TensorInfo* const up_weight =
+      header.value->find_tensor(kUpWeightTensor);
+  const st::TensorInfo* const up_block_scale =
+      header.value->find_tensor(kUpBlockScaleTensor);
+  const st::TensorInfo* const up_weight_scale_2 =
+      header.value->find_tensor(kUpWeightScale2Tensor);
+  const auto matrix_exact = [](const st::TensorInfo* const tensor,
+                               const st::DType dtype,
+                               const std::uint64_t rows,
+                               const std::uint64_t columns,
+                               const std::uint64_t bytes) {
+    return tensor != nullptr && tensor->dtype == dtype &&
+           tensor->shape.size() == 2U && tensor->shape[0] == rows &&
+           tensor->shape[1] == columns && tensor->byte_size == bytes &&
+           tensor->file_begin <= tensor->file_end &&
+           tensor->file_end - tensor->file_begin == bytes;
+  };
+  const auto scalar_exact = [](const st::TensorInfo* const tensor) {
+    return tensor != nullptr && tensor->dtype == st::DType::kF32 &&
+           tensor->shape.empty() && tensor->element_count == 1U &&
+           tensor->byte_size == sizeof(float) &&
+           tensor->file_begin <= tensor->file_end &&
+           tensor->file_end - tensor->file_begin == sizeof(float);
+  };
+  const bool shapes_exact =
+      matrix_exact(gate_weight, st::DType::kU8, kN, kK / 2U,
+                   kPackedWeightBytes) &&
+      matrix_exact(up_weight, st::DType::kU8, kN, kK / 2U,
+                   kPackedWeightBytes) &&
+      matrix_exact(gate_block_scale, st::DType::kF8E4M3, kN, kK / 16U,
+                   kBlockScaleBytes) &&
+      matrix_exact(up_block_scale, st::DType::kF8E4M3, kN, kK / 16U,
+                   kBlockScaleBytes) &&
+      scalar_exact(gate_weight_scale_2) && scalar_exact(up_weight_scale_2);
+  test.expect(shapes_exact,
+              "checkpoint layer-0 Gate/Up tensors have exact canonical "
+              "NVFP4 packed, block-scale, and scalar shapes");
+  if (!shapes_exact) {
+    return false;
+  }
+
+  const std::array<const st::TensorInfo*, 6U> tensors{{
+      gate_weight, gate_block_scale, gate_weight_scale_2, up_weight,
+      up_block_scale, up_weight_scale_2,
+  }};
+  const std::uint64_t maximum_streamoff = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamoff>::max());
+  const std::uint64_t maximum_streamsize = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamsize>::max());
+  const std::uint64_t shard_file_bytes = header.value->file_size;
+  const bool stream_ranges_representable =
+      std::all_of(tensors.begin(), tensors.end(),
+                  [maximum_streamoff, maximum_streamsize,
+                   shard_file_bytes](const st::TensorInfo* const tensor) {
+                    return tensor->file_begin <= maximum_streamoff &&
+                           tensor->file_end <= maximum_streamoff &&
+                           tensor->file_end <= shard_file_bytes &&
+                           tensor->byte_size <= maximum_streamsize;
+                  });
+  test.expect(stream_ranges_representable,
+              "checkpoint Gate/Up tensor ranges are stream-representable");
+  if (!stream_ranges_representable) {
+    return false;
+  }
+
+  std::ifstream input(shard_path, std::ios::binary | std::ios::in);
+  if (!input) {
+    test.expect(false, "open checkpoint Gate/Up shard read-only");
+    return false;
+  }
+  input.seekg(0, std::ios::end);
+  const std::streamoff observed_file_size = input.tellg();
+  const bool file_size_pinned =
+      input && observed_file_size >= 0 &&
+      static_cast<std::uint64_t>(observed_file_size) ==
+          header.value->file_size;
+  test.expect(file_size_pinned,
+              "checkpoint shard size remains pinned after header read");
+  if (!file_size_pinned) {
+    return false;
+  }
+
+  payload.gate_weight.values.resize(kPackedWeightBytes);
+  payload.gate_block_scale.values.resize(kBlockScaleBytes);
+  payload.up_weight.values.resize(kPackedWeightBytes);
+  payload.up_block_scale.values.resize(kBlockScaleBytes);
+  const auto read_exact =
+      [&input](const st::TensorInfo& tensor, void* const destination) {
+        input.clear();
+        input.seekg(static_cast<std::streamoff>(tensor.file_begin),
+                    std::ios::beg);
+        if (!input) {
+          return false;
+        }
+        input.read(static_cast<char*>(destination),
+                   static_cast<std::streamsize>(tensor.byte_size));
+        return input.gcount() ==
+               static_cast<std::streamsize>(tensor.byte_size);
+      };
+  const bool payloads_read =
+      read_exact(*gate_weight, payload.gate_weight.values.data()) &&
+      read_exact(*gate_block_scale, payload.gate_block_scale.values.data()) &&
+      read_exact(*gate_weight_scale_2, &payload.gate_weight_scale_2.value) &&
+      read_exact(*up_weight, payload.up_weight.values.data()) &&
+      read_exact(*up_block_scale, payload.up_block_scale.values.data()) &&
+      read_exact(*up_weight_scale_2, &payload.up_weight_scale_2.value);
+  const bool scalars_valid =
+      payloads_read && std::isfinite(payload.gate_weight_scale_2.value) &&
+      payload.gate_weight_scale_2.value > 0.0F &&
+      std::isfinite(payload.up_weight_scale_2.value) &&
+      payload.up_weight_scale_2.value > 0.0F;
+  test.expect(payloads_read,
+              "read all six complete bounded checkpoint Gate/Up payloads");
+  test.expect(scalars_valid,
+              "checkpoint Gate/Up weight_scale_2 scalars are finite and "
+              "positive");
+  if (!payloads_read || !scalars_valid) {
+    payload = CheckpointPayload{};
+    return false;
+  }
+
+  payload.gate_weight.sha256 =
+      payload_sha256(payload.gate_weight.values.data(),
+                     payload.gate_weight.values.size());
+  payload.gate_block_scale.sha256 =
+      payload_sha256(payload.gate_block_scale.values.data(),
+                     payload.gate_block_scale.values.size());
+  payload.gate_weight_scale_2.sha256 =
+      payload_sha256(&payload.gate_weight_scale_2.value, sizeof(float));
+  payload.up_weight.sha256 =
+      payload_sha256(payload.up_weight.values.data(),
+                     payload.up_weight.values.size());
+  payload.up_block_scale.sha256 =
+      payload_sha256(payload.up_block_scale.values.data(),
+                     payload.up_block_scale.values.size());
+  payload.up_weight_scale_2.sha256 =
+      payload_sha256(&payload.up_weight_scale_2.value, sizeof(float));
+  const bool hashes_pinned =
+      payload.gate_weight.sha256 == kPinnedGateWeightSha256 &&
+      payload.gate_block_scale.sha256 == kPinnedGateBlockScaleSha256 &&
+      payload.gate_weight_scale_2.sha256 ==
+          kPinnedGateWeightScale2Sha256 &&
+      payload.up_weight.sha256 == kPinnedUpWeightSha256 &&
+      payload.up_block_scale.sha256 == kPinnedUpBlockScaleSha256 &&
+      payload.up_weight_scale_2.sha256 == kPinnedUpWeightScale2Sha256;
+  test.expect(hashes_pinned,
+              "checkpoint Gate/Up payload SHA256 values match all six pins");
+  if (!hashes_pinned) {
+    payload = CheckpointPayload{};
+    return false;
+  }
+
+  payload.gate_weight_scale_2.little_endian_bits =
+      float_bits(payload.gate_weight_scale_2.value);
+  payload.up_weight_scale_2.little_endian_bits =
+      float_bits(payload.up_weight_scale_2.value);
+  const auto capture_range = [](const st::TensorInfo& tensor,
+                                auto& destination) {
+    destination.file_begin = tensor.file_begin;
+    destination.file_end = tensor.file_end;
+  };
+  capture_range(*gate_weight, payload.gate_weight);
+  capture_range(*gate_block_scale, payload.gate_block_scale);
+  capture_range(*gate_weight_scale_2, payload.gate_weight_scale_2);
+  capture_range(*up_weight, payload.up_weight);
+  capture_range(*up_block_scale, payload.up_block_scale);
+  capture_range(*up_weight_scale_2, payload.up_weight_scale_2);
+  payload.canonical_directory = directory.string();
+  payload.shard = *shards[0];
+  payload.shard_file_bytes = header.value->file_size;
+  payload.header_bytes = header.value->header_size;
+  payload.data_offset = header.value->data_offset;
+  return true;
+}
 
 template <typename T>
 class DeviceBuffer {
@@ -302,6 +735,25 @@ class Execution {
   cudaEvent_t stop_ = nullptr;
 };
 
+enum class NativeKernel : std::uint8_t {
+  kM64N256PairLookup,
+  kM128N256HorizontalP0,
+  kM128N256HorizontalNamedP1,
+};
+
+[[nodiscard]] const char* native_kernel_name(
+    const NativeKernel kernel) noexcept {
+  switch (kernel) {
+    case NativeKernel::kM64N256PairLookup:
+      return "m64n256_pairlookup";
+    case NativeKernel::kM128N256HorizontalP0:
+      return "m128n256_horizontal_p0";
+    case NativeKernel::kM128N256HorizontalNamedP1:
+      return "m128n256_horizontal_named_p1";
+  }
+  return "unknown";
+}
+
 struct Fixture {
   DeviceBuffer<__nv_bfloat16> activation;
   DeviceBuffer<std::uint8_t> gate_packed;
@@ -315,6 +767,10 @@ struct Fixture {
   DeviceBuffer<std::uint16_t> candidate_gate_store;
   DeviceBuffer<std::uint16_t> candidate_up_store;
   DeviceBuffer<unsigned long long> validation;
+  float gate_weight_scale_2 = kSyntheticGateWeightScale2;
+  float up_weight_scale_2 = kSyntheticUpWeightScale2;
+  bool checkpoint_payload = false;
+  NativeKernel native_kernel = NativeKernel::kM64N256PairLookup;
 
   [[nodiscard]] std::uint16_t* reference_gate() noexcept {
     return reference_gate_store.get() + kGuardElements;
@@ -365,9 +821,9 @@ enum class Variant : std::uint8_t {
     case Variant::kStaggeredDual:
       return "C_staggered_two_handle_two_scratch";
     case Variant::kNativeSerial:
-      return "D_native_m64n256_pairlookup_serial";
+      return "D_native_selected_serial";
     case Variant::kNativeDual:
-      return "E_native_m64n256_pairlookup_dual";
+      return "E_native_selected_dual";
   }
   return "unknown";
 }
@@ -711,15 +1167,44 @@ struct ClockState {
          static_cast<int>(cudaSuccess);
 }
 
-[[nodiscard]] bool launch_native_pairlookup_branch(
+[[nodiscard]] int launch_native_branch_status(
+    const NativeKernel native_kernel,
+    const std::uint8_t* const packed, const std::uint8_t* const scales,
+    const float weight_scale_2, const __nv_bfloat16* const activation,
+    const std::size_t tokens, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    const cudaStream_t stream) {
+  int status = static_cast<int>(cudaErrorInvalidValue);
+  if (native_kernel == NativeKernel::kM64N256PairLookup) {
+    status = q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
+            packed, scales, weight_scale_2,
+            reinterpret_cast<const std::uint16_t*>(activation), tokens, rows,
+            columns, output, static_cast<void*>(stream));
+  } else if (native_kernel == NativeKernel::kM128N256HorizontalP0) {
+    status = q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_test_cuda(
+            packed, scales, weight_scale_2,
+            reinterpret_cast<const std::uint16_t*>(activation), tokens, rows,
+            columns, output, static_cast<void*>(stream));
+  } else {
+    status = q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_named_p1_test_cuda(
+            packed, scales, weight_scale_2,
+            reinterpret_cast<const std::uint16_t*>(activation), tokens, rows,
+            columns, output, static_cast<void*>(stream));
+  }
+  return status;
+}
+
+[[nodiscard]] bool launch_native_branch(
+    const NativeKernel native_kernel,
     const std::uint8_t* const packed, const std::uint8_t* const scales,
     const float weight_scale_2, const __nv_bfloat16* const activation,
     std::uint16_t* const output, const cudaStream_t stream) {
-  return q3x::kernels::
-             launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
-                 packed, scales, weight_scale_2,
-                 reinterpret_cast<const std::uint16_t*>(activation), kM, kN,
-                 kK, output, static_cast<void*>(stream)) ==
+  return launch_native_branch_status(native_kernel, packed, scales,
+                                     weight_scale_2, activation, kM, kN, kK,
+                                     output, stream) ==
          static_cast<int>(cudaSuccess);
 }
 
@@ -735,11 +1220,11 @@ struct ClockState {
             cudaStreamWaitEvent(auxiliary, execution.fork(), 0U) == cudaSuccess;
     ready = ready && launch_production_branch(
                          fixture.gate_packed.get(), fixture.gate_scales.get(),
-                         kGateWeightScale2, fixture.activation.get(),
+                         fixture.gate_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_gate(), main);
     ready = ready && launch_production_branch(
                          fixture.up_packed.get(), fixture.up_scales.get(),
-                         kUpWeightScale2, fixture.activation.get(),
+                         fixture.up_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_up(), auxiliary);
     ready = ready && cudaEventRecord(execution.done(), auxiliary) == cudaSuccess;
     ready = ready &&
@@ -751,24 +1236,26 @@ struct ClockState {
     return launch_dequantize(fixture.gate_packed.get(),
                              fixture.gate_scales.get(), fixture.scratch0.get(),
                              main) &&
-           launch_lt(main_lt, selected.value, kGateWeightScale2,
+           launch_lt(main_lt, selected.value, fixture.gate_weight_scale_2,
                      fixture.scratch0.get(), fixture.activation.get(),
                      fixture.candidate_gate(), main) &&
            launch_dequantize(fixture.up_packed.get(), fixture.up_scales.get(),
                              fixture.scratch0.get(), main) &&
-           launch_lt(main_lt, selected.value, kUpWeightScale2,
+           launch_lt(main_lt, selected.value, fixture.up_weight_scale_2,
                      fixture.scratch0.get(), fixture.activation.get(),
                      fixture.candidate_up(), main);
   }
 
   if (variant == Variant::kNativeSerial) {
-    return launch_native_pairlookup_branch(
+    return launch_native_branch(
+               fixture.native_kernel,
                fixture.gate_packed.get(), fixture.gate_scales.get(),
-               kGateWeightScale2, fixture.activation.get(),
+               fixture.gate_weight_scale_2, fixture.activation.get(),
                fixture.candidate_gate(), main) &&
-           launch_native_pairlookup_branch(
+           launch_native_branch(
+               fixture.native_kernel,
                fixture.up_packed.get(), fixture.up_scales.get(),
-               kUpWeightScale2, fixture.activation.get(),
+               fixture.up_weight_scale_2, fixture.activation.get(),
                fixture.candidate_up(), main);
   }
 
@@ -776,13 +1263,15 @@ struct ClockState {
     bool ready = cudaEventRecord(execution.fork(), main) == cudaSuccess;
     ready = ready &&
             cudaStreamWaitEvent(auxiliary, execution.fork(), 0U) == cudaSuccess;
-    ready = ready && launch_native_pairlookup_branch(
+    ready = ready && launch_native_branch(
+                         fixture.native_kernel,
                          fixture.gate_packed.get(), fixture.gate_scales.get(),
-                         kGateWeightScale2, fixture.activation.get(),
+                         fixture.gate_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_gate(), main);
-    ready = ready && launch_native_pairlookup_branch(
+    ready = ready && launch_native_branch(
+                         fixture.native_kernel,
                          fixture.up_packed.get(), fixture.up_scales.get(),
-                         kUpWeightScale2, fixture.activation.get(),
+                         fixture.up_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_up(), auxiliary);
     ready = ready && cudaEventRecord(execution.done(), auxiliary) == cudaSuccess;
     ready = ready &&
@@ -798,14 +1287,15 @@ struct ClockState {
                          fixture.gate_packed.get(), fixture.gate_scales.get(),
                          fixture.scratch0.get(), main);
     ready = ready && launch_lt(
-                         main_lt, selected.value, kGateWeightScale2,
+                         main_lt, selected.value, fixture.gate_weight_scale_2,
                          fixture.scratch0.get(), fixture.activation.get(),
                          fixture.candidate_gate(), main);
     ready = ready && launch_dequantize(
                          fixture.up_packed.get(), fixture.up_scales.get(),
                          fixture.scratch1.get(), auxiliary);
     ready = ready && launch_lt(
-                         auxiliary_lt, selected.value, kUpWeightScale2,
+                         auxiliary_lt, selected.value,
+                         fixture.up_weight_scale_2,
                          fixture.scratch1.get(), fixture.activation.get(),
                          fixture.candidate_up(), auxiliary);
     ready = ready && cudaEventRecord(execution.done(), auxiliary) == cudaSuccess;
@@ -823,13 +1313,15 @@ struct ClockState {
   ready = ready && cudaEventRecord(execution.fork(), main) == cudaSuccess;
   ready = ready &&
           cudaStreamWaitEvent(auxiliary, execution.fork(), 0U) == cudaSuccess;
-  ready = ready && launch_lt(main_lt, selected.value, kGateWeightScale2,
+  ready = ready && launch_lt(main_lt, selected.value,
+                             fixture.gate_weight_scale_2,
                              fixture.scratch0.get(), fixture.activation.get(),
                              fixture.candidate_gate(), main);
   ready = ready && launch_dequantize(
                        fixture.up_packed.get(), fixture.up_scales.get(),
                        fixture.scratch1.get(), auxiliary);
-  ready = ready && launch_lt(auxiliary_lt, selected.value, kUpWeightScale2,
+  ready = ready && launch_lt(auxiliary_lt, selected.value,
+                             fixture.up_weight_scale_2,
                              fixture.scratch1.get(), fixture.activation.get(),
                              fixture.candidate_up(), auxiliary);
   ready = ready && cudaEventRecord(execution.done(), auxiliary) == cudaSuccess;
@@ -953,11 +1445,11 @@ struct PairValidation {
                                        0U) == cudaSuccess;
   ready = ready && launch_production_branch(
                        fixture.gate_packed.get(), fixture.gate_scales.get(),
-                       kGateWeightScale2, fixture.activation.get(),
+                       fixture.gate_weight_scale_2, fixture.activation.get(),
                        fixture.reference_gate(), execution.main());
   ready = ready && launch_production_branch(
                        fixture.up_packed.get(), fixture.up_scales.get(),
-                       kUpWeightScale2, fixture.activation.get(),
+                       fixture.up_weight_scale_2, fixture.activation.get(),
                        fixture.reference_up(), execution.auxiliary());
   ready = ready &&
           cudaEventRecord(execution.done(), execution.auxiliary()) == cudaSuccess;
@@ -1243,7 +1735,9 @@ struct ComparisonResult {
 }
 
 [[nodiscard]] bool initialize_fixture(TestContext& test, Fixture& fixture,
-                                      const Execution& execution) {
+                                      const Execution& execution,
+                                      const CheckpointPayload* const
+                                          checkpoint) {
   constexpr unsigned int kThreads = 256U;
   const auto blocks = [](const std::size_t count) {
     return static_cast<unsigned int>((count + kThreads - 1U) / kThreads);
@@ -1252,24 +1746,77 @@ struct ComparisonResult {
                                    execution.main()>>>(
       fixture.activation.get(), kAElements, 0x1234'5678U, 1.0F / 64.0F);
   bool ready = test.cuda_ok(cudaGetLastError(), "fill shared activation");
-  fill_canonical_nvfp4_kernel<<<blocks(kPackedWeightBytes), kThreads, 0U,
-                                execution.main()>>>(
-      fixture.gate_packed.get(), kPackedWeightBytes, 0x6a09'e667U, false);
-  ready = test.cuda_ok(cudaGetLastError(), "fill Gate packed weight") && ready;
-  fill_canonical_nvfp4_kernel<<<blocks(kBlockScaleBytes), kThreads, 0U,
-                                execution.main()>>>(
-      fixture.gate_scales.get(), kBlockScaleBytes, 0xbb67'ae85U, true);
-  ready = test.cuda_ok(cudaGetLastError(), "fill Gate block scales") && ready;
-  fill_canonical_nvfp4_kernel<<<blocks(kPackedWeightBytes), kThreads, 0U,
-                                execution.main()>>>(
-      fixture.up_packed.get(), kPackedWeightBytes, 0x3c6e'f372U, false);
-  ready = test.cuda_ok(cudaGetLastError(), "fill distinct Up packed weight") &&
-          ready;
-  fill_canonical_nvfp4_kernel<<<blocks(kBlockScaleBytes), kThreads, 0U,
-                                execution.main()>>>(
-      fixture.up_scales.get(), kBlockScaleBytes, 0xa54f'f53aU, true);
-  ready = test.cuda_ok(cudaGetLastError(), "fill distinct Up block scales") &&
-          ready;
+  fixture.checkpoint_payload = checkpoint != nullptr;
+  if (checkpoint != nullptr) {
+    const bool payload_exact =
+        checkpoint->gate_weight.values.size() == kPackedWeightBytes &&
+        checkpoint->gate_block_scale.values.size() == kBlockScaleBytes &&
+        checkpoint->up_weight.values.size() == kPackedWeightBytes &&
+        checkpoint->up_block_scale.values.size() == kBlockScaleBytes &&
+        std::isfinite(checkpoint->gate_weight_scale_2.value) &&
+        checkpoint->gate_weight_scale_2.value > 0.0F &&
+        std::isfinite(checkpoint->up_weight_scale_2.value) &&
+        checkpoint->up_weight_scale_2.value > 0.0F;
+    test.expect(payload_exact,
+                "prepared checkpoint Gate/Up payload remains exact");
+    if (!payload_exact) {
+      return false;
+    }
+    fixture.gate_weight_scale_2 = checkpoint->gate_weight_scale_2.value;
+    fixture.up_weight_scale_2 = checkpoint->up_weight_scale_2.value;
+    ready = test.cuda_ok(
+                cudaMemcpyAsync(fixture.gate_packed.get(),
+                                checkpoint->gate_weight.values.data(),
+                                kPackedWeightBytes, cudaMemcpyHostToDevice,
+                                execution.main()),
+                "copy checkpoint Gate packed weight") &&
+            ready;
+    ready = test.cuda_ok(
+                cudaMemcpyAsync(fixture.gate_scales.get(),
+                                checkpoint->gate_block_scale.values.data(),
+                                kBlockScaleBytes, cudaMemcpyHostToDevice,
+                                execution.main()),
+                "copy checkpoint Gate block scales") &&
+            ready;
+    ready = test.cuda_ok(
+                cudaMemcpyAsync(fixture.up_packed.get(),
+                                checkpoint->up_weight.values.data(),
+                                kPackedWeightBytes, cudaMemcpyHostToDevice,
+                                execution.main()),
+                "copy checkpoint Up packed weight") &&
+            ready;
+    ready = test.cuda_ok(
+                cudaMemcpyAsync(fixture.up_scales.get(),
+                                checkpoint->up_block_scale.values.data(),
+                                kBlockScaleBytes, cudaMemcpyHostToDevice,
+                                execution.main()),
+                "copy checkpoint Up block scales") &&
+            ready;
+  } else {
+    fixture.gate_weight_scale_2 = kSyntheticGateWeightScale2;
+    fixture.up_weight_scale_2 = kSyntheticUpWeightScale2;
+    fill_canonical_nvfp4_kernel<<<blocks(kPackedWeightBytes), kThreads, 0U,
+                                  execution.main()>>>(
+        fixture.gate_packed.get(), kPackedWeightBytes, 0x6a09'e667U, false);
+    ready = test.cuda_ok(cudaGetLastError(), "fill Gate packed weight") && ready;
+    fill_canonical_nvfp4_kernel<<<blocks(kBlockScaleBytes), kThreads, 0U,
+                                  execution.main()>>>(
+        fixture.gate_scales.get(), kBlockScaleBytes, 0xbb67'ae85U, true);
+    ready =
+        test.cuda_ok(cudaGetLastError(), "fill Gate block scales") && ready;
+    fill_canonical_nvfp4_kernel<<<blocks(kPackedWeightBytes), kThreads, 0U,
+                                  execution.main()>>>(
+        fixture.up_packed.get(), kPackedWeightBytes, 0x3c6e'f372U, false);
+    ready =
+        test.cuda_ok(cudaGetLastError(), "fill distinct Up packed weight") &&
+        ready;
+    fill_canonical_nvfp4_kernel<<<blocks(kBlockScaleBytes), kThreads, 0U,
+                                  execution.main()>>>(
+        fixture.up_scales.get(), kBlockScaleBytes, 0xa54f'f53aU, true);
+    ready =
+        test.cuda_ok(cudaGetLastError(), "fill distinct Up block scales") &&
+        ready;
+  }
   ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
                        "initialize fixture synchronize") &&
           ready;
@@ -1284,17 +1831,46 @@ struct ComparisonResult {
   std::size_t local = std::numeric_limits<std::size_t>::max();
   int threads = -1;
   int active = -1;
-  const int resource_status = q3x::kernels::
-      query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
-          kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
-          &threads, &active);
+  int resource_status = static_cast<int>(cudaErrorInvalidValue);
+  if (fixture.native_kernel == NativeKernel::kM64N256PairLookup) {
+    resource_status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+            kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
+            &threads, &active);
+  } else if (fixture.native_kernel ==
+             NativeKernel::kM128N256HorizontalP0) {
+    resource_status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_resources_test_cuda(
+            kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
+            &threads, &active);
+  } else {
+    resource_status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_named_p1_resources_test_cuda(
+            kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
+            &threads, &active);
+  }
+  const bool pair_lookup =
+      fixture.native_kernel == NativeKernel::kM64N256PairLookup;
+  const std::size_t expected_static_shared = pair_lookup ? 1'536U : 512U;
+  const std::size_t expected_dynamic_shared =
+      fixture.native_kernel == NativeKernel::kM128N256HorizontalP0
+          ? 61'440U
+          : (fixture.native_kernel ==
+                     NativeKernel::kM128N256HorizontalNamedP1
+                 ? 61'536U
+                 : 43'008U);
+  const int expected_threads = pair_lookup ? 256 : 512;
+  const int minimum_active_blocks = pair_lookup ? 2 : 1;
   const bool resource_gate =
       resource_status == static_cast<int>(cudaSuccess) && registers <= 128 &&
-      static_shared == 1'536U && dynamic_shared == 43'008U && local == 0U &&
-      threads == 256 && active >= 2;
+      static_shared == expected_static_shared &&
+      dynamic_shared == expected_dynamic_shared && local == 0U &&
+      threads == expected_threads && active >= minimum_active_blocks;
   test.expect(resource_gate,
-              "native pair-lookup candidate clears frozen resources");
-  std::cout << "NVFP4_PAIR_NATIVE_RESOURCES: status=" << resource_status
+              "selected native candidate clears frozen resources");
+  std::cout << "NVFP4_PAIR_NATIVE_RESOURCES: native_kernel="
+            << native_kernel_name(fixture.native_kernel)
+            << " status=" << resource_status
             << " registers=" << registers
             << " static_shared_bytes=" << static_shared
             << " dynamic_shared_bytes=" << dynamic_shared
@@ -1315,14 +1891,11 @@ struct ComparisonResult {
     const auto launch_invalid = [&](const std::size_t tokens,
                                     const std::size_t rows,
                                     const std::size_t columns) {
-      return q3x::kernels::
-          launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
-              fixture.gate_packed.get(), fixture.gate_scales.get(),
-              kGateWeightScale2,
-              reinterpret_cast<const std::uint16_t*>(
-                  fixture.activation.get()),
-              tokens, rows, columns, fixture.candidate_gate(),
-              static_cast<void*>(execution.main()));
+      return launch_native_branch_status(
+          fixture.native_kernel, fixture.gate_packed.get(),
+          fixture.gate_scales.get(), fixture.gate_weight_scale_2,
+          fixture.activation.get(), tokens, rows, columns,
+          fixture.candidate_gate(), execution.main());
     };
     invalid_statuses[0] = launch_invalid(kM - 1U, kN, kK);
     invalid_statuses[1] = launch_invalid(kM, kN - 1U, kK);
@@ -1348,7 +1921,7 @@ struct ComparisonResult {
   const bool status_gate =
       ready && invalid_count == invalid_statuses.size() && graph_nodes == 0U;
   test.expect(status_gate,
-              "native pair-lookup near misses enqueue zero graph nodes");
+              "selected native near misses enqueue zero graph nodes");
   std::cout << "NVFP4_PAIR_NATIVE_STATUS: invalid_statuses="
             << invalid_count << '/' << invalid_statuses.size()
             << " graph_nodes=" << graph_nodes
@@ -1356,10 +1929,199 @@ struct ComparisonResult {
   return resource_gate && status_gate;
 }
 
+struct Options {
+  std::string checkpoint_directory;
+  NativeKernel native_kernel = NativeKernel::kM64N256PairLookup;
+};
+
+[[nodiscard]] bool parse_native_kernel(const std::string& value,
+                                       NativeKernel& kernel) {
+  if (value == "m64n256pairlookup" || value == "m64n256_pairlookup") {
+    kernel = NativeKernel::kM64N256PairLookup;
+    return true;
+  }
+  if (value == "m128n256horizontalp0" ||
+      value == "m128n256_horizontal_p0") {
+    kernel = NativeKernel::kM128N256HorizontalP0;
+    return true;
+  }
+  if (value == "m128n256horizontalnamedp1" ||
+      value == "m128n256_horizontal_named_p1") {
+    kernel = NativeKernel::kM128N256HorizontalNamedP1;
+    return true;
+  }
+  return false;
+}
+
+[[nodiscard]] bool parse_options(const int argc, char** const argv,
+                                 Options& options) {
+  bool checkpoint_seen = false;
+  bool native_seen = false;
+  for (int index = 1; index < argc; ++index) {
+    const std::string argument(argv[index]);
+    if (argument == "--checkpoint") {
+      if (checkpoint_seen) {
+        std::cerr << "duplicate --checkpoint argument\n";
+        return false;
+      }
+      if (index + 1 >= argc) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
+      checkpoint_seen = true;
+      options.checkpoint_directory = argv[++index];
+      if (options.checkpoint_directory.empty()) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
+    } else if (argument.rfind("--checkpoint=", 0U) == 0U) {
+      if (checkpoint_seen) {
+        std::cerr << "duplicate --checkpoint argument\n";
+        return false;
+      }
+      checkpoint_seen = true;
+      options.checkpoint_directory =
+          argument.substr(std::string("--checkpoint=").size());
+      if (options.checkpoint_directory.empty()) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
+    } else if (argument == "--native" ||
+               argument.rfind("--native=", 0U) == 0U) {
+      if (native_seen) {
+        std::cerr << "duplicate --native argument\n";
+        return false;
+      }
+      native_seen = true;
+      if (argument == "--native" && index + 1 >= argc) {
+        std::cerr << "--native requires a value\n";
+        return false;
+      }
+      const std::string value = argument == "--native"
+                                    ? std::string(argv[++index])
+                                    : argument.substr(
+                                          std::string("--native=").size());
+      if (!parse_native_kernel(value, options.native_kernel)) {
+        std::cerr << "unknown --native value: " << value << '\n';
+        return false;
+      }
+    } else {
+      std::cerr << "unknown argument: " << argument << '\n';
+      return false;
+    }
+  }
+  return true;
+}
+
+void print_payload_provenance(
+    const CheckpointPayload* const checkpoint) {
+  if (checkpoint == nullptr) {
+    std::cout << "NVFP4_PAIR_PAYLOAD: payload=synthetic"
+              << " activation=deterministic_bf16"
+              << " activation_seed=0x12345678"
+              << " activation_scale=0.015625"
+              << " gate_weight_seed=0x6a09e667"
+              << " gate_block_scale_seed=0xbb67ae85"
+              << " up_weight_seed=0x3c6ef372"
+              << " up_block_scale_seed=0xa54ff53a"
+              << " gate_weight_scale_2=" << kSyntheticGateWeightScale2
+              << " up_weight_scale_2=" << kSyntheticUpWeightScale2 << '\n';
+    return;
+  }
+
+  std::cout << std::setprecision(std::numeric_limits<float>::max_digits10)
+            << "NVFP4_PAIR_PAYLOAD: payload=checkpoint"
+            << " canonical_directory=" << checkpoint->canonical_directory
+            << " index=" << kCheckpointIndex
+            << " shard=" << checkpoint->shard
+            << " shard_file_bytes=" << checkpoint->shard_file_bytes
+            << " header_bytes=" << checkpoint->header_bytes
+            << " data_offset=" << checkpoint->data_offset
+            << " gate_weight_tensor=" << kGateWeightTensor
+            << " gate_weight_dtype=U8"
+            << " gate_weight_shape=17408x2560"
+            << " gate_weight_begin=" << checkpoint->gate_weight.file_begin
+            << " gate_weight_end=" << checkpoint->gate_weight.file_end
+            << " gate_weight_bytes=" << checkpoint->gate_weight.values.size()
+            << " gate_weight_sha256=" << checkpoint->gate_weight.sha256
+            << " gate_block_scale_tensor=" << kGateBlockScaleTensor
+            << " gate_block_scale_dtype=F8_E4M3"
+            << " gate_block_scale_shape=17408x320"
+            << " gate_block_scale_begin="
+            << checkpoint->gate_block_scale.file_begin
+            << " gate_block_scale_end="
+            << checkpoint->gate_block_scale.file_end
+            << " gate_block_scale_bytes="
+            << checkpoint->gate_block_scale.values.size()
+            << " gate_block_scale_sha256="
+            << checkpoint->gate_block_scale.sha256
+            << " gate_weight_scale_2_tensor=" << kGateWeightScale2Tensor
+            << " gate_weight_scale_2_dtype=F32"
+            << " gate_weight_scale_2_shape=scalar"
+            << " gate_weight_scale_2_begin="
+            << checkpoint->gate_weight_scale_2.file_begin
+            << " gate_weight_scale_2_end="
+            << checkpoint->gate_weight_scale_2.file_end
+            << " gate_weight_scale_2="
+            << checkpoint->gate_weight_scale_2.value
+            << " gate_weight_scale_2_bits=0x"
+            << hex_u32(checkpoint->gate_weight_scale_2.little_endian_bits)
+            << " gate_weight_scale_2_sha256="
+            << checkpoint->gate_weight_scale_2.sha256
+            << " up_weight_tensor=" << kUpWeightTensor
+            << " up_weight_dtype=U8"
+            << " up_weight_shape=17408x2560"
+            << " up_weight_begin=" << checkpoint->up_weight.file_begin
+            << " up_weight_end=" << checkpoint->up_weight.file_end
+            << " up_weight_bytes=" << checkpoint->up_weight.values.size()
+            << " up_weight_sha256=" << checkpoint->up_weight.sha256
+            << " up_block_scale_tensor=" << kUpBlockScaleTensor
+            << " up_block_scale_dtype=F8_E4M3"
+            << " up_block_scale_shape=17408x320"
+            << " up_block_scale_begin="
+            << checkpoint->up_block_scale.file_begin
+            << " up_block_scale_end=" << checkpoint->up_block_scale.file_end
+            << " up_block_scale_bytes="
+            << checkpoint->up_block_scale.values.size()
+            << " up_block_scale_sha256="
+            << checkpoint->up_block_scale.sha256
+            << " up_weight_scale_2_tensor=" << kUpWeightScale2Tensor
+            << " up_weight_scale_2_dtype=F32"
+            << " up_weight_scale_2_shape=scalar"
+            << " up_weight_scale_2_begin="
+            << checkpoint->up_weight_scale_2.file_begin
+            << " up_weight_scale_2_end="
+            << checkpoint->up_weight_scale_2.file_end
+            << " up_weight_scale_2=" << checkpoint->up_weight_scale_2.value
+            << " up_weight_scale_2_bits=0x"
+            << hex_u32(checkpoint->up_weight_scale_2.little_endian_bits)
+            << " up_weight_scale_2_sha256="
+            << checkpoint->up_weight_scale_2.sha256
+            << " activation=deterministic_bf16"
+            << " activation_seed=0x12345678"
+            << " activation_scale=0.015625"
+            << " payload_sha256_pins=true"
+            << " checkpoint_read_only=true\n";
+}
+
 }  // namespace
 
-int main() {
+int main(const int argc, char** const argv) {
+  Options options;
+  if (!parse_options(argc, argv, options)) {
+    return 2;
+  }
   TestContext test;
+  CheckpointPayload checkpoint_payload;
+  const CheckpointPayload* selected_checkpoint = nullptr;
+  if (!options.checkpoint_directory.empty()) {
+    if (!load_checkpoint_payload(test, options.checkpoint_directory,
+                                 checkpoint_payload)) {
+      return 1;
+    }
+    selected_checkpoint = &checkpoint_payload;
+  }
+  print_payload_provenance(selected_checkpoint);
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
     return 1;
@@ -1395,8 +2157,17 @@ int main() {
             << "NVFP4_PAIR_PROTOCOL: device=" << properties.name
             << " cc=" << properties.major << '.' << properties.minor
             << " M=" << kM << " N=" << kN << " K=" << kK
-            << " gate_weight_scale_2=" << kGateWeightScale2
-            << " up_weight_scale_2=" << kUpWeightScale2
+            << " payload="
+            << (selected_checkpoint == nullptr ? "synthetic" : "checkpoint")
+            << " gate_weight_scale_2="
+            << (selected_checkpoint == nullptr
+                    ? kSyntheticGateWeightScale2
+                    : selected_checkpoint->gate_weight_scale_2.value)
+            << " up_weight_scale_2="
+            << (selected_checkpoint == nullptr
+                    ? kSyntheticUpWeightScale2
+                    : selected_checkpoint->up_weight_scale_2.value)
+            << " native_kernel=" << native_kernel_name(options.native_kernel)
             << " workspace_bytes=0"
             << " gpu_min_hz=" << clocks->gpu_min
             << " gpu_current_hz=" << clocks->gpu_current
@@ -1407,6 +2178,7 @@ int main() {
             << " fixed_clocks=true" << '\n';
 
   Fixture fixture;
+  fixture.native_kernel = options.native_kernel;
   Execution execution;
   LtObjects main_lt;
   LtObjects auxiliary_lt;
@@ -1443,7 +2215,8 @@ int main() {
             << " per_scratch_bytes=" << kPerScratchBytes
             << " lt_workspace_bytes=0" << '\n';
 
-  ready = initialize_fixture(test, fixture, execution) && ready;
+  ready = initialize_fixture(test, fixture, execution, selected_checkpoint) &&
+          ready;
   ready = launch_dequantize(fixture.gate_packed.get(),
                             fixture.gate_scales.get(), fixture.scratch0.get(),
                             execution.main()) &&
@@ -1584,7 +2357,9 @@ int main() {
             << " recommended_scratch_count="
             << (recommendation == Variant::kSerialOneScratch ? 1 : 2)
             << " hard_gate=" << (serial_gate ? "PASS" : "FAIL") << '\n';
-  std::cout << "NVFP4_PAIR_NATIVE_FINAL: bridge_serial_ms="
+  std::cout << "NVFP4_PAIR_NATIVE_FINAL: native_kernel="
+            << native_kernel_name(fixture.native_kernel)
+            << " bridge_serial_ms="
             << bridge_vs_native_serial.baseline_milliseconds
             << " native_serial_ms="
             << bridge_vs_native_serial.candidate_milliseconds

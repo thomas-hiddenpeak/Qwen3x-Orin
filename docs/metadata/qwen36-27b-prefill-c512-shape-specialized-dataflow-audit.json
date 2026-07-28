@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "audit": "Qwen3.6-27B C512 shape-specialized large-M projection dataflow",
+  "date": "2026-07-28",
+  "device": {
+    "name": "Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fixed_clocks": true
+  },
+  "scope": {
+    "token_count": 512,
+    "mtp_enabled": false,
+    "production_dispatch_changed": false,
+    "production_context_admission_changed": true,
+    "purpose": "Bind Gate/Up and Down decisions to the pinned layer-0 checkpoint payload, test the horizontal M128N256 NVFP4 topology rather than extrapolating from Gate-only synthetic microbenchmarks, and close the public Down-module/autotune evidence gap."
+  },
+  "checkpoint": {
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "shard": "model-00001-of-00003.safetensors",
+    "shard_file_bytes": 9965652512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "read_only": true,
+    "path_and_symlink_checks": true,
+    "tensor_payload_sha256_pins": true,
+    "layer0": {
+      "gate": {
+        "weight": {
+          "dtype": "U8",
+          "shape": [17408, 2560],
+          "bytes": 44564480,
+          "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"
+        },
+        "weight_scale": {
+          "dtype": "F8_E4M3",
+          "shape": [17408, 320],
+          "bytes": 5570560,
+          "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"
+        },
+        "weight_scale_2_bits": "0x391e79e8"
+      },
+      "up": {
+        "weight": {
+          "dtype": "U8",
+          "shape": [17408, 2560],
+          "bytes": 44564480,
+          "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"
+        },
+        "weight_scale": {
+          "dtype": "F8_E4M3",
+          "shape": [17408, 320],
+          "bytes": 5570560,
+          "sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"
+        },
+        "weight_scale_2_bits": "0x391e79e8"
+      },
+      "down": {
+        "weight": {
+          "dtype": "U8",
+          "shape": [5120, 8704],
+          "bytes": 44564480,
+          "sha256": "bc1b428661d3cf657a4d69ff8d7e482b8125ef0f323e6df29b153a22fa2b6daf"
+        },
+        "weight_scale": {
+          "dtype": "F8_E4M3",
+          "shape": [5120, 1088],
+          "bytes": 5570560,
+          "sha256": "7943b475b23f75886309e93bf673aacc22c699e19ff400ef85607ab1a4006019"
+        },
+        "weight_scale_2_bits": "0x39b61862"
+      }
+    }
+  },
+  "gate_up": {
+    "shape": {
+      "M": 512,
+      "N": 17408,
+      "K": 5120
+    },
+    "live_checkpoint_bridge": {
+      "production_route_present": true,
+      "production_route_commit": "1632976",
+      "production_prefill_execution": "eager; module Graph-safe but Prefill graph capture is not implemented",
+      "production_native_pair_ms": 12.892375,
+      "dequant_plus_cublaslt_pair_ms": 7.205121,
+      "speedup": 1.789335,
+      "six_round_bccb_all_positive": true,
+      "cublaslt_workspace_bytes": 0,
+      "reused_bf16_dequant_scratch_bytes": 178257920
+    },
+    "horizontal_p0": {
+      "mapping": "one 512-thread CTA; two horizontal 8-warp M128N128 groups; common two-slot A; private two-slot B/scale; CTA-wide steady-state barrier",
+      "grid_ctas": 272,
+      "resources": {
+        "registers_per_thread": 128,
+        "static_shared_bytes": 512,
+        "dynamic_shared_bytes": 61440,
+        "local_bytes_per_thread": 0,
+        "threads_per_cta": 512,
+        "active_ctas_per_sm": 1,
+        "resident_warps_per_sm": 16
+      },
+      "correctness": {
+        "bitwise_mismatches": 0,
+        "elements_compared_per_pair": 17825792,
+        "graph_replay_mismatches": 0,
+        "invalid_statuses": "23/23",
+        "captured_kernel_nodes": 2,
+        "input_immutable": true
+      },
+      "synthetic_single_gate": {
+        "frozen_m64n256_ms": 5.532034,
+        "candidate_ms": 6.011134,
+        "speedup": 0.920298,
+        "six_round_bccb_all_positive": false
+      },
+      "checkpoint_pair": {
+        "bridge_serial_ms": 7.202137,
+        "native_serial_ms": 12.014675,
+        "bridge_over_native_speed_ratio": 0.599445,
+        "native_dual_ms": 11.970471,
+        "bridge_over_native_dual_speed_ratio": 0.601700,
+        "native_serial_to_dual_speedup": 1.003738
+      },
+      "decision": "reject from production; retain as the exact resource/correctness sentinel for the horizontal topology"
+    },
+    "horizontal_named_p1": {
+      "mapping": "P0 arithmetic plus raw SM80 mbarrier ready/free phases for common A and private B; alternate A producer subgroup",
+      "resources": {
+        "registers_per_thread": 128,
+        "static_shared_bytes": 512,
+        "dynamic_shared_bytes": 61536,
+        "local_bytes_per_thread": 0,
+        "threads_per_cta": 512,
+        "active_ctas_per_sm": 1,
+        "resident_warps_per_sm": 16
+      },
+      "correctness": {
+        "bitwise_mismatches": 0,
+        "elements_compared_per_pair": 17825792,
+        "graph_replay_mismatches": 0,
+        "invalid_statuses": "23/23",
+        "captured_kernel_nodes": 2,
+        "input_immutable": true
+      },
+      "synthetic_single_gate": {
+        "frozen_m64n256_ms": 5.530700,
+        "candidate_ms": 6.543870,
+        "speedup": 0.845173,
+        "six_round_bccb_all_positive": false
+      },
+      "checkpoint_pair": {
+        "bridge_serial_ms": 7.212744,
+        "native_serial_ms": 13.085864,
+        "bridge_over_native_speed_ratio": 0.551186,
+        "native_dual_ms": 13.035533,
+        "bridge_over_native_dual_speed_ratio": 0.553259,
+        "native_serial_to_dual_speedup": 1.003754
+      },
+      "decision": "reject; per-stage multi-barrier control costs more than the recovered subgroup phase independence"
+    }
+  },
+  "down": {
+    "shape": {
+      "M": 512,
+      "N": 5120,
+      "K": 17408,
+      "k64_stages": 272
+    },
+    "live_checkpoint": {
+      "production_route_present": true,
+      "production_route_commit": "690b899",
+      "production_m128_median_ms": 6.659690,
+      "window8_dequant_median_ms": 1.380977,
+      "persistent_cublaslt_median_ms": 3.272897,
+      "test_tu_inclusive_median_ms": 4.651120,
+      "test_tu_inclusive_tflops": 19.622812,
+      "test_tu_inclusive_speedup": 1.431846,
+      "minimum_round_speedup": 1.430560,
+      "six_round_all_positive": true,
+      "production_bitwise_mismatches": 0,
+      "elements_compared": 2621440,
+      "graph_nodes": 2,
+      "selected_dequant": "window8",
+      "cublaslt_workspace_bytes": 0,
+      "scale_zero_action": "route_existing_production",
+      "nonfinite_or_negative_scale_action": "reject_before_enqueue"
+    },
+    "public_module_checkpoint_proof": {
+      "heuristic_rank": 1,
+      "scratch_bytes": 178257920,
+      "workspace_bytes": 0,
+      "decoded_weight_bitwise_mismatches": 0,
+      "decoded_weight_elements_compared": 89128960,
+      "output_vs_test_tu_bitwise_mismatches": 0,
+      "output_vs_production_m128_bitwise_mismatches": 0,
+      "output_elements_compared": 2621440,
+      "test_tu_bccb_ms": 4.654968,
+      "public_module_bccb_ms": 4.652262,
+      "public_over_test_tu": 0.999419,
+      "absolute_delta_fraction": 0.000581,
+      "six_rounds_within_3_percent": true,
+      "extrapolation": "SUPPORTED",
+      "public_module_speedup_vs_production_m128": 1.431495
+    },
+    "context_autotune_reliability": {
+      "old_failure": "a fixed 5.0 ms winner threshold treated frequency and contention as permanent route unavailability",
+      "new_protocol": "two interleaved warmup rounds, three interleaved timing rounds with two iterations each, best valid sample; failed heuristics are discarded independently",
+      "absolute_runtime_admission_threshold_ms": null,
+      "serial_ctest_runs_passed": "10/10",
+      "two_process_concurrent_runs_passed": "8/8",
+      "effective_contexts_competing_per_concurrent_run": 4,
+      "observed_fast_equivalent_ranks": [1, 7],
+      "workspace_bytes": 0
+    },
+    "decision": "retain the already-integrated exact-C512 production Down bridge; its public module now has direct pinned-payload evidence and its factory no longer silently disables the route under transient contention"
+  },
+  "conclusions": [
+    "Gate/Up and Down require separate runtime cells; the real checkpoint confirms that their best current implementations are not the same native tile configuration.",
+    "Combining A reuse and B decode reuse inside one 512-thread Gate CTA is resource-feasible and exact, but both full-CTA and per-stage mbarrier schedules regress latency.",
+    "The 512-thread result rejects this concrete synchronization structure, not the general goal of coupled operand reuse.",
+    "Down already clears the production performance gate with its shape-specific bridge, is integrated independently from Gate/Up, and should not wait for a future native Gate kernel.",
+    "FP8 QKV/Z/O remains a separate backend family because it has no NVFP4 decode stage; it may reuse selector and scheduling infrastructure only."
+  ],
+  "next_actions": [
+    "add Gate/Up and Down production route readiness/hit/fallback observability while preserving their independent exact-C512 selectors; both bridges are already integrated",
+    "keep absolute performance gates in repeatable ceiling/CI tests rather than production context availability checks",
+    "treat Prefill CUDA Graph and OpenAI-compatible API/eval harness work as separate usability and launch-overhead tracks; current production Prefill is eager",
+    "for the next native Gate skeleton, avoid per-K64 multi-mbarrier control and evaluate a design that preserves independent 256-thread CTA phasing while treating A reuse as an L2/locality scheduling problem",
+    "refresh production NSys projection ranking before starting separate FP8 QKV/Z/O cells"
+  ],
+  "verification": {
+    "fresh_build": "pass",
+    "targeted_tests": "5/5 pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 35.54
+    },
+    "real_checkpoint_runs": {
+      "gate_up_horizontal_p0": "exit 0; correctness, Graph, resource, and fixed-clock B-C-C-B protocol pass; performance rejected",
+      "gate_up_horizontal_named_p1": "exit 0; correctness, Graph, resource, and fixed-clock B-C-C-B protocol pass; performance rejected",
+      "down_public_module": "exit 0; exactness and fixed-clock B-C-C-B extrapolation pass"
+    },
+    "diff_check": "pass",
+    "json_validation": "pass"
+  },
+  "raw_artifacts": {
+    "retained": false,
+    "qualification": "Results were observed directly from fixed-clock executable screens; no raw log path or hash is asserted."
+  }
+}
