@@ -298,24 +298,25 @@ branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
 The Gate/Up mechanism has full evidence in the
 [M128 Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
 
-A test-only exact-C512 Gate path now establishes the next large-M NVFP4
-integration target. A custom canonical-NVFP4-to-BF16 kernel takes **1.236907
-ms**, and cuBLASLt consumes the contiguous BF16 allocation without a physical
-transpose in **2.323137 ms**. The inclusive **3.561288 ms** median is
-**1.842441x** faster than the fresh **6.561464 ms** production M128 Gate
-reference. Canonical decode is bitwise exact across 89,128,960 BF16 values and
-the exact two-node CUDA Graph replays cleanly. The zero-workspace P0 follow-up
-also matches all 8,912,896 production-M128 outputs bitwise. A production-shaped
-Gate+Up screen selects one handle and one reusable 170-MiB scratch: serial
-Gate then Up takes **7.155811 ms** versus **12.894805 ms** production
-(**1.802005x**). Naive dual-stream and staggered schedules are slower than
-serial in all six rounds, so the second 170-MiB scratch is rejected. Down,
-memory-reserve, runner, and pinned-checkpoint gates remain; no whole-Prefill
-gain is claimed yet. The native fused large-M NVFP4 kernel continues in
-parallel as the higher-ceiling route.
+A production exact-C512 large-M NVFP4 bridge now routes Gate then Up through
+direct canonical-NVFP4-to-BF16 decode and zero-workspace cuBLASLt. The two
+projections serially overwrite one conditional request-scoped 170-MiB scratch;
+there is no persistent BF16 weight copy or second scratch. Canonical decode is
+bitwise exact across 89,128,960 BF16 values, all 8,912,896 production-M128
+outputs match bitwise, and module eager plus per-projection two-node CUDA
+Graph execution pass.
+Mirrored fixed-clock P513 benchmarking improves Prefix from **2557.970 ms /
+200.159 token/s** to **2208.733 ms / 231.807 token/s** (**1.158116x**) and
+TTFT from **2666.918 ms** to **2317.622 ms** (**1.150713x**). Nsight records
+128 direct-dequant and 128 cuBLASLt calls with zero calls to the prior C512
+Gate/Up M128 kernel. The 74-test suite has zero failures, and mirrored C32
+Decode remains noise-equivalent at **105.8270 vs 105.8995 ms/token**. C256,
+Down, finish-Prefill, Decode, and all selector near misses keep their existing
+routes. Down is the next bounded hybrid ceiling screen; the native fused
+large-M NVFP4 kernel remains the higher-ceiling path.
 See the [C512 inclusive cuBLASLt admission
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
-and [Gate+Up schedule selection](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection.json).
+and [Gate+Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json).
 The parallel native large-M effort now has a frozen test-only M64xN256xK64
 baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
 epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)

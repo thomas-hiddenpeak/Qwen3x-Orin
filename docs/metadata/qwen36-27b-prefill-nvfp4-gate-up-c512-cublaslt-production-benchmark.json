@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-28T19:41:06+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "production-exact-c512-gate-up-route-admitted",
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark",
+  "source": {
+    "baseline_commit": "4949070ea742379cd4240493eebd8d8fb704f1e3",
+    "request_scratch_commit": "8624431e8ce30db930a1128f7325e615394081a1",
+    "module_commit": "51ae7001014423e93b61d722053d5aa03f6512ef",
+    "runner_commit": "163297615f14c9f4da3bc656a68428560b9893a0",
+    "runner_tree": "1497f69335648fae074a5f01a5ebeeb96524456b",
+    "subjects": [
+      "feat: reserve one C512 NVFP4 Lt scratch",
+      "feat: add zero-workspace C512 NVFP4 Lt module",
+      "feat: route C512 NVFP4 Gate Up through Lt"
+    ],
+    "production_files": [
+      "include/q3x/runtime/request_state.h",
+      "src/runtime/request_state.cpp",
+      "include/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h",
+      "src/kernels/sm87/nvfp4_prefill_cublaslt.cu",
+      "include/q3x/runtime/reference_runner.h",
+      "src/runtime/reference_runner.cpp"
+    ],
+    "test_files": [
+      "tests/request_state_plan_test.cpp",
+      "tests/request_state_cuda_test.cpp",
+      "tests/sm87_nvfp4_prefill_cublaslt_module_test.cu",
+      "tests/reference_runner_host_test.cpp"
+    ],
+    "prior_admission_records": [
+      "docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json",
+      "docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection.json",
+      "docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json"
+    ]
+  },
+  "binaries": {
+    "baseline": {
+      "path": "/tmp/q3x-baseline-4949070/build/qwen3x-orin",
+      "bytes": 7023808,
+      "sha256": "fb90561f72c0596556581ab45698f523a701634b4fd85206bb1b91b821a83fd9",
+      "elf_build_id": "23aab87b27f3d5de904d2e3885e8c9e91d9a3f65"
+    },
+    "candidate": {
+      "path": "/tmp/q3x-candidate-1632976",
+      "bytes": 7028544,
+      "sha256": "a8724377116f71e6b37d8d38742dc3afdbb6b4d6fe2e4eff0e6c7c821dacb23c",
+      "elf_build_id": "86db95c2491537396aed6f8dfe2936713c58b8b2"
+    }
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "active_gpu_tpcs": 8,
+    "operating_system": "Linux 6.8.12-1021-tegra aarch64",
+    "tegra_release": "R39.2.0",
+    "cuda_compiler": "13.3",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset -c 11",
+    "fixed_frequency_readback": {
+      "cpu_hz": 2201600000,
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "fan_pwm": 255,
+    "claim_scope": "one fixed-clock Jetson AGX Orin; batch one; pinned local Qwen3.6-27B-NVFP4 checkpoint"
+  },
+  "production_contract": {
+    "selector": {
+      "phase": "prompt-prefix only",
+      "device": "SM87",
+      "projection_backend": "sm87_weight_only",
+      "rows": 512,
+      "gate_and_up_shape": "N=17408,K=5120",
+      "canonical_nvfp4_required": true,
+      "minimum_pointer_alignment_bytes": 16,
+      "weight_scales": "both finite and strictly positive",
+      "context_and_scratch_required": true
+    },
+    "selected_order": [
+      "Gate direct canonical NVFP4-to-BF16 dequantization",
+      "Gate zero-workspace cuBLASLt GEMM",
+      "Up direct dequantization overwriting the same scratch",
+      "Up zero-workspace cuBLASLt GEMM",
+      "SiLU multiply"
+    ],
+    "fallback_before_selection": "C256, C64, finish-Prefill, Decode, near misses, zero scale, missing scratch, or unavailable context retain their established production route",
+    "failure_after_enqueue": "synchronize, poison the selected tile, and return failure; never re-run through the old kernel",
+    "unchanged": [
+      "Down projection",
+      "C256 and smaller Gate/Up",
+      "finish-Prefill",
+      "Decode",
+      "MTP remains disabled and outside this objective"
+    ]
+  },
+  "module_and_memory_validation": {
+    "weight_shape": "17408x5120 canonical NVFP4",
+    "decoded_weight_layout": "contiguous BF16 row-major [17408,5120], consumed by cuBLASLt as a logical transpose without a physical transpose",
+    "decoded_scalar_values_compared": 89128960,
+    "decoded_scalar_bitwise_mismatches": 0,
+    "production_output_values_compared": 8912896,
+    "production_output_bitwise_mismatches": 0,
+    "maximum_absolute_error": 0.0,
+    "maximum_relative_error": 0.0,
+    "nrmse": 0.0,
+    "cosine": 1.0,
+    "cublaslt_max_workspace_bytes": 0,
+    "selected_workspace_bytes": 0,
+    "heuristic_selection": "first successful zero-workspace heuristic returned at runtime; algorithm rank is not an ABI",
+    "scratch": {
+      "count": 1,
+      "bytes": 178257920,
+      "mib": 170.0,
+      "alignment_bytes": 256,
+      "allocation_condition": "requested Prefill chunk >=512 and request max sequence length >=512",
+      "persistent_weight_sidecar": false,
+      "second_scratch": false
+    },
+    "cuda_graph": {
+      "valid_kernel_nodes_per_projection": 2,
+      "cold_and_warm_replay": "bitwise exact",
+      "invalid_call_nodes": 0
+    },
+    "safety": {
+      "guards": "pass",
+      "activation_weight_and_scale_immutability": "pass",
+      "minimum_lt_operand_alignment_bytes": 16,
+      "non_256_byte_aligned_operands_tested": true,
+      "null_alias_range_overflow_nan_inf_and_negative_scale_gates": "pass before enqueue",
+      "zero_scale": "conservatively retains the established production route"
+    }
+  },
+  "formal_prefill_protocol": {
+    "order": [
+      "B1",
+      "C1",
+      "C2",
+      "B2"
+    ],
+    "model": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "request_max_sequence_length": 1024,
+    "requested_prefill_chunk_size": 512,
+    "effective_prefill_chunk_size": 512,
+    "prompt_name": "P513",
+    "prompt_token_count": 513,
+    "prefix_execution_token_count": 512,
+    "prompt_construction": "501 space-separated copies of ASCII hello inside the pinned non-thinking single-user chat template",
+    "max_new_tokens": 1,
+    "warmup_rounds": 1,
+    "measured_rounds": 5,
+    "logits_mode": "predicted_token_only",
+    "decode_graph_cache": "disabled",
+    "nvtx_phase_ranges": false,
+    "command_template": "taskset -c 11 BINARY benchmark MODEL_DIR --prompt P513_TEXT --max-tokens 1 --warmup 1 --iterations 5 --max-sequence-length 1024 --prefill-chunk-size 512 --projection-backend sm87",
+    "throughput_definitions": {
+      "prefix_tokens_per_second": "512000 / mirrored-average Prefix milliseconds",
+      "complete_prompt_tokens_per_second": "513000 / mirrored-average TTFT milliseconds"
+    }
+  },
+  "formal_prefill_runs": {
+    "B1": {
+      "prompt_prefix_median_ms": 2557.160,
+      "finish_prefill_median_ms": 108.791,
+      "ttft_median_ms": 2666.004,
+      "request_arena_bytes": 233940992,
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 0,
+      "raw_log": {
+        "path": "/tmp/q3x-c512-lt-formal-B1.log",
+        "bytes": 19923,
+        "sha256": "32206094710f8a4daf1871260822abd13e7be30fd9a5be82643b21dd9f160a1f"
+      }
+    },
+    "C1": {
+      "prompt_prefix_median_ms": 2204.548,
+      "finish_prefill_median_ms": 108.806,
+      "ttft_median_ms": 2313.343,
+      "request_arena_bytes": 412198912,
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 0,
+      "raw_log": {
+        "path": "/tmp/q3x-c512-lt-formal-C1.log",
+        "bytes": 19926,
+        "sha256": "2571269a3cf3ab2dfbf5f50bf1ecfb8564586c43c53a652ebe387a7360798e07"
+      }
+    },
+    "C2": {
+      "prompt_prefix_median_ms": 2212.918,
+      "finish_prefill_median_ms": 108.855,
+      "ttft_median_ms": 2321.901,
+      "request_arena_bytes": 412198912,
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 0,
+      "raw_log": {
+        "path": "/tmp/q3x-c512-lt-formal-C2.log",
+        "bytes": 19926,
+        "sha256": "b52cc93cf949edf85c59e049d180af01ec6af0aac9f5fb4cac5b9b91e6847dd8"
+      }
+    },
+    "B2": {
+      "prompt_prefix_median_ms": 2558.780,
+      "finish_prefill_median_ms": 108.845,
+      "ttft_median_ms": 2667.832,
+      "request_arena_bytes": 233940992,
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 108658688,
+      "raw_log": {
+        "path": "/tmp/q3x-c512-lt-formal-B2.log",
+        "bytes": 19931,
+        "sha256": "c2281a508d8c50d348c946cace832c9abaa577a4ddefd544821b1e465b1e8f94"
+      }
+    }
+  },
+  "formal_prefill_result": {
+    "baseline_prompt_prefix_ms": 2557.970,
+    "candidate_prompt_prefix_ms": 2208.733,
+    "prompt_prefix_latency_reduction_ms": 349.237,
+    "prompt_prefix_latency_reduction_percent": 13.652896633,
+    "prompt_prefix_speedup": 1.158116441,
+    "baseline_prefix_tokens_per_second": 200.158719610,
+    "candidate_prefix_tokens_per_second": 231.807103892,
+    "baseline_ttft_ms": 2666.918,
+    "candidate_ttft_ms": 2317.622,
+    "ttft_latency_reduction_ms": 349.296,
+    "ttft_latency_reduction_percent": 13.097365573,
+    "ttft_speedup": 1.150713102,
+    "baseline_complete_prompt_tokens_per_second": 192.356870365,
+    "candidate_complete_prompt_tokens_per_second": 221.347570915,
+    "baseline_finish_prefill_ms": 108.818,
+    "candidate_finish_prefill_ms": 108.8305,
+    "request_arena_increase_bytes": 178257920,
+    "request_arena_increase_mib": 170.0,
+    "paired_prefix_speedups": [
+      1.159947527,
+      1.156292280
+    ],
+    "worst_candidate_sample_vs_best_baseline_sample_prefix_speedup": 1.154429767,
+    "gate": "pass: both paired rounds and the mirrored average exceed the 1.03x whole-Prefill admission gate"
+  },
+  "formal_prefill_correctness": {
+    "four_run_output_equivalent": true,
+    "generated_ids": [
+      9419
+    ],
+    "generated_text": "Hello",
+    "stop_reason": "max_new_tokens",
+    "step_count": 513,
+    "canonical_protocol_and_output_fields_sha256": "30fbefe68128524e9fff3978507be021f23c87ed912349f6935f4b88665b9347",
+    "persistent_drop_detected_in_any_run": false,
+    "qualification": "token IDs, decoded text, stop reason, and complete step trace are exact; this does not claim bitwise full logits or every intermediate tensor"
+  },
+  "nsight_route_attribution": {
+    "protocol": "one real P513/C512 max-one-token generation with NVTX phase ranges",
+    "prompt_prefix_median_ms": 2220.458,
+    "ttft_ms": 2346.900,
+    "gate_up": {
+      "direct_dequant_calls": 128,
+      "direct_dequant_total_ms": 161.916256,
+      "direct_dequant_average_ms": 1.2649708,
+      "cublaslt_gemm_calls": 128,
+      "cublaslt_gemm_total_ms": 320.481856,
+      "cublaslt_gemm_average_ms": 2.5037645,
+      "old_c512_gate_up_m128_calls": 0
+    },
+    "unchanged_down": {
+      "kernel_calls": 64,
+      "total_ms": 427.697024,
+      "average_ms": 6.682766
+    },
+    "artifacts": {
+      "raw_log": {
+        "path": "/tmp/q3x-nvfp4-c512-runner-nsys.bJ2oAd/raw.log",
+        "bytes": 18948,
+        "sha256": "6f0b0246de431ad872c87cbd5e14ef0ca330193f4e6c20cd5aa1f06770590f97"
+      },
+      "report": {
+        "path": "/tmp/q3x-nvfp4-c512-runner-nsys.bJ2oAd/p513-c512.nsys-rep",
+        "bytes": 876422,
+        "sha256": "9b1e6319618882f49c6fec841117ceab4ccb56d50dc26b5e1d11b83ea39d2bdd"
+      },
+      "sqlite": {
+        "path": "/tmp/q3x-nvfp4-c512-runner-nsys.bJ2oAd/p513-c512.sqlite",
+        "bytes": 2473984,
+        "sha256": "7a0a1ebfecedd8d74b5f49f24cb162e7fe2a9a3ac6e992ee40507b4bbeaca72b"
+      },
+      "kernel_summary_csv": {
+        "path": "/tmp/q3x-nvfp4-c512-runner-nsys.bJ2oAd/kernel-summary_cuda_gpu_kern_sum_nvtx-name.csv",
+        "bytes": 10207,
+        "sha256": "b7d3014f8e420f285f373c78810541cd1f334c0a0b2ad18e94e459f83bea8827"
+      }
+    },
+    "gate": "pass: production execution reaches direct dequant plus cuBLASLt for all 64 Gate/Up pairs and never reaches the prior exact-C512 Gate/Up kernel"
+  },
+  "decode_non_regression": {
+    "protocol": {
+      "order": [
+        "B1",
+        "C1",
+        "C2",
+        "B2"
+      ],
+      "prompt": "用一句话解释 CUDA 是什么。",
+      "prompt_token_count": 19,
+      "max_new_tokens": 26,
+      "warmup_rounds": 1,
+      "measured_rounds": 5,
+      "max_sequence_length": 64,
+      "prefill_chunk_size": 32,
+      "decode_graph_policy": "sm87_short_positions",
+      "command_template": "taskset -c 11 BINARY benchmark MODEL_DIR --prompt PINNED_TEXT --max-tokens 26 --warmup 1 --iterations 5 --max-sequence-length 64 --prefill-chunk-size 32 --projection-backend sm87"
+    },
+    "runs": {
+      "B1": {
+        "subsequent_token_median_ms": 105.847,
+        "decode_after_first_median_ms": 2652.660,
+        "total_generation_median_ms": 3077.143,
+        "raw_log_bytes": 9874,
+        "raw_log_sha256": "b2b46237a48e270a035894f9ff97c2dbd096b0064321d12fe838ab299856dfd9"
+      },
+      "C1": {
+        "subsequent_token_median_ms": 105.906,
+        "decode_after_first_median_ms": 2653.016,
+        "total_generation_median_ms": 3077.268,
+        "raw_log_bytes": 9867,
+        "raw_log_sha256": "9bc641519f3d0c77e452fce6e2e5f73055175354856eccfb7b14c3d6d95b2ef1"
+      },
+      "C2": {
+        "subsequent_token_median_ms": 105.893,
+        "decode_after_first_median_ms": 2647.948,
+        "total_generation_median_ms": 3072.163,
+        "raw_log_bytes": 9867,
+        "raw_log_sha256": "71fe92a89dfc04946bcf0fd69069074e3b493a5938050017481de197d3453965"
+      },
+      "B2": {
+        "subsequent_token_median_ms": 105.807,
+        "decode_after_first_median_ms": 2646.083,
+        "total_generation_median_ms": 3070.093,
+        "raw_log_bytes": 9874,
+        "raw_log_sha256": "b0bcdd66c260d0218b3de64aac0c3c03554f55c36d2ee0047418f43382aac0f9"
+      }
+    },
+    "mirrored_average": {
+      "baseline_subsequent_token_ms": 105.8270,
+      "candidate_subsequent_token_ms": 105.8995,
+      "candidate_vs_baseline_speed": 0.999315389,
+      "baseline_tokens_per_second": 9.449384,
+      "candidate_tokens_per_second": 9.442915,
+      "baseline_decode_after_first_ms": 2649.3715,
+      "candidate_decode_after_first_ms": 2650.4820,
+      "decode_after_first_speed": 0.999581020,
+      "baseline_total_generation_ms": 3073.6180,
+      "candidate_total_generation_ms": 3074.7155,
+      "total_generation_speed": 0.999643056
+    },
+    "correctness": {
+      "four_run_output_equivalent": true,
+      "generated_token_count": 26,
+      "step_count": 44,
+      "stop_reason": "im_end",
+      "canonical_protocol_and_output_fields_sha256": "8d739f208d5b0acaa2a2a61c253a94abed27fb683d956734ee51530a3221b540",
+      "decode_graph_replays_per_run_group": 125,
+      "decode_graph_serial_fallbacks": 0,
+      "request_arena_bytes_all_runs": 89096192,
+      "persistent_drop_detected_in_any_run": false
+    },
+    "gate": "pass: +0.0685% subsequent-token latency is below the 1% non-regression threshold and is measurement noise at this protocol"
+  },
+  "test_suite": {
+    "command": "ctest --test-dir build/orin-release --output-on-failure",
+    "total": 74,
+    "passed": 62,
+    "skipped": 12,
+    "failed": 0,
+    "result": "pass",
+    "skips": "model-dependent E2E, performance, production-Graph, and tokenizer tests whose external fixtures or opt-in environment are absent"
+  },
+  "decision": {
+    "production_gate_up_c512": "admitted",
+    "why": "exact token/step output, exact module comparisons, zero-workspace Graph-safe execution, one bounded request scratch, direct Nsight route attribution, 1.158116441x mirrored Prefix speedup, and no material Decode regression",
+    "current_p513_c512_prefix_tokens_per_second": 231.807103892,
+    "current_p513_c512_ttft_ms": 2317.622,
+    "remaining_gap": "still roughly one order of magnitude below the stated 2k-8k token/s vLLM reference region; this production bridge is not the final large-M architecture",
+    "next_priority": "test-only exact-C512 Down direct-dequant plus zero-workspace cuBLASLt inclusive P0 ceiling, reusing the same scratch",
+    "down_p0_gate": "compare against the current production M128 Down; require all rounds positive and at least 1.22x inclusive median before production integration",
+    "native_large_m": "retain the existing exact native M64xN256 baseline as the higher-ceiling research path; do not promote its current 1.169724x Gate result",
+    "not_claimed": [
+      "C256 or other sequence-length speedup",
+      "Down speedup",
+      "2k token/s Prefill",
+      "persistent BF16 weight residency",
+      "double or triple buffering",
+      "Prefill/Decode overlap",
+      "MTP"
+    ]
+  },
+  "limitations": [
+    "The formal whole-model performance result covers only batch-one P513 with exact C512 tiling and one generated token.",
+    "The 170 MiB scratch is request-scoped and conditionally allocated; concurrent-request memory scaling and continuous batching are not implemented.",
+    "One baseline run observed a 103.625 MiB transient free-memory decrease above the 64 MiB observation tolerance, but it fully recovered and no run reported a persistent drop.",
+    "One baseline load phase was about twice as slow as the other loads; load time is excluded from measured Prefix and TTFT samples, so this record makes no startup-latency claim.",
+    "The hybrid route writes and rereads a full 170 MiB BF16 weight image per projection; a fused native large-M NVFP4 GEMM remains necessary for the longer-term upper bound."
+  ]
+}

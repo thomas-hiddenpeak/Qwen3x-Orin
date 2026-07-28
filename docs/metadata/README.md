@@ -1405,6 +1405,19 @@ The diagnostic Phase 3 records are:
   rejected together with the second 170-MiB scratch. All eager and Graph
   outputs are exact with intact guards. Production remains unchanged pending
   the request-workspace, runner, pinned-checkpoint, and mirrored Prefix gates.
+- [`qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json`](qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json),
+  which closes those gates and admits the narrow exact-C512 production route.
+  Gate and Up execute serial direct canonical-NVFP4-to-BF16 decode plus
+  zero-workspace cuBLASLt while overwriting one conditional 170-MiB request
+  scratch. All 89,128,960 decoded values and 8,912,896 production-M128 outputs
+  are bitwise exact. Mirrored fixed-clock P513 Prefix improves from
+  **2557.970 ms / 200.158720 token/s** to **2208.733 ms / 231.807104 token/s**
+  (**1.158116441x**); TTFT improves **1.150713102x** to **2317.622 ms**.
+  Nsight sees 128 decode and 128 Lt calls and zero prior C512 Gate/Up M128
+  calls. The 62-pass/12-skip suite has zero failures, and mirrored Decode is
+  unchanged within noise at **105.8270/105.8995 ms per subsequent token**.
+  C256, Down, finish-Prefill, Decode, MTP, and near misses remain unchanged;
+  the next bounded screen is exact-C512 Down reuse of the same scratch.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json),
   which freezes the self-developed exact-C512 M64xN256xK64 test-only baseline.
   K256 scale reuse, paired packed-weight copies, and aligned 32-bit BF16 stores
