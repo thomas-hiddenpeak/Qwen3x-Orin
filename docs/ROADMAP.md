@@ -2161,6 +2161,14 @@ least 1.03x faster in every mirrored round. Every admission gets a fresh
 Prefix profile. OpenAI-compatible API/EvalScope work remains behind the next
 stable Prefill architecture milestone.
 
+The reference design is now pinned in
+[the exact Prefill GDN dataflow plan](GDN_PREFILL_DATAFLOW.md). FLA chunk/WY
+and Mamba selective scan contribute state-hierarchy and fusion ideas only;
+their FP32 associative state does not satisfy the current per-token BF16-RNE
+contract. The 1.03x threshold above is the production gate. A repeatable
+all-positive real-checkpoint gain may first update the test-only native
+experimental incumbent without being promoted.
+
 See the
 [production record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-register-feed-production-benchmark.json)
 and the checked-in
