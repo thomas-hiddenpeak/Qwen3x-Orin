@@ -3,7 +3,8 @@
 Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
 commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
 commit `43308b4`, the retained CF3 complete cell at commit `6e415b8`, and the
-retained structured BS512 cell at commit `18c89ac`.
+retained structured BS512 cell at commit `18c89ac`.  The post-isolation
+BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -34,11 +35,12 @@ All timing and profiler evidence in this plan is governed by the
 3. Single-variable screens resume only after a complete dataflow cell exists.
    Cache policy, tile ownership, synchronization domain, decode placement, and
    pipeline depth are treated as a coupled configuration.
-4. `2 CTA/SM` is no longer an architecture-independent hard gate.  The frozen
-   residency gate is at least 16 resident warps/SM with no local-memory spill.
-   This admits either two independent 256-thread CTAs or one 512-thread CTA
-   containing two independently synchronized eight-warp sub-CTAs; equal warp
-   count does not by itself prove equal scheduling independence.
+4. `2 CTA/SM` and 16 resident warps/SM are incumbent heuristics, not
+   architecture-independent validity gates.  A shape-specific structural
+   prototype may use one 256-thread CTA/SM when its wider M reuse makes two
+   CTAs physically impossible.  It must still have zero local-memory spill and
+   pass the same real-weight native timing and full production gates; the
+   exception does not relax any existing production route automatically.
 5. Synthetic payloads remain useful for exhaustive semantics and deterministic
    regression.  Timing and NCU promotion evidence must use pinned checkpoint
    Gate, Up, Down, or FP8 tensor bytes as appropriate.
@@ -114,9 +116,43 @@ whole-chunk implementations; each target is retained against the current
 native experimental champion for its role and is promoted only against the
 current native production baseline.
 
-## Primary NVFP4 skeleton: M128xN256 as two sub-CTAs
+## Primary next NVFP4 cell: one 256-thread M128xN256 CTA
 
-The first new skeleton is one 512-thread CTA with two eight-warp sub-CTAs.  Each
+The next bounded Gate experiment grows the retained BS512 CTA vertically from
+M64 to M128 without widening its eight-warp thread block.  It keeps BS512's
+three raw-operand stages, 16-byte B half-swizzle, K512 scale superwindows,
+table-free decoder, K-stage order, and packed-BF16 epilogue.  Only the token
+reuse domain changes: each decoded B fragment is consumed by eight M16 panels
+instead of four.
+
+- Gate grid: 68 N tiles x 4 M tiles = 272 CTAs, or 17 waves on 16 SMs.
+- Threads: 256; one warp owns M128xN32.  Each thread carries 8x4 accumulator
+  fragments, or 128 FP32 accumulator values before feed and address state.
+- Dynamic shared: 96,256 bytes: 55,296 bytes for three M128xK72 activation
+  slots, 24,576 bytes for three packed-B slots, and 16,384 bytes for two K512
+  scale windows.  The existing static E4M3 lookup remains 512 bytes.
+- Resource gate: at most 255 registers/thread, zero local bytes, one valid
+  CTA/SM, 256 threads, and the exact shared-memory envelope above.
+- Semantic gate: preserve the exact K64/K16 accumulation order and compare all
+  Gate and Up BF16 bits, eager replay, Graph replay, invalid shapes,
+  alignments, canaries, and immutable inputs.
+- Retention gate: six real-checkpoint B-C-C-B rounds against structured BS512.
+  Any stable all-positive improvement updates the native experimental
+  champion; cuBLASLt has no vote in that decision.
+
+This is intentionally not a cache-policy micro-tune.  It halves the CTA count
+and approximately halves raw-B landing, exact decode, scale presentation, and
+barrier work while retaining the proven BS512 feed mechanisms.  The matched
+BF16 reference reaches high Tensor utilization with the same 272-CTA,
+256-thread, one-CTA/SM geometry, making this a credible test-only exception to
+the incumbent two-CTA heuristic.  Its lack of an NVFP4 decoder means it is
+evidence of schedulability, not evidence that the new native cell will win.
+
+## Prior wide-CTA skeleton: M128xN256 as two sub-CTAs
+
+The earlier wide-CTA skeleton is one 512-thread CTA with two eight-warp
+sub-CTAs.  It remains a resource/correctness sentinel rather than the immediate
+performance route.  Each
 sub-CTA owns M128xN128 and 64 FP32 accumulator values per thread.  The two
 horizontal N halves together own M128xN256 without increasing per-thread
 accumulator payload.  Each warp decodes its N panel once and reuses it across
@@ -519,6 +555,51 @@ allocate scratch for, or execute cuBLASLt.  The historical number is an
 external architectural distance only; it neither rejected nor retained BS512
 and can never enter production.
 
+## Post-isolation matched NCU: the gap is feed work, not L2 volume
+
+The full 35-pass matched diagnostic at `9908add` profiles exactly one
+real-checkpoint layer-0 Gate launch for structured BS512, the isolated external
+BF16 GEMM, and its separate dequantizer from the same test-only binary.  The
+activation is deterministic BF16 rather than a captured layer tensor, so the
+durations have causal-diagnostic authority only.  The complete record and
+report hashes are in
+[`metadata/qwen36-27b-gate-c512-bs512-vs-bf16-matched-ncu-2026-07-29.json`](metadata/qwen36-27b-gate-c512-bs512-vs-bf16-matched-ncu-2026-07-29.json).
+
+| Metric | Native structured BS512 | External BF16 GEMM | External dequant |
+|---|---:|---:|---:|
+| Duration | 5.122560 ms | 2.378112 ms | 1.288832 ms |
+| Grid / threads | 544 / 256 | 272 / 256 | 17,408 / 256 |
+| CTAs/SM / achieved occupancy | 2 / 33.083% | 1 / 16.996% | - / 90.907% |
+| Tensor/HMMA throughput | 42.160% | 92.552% | 0% |
+| Executed instructions | 225,736,064 | 39,688,064 | 68,239,360 |
+| HMMA executions | 22,282,240 | 22,282,240 | 0 |
+| L2 theoretical/TEX request bytes | 775,421,952 B | 1,087,373,312 B | 267,386,880 B |
+| Shared excessive wavefronts | 9,400,320 | 0 | 0 |
+
+The inclusive external path is 3.666944 ms.  Native is 1.396956x slower even
+though its theoretical/TEX L2 request bytes are only 57.24% of the inclusive
+external total.  These are request-sector counters, not actual fabric
+transactions.  Relative to the BF16 GEMM body, native executes 5.687757x as
+many instructions for exactly the same HMMA count. Native HMMA is only about
+9.87% of its executed instructions, versus about 56.15% externally. The
+external kernel is also a three-stage pipeline, so adding a fourth stage is
+not a structural answer.
+
+Source counters locate 8,042,496 of the native excessive shared wavefronts at
+the two raw-B `LDGSTS.BYPASS.128` sites, versus 835,584 at the two next-largest
+scale/window sites.  Scale prelayout remains a valid bounded experiment, but
+its isolated ceiling is too small to be the primary route.  The immediate
+priority is the 256-thread M128xN256 cell above, which reuses one decoded B
+presentation across twice as many token panels.  The next layout cell treats
+raw B and scale together in consumer order.  Only after those structural
+changes should PRMT/LOP3/IMAD decoder reduction resume.
+
+The one-CTA external kernel uses 238 registers/thread and 147,456 shared bytes
+yet reaches 92.552% Tensor throughput over the same 17 waves.  Occupancy and
+two-CTA residency therefore do not explain the gap.  They remain useful
+resource diagnostics, but one-CTA M128 prototypes are now admissible to the
+test-only retention screen.
+
 ## Triton and vLLM design-reference screen
 
 The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
@@ -539,14 +620,15 @@ Down:     [40, 272, 32, 4, 4]
 ```
 
 Each `N128 x K64` scale slab is exactly 512 bytes, and both production shapes
-are tail-free. The first bounded cell will keep BS512's M64xN256xK64 tile,
-three operand slots, accumulation order, decoder, and epilogue fixed while
-replacing only the scale landing/consumer layout. It must remain packed E4M3,
-must use real checkpoint weights for timing, and must not introduce a BF16
-weight sidecar. A production change may replace the canonical scale allocation
-only after all Decode and Prefill consumers support the new layout; a test-only
-copy is acceptable for mechanism measurement but cannot silently become
-persistent production duplication.
+are tail-free.  The matched NCU source counters demote scale-only prelayout
+behind the structural M128 reuse cell because raw-B landing dominates the
+remaining excessive wavefronts.  The packed layout remains the secondary
+bounded cell and must be evaluated together with raw-B consumer order.  It
+must remain packed E4M3, use real checkpoint weights for timing, and introduce
+no BF16 weight sidecar.  A production change may replace the canonical scale
+allocation only after all Decode and Prefill consumers support the new layout;
+a test-only copy is acceptable for mechanism measurement but cannot silently
+become persistent production duplication.
 
 The secondary reference is `M-fast` grouped CTA ordering from
 [Triton's GEMM tutorial](https://github.com/triton-lang/triton/blob/78420176f2d90c3270a48c9218e27e9b5d923c8d/python/tutorials/03-matrix-multiplication.py)
@@ -570,22 +652,26 @@ problem.
    contexts, scratch, and fallback are already absent from production; keep the
    comparator in an isolated repeatable reference harness only.
 2. Preserve the new two-process native-only P513 anchor at 200.147883 Prefix
-   token/s and collect a matched real-weight NCU diagnostic for native NVFP4,
-   reference BF16 GEMM, and reference dequantization. The external reference
-   has diagnostic authority only.
+   token/s.  The matched BS512/BF16/dequant NCU diagnostic is complete and
+   identifies feed/decode instruction density rather than L2 volume as the
+   primary Gate gap.  The external reference retains diagnostic authority
+   only.
 3. Prefill CUDA Graph remains a separate launch-overhead project; do not
    describe module-level Graph safety as an already captured production
    Prefill loop.
 4. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-5. Use structured BS512 as the retained native experimental baseline,
-   freezing its three-slot skeleton, K512 refill schedule, B/scale swizzles,
-   and coalesced epilogue. First screen the tail-free packed-scale layout above;
-   then compare complete B-stationary and A-stationary CTA order. Attack the
-   remaining shared-store conflicts and ordinary shared-load volume as one
-   complete feed cell. Preserve exact accumulation order, 128 registers/thread,
-   zero spill, and two CTAs/SM.
-6. After the remaining shared feed is repaired, reduce the table-free decoder's
+5. Use structured BS512 as the retained native experimental baseline.  First
+   build the 256-thread M128xN256 structural cell, freezing the incumbent's
+   three stages, K512 refill schedule, B/scale swizzles, decoder, accumulation
+   order, and coalesced epilogue.  Admit one CTA/SM only for this shape-specific
+   test cell, with at most 255 registers and zero spill.  Retain it only on six
+   all-positive real-weight B-C-C-B rounds versus BS512.
+6. If the structural cell survives, screen a coupled raw-B plus packed-scale
+   consumer-order layout and complete B-stationary/A-stationary CTA ordering.
+   A scale-only win may update the native experimental baseline, but it does
+   not close the raw-B feed line by itself.  After the shared feed is repaired,
+   reduce the table-free decoder's
    PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable

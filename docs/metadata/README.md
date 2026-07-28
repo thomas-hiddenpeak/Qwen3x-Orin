@@ -1566,6 +1566,17 @@ The diagnostic Phase 3 records are:
   generations produce token 9419 (`Hello`), no process reports a persistent
   drop, and the L1024 request arena is 233,940,992 bytes. The missing
   temperature envelope is explicit rather than inferred.
+- [`qwen36-27b-gate-c512-bs512-vs-bf16-matched-ncu-2026-07-29.json`](qwen36-27b-gate-c512-bs512-vs-bf16-matched-ncu-2026-07-29.json),
+  which records the post-isolation full matched-NCU diagnostic for one
+  real-checkpoint layer-0 Gate launch. Structured BS512 takes **5.122560 ms**
+  versus **2.378112 ms** for the external BF16 GEMM and **1.288832 ms** for
+  its separate dequantizer. Native issues only **57.24%** of the inclusive
+  external theoretical/TEX L2 request bytes but executes **5.687757x** the
+  BF16 GEMM instructions for the same 22,282,240 HMMA executions. The result
+  makes a 256-thread
+  M128xN256 decoded-B-reuse cell the next test-only priority. The external
+  path remains reference-only with no retention, promotion, fallback, or
+  production authority.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

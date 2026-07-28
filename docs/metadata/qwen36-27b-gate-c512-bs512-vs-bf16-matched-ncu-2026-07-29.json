@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-gate-c512-bs512-vs-bf16-matched-ncu-2026-07-29",
+  "status": "diagnostic-only-native-dataflow-gap-audit",
+  "recorded_at": "2026-07-29T06:20:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "9908add",
+    "tree": "05444849e023c889dada5b4fdfea5614646e6dc1",
+    "binary": {
+      "path": "build/orin-release/q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen",
+      "bytes": 6035648,
+      "sha256": "9a380bf634f42652cc8e21b0e4fbebb905e80d74eaa7362c75b74697effb3021",
+      "elf_build_id": "d364a1e39cb10b08d4ed5ce5888c444b8191bc75"
+    },
+    "harness": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "native_kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "production_isolation_commit": "3a688a4",
+    "production_cublaslt_contract": "ABSENT from production link, runtime, public API, request scratch, dispatch, fallback, retention, and promotion",
+    "test_harness_cublaslt_contract": "REFERENCE_ONLY with decision_authority=NONE and production_eligibility=NONE"
+  },
+  "qualification": {
+    "authority": "causal_diagnostic_only",
+    "native_retention_authority": false,
+    "production_promotion_authority": false,
+    "external_reference_decision_authority": "NONE",
+    "external_reference_production_eligibility": "NONE",
+    "performance_decision": "NOT_RUN",
+    "real_checkpoint_weights": true,
+    "captured_real_layer_activation": false,
+    "activation": {
+      "kind": "deterministic_bf16_diagnostic_fixture",
+      "performance_authority": false
+    },
+    "shape": {
+      "role": "layer0_gate",
+      "M": 512,
+      "N": 17408,
+      "K": 5120
+    },
+    "limitation": "NCU kernel-replay durations compare implementation structure under the same binary, checkpoint payload, shape, and profiler setup. They are not real-activation admission timings and cannot retain or promote a kernel. Native performance decisions remain pinned real-model B-C-C-B measurements against the current native incumbent."
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "gate_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "gate_weight_scale_2_bits": "0x391e79e8"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "driver": "595.78",
+    "cuda_toolkit": "13.3",
+    "ncu": "2026.2.0 build 37790515",
+    "nvpmodel": "MAXN",
+    "target_reported_gpu_hz": 1300500000,
+    "target_reported_emc_hz": 3200000000,
+    "ncu_clock_control": "none",
+    "ncu_warning": "unmodified clocks; diagnostic only",
+    "profiling_permission": "sudo root-counter access",
+    "first_non_root_attempt": "EXCLUDED_PERMISSION_FAILURE"
+  },
+  "protocol": {
+    "mode": "profile-checkpoint",
+    "replay": "kernel",
+    "target_launches": 1,
+    "full_metric_passes_per_target": 35,
+    "same_binary": true,
+    "same_checkpoint": true,
+    "same_shape": true,
+    "separate_profiler_processes": true,
+    "native_selector": "m64n256bs512",
+    "targets": [
+      "native-nvfp4-gemm",
+      "cublaslt-reference-bf16-gemm",
+      "cublaslt-reference-dequant"
+    ],
+    "pre_profile_checks": [
+      "checkpoint tensor identity",
+      "native resource and status contracts",
+      "self-hosted production reference generation",
+      "eager bitwise correctness"
+    ]
+  },
+  "reports": {
+    "native_bs512": {
+      "path": "/tmp/q3x-matched-ncu-9908add.ddR2py/native-bs512-full.ncu-rep",
+      "bytes": 15498451,
+      "sha256": "68361a74c9c0854104353459a42b3263a8c0ac0c0e78c964d19658492e9caf88"
+    },
+    "reference_bf16": {
+      "path": "/tmp/q3x-matched-ncu-9908add.ddR2py/reference-bf16-full.ncu-rep",
+      "bytes": 12461465,
+      "sha256": "837a4d07acd8c71e42b88f159c73a8a50ddc1f26d78423379e4b69689521201a"
+    },
+    "reference_dequant": {
+      "path": "/tmp/q3x-matched-ncu-9908add.ddR2py/reference-dequant-full.ncu-rep",
+      "bytes": 4776946,
+      "sha256": "569eadfa2ed0d36291dc4471772437544ad36ede2a0af750837e75d54c507e8d"
+    }
+  },
+  "kernels": {
+    "native_bs512": {
+      "name": "nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage",
+      "duration_ms": 5.12256,
+      "grid_ctas": 544,
+      "threads_per_cta": 256,
+      "waves_per_sm": 17,
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 68608,
+      "driver_shared_bytes": 1024,
+      "launch_total_shared_bytes": 70144,
+      "local_bytes": 0,
+      "active_ctas_per_sm": 2,
+      "achieved_occupancy_percent": 33.082786,
+      "sm_compute_throughput_percent": 53.40157,
+      "tensor_hmma_throughput_percent": 42.160317,
+      "issue_active_percent": 53.706798,
+      "eligible_warps_per_scheduler": 1.089443,
+      "executed_instructions": 225736064,
+      "thread_instructions": 7143450048,
+      "l1_hit_rate_percent": 1.411191,
+      "l2_hit_rate_percent": 70.01368,
+      "l2_theoretical_sectors": 24231936,
+      "l2_theoretical_bytes": 775421952,
+      "l2_counter_scope": "theoretical/TEX request sectors, not actual fabric transactions",
+      "l1_tag_requests_sectors": 15876096,
+      "shared_wavefronts": 50390009,
+      "shared_excessive_wavefronts": 9400320,
+      "raw_shared_bank_conflicts": 1275014,
+      "raw_shared_load_bank_conflicts": 27446,
+      "raw_shared_store_bank_conflicts": 1245052,
+      "stalls_cycles_per_issue": {
+        "wait": 1.89087,
+        "math_pipe_throttle": 1.250414,
+        "not_selected": 1.028999,
+        "mio_throttle": 0.564597,
+        "barrier": 0.487323,
+        "dispatch_stall": 0.402241,
+        "lg_throttle": 0.341344,
+        "short_scoreboard": 0.271002
+      },
+      "opcode_executions": {
+        "IMAD": 53566592,
+        "PRMT": 45234688,
+        "LDS": 23405056,
+        "LD": 22282240,
+        "HMMA": 22282240,
+        "LOP3": 17693056,
+        "SHF": 13480320,
+        "HFMA2": 11141120,
+        "LDGSTS": 1479680
+      },
+      "pipeline_stage_count": 3,
+      "cp_async_observed": true
+    },
+    "external_bf16_gemm": {
+      "name": "ampere_bf16_s16816gemm_bf16_128x256_ldg8_f2f_stages_64x3_tn",
+      "duration_ms": 2.378112,
+      "grid_ctas": 272,
+      "threads_per_cta": 256,
+      "waves_per_sm": 17,
+      "registers_per_thread": 238,
+      "static_shared_bytes": 49152,
+      "dynamic_shared_bytes": 98304,
+      "user_total_shared_bytes": 147456,
+      "driver_shared_bytes": 1024,
+      "launch_total_shared_bytes": 148480,
+      "active_ctas_per_sm": 1,
+      "achieved_occupancy_percent": 16.995757,
+      "tensor_hmma_throughput_percent": 92.55213,
+      "issue_active_percent": 20.67073,
+      "eligible_warps_per_scheduler": 0.310718,
+      "executed_instructions": 39688064,
+      "thread_instructions": 1248571392,
+      "l1_hit_rate_percent": 0.0,
+      "l2_hit_rate_percent": 75.408663,
+      "l2_theoretical_sectors": 33980416,
+      "l2_theoretical_bytes": 1087373312,
+      "l2_counter_scope": "theoretical/TEX request sectors, not actual fabric transactions",
+      "l1_tag_requests_sectors": 8495104,
+      "shared_wavefronts": 23114016,
+      "shared_excessive_wavefronts": 0,
+      "raw_shared_bank_conflicts": 0,
+      "stalls_cycles_per_issue": {
+        "wait": 3.786908,
+        "math_pipe_throttle": 3.516475,
+        "barrier": 0.627883,
+        "not_selected": 0.503112,
+        "mio_throttle": 0.0379,
+        "lg_throttle": 0.0455,
+        "short_scoreboard": 0.0269
+      },
+      "opcode_executions": {
+        "HMMA": 22282240,
+        "LDSM": 5587968,
+        "IADD3": 4550016,
+        "LDGSTS": 2147712
+      },
+      "pipeline_stage_count": 3,
+      "algorithm": {
+        "algorithm_id": 6,
+        "tile_id": 23,
+        "split_k": 1,
+        "cta_swizzle": 1,
+        "stages_id": 15
+      },
+      "role": "external_reference_only"
+    },
+    "external_dequant": {
+      "duration_ms": 1.288832,
+      "grid_ctas": 17408,
+      "threads_per_cta": 256,
+      "registers_per_thread": 32,
+      "shared_bytes": 0,
+      "achieved_occupancy_percent": 90.907029,
+      "sm_compute_throughput_percent": 76.390369,
+      "tensor_hmma_throughput_percent": 0.0,
+      "issue_active_percent": 64.64488,
+      "eligible_warps_per_scheduler": 3.536294,
+      "executed_instructions": 68239360,
+      "l2_theoretical_sectors": 8355840,
+      "l2_theoretical_bytes": 267386880,
+      "l2_actual_tex_sectors": 7137280,
+      "l2_counter_scope": "theoretical/TEX request sectors are used for matched derived ratios; actual lts__t_sectors_srcunit_tex.sum is reported separately",
+      "l1_tag_requests_sectors": 4177920,
+      "opcode_executions": {
+        "LOP3": 18522112,
+        "IMAD": 12951552,
+        "ISETP": 5709824,
+        "SEL": 5570560,
+        "SHF": 4317184
+      },
+      "role": "external_reference_only"
+    }
+  },
+  "derived": {
+    "external_inclusive_dequant_plus_bf16_ms": 3.666944,
+    "native_over_external_bf16_only": 2.154044889,
+    "native_over_external_inclusive": 1.396956157,
+    "native_latency_reduction_needed_to_equal_external_inclusive_percent": 28.4157921,
+    "native_instructions_over_external_bf16_only": 5.687757,
+    "native_instructions_over_external_inclusive": 2.091554,
+    "native_l2_bytes_over_external_bf16_only": 0.713115,
+    "native_l2_bytes_over_external_inclusive": 0.572368,
+    "hmma_execution_count_equal": true,
+    "native_hmma_fraction_of_executed_instructions_percent": 9.871,
+    "external_bf16_hmma_fraction_of_executed_instructions_percent": 56.145,
+    "native_grid_is_2x_external_bf16": true,
+    "both_have_17_waves": true,
+    "interpretation": "The native path already transfers less L2 data than the inclusive external reference but spends far more instructions feeding the same HMMA count. Decode, permutation, scalar shared feed, and raw-B landing efficiency dominate the remaining structural gap; adding pipeline stages alone cannot close it."
+  },
+  "source_counter_attribution": {
+    "largest_native_excessive_shared_wavefront_sites": [
+      {
+        "kind": "raw_B_LDGSTS_BYPASS_128",
+        "sites": 2,
+        "excessive_wavefronts_per_site": 4021248,
+        "combined_excessive_wavefronts": 8042496,
+        "executions_per_site": 335104
+      },
+      {
+        "kind": "scale_or_window_LDGSTS",
+        "sites": 2,
+        "excessive_wavefronts_per_site": 417792,
+        "combined_excessive_wavefronts": 835584
+      }
+    ],
+    "interpretation": "Raw-B landing is the dominant remaining excessive-shared source. A scale-only prelayout can still be screened, but its isolated ceiling is modest; B and scale must ultimately be treated as one consumer-order feed cell."
+  },
+  "decisions": {
+    "retain_native_incumbent": "structured BS512 remains the native experimental champion",
+    "production_dispatch": "UNCHANGED",
+    "stop_stage_only_experiments": true,
+    "two_cta_per_sm": "incumbent heuristic, not a hard structural-prototype validity gate",
+    "next_primary_cell": {
+      "topology": "256-thread M128xN256xK64, 272 CTAs, one CTA/SM",
+      "mechanism": "reuse each decoded raw-B and scale tile across eight M16 token panels while preserving BS512's exact decoder, K512 schedule, and accumulation order",
+      "resource_gate": "zero local spill, <=255 registers/thread, valid one-CTA residency",
+      "timing_gate": "real-checkpoint six-round B-C-C-B against structured BS512; retain only stable all-positive improvement",
+      "production_status": "test-only until full native production and end-to-end gates pass"
+    },
+    "secondary_cell": "coupled raw-B plus packed-scale consumer-order shared layout",
+    "down_requirement": "repeat the matched shape-specific audit for K17408/N5120; do not inherit Gate tile, stage, cache, or scheduling conclusions",
+    "cublaslt": "reference-only terminal yardstick; never a production path"
+  }
+}
