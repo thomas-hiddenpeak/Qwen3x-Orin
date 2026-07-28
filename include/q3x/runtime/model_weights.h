@@ -447,9 +447,10 @@ struct WeightBindResult {
 // [6144,5120], full-attention Q [12288,5120] and K/V [1024,5120], or
 // attention output [5120,6144], C256/C512, and the whole-chunk kernel's
 // production alignments are supported. Eligible calls enqueue one fixed
-// whole-chunk grid and write BF16 directly: Q and C512 K/V use N-major,
-// while C256 K/V uses the measured-faster M-major ordering at the same
-// 32-CTA under-filled grid size.
+// whole-chunk grid and write BF16 directly. QKV, Z, full-attention Q, and
+// attention output use the exact M128xN128 K64 B-tile-reuse route. Full-
+// attention K/V remains on M64: C256 uses the measured-faster M-major
+// ordering, while C512 uses N-major.
 // Structurally unsupported calls and
 // production-alignment near misses return cudaErrorNotSupported before
 // enqueue so the runner may retain its established tiled schedule. Malformed

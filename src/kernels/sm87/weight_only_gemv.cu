@@ -4480,14 +4480,14 @@ fp8_w8a16_small_m64_attention_output_gemm_bf16_wmma_kernel(
   }
 }
 
-// Test-only exact-M128 large-N Prefill candidate. One CTA owns an M128xN128
+// Production exact-M128 large-N Prefill kernel. One CTA owns an M128xN128
 // output tile and decodes each FP8 B[K64,N128] tile once for eight ordered
 // M16 accumulator panels. The K64/K16 accumulation order and final scale plus
-// BF16-RNE boundary are identical to the production M64 kernel above.
+// BF16-RNE boundary are identical to the historical M64 kernel above.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kM128TileCount>
 __global__ __launch_bounds__(kThreads, 2) void
-fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_test_kernel(
+fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output) {
   constexpr unsigned int kResidentTokenCount = 128U;
@@ -15942,7 +15942,7 @@ void launch_fp8_small_m64_attention_output_wmma_unchecked(
 
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kM128TileCount>
-void launch_fp8_whole_chunk_m128_b_reuse_test_unchecked(
+void launch_fp8_whole_chunk_m128_b_reuse_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
@@ -15950,23 +15950,23 @@ void launch_fp8_whole_chunk_m128_b_reuse_test_unchecked(
   constexpr unsigned int kBlocks =
       static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
       kM128TileCount;
-  fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_test_kernel<
+  fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel<
       kRows, kColumns, kM128TileCount>
       <<<kBlocks, kThreads, 0U, stream>>>(weights, weight_scale, activations,
                                          output);
 }
 
 template <std::size_t kRows, std::size_t kColumns>
-void launch_fp8_m128_tiles_test_unchecked(
+void launch_fp8_m128_tiles_unchecked(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations,
     const std::size_t token_count, std::uint16_t* const output,
     cudaStream_t const stream) noexcept {
   if (token_count == 256U) {
-    launch_fp8_whole_chunk_m128_b_reuse_test_unchecked<kRows, kColumns, 2U>(
+    launch_fp8_whole_chunk_m128_b_reuse_unchecked<kRows, kColumns, 2U>(
         weights, weight_scale, activations, output, stream);
   } else {
-    launch_fp8_whole_chunk_m128_b_reuse_test_unchecked<kRows, kColumns, 4U>(
+    launch_fp8_whole_chunk_m128_b_reuse_unchecked<kRows, kColumns, 4U>(
         weights, weight_scale, activations, output, stream);
   }
 }
@@ -16051,13 +16051,13 @@ template <std::size_t kRows, std::size_t kColumns,
 
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kM128TileCount>
-[[nodiscard]] int query_fp8_whole_chunk_m128_b_reuse_test_resources(
+[[nodiscard]] int query_fp8_whole_chunk_m128_b_reuse_resources(
     int* const registers_per_thread, std::size_t* const static_shared_bytes,
     std::size_t* const local_bytes, int* const maximum_threads_per_block,
     int* const active_blocks_per_sm) noexcept {
   cudaFuncAttributes attributes{};
   const auto kernel =
-      fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_test_kernel<
+      fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel<
           kRows, kColumns, kM128TileCount>;
   cudaError_t status = cudaFuncGetAttributes(&attributes, kernel);
   int active_blocks = 0;
@@ -16077,18 +16077,18 @@ template <std::size_t kRows, std::size_t kColumns,
 }
 
 template <std::size_t kRows, std::size_t kColumns>
-[[nodiscard]] int query_fp8_m128_tiles_test_resources(
+[[nodiscard]] int query_fp8_m128_tiles_resources(
     const std::size_t token_count, int* const registers_per_thread,
     std::size_t* const static_shared_bytes, std::size_t* const local_bytes,
     int* const maximum_threads_per_block,
     int* const active_blocks_per_sm) noexcept {
   if (token_count == 256U) {
-    return query_fp8_whole_chunk_m128_b_reuse_test_resources<
+    return query_fp8_whole_chunk_m128_b_reuse_resources<
         kRows, kColumns, 2U>(registers_per_thread, static_shared_bytes,
                              local_bytes, maximum_threads_per_block,
                              active_blocks_per_sm);
   }
-  return query_fp8_whole_chunk_m128_b_reuse_test_resources<
+  return query_fp8_whole_chunk_m128_b_reuse_resources<
       kRows, kColumns, 4U>(registers_per_thread, static_shared_bytes,
                            local_bytes, maximum_threads_per_block,
                            active_blocks_per_sm);
@@ -18606,8 +18606,9 @@ int query_sm87_fp8_w8a16_small_m64_attention_output_wmma_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// The legacy O screen keeps its M-major control, while its N-major candidate
-// delegates to the exact production entry.
+// Historical M64 O controls retained after the production M128 promotion.
+// Both layouts launch the frozen M64 kernel directly so neither can silently
+// become a self-comparison against the public production dispatcher.
 int launch_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_test_cuda(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations,
@@ -18617,11 +18618,6 @@ int launch_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_test_cuda(
     void* const cuda_stream) noexcept {
   if (rows != 5'120U || columns != 6'144U) {
     return invalid_value();
-  }
-  if (n_major) {
-    return launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-        weights, weight_scale, activations, token_count, rows, columns,
-        output, cuda_stream);
   }
   const int validation = validate_fp8_m64_tiles_launch(
       weights, weight_scale, activations, token_count, rows, columns, output);
@@ -18638,9 +18634,17 @@ int launch_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (token_count == 256U) {
+  if (token_count == 256U && n_major) {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 4U>(
+        weights, weight_scale, activations, output, stream);
+  } else if (token_count == 256U) {
     launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
                                                           72U, 4U, false>(
+        weights, weight_scale, activations, output, stream);
+  } else if (n_major) {
+    launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
+                                                          72U, 8U>(
         weights, weight_scale, activations, output, stream);
   } else {
     launch_fp8_small_m64_attention_output_wmma_unchecked<5'120U, 6'144U,
@@ -18716,9 +18720,9 @@ int query_sm87_fp8_w8a16_whole_chunk_attention_output_wmma_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only exact-M128 large-N Prefill candidate. Production remains on M64
-// until the four-shape numerical, resource, traffic, and full-model gates
-// pass.
+// Test compatibility entry for the promoted M128 implementation. Keep its
+// validation, launch geometry, and kernel function identity anchored to the
+// public production dispatcher.
 int launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations,
@@ -18744,16 +18748,16 @@ int launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   if (rows == 10'240U) {
-    launch_fp8_m128_tiles_test_unchecked<10'240U, 5'120U>(
+    launch_fp8_m128_tiles_unchecked<10'240U, 5'120U>(
         weights, weight_scale, activations, token_count, output, stream);
   } else if (rows == 6'144U) {
-    launch_fp8_m128_tiles_test_unchecked<6'144U, 5'120U>(
+    launch_fp8_m128_tiles_unchecked<6'144U, 5'120U>(
         weights, weight_scale, activations, token_count, output, stream);
   } else if (rows == 12'288U) {
-    launch_fp8_m128_tiles_test_unchecked<12'288U, 5'120U>(
+    launch_fp8_m128_tiles_unchecked<12'288U, 5'120U>(
         weights, weight_scale, activations, token_count, output, stream);
   } else {
-    launch_fp8_m128_tiles_test_unchecked<5'120U, 6'144U>(
+    launch_fp8_m128_tiles_unchecked<5'120U, 6'144U>(
         weights, weight_scale, activations, token_count, output, stream);
   }
   return static_cast<int>(cudaGetLastError());
@@ -18773,23 +18777,76 @@ int query_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_resources_test_cuda(
     return invalid_value();
   }
   if (rows == 10'240U) {
-    return query_fp8_m128_tiles_test_resources<10'240U, 5'120U>(
+    return query_fp8_m128_tiles_resources<10'240U, 5'120U>(
         token_count, registers_per_thread, static_shared_bytes, local_bytes,
         maximum_threads_per_block, active_blocks_per_sm);
   }
   if (rows == 6'144U) {
-    return query_fp8_m128_tiles_test_resources<6'144U, 5'120U>(
+    return query_fp8_m128_tiles_resources<6'144U, 5'120U>(
         token_count, registers_per_thread, static_shared_bytes, local_bytes,
         maximum_threads_per_block, active_blocks_per_sm);
   }
   if (rows == 12'288U) {
-    return query_fp8_m128_tiles_test_resources<12'288U, 5'120U>(
+    return query_fp8_m128_tiles_resources<12'288U, 5'120U>(
         token_count, registers_per_thread, static_shared_bytes, local_bytes,
         maximum_threads_per_block, active_blocks_per_sm);
   }
-  return query_fp8_m128_tiles_test_resources<5'120U, 6'144U>(
+  return query_fp8_m128_tiles_resources<5'120U, 6'144U>(
       token_count, registers_per_thread, static_shared_bytes, local_bytes,
       maximum_threads_per_block, active_blocks_per_sm);
+}
+
+// Test-only frozen control for the exact production M64 dispatch that
+// preceded the large-N M128 promotion. This entry deliberately launches M64
+// kernels directly; it must never delegate back to the public dispatcher.
+// Full-attention K/V is included so tests can prove its production function
+// identity remains on the historical M64 route.
+int launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (!use_fp8_whole_chunk_fixed_shape(rows, columns)) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m64_tiles_launch(
+      weights, weight_scale, activations, token_count, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if ((reinterpret_cast<std::uintptr_t>(weights) % alignof(uint4)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) != 0U ||
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) != 0U) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  if (rows == 10'240U) {
+    launch_fp8_qkv_z_m64_tiles_unchecked<10'240U, 5'120U>(
+        weights, weight_scale, activations, token_count, true, output,
+        stream);
+  } else if (rows == 6'144U) {
+    launch_fp8_qkv_z_m64_tiles_unchecked<6'144U, 5'120U>(
+        weights, weight_scale, activations, token_count, true, output,
+        stream);
+  } else if (rows == 12'288U) {
+    launch_fp8_qkv_z_m64_tiles_unchecked<12'288U, 5'120U>(
+        weights, weight_scale, activations, token_count, true, output,
+        stream);
+  } else if (rows == 1'024U) {
+    launch_fp8_qkv_z_m64_tiles_unchecked<1'024U, 5'120U>(
+        weights, weight_scale, activations, token_count,
+        token_count != 256U, output, stream);
+  } else {
+    launch_fp8_qkv_z_m64_tiles_unchecked<5'120U, 6'144U>(
+        weights, weight_scale, activations, token_count, true, output,
+        stream);
+  }
+  return static_cast<int>(cudaGetLastError());
 }
 
 // Test-only QKV/Z entries retained for the screened M64 control.
@@ -18847,8 +18904,8 @@ int query_sm87_fp8_w8a16_small_m64_qkv_z_wmma_resources_test_cuda(
       maximum_threads_per_block, active_blocks_per_sm);
 }
 
-// The legacy QKV/Z screen keeps its M-major control, while its N-major
-// candidate delegates to the exact production entry.
+// Historical M64 QKV/Z controls retained after the production M128
+// promotion. Both layouts stay independent of the public dispatcher.
 int launch_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_test_cuda(
     const std::uint8_t* const weights, const float weight_scale,
     const std::uint16_t* const activations,
@@ -18857,11 +18914,6 @@ int launch_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_test_cuda(
     std::uint16_t* const output, void* const cuda_stream) noexcept {
   if (!use_fp8_m64_qkv_z_fixed_shape(rows, columns)) {
     return invalid_value();
-  }
-  if (n_major) {
-    return launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-        weights, weight_scale, activations, token_count, rows, columns,
-        output, cuda_stream);
   }
   const int validation = validate_fp8_m64_tiles_launch(
       weights, weight_scale, activations, token_count, rows, columns, output);
@@ -18880,11 +18932,11 @@ int launch_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_test_cuda(
   (void)cudaGetLastError();
   if (rows == 10'240U) {
     launch_fp8_qkv_z_m64_tiles_unchecked<10'240U, 5'120U>(
-        weights, weight_scale, activations, token_count, false, output,
+        weights, weight_scale, activations, token_count, n_major, output,
         stream);
   } else {
     launch_fp8_qkv_z_m64_tiles_unchecked<6'144U, 5'120U>(
-        weights, weight_scale, activations, token_count, false, output,
+        weights, weight_scale, activations, token_count, n_major, output,
         stream);
   }
   return static_cast<int>(cudaGetLastError());
@@ -24507,36 +24559,18 @@ int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   if (rows == 10'240U) {
-    if (token_count == 256U) {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          10'240U, 5'120U, 72U, 4U>(
-          weights, weight_scale, activations, output, stream);
-    } else {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          10'240U, 5'120U, 72U, 8U>(
-          weights, weight_scale, activations, output, stream);
-    }
+    launch_fp8_m128_tiles_unchecked<10'240U, 5'120U>(
+        weights, weight_scale, activations, token_count, output, stream);
   } else if (rows == 6'144U) {
-    if (token_count == 256U) {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          6'144U, 5'120U, 72U, 4U>(
-          weights, weight_scale, activations, output, stream);
-    } else {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          6'144U, 5'120U, 72U, 8U>(
-          weights, weight_scale, activations, output, stream);
-    }
+    launch_fp8_m128_tiles_unchecked<6'144U, 5'120U>(
+        weights, weight_scale, activations, token_count, output, stream);
   } else if (rows == 12'288U) {
-    if (token_count == 256U) {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          12'288U, 5'120U, 72U, 4U>(
-          weights, weight_scale, activations, output, stream);
-    } else {
-      launch_fp8_small_m64_attention_output_wmma_unchecked<
-          12'288U, 5'120U, 72U, 8U>(
-          weights, weight_scale, activations, output, stream);
-    }
+    launch_fp8_m128_tiles_unchecked<12'288U, 5'120U>(
+        weights, weight_scale, activations, token_count, output, stream);
   } else if (rows == 1'024U) {
+    // Full-attention K/V remains on its screened M64 layout. In particular,
+    // C256 preserves the M-major 32-CTA route and C512 the N-major 64-CTA
+    // route; the large-N M128 kernel is never instantiated for K/V.
     if (token_count == 256U) {
       launch_fp8_small_m64_attention_output_wmma_unchecked<
           1'024U, 5'120U, 72U, 4U, false>(
@@ -24546,14 +24580,9 @@ int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
           1'024U, 5'120U, 72U, 8U>(
           weights, weight_scale, activations, output, stream);
     }
-  } else if (token_count == 256U) {
-    launch_fp8_small_m64_attention_output_wmma_unchecked<
-        5'120U, 6'144U, 72U, 4U>(
-        weights, weight_scale, activations, output, stream);
   } else {
-    launch_fp8_small_m64_attention_output_wmma_unchecked<
-        5'120U, 6'144U, 72U, 8U>(
-        weights, weight_scale, activations, output, stream);
+    launch_fp8_m128_tiles_unchecked<5'120U, 6'144U>(
+        weights, weight_scale, activations, token_count, output, stream);
   }
   return static_cast<int>(cudaGetLastError());
 }

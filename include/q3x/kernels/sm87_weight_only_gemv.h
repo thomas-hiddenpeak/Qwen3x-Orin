@@ -324,9 +324,9 @@ launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
 // attention QKV [10240,5120] and Z [6144,5120], full-attention Q
 // [12288,5120] and K/V [1024,5120], and attention output [5120,6144]. The
 // complete chunk is validated before one fixed whole-chunk grid is enqueued.
-// Q and C512 K/V use N-major ordering; C256 K/V uses the measured-faster
-// M-major ordering to avoid N-major's locality penalty at the same 32-CTA
-// under-filled grid size.
+// QKV, Z, full-attention Q, and attention output use the exact M128xN128 K64
+// B-tile-reuse route. Full-attention K/V remains on the historical M64 route:
+// C256 uses the measured-faster M-major ordering and C512 uses N-major.
 // Every shape, token-count, range, alias, or production-alignment near miss
 // returns cudaErrorInvalidValue before enqueue.
 [[nodiscard]] int launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(

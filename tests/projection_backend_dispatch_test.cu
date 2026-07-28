@@ -18,21 +18,21 @@
 
 namespace q3x::kernels {
 
-// Frozen screen controls used to lock the production full-attention layout
-// choice without exposing test-only entries in the public kernel header.
+// Test-only direct controls used to lock the promoted large-N M128 route and
+// the historical M64 K/V route without extending the public kernel header.
 [[nodiscard]] int
-launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda(
+launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t token_count,
-    bool n_major, std::size_t rows, std::size_t columns,
-    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
-launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda(
+launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
     const std::uint8_t* weights, float weight_scale,
     const std::uint16_t* activations, std::size_t token_count,
-    bool n_major, std::size_t rows, std::size_t columns,
-    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 }  // namespace q3x::kernels
 
@@ -1980,8 +1980,10 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
                       columns, output, static_cast<void*>(stream));
             },
             label + " direct graph");
+        const std::size_t production_tile_tokens =
+            rows == 1'024U ? kM64Tokens : 128U;
         const unsigned int expected_grid = static_cast<unsigned int>(
-            (rows / 128U) * (token_count / kM64Tokens));
+            (rows / 128U) * (token_count / production_tile_tokens));
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U && direct.valid &&
             direct.launches.size() == 1U &&
@@ -2013,7 +2015,7 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
   const auto expect_full_attention_layout =
       [&](const runtime::LinearWeight& weight, const std::size_t rows,
           const std::size_t token_count, const bool is_query,
-          const bool expected_n_major, const std::string& label) {
+          const std::string& label) {
         const CapturedKernelChain production = capture_ordered_kernel_chain(
             test,
             [&](cudaStream_t stream) noexcept {
@@ -2030,15 +2032,15 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
                 [&](cudaStream_t stream) noexcept {
                   if (is_query) {
                     return q3x::kernels::
-                        launch_sm87_fp8_w8a16_whole_chunk_full_attention_q_wmma_test_cuda(
+                        launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
                             encoded_weight, 1.0F, input, token_count,
-                            expected_n_major, rows, 5'120U, output,
+                            rows, 5'120U, output,
                             static_cast<void*>(stream));
                   }
                   return q3x::kernels::
-                      launch_sm87_fp8_w8a16_whole_chunk_full_attention_kv_wmma_test_cuda(
-                          encoded_weight, 1.0F, input, token_count,
-                          expected_n_major, rows, 5'120U, output,
+                      launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+                          encoded_weight, 1.0F, input, token_count, rows,
+                          5'120U, output,
                           static_cast<void*>(stream));
                 },
                 label + " frozen layout graph");
@@ -2051,12 +2053,12 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
       };
   for (const std::size_t token_count : {256U, 512U}) {
     expect_full_attention_layout(
-        full_query, 12'288U, token_count, true, true,
-        "FP8 full Q C" + std::to_string(token_count) + " N-major");
+        full_query, 12'288U, token_count, true,
+        "FP8 full Q C" + std::to_string(token_count) + " promoted M128");
   }
-  expect_full_attention_layout(full_kv, 1'024U, 256U, false, false,
+  expect_full_attention_layout(full_kv, 1'024U, 256U, false,
                                "FP8 full K/V C256 M-major");
-  expect_full_attention_layout(full_kv, 1'024U, 512U, false, true,
+  expect_full_attention_layout(full_kv, 1'024U, 512U, false,
                                "FP8 full K/V C512 N-major");
 
   // Exercise the public runtime route on real storage and a non-default

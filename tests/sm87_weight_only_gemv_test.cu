@@ -485,8 +485,9 @@ query_sm87_fp8_w8a16_whole_chunk_qkv_z_wmma_resources_test_cuda(
     std::size_t* static_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
-// Test-only large-N M128 B-tile-reuse screen. These entries are deliberately
-// absent from installed headers, the runner, and production dispatch.
+// Test-only compatibility and resource entries for the promoted production
+// large-N M128 B-tile-reuse route. They remain absent from installed headers
+// and the runner.
 [[nodiscard]] int
 launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
     const std::uint8_t* weights, float weight_scale,
@@ -500,6 +501,15 @@ query_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_resources_test_cuda(
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
+
+// Frozen pre-promotion M64 control. This entry never delegates to the public
+// whole-chunk dispatcher, so production admission tests cannot self-compare.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
 launch_sm87_fp8_w8a16_small_m64_full_attention_q_wmma_test_cuda(
@@ -25229,6 +25239,7 @@ struct WholeChunkCapturedGraph {
   bool valid = false;
   std::size_t total_nodes = 0U;
   std::size_t kernel_nodes = 0U;
+  void* function = nullptr;
   bool topology_matches = false;
   bool execution_replay = false;
 };
@@ -25279,6 +25290,9 @@ template <typename Launch>
                                                          &params),
                            label + " get kernel params") &&
               ready;
+      if (result.kernel_nodes == 1U) {
+        result.function = params.func;
+      }
       topology_matches =
           topology_matches && params.func != nullptr &&
           params.gridDim.x == expected_grid_x && params.gridDim.y == 1U &&
@@ -29002,7 +29016,7 @@ run_fp8_whole_chunk_attention_output_case(
             << " correctness="
             << (result.correctness_gate ? "PASS" : "FAIL")
             << " graph=" << (result.graph_gate ? "PASS" : "FAIL")
-            << " production_dispatch=unchanged"
+            << " screen_scope=historical_pre_M128_control"
             << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
   test.expect(selection_gate,
               label + " N-major candidate clears the whole-chunk screen");
@@ -29321,7 +29335,7 @@ void run_fp8_whole_chunk_attention_output_screen(TestContext& test,
             << m256.baseline_speedup
             << " m512_speedup=" << m512.baseline_speedup
             << " required_m512_speedup=1.25"
-            << " production_dispatch=unchanged"
+            << " screen_scope=historical_pre_M128_control"
             << " gate=" << (complete ? "PASS" : "FAIL") << '\n';
   test.expect(complete,
               "FP8 whole-chunk M256/M512 focused screen completes");
@@ -30093,7 +30107,7 @@ struct Fp8QkvZCaseResult {
             << " correctness=" << (result.correctness ? "PASS" : "FAIL")
             << " graph=" << (result.graph ? "PASS" : "FAIL")
             << " baseline=production_public_M32_chain"
-            << " production_dispatch=unchanged"
+            << " screen_scope=historical_pre_M128_control"
             << " gate="
             << (result.correctness && result.graph && every_round &&
                         std::isfinite(speedup) && speedup > 1.0
@@ -30620,7 +30634,7 @@ struct Fp8QkvZPairResult {
             << " projection_basis_ms=617.622304"
             << " every_round_positive=" << (every_round ? "true" : "false")
             << " baseline=production_public_M32_chain"
-            << " production_dispatch=unchanged"
+            << " screen_scope=historical_pre_M128_control"
             << " gate="
             << (every_round && std::isfinite(speedup) && speedup > 1.0
                     ? "PASS"
@@ -30637,7 +30651,8 @@ void run_fp8_whole_chunk_qkv_z_screen(TestContext& test,
                "control=R_repeated_test_M64 S=one_grid_M_major "
                "candidate=C_one_grid_N_major warmup=10 measured_ops=24 "
                "mirrored_rounds=6 expected_peak_device_mib=105 "
-               "expected_peak_host_mib=160 production_dispatch=unchanged\n";
+               "expected_peak_host_mib=160 "
+               "screen_scope=historical_pre_M128_control\n";
   run_fp8_whole_chunk_qkv_z_resource_gate(test);
   run_fp8_whole_chunk_qkv_z_invalid_capture_contract(test, stream);
   for (const Fp8QkvZShape& shape : kFp8QkvZShapes) {
@@ -30706,7 +30721,7 @@ void run_fp8_whole_chunk_qkv_z_screen(TestContext& test,
             << " pair_cell_gate=" << (pair_cell_gate ? "PASS" : "FAIL")
             << " exhaustive=QKV_and_Z_M512_all_E4M3FN_x4_positions"
             << " baseline=production_public_M32_chain"
-            << " production_dispatch=unchanged"
+            << " screen_scope=historical_pre_M128_control"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
               "FP8 QKV/Z whole-chunk screen clears frozen C512 pair 1.25 "
@@ -30739,11 +30754,13 @@ struct Fp8LargeNM128CaseResult {
   double speedup = std::numeric_limits<double>::quiet_NaN();
 };
 
-void run_fp8_large_n_m128_b_reuse_resource_gate(TestContext& test) {
+[[nodiscard]] bool run_fp8_large_n_m128_b_reuse_resource_gate(
+    TestContext& test) {
   constexpr int kMaximumRegisters = 128;
   constexpr std::size_t kExpectedSharedBytes = 37'376U;
   constexpr int kExpectedThreads = 256;
   constexpr int kMinimumActiveBlocks = 2;
+  bool complete = true;
   for (const Fp8LargeNM128Shape& shape : kFp8LargeNM128Shapes) {
     for (const std::size_t token_count : {256U, 512U}) {
       int registers = -1;
@@ -30760,7 +30777,8 @@ void run_fp8_large_n_m128_b_reuse_resource_gate(TestContext& test) {
                         shared == kExpectedSharedBytes && local == 0U &&
                         threads == kExpectedThreads &&
                         active >= kMinimumActiveBlocks;
-      std::cout << "FP8_LARGE_N_M128_RESOURCES: shape=" << shape.name << '['
+      std::cout << "FP8_LARGE_N_M128_PRODUCTION_RESOURCES: shape="
+                << shape.name << '['
                 << shape.rows << 'x' << shape.columns << "] M="
                 << token_count << " status=" << status
                 << " registers_per_thread=" << registers
@@ -30773,6 +30791,7 @@ void run_fp8_large_n_m128_b_reuse_resource_gate(TestContext& test) {
       test.expect(gate,
                   std::string("FP8 large-N M128 resource gate ") +
                       shape.name + " M" + std::to_string(token_count));
+      complete = complete && gate;
     }
   }
 
@@ -30800,17 +30819,19 @@ void run_fp8_large_n_m128_b_reuse_resource_gate(TestContext& test) {
       kv_launch_status == static_cast<int>(cudaErrorInvalidValue) &&
       registers == 17 && shared == 23U && local == 29U && threads == 31 &&
       active == 37;
-  std::cout << "FP8_LARGE_N_M128_KV_EXCLUSION: query_status="
+  std::cout << "FP8_LARGE_N_M128_PRODUCTION_KV_EXCLUSION: query_status="
             << kv_query_status << " launch_status=" << kv_launch_status
             << " query_outputs_unchanged="
             << (kv_rejected ? "true" : "false")
             << " gate=" << (kv_rejected ? "PASS" : "FAIL") << '\n';
   test.expect(kv_rejected,
-              "FP8 large-N M128 screen excludes full-attention K/V");
+              "FP8 large-N M128 production route excludes full-attention "
+              "K/V");
+  return complete && kv_rejected;
 }
 
-void run_fp8_large_n_m128_b_reuse_invalid_graph(TestContext& test,
-                                                 cudaStream_t stream) {
+[[nodiscard]] bool run_fp8_large_n_m128_b_reuse_invalid_graph(
+    TestContext& test, cudaStream_t stream) {
   constexpr std::uintptr_t kWeightAddress = 0x10'0000'0000ULL;
   constexpr std::uintptr_t kActivationAddress = 0x20'0000'0000ULL;
   constexpr std::uintptr_t kOutputAddress = 0x30'0000'0000ULL;
@@ -30830,7 +30851,7 @@ void run_fp8_large_n_m128_b_reuse_invalid_graph(TestContext& test,
                           const std::size_t columns,
                           std::uint16_t* const selected_output) noexcept {
     return q3x::kernels::
-        launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
             selected_weights, scale, selected_activations, tokens, rows,
             columns, selected_output, static_cast<void*>(stream));
   };
@@ -30858,7 +30879,7 @@ void run_fp8_large_n_m128_b_reuse_invalid_graph(TestContext& test,
                          5'120U, output);
     statuses[7] = launch(weights, 1.0F, activations, 512U, 10'239U,
                          5'120U, output);
-    statuses[8] = launch(weights, 1.0F, activations, 512U, 1'024U,
+    statuses[8] = launch(weights, 1.0F, activations, 512U, 2'048U,
                          5'120U, output);
     statuses[9] = launch(weights + 1U, 1.0F, activations, 512U, 10'240U,
                          5'120U, output);
@@ -30897,12 +30918,130 @@ void run_fp8_large_n_m128_b_reuse_invalid_graph(TestContext& test,
       statuses.begin(), statuses.end(),
       static_cast<int>(cudaErrorInvalidValue)));
   const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
-  std::cout << "FP8_LARGE_N_M128_INVALID_GRAPH: invalid_statuses="
+  std::cout << "FP8_LARGE_N_M128_PRODUCTION_INVALID_GRAPH: invalid_statuses="
             << invalid_count << '/' << statuses.size()
             << " total_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
               "FP8 large-N M128 invalid launches enqueue zero graph nodes");
+  return gate;
+}
+
+[[nodiscard]] bool run_fp8_large_n_m128_production_dispatch_contract(
+    TestContext& test, cudaStream_t stream) {
+  const auto* const weights =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(0x20'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x30'0000'0000ULL);
+  bool complete = true;
+  for (const Fp8LargeNM128Shape& shape : kFp8LargeNM128Shapes) {
+    for (const std::size_t token_count : {256U, 512U}) {
+      const auto launch_production = [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+                weights, 1.0F, activations, token_count, shape.rows,
+                shape.columns, output, static_cast<void*>(stream));
+      };
+      const auto launch_direct = [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+                weights, 1.0F, activations, token_count, shape.rows,
+                shape.columns, output, static_cast<void*>(stream));
+      };
+      const auto launch_historical = [&]() noexcept {
+        return q3x::kernels::
+            launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+                weights, 1.0F, activations, token_count, shape.rows,
+                shape.columns, output, static_cast<void*>(stream));
+      };
+      const unsigned int production_grid = static_cast<unsigned int>(
+          shape.rows / 128U * (token_count / 128U));
+      const unsigned int historical_grid = static_cast<unsigned int>(
+          shape.rows / 128U * (token_count / 64U));
+      const std::string label =
+          std::string("FP8 large-N M128 production ") + shape.name + " M" +
+          std::to_string(token_count);
+      const WholeChunkCapturedGraph production = capture_whole_chunk_graph(
+          test, stream, launch_production, 1U, production_grid,
+          label + " public graph");
+      const WholeChunkCapturedGraph direct = capture_whole_chunk_graph(
+          test, stream, launch_direct, 1U, production_grid,
+          label + " direct graph");
+      const WholeChunkCapturedGraph historical = capture_whole_chunk_graph(
+          test, stream, launch_historical, 1U, historical_grid,
+          label + " historical graph");
+      const bool function_identity =
+          production.function != nullptr &&
+          production.function == direct.function;
+      const bool historical_distinct =
+          historical.function != nullptr &&
+          historical.function != production.function;
+      const bool gate = production.valid && direct.valid && historical.valid &&
+                        function_identity && historical_distinct;
+      std::cout << "FP8_LARGE_N_M128_PRODUCTION_DISPATCH: shape="
+                << shape.name << '[' << shape.rows << 'x' << shape.columns
+                << "] M=" << token_count
+                << " production_grid=" << production_grid
+                << " historical_M64_grid=" << historical_grid
+                << " public_direct_function_identity="
+                << (function_identity ? "true" : "false")
+                << " M64_M128_function_distinct="
+                << (historical_distinct ? "true" : "false")
+                << " block=256 dynamic_shared_bytes=0"
+                << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+      test.expect(gate,
+                  label + " selects the exact public production M128 "
+                          "function and grid");
+      complete = complete && gate;
+    }
+  }
+
+  constexpr std::size_t kKvRows = 1'024U;
+  constexpr std::size_t kKvColumns = 5'120U;
+  for (const std::size_t token_count : {256U, 512U}) {
+    const auto launch_production = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+              weights, 1.0F, activations, token_count, kKvRows, kKvColumns,
+              output, static_cast<void*>(stream));
+    };
+    const auto launch_historical = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+              weights, 1.0F, activations, token_count, kKvRows, kKvColumns,
+              output, static_cast<void*>(stream));
+    };
+    const unsigned int expected_grid = static_cast<unsigned int>(
+        kKvRows / 128U * (token_count / 64U));
+    const std::string label =
+        "FP8 full-attention K/V M" + std::to_string(token_count);
+    const WholeChunkCapturedGraph production = capture_whole_chunk_graph(
+        test, stream, launch_production, 1U, expected_grid,
+        label + " production graph");
+    const WholeChunkCapturedGraph historical = capture_whole_chunk_graph(
+        test, stream, launch_historical, 1U, expected_grid,
+        label + " historical M64 graph");
+    const bool function_identity =
+        production.function != nullptr &&
+        production.function == historical.function;
+    const bool gate = production.valid && historical.valid &&
+                      function_identity;
+    std::cout << "FP8_LARGE_N_M128_PRODUCTION_KV_DISPATCH: M="
+              << token_count << " grid=" << expected_grid
+              << " layout="
+              << (token_count == 256U ? "M-major" : "N-major")
+              << " public_historical_M64_function_identity="
+              << (function_identity ? "true" : "false")
+              << " M128_supported=false"
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    test.expect(gate,
+                label + " remains on the exact historical M64 function and "
+                        "grid");
+    complete = complete && gate;
+  }
+  return complete;
 }
 
 [[nodiscard]] bool
@@ -31010,25 +31149,26 @@ run_fp8_large_n_m128_b_reuse_exhaustive_correctness(
   std::uint16_t* const replay_output =
       replay_guarded.get() + kGuardElements;
   const auto launch_baseline = [&]() noexcept {
-    return q3x::kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-        weights.get(), shape.weight_scale, activations.get(), kTokenCount,
-        shape.rows, shape.columns, baseline_output,
-        static_cast<void*>(stream));
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
+            weights.get(), shape.weight_scale, activations.get(),
+            kTokenCount, shape.rows, shape.columns, baseline_output,
+            static_cast<void*>(stream));
   };
   const auto launch_candidate_to =
       [&](std::uint16_t* const destination) noexcept {
         return q3x::kernels::
-            launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+            launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
                 weights.get(), shape.weight_scale, activations.get(),
                 kTokenCount, shape.rows, shape.columns, destination,
                 static_cast<void*>(stream));
       };
   ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
-                       label + " launch production M64 oracle");
+                       label + " launch historical M64 oracle");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(
                            launch_candidate_to(candidate_output)),
-                       label + " launch M128 candidate");
+                       label + " launch production M128");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(
                            launch_candidate_to(replay_output)),
@@ -31147,10 +31287,11 @@ run_fp8_large_n_m128_b_reuse_exhaustive_correctness(
             << " guards=" << (guards_intact ? "intact" : "BAD")
             << " inputs_preserved="
             << (inputs_preserved ? "true" : "false")
-            << " oracle=production_whole_chunk_M64"
+            << " oracle=historical_whole_chunk_M64"
+            << " candidate=production_public_M128"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
-              label + " is bit-exact to production M64 for all 256x4 "
+              label + " is bit-exact to historical M64 for all 256x4 "
                       "raw codes with stable NaN sign/class, replay, "
                       "guards, and inputs");
   return gate;
@@ -31252,7 +31393,7 @@ run_fp8_large_n_m128_b_reuse_case(
       replay_guarded.get() + kGuardElements;
   const auto launch_baseline = [&]() noexcept {
     return q3x::kernels::
-        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
+        launch_sm87_fp8_w8a16_whole_chunk_m64_historical_control_test_cuda(
             weights.get(), shape.weight_scale, activations.get(), token_count,
             shape.rows, shape.columns, baseline_output,
             static_cast<void*>(stream));
@@ -31260,9 +31401,16 @@ run_fp8_large_n_m128_b_reuse_case(
   const auto launch_candidate_to =
       [&](std::uint16_t* const destination) noexcept {
     return q3x::kernels::
-        launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+        launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
             weights.get(), shape.weight_scale, activations.get(), token_count,
             shape.rows, shape.columns, destination,
+            static_cast<void*>(stream));
+  };
+  const auto launch_direct_compatibility = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_test_cuda(
+            weights.get(), shape.weight_scale, activations.get(), token_count,
+            shape.rows, shape.columns, candidate_output,
             static_cast<void*>(stream));
   };
   const auto launch_candidate = [&]() noexcept {
@@ -31272,10 +31420,10 @@ run_fp8_large_n_m128_b_reuse_case(
     return launch_candidate_to(replay_output);
   };
   ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
-                       label + " launch production M64 oracle");
+                       label + " launch historical M64 oracle");
   ready = ready && test.cuda_ok(
                        static_cast<cudaError_t>(launch_candidate()),
-                       label + " launch M128 candidate");
+                       label + " launch production M128");
   ready = ready && test.cuda_ok(static_cast<cudaError_t>(launch_replay()),
                                 label + " launch M128 replay");
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
@@ -31284,12 +31432,30 @@ run_fp8_large_n_m128_b_reuse_case(
     return result;
   }
 
-  const unsigned int expected_grid = static_cast<unsigned int>(
+  const unsigned int expected_m64_grid = static_cast<unsigned int>(
+      (shape.rows / 128U) * (token_count / 64U));
+  const unsigned int expected_m128_grid = static_cast<unsigned int>(
       (shape.rows / 128U) * (token_count / 128U));
-  const WholeChunkCapturedGraph graph = capture_whole_chunk_graph(
-      test, stream, launch_candidate, 1U, expected_grid,
-      label + " candidate graph", true);
-  result.graph = graph.valid;
+  const WholeChunkCapturedGraph baseline_graph = capture_whole_chunk_graph(
+      test, stream, launch_baseline, 1U, expected_m64_grid,
+      label + " historical M64 graph");
+  const WholeChunkCapturedGraph production_graph = capture_whole_chunk_graph(
+      test, stream, launch_candidate, 1U, expected_m128_grid,
+      label + " production M128 graph", true);
+  const WholeChunkCapturedGraph compatibility_graph =
+      capture_whole_chunk_graph(test, stream, launch_direct_compatibility,
+                                1U, expected_m128_grid,
+                                label + " direct M128 compatibility graph");
+  const bool production_function_identity =
+      production_graph.function != nullptr &&
+      production_graph.function == compatibility_graph.function;
+  const bool historical_function_distinct =
+      baseline_graph.function != nullptr &&
+      baseline_graph.function != production_graph.function;
+  result.graph = baseline_graph.valid && production_graph.valid &&
+                 compatibility_graph.valid &&
+                 production_function_identity &&
+                 historical_function_distinct;
   std::vector<std::uint16_t> baseline(guarded_elements);
   std::vector<std::uint16_t> candidate(guarded_elements);
   std::vector<std::uint16_t> replay(guarded_elements);
@@ -31365,17 +31531,29 @@ run_fp8_large_n_m128_b_reuse_case(
             << " guards=" << (guards_intact ? "intact" : "BAD")
             << " inputs_preserved="
             << (inputs_preserved ? "true" : "false")
-            << " graph_nodes=" << graph.kernel_nodes << "/1"
+            << " historical_M64_graph_nodes="
+            << baseline_graph.kernel_nodes << "/1"
+            << " production_M128_graph_nodes="
+            << production_graph.kernel_nodes << "/1"
+            << " compatibility_graph_nodes="
+            << compatibility_graph.kernel_nodes << "/1"
             << " graph_execution_replay="
-            << (graph.execution_replay ? "true" : "false")
-            << " graph_grid=" << expected_grid
-            << " oracle=production_whole_chunk_M64"
+            << (production_graph.execution_replay ? "true" : "false")
+            << " historical_M64_grid=" << expected_m64_grid
+            << " production_M128_grid=" << expected_m128_grid
+            << " public_direct_function_identity="
+            << (production_function_identity ? "true" : "false")
+            << " M64_M128_function_distinct="
+            << (historical_function_distinct ? "true" : "false")
+            << " oracle=historical_whole_chunk_M64"
             << " gate="
             << (result.correctness && result.graph ? "PASS" : "FAIL")
             << '\n';
   test.expect(result.correctness,
-              label + " is bit-exact to production M64 with intact guards");
-  test.expect(result.graph, label + " captures one exact M128 grid");
+              label + " is bit-exact to historical M64 with intact guards");
+  test.expect(result.graph,
+              label + " captures distinct historical M64 and exact public "
+                      "production M128 function identities");
 
   for (int warmup = 0; warmup < kWarmups && ready; ++warmup) {
     ready = test.cuda_ok(static_cast<cudaError_t>(launch_baseline()),
@@ -31450,7 +31628,7 @@ run_fp8_large_n_m128_b_reuse_case(
             << (result.every_round_positive ? "true" : "false")
             << " correctness=" << (result.correctness ? "PASS" : "FAIL")
             << " graph=" << (result.graph ? "PASS" : "FAIL")
-            << " K_V_supported=false production_dispatch=unchanged"
+            << " K_V_supported=false production_dispatch=large_N_M128"
             << " gate="
             << (result.cell_gate ? "PASS" : "FAIL")
             << '\n';
@@ -31464,25 +31642,28 @@ void run_fp8_large_n_m128_b_reuse_screen(TestContext& test,
   std::cout
       << "FP8_LARGE_N_M128_PROTOCOL: shapes=QKV[10240x5120],"
          "Z[6144x5120],O[5120x6144],Q[12288x5120] M=256,512"
-         " baseline=production_whole_chunk_M64"
-         " candidate=test_only_M128xN128_K64_B_reuse"
+         " baseline=test_only_historical_whole_chunk_M64"
+         " candidate=production_public_M128xN128_K64_B_reuse"
          " exhaustive=QKV_M512_all_E4M3FN_x4_positions"
          " order=B-C-C-B warmup=4 measured_ops=8 rounds=4"
          " profile_calls=QKV:48,Z:48,O:64,Q:16"
-         " K_V_supported=false runner=unchanged dispatch=unchanged"
+         " K_V_supported=false runner=unchanged dispatch=large_N_M128"
          " public_ABI=unchanged MTP=false GDN=false\n";
-  const int failures_before_resources = test.failures();
-  run_fp8_large_n_m128_b_reuse_resource_gate(test);
-  run_fp8_large_n_m128_b_reuse_invalid_graph(test, stream);
-  const bool resources = test.failures() == failures_before_resources;
+  const bool resources =
+      run_fp8_large_n_m128_b_reuse_resource_gate(test);
+  const bool invalid =
+      run_fp8_large_n_m128_b_reuse_invalid_graph(test, stream);
+  const bool dispatch =
+      run_fp8_large_n_m128_production_dispatch_contract(test, stream);
+  const bool production_contracts = resources && invalid && dispatch;
   const bool exhaustive =
       run_fp8_large_n_m128_b_reuse_exhaustive_correctness(test, stream);
-  bool correctness = resources && exhaustive;
-  bool graphs = resources;
-  bool finite = resources;
-  bool every_round_positive = resources;
-  bool every_cell_gate = resources;
-  bool every_shape_gate = resources;
+  bool correctness = production_contracts && exhaustive;
+  bool graphs = production_contracts;
+  bool finite = production_contracts;
+  bool every_round_positive = production_contracts;
+  bool every_cell_gate = production_contracts;
+  bool every_shape_gate = production_contracts;
   std::array<double, 2U> weighted_baseline{{0.0, 0.0}};
   std::array<double, 2U> weighted_candidate{{0.0, 0.0}};
   for (const Fp8LargeNM128Shape& shape : kFp8LargeNM128Shapes) {
@@ -31537,7 +31718,8 @@ void run_fp8_large_n_m128_b_reuse_screen(TestContext& test,
                          c512_speedup >= 1.15;
   const bool joint_gate = std::isfinite(joint_speedup) &&
                          joint_speedup >= 1.12;
-  const bool selection = resources && correctness && graphs && finite &&
+  const bool admission = production_contracts && correctness && graphs &&
+                         finite &&
                          every_round_positive && every_cell_gate &&
                          every_shape_gate &&
                          c256_gate && c512_gate && joint_gate;
@@ -31556,6 +31738,8 @@ void run_fp8_large_n_m128_b_reuse_screen(TestContext& test,
             << " joint_speedup=" << joint_speedup
             << " required_joint_speedup=1.12"
             << " resources=" << (resources ? "PASS" : "FAIL")
+            << " invalid=" << (invalid ? "PASS" : "FAIL")
+            << " dispatch=" << (dispatch ? "PASS" : "FAIL")
             << " exhaustive=" << (exhaustive ? "PASS" : "FAIL")
             << " correctness=" << (correctness ? "PASS" : "FAIL")
             << " graph=" << (graphs ? "PASS" : "FAIL")
@@ -31569,11 +31753,12 @@ void run_fp8_large_n_m128_b_reuse_screen(TestContext& test,
             << " C256_gate=" << (c256_gate ? "PASS" : "FAIL")
             << " C512_gate=" << (c512_gate ? "PASS" : "FAIL")
             << " joint_gate=" << (joint_gate ? "PASS" : "FAIL")
-            << " candidate_scope=test_only production_dispatch=unchanged"
-            << " gate=" << (selection ? "PASS" : "FAIL") << '\n';
-  test.expect(selection,
-              "FP8 large-N M128 candidate clears the frozen weighted early "
-              "screen");
+            << " candidate_scope=production_public"
+            << " production_dispatch=large_N_M128_KV_M64"
+            << " gate=" << (admission ? "PASS" : "FAIL") << '\n';
+  test.expect(admission,
+              "FP8 large-N M128 production route clears the frozen weighted "
+              "admission gate");
 }
 
 struct Fp8FullAttentionShape {
@@ -32326,7 +32511,7 @@ struct Fp8FullAttentionCaseResult {
             << " graph=" << (result.graph ? "PASS" : "FAIL")
             << " every_round_positive=" << (every_round ? "true" : "false")
             << " baseline=frozen_pre_promotion_route"
-            << " production_selection="
+            << " historical_pre_M128_selection="
                "Q_and_C512_KV_N_major_C256_KV_M_major"
             << " gate="
             << (result.correctness && result.graph && every_round &&
@@ -32586,7 +32771,8 @@ void run_fp8_whole_chunk_full_attention_screen(TestContext& test,
          " candidate=C_one_grid_N_major order=B-R-S-C-C-S-R-B"
          " warmup=10 measured_ops=24 rounds=6"
          " baseline=frozen_pre_promotion_routes"
-         " production_selection=Q_and_C512_KV_N_major_C256_KV_M_major\n";
+         " historical_pre_M128_selection="
+         "Q_and_C512_KV_N_major_C256_KV_M_major\n";
   const int failures_before_prechecks = test.failures();
   run_fp8_full_attention_resource_gate(test);
   run_fp8_full_attention_invalid_capture_contract(test, stream);
@@ -32667,7 +32853,7 @@ void run_fp8_whole_chunk_full_attention_screen(TestContext& test,
             << (exhaustive_gate ? "PASS" : "FAIL")
             << " K_V_failure_cannot_be_masked_by_Q=true"
             << " Q_only_selection=" << (q_gate ? "SELECTABLE" : "REJECT")
-            << " production_selection="
+            << " historical_pre_M128_selection="
                "Q_and_C512_KV_N_major_C256_KV_M_major"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
@@ -64602,6 +64788,12 @@ int main() {
                     "create non-blocking stream")) {
     return 1;
   }
+  const bool fp8_large_n_m128_resources_ready =
+      run_fp8_large_n_m128_b_reuse_resource_gate(test);
+  const bool fp8_large_n_m128_invalid_ready =
+      run_fp8_large_n_m128_b_reuse_invalid_graph(test, stream);
+  const bool fp8_large_n_m128_dispatch_ready =
+      run_fp8_large_n_m128_production_dispatch_contract(test, stream);
   const bool gate_m128_resources_ready =
       run_nvfp4_gate_m128_b_reuse_resource_gate(test);
   const bool gate_m128_invalid_ready =
@@ -64683,7 +64875,14 @@ int main() {
     return 0;
   }
   if (fp8_large_n_m128_b_reuse_performance_enabled()) {
-    run_fp8_large_n_m128_b_reuse_screen(test, stream);
+    if (fp8_large_n_m128_resources_ready &&
+        fp8_large_n_m128_invalid_ready &&
+        fp8_large_n_m128_dispatch_ready) {
+      run_fp8_large_n_m128_b_reuse_screen(test, stream);
+    } else {
+      std::cout << "PERF_FP8_LARGE_N_M128_FINAL: "
+                   "stage=default_production_contract gate=FAIL\n";
+    }
     (void)test.cuda_ok(
         cudaStreamDestroy(stream),
         "destroy FP8 large-N M128 B-reuse performance stream");
@@ -64692,8 +64891,8 @@ int main() {
                 << " FP8 large-N M128 B-reuse assertion(s) failed\n";
       return 1;
     }
-    std::cout << "FP8 large-N M128 B-reuse opt-in screen completed; "
-                 "production dispatch is unchanged\n";
+    std::cout << "FP8 large-N M128 B-reuse production admission passed; "
+                 "large-N dispatch uses M128 and K/V remains M64\n";
     return 0;
   }
   if (fp8_whole_chunk_full_attention_performance_enabled()) {
@@ -64707,8 +64906,7 @@ int main() {
       return 1;
     }
     std::cout << "FP8 whole-chunk full-attention Q/K/V M256/M512 "
-                 "fixed-frequency screen passed; production dispatch uses "
-                 "the selected shape-specific layouts\n";
+                 "historical pre-M128 layout screen passed\n";
     return 0;
   }
   if (fp8_whole_chunk_qkv_z_performance_enabled()) {
@@ -64721,8 +64919,8 @@ int main() {
                 << " FP8 whole-chunk QKV/Z assertion(s) failed\n";
       return 1;
     }
-    std::cout << "FP8 whole-chunk QKV/Z M256/M512 fixed-frequency screen "
-                 "passed; production dispatch is unchanged\n";
+    std::cout << "FP8 whole-chunk QKV/Z M256/M512 historical pre-M128 "
+                 "layout screen passed\n";
     return 0;
   }
   if (fp8_whole_chunk_attention_output_performance_enabled()) {
@@ -64735,8 +64933,8 @@ int main() {
                 << " FP8 whole-chunk attention-output assertion(s) failed\n";
       return 1;
     }
-    std::cout << "FP8 whole-chunk M256/M512 fixed-frequency screen passed; "
-                 "production dispatch is unchanged\n";
+    std::cout << "FP8 whole-chunk attention-output M256/M512 historical "
+                 "pre-M128 layout screen passed\n";
     return 0;
   }
   if (fp8_m64_attention_output_performance_enabled()) {
