@@ -266,15 +266,14 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Test-only persistent-BF16 cuBLASLt ceiling for the exact C512 Gate
-  # projection.  NVFP4 dequantization is deliberately outside this target:
-  # it measures only the dense BF16 Tensor Core control and does not link or
-  # alter the production projection library or runner.
+  # Test-only zero-workspace cuBLASLt integration screen for exact C512 Gate.
+  # It compares canonical NVFP4 direct dequantization + BF16 cuBLASLt against
+  # the public production M128 dispatcher without altering production code.
   add_executable(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
     tests/sm87_nvfp4_prefill_gate_c512_cublaslt_ceiling.cu
   )
   target_link_libraries(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
-    PRIVATE CUDA::cublasLt CUDA::cudart
+    PRIVATE q3x::kernels CUDA::cublasLt
   )
   q3x_enable_warnings(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling)
   add_test(NAME nvfp4_prefill_gate_c512_cublaslt_ceiling

@@ -1,3 +1,5 @@
+#include "q3x/kernels/sm87_weight_only_gemv.h"
+
 #include <cublasLt.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -7,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -23,7 +26,7 @@ constexpr std::size_t kBElements = kK * kN;
 constexpr std::size_t kCElements = kM * kN;
 constexpr std::size_t kPackedWeightBytes = kN * (kK / 2U);
 constexpr std::size_t kBlockScaleBytes = kN * (kK / 16U);
-constexpr std::size_t kWorkspaceBytes = 256U * 1024U * 1024U;
+constexpr std::size_t kWorkspaceBytes = 0U;
 constexpr int kMaximumHeuristics = 16;
 constexpr int kSelectionWarmups = 2;
 constexpr int kSelectionIterations = 4;
@@ -32,7 +35,12 @@ constexpr int kFormalIterations = 24;
 constexpr int kFormalRounds = 6;
 constexpr double kProductionGateReferenceMilliseconds = 6.561464;
 constexpr double kRequiredInclusiveSpeedup = 1.22;
+constexpr double kMaximumProductionNrmse = 1.0e-2;
+constexpr double kMinimumProductionCosine = 0.9999;
+constexpr double kRelativeFloor = 1.0e-2;
 constexpr float kWeightScale2 = 1.25F;
+constexpr std::size_t kGuardElements = 256U;
+constexpr std::uint16_t kGuardBits = 0xa5a5U;
 constexpr double kUsefulFlops =
     2.0 * static_cast<double>(kM) * static_cast<double>(kN) *
     static_cast<double>(kK);
@@ -42,6 +50,84 @@ static_assert(kBElements == 89'128'960U);
 static_assert(kCElements == 8'912'896U);
 static_assert(kPackedWeightBytes == 44'564'480U);
 static_assert(kBlockScaleBytes == 5'570'560U);
+
+struct NumericalMetrics {
+  std::size_t bitwise_mismatches = 0U;
+  std::size_t candidate_nonfinite = 0U;
+  std::size_t production_nonfinite = 0U;
+  double maximum_absolute = 0.0;
+  double maximum_relative = 0.0;
+  double squared_error = 0.0;
+  double squared_candidate = 0.0;
+  double squared_production = 0.0;
+  double dot = 0.0;
+  double nrmse = 0.0;
+  double cosine = 0.0;
+};
+
+[[nodiscard]] float decode_bf16_host(const std::uint16_t encoded) {
+  const std::uint32_t bits = static_cast<std::uint32_t>(encoded) << 16U;
+  float value = 0.0F;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+[[nodiscard]] NumericalMetrics compare_bf16_outputs(
+    const std::vector<std::uint16_t>& candidate,
+    const std::vector<std::uint16_t>& production) {
+  NumericalMetrics metrics{};
+  const std::size_t count = std::min(candidate.size(), production.size());
+  for (std::size_t index = 0U; index < count; ++index) {
+    metrics.bitwise_mismatches +=
+        candidate[index] != production[index] ? 1U : 0U;
+    const double candidate_value = decode_bf16_host(candidate[index]);
+    const double production_value = decode_bf16_host(production[index]);
+    if (!std::isfinite(candidate_value)) {
+      ++metrics.candidate_nonfinite;
+    }
+    if (!std::isfinite(production_value)) {
+      ++metrics.production_nonfinite;
+    }
+    if (!std::isfinite(candidate_value) ||
+        !std::isfinite(production_value)) {
+      continue;
+    }
+    const double absolute =
+        std::abs(candidate_value - production_value);
+    const double relative =
+        absolute / std::max(std::abs(production_value), kRelativeFloor);
+    metrics.maximum_absolute =
+        std::max(metrics.maximum_absolute, absolute);
+    metrics.maximum_relative =
+        std::max(metrics.maximum_relative, relative);
+    metrics.squared_error += absolute * absolute;
+    metrics.squared_candidate += candidate_value * candidate_value;
+    metrics.squared_production += production_value * production_value;
+    metrics.dot += candidate_value * production_value;
+  }
+  metrics.nrmse = std::sqrt(
+      metrics.squared_error /
+      std::max(metrics.squared_production,
+               std::numeric_limits<double>::min()));
+  if (metrics.squared_candidate == 0.0 &&
+      metrics.squared_production == 0.0 && metrics.squared_error == 0.0) {
+    metrics.cosine = 1.0;
+  } else {
+    metrics.cosine =
+        metrics.dot /
+        std::sqrt(std::max(metrics.squared_candidate *
+                               metrics.squared_production,
+                           std::numeric_limits<double>::min()));
+  }
+  return metrics;
+}
+
+[[nodiscard]] bool select_hybrid_for_scale(const float weight_scale_2) {
+  // Positive finite scales are the only region admitted to the new route.
+  // Zero keeps the existing production path to preserve signed-zero details;
+  // negative/non-finite values retain the public launcher's invalid contract.
+  return std::isfinite(weight_scale_2) && weight_scale_2 > 0.0F;
+}
 
 class TestContext {
  public:
@@ -401,6 +487,54 @@ __global__ void validate_bf16_replay_kernel(
   atomicAdd(encoded_sum, local_sum);
 }
 
+__global__ void validate_bytes_immutable_kernel(
+    const std::uint8_t* const values,
+    const std::uint8_t* const snapshot, const std::size_t count,
+    unsigned long long* const mismatch_count,
+    unsigned long long* const value_sum,
+    unsigned long long* const snapshot_sum) {
+  unsigned long long local_mismatch = 0U;
+  unsigned long long local_value_sum = 0U;
+  unsigned long long local_snapshot_sum = 0U;
+  const std::size_t stride =
+      static_cast<std::size_t>(gridDim.x) * blockDim.x;
+  for (std::size_t index =
+           static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       index < count; index += stride) {
+    const std::uint8_t value = values[index];
+    const std::uint8_t reference = snapshot[index];
+    local_mismatch += value != reference ? 1U : 0U;
+    local_value_sum += value;
+    local_snapshot_sum += reference;
+  }
+  if (local_mismatch != 0U) {
+    atomicAdd(mismatch_count, local_mismatch);
+  }
+  atomicAdd(value_sum, local_value_sum);
+  atomicAdd(snapshot_sum, local_snapshot_sum);
+}
+
+__global__ void validate_bf16_guards_kernel(
+    const __nv_bfloat16* const guarded, const std::size_t payload_count,
+    const std::size_t guard_count, const std::uint16_t guard_bits,
+    unsigned long long* const mismatch_count) {
+  const std::size_t index =
+      static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index >= guard_count) {
+    return;
+  }
+  const auto* const encoded =
+      reinterpret_cast<const std::uint16_t*>(guarded);
+  const bool prefix_mismatch = encoded[index] != guard_bits;
+  const bool suffix_mismatch =
+      encoded[guard_count + payload_count + index] != guard_bits;
+  if (prefix_mismatch || suffix_mismatch) {
+    atomicAdd(mismatch_count,
+              static_cast<unsigned long long>(prefix_mismatch) +
+                  static_cast<unsigned long long>(suffix_mismatch));
+  }
+}
+
 [[nodiscard]] bool launch_lt(
     TestContext& test, const LtObjects& lt,
     const cublasLtMatmulAlgo_t& algorithm, const float alpha,
@@ -634,17 +768,26 @@ int main() {
   DeviceBuffer<__nv_bfloat16> persistent_weight;
   DeviceBuffer<__nv_bfloat16> output;
   DeviceBuffer<__nv_bfloat16> replay_reference;
+  DeviceBuffer<__nv_bfloat16> production_output;
   DeviceBuffer<__nv_bfloat16> dequant_reference;
   DeviceBuffer<std::uint8_t> canonical_packed_weight;
   DeviceBuffer<std::uint8_t> canonical_block_scale;
+  DeviceBuffer<__nv_bfloat16> activation_snapshot;
+  DeviceBuffer<std::uint8_t> canonical_packed_weight_snapshot;
+  DeviceBuffer<std::uint8_t> canonical_block_scale_snapshot;
   DeviceBuffer<std::uint8_t> workspace;
   DeviceBuffer<unsigned long long> validation;
   bool ready = activation.allocate(test, kAElements, "allocate BF16 A");
   ready = ready && persistent_weight.allocate(test, kBElements,
                                                "allocate persistent BF16 B");
-  ready = ready && output.allocate(test, kCElements, "allocate BF16 C");
-  ready = ready && replay_reference.allocate(test, kCElements,
-                                              "allocate BF16 replay C");
+  ready = ready && output.allocate(test, kCElements + 2U * kGuardElements,
+                                   "allocate guarded BF16 C");
+  ready = ready && replay_reference.allocate(
+                       test, kCElements + 2U * kGuardElements,
+                       "allocate guarded BF16 replay C");
+  ready = ready && production_output.allocate(
+                       test, kCElements + 2U * kGuardElements,
+                       "allocate guarded production M128 C");
   ready = ready && dequant_reference.allocate(
                        test, kBElements, "allocate BF16 dequant reference");
   ready = ready && canonical_packed_weight.allocate(
@@ -653,8 +796,14 @@ int main() {
   ready = ready && canonical_block_scale.allocate(
                        test, kBlockScaleBytes,
                        "allocate canonical NVFP4 block scales");
-  ready = ready && workspace.allocate(test, kWorkspaceBytes,
-                                      "allocate cuBLASLt workspace");
+  ready = ready && activation_snapshot.allocate(
+                       test, kAElements, "allocate activation snapshot");
+  ready = ready && canonical_packed_weight_snapshot.allocate(
+                       test, kPackedWeightBytes,
+                       "allocate packed-weight snapshot");
+  ready = ready && canonical_block_scale_snapshot.allocate(
+                       test, kBlockScaleBytes,
+                       "allocate block-scale snapshot");
   ready = ready && validation.allocate(test, 3U, "allocate validation counts");
 
   cudaStream_t stream = nullptr;
@@ -670,6 +819,28 @@ int main() {
     return 1;
   }
 
+  __nv_bfloat16* const candidate_output = output.get() + kGuardElements;
+  __nv_bfloat16* const trusted_output =
+      replay_reference.get() + kGuardElements;
+  __nv_bfloat16* const exact_production_output =
+      production_output.get() + kGuardElements;
+  const std::size_t guarded_output_bytes =
+      (kCElements + 2U * kGuardElements) * sizeof(__nv_bfloat16);
+  ready = test.cuda_ok(
+      cudaMemsetAsync(output.get(), static_cast<int>(kGuardBits & 0xffU),
+                      guarded_output_bytes, stream),
+      "initialize candidate output guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(replay_reference.get(),
+                                       static_cast<int>(kGuardBits & 0xffU),
+                                       guarded_output_bytes, stream),
+                       "initialize trusted output guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(production_output.get(),
+                                       static_cast<int>(kGuardBits & 0xffU),
+                                       guarded_output_bytes, stream),
+                       "initialize production output guards");
+
   constexpr unsigned int kFillThreads = 256U;
   const auto fill = [&](DeviceBuffer<__nv_bfloat16>& buffer,
                         const std::size_t count, const std::uint32_t salt,
@@ -684,6 +855,12 @@ int main() {
   ready = fill(activation, kAElements, 0x1234'5678U, 1.0F / 64.0F);
   ready = ready && fill(persistent_weight, kBElements, 0x9abc'def0U,
                         1.0F / 128.0F);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activation_snapshot.get(), activation.get(),
+                           kAElements * sizeof(__nv_bfloat16),
+                           cudaMemcpyDeviceToDevice, stream),
+                       "snapshot BF16 activations");
   ready = ready &&
           test.cuda_ok(cudaStreamSynchronize(stream), "finish BF16 fills");
 
@@ -715,7 +892,7 @@ int main() {
     }
     const double milliseconds = measure_algorithm(
         test, lt, heuristics[static_cast<std::size_t>(index)].algo,
-        persistent_weight.get(), activation.get(), output.get(),
+        persistent_weight.get(), activation.get(), candidate_output,
         workspace.get(), kWorkspaceBytes, stream, kSelectionWarmups,
         kSelectionIterations, "select algorithm " + std::to_string(index));
     const double tflops = kUsefulFlops / (milliseconds * 1.0e9);
@@ -731,6 +908,12 @@ int main() {
   }
   test.expect(selected_index >= 0,
               "at least one cuBLASLt BF16 algorithm executes");
+  if (selected_index >= 0) {
+    test.expect(
+        heuristics[static_cast<std::size_t>(selected_index)].workspaceSize ==
+            0U,
+        "selected cuBLASLt algorithm requires zero workspace");
+  }
   if (selected_index < 0) {
     (void)cudaStreamDestroy(stream);
     return 1;
@@ -739,23 +922,23 @@ int main() {
   const auto& selected =
       heuristics[static_cast<std::size_t>(selected_index)].algo;
   ready = launch_lt(test, lt, selected, 1.0F, persistent_weight.get(),
-                    activation.get(), output.get(), workspace.get(),
+                    activation.get(), candidate_output, workspace.get(),
                     kWorkspaceBytes, stream, "validation reference");
   ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(replay_reference.get(), output.get(),
+                       cudaMemcpyAsync(trusted_output, candidate_output,
                                        kCElements * sizeof(__nv_bfloat16),
                                        cudaMemcpyDeviceToDevice, stream),
                        "copy replay reference");
   ready = ready && launch_lt(test, lt, selected, 1.0F,
                              persistent_weight.get(), activation.get(),
-                             output.get(), workspace.get(), kWorkspaceBytes,
+                             candidate_output, workspace.get(), kWorkspaceBytes,
                              stream, "validation replay");
   ready = ready && test.cuda_ok(
                        cudaMemsetAsync(validation.get(), 0,
                                        3U * sizeof(unsigned long long), stream),
                        "zero validation counts");
   validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
-      output.get(), replay_reference.get(), kCElements, validation.get(),
+      candidate_output, trusted_output, kCElements, validation.get(),
       validation.get() + 1U, validation.get() + 2U);
   ready = ready &&
           test.cuda_ok(cudaGetLastError(), "launch replay validation");
@@ -788,7 +971,7 @@ int main() {
   for (int round = 0; ready && round < kFormalRounds; ++round) {
     const double milliseconds = measure_algorithm(
         test, lt, selected, persistent_weight.get(), activation.get(),
-        output.get(), workspace.get(), kWorkspaceBytes, stream,
+        candidate_output, workspace.get(), kWorkspaceBytes, stream,
         kFormalWarmups, kFormalIterations,
         "formal round " + std::to_string(round + 1));
     ready = ready && std::isfinite(milliseconds) && milliseconds > 0.0;
@@ -811,6 +994,9 @@ int main() {
                             round_milliseconds.end());
     std::cout << "CUBLASLT_GATE_C512_FINAL: selected_index=" << selected_index
               << " rounds=" << kFormalRounds
+              << " selected_workspace_bytes="
+              << heuristics[static_cast<std::size_t>(selected_index)]
+                     .workspaceSize
               << " median_milliseconds=" << persistent_median_milliseconds
               << " minimum_milliseconds=" << *minimum
               << " maximum_milliseconds=" << *maximum
@@ -847,6 +1033,18 @@ int main() {
                        canonical_block_scale, kBlockScaleBytes,
                        0xbb67'ae85U, true,
                        "launch canonical E4M3FN scale fill");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           canonical_packed_weight_snapshot.get(),
+                           canonical_packed_weight.get(), kPackedWeightBytes,
+                           cudaMemcpyDeviceToDevice, stream),
+                       "snapshot canonical packed weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           canonical_block_scale_snapshot.get(),
+                           canonical_block_scale.get(), kBlockScaleBytes,
+                           cudaMemcpyDeviceToDevice, stream),
+                       "snapshot canonical block scales");
   constexpr unsigned int kReferenceBlocks = 65'535U;
   dequantize_nvfp4_contiguous_reference_kernel<<<kReferenceBlocks,
                                                  kFillThreads, 0, stream>>>(
@@ -938,13 +1136,14 @@ int main() {
                        "launch inclusive candidate dequant");
   ready = ready && launch_lt(
                        test, lt, selected, kWeightScale2,
-                       persistent_weight.get(), activation.get(), output.get(),
+                       persistent_weight.get(), activation.get(),
+                       candidate_output,
                        workspace.get(), kWorkspaceBytes, stream,
                        "launch inclusive candidate GEMM");
   ready = ready && launch_lt(
                        test, lt, selected, kWeightScale2,
                        dequant_reference.get(), activation.get(),
-                       replay_reference.get(), workspace.get(),
+                       trusted_output, workspace.get(),
                        kWorkspaceBytes, stream,
                        "launch trusted-dequant inclusive reference GEMM");
   ready = ready && test.cuda_ok(
@@ -952,7 +1151,7 @@ int main() {
                                        3U * sizeof(unsigned long long), stream),
                        "zero inclusive validation counts");
   validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
-      output.get(), replay_reference.get(), kCElements, validation.get(),
+      candidate_output, trusted_output, kCElements, validation.get(),
       validation.get() + 1U, validation.get() + 2U);
   ready = ready && test.cuda_ok(cudaGetLastError(),
                                 "launch inclusive replay validation");
@@ -975,7 +1174,7 @@ int main() {
             << " encoded_sum=" << host_validation[2]
             << " weight_scale_2=" << kWeightScale2
             << " scale_application=cuBLASLt_alpha_after_BF16_dequant"
-            << " production_M128_bitwise_compared=false"
+            << " production_M128_bitwise_compared=deferred"
             << " gate="
             << ((host_validation[0] == 0U && host_validation[1] == 0U &&
                  host_validation[2] != 0U)
@@ -1000,7 +1199,7 @@ int main() {
     const bool captured_lt =
         captured_dequant &&
         launch_lt(test, lt, selected, kWeightScale2,
-                  persistent_weight.get(), activation.get(), output.get(),
+                  persistent_weight.get(), activation.get(), candidate_output,
                   workspace.get(), kWorkspaceBytes, stream,
                   "capture selected cuBLASLt GEMM");
     graph_ready = captured_dequant && captured_lt;
@@ -1039,7 +1238,7 @@ int main() {
                              3U * sizeof(unsigned long long), stream),
                          label + " zero validation counts");
         validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
-            output.get(), replay_reference.get(), kCElements,
+            candidate_output, trusted_output, kCElements,
             validation.get(), validation.get() + 1U, validation.get() + 2U);
         replay_ready =
             replay_ready &&
@@ -1102,7 +1301,7 @@ int main() {
             << " warm_nonfinite=" << warm_graph_validation[1]
             << " warm_encoded_sum=" << warm_graph_validation[2]
             << " weight_scale_2=" << kWeightScale2
-            << " production_M128_bitwise_compared=false"
+            << " production_M128_bitwise_compared=deferred"
             << " gate="
             << ((graph_ready && cold_graph_validation[0] == 0U &&
                  cold_graph_validation[1] == 0U &&
@@ -1113,6 +1312,68 @@ int main() {
                     ? "PASS"
                     : "FAIL")
             << '\n';
+
+  // P0 production equivalence: the candidate and the public exact-C512 M128
+  // dispatcher consume the same canonical weights, scales, activations, and
+  // non-unit global scale.  Different tensor-core reduction orders are
+  // allowed, so bitwise mismatch is reported while finite/NRMSE/cosine form
+  // the numerical admission gate.
+  const int production_status = q3x::kernels::
+      launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+          canonical_packed_weight.get(), canonical_block_scale.get(),
+          kWeightScale2,
+          reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
+          kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
+          static_cast<void*>(stream));
+  ready = ready && test.cuda_ok(static_cast<cudaError_t>(production_status),
+                                "launch production exact-C512 M128 Gate");
+  ready = ready && test.cuda_ok(
+                       cudaStreamSynchronize(stream),
+                       "synchronize production exact-C512 M128 Gate");
+
+  std::vector<std::uint16_t> candidate_host(kCElements);
+  std::vector<std::uint16_t> production_host(kCElements);
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(candidate_host.data(), candidate_output,
+                                  kCElements * sizeof(std::uint16_t),
+                                  cudaMemcpyDeviceToHost),
+                       "copy candidate C512 output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(production_host.data(),
+                                  exact_production_output,
+                                  kCElements * sizeof(std::uint16_t),
+                                  cudaMemcpyDeviceToHost),
+                       "copy production M128 C512 output");
+  const NumericalMetrics production_metrics =
+      compare_bf16_outputs(candidate_host, production_host);
+  const bool production_numerical_gate =
+      production_metrics.candidate_nonfinite == 0U &&
+      production_metrics.production_nonfinite == 0U &&
+      production_metrics.nrmse <= kMaximumProductionNrmse &&
+      production_metrics.cosine >= kMinimumProductionCosine;
+  test.expect(production_numerical_gate,
+              "hybrid output passes production M128 numerical gate");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_PRODUCTION_EQUIVALENCE: status="
+            << production_status
+            << " bitwise_mismatches="
+            << production_metrics.bitwise_mismatches << '/' << kCElements
+            << " mismatch_fraction="
+            << static_cast<double>(production_metrics.bitwise_mismatches) /
+                   static_cast<double>(kCElements)
+            << " candidate_nonfinite="
+            << production_metrics.candidate_nonfinite
+            << " production_nonfinite="
+            << production_metrics.production_nonfinite
+            << " max_abs=" << production_metrics.maximum_absolute
+            << " max_rel_floor_1e-2="
+            << production_metrics.maximum_relative
+            << " nrmse=" << production_metrics.nrmse
+            << " cosine=" << production_metrics.cosine
+            << " max_nrmse=" << kMaximumProductionNrmse
+            << " min_cosine=" << kMinimumProductionCosine
+            << " bitwise_required=false"
+            << " gate="
+            << (production_numerical_gate ? "PASS" : "FAIL") << '\n';
 
   std::vector<double> dequant_round_milliseconds;
   std::vector<double> inclusive_round_milliseconds;
@@ -1131,14 +1392,14 @@ int main() {
       inclusive_milliseconds = measure_inclusive(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
-          activation.get(), output.get(), workspace.get(), kWorkspaceBytes,
+          activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
           stream, kWeightScale2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
     } else {
       inclusive_milliseconds = measure_inclusive(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
-          activation.get(), output.get(), workspace.get(), kWorkspaceBytes,
+          activation.get(), candidate_output, workspace.get(), kWorkspaceBytes,
           stream, kWeightScale2, kFormalWarmups, kFormalIterations,
           "NVFP4 inclusive round " + std::to_string(round + 1));
       dequant_milliseconds = measure_dequantize(
@@ -1169,6 +1430,7 @@ int main() {
     }
   }
 
+  bool inclusive_speed_gate = false;
   if (inclusive_round_milliseconds.size() ==
           static_cast<std::size_t>(kFormalRounds) &&
       dequant_round_milliseconds.size() ==
@@ -1188,11 +1450,14 @@ int main() {
                             kBElements * sizeof(__nv_bfloat16));
     const double dequant_effective_gigabytes_per_second =
         kMinimumDequantBytes / (dequant_median * 1.0e6);
-    const bool speed_gate = inclusive_speedup >= kRequiredInclusiveSpeedup;
-    test.expect(speed_gate,
+    inclusive_speed_gate = inclusive_speedup >= kRequiredInclusiveSpeedup;
+    test.expect(inclusive_speed_gate,
                 "inclusive NVFP4 + cuBLASLt reaches the 1.22x Gate target");
     std::cout << "NVFP4_CUBLASLT_GATE_C512_FINAL: selected_index="
               << selected_index << " rounds=" << kFormalRounds
+              << " selected_workspace_bytes="
+              << heuristics[static_cast<std::size_t>(selected_index)]
+                     .workspaceSize
               << " dequant_median_milliseconds=" << dequant_median
               << " dequant_minimum_milliseconds=" << *dequant_minimum
               << " dequant_maximum_milliseconds=" << *dequant_maximum
@@ -1211,10 +1476,272 @@ int main() {
               << " comparison_scope=canonical_NVFP4_dequant_plus_cuBLASLt"
               << " weight_scale_2=" << kWeightScale2
               << " scale_application=cuBLASLt_alpha_after_BF16_dequant"
-              << " production_M128_bitwise_compared=false"
+              << " production_M128_bitwise_compared=true"
+              << " production_M128_bitwise_mismatches="
+              << production_metrics.bitwise_mismatches
               << " dequantization_timed=true gate="
-              << (speed_gate ? "PASS" : "FAIL") << '\n';
+              << (inclusive_speed_gate ? "PASS" : "FAIL") << '\n';
   }
+
+  // Probe the scale boundary without admitting it to the hybrid selector.
+  // Both raw routes are executed at zero solely to characterize signed-zero
+  // behavior; production remains the selected implementation for scale=0.
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(candidate_output, 0x7f,
+                                       kCElements * sizeof(__nv_bfloat16),
+                                       stream),
+                       "poison zero-scale candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(exact_production_output, 0x7f,
+                                       kCElements * sizeof(__nv_bfloat16),
+                                       stream),
+                       "poison zero-scale production output");
+  ready = ready && launch_dequantize_contiguous(
+                       test, canonical_packed_weight.get(),
+                       canonical_block_scale.get(), persistent_weight.get(),
+                       stream, "launch zero-scale candidate dequant");
+  ready = ready && launch_lt(
+                       test, lt, selected, 0.0F, persistent_weight.get(),
+                       activation.get(), candidate_output, workspace.get(),
+                       kWorkspaceBytes, stream,
+                       "launch zero-scale raw cuBLASLt diagnostic");
+  const int zero_production_status = q3x::kernels::
+      launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+          canonical_packed_weight.get(), canonical_block_scale.get(), 0.0F,
+          reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
+          kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
+          static_cast<void*>(stream));
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(zero_production_status),
+                       "launch zero-scale production M128 diagnostic");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                "synchronize zero-scale diagnostics");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(candidate_host.data(), candidate_output,
+                                  kCElements * sizeof(std::uint16_t),
+                                  cudaMemcpyDeviceToHost),
+                       "copy zero-scale candidate output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpy(production_host.data(),
+                                  exact_production_output,
+                                  kCElements * sizeof(std::uint16_t),
+                                  cudaMemcpyDeviceToHost),
+                       "copy zero-scale production output");
+  const NumericalMetrics zero_metrics =
+      compare_bf16_outputs(candidate_host, production_host);
+  const auto count_bits = [](const std::vector<std::uint16_t>& values,
+                             const std::uint16_t bits) {
+    return static_cast<std::size_t>(std::count(values.begin(), values.end(),
+                                               bits));
+  };
+  const std::size_t candidate_positive_zero =
+      count_bits(candidate_host, 0x0000U);
+  const std::size_t candidate_negative_zero =
+      count_bits(candidate_host, 0x8000U);
+  const std::size_t production_positive_zero =
+      count_bits(production_host, 0x0000U);
+  const std::size_t production_negative_zero =
+      count_bits(production_host, 0x8000U);
+  const bool zero_numeric_gate =
+      zero_production_status == static_cast<int>(cudaSuccess) &&
+      zero_metrics.candidate_nonfinite == 0U &&
+      zero_metrics.production_nonfinite == 0U &&
+      zero_metrics.maximum_absolute == 0.0 && zero_metrics.nrmse == 0.0 &&
+      candidate_positive_zero + candidate_negative_zero == kCElements &&
+      production_positive_zero + production_negative_zero == kCElements;
+  test.expect(zero_numeric_gate,
+              "zero-scale raw routes are finite numerical zeros");
+  test.expect(!select_hybrid_for_scale(0.0F),
+              "hybrid selector routes zero scale to production");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_SCALE_ZERO: production_status="
+            << zero_production_status
+            << " selector_admitted="
+            << (select_hybrid_for_scale(0.0F) ? "true" : "false")
+            << " selector_action=route_existing_production"
+            << " bitwise_mismatches=" << zero_metrics.bitwise_mismatches
+            << '/' << kCElements
+            << " candidate_positive_zero=" << candidate_positive_zero
+            << " candidate_negative_zero=" << candidate_negative_zero
+            << " production_positive_zero=" << production_positive_zero
+            << " production_negative_zero=" << production_negative_zero
+            << " max_abs=" << zero_metrics.maximum_absolute
+            << " nrmse=" << zero_metrics.nrmse
+            << " cosine=" << zero_metrics.cosine
+            << " gate=" << (zero_numeric_gate ? "PASS" : "FAIL") << '\n';
+
+  // The public production dispatcher rejects NaN before enqueue.  Capture
+  // proves the rejection contributes no graph nodes; the hybrid selector must
+  // perform the same host-side fail-closed check and never call cuBLASLt.
+  cudaGraph_t nan_graph = nullptr;
+  bool nan_capture_ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      "begin NaN-scale production capture");
+  int nan_production_status = static_cast<int>(cudaErrorUnknown);
+  if (nan_capture_ready) {
+    nan_production_status = q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
+            canonical_packed_weight.get(), canonical_block_scale.get(),
+            std::numeric_limits<float>::quiet_NaN(),
+            reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
+            kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
+            static_cast<void*>(stream));
+    nan_capture_ready =
+        test.cuda_ok(cudaStreamEndCapture(stream, &nan_graph),
+                     "end NaN-scale production capture") &&
+        nan_capture_ready;
+  }
+  std::size_t nan_graph_nodes = 0U;
+  if (nan_capture_ready && nan_graph != nullptr) {
+    nan_capture_ready =
+        test.cuda_ok(cudaGraphGetNodes(nan_graph, nullptr, &nan_graph_nodes),
+                     "count NaN-scale production graph nodes") &&
+        nan_capture_ready;
+  }
+  if (nan_graph != nullptr) {
+    nan_capture_ready =
+        test.cuda_ok(cudaGraphDestroy(nan_graph),
+                     "destroy NaN-scale production graph") &&
+        nan_capture_ready;
+  }
+  const bool nan_selector_admitted = select_hybrid_for_scale(
+      std::numeric_limits<float>::quiet_NaN());
+  const bool negative_selector_admitted = select_hybrid_for_scale(-1.0F);
+  const bool nan_gate =
+      nan_capture_ready &&
+      nan_production_status == static_cast<int>(cudaErrorInvalidValue) &&
+      nan_graph_nodes == 0U && !nan_selector_admitted &&
+      !negative_selector_admitted && select_hybrid_for_scale(kWeightScale2);
+  test.expect(nan_gate,
+              "hybrid selector fail-closes NaN/negative before enqueue");
+  ready = ready && nan_capture_ready;
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_SCALE_SELECTOR: positive_finite="
+            << (select_hybrid_for_scale(kWeightScale2) ? "hybrid" : "reject")
+            << " zero=route_existing_production"
+            << " nan=reject_invalid negative=reject_invalid"
+            << " production_nan_status=" << nan_production_status
+            << " production_nan_graph_nodes=" << nan_graph_nodes
+            << " fail_closed_condition=isfinite(scale)&&scale>0"
+            << " gate=" << (nan_gate ? "PASS" : "FAIL") << '\n';
+
+  // Full post-run immutability checks cover all eager, graph, production, and
+  // special-scale executions above.
+  const auto validate_immutable =
+      [&](const std::uint8_t* const values,
+          const std::uint8_t* const snapshot, const std::size_t count,
+          const std::string& label) {
+        std::array<unsigned long long, 3U> host_counts{};
+        bool immutable_ready = test.cuda_ok(
+            cudaMemsetAsync(validation.get(), 0,
+                            3U * sizeof(unsigned long long), stream),
+            label + " zero validation counts");
+        validate_bytes_immutable_kernel<<<256U, 256U, 0, stream>>>(
+            values, snapshot, count, validation.get(), validation.get() + 1U,
+            validation.get() + 2U);
+        immutable_ready =
+            immutable_ready &&
+            test.cuda_ok(cudaGetLastError(), label + " launch validation");
+        immutable_ready =
+            immutable_ready &&
+            test.cuda_ok(cudaMemcpyAsync(
+                             host_counts.data(), validation.get(),
+                             sizeof(host_counts), cudaMemcpyDeviceToHost,
+                             stream),
+                         label + " copy validation counts");
+        immutable_ready = immutable_ready && test.cuda_ok(
+                                                   cudaStreamSynchronize(stream),
+                                                   label + " synchronize");
+        const bool immutable =
+            immutable_ready && host_counts[0] == 0U &&
+            host_counts[1] == host_counts[2] && host_counts[1] != 0U;
+        test.expect(immutable, label + " remains bit exact");
+        std::cout << "NVFP4_CUBLASLT_GATE_C512_INPUT_IMMUTABLE: input="
+                  << label << " mismatches=" << host_counts[0] << '/' << count
+                  << " value_sum=" << host_counts[1]
+                  << " snapshot_sum=" << host_counts[2]
+                  << " gate=" << (immutable ? "PASS" : "FAIL") << '\n';
+        return immutable;
+      };
+  bool immutable_gate = validate_immutable(
+      reinterpret_cast<const std::uint8_t*>(activation.get()),
+      reinterpret_cast<const std::uint8_t*>(activation_snapshot.get()),
+      kAElements * sizeof(__nv_bfloat16), "activation");
+  immutable_gate =
+      validate_immutable(canonical_packed_weight.get(),
+                         canonical_packed_weight_snapshot.get(),
+                         kPackedWeightBytes, "packed_weight") &&
+      immutable_gate;
+  immutable_gate =
+      validate_immutable(canonical_block_scale.get(),
+                         canonical_block_scale_snapshot.get(),
+                         kBlockScaleBytes, "block_scale") &&
+      immutable_gate;
+  ready = ready && immutable_gate;
+
+  const auto validate_guards =
+      [&](const DeviceBuffer<__nv_bfloat16>& guarded,
+          const std::string& label) {
+        unsigned long long host_mismatches = 0U;
+        bool guard_ready = test.cuda_ok(
+            cudaMemsetAsync(validation.get(), 0,
+                            sizeof(unsigned long long), stream),
+            label + " zero guard count");
+        constexpr unsigned int kGuardThreads = 256U;
+        constexpr unsigned int kGuardBlocks =
+            static_cast<unsigned int>((kGuardElements + kGuardThreads - 1U) /
+                                      kGuardThreads);
+        validate_bf16_guards_kernel<<<kGuardBlocks, kGuardThreads, 0, stream>>>(
+            guarded.get(), kCElements, kGuardElements, kGuardBits,
+            validation.get());
+        guard_ready =
+            guard_ready &&
+            test.cuda_ok(cudaGetLastError(), label + " launch guard check");
+        guard_ready =
+            guard_ready &&
+            test.cuda_ok(cudaMemcpyAsync(
+                             &host_mismatches, validation.get(),
+                             sizeof(host_mismatches), cudaMemcpyDeviceToHost,
+                             stream),
+                         label + " copy guard count");
+        guard_ready = guard_ready && test.cuda_ok(
+                                           cudaStreamSynchronize(stream),
+                                           label + " synchronize guard check");
+        const bool guards_intact = guard_ready && host_mismatches == 0U;
+        test.expect(guards_intact, label + " prefix/suffix guards are intact");
+        std::cout << "NVFP4_CUBLASLT_GATE_C512_GUARDS: output=" << label
+                  << " mismatches=" << host_mismatches << '/'
+                  << 2U * kGuardElements
+                  << " gate=" << (guards_intact ? "PASS" : "FAIL") << '\n';
+        return guards_intact;
+      };
+  bool guard_gate = validate_guards(output, "candidate");
+  guard_gate = validate_guards(replay_reference, "trusted_reference") &&
+               guard_gate;
+  guard_gate =
+      validate_guards(production_output, "production_M128") && guard_gate;
+  ready = ready && guard_gate;
+
+  const bool retain_candidate =
+      ready && inclusive_speed_gate && production_numerical_gate &&
+      graph_ready && zero_numeric_gate && nan_gate && immutable_gate &&
+      guard_gate &&
+      heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
+  test.expect(retain_candidate,
+              "zero-workspace hybrid candidate passes P0 retention gates");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_P0_RECOMMENDATION: action="
+            << (retain_candidate
+                    ? "retain_for_guarded_production_integration"
+                    : "reject_or_continue_test_only")
+            << " admitted_shape=exact_C512_Gate"
+            << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
+            << " scale_zero_action=route_existing_production"
+            << " scale_nonfinite_or_negative_action=reject_before_enqueue"
+            << " workspace_bytes=0"
+            << " production_bitwise_mismatches="
+            << production_metrics.bitwise_mismatches << '/' << kCElements
+            << " graph_nodes=" << graph_node_count
+            << " input_immutable=" << (immutable_gate ? "true" : "false")
+            << " guards_intact=" << (guard_gate ? "true" : "false")
+            << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
 
   if (stream != nullptr) {
     (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy stream");
