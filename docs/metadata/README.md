@@ -1430,6 +1430,17 @@ The diagnostic Phase 3 records are:
   less L1 global-load traffic and 40.81% fewer SM instructions with unchanged
   Tensor instructions. No MTP, FlashInfer, new buffering, API, workspace,
   public-ABI, or Decode change is used.
+- [`qwen36-27b-prefill-nvfp4-gate-m256-b-reuse-rejection.json`](qwen36-27b-prefill-nvfp4-gate-m256-b-reuse-rejection.json),
+  which closes two test-only M256 Gate/Up mappings without changing
+  production. The 256-thread/16-accumulator form uses 216 registers per
+  thread and fails its resource gate before correctness or timing. A distinct
+  512-thread/two-warp-group form reaches 128 registers, zero local memory,
+  one CTA/SM, and exact C512 output/replay, but regresses from 6.48127 to
+  8.19205 ms: **0.791166x** production-M128 throughput, with all six mirrored
+  rounds between 0.790548x and 0.791389x. The first-C512 1.05x stop-loss skips
+  C256, the remaining distributions, pair timing, NCU, Nsys, and full-model
+  work. Gate/Down M128 SASS remains byte-for-byte identical to the frozen
+  `c885d8e` binary; both rejected candidates were removed and MTP was unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

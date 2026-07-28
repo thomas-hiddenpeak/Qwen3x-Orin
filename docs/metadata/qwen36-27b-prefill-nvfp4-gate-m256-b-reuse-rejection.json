@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-m256-b-reuse-rejection",
+  "status": "rejected-test-only-two-mappings",
+  "recorded_at": "2026-07-28T11:10:35+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_commit": "5f25ce72b7e77c1e02e665146a7cf12c90783f50",
+    "experiment_base_tree": "c5ad82303d71875c973616c295d554364a83c432",
+    "experiment_base_subject": "docs: record NVFP4 Down M128 Prefill promotion",
+    "candidate_scope": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_weight_only_gemv_test.cu"
+    ],
+    "candidate_code_retained": false,
+    "candidate_code_cleanup": "both files restored byte-for-byte to the checked-in production source after rejection",
+    "production_library_changed": false,
+    "production_dispatch_changed": false,
+    "runner_changed": false,
+    "public_abi_changed": false,
+    "mtp_used": false,
+    "final_measured_test_binary": {
+      "path": "build/q3x_sm87_weight_only_gemv_test",
+      "bytes": 9670720,
+      "sha256": "5433562bea5909d630a7318648ccf6ced7608271abf82d3d59a3079d31924822",
+      "elf_build_id": "8d52096b4751d7ab997de88f78b59ba5a0dbe0ed",
+      "build_type": "Release",
+      "note": "frozen local binary built before the rejected test-only source was removed"
+    },
+    "production_sass_comparator": {
+      "path": "/tmp/q3x-prefill-nvfp4-down-m128-production-candidate",
+      "bytes": 6544592,
+      "sha256": "2b14ed6f61054382dd1fcf56acfa6552f64f0fcdfb5a0cf3b62e54d0a5e8d39d",
+      "elf_build_id": "c44bbac56d36338967a75b3eca3616a587184d8b",
+      "source_commit": "c885d8e8a4203b6ddbe5ccc7dc823e00986812b9"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback_hz": {
+      "gpu_min": 1300500000,
+      "gpu_max": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_min": 3200000000,
+      "emc_max": 3200000000,
+      "emc_current": 3200000000
+    },
+    "maximum_optin_shared_bytes_per_block": 166912,
+    "claim_scope": "one fixed-clock Jetson AGX Orin and deterministic synthetic exact-shape Gate projection payloads"
+  },
+  "common_experiment": {
+    "role": "dense MLP Gate or Up projection, measured one branch at a time",
+    "shape": {
+      "rows": 17408,
+      "columns": 5120,
+      "screened_token_counts": [256, 512]
+    },
+    "weight_format": "NVFP4 E2M1 packed with block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "baseline": "public production M128xN128xK64 decoded-B-reuse Gate kernel",
+    "baseline_threads_per_cta": 256,
+    "baseline_registers_per_thread": 126,
+    "baseline_static_shared_bytes": 37376,
+    "baseline_local_bytes": 0,
+    "baseline_active_blocks_per_sm": 2,
+    "candidate_tile": "M256xN128xK64",
+    "candidate_grid_x": {
+      "C256": 136,
+      "C512": 272
+    },
+    "baseline_grid_x": {
+      "C256": 272,
+      "C512": 544
+    },
+    "selection_gates": {
+      "first_C512_stop_loss_speedup": 1.05,
+      "required_each_C256_and_C512_distribution_speedup": 1.08,
+      "required_every_round_speedup": "strictly greater than 1.0",
+      "timing_order": "B-C-C-B",
+      "rounds": 6,
+      "iterations_per_pass": 24,
+      "finite_distributions_if_first_stop_loss_passed": [
+        "checkpoint_like",
+        "same_bank_stress",
+        "finite_special"
+      ]
+    }
+  },
+  "candidates": [
+    {
+      "name": "m256_256_thread_sixteen_accumulator",
+      "status": "rejected-resource-gate",
+      "mapping": {
+        "threads_per_cta": 256,
+        "warps_per_cta": 8,
+        "accumulator_panels_per_warp": 16,
+        "activation_staging": "reuse one 128-row shared A buffer for the two M128 token halves",
+        "weight_staging": "decode one N128 B tile per K64 stage and retain it across both A halves"
+      },
+      "resource_gate": {
+        "maximum_registers_per_thread": 200,
+        "maximum_static_shared_bytes": 37376,
+        "required_local_bytes": 0,
+        "required_threads_per_block": 256,
+        "minimum_active_blocks_per_sm": 1
+      },
+      "measured_resources": {
+        "C256": {
+          "registers_per_thread": 216,
+          "static_shared_bytes": 37376,
+          "local_bytes": 0,
+          "maximum_threads_per_block": 256,
+          "active_blocks_per_sm": 1
+        },
+        "C512": {
+          "registers_per_thread": 216,
+          "static_shared_bytes": 37376,
+          "local_bytes": 0,
+          "maximum_threads_per_block": 256,
+          "active_blocks_per_sm": 1
+        },
+        "gate": "fail: 216 registers exceeds the frozen 200-register limit"
+      },
+      "validation": {
+        "invalid_calls": 21,
+        "invalid_statuses": 21,
+        "captured_nodes_from_invalid_calls": 0,
+        "result": "pass"
+      },
+      "not_run_after_stop_loss": [
+        "valid-output bitwise screen",
+        "C512 timing",
+        "C256 timing",
+        "pair timing",
+        "NCU",
+        "Nsys",
+        "full-model evaluation"
+      ],
+      "decision": "reject without attempting a register cap that could create spills"
+    },
+    {
+      "name": "m256_512_thread_two_warp_group",
+      "status": "rejected-C512-performance-stop-loss",
+      "mapping": {
+        "threads_per_cta": 512,
+        "warps_per_cta": 16,
+        "warp_groups": 2,
+        "warps_per_group": 8,
+        "token_rows_per_group": 128,
+        "accumulator_panels_per_warp": 8,
+        "activation_staging": "all 256 activation rows in 36864 bytes of opt-in dynamic shared memory",
+        "weight_staging": "threads 0-255 decode one N128 B tile per K64 stage for both warp groups",
+        "output_staging": "serialize warp-group and M32-pair stores through one shared B/C overlay with CTA-wide barriers"
+      },
+      "cold_first_use_graph": {
+        "C256": {
+          "nodes": 1,
+          "grid_x": 136,
+          "block_x": 512,
+          "dynamic_shared_bytes": 36864
+        },
+        "C512": {
+          "nodes": 1,
+          "grid_x": 272,
+          "block_x": 512,
+          "dynamic_shared_bytes": 36864
+        },
+        "candidate_specializations_distinct": true,
+        "candidate_vs_production_function_distinct": true,
+        "first_candidate_calls_occurred_inside_valid_capture_before_resource_query": true,
+        "result": "pass"
+      },
+      "resource_gate": {
+        "maximum_registers_per_thread": 128,
+        "maximum_total_shared_bytes": 55808,
+        "required_local_bytes": 0,
+        "required_threads_per_block": 512,
+        "minimum_active_blocks_per_sm": 1
+      },
+      "measured_resources": {
+        "C256": {
+          "registers_per_thread": 128,
+          "static_shared_bytes": 18944,
+          "dynamic_shared_bytes": 36864,
+          "total_shared_bytes": 55808,
+          "local_bytes": 0,
+          "maximum_threads_per_block": 512,
+          "active_blocks_per_sm": 1
+        },
+        "C512": {
+          "registers_per_thread": 128,
+          "static_shared_bytes": 18944,
+          "dynamic_shared_bytes": 36864,
+          "total_shared_bytes": 55808,
+          "local_bytes": 0,
+          "maximum_threads_per_block": 512,
+          "active_blocks_per_sm": 1
+        },
+        "result": "pass"
+      },
+      "validation": {
+        "invalid_calls": 21,
+        "invalid_statuses": 21,
+        "captured_nodes_from_invalid_calls": 0,
+        "C512_candidate_mismatches": 0,
+        "C512_elements": 8912896,
+        "C512_replay_mismatches": 0,
+        "unexpected_nonfinite_outputs": 0,
+        "guards": "intact",
+        "immutable_inputs": "preserved",
+        "candidate_graph_replay": "pass",
+        "result": "pass"
+      },
+      "C512_checkpoint_like_performance": {
+        "rounds": [
+          {
+            "round": 1,
+            "B1_ms": 6.48417,
+            "C1_ms": 8.19612,
+            "C2_ms": 8.20579,
+            "B2_ms": 6.48232,
+            "speedup": 0.790548
+          },
+          {
+            "round": 2,
+            "B1_ms": 6.48113,
+            "C1_ms": 8.19264,
+            "C2_ms": 8.19243,
+            "B2_ms": 6.48102,
+            "speedup": 0.791095
+          },
+          {
+            "round": 3,
+            "B1_ms": 6.47901,
+            "C1_ms": 8.18902,
+            "C2_ms": 8.19177,
+            "B2_ms": 6.48185,
+            "speedup": 0.791223
+          },
+          {
+            "round": 4,
+            "B1_ms": 6.48073,
+            "C1_ms": 8.18618,
+            "C2_ms": 8.19298,
+            "B2_ms": 6.48113,
+            "speedup": 0.791362
+          },
+          {
+            "round": 5,
+            "B1_ms": 6.47839,
+            "C1_ms": 8.18632,
+            "C2_ms": 8.19255,
+            "B2_ms": 6.48353,
+            "speedup": 0.791381
+          },
+          {
+            "round": 6,
+            "B1_ms": 6.48024,
+            "C1_ms": 8.18612,
+            "C2_ms": 8.19266,
+            "B2_ms": 6.48175,
+            "speedup": 0.791389
+          }
+        ],
+        "baseline_ms": 6.48127,
+        "candidate_ms": 8.19205,
+        "aggregate_speedup": 0.791166,
+        "latency_ratio": 1.263957527,
+        "latency_increase_percent": 26.395753,
+        "minimum_round_speedup": 0.790548,
+        "maximum_round_speedup": 0.791389,
+        "rounds_strictly_faster": 0,
+        "rounds_total": 6,
+        "required_first_C512_speedup": 1.05,
+        "gate": "fail"
+      },
+      "not_run_after_stop_loss": [
+        "C256 correctness or performance",
+        "same_bank_stress",
+        "finite_special",
+        "Gate/Up dual-stream pair timing",
+        "NCU",
+        "Nsys",
+        "full-model evaluation"
+      ],
+      "decision": "reject: exact and launchable, but approximately 20.88% lower throughput than production M128 in every C512 round"
+    }
+  ],
+  "production_invariance": {
+    "default_contracts_in_both_rejection_logs": {
+      "FP8_M128_resources_dispatch_invalid": "pass",
+      "Gate_M128_resources_invalid": "pass",
+      "Down_M128_resources_dispatch_invalid": "pass"
+    },
+    "sass_comparison": {
+      "candidate_binary": "build/q3x_sm87_weight_only_gemv_test",
+      "frozen_c885d8e_binary": "/tmp/q3x-prefill-nvfp4-down-m128-production-candidate",
+      "functions": [
+        "Gate M128 token-tile-count 2",
+        "Gate M128 token-tile-count 4",
+        "Down M128 token-tile-count 2",
+        "Down M128 token-tile-count 4"
+      ],
+      "comparison": "complete normalized SASS byte-for-byte match for all four functions in fixed order",
+      "candidate_normalized_sha256": "d8c9f41fe6f0a1184952d3baca79a6cc97e2cc6ab7cc345b1248f8604522432c",
+      "frozen_normalized_sha256": "d8c9f41fe6f0a1184952d3baca79a6cc97e2cc6ab7cc345b1248f8604522432c",
+      "result": "pass"
+    },
+    "final_action": "remove all Gate M256 source, launcher, query, capture-helper, and screen code; retain production Gate M128 and Down M128 unchanged"
+  },
+  "evidence_files": [
+    {
+      "role": "256-thread resource-gate rejection",
+      "local_path": "/tmp/q3x-nvfp4-gate-m256-first.log",
+      "bytes": 7161,
+      "sha256": "b4f6ce704c8a9817b510131559122d776b1c5c62f0351dc4d83525ed40458924"
+    },
+    {
+      "role": "512-thread C512 fixed-clock stop-loss",
+      "local_path": "/tmp/q3x-nvfp4-gate-m256-warp-split-first.log",
+      "bytes": 10656,
+      "sha256": "e8ed58d899b2ae7305331461d578ed02111c8ab6144f2621e56bd7e96855c089"
+    },
+    {
+      "role": "post-screen fixed-clock readback",
+      "local_path": "/tmp/q3x-nvfp4-gate-m256-warp-split-clocks-after.log",
+      "bytes": 432,
+      "sha256": "e59a65227e09b387f45ecadd89e7e35e40586f43ed0cd5d24d46d50aa3355a66"
+    }
+  ],
+  "decision": {
+    "result": "reject both Gate M256 decoded-B-reuse mappings",
+    "reason": "The 256-thread mapping exceeds its register gate. The 512-thread mapping fixes register pressure and remains bit-exact, but serialized output staging, one-CTA occupancy, and the 512-thread schedule regress C512 latency by 26.40% versus production M128.",
+    "production_action": "none",
+    "revisit_condition": "only a fundamentally different mapping with an analytic path to beat M128 should reopen Gate M256; do not repeat either rejected schedule",
+    "decode_anchor": "unchanged; no MTP was used"
+  },
+  "limitations": [
+    "The measured payload is deterministic and checkpoint-shaped but uses synthetic finite values rather than loaded checkpoint tensors.",
+    "Only the first C512 checkpoint-like cell was admitted for the 512-thread mapping because it failed the frozen stop-loss decisively.",
+    "No Gate/Up pair, NCU, Nsys, full-model, EvalScope, OpenAI-compatible API, or external-framework claim is made.",
+    "The result rejects these two M256 implementations, not every possible future Gate/Up optimization."
+  ]
+}

@@ -8008,6 +8008,65 @@ MTP remains outside the current target path. Full binary identities, raw
 medians, hashes, route counts, profiler counters, and limitations are in the
 [Down M128 production record](metadata/qwen36-27b-prefill-nvfp4-down-m128-production-benchmark.json).
 
+## NVFP4 Gate M256 B-tile-reuse rejection
+
+Two bounded, test-only M256 Gate/Up mappings were screened against the public
+production M128 `[17408,5120]` branch after the Down M128 promotion. Both try
+to halve grid X from 272 to 136 at C256 and from 544 to 272 at C512 by sharing
+each decoded N128xK64 B tile across 256 token rows. Neither changes the public
+launcher, production selector, runner, workspace, API/ABI, Decode, buffering,
+or MTP policy. Both candidates were removed after rejection.
+
+The first mapping uses a 256-thread CTA and retains 16 ordered M16
+accumulators per warp. It reuses a 128-row A shared tile across the two token
+halves while keeping decoded B resident. Both C256 and C512 instances compile
+to **216 registers/thread**, 37,376 bytes static shared memory, zero local
+memory, and one active CTA/SM. That exceeds the frozen 200-register limit, so
+the candidate stops at the resource gate. All 21 malformed/aliased launches
+still capture zero nodes, but valid-output correctness and performance are
+intentionally not run.
+
+The final mapping changes the ownership rather than capping registers. A
+512-thread CTA forms two eight-warp groups; each group owns one M128 token
+half, so each warp carries only eight accumulators. All 256 A rows occupy
+36,864 bytes of opt-in dynamic shared memory, while 18,944 bytes of static
+shared memory hold the lookup and B/C overlay. Threads 0--255 decode B once
+per K64 stage for both groups, and the two groups serialize their M32 output
+pairs through the common overlay.
+
+Cold first-use Graph captures, before either resource query, prove both
+specializations record block 512 and 36,864 dynamic shared bytes with grids
+136/272 and functions distinct from production M128. Both instances use
+exactly **128 registers/thread**, 55,808 total shared bytes, zero local memory,
+and one CTA/SM. C512 checkpoint-like validation compares **8,912,896 outputs**
+with zero candidate or replay mismatch; guards, immutable inputs, finite
+outputs, graph replay, and all 21 invalid cases pass.
+
+The fixed-clock `B-C-C-B`, 6x24 first-C512 stop-loss is decisive:
+
+| Metric | Production M128 | Test-only 512-thread M256 | Result |
+| --- | ---: | ---: | ---: |
+| C512 branch latency | 6.48127 ms | 8.19205 ms | **0.791166x speedup** |
+| Minimum round speedup | — | 0.790548x | fail |
+| Maximum round speedup | — | 0.791389x | fail |
+| Frozen first-C512 gate | — | 1.05x required | fail |
+
+All six rounds regress, and candidate latency is 26.40% higher. The 512-thread
+mapping therefore stops before C256, same-bank/finite-special distributions,
+dual-stream Gate/Up pair timing, NCU, Nsys, and full-model evaluation. This is
+not a general proof that every possible Gate/Up optimization is exhausted;
+it closes these two M256 schedules and requires a fundamentally different
+mapping before reopening M256.
+
+The current measured test binary and the frozen `c885d8e` production binary
+have byte-for-byte identical normalized SASS for Gate M128 `<2>/<4>` and Down
+M128 `<2>/<4>`. Both fixed-order four-function hashes are
+`d8c9f41fe6f0a1184952d3baca79a6cc97e2cc6ab7cc345b1248f8604522432c`.
+Production thus remains on the admitted Gate/Down M128 kernels. Resources,
+all mirrored samples, log hashes, clock evidence, skipped work, and limitations
+are frozen in the
+[Gate M256 rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-m256-b-reuse-rejection.json).
+
 ## Prefill GDN C16 scalar-vector/QK ping-pong rejection
 
 The next bounded GDN screen keeps production exact-C16 completely frozen and
