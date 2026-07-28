@@ -68,6 +68,20 @@ query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_resources_test_cud
     std::size_t* local_bytes, int* maximum_threads_per_block,
     int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
 }  // namespace q3x::kernels
 
 namespace {
@@ -123,11 +137,20 @@ static_assert(kSidecarScaleBytes == kScaleBytes);
 enum class CandidateLayout {
   kK64,
   kK16,
+  kM64N256,
 };
 
 [[nodiscard]] const char* candidate_layout_name(
     const CandidateLayout layout) noexcept {
-  return layout == CandidateLayout::kK64 ? "k64" : "k16";
+  switch (layout) {
+    case CandidateLayout::kK64:
+      return "k64";
+    case CandidateLayout::kK16:
+      return "k16";
+    case CandidateLayout::kM64N256:
+      return "m64n256";
+  }
+  return "unknown";
 }
 
 class TestContext {
@@ -418,18 +441,20 @@ struct Fixture {
                                           "allocate Gate canonical scales");
     ready = ready && up_scales.allocate(test, kScaleBytes,
                                         "allocate Up canonical scales");
-    ready = ready && gate_sidecar_weight_store.allocate(
-                         test, kSidecarWeightCount + 2U * kGuardElements,
-                         "allocate guarded Gate weight sidecar");
-    ready = ready && up_sidecar_weight_store.allocate(
-                         test, kSidecarWeightCount + 2U * kGuardElements,
-                         "allocate guarded Up weight sidecar");
-    ready = ready && gate_sidecar_scale_store.allocate(
-                         test, kSidecarScaleCount + 2U * kGuardElements,
-                         "allocate guarded Gate scale sidecar");
-    ready = ready && up_sidecar_scale_store.allocate(
-                         test, kSidecarScaleCount + 2U * kGuardElements,
-                         "allocate guarded Up scale sidecar");
+    if (candidate_layout != CandidateLayout::kM64N256) {
+      ready = ready && gate_sidecar_weight_store.allocate(
+                           test, kSidecarWeightCount + 2U * kGuardElements,
+                           "allocate guarded Gate weight sidecar");
+      ready = ready && up_sidecar_weight_store.allocate(
+                           test, kSidecarWeightCount + 2U * kGuardElements,
+                           "allocate guarded Up weight sidecar");
+      ready = ready && gate_sidecar_scale_store.allocate(
+                           test, kSidecarScaleCount + 2U * kGuardElements,
+                           "allocate guarded Gate scale sidecar");
+      ready = ready && up_sidecar_scale_store.allocate(
+                           test, kSidecarScaleCount + 2U * kGuardElements,
+                           "allocate guarded Up scale sidecar");
+    }
     ready = ready && activations.allocate(test, activation_elements,
                                           "allocate BF16 activations");
     ready = ready && gate_output_store.allocate(
@@ -473,35 +498,38 @@ struct Fixture {
                              activation_elements * sizeof(std::uint16_t),
                              cudaMemcpyHostToDevice, execution.main()),
                          "upload BF16 activations");
-    ready = ready && test.cuda_ok(
-                         cudaMemsetAsync(gate_sidecar_weight_store.get(),
-                                         0xcd,
-                                         (kSidecarWeightCount +
-                                          2U * kGuardElements) *
-                                             sizeof(std::uint32_t),
-                                         execution.main()),
-                         "poison Gate weight sidecar");
-    ready = ready && test.cuda_ok(
-                         cudaMemsetAsync(up_sidecar_weight_store.get(), 0xcd,
-                                         (kSidecarWeightCount +
-                                          2U * kGuardElements) *
-                                             sizeof(std::uint32_t),
-                                         execution.main()),
-                         "poison Up weight sidecar");
-    ready = ready && test.cuda_ok(
-                         cudaMemsetAsync(gate_sidecar_scale_store.get(), 0xcd,
-                                         (kSidecarScaleCount +
-                                          2U * kGuardElements) *
-                                             sizeof(std::uint16_t),
-                                         execution.main()),
-                         "poison Gate scale sidecar");
-    ready = ready && test.cuda_ok(
-                         cudaMemsetAsync(up_sidecar_scale_store.get(), 0xcd,
-                                         (kSidecarScaleCount +
-                                          2U * kGuardElements) *
-                                             sizeof(std::uint16_t),
-                                         execution.main()),
-                         "poison Up scale sidecar");
+    if (candidate_layout != CandidateLayout::kM64N256) {
+      ready = ready && test.cuda_ok(
+                           cudaMemsetAsync(gate_sidecar_weight_store.get(),
+                                           0xcd,
+                                           (kSidecarWeightCount +
+                                            2U * kGuardElements) *
+                                               sizeof(std::uint32_t),
+                                           execution.main()),
+                           "poison Gate weight sidecar");
+      ready = ready && test.cuda_ok(
+                           cudaMemsetAsync(up_sidecar_weight_store.get(), 0xcd,
+                                           (kSidecarWeightCount +
+                                            2U * kGuardElements) *
+                                               sizeof(std::uint32_t),
+                                           execution.main()),
+                           "poison Up weight sidecar");
+      ready = ready && test.cuda_ok(
+                           cudaMemsetAsync(gate_sidecar_scale_store.get(),
+                                           0xcd,
+                                           (kSidecarScaleCount +
+                                            2U * kGuardElements) *
+                                               sizeof(std::uint16_t),
+                                           execution.main()),
+                           "poison Gate scale sidecar");
+      ready = ready && test.cuda_ok(
+                           cudaMemsetAsync(up_sidecar_scale_store.get(), 0xcd,
+                                           (kSidecarScaleCount +
+                                            2U * kGuardElements) *
+                                               sizeof(std::uint16_t),
+                                           execution.main()),
+                           "poison Up scale sidecar");
+    }
     ready = ready && test.cuda_ok(
                          cudaMemsetAsync(scrub.get(), 0, kScrubBytes,
                                          execution.main()),
@@ -510,6 +538,15 @@ struct Fixture {
                                   "fixture upload synchronize");
     if (!ready) {
       return false;
+    }
+
+    if (candidate_layout == CandidateLayout::kM64N256) {
+      std::cout << "REGISTER_FED_SIDECAR_SKIPPED: candidate_layout="
+                << candidate_layout_name(candidate_layout)
+                << " reason=canonical_direct_path"
+                << " allocated_bytes=0 builder_launches=0"
+                << " validation=not_applicable\n";
+      return true;
     }
 
     // Sidecar construction is a one-time layout transform and is explicitly
@@ -819,6 +856,15 @@ enum class Scope {
             up ? fixture.up_output() : fixture.gate_output(),
             static_cast<void*>(stream)));
   }
+  if (fixture.candidate_layout == CandidateLayout::kM64N256) {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
+            up ? fixture.up_packed.get() : fixture.gate_packed.get(),
+            up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
+            fixture.activations.get(), fixture.token_count, kRows, kColumns,
+            up ? fixture.up_output() : fixture.gate_output(),
+            static_cast<void*>(stream)));
+  }
   if (fixture.candidate_layout == CandidateLayout::kK64) {
     return static_cast<cudaError_t>(q3x::kernels::
         launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_test_cuda(
@@ -870,6 +916,33 @@ enum class Scope {
 
 [[nodiscard]] bool run_resource_gate(TestContext& test,
                                      const CandidateLayout layout) {
+  if (layout == CandidateLayout::kM64N256) {
+    int registers = -1;
+    std::size_t static_shared = std::numeric_limits<std::size_t>::max();
+    std::size_t dynamic_shared = std::numeric_limits<std::size_t>::max();
+    std::size_t local = std::numeric_limits<std::size_t>::max();
+    int threads = -1;
+    int active = -1;
+    const int status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
+            512U, kRows, kColumns, &registers, &static_shared,
+            &dynamic_shared, &local, &threads, &active);
+    const bool gate = status == static_cast<int>(cudaSuccess) &&
+                      registers <= 128 && static_shared == 512U &&
+                      dynamic_shared == 43'008U && local == 0U &&
+                      threads == 256 && active >= 2;
+    std::cout << "REGISTER_FED_RESOURCES: candidate_layout="
+              << candidate_layout_name(layout) << " tokens=512"
+              << " status=" << status << " registers=" << registers
+              << " static_shared_bytes=" << static_shared
+              << " dynamic_shared_bytes=" << dynamic_shared
+              << " local_bytes=" << local << " threads=" << threads
+              << " active_blocks_per_sm=" << active
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    test.expect(gate, "M64N256 candidate clears frozen resources");
+    return gate;
+  }
+
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
     int registers = -1;
@@ -977,6 +1050,13 @@ enum class Scope {
           launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_test_cuda(
               reinterpret_cast<const uint4*>(w),
               reinterpret_cast<const std::uint64_t*>(s), scale, a, tokens,
+              rows, columns, o, static_cast<void*>(stream));
+    }
+    if (layout == CandidateLayout::kM64N256) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
+              reinterpret_cast<const std::uint8_t*>(w),
+              reinterpret_cast<const std::uint8_t*>(s), scale, a, tokens,
               rows, columns, o, static_cast<void*>(stream));
     }
     return q3x::kernels::
@@ -1171,19 +1251,21 @@ enum class Scope {
 [[nodiscard]] bool verify_immutable_inputs(TestContext& test,
                                            const Fixture& fixture,
                                            const Execution& execution) {
+  const bool uses_sidecars =
+      fixture.candidate_layout != CandidateLayout::kM64N256;
   std::vector<std::uint8_t> gate_packed(kPackedBytes);
   std::vector<std::uint8_t> up_packed(kPackedBytes);
   std::vector<std::uint8_t> gate_scales(kScaleBytes);
   std::vector<std::uint8_t> up_scales(kScaleBytes);
   std::vector<std::uint16_t> activations(fixture.host_activations.size());
   std::vector<std::uint32_t> gate_weight_store(
-      kSidecarWeightCount + 2U * kGuardElements);
+      uses_sidecars ? kSidecarWeightCount + 2U * kGuardElements : 0U);
   std::vector<std::uint32_t> up_weight_store(
-      kSidecarWeightCount + 2U * kGuardElements);
+      uses_sidecars ? kSidecarWeightCount + 2U * kGuardElements : 0U);
   std::vector<std::uint16_t> gate_scale_store(
-      kSidecarScaleCount + 2U * kGuardElements);
+      uses_sidecars ? kSidecarScaleCount + 2U * kGuardElements : 0U);
   std::vector<std::uint16_t> up_scale_store(
-      kSidecarScaleCount + 2U * kGuardElements);
+      uses_sidecars ? kSidecarScaleCount + 2U * kGuardElements : 0U);
   const cudaStream_t stream = execution.main();
   bool ready = test.cuda_ok(
       cudaMemcpyAsync(gate_packed.data(), fixture.gate_packed.get(),
@@ -1210,38 +1292,40 @@ enum class Scope {
                            activations.size() * sizeof(std::uint16_t),
                            cudaMemcpyDeviceToHost, stream),
                        "copy immutable activations");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(
-                           gate_weight_store.data(),
-                           fixture.gate_sidecar_weight_store.get(),
-                           gate_weight_store.size() * sizeof(std::uint32_t),
-                           cudaMemcpyDeviceToHost, stream),
-                       "copy immutable Gate weight sidecar");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(
-                           up_weight_store.data(),
-                           fixture.up_sidecar_weight_store.get(),
-                           up_weight_store.size() * sizeof(std::uint32_t),
-                           cudaMemcpyDeviceToHost, stream),
-                       "copy immutable Up weight sidecar");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(
-                           gate_scale_store.data(),
-                           fixture.gate_sidecar_scale_store.get(),
-                           gate_scale_store.size() * sizeof(std::uint16_t),
-                           cudaMemcpyDeviceToHost, stream),
-                       "copy immutable Gate scale sidecar");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpyAsync(
-                           up_scale_store.data(),
-                           fixture.up_sidecar_scale_store.get(),
-                           up_scale_store.size() * sizeof(std::uint16_t),
-                           cudaMemcpyDeviceToHost, stream),
-                       "copy immutable Up scale sidecar");
+  if (uses_sidecars) {
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             gate_weight_store.data(),
+                             fixture.gate_sidecar_weight_store.get(),
+                             gate_weight_store.size() * sizeof(std::uint32_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         "copy immutable Gate weight sidecar");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             up_weight_store.data(),
+                             fixture.up_sidecar_weight_store.get(),
+                             up_weight_store.size() * sizeof(std::uint32_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         "copy immutable Up weight sidecar");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             gate_scale_store.data(),
+                             fixture.gate_sidecar_scale_store.get(),
+                             gate_scale_store.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         "copy immutable Gate scale sidecar");
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(
+                             up_scale_store.data(),
+                             fixture.up_sidecar_scale_store.get(),
+                             up_scale_store.size() * sizeof(std::uint16_t),
+                             cudaMemcpyDeviceToHost, stream),
+                         "copy immutable Up scale sidecar");
+  }
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 "immutable inputs synchronize");
   bool sidecar_guards = ready;
-  if (ready) {
+  if (ready && uses_sidecars) {
     for (std::size_t index = 0U; index < kGuardElements; ++index) {
       const std::size_t weight_tail =
           kGuardElements + kSidecarWeightCount + index;
@@ -1265,22 +1349,23 @@ enum class Scope {
   const bool activation = ready && activations == fixture.host_activations;
   const bool sidecars =
       ready &&
-      std::equal(fixture.host_gate_sidecar_weights.begin(),
-                 fixture.host_gate_sidecar_weights.end(),
-                 gate_weight_store.begin() +
-                     static_cast<std::ptrdiff_t>(kGuardElements)) &&
-      std::equal(fixture.host_up_sidecar_weights.begin(),
-                 fixture.host_up_sidecar_weights.end(),
-                 up_weight_store.begin() +
-                     static_cast<std::ptrdiff_t>(kGuardElements)) &&
-      std::equal(fixture.host_gate_sidecar_scales.begin(),
-                 fixture.host_gate_sidecar_scales.end(),
-                 gate_scale_store.begin() +
-                     static_cast<std::ptrdiff_t>(kGuardElements)) &&
-      std::equal(fixture.host_up_sidecar_scales.begin(),
-                 fixture.host_up_sidecar_scales.end(),
-                 up_scale_store.begin() +
-                     static_cast<std::ptrdiff_t>(kGuardElements));
+      (!uses_sidecars ||
+       (std::equal(fixture.host_gate_sidecar_weights.begin(),
+                   fixture.host_gate_sidecar_weights.end(),
+                   gate_weight_store.begin() +
+                       static_cast<std::ptrdiff_t>(kGuardElements)) &&
+        std::equal(fixture.host_up_sidecar_weights.begin(),
+                   fixture.host_up_sidecar_weights.end(),
+                   up_weight_store.begin() +
+                       static_cast<std::ptrdiff_t>(kGuardElements)) &&
+        std::equal(fixture.host_gate_sidecar_scales.begin(),
+                   fixture.host_gate_sidecar_scales.end(),
+                   gate_scale_store.begin() +
+                       static_cast<std::ptrdiff_t>(kGuardElements)) &&
+        std::equal(fixture.host_up_sidecar_scales.begin(),
+                   fixture.host_up_sidecar_scales.end(),
+                   up_scale_store.begin() +
+                       static_cast<std::ptrdiff_t>(kGuardElements))));
   const bool gate = canonical && activation && sidecars && sidecar_guards;
   std::cout << "REGISTER_FED_IMMUTABLE: candidate_layout="
             << candidate_layout_name(fixture.candidate_layout)
@@ -1288,6 +1373,7 @@ enum class Scope {
             << (canonical ? "true" : "false")
             << " activation=" << (activation ? "true" : "false")
             << " sidecars=" << (sidecars ? "true" : "false")
+            << " sidecar_mode=" << (uses_sidecars ? "verified" : "skipped")
             << " sidecar_guards=" << (sidecar_guards ? "intact" : "BAD")
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "candidate preserves canonical tensors, sidecars, and A");
@@ -1595,6 +1681,8 @@ struct Options {
       options.candidate_layout = CandidateLayout::kK64;
     } else if (argument == "--candidate=k16") {
       options.candidate_layout = CandidateLayout::kK16;
+    } else if (argument == "--candidate=m64n256") {
+      options.candidate_layout = CandidateLayout::kM64N256;
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return false;
@@ -1658,8 +1746,18 @@ int main(const int argc, char** argv) {
             << " canonical_bytes_per_tensor="
             << kPackedBytes + kScaleBytes
             << " sidecar_bytes_per_tensor="
-            << kSidecarWeightBytes + kSidecarScaleBytes
-            << " same_byte_layout=true\n";
+            << (options.candidate_layout == CandidateLayout::kM64N256
+                    ? 0U
+                    : kSidecarWeightBytes + kSidecarScaleBytes)
+            << " sidecar_required="
+            << (options.candidate_layout == CandidateLayout::kM64N256
+                    ? "false"
+                    : "true")
+            << " same_byte_layout="
+            << (options.candidate_layout == CandidateLayout::kM64N256
+                    ? "not_applicable"
+                    : "true")
+            << '\n';
 
   Execution execution;
   if (!execution.create(test)) {
