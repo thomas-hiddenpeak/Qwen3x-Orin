@@ -788,6 +788,28 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated exact-C16 GDN plus plain-RMSNorm/SiLU epilogue screen. Both the
+  # shared-BF16-boundary candidate and its global-boundary control live only
+  # in this executable; production dispatch, public ABI, and q3x_kernels SASS
+  # remain unchanged.
+  add_executable(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
+    tests/gdn_prefill_c16_norm_gate_sm87_candidate.cu
+  )
+  target_link_libraries(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
+    PRIVATE q3x::core q3x::kernels
+  )
+  target_compile_options(q3x_gdn_prefill_c16_norm_gate_sm87_candidate PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v>
+  )
+  q3x_enable_warnings(q3x_gdn_prefill_c16_norm_gate_sm87_candidate)
+  add_test(NAME gdn_prefill_c16_norm_gate_sm87_candidate
+    COMMAND q3x_gdn_prefill_c16_norm_gate_sm87_candidate
+  )
+  set_tests_properties(gdn_prefill_c16_norm_gate_sm87_candidate PROPERTIES
+    LABELS "correctness;cuda;prefill;sm87;synthetic"
+    SKIP_RETURN_CODE 77
+  )
+
   add_executable(q3x_layout_ops_host_test
     tests/layout_ops_host_test.cpp
   )
