@@ -18,7 +18,7 @@
 
 namespace q3x::kernels {
 
-// These four hooks are test-only ABI.  They deliberately stay out of the
+// These hooks are test-only ABI.  They deliberately stay out of the
 // installed public header until the register-fed candidate clears this
 // standalone screen.
 [[nodiscard]] int
@@ -47,6 +47,27 @@ query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_resources_test_cuda(
 launch_sm87_nvfp4_w4a16_gate_m128_register_fed_x4_exhaustive_test_cuda(
     std::uint32_t* device_mismatch_count, void* stream) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_m128_register_fed_k64_sidecar_build_test_cuda(
+    const std::uint8_t* canonical_weights,
+    const std::uint8_t* canonical_scales, std::size_t rows,
+    std::size_t columns, uint4* sidecar_weights,
+    std::uint64_t* sidecar_scales, void* stream) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_test_cuda(
+    const uint4* sidecar_weights, const std::uint64_t* sidecar_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* local_bytes, int* maximum_threads_per_block,
+    int* active_blocks_per_sm) noexcept;
+
 }  // namespace q3x::kernels
 
 namespace {
@@ -59,9 +80,11 @@ constexpr std::size_t kPackedBytes = kRows * kPackedRowBytes;
 constexpr std::size_t kScaleBytes = kRows * kScaleColumns;
 constexpr std::size_t kN128Blocks = kRows / 128U;
 constexpr std::size_t kK16Blocks = kColumns / 16U;
+constexpr std::size_t kK64Blocks = kColumns / 64U;
 constexpr std::size_t kWarps = 8U;
 constexpr std::size_t kLanes = 32U;
 constexpr std::size_t kScaleGroupsPerWarp = 8U;
+constexpr std::size_t kK16PerK64 = 4U;
 constexpr std::size_t kSidecarWeightCount =
     kN128Blocks * kK16Blocks * kWarps * kLanes;
 constexpr std::size_t kSidecarScaleCount =
@@ -88,10 +111,24 @@ constexpr std::array<std::uint8_t, 32U> kCheckpointLikeScaleCodes{{
 
 static_assert(kN128Blocks == 136U);
 static_assert(kK16Blocks == 320U);
+static_assert(kK64Blocks == 80U);
+static_assert(kK64Blocks * kK16PerK64 == kK16Blocks);
 static_assert(kSidecarWeightCount == 11'141'120U);
 static_assert(kSidecarScaleCount == 2'785'280U);
+static_assert((kSidecarWeightCount % kK16PerK64) == 0U);
+static_assert((kSidecarScaleCount % kK16PerK64) == 0U);
 static_assert(kSidecarWeightBytes == kPackedBytes);
 static_assert(kSidecarScaleBytes == kScaleBytes);
+
+enum class CandidateLayout {
+  kK64,
+  kK16,
+};
+
+[[nodiscard]] const char* candidate_layout_name(
+    const CandidateLayout layout) noexcept {
+  return layout == CandidateLayout::kK64 ? "k64" : "k16";
+}
 
 class TestContext {
  public:
@@ -266,8 +303,27 @@ __global__ void scrub_l2_kernel(std::uint32_t* const words,
   }
 }
 
+[[nodiscard]] int launch_sidecar_build(
+    const CandidateLayout layout, const std::uint8_t* const canonical_weights,
+    const std::uint8_t* const canonical_scales,
+    std::uint32_t* const sidecar_weights,
+    std::uint16_t* const sidecar_scales, void* const stream) noexcept {
+  if (layout == CandidateLayout::kK64) {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_m128_register_fed_k64_sidecar_build_test_cuda(
+            canonical_weights, canonical_scales, kRows, kColumns,
+            reinterpret_cast<uint4*>(sidecar_weights),
+            reinterpret_cast<std::uint64_t*>(sidecar_scales), stream);
+  }
+  return q3x::kernels::
+      launch_sm87_nvfp4_w4a16_gate_m128_register_fed_sidecar_build_test_cuda(
+          canonical_weights, canonical_scales, kRows, kColumns,
+          sidecar_weights, sidecar_scales, stream);
+}
+
 struct Fixture {
   std::size_t token_count = 512U;
+  CandidateLayout candidate_layout = CandidateLayout::kK64;
   DeviceBuffer<std::uint8_t> gate_packed;
   DeviceBuffer<std::uint8_t> up_packed;
   DeviceBuffer<std::uint8_t> gate_scales;
@@ -318,8 +374,10 @@ struct Fixture {
   }
 
   [[nodiscard]] bool initialize(TestContext& test, const Execution& execution,
-                                const std::size_t tokens) {
+                                const std::size_t tokens,
+                                const CandidateLayout layout) {
     token_count = tokens;
+    candidate_layout = layout;
     const std::size_t activation_elements = token_count * kColumns;
     host_gate_packed.resize(kPackedBytes);
     host_up_packed.resize(kPackedBytes);
@@ -458,24 +516,24 @@ struct Fixture {
     // outside every kernel-performance timing interval below.
     const auto build_start = std::chrono::steady_clock::now();
     ready = test.cuda_ok(
-        static_cast<cudaError_t>(q3x::kernels::
-            launch_sm87_nvfp4_w4a16_gate_m128_register_fed_sidecar_build_test_cuda(
-                gate_packed.get(), gate_scales.get(), kRows, kColumns,
-                gate_sidecar_weights(), gate_sidecar_scales(),
-                static_cast<void*>(execution.main()))),
+        static_cast<cudaError_t>(launch_sidecar_build(
+            candidate_layout, gate_packed.get(), gate_scales.get(),
+            gate_sidecar_weights(), gate_sidecar_scales(),
+            static_cast<void*>(execution.main()))),
         "build Gate register-fed sidecars");
     ready = ready && test.cuda_ok(
-                         static_cast<cudaError_t>(q3x::kernels::
-                             launch_sm87_nvfp4_w4a16_gate_m128_register_fed_sidecar_build_test_cuda(
-                                 up_packed.get(), up_scales.get(), kRows,
-                                 kColumns, up_sidecar_weights(),
-                                 up_sidecar_scales(),
-                                 static_cast<void*>(execution.main()))),
+                         static_cast<cudaError_t>(launch_sidecar_build(
+                             candidate_layout, up_packed.get(),
+                             up_scales.get(), up_sidecar_weights(),
+                             up_sidecar_scales(),
+                             static_cast<void*>(execution.main()))),
                          "build Up register-fed sidecars");
     ready = ready && test.cuda_ok(cudaStreamSynchronize(execution.main()),
                                   "sidecar builder synchronize");
     const auto build_stop = std::chrono::steady_clock::now();
-    std::cout << "REGISTER_FED_BUILDER: tensors=2 canonical_weight_bytes_each="
+    std::cout << "REGISTER_FED_BUILDER: candidate_layout="
+              << candidate_layout_name(candidate_layout)
+              << " tensors=2 canonical_weight_bytes_each="
               << kPackedBytes << " canonical_scale_bytes_each=" << kScaleBytes
               << " sidecar_weight_bytes_each=" << kSidecarWeightBytes
               << " sidecar_scale_bytes_each=" << kSidecarScaleBytes
@@ -581,71 +639,128 @@ struct Fixture {
       std::size_t scale_mismatches = 0U;
       std::size_t first_weight_mismatch = kSidecarWeightCount;
       std::size_t first_scale_mismatch = kSidecarScaleCount;
+      const auto expected_weight = [&](const std::size_t n_block,
+                                       const std::size_t k16,
+                                       const std::size_t warp,
+                                       const std::size_t lane) {
+        const std::size_t t = lane & 3U;
+        const std::size_t group = lane >> 2U;
+        const std::size_t n0 = n_block * 128U + warp * 16U + group;
+        const std::size_t n1 = n0 + 8U;
+        const std::size_t k_base = k16 * 16U;
+        const std::size_t offset0 = k_base / 2U + t;
+        const std::size_t offset1 = k_base / 2U + 4U + t;
+        return static_cast<std::uint32_t>(
+                   packed[n0 * kPackedRowBytes + offset0]) |
+               (static_cast<std::uint32_t>(
+                    packed[n0 * kPackedRowBytes + offset1])
+                << 8U) |
+               (static_cast<std::uint32_t>(
+                    packed[n1 * kPackedRowBytes + offset0])
+                << 16U) |
+               (static_cast<std::uint32_t>(
+                    packed[n1 * kPackedRowBytes + offset1])
+                << 24U);
+      };
+      const auto expected_scale = [&](const std::size_t n_block,
+                                      const std::size_t k16,
+                                      const std::size_t warp,
+                                      const std::size_t group) {
+        const std::size_t n0 = n_block * 128U + warp * 16U + group;
+        const std::size_t n1 = n0 + 8U;
+        return static_cast<std::uint16_t>(
+                   scales[n0 * kScaleColumns + k16]) |
+               static_cast<std::uint16_t>(
+                   static_cast<std::uint16_t>(
+                       scales[n1 * kScaleColumns + k16])
+                   << 8U);
+      };
+      const auto check_weight = [&](const std::size_t index,
+                                    const std::uint32_t expected) {
+        if (sidecar_weights[index] != expected) {
+          if (weight_mismatches == 0U) {
+            first_weight_mismatch = index;
+          }
+          ++weight_mismatches;
+        }
+      };
+      const auto check_scale = [&](const std::size_t index,
+                                   const std::uint16_t expected) {
+        if (sidecar_scales[index] != expected) {
+          if (scale_mismatches == 0U) {
+            first_scale_mismatch = index;
+          }
+          ++scale_mismatches;
+        }
+      };
       for (std::size_t n_block = 0U; n_block < kN128Blocks; ++n_block) {
-        for (std::size_t k16 = 0U; k16 < kK16Blocks; ++k16) {
-          const std::size_t k_base = k16 * 16U;
-          for (std::size_t warp = 0U; warp < kWarps; ++warp) {
-            for (std::size_t lane = 0U; lane < kLanes; ++lane) {
-              const std::size_t t = lane & 3U;
-              const std::size_t group = lane >> 2U;
-              const std::size_t n0 =
-                  n_block * 128U + warp * 16U + group;
-              const std::size_t n1 = n0 + 8U;
-              const std::size_t offset0 = k_base / 2U + t;
-              const std::size_t offset1 = k_base / 2U + 4U + t;
-              const std::uint32_t expected =
-                  static_cast<std::uint32_t>(
-                      packed[n0 * kPackedRowBytes + offset0]) |
-                  (static_cast<std::uint32_t>(
-                       packed[n0 * kPackedRowBytes + offset1])
-                   << 8U) |
-                  (static_cast<std::uint32_t>(
-                       packed[n1 * kPackedRowBytes + offset0])
-                   << 16U) |
-                  (static_cast<std::uint32_t>(
-                       packed[n1 * kPackedRowBytes + offset1])
-                   << 24U);
-              const std::size_t sidecar_index =
-                  (((n_block * kK16Blocks + k16) * kWarps + warp) *
-                       kLanes +
-                   lane);
-              if (sidecar_weights[sidecar_index] != expected) {
-                if (weight_mismatches == 0U) {
-                  first_weight_mismatch = sidecar_index;
+        if (candidate_layout == CandidateLayout::kK64) {
+          for (std::size_t k64 = 0U; k64 < kK64Blocks; ++k64) {
+            for (std::size_t warp = 0U; warp < kWarps; ++warp) {
+              for (std::size_t lane = 0U; lane < kLanes; ++lane) {
+                for (std::size_t inner = 0U; inner < kK16PerK64; ++inner) {
+                  const std::size_t k16 = k64 * kK16PerK64 + inner;
+                  const std::size_t index =
+                      ((((n_block * kK64Blocks + k64) * kWarps + warp) *
+                            kLanes +
+                        lane) *
+                           kK16PerK64 +
+                       inner);
+                  check_weight(index,
+                               expected_weight(n_block, k16, warp, lane));
                 }
-                ++weight_mismatches;
+              }
+              for (std::size_t group = 0U; group < kScaleGroupsPerWarp;
+                   ++group) {
+                for (std::size_t inner = 0U; inner < kK16PerK64; ++inner) {
+                  const std::size_t k16 = k64 * kK16PerK64 + inner;
+                  const std::size_t index =
+                      ((((n_block * kK64Blocks + k64) * kWarps + warp) *
+                            kScaleGroupsPerWarp +
+                        group) *
+                           kK16PerK64 +
+                       inner);
+                  check_scale(index,
+                              expected_scale(n_block, k16, warp, group));
+                }
               }
             }
-            for (std::size_t group = 0U; group < kScaleGroupsPerWarp;
-                 ++group) {
-              const std::size_t n0 =
-                  n_block * 128U + warp * 16U + group;
-              const std::size_t n1 = n0 + 8U;
-              const std::uint16_t expected =
-                  static_cast<std::uint16_t>(
-                      scales[n0 * kScaleColumns + k16]) |
-                  static_cast<std::uint16_t>(
-                      static_cast<std::uint16_t>(
-                          scales[n1 * kScaleColumns + k16])
-                      << 8U);
-              const std::size_t sidecar_index =
-                  (((n_block * kK16Blocks + k16) * kWarps + warp) *
-                       kScaleGroupsPerWarp +
-                   group);
-              if (sidecar_scales[sidecar_index] != expected) {
-                if (scale_mismatches == 0U) {
-                  first_scale_mismatch = sidecar_index;
-                }
-                ++scale_mismatches;
+          }
+        } else {
+          for (std::size_t k16 = 0U; k16 < kK16Blocks; ++k16) {
+            for (std::size_t warp = 0U; warp < kWarps; ++warp) {
+              for (std::size_t lane = 0U; lane < kLanes; ++lane) {
+                const std::size_t index =
+                    (((n_block * kK16Blocks + k16) * kWarps + warp) *
+                         kLanes +
+                     lane);
+                check_weight(index,
+                             expected_weight(n_block, k16, warp, lane));
+              }
+              for (std::size_t group = 0U; group < kScaleGroupsPerWarp;
+                   ++group) {
+                const std::size_t index =
+                    (((n_block * kK16Blocks + k16) * kWarps + warp) *
+                         kScaleGroupsPerWarp +
+                     group);
+                check_scale(index,
+                            expected_scale(n_block, k16, warp, group));
               }
             }
           }
         }
       }
       const bool exact = weight_mismatches == 0U && scale_mismatches == 0U;
-      std::cout << "REGISTER_FED_SIDECAR_LAYOUT: tensor=" << name
-                << " layout_weights=[N128][K16][warp8][lane32]_uint32"
-                << " layout_scales=[N128][K16][warp8][group8]_uint16"
+      std::cout << "REGISTER_FED_SIDECAR_LAYOUT: candidate_layout="
+                << candidate_layout_name(candidate_layout)
+                << " tensor=" << name << " layout_weights="
+                << (candidate_layout == CandidateLayout::kK64
+                        ? "[N128][K64][warp8][lane32][inner4]_uint32"
+                        : "[N128][K16][warp8][lane32]_uint32")
+                << " layout_scales="
+                << (candidate_layout == CandidateLayout::kK64
+                        ? "[N128][K64][warp8][group8][inner4]_uint16"
+                        : "[N128][K16][warp8][group8]_uint16")
                 << " weight_mismatches=" << weight_mismatches << '/'
                 << kSidecarWeightCount
                 << " scale_mismatches=" << scale_mismatches << '/'
@@ -665,7 +780,8 @@ struct Fixture {
     const bool up_exact =
         verify_tensor(host_up_packed, host_up_scales,
                       host_up_sidecar_weights, host_up_sidecar_scales, "Up");
-    std::cout << "REGISTER_FED_SIDECAR_GUARDS: intact="
+    std::cout << "REGISTER_FED_SIDECAR_GUARDS: candidate_layout="
+              << candidate_layout_name(candidate_layout) << " intact="
               << (guards ? "true" : "false")
               << " gate=" << (guards ? "PASS" : "FAIL") << '\n';
     test.expect(guards, "sidecar builder preserves all allocation guards");
@@ -701,6 +817,19 @@ enum class Scope {
             up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
             fixture.activations.get(), fixture.token_count, kRows, kColumns,
             up ? fixture.up_output() : fixture.gate_output(),
+            static_cast<void*>(stream)));
+  }
+  if (fixture.candidate_layout == CandidateLayout::kK64) {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_test_cuda(
+            reinterpret_cast<const uint4*>(
+                up ? fixture.up_sidecar_weights()
+                   : fixture.gate_sidecar_weights()),
+            reinterpret_cast<const std::uint64_t*>(
+                up ? fixture.up_sidecar_scales()
+                   : fixture.gate_sidecar_scales()),
+            1.0F, fixture.activations.get(), fixture.token_count, kRows,
+            kColumns, up ? fixture.up_output() : fixture.gate_output(),
             static_cast<void*>(stream)));
   }
   return static_cast<cudaError_t>(q3x::kernels::
@@ -739,7 +868,8 @@ enum class Scope {
   return status;
 }
 
-[[nodiscard]] bool run_resource_gate(TestContext& test) {
+[[nodiscard]] bool run_resource_gate(TestContext& test,
+                                     const CandidateLayout layout) {
   bool complete = true;
   for (const std::size_t token_count : {256U, 512U}) {
     int registers = -1;
@@ -747,14 +877,21 @@ enum class Scope {
     std::size_t local = std::numeric_limits<std::size_t>::max();
     int threads = -1;
     int active = -1;
-    const int status = q3x::kernels::
-        query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_resources_test_cuda(
-            token_count, kRows, kColumns, &registers, &shared, &local,
-            &threads, &active);
+    const int status =
+        layout == CandidateLayout::kK64
+            ? q3x::kernels::
+                  query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_resources_test_cuda(
+                      token_count, kRows, kColumns, &registers, &shared,
+                      &local, &threads, &active)
+            : q3x::kernels::
+                  query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_resources_test_cuda(
+                      token_count, kRows, kColumns, &registers, &shared,
+                      &local, &threads, &active);
     const bool gate = status == static_cast<int>(cudaSuccess) &&
                       registers <= 128 && shared == 35'328U && local == 0U &&
                       threads == 256 && active >= 2;
-    std::cout << "REGISTER_FED_RESOURCES: tokens=" << token_count
+    std::cout << "REGISTER_FED_RESOURCES: candidate_layout="
+              << candidate_layout_name(layout) << " tokens=" << token_count
               << " status=" << status << " registers=" << registers
               << " static_shared_bytes=" << shared
               << " local_bytes=" << local << " threads=" << threads
@@ -767,7 +904,8 @@ enum class Scope {
 }
 
 [[nodiscard]] bool run_x4_exhaustive_gate(TestContext& test,
-                                          const cudaStream_t stream) {
+                                          const cudaStream_t stream,
+                                          const CandidateLayout layout) {
   DeviceBuffer<std::uint32_t> mismatch;
   if (!mismatch.allocate(test, 1U, "allocate x4 exhaustive counter")) {
     return false;
@@ -789,15 +927,17 @@ enum class Scope {
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 "x4 exhaustive synchronize");
   const bool gate = ready && host_mismatch == 0U;
-  std::cout << "REGISTER_FED_X4_EXHAUSTIVE: mismatch_count="
-            << host_mismatch << " gate=" << (gate ? "PASS" : "FAIL")
-            << '\n';
+  std::cout << "REGISTER_FED_X4_EXHAUSTIVE: candidate_layout="
+            << candidate_layout_name(layout)
+            << " mismatch_count=" << host_mismatch
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "all x4 register-feed values match the reference mapping");
   return gate;
 }
 
 [[nodiscard]] bool run_invalid_graph_gate(TestContext& test,
-                                          const cudaStream_t stream) {
+                                          const cudaStream_t stream,
+                                          const CandidateLayout layout) {
   constexpr std::size_t kTokens = 512U;
   constexpr std::uintptr_t kWeightAddress = 0x1'0000'0000ULL;
   constexpr std::uintptr_t kScaleAddress = 0x2'0000'0000ULL;
@@ -832,6 +972,13 @@ enum class Scope {
                           const std::size_t tokens, const std::size_t rows,
                           const std::size_t columns,
                           std::uint16_t* const o) noexcept {
+    if (layout == CandidateLayout::kK64) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_k64_test_cuda(
+              reinterpret_cast<const uint4*>(w),
+              reinterpret_cast<const std::uint64_t*>(s), scale, a, tokens,
+              rows, columns, o, static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_test_cuda(
             w, s, scale, a, tokens, rows, columns, o,
@@ -912,8 +1059,9 @@ enum class Scope {
       statuses.begin(), statuses.end(),
       static_cast<int>(cudaErrorInvalidValue)));
   const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
-  std::cout << "REGISTER_FED_INVALID_GRAPH: invalid_statuses="
-            << invalid_count << '/' << statuses.size()
+  std::cout << "REGISTER_FED_INVALID_GRAPH: candidate_layout="
+            << candidate_layout_name(layout)
+            << " invalid_statuses=" << invalid_count << '/' << statuses.size()
             << " graph_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "invalid register-fed calls enqueue zero graph nodes");
@@ -1011,7 +1159,9 @@ enum class Scope {
             ready;
   }
   const bool gate = ready && node_count > 0U;
-  std::cout << "REGISTER_FED_VALID_GRAPH: graph_nodes=" << node_count
+  std::cout << "REGISTER_FED_VALID_GRAPH: candidate_layout="
+            << candidate_layout_name(fixture.candidate_layout)
+            << " graph_nodes=" << node_count
             << " instantiate=" << (ready ? "success" : "failure")
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "valid dual-stream candidate graph captures and instantiates");
@@ -1132,7 +1282,9 @@ enum class Scope {
                  up_scale_store.begin() +
                      static_cast<std::ptrdiff_t>(kGuardElements));
   const bool gate = canonical && activation && sidecars && sidecar_guards;
-  std::cout << "REGISTER_FED_IMMUTABLE: canonical="
+  std::cout << "REGISTER_FED_IMMUTABLE: candidate_layout="
+            << candidate_layout_name(fixture.candidate_layout)
+            << " canonical="
             << (canonical ? "true" : "false")
             << " activation=" << (activation ? "true" : "false")
             << " sidecars=" << (sidecars ? "true" : "false")
@@ -1237,7 +1389,9 @@ enum class Scope {
                     replay_mismatches == 0U &&
                     unexpected_nonfinite == 0U && guards && immutable &&
                     graph_nodes > 0U;
-  std::cout << "REGISTER_FED_CORRECTNESS: tokens=" << fixture.token_count
+  std::cout << "REGISTER_FED_CORRECTNESS: candidate_layout="
+            << candidate_layout_name(fixture.candidate_layout)
+            << " tokens=" << fixture.token_count
             << " baseline_candidate_mismatches=" << candidate_mismatches
             << '/' << 2U * fixture.output_elements()
             << " candidate_graph_replay_mismatches=" << replay_mismatches
@@ -1303,7 +1457,9 @@ enum class Scope {
   const double wall_ms =
       std::chrono::duration<double, std::milli>(wall_stop - wall_start)
           .count();
-  std::cout << "REGISTER_FED_PASS: label=" << label
+  std::cout << "REGISTER_FED_PASS: candidate_layout="
+            << candidate_layout_name(fixture.candidate_layout)
+            << " label=" << label
             << " variant=" << variant_name(variant)
             << " scope=" << scope_name(scope)
             << " tokens=" << fixture.token_count << " warmups=" << warmups
@@ -1349,7 +1505,9 @@ enum class Scope {
       baseline_sum += static_cast<double>(b1 + b2);
       candidate_sum += static_cast<double>(c1 + c2);
     }
-    std::cout << "PERF_REGISTER_FED_ROUND: scope=" << scope_name(scope)
+    std::cout << "PERF_REGISTER_FED_ROUND: candidate_layout="
+              << candidate_layout_name(fixture.candidate_layout)
+              << " scope=" << scope_name(scope)
               << " tokens=" << fixture.token_count << " round=" << round + 1
               << " order=B-C-C-B B1_ms=" << b1 << " C1_ms=" << c1
               << " C2_ms=" << c2 << " B2_ms=" << b2
@@ -1369,7 +1527,9 @@ enum class Scope {
                  : std::numeric_limits<double>::quiet_NaN();
   const bool gate = fixture.token_count == 512U && every_round &&
                     std::isfinite(speedup) && speedup >= required_speedup;
-  std::cout << "PERF_REGISTER_FED_AGGREGATE: scope=" << scope_name(scope)
+  std::cout << "PERF_REGISTER_FED_AGGREGATE: candidate_layout="
+            << candidate_layout_name(fixture.candidate_layout)
+            << " scope=" << scope_name(scope)
             << " tokens=" << fixture.token_count
             << " baseline_ms=" << baseline_ms
             << " candidate_ms=" << candidate_ms << " speedup=" << speedup
@@ -1392,7 +1552,9 @@ enum class Scope {
                                            Scope::kGate,
                                            kRequiredGateSpeedup);
   if (!gate_branch) {
-    std::cout << "PERF_REGISTER_FED_PAIR_SKIPPED: reason="
+    std::cout << "PERF_REGISTER_FED_PAIR_SKIPPED: candidate_layout="
+              << candidate_layout_name(fixture.candidate_layout)
+              << " reason="
                  "single_gate_did_not_clear_1.22_stop_loss gate=FAIL\n";
     return false;
   }
@@ -1410,6 +1572,7 @@ enum class Mode {
 struct Options {
   Mode mode = Mode::kValidate;
   std::size_t token_count = 512U;
+  CandidateLayout candidate_layout = CandidateLayout::kK64;
 };
 
 [[nodiscard]] bool parse_options(const int argc, char** argv,
@@ -1428,6 +1591,10 @@ struct Options {
       options.token_count = 256U;
     } else if (argument == "--tokens=512") {
       options.token_count = 512U;
+    } else if (argument == "--candidate=k64") {
+      options.candidate_layout = CandidateLayout::kK64;
+    } else if (argument == "--candidate=k16") {
+      options.candidate_layout = CandidateLayout::kK16;
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return false;
@@ -1486,6 +1653,8 @@ int main(const int argc, char** argv) {
             << " l2_bytes=" << properties.l2CacheSize
             << " mode=" << mode_name(options.mode)
             << " tokens=" << options.token_count
+            << " candidate_layout="
+            << candidate_layout_name(options.candidate_layout)
             << " canonical_bytes_per_tensor="
             << kPackedBytes + kScaleBytes
             << " sidecar_bytes_per_tensor="
@@ -1496,15 +1665,20 @@ int main(const int argc, char** argv) {
   if (!execution.create(test)) {
     return 1;
   }
-  bool ready = run_resource_gate(test);
-  ready = run_x4_exhaustive_gate(test, execution.main()) && ready;
-  ready = run_invalid_graph_gate(test, execution.main()) && ready;
+  bool ready = run_resource_gate(test, options.candidate_layout);
+  ready = run_x4_exhaustive_gate(test, execution.main(),
+                                 options.candidate_layout) &&
+          ready;
+  ready = run_invalid_graph_gate(test, execution.main(),
+                                 options.candidate_layout) &&
+          ready;
   if (!ready) {
     return 1;
   }
 
   Fixture fixture;
-  if (!fixture.initialize(test, execution, options.token_count)) {
+  if (!fixture.initialize(test, execution, options.token_count,
+                          options.candidate_layout)) {
     return 1;
   }
   const bool correct = run_correctness(test, fixture, execution);
@@ -1525,6 +1699,8 @@ int main(const int argc, char** argv) {
             "single_gate_profile", 0, 1, true);
         std::cout << "REGISTER_FED_PROFILE_MARKER: mode="
                   << mode_name(options.mode)
+                  << " candidate_layout="
+                  << candidate_layout_name(options.candidate_layout)
                   << " tokens=" << options.token_count
                   << " scope=single_gate kernel_ms=" << milliseconds
                   << " builder_launches_in_range=0 scrub_launches_in_range=0"
@@ -1542,6 +1718,7 @@ int main(const int argc, char** argv) {
               << " register-fed Gate screen assertion(s) failed\n";
     return 1;
   }
-  std::cout << "register-fed Gate SM87 screen passed\n";
+  std::cout << "register-fed Gate SM87 screen passed: candidate_layout="
+            << candidate_layout_name(options.candidate_layout) << '\n';
   return 0;
 }
