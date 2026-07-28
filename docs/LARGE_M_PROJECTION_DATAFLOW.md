@@ -573,17 +573,17 @@ report hashes are in
 | Tensor/HMMA throughput | 42.160% | 92.552% | 0% |
 | Executed instructions | 225,736,064 | 39,688,064 | 68,239,360 |
 | HMMA executions | 22,282,240 | 22,282,240 | 0 |
-| L2 theoretical/TEX request bytes | 775,421,952 B | 1,087,373,312 B | 267,386,880 B |
+| TEX-sourced L2 sector bytes | 775,421,952 B | 1,087,373,312 B | 228,392,960 B |
 | Shared excessive wavefronts | 9,400,320 | 0 | 0 |
 
 The inclusive external path is 3.666944 ms.  Native is 1.396956x slower even
-though its theoretical/TEX L2 request bytes are only 57.24% of the inclusive
-external total.  These are request-sector counters, not actual fabric
-transactions.  Relative to the BF16 GEMM body, native executes 5.687757x as
-many instructions for exactly the same HMMA count. Native HMMA is only about
-9.87% of its executed instructions, versus about 56.15% externally. The
-external kernel is also a three-stage pipeline, so adding a fourth stage is
-not a structural answer.
+though it issues only 58.93% of the inclusive external TEX-sourced L2 sectors,
+a 41.07% reduction.  These are comparable L2-sector counts, not DRAM-byte
+counters.  Relative to the BF16 GEMM body, native executes 5.687757x as many
+instructions for exactly the same HMMA count. Native HMMA is only about 9.87%
+of its executed instructions, versus about 56.15% externally. The external
+kernel is also a three-stage pipeline, so adding a fourth stage is not a
+structural answer.
 
 Source counters locate 8,042,496 of the native excessive shared wavefronts at
 the two raw-B `LDGSTS.BYPASS.128` sites, versus 835,584 at the two next-largest

@@ -1570,9 +1570,9 @@ The diagnostic Phase 3 records are:
   which records the post-isolation full matched-NCU diagnostic for one
   real-checkpoint layer-0 Gate launch. Structured BS512 takes **5.122560 ms**
   versus **2.378112 ms** for the external BF16 GEMM and **1.288832 ms** for
-  its separate dequantizer. Native issues only **57.24%** of the inclusive
-  external theoretical/TEX L2 request bytes but executes **5.687757x** the
-  BF16 GEMM instructions for the same 22,282,240 HMMA executions. The result
+  its separate dequantizer. Native issues only **58.93%** of the inclusive
+  external TEX-sourced L2 sectors but executes **5.687757x** the BF16 GEMM
+  instructions for the same 22,282,240 HMMA executions. The result
   makes a 256-thread
   M128xN256 decoded-B-reuse cell the next test-only priority. The external
   path remains reference-only with no retention, promotion, fallback, or
