@@ -32,8 +32,11 @@ separate 48-launch boundary after each layer's complete C512 recurrence.
 Two prior experiments establish the guardrails:
 
 - Extending the exact register-state body over the whole C256/C512 span is
-  bitwise correct but reaches only 1.02672x/1.01871x against its frozen 1.03x
-  production gate. Longer state lifetime alone is closed.
+  bitwise correct on its synthetic fixture but reached only
+  1.02672x/1.01871x against the then-frozen 1.03x production gate. That result
+  rejected production promotion; under the current evidence policy it has no
+  real-trajectory retention authority and is not a permanent rejection of a
+  persistent exact composite.
 - Keeping FP32 state across each B8 block reaches 2.76977x/2.78551x in the
   micro screen, but changes seven state-rounding boundaries per block. On the
   real P513 checkpoint path its recurrent-state NRMSE is 0.115284 against the
@@ -58,7 +61,10 @@ The pinned implementation and API are visible in
 and its
 [chunk-size dispatch](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/ops/gated_delta_rule/chunk.py#L395-L588).
 Chunk 64 fuses KKT and the solve, while chunk 16/32 separates them in
-[`chunk_fwd.py`](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/ops/gated_delta_rule/chunk_fwd.py#L40-L68).
+[`chunk_fwd.py`](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/ops/gated_delta_rule/chunk_fwd.py#L331-L416).
+That implementation explicitly selects a
+[TF32 solve on SM80 and newer](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/ops/gated_delta_rule/chunk_fwd.py#L18-L23),
+which is outside this project's bitwise contract.
 The cross-chunk state kernel keeps an FP32 state tile live while walking chunk
 boundaries and supports a V-first state layout compatible with this project's
 logical state orientation; see
@@ -70,27 +76,44 @@ The short-sequence
 [`fused_recurrent`](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/ops/gated_delta_rule/fused_recurrent.py#L30-L179)
 path does fuse Q/K L2 normalization, gates, update, and output while retaining
 FP32 state, but the layer selects it only for short inference sequences. FLA's
-post-GDN RMSNorm plus gate remains a separate fused epilogue; its D<=512
+model path requests gate and beta-sigmoid calculation
+[inside the GDN kernel](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/layers/gated_deltanet.py#L309-L345),
+not through an extra global precompute boundary. Its post-GDN RMSNorm plus gate
+remains a separate fused epilogue, called after recurrence
+[returns](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/layers/gated_deltanet.py#L357-L361);
+its D<=512
 program handles 16/32/64 rows per program in
 [`fused_norm_gate.py`](https://github.com/fla-org/flash-linear-attention/blob/9c8e42e762fce087c27b673af4922795d9edb85e/fla/modules/fused_norm_gate.py#L450-L532).
 
-Transferable ideas are the state hierarchy, V-first layout option, fixed chunk
-classes, precomputed gates, and tiled epilogue. The FP32 boundary state, WY
-composition, TF32-enabled chunk solve, and framework integration are not
-eligible for the current exact path.
+Transferable ideas are the state hierarchy, fixed chunk classes, locally fused
+gate calculation, and tiled multi-row epilogue. This project already uses the
+compatible V-first `[value row][key]` state layout with K contiguous, so that
+is a confirmed property rather than a new mechanism. Precomputing alpha/beta
+into global memory would add a launch and traffic and is not implied by the
+reference. The FP32 boundary state, WY composition, TF32-enabled chunk solve,
+and framework integration are not eligible for the current exact path.
 
 ## What Mamba selective scan contributes
 
 This audit pins Mamba revision
 [`e9594ce`](https://github.com/state-spaces/mamba/commit/e9594ce1c732d97440f0332fdc43170a2294dbfa)
 and the [Mamba paper](https://arxiv.org/abs/2312.00752). The original selective
-scan represents a diagonal recurrence by an associative pair `(a,b)` and uses
-CUB BlockScan for an inclusive scan. Its C512 specialization assigns 16 items
-to each of 32 threads and fuses dt bias, softplus, residual D, and an optional
-SiLU gate in the same kernel; see the
-[`SelectiveScanTraits`](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_common.h#L138-L173)
-and
-[`selective_scan_fwd_kernel.cuh`](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_fwd_kernel.cuh#L72-L308).
+scan represents a diagonal recurrence by an
+[associative pair `(a,b)`](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_common.h#L138-L173)
+and uses CUB BlockScan for an inclusive scan. Its
+[load/store/scan traits](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_fwd_kernel.cuh#L24-L70)
+reuse the same shared storage at different phases, and its C512 specialization
+selects
+[32 threads x 16 items](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_fwd_kernel.cuh#L350-L364).
+The kernel folds dt bias, softplus, residual D, and an optional SiLU gate into
+the scan path, but writes raw output before the gated output and does not
+contain RMSNorm; the write sequence is visible in
+[`selective_scan_fwd_kernel.cuh`](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_fwd_kernel.cuh#L274-L303).
+Mamba's RMSNorm-plus-gate is a
+[separate one-pass kernel](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/mamba_ssm/ops/triton/layernorm_gated.py#L45-L147).
+Its BF16 input specialization also retains
+[FP32 state/weight accumulation](https://github.com/state-spaces/mamba/blob/e9594ce1c732d97440f0332fdc43170a2294dbfa/csrc/selective_scan/selective_scan_fwd_bf16.cu#L7-L10);
+BF16 input does not mean a per-token BF16 recurrent-state boundary.
 
 GDN cannot use that `float2` scan directly. Its transition contains a 128x128
 generalized Householder term, and the current BF16 rounding after each token is
@@ -151,6 +174,11 @@ P513 and 48 separate epilogue launches. It does not remove the 1,536 C16
 recurrence launches and therefore cannot by itself deliver the FP32-WY
 micro-kernel's 2.8x result.
 
+The recurrence-plus-exact-RMSNorm/SiLU shared-BF16 boundary is this project's
+own composition. Neither pinned reference implements that three-part fusion,
+so their performance results cannot be used as evidence that this candidate
+will win.
+
 The historical one-shot P513 Nsys attribution gives a planning boundary, not
 a retention result: 1,536 exact-C16 GDN calls take 488.585408 ms and 48
 standalone epilogues take 32.770496 ms, for 521.355904 ms or 339.424417 us per
@@ -194,6 +222,37 @@ baseline, global-boundary control, and shared-boundary candidate. Isolated real
 weights without the corresponding data-dependent activations and state have no
 retention authority. Until qualified evidence exists, the experimental
 incumbent and production path are unchanged.
+
+## Exact-contract experiment order after P0
+
+The references suggest mechanisms, but the measured bottleneck and exact
+contract decide their order:
+
+1. Finish P0 on the pinned P513 full-model path: baseline must record zero
+   route hits, the candidate must record 1,536 C16 hits, complete GDN state at
+   prefix and first-step boundaries must be bitwise, and only a later
+   snapshot-free mirrored timing run may make a retention decision.
+2. Inspect SASS before changing the recurrence scalars. `exp(A_log)` and
+   `dt_bias` are constant for a value head across all 16 tokens. If the compiler
+   has not lifted them, compute the two scalars once per CTA and retain them in
+   the existing shared scalar slots. This candidate must preserve zero local
+   bytes and re-establish occupancy because 64 registers x 256 threads x four
+   CTAs already fills the SM87 register file.
+3. Replace the CTA-serial 16-row epilogue with two eight-row warp batches. One
+   warp owns one token row; each lane owns dimensions `i`, `i+32`, `i+64`, and
+   `i+96`. To remain bitwise, the first pair must be
+   `(x_i^2 + x_{i+64}^2)`, the second pair
+   `(x_{i+32}^2 + x_{i+96}^2)`, followed by the existing stride-16-to-1 tree.
+   The same warp then applies gamma, SiLU(Z), and BF16-RNE output. This targets
+   CTA-wide barriers without reopening recurrent-state arithmetic.
+4. If P0 is stable, re-screen an exact persistent C512 composite on the same
+   real trajectory. It must keep packed BF16 state live but preserve every C16
+   output boundary; it must not allocate a C512 raw tile. The old synthetic
+   1.01871x result is motivation only, not retention evidence.
+5. Consider `cp.async` double buffering only after matched NCU shows a material
+   Q/K/Z global-load scoreboard stall. SM87 has LDGSTS but no TMA, WGMMA, CTA
+   clusters, or distributed shared memory; any added buffer must retain at
+   least three active CTAs/SM.
 
 ## Gates and promotion separation
 
