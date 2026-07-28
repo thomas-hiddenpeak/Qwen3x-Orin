@@ -56,6 +56,9 @@ thread_local std::size_t g_prefill_gdn_b8_admission_hits = 0U;
 // public runner and production selector therefore retain the existing route.
 thread_local bool g_enable_prefill_gdn_c16_norm_gate_admission = false;
 thread_local std::size_t g_prefill_gdn_c16_norm_gate_admission_hits = 0U;
+thread_local reference_runner_detail::
+    PrefillGdnC16NormGateAdmissionSnapshotHook
+        g_prefill_gdn_c16_norm_gate_admission_snapshot_hook{};
 #endif
 
 static_assert(kLinearQkvElements <= kReferenceIntermediateSize);
@@ -524,6 +527,13 @@ bool exchange_prefill_gdn_c16_norm_gate_admission_test_enabled(
 std::size_t exchange_prefill_gdn_c16_norm_gate_admission_test_hits(
     const std::size_t hits) noexcept {
   return std::exchange(g_prefill_gdn_c16_norm_gate_admission_hits, hits);
+}
+
+PrefillGdnC16NormGateAdmissionSnapshotHook
+exchange_prefill_gdn_c16_norm_gate_admission_snapshot_hook(
+    const PrefillGdnC16NormGateAdmissionSnapshotHook hook) noexcept {
+  return std::exchange(
+      g_prefill_gdn_c16_norm_gate_admission_snapshot_hook, hook);
 }
 #endif
 
@@ -2469,6 +2479,19 @@ ReferenceStepOutcome ReferenceRunner::step_impl(
         ReferenceRunnerError::kStateCommitFailure, "commit_token",
         kReferenceNoLayer, commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
+  // step_synchronize above makes every recurrent-state write visible before
+  // this admission-only observer runs. The callback has no return channel so
+  // test instrumentation can never change the runner's error contract.
+  const auto snapshot_hook =
+      g_prefill_gdn_c16_norm_gate_admission_snapshot_hook;
+  if (snapshot_hook.callback != nullptr) {
+    snapshot_hook.callback(
+        *state_, reference_runner_detail::
+                     PrefillGdnC16NormGateAdmissionSnapshotStage::kStep,
+        snapshot_hook.context);
+  }
+#endif
   if (options.capture_trace) {
     trace_valid_ = true;
     trace_position_ = position;
@@ -3318,6 +3341,18 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
         "prefill_tile_commit", kReferenceNoLayer,
         commit_status.cuda_error));
   }
+#if defined(Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION)
+  // prefill_tile_synchronize above completed the full C512 state transition;
+  // observe it only after the logical sequence length was committed.
+  const auto snapshot_hook =
+      g_prefill_gdn_c16_norm_gate_admission_snapshot_hook;
+  if (snapshot_hook.callback != nullptr) {
+    snapshot_hook.callback(
+        *state_, reference_runner_detail::
+                     PrefillGdnC16NormGateAdmissionSnapshotStage::kPrefixTile,
+        snapshot_hook.context);
+  }
+#endif
 
   ReferencePrefillTileResult tile;
   tile.step_count = token_count;

@@ -1040,6 +1040,34 @@ if(BUILD_TESTING)
     )
   endif()
 
+  if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
+    add_executable(q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test
+      tests/reference_gdn_prefill_c16_norm_gate_engine_e2e_test.cpp
+    )
+    target_include_directories(
+      q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test
+      PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+    )
+    target_link_libraries(
+      q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test
+      PRIVATE q3x::engine
+    )
+    q3x_enable_warnings(
+      q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test
+    )
+    add_test(NAME reference_gdn_prefill_c16_norm_gate_engine_e2e
+      COMMAND q3x_reference_gdn_prefill_c16_norm_gate_engine_e2e_test
+              "${_q3x_e2e_model_dir}"
+    )
+    set_tests_properties(
+      reference_gdn_prefill_c16_norm_gate_engine_e2e PROPERTIES
+      LABELS "e2e;model;sm87;prefill;gdn;admission;correctness;ability"
+      RUN_SERIAL TRUE
+      SKIP_RETURN_CODE 77
+      TIMEOUT 1800
+    )
+  endif()
+
   add_executable(q3x_reference_decode_graph_p1_perf_test
     tests/reference_decode_graph_p1_perf_test.cpp
   )
