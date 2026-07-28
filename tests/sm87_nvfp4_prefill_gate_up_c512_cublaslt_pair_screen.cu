@@ -26,8 +26,9 @@
 
 namespace q3x::kernels {
 
-// Test-only ABI for the admitted native C512 M64N256 pair-lookup control and
-// the complete horizontal topology comparisons selected by this screen.
+// Test-only ABI for the admitted native C512 M64N256 pair-lookup control, its
+// conflict-free three-stage complete-cell successor, and the complete
+// horizontal topology comparisons selected by this screen.
 // Keep it out of the installed header until the production route is selected.
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
@@ -38,6 +39,20 @@ launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
 
 [[nodiscard]] int
 query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_conflict_free_3stage_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m64_n256_conflict_free_3stage_resources_test_cuda(
     std::size_t token_count, std::size_t rows, std::size_t columns,
     int* registers_per_thread, std::size_t* static_shared_bytes,
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
@@ -739,6 +754,7 @@ class Execution {
 
 enum class NativeKernel : std::uint8_t {
   kM64N256PairLookup,
+  kM64N256ConflictFree3Stage,
   kM128N256HorizontalP0,
   kM128N256HorizontalNamedP1,
 };
@@ -748,6 +764,8 @@ enum class NativeKernel : std::uint8_t {
   switch (kernel) {
     case NativeKernel::kM64N256PairLookup:
       return "m64n256_pairlookup";
+    case NativeKernel::kM64N256ConflictFree3Stage:
+      return "m64n256_conflict_free_3stage";
     case NativeKernel::kM128N256HorizontalP0:
       return "m128n256_horizontal_p0";
     case NativeKernel::kM128N256HorizontalNamedP1:
@@ -808,6 +826,8 @@ enum class Variant : std::uint8_t {
   kSerialOneScratch,
   kNaiveDual,
   kStaggeredDual,
+  kNativeControlSerial,
+  kNativeControlDual,
   kNativeSerial,
   kNativeDual,
 };
@@ -822,6 +842,10 @@ enum class Variant : std::uint8_t {
       return "B_naive_two_handle_two_scratch";
     case Variant::kStaggeredDual:
       return "C_staggered_two_handle_two_scratch";
+    case Variant::kNativeControlSerial:
+      return "D0_native_pairlookup_control_serial";
+    case Variant::kNativeControlDual:
+      return "E0_native_pairlookup_control_dual";
     case Variant::kNativeSerial:
       return "D_native_selected_serial";
     case Variant::kNativeDual:
@@ -1223,6 +1247,12 @@ void print_selected_algorithm_config(
             packed, scales, weight_scale_2,
             reinterpret_cast<const std::uint16_t*>(activation), tokens, rows,
             columns, output, static_cast<void*>(stream));
+  } else if (native_kernel == NativeKernel::kM64N256ConflictFree3Stage) {
+    status = q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_conflict_free_3stage_test_cuda(
+            packed, scales, weight_scale_2,
+            reinterpret_cast<const std::uint16_t*>(activation), tokens, rows,
+            columns, output, static_cast<void*>(stream));
   } else if (native_kernel == NativeKernel::kM128N256HorizontalP0) {
     status = q3x::kernels::
         launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_test_cuda(
@@ -1288,30 +1318,40 @@ void print_selected_algorithm_config(
                      fixture.candidate_up(), main);
   }
 
-  if (variant == Variant::kNativeSerial) {
+  if (variant == Variant::kNativeControlSerial ||
+      variant == Variant::kNativeSerial) {
+    const NativeKernel native_kernel =
+        variant == Variant::kNativeControlSerial
+            ? NativeKernel::kM64N256PairLookup
+            : fixture.native_kernel;
     return launch_native_branch(
-               fixture.native_kernel,
+               native_kernel,
                fixture.gate_packed.get(), fixture.gate_scales.get(),
                fixture.gate_weight_scale_2, fixture.activation.get(),
                fixture.candidate_gate(), main) &&
            launch_native_branch(
-               fixture.native_kernel,
+               native_kernel,
                fixture.up_packed.get(), fixture.up_scales.get(),
                fixture.up_weight_scale_2, fixture.activation.get(),
                fixture.candidate_up(), main);
   }
 
-  if (variant == Variant::kNativeDual) {
+  if (variant == Variant::kNativeControlDual ||
+      variant == Variant::kNativeDual) {
+    const NativeKernel native_kernel =
+        variant == Variant::kNativeControlDual
+            ? NativeKernel::kM64N256PairLookup
+            : fixture.native_kernel;
     bool ready = cudaEventRecord(execution.fork(), main) == cudaSuccess;
     ready = ready &&
             cudaStreamWaitEvent(auxiliary, execution.fork(), 0U) == cudaSuccess;
     ready = ready && launch_native_branch(
-                         fixture.native_kernel,
+                         native_kernel,
                          fixture.gate_packed.get(), fixture.gate_scales.get(),
                          fixture.gate_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_gate(), main);
     ready = ready && launch_native_branch(
-                         fixture.native_kernel,
+                         native_kernel,
                          fixture.up_packed.get(), fixture.up_scales.get(),
                          fixture.up_weight_scale_2, fixture.activation.get(),
                          fixture.candidate_up(), auxiliary);
@@ -1890,6 +1930,12 @@ struct ComparisonResult {
             kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
             &threads, &active);
   } else if (fixture.native_kernel ==
+             NativeKernel::kM64N256ConflictFree3Stage) {
+    resource_status = q3x::kernels::
+        query_sm87_nvfp4_w4a16_gate_c512_m64_n256_conflict_free_3stage_resources_test_cuda(
+            kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
+            &threads, &active);
+  } else if (fixture.native_kernel ==
              NativeKernel::kM128N256HorizontalP0) {
     resource_status = q3x::kernels::
         query_sm87_nvfp4_w4a16_gate_c512_m128_n256_horizontal_p0_resources_test_cuda(
@@ -1903,16 +1949,21 @@ struct ComparisonResult {
   }
   const bool pair_lookup =
       fixture.native_kernel == NativeKernel::kM64N256PairLookup;
+  const bool independent_m64 =
+      pair_lookup || fixture.native_kernel ==
+                         NativeKernel::kM64N256ConflictFree3Stage;
   const std::size_t expected_static_shared = pair_lookup ? 1'536U : 512U;
   const std::size_t expected_dynamic_shared =
-      fixture.native_kernel == NativeKernel::kM128N256HorizontalP0
+      fixture.native_kernel == NativeKernel::kM64N256ConflictFree3Stage
+          ? 60'416U
+          : (fixture.native_kernel == NativeKernel::kM128N256HorizontalP0
           ? 61'440U
           : (fixture.native_kernel ==
                      NativeKernel::kM128N256HorizontalNamedP1
                  ? 61'536U
-                 : 43'008U);
-  const int expected_threads = pair_lookup ? 256 : 512;
-  const int minimum_active_blocks = pair_lookup ? 2 : 1;
+                 : 43'008U));
+  const int expected_threads = independent_m64 ? 256 : 512;
+  const int minimum_active_blocks = independent_m64 ? 2 : 1;
   const bool resource_gate =
       resource_status == static_cast<int>(cudaSuccess) && registers <= 128 &&
       static_shared == expected_static_shared &&
@@ -2046,6 +2097,11 @@ struct Options {
                                        NativeKernel& kernel) {
   if (value == "m64n256pairlookup" || value == "m64n256_pairlookup") {
     kernel = NativeKernel::kM64N256PairLookup;
+    return true;
+  }
+  if (value == "m64n256conflictfree3stage" ||
+      value == "m64n256_conflict_free_3stage" || value == "m64n256cf3") {
+    kernel = NativeKernel::kM64N256ConflictFree3Stage;
     return true;
   }
   if (value == "m128n256horizontalp0" ||
@@ -2640,6 +2696,19 @@ int main(const int argc, char** const argv) {
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
       Variant::kNativeSerial, Variant::kNativeDual,
       "native_serial_vs_native_dual", performance_checkpoint);
+  std::optional<ComparisonResult> native_control_vs_candidate_serial;
+  std::optional<ComparisonResult> native_control_vs_candidate_dual;
+  if (performance_checkpoint &&
+      fixture.native_kernel != NativeKernel::kM64N256PairLookup) {
+    native_control_vs_candidate_serial = run_bccb(
+        test, fixture, execution, main_lt, auxiliary_lt, *selected,
+        Variant::kNativeControlSerial, Variant::kNativeSerial,
+        "native_pairlookup_control_vs_selected_serial", true);
+    native_control_vs_candidate_dual = run_bccb(
+        test, fixture, execution, main_lt, auxiliary_lt, *selected,
+        Variant::kNativeControlDual, Variant::kNativeDual,
+        "native_pairlookup_control_vs_selected_dual", true);
+  }
 
   const bool serial_gate = production_vs_a.every_round_positive &&
                            std::isfinite(production_vs_a.speedup) &&
@@ -2667,8 +2736,23 @@ int main(const int argc, char** const argv) {
       std::isfinite(native_serial_vs_dual.baseline_milliseconds) &&
       std::isfinite(native_serial_vs_dual.candidate_milliseconds) &&
       std::isfinite(native_serial_vs_dual.speedup);
+  const bool native_control_comparison_finite =
+      !native_control_vs_candidate_serial.has_value() ||
+      (native_control_vs_candidate_dual.has_value() &&
+       std::isfinite(
+           native_control_vs_candidate_serial->baseline_milliseconds) &&
+       std::isfinite(
+           native_control_vs_candidate_serial->candidate_milliseconds) &&
+       std::isfinite(native_control_vs_candidate_serial->speedup) &&
+       std::isfinite(
+           native_control_vs_candidate_dual->baseline_milliseconds) &&
+       std::isfinite(
+           native_control_vs_candidate_dual->candidate_milliseconds) &&
+       std::isfinite(native_control_vs_candidate_dual->speedup));
   test.expect(native_timing_finite,
               "native and cuBLASLt head-to-head timings are finite");
+  test.expect(native_control_comparison_finite,
+              "native control and selected direct timings are finite");
   // Select the native schedule only from its direct paired comparison.  The
   // two bridge-vs-native blocks execute at different points in the process,
   // so comparing their absolute candidate times would admit clock/thermal
@@ -2687,6 +2771,14 @@ int main(const int argc, char** const argv) {
       bridge_vs_best_native.every_round_positive &&
       std::isfinite(bridge_vs_best_native.speedup) &&
       bridge_vs_best_native.speedup > 1.0;
+  const bool complete_cell_clears_control =
+      ready && native_timing_finite && native_control_comparison_finite &&
+      native_control_vs_candidate_serial.has_value() &&
+      native_control_vs_candidate_dual.has_value() &&
+      native_control_vs_candidate_serial->every_round_positive &&
+      native_control_vs_candidate_dual->every_round_positive &&
+      native_control_vs_candidate_serial->speedup >= 1.03 &&
+      native_control_vs_candidate_dual->speedup >= 1.03;
   const bool performance_admission = serial_gate && native_clears_bridge;
   if (performance_checkpoint) {
     std::cout << "NVFP4_PAIR_FINAL: production_vs_A_speedup="
@@ -2733,12 +2825,26 @@ int main(const int argc, char** const argv) {
               << " native_serial_vs_dual_every_round_positive="
               << (native_serial_vs_dual.every_round_positive ? "true"
                                                               : "false")
+              << " native_control_vs_selected_serial_speedup="
+              << (native_control_vs_candidate_serial.has_value()
+                      ? native_control_vs_candidate_serial->speedup
+                      : std::numeric_limits<double>::quiet_NaN())
+              << " native_control_vs_selected_dual_speedup="
+              << (native_control_vs_candidate_dual.has_value()
+                      ? native_control_vs_candidate_dual->speedup
+                      : std::numeric_limits<double>::quiet_NaN())
+              << " complete_cell_clears_control="
+              << (complete_cell_clears_control ? "true" : "false")
               << " recommended_native_schedule="
               << variant_name(native_recommendation)
               << " native_clears_bridge="
               << (native_clears_bridge ? "true" : "false")
               << " correctness_graph_resource_status_gate="
-              << (ready && native_timing_finite ? "PASS" : "FAIL") << '\n';
+              << (ready && native_timing_finite &&
+                          native_control_comparison_finite
+                      ? "PASS"
+                      : "FAIL")
+              << '\n';
   } else {
     std::cout << "NVFP4_PAIR_SMOKE_TIMING: production_vs_A_speedup="
               << production_vs_a.speedup
