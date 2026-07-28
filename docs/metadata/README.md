@@ -1464,6 +1464,22 @@ The diagnostic Phase 3 records are:
   skips NCU, Nsys, full-model, and production APW work, makes no measured
   L2-hit-rate claim, and selects register-fed MMA or removal of the decoded-B
   shared-memory round trip behind a 1.20x first-pair gate.
+- [`qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection.json`](qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection.json),
+  which closes that register-fed follow-up after two test-only stages.
+  Sentinel commit `28ecd4f` freezes the bijective SM87 BF16 matrix-B
+  lane/slot mapping and proves direct fragment feed bitwise against shared
+  WMMA load. K16 commit `d28acb` regresses from 6.470355 to 6.788260 ms
+  (**0.953168x**); K64-vectorized commit `0caed62` improves all six rounds but
+  moves only from 6.465014 to 6.351387 ms (**1.017890x**) against the tightened
+  **1.22x single-Gate** gate. Both C256/C512 layouts pass pair exact/Graph
+  replay, Gate/Up sidecar oracles, exhaustive x4 decode, 21 zero-node invalid
+  cases, guards, immutability, and 122-register/35,328-byte-shared/zero-local/
+  two-CTA resources. Equal-byte per-tensor sidecars and their builders remain
+  test-only; no 5.9766-GiB full-model allocation is admitted. Pair timing,
+  NCU, Nsys, full-model, production integration, Decode, and MTP are unchanged.
+  The next screen is a canonical-weight 512-thread M128 fused Gate+Up/shared-A
+  pair behind a 1.22x C512 pair gate; bulk attention is already production at
+  2.904% of the current profile.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

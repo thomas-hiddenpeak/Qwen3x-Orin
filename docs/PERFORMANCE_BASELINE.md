@@ -8260,3 +8260,94 @@ gate before broader work. The standalone APW target remains as reproducible
 negative evidence. Exact rounds, binary and log hashes, restoration semantics,
 skipped work, and limitations are frozen in the
 [Gate/Up L2 APW rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json).
+
+## NVFP4 Gate register-fed sidecar rejection
+
+The next bounded line first removes uncertainty about the SM87 WMMA fragment
+layout. Commit `28ecd4f` probes all 256 elements of one col-major BF16
+`matrix_b` tile and freezes the lane/slot mapping as
+`k=2*(lane%4)+(slot%2)+8*((slot/2)%2)`,
+`n=lane/4+8*(slot/4)`. Feeding that mapping directly into `fragment.x[]`
+produces bitwise-identical output to `wmma::load_matrix_sync` from shared
+memory, including bitwise replay, intact guards, immutable inputs, and a
+bijective 256-element probe. This sentinel validates the register interface;
+it is not itself a performance result.
+
+Commit `d28acb` then adds an isolated K16-granular Gate candidate. A remains
+in the production M128xK64 shared stage, while a same-byte
+`[N128][K16][warp8][lane32]` weight sidecar and corresponding scale sidecar
+place each packed NVFP4 value in its consuming lane. The kernel decodes B into
+registers and feeds the WMMA fragment directly, removing the decoded-B shared
+stores, shared fragment loads, and independent scale-window barrier. Commit
+`0caed62` supplies the only bounded follow-up: K64-vectorized sidecars issue
+one aligned 128-bit weight load per lane and one 64-bit scale load per
+four-lane group for all four K16 operations in a stage.
+
+Both layouts pass the full non-performance envelope at C256 and C512. The
+Gate-plus-Up comparator and Graph replay have zero mismatches across
+8,912,896/17,825,792 outputs. Gate and Up sidecar oracles independently report
+zero mismatches across 11,141,120 weight words and 2,785,280 scale words;
+the x4 decoder is exhaustive and bitwise. Each valid capture contains two
+nodes, all 21 invalid cases contain zero, outputs are finite, guards remain
+intact, and canonical tensors, activations, and built sidecars remain
+immutable. Both candidate specializations use 122 registers/thread, 35,328
+bytes static shared memory, zero local memory, 256 threads, and two CTA/SM,
+versus production's 126 registers, 37,376 shared bytes, zero local memory,
+and two CTA/SM.
+
+Each Gate or Up sidecar contains 44,564,480 weight bytes plus 5,570,560 scale
+bytes, exactly the canonical tensor's 50,135,040-byte payload. The test keeps
+both representations, and the one-time CUDA builder is outside every timing
+interval. No production sidecar is admitted: keeping Gate and Up sidecars
+alongside canonical Decode-compatible tensors over 64 layers would add
+6,417,285,120 bytes, or 5.9765625 GiB.
+
+The fixed-clock first cell is one eager C512 Gate branch with ten warmups,
+24 iterations per pass, and six `B-C-C-B` rounds. The implementation tightens
+the prior exploratory 1.20x pair idea to a **1.22x single-Gate stop-loss** so
+only a mechanism with enough pair and whole-Prefix ceiling proceeds:
+
+| Candidate | Baseline | Candidate | Speedup | Latency change | Throughput change | Round speedups |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| K16 register-fed | 6.470355 ms | 6.788260 ms | **0.953168x** | +4.913254373% | -4.683158865% | 0.953098, 0.953266, 0.953291, 0.953221, 0.952937, 0.953197 |
+| K64 register-fed | 6.465014 ms | 6.351387 ms | **1.017890x** | -1.757567733% | +1.789010810% | 1.017460, 1.017740, 1.017949, 1.017970, 1.018161, 1.018061 |
+
+K16 regresses in all six rounds. K64 is consistently positive, but its
+1.017890x aggregate remains far below 1.22x and therefore fails rather than
+being promoted on a small microbenchmark gain. Static SASS confirms that the
+intended transformation compiled without a hidden spill:
+
+| C512 Gate function | Instructions | LDG | LDS | STS | BAR | HMMA | SHFL | LDL/STL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Production | 1,800 | 13 | 67 | 49 | 11 | 16 | 4 | 0/0 |
+| K16 register-fed | 1,672 | 10 | 66 | 41 | 10 | 16 | 1 | 0/0 |
+| K64 register-fed | 1,696 | 10 | 66 | 41 | 10 | 16 | 1 | 0/0 |
+
+The frozen K16 log is 9,072 bytes with SHA-256
+`bceb613b234444c6aff5a3831a50249fa0bca4d47efab91dce8b3a20f664bd88`;
+its measured 4,847,440-byte binary has SHA-256
+`f79196ce5799470ee903404ea93496cb49c4351db2ab0d6a7ac6bbc594b5c31f`
+and build ID `6a661d49480a3c6c6793a117f74aef0ce7f88f58`. The K64 log is
+10,027 bytes with SHA-256
+`0156b7d255fc8cb7dd8215b907d0ff2f3fc0b70e66ecc1176e7983eadc3f2121`;
+its measured 4,917,720-byte binary has SHA-256
+`4932882ca2af6aa4fcaa4e929fe7b93059959723812482a93827f8d9d50575ab`
+and build ID `7082aae9bbe0e9dbdb6b6bfb12ef1653a97a896e`. The K16 path identity was
+captured before that build path was replaced by the later K64 rebuild.
+
+Gate/Up pair timing, C256 timing, NCU, Nsys, full-model evaluation, and
+production integration are skipped by the stop-loss. Returning to canonical
+weights plus lane shuffles is not measured, but it would restore gather and
+shuffle work that the equal-byte layouts already removed; it has no credible
+route to the missing roughly 20 percentage points and is not the next probe.
+The single-branch register-fed line is closed. Production Prefill, Decode,
+and MTP remain unchanged, and bulk attention remains already integrated at
+2.904% of the current profile.
+
+The next priority is a structurally different, test-only **512-thread M128
+fused Gate+Up** kernel that keeps canonical weights and shares one A stage
+across both projections. Its first C512 production-like pair must reach
+**1.22x** without a permanent sidecar before any profiler or whole-model work.
+Exact commands, commits, resources, artifacts, skipped work, and limitations
+are frozen in the
+[register-fed sidecar rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection.json).

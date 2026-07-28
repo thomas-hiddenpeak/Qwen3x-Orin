@@ -1520,8 +1520,25 @@ row-search structure without an unpriced global-progress assumption. See the
   restoration pass. No NCU, Nsys, full-model, or production APW work follows
   the stop-loss, so this makes no L2-hit-rate claim. Next screen register-fed
   MMA or removal of the decoded-B shared-memory round trip with a **1.20x
-  first-pair** gate. See the
+  first-pair** exploratory gate; the implemented, tightened follow-up is
+  completed immediately below. See the
   [L2 APW rejection](metadata/qwen36-27b-prefill-nvfp4-gate-up-l2-apw-rejection.json).
+- [rejected, Gate register-fed K16/K64 sidecars]
+  Sentinel commit `28ecd4f` freezes the bijective SM87 BF16 matrix-B
+  lane/slot mapping and proves direct `fragment.x[]` feed bitwise against a
+  shared WMMA load. Test-only commits `d28acb` and `0caed62` then remove the
+  decoded-B shared-memory round trip with equal-byte fragment-native K16 and
+  vectorized K64 sidecars. C256/C512 pair output and Graph replay are exact;
+  Gate/Up sidecar oracles, exhaustive x4 decode, 21 invalid calls, guards,
+  immutable inputs, and 122-register/35,328-byte-shared/zero-local/two-CTA
+  resources pass. K16 regresses to **0.953168x**. K64 improves all six rounds
+  but reaches only **1.017890x**, missing the tightened **1.22x single-Gate**
+  stop-loss. Pair timing, NCU, Nsys, full-model, and production integration
+  are skipped; production Prefill, Decode, and MTP remain unchanged. Do not
+  continue with canonical-plus-shuffle or allocate the projected 5.9766-GiB
+  full-model sidecar. Next screen one test-only **512-thread M128 fused
+  Gate+Up/shared-A canonical** pair at a **1.22x pair gate**. See the
+  [register-fed rejection](metadata/qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection.json).
 - [measured and rejected on real checkpoint, GDN sequential FP32-B8 and WY]
   Commit `eaa09f4` compares production M16 (`B`), sequential FP32-B8 (`S`), and a B8
   lower-triangular WY control (`W`). C256 reaches **2.76977x S** versus
@@ -1646,11 +1663,14 @@ also rejects FP32-B8: Prefix aggregate state NRMSE rises from **0.0741172** at
 P257 to **0.148576** at P1025 against a 0.01 threshold. Exact short token
 output does not override recurrent-state drift. Production therefore stays
 on exact per-token BF16 M16 GDN. FP8 large-N and NVFP4 Down M128 reuse are now
-production-complete. Gate/Up M128xN256 and the two-CTA-preserving L2 APW both
-failed their stop-losses, so the immediate main line is a new Gate/Up
-arithmetic/dataflow mechanism: register-fed MMA or removal of the decoded-B
-shared-memory round trip, beginning with a 1.20x pair gate. Bulk attention is
-already production-integrated and only 2.904% of the current profile. Bounded
+production-complete. Gate/Up M128xN256, the two-CTA-preserving L2 APW, and the
+subsequent K16/K64 single-branch register-fed sidecars all failed their frozen
+stop-losses. K64's consistent **1.017890x** is insufficient and the line is
+closed before pair/full-model work. The immediate main line is instead a
+test-only **512-thread M128 fused Gate+Up/shared-A kernel over canonical
+weights**, beginning with a **1.22x C512 pair gate** and no permanent sidecar.
+Bulk attention is already production-integrated and only 2.904% of the current
+profile. Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
 C1024 remains a low-priority single-kernel canary rather than the main route.
@@ -1667,9 +1687,9 @@ These are different runtime systems and leave directional
 user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
 a comparable result. GDN B8 admission is now closed as rejected. Continue
-the HTTP adapter and EvalScope in parallel with the register-fed Gate/Up
-screen and its traffic counters so the external baseline precedes later
-system-level optimization. Phase 3.5 remains
+the HTTP adapter and EvalScope in parallel with the canonical-weight fused
+Gate/Up shared-A screen so the external baseline precedes later system-level
+optimization. Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
 The first P65/P513 route smoke is complete: the exact checkpoint uses

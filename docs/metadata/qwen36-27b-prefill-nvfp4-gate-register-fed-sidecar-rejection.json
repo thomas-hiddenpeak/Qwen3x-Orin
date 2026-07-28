@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-register-fed-sidecar-rejection",
+  "status": "rejected-test-only-two-stage-C512-single-branch-performance-stop-loss",
+  "recorded_at": "2026-07-28T13:12:54+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_after_mapping_sentinel": {
+      "commit": "28ecd4f8ff6caaebd95b0a3c14ae4d2f2e9bd849",
+      "tree": "cc9b87f1e8916fb3d28499d5f71fdc82cff3db29",
+      "subject": "test: validate SM87 BF16 register-fed B fragments"
+    },
+    "k16_stage": {
+      "commit": "d28acb473b60ea4d80334afab0760ebc4df58112",
+      "tree": "b4bede0cf801ca32f9d2fb38ce35f82a2a5cd796",
+      "subject": "test: screen register-fed NVFP4 Gate prefill"
+    },
+    "k64_stage": {
+      "commit": "0caed629243df4505b030f9d17751035bf768ab1",
+      "tree": "2c77a8e243a0c4f8ed7d6bb669d0a55c8c3ebf27",
+      "subject": "test: prefetch register-fed Gate tiles at K64"
+    },
+    "candidate_scope": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_bf16_matrix_b_register_feed_sentinel.cu",
+      "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu"
+    ],
+    "candidate_test_only": true,
+    "production_kernel_dispatch_changed": false,
+    "production_runner_changed": false,
+    "production_workspace_changed": false,
+    "public_api_or_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "retention": "retain the sentinel and isolated BUILD_TESTING screen as reproducible evidence; neither sidecar layout nor candidate launcher is production-selected",
+    "measured_binaries": {
+      "k16_at_measurement": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 4847440,
+        "sha256": "f79196ce5799470ee903404ea93496cb49c4351db2ab0d6a7ac6bbc594b5c31f",
+        "elf_build_id": "6a661d49480a3c6c6793a117f74aef0ce7f88f58",
+        "build_type": "Release",
+        "note": "identity captured at K16 measurement time; this path was subsequently rebuilt for the K64 stage and the old binary is no longer the current path contents"
+      },
+      "k64_at_measurement": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 4917720,
+        "sha256": "4932882ca2af6aa4fcaa4e929fe7b93059959723812482a93827f8d9d50575ab",
+        "elf_build_id": "7082aae9bbe0e9dbdb6b6bfb12ef1653a97a896e",
+        "build_type": "Release"
+      }
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, deterministic checkpoint-like C256/C512 validation, and one frozen C512 single-Gate timing process per candidate stage"
+  },
+  "sm87_bf16_matrix_b_mapping_sentinel": {
+    "role": "establish the undocumented SM87 WMMA col-major matrix-B lane/fragment-slot ownership before feeding decoded BF16 values directly into fragment storage",
+    "mapping_formula": {
+      "k": "2*(lane%4)+(slot%2)+8*((slot/2)%2)",
+      "n": "lane/4+8*(slot/4)",
+      "linear": "k+16*n"
+    },
+    "probe_elements": 256,
+    "mapping_bijective": true,
+    "shared_loaded_B_vs_direct_register_fed_B_output": "bitwise_equal",
+    "shared_and_direct_replay": "bitwise_equal",
+    "guards": "intact",
+    "inputs": "immutable",
+    "outputs": "all_written_and_finite",
+    "result": "pass"
+  },
+  "experiment": {
+    "role": "one dense-MLP Gate branch; Up is included in correctness and sidecar construction but pair performance is behind the single-branch stop-loss",
+    "shape": {
+      "rows": 17408,
+      "columns": 5120,
+      "validation_token_counts": [
+        256,
+        512
+      ],
+      "timed_token_count": 512
+    },
+    "weight_format": "NVFP4 E2M1 packed with block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "baseline": {
+      "name": "public production M128xN128xK64 decoded/staged-B-reuse Gate kernel",
+      "threads_per_cta": 256,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 2,
+      "B_path": "decode B and stage it in shared memory, then load WMMA matrix-B fragments from shared memory"
+    },
+    "common_candidate_mechanism": {
+      "tile": "M128xN128xK64",
+      "threads_per_cta": 256,
+      "A_path": "retain the production shared M128xK64 activation stage",
+      "B_path": "load fragment-native packed NVFP4 lane payload, decode to BF16 registers, and assign WMMA matrix-B fragment storage directly",
+      "output_path": "retain eight ordered M16 accumulators and the existing shared output drain",
+      "removed_path": "decoded-B shared stores, shared fragment loads, and the separate scale-window barrier",
+      "hypothesis": "remove the decoded-B shared-memory round trip while preserving M128 and two CTA/SM residency"
+    },
+    "candidate_stages": {
+      "k16": {
+        "weights_layout": "[N128][K16][warp8][lane32] uint32",
+        "scales_layout": "[N128][K16][warp8][group8] uint16",
+        "global_load_granularity": "one fragment-native K16 lane word at a time"
+      },
+      "k64": {
+        "weights_layout": "[N128][K64][warp8][lane32][inner4] uint32, consumed as one aligned uint4 load per lane and K64 stage",
+        "scales_layout": "[N128][K64][warp8][group8][inner4] uint16, consumed as one aligned uint64 load by the first lane in each four-lane group and K64 stage",
+        "global_load_granularity": "prefetch all four K16 fragment payloads and scale pairs for one K64 stage"
+      }
+    },
+    "sidecars": {
+      "per_Gate_or_Up_tensor": {
+        "canonical_weight_bytes": 44564480,
+        "canonical_scale_bytes": 5570560,
+        "canonical_total_bytes": 50135040,
+        "sidecar_weight_bytes": 44564480,
+        "sidecar_scale_bytes": 5570560,
+        "sidecar_total_bytes": 50135040,
+        "same_byte_count_as_canonical": true
+      },
+      "Gate_plus_Up_test_allocation_bytes": 100270080,
+      "projected_64_layer_extra_Gate_plus_Up_bytes_if_coexisting_with_canonical": 6417285120,
+      "projected_64_layer_extra_Gate_plus_Up_gib": 5.9765625,
+      "builder_execution": "one-time CUDA layout transform outside all kernel timing",
+      "production_allocation_admitted": false,
+      "interpretation": "the layout is an equal-byte replacement candidate per tensor, but the test keeps canonical tensors for comparison; production and Decode still require canonical data, so no permanent sidecar memory is accepted"
+    },
+    "selection_gates": {
+      "first_cell": "C512 checkpoint_like single Gate branch",
+      "required_single_gate_speedup": 1.22,
+      "required_every_round_speedup": "strictly greater than 1.0",
+      "timing_order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "execution": "eager direct",
+      "stop_loss": "a single-branch miss skips Gate/Up pair timing and all downstream profiler, model, and production work"
+    }
+  },
+  "correctness_and_contracts": {
+    "variants": [
+      "k16",
+      "k64"
+    ],
+    "C256": {
+      "baseline_candidate_pair_mismatches": 0,
+      "pair_output_elements": 8912896,
+      "candidate_graph_replay_mismatches": 0
+    },
+    "C512": {
+      "baseline_candidate_pair_mismatches": 0,
+      "pair_output_elements": 17825792,
+      "candidate_graph_replay_mismatches": 0
+    },
+    "sidecar_oracle_per_Gate_or_Up": {
+      "weight_mismatches": 0,
+      "weight_words": 11141120,
+      "scale_mismatches": 0,
+      "scale_words": 2785280
+    },
+    "x4_decoder_exhaustive_mismatches": 0,
+    "x4_decoder_exhaustive_cases": 131072,
+    "valid_graph_nodes": 2,
+    "invalid_statuses": 21,
+    "invalid_cases": 21,
+    "invalid_graph_nodes": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "output_guards": "intact",
+    "sidecar_guards": "intact",
+    "canonical_weights_scales_and_activation": "immutable",
+    "sidecars": "immutable_after_build",
+    "result": "pass"
+  },
+  "resources": {
+    "production": {
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 2
+    },
+    "k16_C256_and_C512": {
+      "registers_per_thread": 122,
+      "static_shared_bytes": 35328,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 2
+    },
+    "k64_C256_and_C512": {
+      "registers_per_thread": 122,
+      "static_shared_bytes": 35328,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_blocks_per_sm": 2
+    },
+    "result": "pass"
+  },
+  "performance": {
+    "k16": {
+      "baseline_ms": 6.470355,
+      "candidate_ms": 6.788260,
+      "speedup": 0.953168,
+      "latency_change_percent": 4.913254373,
+      "throughput_change_percent": -4.683158865,
+      "round_speedups": [
+        0.953098,
+        0.953266,
+        0.953291,
+        0.953221,
+        0.952937,
+        0.953197
+      ],
+      "strict_positive_rounds": 0,
+      "required_speedup": 1.22,
+      "result": "fail"
+    },
+    "k64": {
+      "baseline_ms": 6.465014,
+      "candidate_ms": 6.351387,
+      "speedup": 1.017890,
+      "latency_change_percent": -1.757567733,
+      "throughput_change_percent": 1.789010810,
+      "round_speedups": [
+        1.017460,
+        1.017740,
+        1.017949,
+        1.017970,
+        1.018161,
+        1.018061
+      ],
+      "strict_positive_rounds": 6,
+      "required_speedup": 1.22,
+      "result": "fail"
+    },
+    "pair_timing": {
+      "run": false,
+      "reason": "both candidates miss the frozen 1.22x single-Gate stop-loss"
+    },
+    "artifacts": {
+      "k16_log": {
+        "path": "/tmp/q3x-prefill-gate-register-fed-sidecar-c512-first.log",
+        "bytes": 9072,
+        "sha256": "bceb613b234444c6aff5a3831a50249fa0bca4d47efab91dce8b3a20f664bd88",
+        "expected_exit": "nonzero solely because the single-Gate performance assertion fails after all correctness, Graph, invalid-call, sidecar, and resource gates pass"
+      },
+      "k64_log": {
+        "path": "/tmp/q3x-prefill-gate-register-fed-k64-sidecar-c512-first.log",
+        "bytes": 10027,
+        "sha256": "0156b7d255fc8cb7dd8215b907d0ff2f3fc0b70e66ecc1176e7983eadc3f2121",
+        "expected_exit": "nonzero solely because 1.017890x misses the 1.22x single-Gate requirement after every timing round and every non-performance gate pass"
+      }
+    }
+  },
+  "static_sass": {
+    "scope": "production, K16, and K64 C512 Gate function blocks",
+    "production": {
+      "instructions": 1800,
+      "LDG": 13,
+      "LDS": 67,
+      "STS": 49,
+      "BAR": 11,
+      "HMMA": 16,
+      "SHFL": 4,
+      "LDL": 0,
+      "STL": 0
+    },
+    "k16": {
+      "instructions": 1672,
+      "LDG": 10,
+      "LDS": 66,
+      "STS": 41,
+      "BAR": 10,
+      "HMMA": 16,
+      "SHFL": 1,
+      "LDL": 0,
+      "STL": 0
+    },
+    "k64": {
+      "instructions": 1696,
+      "LDG": 10,
+      "LDS": 66,
+      "STS": 41,
+      "BAR": 10,
+      "HMMA": 16,
+      "SHFL": 1,
+      "LDL": 0,
+      "STL": 0
+    },
+    "interpretation": "register feeding removes static decoded-B shared-memory and control instructions without changing the 16 HMMA operations or introducing spills, but K16 loses performance and K64 recovers only 1.789% throughput"
+  },
+  "stop_loss_and_skipped_work": {
+    "trigger": "K16 regresses to 0.953168x; K64 improves every round but reaches only 1.017890x against the frozen 1.22x gate",
+    "not_run": [
+      "Gate/Up dual-stream pair timing",
+      "C256 performance timing",
+      "candidate NCU",
+      "candidate Nsys",
+      "full-model Prefix or TTFT",
+      "production sidecar memory integration",
+      "production dispatch integration",
+      "external replication"
+    ]
+  },
+  "decision": {
+    "result": "reject production integration and close the single-branch register-fed sidecar line",
+    "closed_scope": [
+      "K16-granular fragment-native equal-byte Gate/Up sidecars with direct WMMA B-fragment feed",
+      "K64-vectorized equal-byte Gate/Up sidecars with direct WMMA B-fragment feed",
+      "further micro-tuning of this unchanged single-branch M128 register-fed arithmetic body"
+    ],
+    "reason": "K64 prefetch converts a 4.68% throughput regression into only a 1.789% gain, leaving roughly 20 percentage points to the admission gate and providing no basis for a 5.9766-GiB full-model sidecar allocation",
+    "canonical_plus_shuffle_assessment": "not implemented: returning to canonical layout would reintroduce gather/shuffle work that the equal-byte fragment-native layouts removed, so it has less credible ceiling than the rejected K64 bound and is not the next probe",
+    "next_priority": {
+      "mechanism": "test-only 512-thread M128 fused Gate+Up kernel using canonical weights and one shared-A stage across both projections",
+      "performance_scope": "C512 production-like Gate+Up pair",
+      "required_pair_speedup": 1.22,
+      "memory_constraint": "no permanent Gate/Up sidecar",
+      "rationale": "the next candidate must reuse activation and reduce the pair boundary rather than optimize the now-bounded single-branch B feed"
+    },
+    "bulk_attention_status": "already production-integrated and only 2.904% of the current profile",
+    "production_prefill_anchor": "unchanged",
+    "decode_anchor": "unchanged",
+    "mtp_used": false
+  },
+  "reproduction": {
+    "build": "cmake --build build --target q3x_sm87_bf16_matrix_b_register_feed_sentinel q3x_nvfp4_prefill_gate_register_fed_screen -j2",
+    "sentinel": "taskset -c 0 ./build/q3x_sm87_bf16_matrix_b_register_feed_sentinel",
+    "k16_C256_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=validate --tokens=256 --candidate=k16",
+    "k16_C512_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=validate --tokens=512 --candidate=k16",
+    "k64_C256_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=validate --tokens=256 --candidate=k64",
+    "k64_C512_validation": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=validate --tokens=512 --candidate=k64",
+    "k16_screen": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=screen --tokens=512 --candidate=k16",
+    "k64_screen": "taskset -c 0 ./build/q3x_nvfp4_prefill_gate_register_fed_screen --mode=screen --tokens=512 --candidate=k64",
+    "environment_requirement": "run under MAXN with CPU 0, GPU 1300500000 Hz, and EMC 3200000000 Hz read back before accepting timings"
+  },
+  "limitations": [
+    "The Gate/Up payload is deterministic and checkpoint-like rather than loaded checkpoint tensor bytes.",
+    "The sidecar builder is excluded from timing and the microbenchmark retains canonical tensors for comparison.",
+    "Only isolated single-Gate eager timing was admitted; no pair, Graph-timing, whole-layer, whole-model, API, or EvalScope performance follows.",
+    "No NCU or Nsys capture was run, so static SASS counts are structural evidence rather than measured traffic or stall attribution.",
+    "The rejection closes these two sidecar granularities and this single-branch register-fed body, not every possible fused Gate/Up dataflow."
+  ]
+}
