@@ -10077,6 +10077,329 @@ nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage_test_kernel(
   }
 }
 
+// Test-only one-CTA structural successor to the retained M64xN256 BS512
+// complete cell.  One eight-warp CTA owns M128xN256, keeping the retained
+// three-stage raw-operand pipeline, B half swizzle, K512 scale windows, exact
+// decoder, accumulation order, and coalesced epilogue.  Doubling M lets every
+// decoded B fragment feed eight ordered M16 panels while halving the CTA count.
+// Production dispatch never references this kernel.
+struct alignas(32) NvFp4GateM128N256BSwizzleScale5123PipelineStorage {
+  uint4 activations[3][1'152];  // 3 * M128 * LD72 BF16 = 55,296 B.
+  uint4 weights[3][512];        // 3 * N256 * 32 packed bytes = 24,576 B.
+  uint4 scales[2][512];         // 2 * N256 * 32 scale bytes = 16,384 B.
+};
+
+static_assert(
+    sizeof(NvFp4GateM128N256BSwizzleScale5123PipelineStorage) == 96'256U);
+
+__device__ __forceinline__ void
+issue_nvfp4_gate_m128_n256_bswizzle_3_pipeline_stage(
+    NvFp4GateM128N256BSwizzleScale5123PipelineStorage* const pipeline,
+    const unsigned int shared_slot,
+    const std::uint8_t* const canonical_weights,
+    const unsigned int first_output_column,
+    const std::uint16_t* const tile_activations,
+    const unsigned int first_k) {
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kPackedColumns = kColumns / kNvFp4ValuesPerByte;
+  constexpr unsigned int kActivationChunksPerToken = 8U;
+  constexpr unsigned int kSharedActivationChunksPerToken = 9U;
+
+  // Four CTA-wide passes cover M128 x K64 BF16 while preserving the retained
+  // LD72 shared layout and A .ca policy.
+#pragma unroll
+  for (unsigned int pass = 0U; pass < 4U; ++pass) {
+    const unsigned int index = threadIdx.x + pass * kThreads;
+    const unsigned int token = index / kActivationChunksPerToken;
+    const unsigned int chunk = index % kActivationChunksPerToken;
+    cp_async_ca_shared_global_16(
+        pipeline->activations[shared_slot] +
+            token * kSharedActivationChunksPerToken + chunk,
+        reinterpret_cast<const uint4*>(
+            tile_activations + static_cast<std::size_t>(token) * kColumns +
+            first_k) +
+            chunk);
+  }
+
+  // Keep the retained BS512 canonical-half-to-swizzled-half mapping exactly.
+#pragma unroll
+  for (unsigned int pass = 0U; pass < 2U; ++pass) {
+    const unsigned int index = threadIdx.x + pass * kThreads;
+    const unsigned int local_output_column = index / 2U;
+    const unsigned int canonical_half = index % 2U;
+    const unsigned int shared_half =
+        canonical_half ^ ((local_output_column & 4U) != 0U ? 1U : 0U);
+    const unsigned int output_column =
+        first_output_column + local_output_column;
+    const auto* const packed_row =
+        canonical_weights +
+        static_cast<std::size_t>(output_column) * kPackedColumns +
+        first_k / 2U;
+    cp_async_cg_shared_global_16(
+        pipeline->weights[shared_slot] + local_output_column * 2U +
+            shared_half,
+        packed_row + canonical_half * sizeof(uint4));
+  }
+  cp_async_commit_group();
+}
+
+__device__ __forceinline__ void
+issue_nvfp4_gate_m128_n256_bswizzle_scale512_window(
+    NvFp4GateM128N256BSwizzleScale5123PipelineStorage* const pipeline,
+    const unsigned int shared_slot,
+    const std::uint8_t* const canonical_scales,
+    const unsigned int first_output_column,
+    const unsigned int first_window_k) {
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kScaleColumns = kColumns / kNvFp4GroupSize;
+#pragma unroll
+  for (unsigned int pass = 0U; pass < 2U; ++pass) {
+    const unsigned int index = threadIdx.x + pass * kThreads;
+    const unsigned int local_output_column = index / 2U;
+    const unsigned int canonical_half = index % 2U;
+    const unsigned int shared_half =
+        canonical_half ^ ((local_output_column & 4U) != 0U ? 1U : 0U);
+    const unsigned int output_column =
+        first_output_column + local_output_column;
+    cp_async_cg_shared_global_16(
+        pipeline->scales[shared_slot] + local_output_column * 2U +
+            shared_half,
+        canonical_scales +
+            static_cast<std::size_t>(output_column) * kScaleColumns +
+            first_window_k / kNvFp4GroupSize +
+            canonical_half * sizeof(uint4));
+  }
+}
+
+__global__ __launch_bounds__(kThreads, 1) void
+nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kRows = 17'408U;
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kTokenCount = 512U;
+  constexpr unsigned int kResidentTokenCount = 128U;
+  constexpr unsigned int kPanelTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 256U;
+  constexpr unsigned int kOutputColumnsPerWarp = 32U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kSharedLeadingDimension = 72U;
+  constexpr unsigned int kK64StageCount = kColumns / kColumnsPerStage;
+  constexpr unsigned int kM128TileCount =
+      kTokenCount / kResidentTokenCount;
+  constexpr unsigned int kOutputColumnBlockCount =
+      kRows / kOutputColumnsPerBlock;
+  static_assert(kK64StageCount == 80U);
+  static_assert(kM128TileCount == 4U);
+  static_assert(kOutputColumnBlockCount == 68U);
+  static_assert(kM128TileCount * kOutputColumnBlockCount == 272U);
+
+  __shared__ NvFp4M32ProductLookupStorage<true, true> product_lookup;
+  extern __shared__ __align__(32) std::uint8_t dynamic_storage[];
+  auto* const pipeline = reinterpret_cast<
+      NvFp4GateM128N256BSwizzleScale5123PipelineStorage*>(dynamic_storage);
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const unsigned int lane = thread % kWarpSize;
+  const unsigned int lane_group = lane / 4U;
+  const unsigned int lane_in_group = lane % 4U;
+  const unsigned int shared_half_swizzle = lane & 16U;
+  product_lookup.scale_values[thread] = encode_bf16_rne(
+      decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  __syncthreads();
+
+  const unsigned int output_column_block = blockIdx.x / kM128TileCount;
+  const unsigned int token_tile = blockIdx.x % kM128TileCount;
+  const unsigned int first_output_column =
+      output_column_block * kOutputColumnsPerBlock;
+  const std::size_t first_token =
+      static_cast<std::size_t>(token_tile) * kResidentTokenCount;
+  const std::uint16_t* const tile_activations =
+      activations + first_token * kColumns;
+  std::uint16_t* const tile_output = output + first_token * kRows;
+
+  // Thirty-two m16n8 accumulators are the structural cost of assigning one
+  // eight-warp CTA the complete M128xN256 output tile: 128 FP32 accumulator
+  // registers per thread before decode, address, and epilogue temporaries.
+  InlineM16N8Accumulator accumulators[8][4];
+#pragma unroll
+  for (unsigned int m_panel = 0U; m_panel < 8U; ++m_panel) {
+#pragma unroll
+    for (unsigned int n_panel = 0U; n_panel < 4U; ++n_panel) {
+      accumulators[m_panel][n_panel] =
+          InlineM16N8Accumulator{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+  }
+
+  issue_nvfp4_gate_m128_n256_bswizzle_scale512_window(
+      pipeline, 0U, block_scales, first_output_column, 0U);
+  issue_nvfp4_gate_m128_n256_bswizzle_3_pipeline_stage(
+      pipeline, 0U, packed_weights, first_output_column, tile_activations,
+      0U);
+  issue_nvfp4_gate_m128_n256_bswizzle_scale512_window(
+      pipeline, 1U, block_scales, first_output_column,
+      8U * kColumnsPerStage);
+  issue_nvfp4_gate_m128_n256_bswizzle_3_pipeline_stage(
+      pipeline, 1U, packed_weights, first_output_column, tile_activations,
+      kColumnsPerStage);
+  issue_nvfp4_gate_m128_n256_bswizzle_3_pipeline_stage(
+      pipeline, 2U, packed_weights, first_output_column, tile_activations,
+      2U * kColumnsPerStage);
+
+  cp_async_wait_group_2();
+  __syncthreads();
+#pragma unroll 1
+  for (unsigned int super_window = 0U; super_window < 10U;
+       ++super_window) {
+    if (super_window > 0U && super_window < 9U) {
+      issue_nvfp4_gate_m128_n256_bswizzle_scale512_window(
+          pipeline, (super_window + 1U) % 2U, block_scales,
+          first_output_column,
+          (super_window + 1U) * 8U * kColumnsPerStage);
+    }
+
+#pragma unroll 1
+    for (unsigned int phase = 0U; phase < 8U; ++phase) {
+      const unsigned int stage = super_window * 8U + phase;
+      if (stage > 0U && stage + 2U < kK64StageCount) {
+        const unsigned int future_stage = stage + 2U;
+        issue_nvfp4_gate_m128_n256_bswizzle_3_pipeline_stage(
+            pipeline, future_stage % 3U, packed_weights,
+            first_output_column, tile_activations,
+            future_stage * kColumnsPerStage);
+      }
+
+      const unsigned int shared_slot = stage % 3U;
+      const unsigned int shared_scale_slot = (stage / 8U) % 2U;
+      const auto* const shared_a = reinterpret_cast<const __nv_bfloat16*>(
+          pipeline->activations[shared_slot]);
+      const auto* const shared_b = reinterpret_cast<const std::uint8_t*>(
+          pipeline->weights[shared_slot]);
+      const auto* const shared_scales =
+          reinterpret_cast<const std::uint8_t*>(
+              pipeline->scales[shared_scale_slot]);
+#pragma unroll
+      for (unsigned int k16 = 0U; k16 < 4U; ++k16) {
+        uint2 decoded_b[4];
+        const unsigned int swizzled_packed_offset =
+            ((k16 * 8U) ^ shared_half_swizzle) + lane_in_group;
+        const unsigned int swizzled_scale_offset =
+            (((stage & 7U) * 4U) ^ shared_half_swizzle) + k16;
+#pragma unroll
+        for (unsigned int n_panel = 0U; n_panel < 4U; ++n_panel) {
+          const unsigned int shared_row_index =
+              warp * kOutputColumnsPerWarp + n_panel * 8U + lane_group;
+          const auto* const shared_row = shared_b + shared_row_index * 32U;
+          const auto* const shared_scale_row =
+              shared_scales + shared_row_index * 32U;
+          const std::uint16_t packed =
+              static_cast<std::uint16_t>(
+                  shared_row[swizzled_packed_offset]) |
+              static_cast<std::uint16_t>(
+                  static_cast<unsigned int>(
+                      shared_row[swizzled_packed_offset + 4U])
+                  << 8U);
+          const std::uint8_t encoded_scale =
+              shared_scale_row[swizzled_scale_offset];
+          decoded_b[n_panel] = decode_nvfp4x4_to_bf16x4_table_free_vector(
+              packed, product_lookup.scale_values[encoded_scale]);
+        }
+
+#pragma unroll
+        for (unsigned int m_panel = 0U; m_panel < 8U; ++m_panel) {
+          wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                         wmma::row_major>
+              activation_fragment;
+          wmma::load_matrix_sync(
+              activation_fragment,
+              shared_a +
+                  m_panel * kPanelTokenCount * kSharedLeadingDimension +
+                  k16 * 16U,
+              kSharedLeadingDimension);
+          const std::uint32_t a0 = pack_bf16_fragment_pair(
+              activation_fragment.x[0], activation_fragment.x[1]);
+          const std::uint32_t a1 = pack_bf16_fragment_pair(
+              activation_fragment.x[2], activation_fragment.x[3]);
+          const std::uint32_t a2 = pack_bf16_fragment_pair(
+              activation_fragment.x[4], activation_fragment.x[5]);
+          const std::uint32_t a3 = pack_bf16_fragment_pair(
+              activation_fragment.x[6], activation_fragment.x[7]);
+#pragma unroll
+          for (unsigned int n_panel = 0U; n_panel < 4U; ++n_panel) {
+            mma_m16n8k16_bf16(accumulators[m_panel][n_panel], a0, a1, a2,
+                              a3, decoded_b[n_panel].x,
+                              decoded_b[n_panel].y);
+          }
+        }
+      }
+
+      if (stage + 1U < kK64StageCount) {
+        if (stage + 1U == kK64StageCount - 1U) {
+          cp_async_wait_group_0();
+        } else {
+          cp_async_wait_group_1();
+        }
+        __syncthreads();
+      }
+    }
+  }
+  cp_async_wait_group_0();
+  __syncthreads();
+
+#pragma unroll
+  for (unsigned int m_panel = 0U; m_panel < 8U; ++m_panel) {
+#pragma unroll
+    for (unsigned int n_pair = 0U; n_pair < 2U; ++n_pair) {
+      const InlineM16N8Accumulator accumulator_a =
+          accumulators[m_panel][2U * n_pair];
+      const InlineM16N8Accumulator accumulator_b =
+          accumulators[m_panel][2U * n_pair + 1U];
+      const bool even_group = (lane & 4U) == 0U;
+      const unsigned int octet = lane >> 3U;
+      const unsigned int local_column0 =
+          warp * kOutputColumnsPerWarp + n_pair * 16U +
+          2U * (lane & 7U);
+
+      const std::uint32_t low_a = pack_scaled_bf16_output_pair(
+          accumulator_a.x0, accumulator_a.x1, weight_scale_2);
+      const std::uint32_t low_b = pack_scaled_bf16_output_pair(
+          accumulator_b.x0, accumulator_b.x1, weight_scale_2);
+      const std::uint32_t low_peer = __shfl_xor_sync(
+          0xffff'ffffU, even_group ? low_b : low_a, 4, 8);
+      const std::uint32_t low_even = even_group ? low_a : low_peer;
+      const std::uint32_t low_odd = even_group ? low_peer : low_b;
+      const unsigned int low_even_token =
+          m_panel * kPanelTokenCount + 2U * octet;
+      *reinterpret_cast<std::uint32_t*>(
+          tile_output + static_cast<std::size_t>(low_even_token) * kRows +
+          first_output_column + local_column0) = low_even;
+      *reinterpret_cast<std::uint32_t*>(
+          tile_output +
+          static_cast<std::size_t>(low_even_token + 1U) * kRows +
+          first_output_column + local_column0) = low_odd;
+
+      const std::uint32_t high_a = pack_scaled_bf16_output_pair(
+          accumulator_a.x2, accumulator_a.x3, weight_scale_2);
+      const std::uint32_t high_b = pack_scaled_bf16_output_pair(
+          accumulator_b.x2, accumulator_b.x3, weight_scale_2);
+      const std::uint32_t high_peer = __shfl_xor_sync(
+          0xffff'ffffU, even_group ? high_b : high_a, 4, 8);
+      const std::uint32_t high_even = even_group ? high_a : high_peer;
+      const std::uint32_t high_odd = even_group ? high_peer : high_b;
+      const unsigned int high_even_token = low_even_token + 8U;
+      *reinterpret_cast<std::uint32_t*>(
+          tile_output + static_cast<std::size_t>(high_even_token) * kRows +
+          first_output_column + local_column0) = high_even;
+      *reinterpret_cast<std::uint32_t*>(
+          tile_output +
+          static_cast<std::size_t>(high_even_token + 1U) * kRows +
+          first_output_column + local_column0) = high_odd;
+    }
+  }
+}
+
 // Test-only vertical-reuse successor to the frozen M64xN256 cell above. One
 // 256-thread CTA owns M128xN128. Each warp owns M128xN16 and carries sixteen
 // m16n8 accumulators: two adjacent N8 panels share every one of the eight
@@ -30352,6 +30675,93 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage_resources
 
   const auto kernel =
       nvfp4_w4a16_gate_c512_m64_n256_bswizzle_scale512_3stage_test_kernel;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes = static_cast<int>(
+      sizeof(NvFp4GateM128N256BSwizzleScale5123PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 256U) * (512U / 128U);
+  static_assert(kGrid == 272U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<32U>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes = static_cast<int>(
+      sizeof(NvFp4GateM128N256BSwizzleScale5123PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m128_n256_bswizzle_scale512_3stage_256t_test_kernel;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
