@@ -22,9 +22,24 @@ option(Q3X_BUILD_GDN_B8_ADMISSION
   "Build the rejected/test-only Prefill GDN B8 real-checkpoint route"
   OFF
 )
+option(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION
+  "Build the test-only exact-C16 GDN norm/gate admission route"
+  OFF
+)
 if(Q3X_BUILD_GDN_B8_ADMISSION AND NOT BUILD_TESTING)
   message(FATAL_ERROR
     "Q3X_BUILD_GDN_B8_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION AND NOT BUILD_TESTING)
+  message(FATAL_ERROR
+    "Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION is test-only and requires BUILD_TESTING=ON"
+  )
+endif()
+if(Q3X_BUILD_GDN_B8_ADMISSION AND
+   Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
+  message(FATAL_ERROR
+    "The GDN B8 and C16 norm/gate admission routes are mutually exclusive"
   )
 endif()
 
@@ -145,6 +160,14 @@ target_compile_options(q3x_kernels PRIVATE
 if(Q3X_BUILD_GDN_B8_ADMISSION)
   target_compile_definitions(q3x_kernels PRIVATE
     Q3X_ENABLE_GDN_B8_ADMISSION=1
+  )
+endif()
+if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
+  target_sources(q3x_kernels PRIVATE
+    src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
+  )
+  target_compile_definitions(q3x_kernels PRIVATE
+    Q3X_ENABLE_GDN_C16_NORM_GATE_ADMISSION=1
   )
 endif()
 q3x_enable_warnings(q3x_kernels)
@@ -788,12 +811,13 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Isolated exact-C16 GDN plus plain-RMSNorm/SiLU epilogue screen. Both the
-  # shared-BF16-boundary candidate and its global-boundary control live only
-  # in this executable; production dispatch, public ABI, and q3x_kernels SASS
-  # remain unchanged.
+  # Isolated exact-C16 GDN plus plain-RMSNorm/SiLU epilogue screen. The same
+  # private implementation is compiled into this executable by default. In
+  # an opt-in admission build the executable links the q3x_kernels copy and
+  # compiles only its standalone harness.
   add_executable(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
     tests/gdn_prefill_c16_norm_gate_sm87_candidate.cu
+    src/kernels/reference/gdn_prefill_c16_norm_gate_sm87.cu
   )
   target_link_libraries(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
     PRIVATE q3x::core q3x::kernels
@@ -801,6 +825,14 @@ if(BUILD_TESTING)
   target_compile_options(q3x_gdn_prefill_c16_norm_gate_sm87_candidate PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr;-Xptxas=-v>
   )
+  target_compile_definitions(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
+    PRIVATE Q3X_GDN_C16_NORM_GATE_STANDALONE=1
+  )
+  if(Q3X_BUILD_GDN_C16_NORM_GATE_ADMISSION)
+    target_compile_definitions(q3x_gdn_prefill_c16_norm_gate_sm87_candidate
+      PRIVATE Q3X_GDN_C16_NORM_GATE_USE_LINKED_IMPLEMENTATION=1
+    )
+  endif()
   q3x_enable_warnings(q3x_gdn_prefill_c16_norm_gate_sm87_candidate)
   add_test(NAME gdn_prefill_c16_norm_gate_sm87_candidate
     COMMAND q3x_gdn_prefill_c16_norm_gate_sm87_candidate
