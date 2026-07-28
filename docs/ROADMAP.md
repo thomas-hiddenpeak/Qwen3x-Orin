@@ -1867,3 +1867,54 @@ Every versioned release must include:
 Work may move between phases when measurements justify it, but correctness,
 metadata-driven compatibility, bounded memory, and license provenance remain
 release gates rather than optional cleanup.
+
+## 2026-07-28 — FP8 QKV register-feed first cell admitted (test-only)
+
+The first traffic-changing exact-C512 QKV cell is admitted to the next
+validation stage, but not to production. The test-only M128 candidate keeps
+the production 320-CTA/256-thread ownership and tensor-core work, stages raw A
+and fragment-native FP8 B through a kernel-local three-stage `cp.async`
+pipeline, and feeds decoded B directly into SM87 matrix-B registers. It uses
+128 registers/thread, 512 B static plus 79,872 B dynamic shared memory, zero
+local memory, and two CTA/SM. Resource, 20/20 zero-node invalid-call, distinct
+one-node Graph, direct plus two-replay bit-exact, 512 classified-NaN
+class/sign, guard, and canonical/sidecar/activation immutability gates pass.
+
+Three independent fixed-clock six-round `B-C-C-B` screens improve the
+production QKV cell from **4.799783/4.800503/4.800989 ms** to
+**3.435969/3.435714/3.435648 ms**, or
+**1.396923x/1.397236x/1.397404x**. All 18 rounds reach at least
+**1.396620x**, clearing the frozen 1.15x per-round and 1.20x aggregate gates.
+The three-process mean is **4.800425 -> 3.435777 ms (1.397188x)**.
+
+The read-only pinned checkpoint gate now passes as well. The harness loads
+`model.language_model.layers.0.linear_attn.in_proj_qkv.weight` from shard 1 of
+`/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4`: an F8_E4M3
+`[10240,5120]` tensor containing 52,428,800 bytes. Direct plus two Graph
+replays compare all 5,242,880 outputs with zero mismatches; the real tensor
+produces zero classified NaNs, and guard plus checkpoint/sidecar/activation
+immutability gates pass. Three independent fixed-clock processes improve
+**4.178001/4.178927/4.177282 ms** to
+**3.210967/3.211047/3.210388 ms**, or
+**1.301166x/1.301422x/1.301177x**. All 18 rounds are at least
+**1.300979x**; their three-process mean is
+**4.178070 -> 3.210801 ms (1.301255x)**.
+
+This result must not be described as unchanged global traffic. Matched NCU
+keeps HMMA work equal at 13,107,200 instructions, but global-load requests rise
+from **629.15 to 681.57 MB**, an additional **52,428,800 bytes** on the
+`LDGSTS` path; L1 miss traffic rises from 628.25 to 681.57 MB, LTS traffic from
+638.81 to 849.42 MB, and DRAM-read utilization from 15.85% to 22.08%. The
+candidate still falls from **4.80 to 3.47 ms**, while long-scoreboard stalls
+fall from **1.70 to 0.09**. Those matched NCU counters come from the synthetic
+cell and support the isolated latency-hiding mechanism; they are not
+full-model evidence. The separate pinned-checkpoint timing above supplies the
+real-weight first-cell evidence.
+
+Next, require mirrored full-P513 performance with generated-token and Decode
+non-regression gates. A production design must also avoid long-term
+canonical/sidecar dual residency: admission requires a single-resident
+representation or another bounded ownership scheme serving both Prefill and
+Decode, followed by explicit production-dispatch validation. Production
+dispatch stays frozen until those gates pass. See the
+[register-feed first-cell record](metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-benchmark.json).

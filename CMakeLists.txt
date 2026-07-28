@@ -284,6 +284,28 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated FP8 QKV dataflow candidate. The production route remains frozen;
+  # this target screens an equal-byte fragment-native sidecar, a three-stage
+  # raw A/B cp.async pipeline, and direct matrix_b register feed at exact C512.
+  add_executable(q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
+    tests/sm87_fp8_prefill_qkv_m128_cp_async_register_feed_screen.cu
+  )
+  target_link_libraries(
+    q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(
+    q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
+  )
+  add_test(NAME fp8_prefill_qkv_m128_cp_async_register_feed_screen
+    COMMAND q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
+  )
+  set_tests_properties(
+    fp8_prefill_qkv_m128_cp_async_register_feed_screen PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   # Test-only SM87 sentinel for the lane/slot layout used when a BF16 WMMA
   # matrix_b fragment is fed directly from registers instead of shared memory.
   add_executable(q3x_sm87_bf16_matrix_b_register_feed_sentinel

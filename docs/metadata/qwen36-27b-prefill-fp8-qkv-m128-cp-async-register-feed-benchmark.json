@@ -1,0 +1,405 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-benchmark",
+  "status": "admitted-test-only-first-cell-real-checkpoint-passed-pending-full-P513-memory-and-production-gates",
+  "recorded_at": "2026-07-28T14:45:03+08:00",
+  "timezone": "Asia/Shanghai",
+  "decision_summary": [
+    "Admit the exact-C512 FP8 QKV M128 cp.async/register-feed implementation only as a positive test-only first cell with its pinned layer-0 real-checkpoint gate passed. Production dispatch, the model runner, Decode, and MTP remain unchanged.",
+    "Three independent fixed-clock six-round B-C-C-B screens improve the production M128 QKV baseline from a three-process mean of 4.800425 ms to 3.435777 ms, or 1.397187593956x. All 18 round speedups are at least 1.396620x and clear the frozen 1.15x per-round and 1.20x aggregate gates.",
+    "The candidate retains the same logical FP8 weight payload and the same 13,107,200 executed HMMA instructions, but Nsight Compute does not show unchanged global traffic: measured global-load sector requests rise from 629.15 MB to 681.57 MB, an exact logical-size delta of 52,428,800 bytes attributable to the LDGSTS path. L2 traffic and DRAM read utilization rise as well.",
+    "The matched profiler evidence is nevertheless consistent with useful latency hiding: long-scoreboard stalls fall from 1.70 to 0.09 per issue-active interval while duration falls from 4.80 to 3.47 ms. This is profiler evidence for this isolated synthetic cell, not a production or full-model claim.",
+    "The read-only pinned layer-0 linear_attn.in_proj_qkv.weight tensor passes direct plus two-Graph-replay bitwise correctness and three independent fixed-clock timing processes at 1.301166x to 1.301422x; all 18 rounds are at least 1.300979x.",
+    "The remaining promotion gates are a full P513 model comparison, production memory ownership, and production dispatch validation. Any retained design must avoid long-term simultaneous residency of canonical and fragment-native sidecar weights; promotion requires a single-resident representation or another bounded ownership plan that also preserves Decode correctness."
+  ],
+  "source": {
+    "experiment_base_head": "49215153349c7d13946509c8075a0ed0043b27c8",
+    "experiment_base_tree": "f29bae6d446990297e0e675d8d4f68ba273736fe",
+    "experiment_base_subject": "docs: record split-M64 FP8 QKV rejection",
+    "measurement_state": "test-only candidate measured from the working tree before its source commit",
+    "candidate_scope": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_fp8_prefill_qkv_m128_cp_async_register_feed_screen.cu"
+    ],
+    "candidate_file_sha256": {
+      "CMakeLists.txt": "9c8cfdff9090f654a3fe4b2bae6d0742d7d2e450b21dd9bdedf5c766f7f33c3b",
+      "src/kernels/sm87/weight_only_gemv.cu": "bd3805a610db11d7c8eed27d9ac5d814745d0001c6d5dc5eca6b477d38be7bdd",
+      "tests/sm87_fp8_prefill_qkv_m128_cp_async_register_feed_screen.cu": "8cef2acaa91eff4a3f1b945c4ec2348ea191ed8cc930a5442d831e72bc0bd2de"
+    },
+    "candidate_test_only": true,
+    "standalone_test_target": "q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen",
+    "ctest_name": "fp8_prefill_qkv_m128_cp_async_register_feed_screen",
+    "production_dispatch_changed": false,
+    "production_kernel_selection_changed": false,
+    "runner_changed": false,
+    "public_header_or_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "measured_binary": {
+      "path": "build/q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen",
+      "bytes": 5203560,
+      "sha256": "f8a88fdb8159e0aaf711fc9bed060961e1c4a179ec610ae0163bdcd37758e996",
+      "elf_build_id": "d60f9947276a13fd42f3b5b6075f9ddfccd372c2",
+      "build_type": "Release",
+      "identity_boundary": "This is the binary used for the pinned-checkpoint measurements. It predates a source-only marker-label correction from an incorrect global-traffic-unchanged label to measured_global_requests_unchanged=false; kernel code, validation, and arithmetic are unchanged by that later one-line label correction."
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, one deterministic checkpoint-like synthetic exact-C512 QKV fixture, one read-only pinned layer-0 checkpoint tensor, three independent eager timing processes per payload, and matched synthetic-cell single-kernel Nsight Compute captures"
+  },
+  "experiment": {
+    "phase": "Prefill",
+    "role": "compare the public production FP8 whole-chunk M128 QKV kernel with one test-only traffic-changing M128 implementation",
+    "shape": {
+      "notation": "[M512,N10240,K5120]",
+      "token_count_M": 512,
+      "rows_N": 10240,
+      "columns_K": 5120,
+      "output_elements": 5242880,
+      "strict_shape_only": true
+    },
+    "weight_format": {
+      "baseline": "canonical row-major E4M3FN FP8",
+      "candidate": "equal-byte fragment-native E4M3FN FP8 sidecar",
+      "weight_scale": 0.00100708,
+      "canonical_tensor_bytes": 52428800,
+      "sidecar_tensor_bytes": 52428800,
+      "sidecar_layout": "[N128 block 80][K64 stage 80][K16 plane 4][thread 256][fragment slot 8 bytes]",
+      "sidecar_mapping": {
+        "nlocal": "warp*16 + lane/4 + 8*(slot/4)",
+        "klocal": "k16*16 + 2*(lane%4) + (slot%2) + 8*((slot/2)%2)",
+        "host_repack_bijection_elements_per_N128_K64_tile": 8192,
+        "host_repack_bijection_result": "pass"
+      },
+      "long_term_dual_residency_allowed": false
+    },
+    "activation_and_output_format": "BF16",
+    "baseline": {
+      "name": "public production FP8 M128xN128 whole-chunk QKV kernel",
+      "grid": [320, 1, 1],
+      "block": [256, 1, 1],
+      "dynamic_shared_bytes": 0
+    },
+    "candidate": {
+      "name": "test-only FP8 QKV M128 triple-stage raw-A/B cp.async register-feed kernel",
+      "grid": [320, 1, 1],
+      "block": [256, 1, 1],
+      "mapping": "retain production M128xN128 CTA ownership and eight ordered M16 accumulator panels per warp",
+      "pipeline": [
+        "Stage raw M128xK64 BF16 A and fragment-native N128xK64 FP8 B through three dynamic-shared slots using cp.async.",
+        "Decode each K16 B plane from raw shared bytes directly into the frozen SM87 matrix_b fragment registers.",
+        "Remove the production decoded-B shared stores, decoded-B ldmatrix reads, and the second K64 synchronization boundary while retaining exact HMMA ordering."
+      ],
+      "system_double_buffered": false,
+      "system_triple_buffered": false,
+      "kernel_local_triple_stage_pipeline_only": true,
+      "production_dispatch": "unchanged"
+    },
+    "selection_gates": {
+      "first_cell": "strict C512 QKV [10240,5120] with deterministic checkpoint-like synthetic E4M3FN weights",
+      "real_checkpoint_cell": "strict C512 QKV layer0 linear_attn.in_proj_qkv.weight from the pinned local Qwen3.6-27B-NVFP4 checkpoint",
+      "required_aggregate_speedup": 1.2,
+      "required_every_round_speedup": 1.15,
+      "required_strict_positive_rounds": 18,
+      "timing_order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds_per_process": 6,
+      "independent_processes": 3,
+      "execution": "eager direct",
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "l2_scrub_inside_timing": false
+    }
+  },
+  "validation": {
+    "resources": {
+      "candidate": {
+        "registers_per_thread": 128,
+        "maximum_allowed_registers_per_thread": 128,
+        "static_shared_bytes": 512,
+        "dynamic_shared_bytes": 79872,
+        "total_shared_bytes": 80384,
+        "local_bytes": 0,
+        "threads_per_cta": 256,
+        "active_blocks_per_sm": 2,
+        "resident_warps_per_sm": 16
+      },
+      "result": "pass"
+    },
+    "invalid_graph": {
+      "invalid_statuses": 20,
+      "invalid_cases": 20,
+      "expected_status": "cudaErrorInvalidValue",
+      "captured_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "valid_graph": {
+      "baseline": {
+        "kernel_nodes": 1,
+        "grid": [320, 1, 1],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 0
+      },
+      "candidate": {
+        "kernel_nodes": 1,
+        "grid": [320, 1, 1],
+        "block": [256, 1, 1],
+        "dynamic_shared_bytes": 79872,
+        "graph_replays": 2
+      },
+      "kernel_functions_distinct": true,
+      "result": "pass"
+    },
+    "correctness": {
+      "fixture": "deterministic checkpoint-like synthetic canonical E4M3FN weights at scalar scale 0.00100708 and BF16 activations",
+      "raw_E4M3_code_coverage": {
+        "codes": 256,
+        "byte_positions_per_uint32": 4,
+        "covered_code_position_pairs": 1024,
+        "result": "pass"
+      },
+      "direct_baseline_candidate_mismatches": 0,
+      "first_graph_replay_mismatches": 0,
+      "second_graph_replay_mismatches": 0,
+      "compared_output_elements_per_comparison": 5242880,
+      "classified_nan_outputs": 512,
+      "nan_class_or_sign_mismatches": 0,
+      "unexpected_nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "canonical_weights_sidecar_and_activations": "immutable",
+      "result": "pass"
+    },
+    "pinned_checkpoint_layer0_correctness": {
+      "checkpoint_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "harness_mode": "--checkpoint=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "checkpoint_access": "read-only",
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "user_facing_tensor_name": "layer0 linear_attn.in_proj_qkv.weight",
+      "shard": "model-00001-of-00003.safetensors",
+      "storage_dtype": "F8_E4M3",
+      "shape": [10240, 5120],
+      "bytes": 52428800,
+      "direct_baseline_candidate_mismatches": 0,
+      "first_graph_replay_mismatches": 0,
+      "second_graph_replay_mismatches": 0,
+      "compared_output_elements_per_comparison": 5242880,
+      "classified_nan_outputs": 0,
+      "nan_class_or_sign_mismatches": 0,
+      "unexpected_nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "checkpoint_weights_sidecar_and_activations": "immutable",
+      "result": "pass"
+    }
+  },
+  "fixed_clock_microbenchmark": {
+    "protocol": {
+      "independent_processes": 3,
+      "rounds_per_process": 6,
+      "total_rounds": 18,
+      "order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "scrub_outside_timed_events": true,
+      "timing_boundary": "CUDA events on one nonblocking stream around 24 eager launches"
+    },
+    "processes": [
+      {
+        "process": 1,
+        "baseline_ms": 4.799783,
+        "candidate_ms": 3.435969,
+        "speedup": 1.396923,
+        "aggregate_gate": "pass"
+      },
+      {
+        "process": 2,
+        "baseline_ms": 4.800503,
+        "candidate_ms": 3.435714,
+        "speedup": 1.397236,
+        "aggregate_gate": "pass"
+      },
+      {
+        "process": 3,
+        "baseline_ms": 4.800989,
+        "candidate_ms": 3.435648,
+        "speedup": 1.397404,
+        "aggregate_gate": "pass"
+      }
+    ],
+    "three_process_mean": {
+      "baseline_ms": 4.800425,
+      "candidate_ms": 3.435777,
+      "saving_ms": 1.364648,
+      "speedup": 1.397187593956,
+      "latency_reduction_percent": 28.427649635
+    },
+    "minimum_of_18_round_speedups": 1.396620,
+    "rounds_clearing_1_15x_gate": 18,
+    "rounds_measured": 18,
+    "aggregate_processes_clearing_1_20x_gate": 3,
+    "aggregate_processes_measured": 3,
+    "result": "pass"
+  },
+  "fixed_clock_pinned_checkpoint_layer0_microbenchmark": {
+    "payload": {
+      "checkpoint_directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "shard": "model-00001-of-00003.safetensors",
+      "storage_dtype": "F8_E4M3",
+      "shape": [10240, 5120],
+      "bytes": 52428800,
+      "checkpoint_access": "read-only"
+    },
+    "protocol": {
+      "independent_processes": 3,
+      "rounds_per_process": 6,
+      "total_rounds": 18,
+      "order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "scrub_outside_timed_events": true,
+      "timing_boundary": "CUDA events on one nonblocking stream around 24 eager launches"
+    },
+    "processes": [
+      {
+        "process": 1,
+        "baseline_ms": 4.178001,
+        "candidate_ms": 3.210967,
+        "speedup": 1.301166,
+        "aggregate_gate": "pass"
+      },
+      {
+        "process": 2,
+        "baseline_ms": 4.178927,
+        "candidate_ms": 3.211047,
+        "speedup": 1.301422,
+        "aggregate_gate": "pass"
+      },
+      {
+        "process": 3,
+        "baseline_ms": 4.177282,
+        "candidate_ms": 3.210388,
+        "speedup": 1.301177,
+        "aggregate_gate": "pass"
+      }
+    ],
+    "three_process_mean": {
+      "baseline_ms": 4.178070,
+      "candidate_ms": 3.210800667,
+      "saving_ms": 0.967269333,
+      "speedup": 1.301254868723,
+      "latency_reduction_percent": 23.151104058
+    },
+    "minimum_of_18_round_speedups": 1.300979,
+    "rounds_clearing_1_15x_gate": 18,
+    "rounds_measured": 18,
+    "aggregate_processes_clearing_1_20x_gate": 3,
+    "aggregate_processes_measured": 3,
+    "result": "pass"
+  },
+  "sass": {
+    "baseline_executed_HMMA_instructions": 13107200,
+    "candidate_executed_HMMA_instructions": 13107200,
+    "HMMA_delta": 0,
+    "candidate_contains": [
+      "LDGSTS.E.BYPASS.128",
+      "LDGDEPBAR",
+      "DEPBAR.LE"
+    ],
+    "local_spill_loads_or_stores": 0,
+    "interpretation": "The candidate preserves tensor-core work while changing raw A/B delivery, FP8 decode placement, shared-memory traffic, and synchronization. Equal HMMA work does not imply equal memory traffic."
+  },
+  "matched_nsight_compute": {
+    "protocol": "one matched profile-baseline launch and one profile-candidate launch from the same measured binary",
+    "reports": {
+      "baseline_counters": {
+        "path": "/tmp/q3x-prefill-fp8-qkv-c512-register-feed-baseline-counters.ncu-rep",
+        "bytes": 3765647,
+        "sha256": "293d728f74fe2aedb5703fab34a68a710b78c8059a1cb1ee01b2d42bfda9df77"
+      },
+      "candidate_counters": {
+        "path": "/tmp/q3x-prefill-fp8-qkv-c512-register-feed-candidate-counters.ncu-rep",
+        "bytes": 3765623,
+        "sha256": "64e8d5bba38b045eb8b277f76bd0eff397c1de051dadb2610064a830c528b9d2"
+      },
+      "candidate_full": {
+        "path": "/tmp/q3x-prefill-fp8-qkv-c512-register-feed-candidate.ncu-rep",
+        "bytes": 12066218,
+        "sha256": "c3e8e11486240d025665585881cbbf01268102c30810ca404bbf26cb1fb451df"
+      }
+    },
+    "counter_comparison": {
+      "display_units": "MB and ratios as displayed by Nsight Compute",
+      "baseline": {
+        "duration_ms": 4.80,
+        "global_load_request_MB": 629.15,
+        "L1_global_load_miss_MB": 628.25,
+        "LTS_total_MB": 638.81,
+        "DRAM_read_percent_of_peak": 15.85,
+        "stall_long_scoreboard_per_issue_active": 1.70,
+        "stall_barrier_per_issue_active": 1.28,
+        "stall_wait_per_issue_active": 2.61,
+        "stall_short_scoreboard_per_issue_active": 0.99,
+        "stall_lg_throttle_per_issue_active": 2.90,
+        "stall_mio_throttle_per_issue_active": 2.41,
+        "executed_HMMA_instructions": 13107200
+      },
+      "candidate": {
+        "duration_ms": 3.47,
+        "global_load_request_MB": 681.57,
+        "L1_global_load_miss_MB": 681.57,
+        "LTS_total_MB": 849.42,
+        "DRAM_read_percent_of_peak": 22.08,
+        "stall_long_scoreboard_per_issue_active": 0.09,
+        "stall_barrier_per_issue_active": 1.01,
+        "stall_wait_per_issue_active": 2.25,
+        "stall_short_scoreboard_per_issue_active": 0.72,
+        "stall_lg_throttle_per_issue_active": 3.26,
+        "stall_mio_throttle_per_issue_active": 2.83,
+        "executed_HMMA_instructions": 13107200
+      },
+      "LDGSTS_global_request_delta_bytes": 52428800,
+      "global_traffic_unchanged": false,
+      "logical_weight_payload_changed": false,
+      "interpretation": "The equal-byte sidecar does not enlarge the logical FP8 tensor, but the candidate issues 52,428,800 additional bytes of measured global-load sector requests. LTS traffic and DRAM read utilization also increase. The speedup therefore comes despite higher measured traffic and coincides most strongly with the long-scoreboard collapse, fewer decoded-B shared round trips, and the shorter synchronization path."
+    },
+    "candidate_full_report": {
+      "duration_ms": 3.47,
+      "memory_throughput_percent": 74.42,
+      "compute_throughput_percent": 50.85,
+      "L2_hit_rate_percent": 81.60,
+      "scheduler_no_eligible_percent": 70.40,
+      "theoretical_occupancy_percent": 33.33,
+      "achieved_occupancy_percent": 32.96,
+      "local_memory_spilling_bytes": 0,
+      "shared_memory_spilling_bytes": 0
+    }
+  },
+  "promotion_boundary": {
+    "current_admission": "test-only positive first cell with pinned layer-0 real-checkpoint correctness and performance gates passed",
+    "production_admitted": false,
+    "real_checkpoint_validated": true,
+    "full_P513_validated": false,
+    "required_next_gates": [
+      "Run full-model P513 mirrored baseline/candidate timing with exact generated-token and Decode non-regression gates.",
+      "Demonstrate a bounded memory ownership design that does not keep canonical and sidecar QKV tensors resident together long term and preserves all Prefill and Decode consumers.",
+      "Only after those gates, evaluate production dispatch and broader QKV/Z/O reuse."
+    ],
+    "retention": "retain the BUILD_TESTING launcher and screen as reproducible positive evidence while production dispatch stays frozen"
+  }
+}
