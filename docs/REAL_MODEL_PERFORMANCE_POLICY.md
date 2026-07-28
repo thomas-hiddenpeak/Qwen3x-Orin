@@ -118,6 +118,13 @@ an external benchmark reference only: it has no production dispatch,
 fallback, retention, or promotion eligibility.  Heuristic-list rank is
 recorded but is not an ABI or native selection key.
 
+This exclusion is permanent rather than a temporary migration state.  The
+production executable and installed kernel library must have no cuBLASLt
+dependency, symbol, selector, context, scratch allocation, or fallback.  A
+native retention run must also remain executable when every cuBLASLt reference
+component is absent; reference setup or timing failure cannot alter its result
+or exit status.  Link/symbol/install audits enforce this boundary.
+
 ## CI lanes
 
 Ordinary CI requires T0 and T1.  It may report T2--T4 as explicit skips when

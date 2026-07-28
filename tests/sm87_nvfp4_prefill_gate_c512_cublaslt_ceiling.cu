@@ -123,13 +123,6 @@ struct NumericalMetrics {
   return metrics;
 }
 
-[[nodiscard]] bool select_hybrid_for_scale(const float weight_scale_2) {
-  // Positive finite scales are the only region admitted to the new route.
-  // Zero keeps the existing production path to preserve signed-zero details;
-  // negative/non-finite values retain the public launcher's invalid contract.
-  return std::isfinite(weight_scale_2) && weight_scale_2 > 0.0F;
-}
-
 class TestContext {
  public:
   void expect(const bool condition, const std::string& message) {
@@ -743,8 +736,8 @@ int main(const int argc, char** argv) {
       (argc == 2 && std::string_view(argv[1]) != "--mode=smoke")) {
     std::cerr << "usage: " << argv[0] << " [--mode=smoke]\n"
               << "This executable is synthetic correctness/Graph smoke only; "
-                 "use the checkpoint Gate/Up pair admission for performance "
-                 "decisions.\n";
+                 "use the checkpoint Gate/Up native retention screen for "
+                 "performance decisions.\n";
     return 2;
   }
   TestContext test;
@@ -764,7 +757,7 @@ int main(const int argc, char** argv) {
   }
 
   std::cout << std::fixed << std::setprecision(6)
-            << "NVFP4_GATE_C512_MODE: mode=smoke admission=NOT_RUN"
+            << "NVFP4_GATE_C512_MODE: mode=smoke decision=NOT_RUN"
             << " evidence=synthetic_smoke performance_authority=none\n"
             << "CUBLASLT_GATE_C512_PROTOCOL: device=" << properties.name
             << " cc=" << properties.major << '.' << properties.minor
@@ -1194,11 +1187,9 @@ int main(const int argc, char** argv) {
                     : "FAIL")
             << '\n';
 
-  // The production module must remain Graph-safe even though the enclosing
-  // production Prefill loop is currently eager. Capture the exact
-  // dequantize + selected-Lt chain, instantiate it, then require both the
-  // first (cold) and second (warm) graph replays to match the trusted eager
-  // output bit for bit.
+  // The test-only external reference must remain Graph-safe. Capture the
+  // dequantize + selected-Lt chain and require cold and warm replays to match
+  // the trusted eager output bit for bit.
   cudaGraph_t graph = nullptr;
   cudaGraphExec_t graph_exec = nullptr;
   bool graph_instantiated = false;
@@ -1326,11 +1317,9 @@ int main(const int argc, char** argv) {
                     : "FAIL")
             << '\n';
 
-  // P0 production equivalence: the candidate and the public exact-C512 M128
-  // dispatcher consume the same canonical weights, scales, activations, and
-  // non-unit global scale.  Different tensor-core reduction orders are
-  // allowed, so bitwise mismatch is reported while finite/NRMSE/cosine form
-  // the numerical admission gate.
+  // Comparison-only native observation: the external reference and native
+  // exact-C512 M128 kernel consume the same operands. Different reduction
+  // orders are allowed, and this comparison has no selection authority.
   const int production_status = q3x::kernels::
       launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
           canonical_packed_weight.get(), canonical_block_scale.get(),
@@ -1365,8 +1354,8 @@ int main(const int argc, char** argv) {
       production_metrics.nrmse <= kMaximumProductionNrmse &&
       production_metrics.cosine >= kMinimumProductionCosine;
   test.expect(production_numerical_gate,
-              "hybrid output passes production M128 numerical gate");
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_PRODUCTION_EQUIVALENCE: status="
+              "external reference matches native M128 within tolerance");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_NATIVE_COMPARISON: status="
             << production_status
             << " bitwise_mismatches="
             << production_metrics.bitwise_mismatches << '/' << kCElements
@@ -1385,8 +1374,11 @@ int main(const int argc, char** argv) {
             << " max_nrmse=" << kMaximumProductionNrmse
             << " min_cosine=" << kMinimumProductionCosine
             << " bitwise_required=false"
-            << " gate="
-            << (production_numerical_gate ? "PASS" : "FAIL") << '\n';
+            << " comparison_only=true decision_authority=NONE"
+            << " observation="
+            << (production_numerical_gate ? "WITHIN_RECORDED_TOLERANCE"
+                                          : "OUTSIDE_RECORDED_TOLERANCE")
+            << '\n';
 
   std::vector<double> dequant_round_milliseconds;
   std::vector<double> inclusive_round_milliseconds;
@@ -1497,148 +1489,8 @@ int main(const int argc, char** argv) {
               << " performance_authority=none gate=NOT_RUN\n";
   }
 
-  // Probe the scale boundary without admitting it to the hybrid selector.
-  // Both raw routes are executed at zero solely to characterize signed-zero
-  // behavior; production remains the selected implementation for scale=0.
-  ready = ready && test.cuda_ok(
-                       cudaMemsetAsync(candidate_output, 0x7f,
-                                       kCElements * sizeof(__nv_bfloat16),
-                                       stream),
-                       "poison zero-scale candidate output");
-  ready = ready && test.cuda_ok(
-                       cudaMemsetAsync(exact_production_output, 0x7f,
-                                       kCElements * sizeof(__nv_bfloat16),
-                                       stream),
-                       "poison zero-scale production output");
-  ready = ready && launch_dequantize_contiguous(
-                       test, canonical_packed_weight.get(),
-                       canonical_block_scale.get(), persistent_weight.get(),
-                       stream, "launch zero-scale candidate dequant");
-  ready = ready && launch_lt(
-                       test, lt, selected, 0.0F, persistent_weight.get(),
-                       activation.get(), candidate_output, workspace.get(),
-                       kWorkspaceBytes, stream,
-                       "launch zero-scale raw cuBLASLt diagnostic");
-  const int zero_production_status = q3x::kernels::
-      launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
-          canonical_packed_weight.get(), canonical_block_scale.get(), 0.0F,
-          reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
-          kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
-          static_cast<void*>(stream));
-  ready = ready && test.cuda_ok(
-                       static_cast<cudaError_t>(zero_production_status),
-                       "launch zero-scale production M128 diagnostic");
-  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
-                                "synchronize zero-scale diagnostics");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpy(candidate_host.data(), candidate_output,
-                                  kCElements * sizeof(std::uint16_t),
-                                  cudaMemcpyDeviceToHost),
-                       "copy zero-scale candidate output");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpy(production_host.data(),
-                                  exact_production_output,
-                                  kCElements * sizeof(std::uint16_t),
-                                  cudaMemcpyDeviceToHost),
-                       "copy zero-scale production output");
-  const NumericalMetrics zero_metrics =
-      compare_bf16_outputs(candidate_host, production_host);
-  const auto count_bits = [](const std::vector<std::uint16_t>& values,
-                             const std::uint16_t bits) {
-    return static_cast<std::size_t>(std::count(values.begin(), values.end(),
-                                               bits));
-  };
-  const std::size_t candidate_positive_zero =
-      count_bits(candidate_host, 0x0000U);
-  const std::size_t candidate_negative_zero =
-      count_bits(candidate_host, 0x8000U);
-  const std::size_t production_positive_zero =
-      count_bits(production_host, 0x0000U);
-  const std::size_t production_negative_zero =
-      count_bits(production_host, 0x8000U);
-  const bool zero_numeric_gate =
-      zero_production_status == static_cast<int>(cudaSuccess) &&
-      zero_metrics.candidate_nonfinite == 0U &&
-      zero_metrics.production_nonfinite == 0U &&
-      zero_metrics.maximum_absolute == 0.0 && zero_metrics.nrmse == 0.0 &&
-      candidate_positive_zero + candidate_negative_zero == kCElements &&
-      production_positive_zero + production_negative_zero == kCElements;
-  test.expect(zero_numeric_gate,
-              "zero-scale raw routes are finite numerical zeros");
-  test.expect(!select_hybrid_for_scale(0.0F),
-              "hybrid selector routes zero scale to production");
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_SCALE_ZERO: production_status="
-            << zero_production_status
-            << " selector_admitted="
-            << (select_hybrid_for_scale(0.0F) ? "true" : "false")
-            << " selector_action=route_existing_production"
-            << " bitwise_mismatches=" << zero_metrics.bitwise_mismatches
-            << '/' << kCElements
-            << " candidate_positive_zero=" << candidate_positive_zero
-            << " candidate_negative_zero=" << candidate_negative_zero
-            << " production_positive_zero=" << production_positive_zero
-            << " production_negative_zero=" << production_negative_zero
-            << " max_abs=" << zero_metrics.maximum_absolute
-            << " nrmse=" << zero_metrics.nrmse
-            << " cosine=" << zero_metrics.cosine
-            << " gate=" << (zero_numeric_gate ? "PASS" : "FAIL") << '\n';
-
-  // The public production dispatcher rejects NaN before enqueue.  Capture
-  // proves the rejection contributes no graph nodes; the hybrid selector must
-  // perform the same host-side fail-closed check and never call cuBLASLt.
-  cudaGraph_t nan_graph = nullptr;
-  bool nan_capture_ready = test.cuda_ok(
-      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
-      "begin NaN-scale production capture");
-  int nan_production_status = static_cast<int>(cudaErrorUnknown);
-  if (nan_capture_ready) {
-    nan_production_status = q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
-            canonical_packed_weight.get(), canonical_block_scale.get(),
-            std::numeric_limits<float>::quiet_NaN(),
-            reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
-            kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
-            static_cast<void*>(stream));
-    nan_capture_ready =
-        test.cuda_ok(cudaStreamEndCapture(stream, &nan_graph),
-                     "end NaN-scale production capture") &&
-        nan_capture_ready;
-  }
-  std::size_t nan_graph_nodes = 0U;
-  if (nan_capture_ready && nan_graph != nullptr) {
-    nan_capture_ready =
-        test.cuda_ok(cudaGraphGetNodes(nan_graph, nullptr, &nan_graph_nodes),
-                     "count NaN-scale production graph nodes") &&
-        nan_capture_ready;
-  }
-  if (nan_graph != nullptr) {
-    nan_capture_ready =
-        test.cuda_ok(cudaGraphDestroy(nan_graph),
-                     "destroy NaN-scale production graph") &&
-        nan_capture_ready;
-  }
-  const bool nan_selector_admitted = select_hybrid_for_scale(
-      std::numeric_limits<float>::quiet_NaN());
-  const bool negative_selector_admitted = select_hybrid_for_scale(-1.0F);
-  const bool nan_gate =
-      nan_capture_ready &&
-      nan_production_status == static_cast<int>(cudaErrorInvalidValue) &&
-      nan_graph_nodes == 0U && !nan_selector_admitted &&
-      !negative_selector_admitted && select_hybrid_for_scale(kWeightScale2);
-  test.expect(nan_gate,
-              "hybrid selector fail-closes NaN/negative before enqueue");
-  ready = ready && nan_capture_ready;
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_SCALE_SELECTOR: positive_finite="
-            << (select_hybrid_for_scale(kWeightScale2) ? "hybrid" : "reject")
-            << " zero=route_existing_production"
-            << " nan=reject_invalid negative=reject_invalid"
-            << " production_nan_status=" << nan_production_status
-            << " production_nan_graph_nodes=" << nan_graph_nodes
-            << " fail_closed_condition=isfinite(scale)&&scale>0"
-            << " gate=" << (nan_gate ? "PASS" : "FAIL") << '\n';
-
-  // Full post-run immutability checks cover all eager, graph, production, and
-  // special-scale executions above.
+  // Invalid-scale contracts live in the isolated module tests. This external
+  // reference smoke test does not model a production selector or fallback.
   const auto validate_immutable =
       [&](const std::uint8_t* const values,
           const std::uint8_t* const snapshot, const std::size_t count,
@@ -1735,16 +1587,13 @@ int main(const int argc, char** argv) {
   ready = ready && guard_gate;
 
   const bool smoke_contract =
-      ready && production_numerical_gate && graph_ready && zero_numeric_gate &&
-      nan_gate && immutable_gate && guard_gate &&
+      ready && production_numerical_gate && graph_ready && immutable_gate &&
+      guard_gate &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
   test.expect(smoke_contract,
-              "zero-workspace hybrid candidate passes synthetic smoke gates");
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_P0_RECOMMENDATION: action=NOT_EVALUATED"
-            << " admitted_shape=exact_C512_Gate"
-            << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
-            << " scale_zero_action=route_existing_production"
-            << " scale_nonfinite_or_negative_action=reject_before_enqueue"
+              "zero-workspace external reference passes synthetic smoke gates");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_REFERENCE_OBSERVATION:"
+            << " measured_shape=exact_C512_Gate"
             << " workspace_bytes=0"
             << " production_bitwise_mismatches="
             << production_metrics.bitwise_mismatches << '/' << kCElements
@@ -1753,7 +1602,10 @@ int main(const int argc, char** argv) {
             << " guards_intact=" << (guard_gate ? "true" : "false")
             << " legacy_directional_target_met="
             << (legacy_directional_target_met ? "true" : "false")
-            << " admission=NOT_RUN evidence=synthetic_smoke"
+            << " decision=NOT_RUN evidence=synthetic_smoke"
+            << " role=EXTERNAL_REFERENCE_ONLY"
+            << " decision_authority=NONE"
+            << " production_eligibility=NONE"
             << " performance_authority=none gate=NOT_RUN\n";
 
   if (stream != nullptr) {
@@ -1767,8 +1619,10 @@ int main(const int argc, char** argv) {
               << " NVFP4 Gate ceiling assertion(s) failed\n";
     return 1;
   }
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_ADMISSION: mode=smoke"
-            << " admission=NOT_RUN evidence=synthetic_smoke status=PASS\n";
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_REFERENCE: mode=smoke"
+            << " decision=NOT_RUN evidence=synthetic_smoke"
+            << " role=EXTERNAL_REFERENCE_ONLY"
+            << " production_eligibility=NONE status=PASS\n";
   std::cout << "Canonical-NVFP4 inclusive Gate C512 smoke passed\n";
   return 0;
 }

@@ -111,7 +111,7 @@ universal kernel:
 
 - an `sm_87` weight-only GEMV path for single-token decode;
 - Marlin-style W4A16/W8A16 kernels for small token batches;
-- cuBLASLt or tuned CUDA kernels for larger prefill operations;
+- self-hosted, shape-specialized CUDA kernels for larger prefill operations;
 - routed, grouped expert execution for the 35B-A3B MoE model.
 
 Official safetensors remain the source of truth. A future offline packer will
@@ -298,54 +298,40 @@ branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
 The Gate/Up mechanism has full evidence in the
 [M128 Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
 
-A production exact-C512 large-M NVFP4 bridge now routes Gate then Up through
-direct canonical-NVFP4-to-BF16 decode and zero-workspace cuBLASLt. The two
-projections serially overwrite one conditional request-scoped 170-MiB scratch;
-there is no persistent BF16 weight copy or second scratch. Canonical decode is
-bitwise exact across 89,128,960 BF16 values, all 8,912,896 production-M128
-outputs match bitwise, and module eager plus per-projection two-node CUDA
-Graph execution pass.
-Mirrored fixed-clock P513 benchmarking improves Prefix from **2557.970 ms /
-200.159 token/s** to **2208.733 ms / 231.807 token/s** (**1.158116x**) and
-TTFT from **2666.918 ms** to **2317.622 ms** (**1.150713x**). Nsight records
-128 direct-dequant and 128 cuBLASLt calls with zero calls to the prior C512
-Gate/Up M128 kernel. The 74-test suite has zero failures, and mirrored C32
-Decode remains noise-equivalent at **105.8270 vs 105.8995 ms/token**. C256,
-finish-Prefill, Decode, and all selector near misses keep their existing
-routes. Exact C512 Down is now production too: an independent context runs the
-compile-time `8+8+8+8+2` Window8 decoder at 32 registers, zero local bytes,
-and six CTAs/SM, then invokes a zero-workspace cuBLASLt algorithm selected at
-factory time from all eight eligible heuristics on deterministic nonzero
-operands. This matters because the rejected first-rank intermediate regressed
-Prefix by **9.292605%**; autotuning selects rank 1 at about **3.275 ms** and
-frees its temporary 192-MiB tuning allocation before request execution.
-Down serially reuses the existing 170-MiB request scratch, so it adds no
-request-arena or persistent-weight allocation. All 89,128,960 decoded values
-and 2,621,440 production outputs match bitwise; two-node Graph replay, 36
-invalid-launch cases, and the full clean 81-test suite pass. Mirrored P513/C512
-benchmarking improves the prior production Prefix from **2207.4445 ms /
-231.942 token/s** to **2074.8195 ms / 246.768 token/s** (**1.063921x**) and
-TTFT from **2316.1795 ms** to **2183.614 ms** (**1.060709x**), while mirrored
-Decode is unchanged at **105.746 vs 105.750 ms/token**. Nsight records 64
-Window8 dequant plus 64 selected Lt calls and zero calls to the prior exact-C512
-Down kernel. The native fused large-M NVFP4 kernel remains the higher-ceiling
-path because the production bridge still materializes and rereads a full BF16
-weight image per layer.
-See the [C512 inclusive cuBLASLt admission
-record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
-and [Gate+Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json).
-The [Down production record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-production-benchmark.json)
-contains the formal B-C-C-B, rejected rank-zero intermediate, autotune, Nsight,
-module, and Decode evidence. The [Down P0 ceiling
-record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json)
-retains the test-only precursor and decoder-selection history.
-The parallel native large-M effort now has a frozen test-only M64xN256xK64
+The exact-C512 production path is self-hosted.  Earlier commits routed Gate,
+Up, and Down through direct NVFP4-to-BF16 decode plus cuBLASLt and reserved one
+request-scoped 170-MiB BF16 weight scratch.  That routing status is revoked:
+the runner selectors, contexts, launch adapters, and scratch have been removed;
+the installed kernel library and `qwen3x-orin` contain no cuBLASLt dependency
+or symbols.  cuBLASLt now exists only in isolated `BUILD_TESTING` reference
+targets and can never be a production route, fallback, retention gate, or
+promotion gate.
+
+The historical fixed-clock P513 results—231.807 token/s after Gate/Up and
+246.768 token/s after Down—remain useful external-reference observations, not
+current production anchors. Current production uses the established native
+whole-chunk Gate/Up and Down kernels until a retained native candidate
+passes the separate full production-promotion gate.  Removing the bridge also
+reduces every eligible C512 request arena by exactly 178,257,920 bytes.  A
+fresh native-only P513 baseline is required before another end-to-end
+performance claim.
+
+The [Gate/Up historical reference record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json),
+[Down historical reference record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-production-benchmark.json),
+and [Down P0 reference record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json)
+retain the original measurements for provenance; their old production and
+admission decisions have no current authority.
+
+The following paragraphs preserve the historical native large-M development
+trail; words such as "current" in old metadata refer to the commit that
+produced that record. The trail began with a frozen test-only M64xN256xK64
 baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
 epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)
 with 128 registers, zero local memory, and two CTAs per SM. All 17,825,792
-Gate/Up outputs and Graph replays are bitwise exact, but the route deliberately
-remains outside production because it misses the existing 1.22x admission
-gate. Nsight-guided stop-loss rejects the remaining low-upside scale,
+Gate/Up outputs and Graph replays are bitwise exact.  The historical 1.22x
+cuBLASLt admission gate is revoked; this cell is retained as native
+development provenance and remains outside production because it has not
+passed the separate current production-promotion gate. Nsight-guided stop-loss rejects the remaining low-upside scale,
 triple-pipeline, and shared-broadcast tweaks; future native work must introduce
 a structural change with credible greater-than-4.3% upside. See the [native
 M64xN256 development baseline](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json).
@@ -372,26 +358,27 @@ MIO throttle from **11.14% to 14.66%**. Six formal rounds all regress:
 production remains unchanged. The completed bounded follow-up changes only A
 copies to `cp.async.ca` while B and scales retain `cp.async.cg`. It improves
 all six rounds and moves **5.531556 ms to 5.483505 ms** (**1.008763x**), with
-matched NCU L2 requests down **11.23%**, but still misses the **5.304339 ms**
-absolute gate. Pair timing is therefore skipped, production remains unchanged,
-and this M128 arithmetic body closes. See the [M128xN128 CG rejection
+matched NCU L2 requests down **11.23%**. Under the superseded policy it missed
+the **5.304339 ms** bridge-derived absolute gate and pair timing was skipped.
+Under the current policy it is retained positive native-development evidence;
+it remains outside production and was later superseded by faster native cells.
+See the [M128xN128 CG rejection
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-rejection.json)
 and [M128xN128 A-only CA development-cell
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell.json).
 Transferring that cache operator back to the faster frozen M64xN256 topology
-produces the current fastest native test-only cell. Only activation A changes
+produced the then-fastest native test-only cell. Only activation A changes
 from `cp.async.cg` to `cp.async.ca`; packed B and scales remain streaming, and
 the CA/CG SASS differs only at the six activation LDGSTS cache modifiers and
 their control words. A CPU-11-pinned six-round B-C-C-B screen improves every
 round and moves **5.531551 ms to 5.388746 ms** (**1.026501x**, **2.581645%**
 lower latency). Matched same-topology NCU records **14.9294%** fewer L2 request
 bytes, **45.8234%** fewer bypass bytes, and higher tensor and issue activity.
-The result is nevertheless **0.084407 ms** above the unchanged **5.304339 ms**
-absolute gate and still needs **1.566357%** lower latency, so Gate+Up pair
-timing is skipped and production remains on the hybrid cuBLASLt bridge. This
-cell becomes the native test-only baseline, not a production admission; the
-next bounded work must target decode or scheduling structure without relaxing
-the gate. See the [M64xN256 A-only CA development-cell
+Under the historical policy it remained **0.084407 ms** above a legacy
+absolute gate, so Gate+Up pair timing was skipped.  That cuBLASLt-based gate
+and bridge status are now revoked; the positive native result remains valid
+development evidence but has since been superseded by CF3 and structured
+BS512. See the [M64xN256 A-only CA development-cell
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json).
 The direct packed-B cache follow-up is a clear negative sentinel. Keeping the
 same M64xN256 topology and A-only `cp.async.ca` control, it changes only the

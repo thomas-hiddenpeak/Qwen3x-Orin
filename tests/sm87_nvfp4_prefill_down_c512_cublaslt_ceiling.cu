@@ -1,6 +1,6 @@
 #include "q3x/core/sha256.h"
 #include "q3x/io/safetensors.h"
-#include "q3x/kernels/sm87_nvfp4_prefill_cublaslt.h"
+#include "sm87_nvfp4_prefill_cublaslt_reference.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "pinned_checkpoint.h"
 
@@ -153,13 +153,6 @@ struct NumericalMetrics {
                            std::numeric_limits<double>::min()));
   }
   return metrics;
-}
-
-[[nodiscard]] bool select_hybrid_for_scale(const float weight_scale_2) {
-  // Positive finite scales are the only region admitted to the new route.
-  // Zero keeps the existing production path to preserve signed-zero details;
-  // negative/non-finite values retain the public launcher's invalid contract.
-  return std::isfinite(weight_scale_2) && weight_scale_2 > 0.0F;
 }
 
 class TestContext {
@@ -1724,8 +1717,10 @@ int main(const int argc, char** argv) {
               << " block_scale_bytes=" << kBlockScaleBytes << '\n';
   }
   std::cout << "NVFP4_DOWN_C512_MODE: mode=" << mode_name(options.mode)
-            << " admission="
+            << " role=EXTERNAL_REFERENCE_ONLY"
+            << " observation="
             << (performance_checkpoint ? "PENDING" : "NOT_RUN")
+            << " decision_authority=NONE"
             << " evidence="
             << (performance_checkpoint ? "checkpoint_weight_only"
                                        : "synthetic_smoke")
@@ -2233,8 +2228,11 @@ int main(const int argc, char** argv) {
                          0xbb67'ae85U, true,
                          "launch canonical E4M3FN scale fill");
   }
-  test.expect(select_hybrid_for_scale(nvfp4_weight_scale_2),
-              "selected Down weight_scale_2 is finite and positive");
+  const bool reference_scale_valid =
+      std::isfinite(nvfp4_weight_scale_2) && nvfp4_weight_scale_2 > 0.0F;
+  test.expect(reference_scale_valid,
+              "external-reference Down scale is finite and positive");
+  ready = ready && reference_scale_valid;
   ready = ready && test.cuda_ok(
                        cudaMemcpyAsync(
                            canonical_packed_weight_snapshot.get(),
@@ -2483,7 +2481,7 @@ int main(const int argc, char** argv) {
             << " gate=" << (sequential_guard_gate ? "PASS" : "FAIL")
             << '\n';
 
-  bool sequential_selected = false;
+  bool sequential_screen_threshold_met = false;
   if (sequential_baseline_rounds.size() ==
           static_cast<std::size_t>(kSequentialScreenRounds) &&
       sequential_candidate_rounds.size() ==
@@ -2503,7 +2501,7 @@ int main(const int argc, char** argv) {
     }
     const bool local_memory_gate =
         sequential_dequant_attributes.localSizeBytes == 0U;
-    sequential_selected =
+    sequential_screen_threshold_met =
         sequential_correctness_gate && sequential_guard_gate &&
         local_memory_gate && all_round_positive &&
         median_speedup >= kSequentialRequiredSpeedup;
@@ -2526,17 +2524,13 @@ int main(const int argc, char** argv) {
               << (sequential_correctness_gate ? "true" : "false")
               << " guards_intact="
               << (sequential_guard_gate ? "true" : "false")
-              << " action="
+              << " screen_threshold_met="
               << (performance_checkpoint
-                      ? (sequential_selected ? "SELECT" : "REJECT")
-                      : "NOT_EVALUATED")
-              << " gate="
-              << (performance_checkpoint
-                      ? (sequential_selected ? "PASS" : "FAIL")
+                      ? (sequential_screen_threshold_met ? "true" : "false")
                       : "NOT_RUN")
-              << " admission="
-              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
-                                         : "NOT_RUN")
+              << " selection_scope=external_reference_harness"
+              << " decision_authority=NONE"
+              << " production_eligibility=NONE"
               << '\n';
   }
 
@@ -2653,7 +2647,7 @@ int main(const int argc, char** argv) {
             << 2U * kGuardElements
             << " gate=" << (window8_guard_gate ? "PASS" : "FAIL") << '\n';
 
-  bool window8_selected = false;
+  bool window8_screen_threshold_met = false;
   if (window8_baseline_rounds.size() ==
           static_cast<std::size_t>(kWindow8ScreenRounds) &&
       window8_candidate_rounds.size() ==
@@ -2672,7 +2666,7 @@ int main(const int argc, char** argv) {
     }
     const bool local_memory_gate =
         window8_dequant_attributes.localSizeBytes == 0U;
-    window8_selected =
+    window8_screen_threshold_met =
         window8_correctness_gate && window8_guard_gate && local_memory_gate &&
         all_round_positive && median_speedup >= kWindow8RequiredSpeedup;
     std::cout << "NVFP4_DEQUANT_DOWN_C512_WINDOW8_FINAL: rounds="
@@ -2693,17 +2687,12 @@ int main(const int argc, char** argv) {
               << (window8_correctness_gate ? "true" : "false")
               << " guards_intact="
               << (window8_guard_gate ? "true" : "false")
-              << " action="
+              << " screen_threshold_met="
               << (performance_checkpoint
-                      ? (window8_selected ? "SELECT" : "REJECT")
-                      : "NOT_EVALUATED")
-              << " gate="
-              << (performance_checkpoint
-                      ? (window8_selected ? "PASS" : "FAIL")
+                      ? (window8_screen_threshold_met ? "true" : "false")
                       : "NOT_RUN")
-              << " admission="
-              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
-                                         : "NOT_RUN")
+              << " selection_scope=external_reference_harness"
+              << " decision_authority=NONE"
               << '\n';
   }
 
@@ -2743,6 +2732,9 @@ int main(const int argc, char** argv) {
                        "copy inclusive validation counts");
   ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                 "inclusive validation sync");
+  const bool inclusive_output_gate =
+      host_validation[0] == 0U && host_validation[1] == 0U &&
+      host_validation[2] != 0U;
   test.expect(host_validation[0] == 0U,
               "inclusive output matches trusted scalar dequantization");
   test.expect(host_validation[1] == 0U,
@@ -2758,17 +2750,12 @@ int main(const int argc, char** argv) {
             << " scale_application=cuBLASLt_alpha_after_BF16_dequant"
             << " production_M128_bitwise_compared=deferred"
             << " gate="
-            << ((host_validation[0] == 0U && host_validation[1] == 0U &&
-                 host_validation[2] != 0U)
-                    ? "PASS"
-                    : "FAIL")
+            << (inclusive_output_gate ? "PASS" : "FAIL")
             << '\n';
 
-  // The production module must remain Graph-safe even though the enclosing
-  // production Prefill loop is currently eager. Capture the exact
-  // dequantize + selected-Lt chain, instantiate it, then require both the
-  // first (cold) and second (warm) graph replays to match the trusted eager
-  // output bit for bit.
+  // The test-only external-reference module must remain Graph-safe. Capture
+  // the exact dequantize + selected-Lt chain, instantiate it, then require
+  // both cold and warm replays to match the trusted eager output bit for bit.
   cudaGraph_t graph = nullptr;
   cudaGraphExec_t graph_exec = nullptr;
   bool graph_instantiated = false;
@@ -2872,6 +2859,11 @@ int main(const int argc, char** argv) {
               "warm graph output is finite");
   test.expect(warm_graph_validation[2] == cold_graph_validation[2],
               "cold and warm graph checksums are identical");
+  const bool graph_output_gate =
+      graph_ready && cold_graph_validation[0] == 0U &&
+      cold_graph_validation[1] == 0U && cold_graph_validation[2] != 0U &&
+      warm_graph_validation[0] == 0U && warm_graph_validation[1] == 0U &&
+      warm_graph_validation[2] == cold_graph_validation[2];
   std::cout << "NVFP4_CUBLASLT_DOWN_C512_GRAPH: nodes="
             << graph_node_count
             << " selected_dequant=window8"
@@ -2887,21 +2879,12 @@ int main(const int argc, char** argv) {
             << " weight_scale_2=" << nvfp4_weight_scale_2
             << " production_M128_bitwise_compared=deferred"
             << " gate="
-            << ((graph_ready && cold_graph_validation[0] == 0U &&
-                 cold_graph_validation[1] == 0U &&
-                 cold_graph_validation[2] != 0U &&
-                 warm_graph_validation[0] == 0U &&
-                 warm_graph_validation[1] == 0U &&
-                 warm_graph_validation[2] == cold_graph_validation[2])
-                    ? "PASS"
-                    : "FAIL")
+            << (graph_output_gate ? "PASS" : "FAIL")
             << '\n';
 
-  // P0 production equivalence: the candidate and the public exact-C512 M128
-  // dispatcher consume the same canonical weights, scales, activations, and
-  // non-unit global scale.  Different tensor-core reduction orders are
-  // allowed, so bitwise mismatch is reported while finite/NRMSE/cosine form
-  // the numerical admission gate.
+  // Comparison-only native observation: the external reference and native
+  // exact-C512 M128 kernel consume the same operands. Different reduction
+  // orders are allowed, so this comparison has no selection authority.
   const int production_status = q3x::kernels::
       launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
           canonical_packed_weight.get(), canonical_block_scale.get(),
@@ -2935,9 +2918,7 @@ int main(const int argc, char** argv) {
       production_metrics.production_nonfinite == 0U &&
       production_metrics.nrmse <= kMaximumProductionNrmse &&
       production_metrics.cosine >= kMinimumProductionCosine;
-  test.expect(production_numerical_gate,
-              "hybrid output passes production M128 numerical gate");
-  std::cout << "NVFP4_CUBLASLT_DOWN_C512_PRODUCTION_EQUIVALENCE: status="
+  std::cout << "NVFP4_CUBLASLT_DOWN_C512_NATIVE_COMPARISON: status="
             << production_status
             << " selected_dequant=window8"
             << " bitwise_mismatches="
@@ -2957,14 +2938,16 @@ int main(const int argc, char** argv) {
             << " max_nrmse=" << kMaximumProductionNrmse
             << " min_cosine=" << kMinimumProductionCosine
             << " bitwise_required=false"
-            << " gate="
-            << (production_numerical_gate ? "PASS" : "FAIL") << '\n';
+            << " comparison_only=true decision_authority=NONE"
+            << " observation="
+            << (production_numerical_gate ? "WITHIN_RECORDED_TOLERANCE"
+                                          : "OUTSIDE_RECORDED_TOLERANCE")
+            << '\n';
 
-  // The ceiling's local LtObjects selection is not production evidence by
-  // itself.  For a pinned checkpoint, launch the separately compiled public
-  // module over the exact same operands and require its Window8 scratch and
-  // BF16 output to agree bit-for-bit with the trusted decoder, this TU's
-  // inclusive chain, and the existing production M128 kernel.
+  // For a pinned checkpoint, launch the separately compiled test-only
+  // reference module over the same operands. Its scratch and output must
+  // agree bit-for-bit with the trusted decoder and this TU's inclusive chain;
+  // the native M128 result remains a comparison-only observation.
   q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext*
       public_down_context = nullptr;
   std::size_t public_scratch_bytes = 0U;
@@ -2976,10 +2959,10 @@ int main(const int argc, char** argv) {
         create_sm87_nvfp4_prefill_down_cublaslt_context(&public_down_context);
     bool public_ready =
         test.cuda_ok(static_cast<cudaError_t>(public_create_status),
-                     "create public production Down context") &&
+                     "create test-only reference Down context") &&
         public_down_context != nullptr;
     test.expect(public_down_context != nullptr,
-                "public production Down context is non-null");
+                "test-only reference Down context is non-null");
     int public_query_status = static_cast<int>(cudaErrorInvalidValue);
     if (public_ready) {
       public_query_status = q3x::kernels::
@@ -2988,7 +2971,7 @@ int main(const int argc, char** argv) {
               &public_workspace_bytes, &public_heuristic_rank);
       public_ready =
           test.cuda_ok(static_cast<cudaError_t>(public_query_status),
-                       "query public production Down context") &&
+                       "query test-only reference Down context") &&
           public_ready;
     }
     const bool public_contract_exact =
@@ -2996,7 +2979,7 @@ int main(const int argc, char** argv) {
         public_scratch_bytes == kBElements * sizeof(__nv_bfloat16) &&
         public_workspace_bytes == 0U && public_heuristic_rank >= 0;
     test.expect(public_contract_exact,
-                "public Down context reports exact scratch and zero workspace");
+                "reference Down context reports exact scratch and zero workspace");
     public_ready = public_ready && public_contract_exact;
 
     if (public_ready) {
@@ -3006,19 +2989,19 @@ int main(const int argc, char** argv) {
                          canonical_block_scale.get(), activation.get(),
                          persistent_weight.get(), trusted_output,
                          nvfp4_weight_scale_2, stream,
-                         "launch public production Down module") &&
+                         "launch test-only reference Down module") &&
                      public_ready;
       public_ready =
           test.cuda_ok(cudaMemsetAsync(validation.get(), 0,
                                        3U * sizeof(unsigned long long), stream),
-                       "zero public module scratch validation") &&
+                       "zero reference module scratch validation") &&
           public_ready;
       validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
           persistent_weight.get(), dequant_reference.get(), kBElements,
           validation.get(), validation.get() + 1U, validation.get() + 2U);
       public_ready =
           test.cuda_ok(cudaGetLastError(),
-                       "launch public module scratch validation") &&
+                       "launch reference module scratch validation") &&
           public_ready;
     }
 
@@ -3029,11 +3012,11 @@ int main(const int argc, char** argv) {
                            public_scratch_validation.data(), validation.get(),
                            sizeof(public_scratch_validation),
                            cudaMemcpyDeviceToHost, stream),
-                       "copy public module scratch validation") &&
+                       "copy reference module scratch validation") &&
           public_ready;
       public_ready =
           test.cuda_ok(cudaStreamSynchronize(stream),
-                       "synchronize public production Down module") &&
+                       "synchronize test-only reference Down module") &&
           public_ready;
     }
 
@@ -3043,7 +3026,7 @@ int main(const int argc, char** argv) {
           test.cuda_ok(cudaMemcpy(public_module_host.data(), trusted_output,
                                   kCElements * sizeof(std::uint16_t),
                                   cudaMemcpyDeviceToHost),
-                       "copy public production Down output") &&
+                       "copy test-only reference Down output") &&
           public_ready;
     }
     const NumericalMetrics public_vs_internal =
@@ -3056,14 +3039,11 @@ int main(const int argc, char** argv) {
         public_scratch_validation[2] != 0U &&
         public_vs_internal.bitwise_mismatches == 0U &&
         public_vs_internal.candidate_nonfinite == 0U &&
-        public_vs_internal.production_nonfinite == 0U &&
-        public_vs_production.bitwise_mismatches == 0U &&
-        public_vs_production.candidate_nonfinite == 0U &&
-        public_vs_production.production_nonfinite == 0U;
+        public_vs_internal.production_nonfinite == 0U;
     test.expect(public_module_evidence_gate,
-                "public Down module is bitwise exact on pinned checkpoint");
+                "test-only reference Down module is bitwise exact");
     ready = ready && public_module_evidence_gate;
-    std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_EXACT:"
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_TEST_ONLY_REFERENCE_MODULE_EXACT:"
               << " create_status=" << public_create_status
               << " query_status=" << public_query_status
               << " heuristic_rank=" << public_heuristic_rank
@@ -3077,6 +3057,7 @@ int main(const int argc, char** argv) {
               << public_vs_internal.bitwise_mismatches << '/' << kCElements
               << " output_vs_production_M128_mismatches="
               << public_vs_production.bitwise_mismatches << '/' << kCElements
+              << " native_comparison_only=true decision_authority=NONE"
               << " checkpoint=true gate="
               << (public_module_evidence_gate ? "PASS" : "FAIL") << '\n';
   }
@@ -3229,20 +3210,19 @@ int main(const int argc, char** argv) {
               << " production_M128_bitwise_compared=true"
               << " production_M128_bitwise_mismatches="
               << production_metrics.bitwise_mismatches
-              << " dequantization_timed=true gate="
+              << " dequantization_timed=true"
+              << " speed_threshold_met="
               << (performance_checkpoint
-                      ? (inclusive_speed_gate ? "PASS" : "FAIL")
+                      ? (inclusive_speed_gate ? "true" : "false")
                       : "NOT_RUN")
-              << " admission="
-              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
-                                         : "NOT_RUN")
+              << " comparison_only=true decision_authority=NONE"
               << '\n';
   }
 
-  // A same-process B-C-C-B comparison determines whether the local ceiling
-  // chain can be extrapolated to the separately compiled public module.  B is
-  // this TU's Window8 + selected Lt chain and C is the public production
-  // launcher, including its independently autotuned zero-workspace Lt choice.
+  // A same-process B-C-C-B comparison checks whether the local reference
+  // chain matches the separately compiled test-only reference module. B is
+  // this TU's Window8 + selected Lt chain and C is the independently
+  // autotuned zero-workspace reference module.
   // A negative extrapolation result is valid evidence, not a test failure;
   // only missing clocks, launch failures, or non-finite timings fail the gate.
   bool public_module_timing_gate = selected_checkpoint == nullptr;
@@ -3255,7 +3235,7 @@ int main(const int argc, char** argv) {
     bool every_timing_finite = true;
     for (int round = 0; round < kFormalRounds; ++round) {
       const std::string prefix =
-          "public module BCCB round " + std::to_string(round + 1) + ' ';
+          "reference module BCCB round " + std::to_string(round + 1) + ' ';
       const double b1 = measure_inclusive_window8(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
@@ -3266,12 +3246,12 @@ int main(const int argc, char** argv) {
           test, public_down_context, canonical_packed_weight.get(),
           canonical_block_scale.get(), activation.get(),
           persistent_weight.get(), trusted_output, nvfp4_weight_scale_2, stream,
-          kFormalWarmups, kFormalIterations, prefix + "C1 public module");
+          kFormalWarmups, kFormalIterations, prefix + "C1 reference module");
       const double c2 = measure_public_down_module(
           test, public_down_context, canonical_packed_weight.get(),
           canonical_block_scale.get(), activation.get(),
           persistent_weight.get(), trusted_output, nvfp4_weight_scale_2, stream,
-          kFormalWarmups, kFormalIterations, prefix + "C2 public module");
+          kFormalWarmups, kFormalIterations, prefix + "C2 reference module");
       const double b2 = measure_inclusive_window8(
           test, lt, selected, canonical_packed_weight.get(),
           canonical_block_scale.get(), persistent_weight.get(),
@@ -3298,15 +3278,16 @@ int main(const int argc, char** argv) {
         test_tu_sum += b1 + b2;
         public_module_sum += c1 + c2;
       }
-      std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_ROUND: round="
+      std::cout
+          << "NVFP4_CUBLASLT_DOWN_C512_TEST_ONLY_REFERENCE_MODULE_ROUND: round="
                 << round + 1 << " order=B-C-C-B"
                 << " B1_test_TU_ms=" << b1
-                << " C1_public_module_ms=" << c1
-                << " C2_public_module_ms=" << c2
+                << " C1_reference_module_ms=" << c1
+                << " C2_reference_module_ms=" << c2
                 << " B2_test_TU_ms=" << b2
                 << " test_TU_pair_ms=" << test_tu_pair
-                << " public_module_pair_ms=" << public_module_pair
-                << " public_over_test_TU="
+                << " reference_module_pair_ms=" << public_module_pair
+                << " reference_module_over_test_TU="
                 << public_module_pair / test_tu_pair
                 << " absolute_delta_fraction=" << delta_fraction
                 << " within_3pct=" << (within_band ? "true" : "false")
@@ -3324,16 +3305,17 @@ int main(const int argc, char** argv) {
         public_module_timing_gate && every_round_within_band &&
         aggregate_delta_fraction <= kMaximumExtrapolationDeltaFraction;
     test.expect(public_module_timing_gate,
-                "public Down module B-C-C-B timing protocol completes");
+                "reference Down module B-C-C-B timing protocol completes");
     ready = ready && public_module_timing_gate;
-    std::cout << "NVFP4_CUBLASLT_DOWN_C512_PUBLIC_MODULE_FINAL:"
+    std::cout
+        << "NVFP4_CUBLASLT_DOWN_C512_TEST_ONLY_REFERENCE_MODULE_FINAL:"
               << " rounds=" << kFormalRounds
               << " iterations=" << kFormalIterations
               << " order=B-C-C-B"
               << " test_TU_inclusive_milliseconds=" << test_tu_aggregate
-              << " public_module_inclusive_milliseconds="
+              << " reference_module_inclusive_milliseconds="
               << public_module_aggregate
-              << " public_over_test_TU="
+              << " reference_module_over_test_TU="
               << public_module_aggregate / test_tu_aggregate
               << " absolute_delta_fraction=" << aggregate_delta_fraction
               << " allowed_delta_fraction="
@@ -3349,154 +3331,9 @@ int main(const int argc, char** argv) {
               << " timing_gate="
               << (public_module_timing_gate ? "PASS" : "FAIL") << '\n';
   }
-  public_module_evidence_gate =
-      public_module_evidence_gate && public_module_timing_gate;
-
-  // Probe the scale boundary without admitting it to the hybrid selector.
-  // Both raw routes are executed at zero solely to characterize signed-zero
-  // behavior; production remains the selected implementation for scale=0.
-  ready = ready && test.cuda_ok(
-                       cudaMemsetAsync(candidate_output, 0x7f,
-                                       kCElements * sizeof(__nv_bfloat16),
-                                       stream),
-                       "poison zero-scale candidate output");
-  ready = ready && test.cuda_ok(
-                       cudaMemsetAsync(exact_production_output, 0x7f,
-                                       kCElements * sizeof(__nv_bfloat16),
-                                       stream),
-                       "poison zero-scale production output");
-  ready = ready && launch_dequantize_contiguous_window8(
-                       test, canonical_packed_weight.get(),
-                       canonical_block_scale.get(), persistent_weight.get(),
-                       stream, "launch zero-scale window8 candidate dequant");
-  ready = ready && launch_lt(
-                       test, lt, selected, 0.0F, persistent_weight.get(),
-                       activation.get(), candidate_output, workspace.get(),
-                       kWorkspaceBytes, stream,
-                       "launch zero-scale raw cuBLASLt diagnostic");
-  const int zero_production_status = q3x::kernels::
-      launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
-          canonical_packed_weight.get(), canonical_block_scale.get(), 0.0F,
-          reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
-          kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
-          static_cast<void*>(stream));
-  ready = ready && test.cuda_ok(
-                       static_cast<cudaError_t>(zero_production_status),
-                       "launch zero-scale production M128 diagnostic");
-  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
-                                "synchronize zero-scale diagnostics");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpy(candidate_host.data(), candidate_output,
-                                  kCElements * sizeof(std::uint16_t),
-                                  cudaMemcpyDeviceToHost),
-                       "copy zero-scale candidate output");
-  ready = ready && test.cuda_ok(
-                       cudaMemcpy(production_host.data(),
-                                  exact_production_output,
-                                  kCElements * sizeof(std::uint16_t),
-                                  cudaMemcpyDeviceToHost),
-                       "copy zero-scale production output");
-  const NumericalMetrics zero_metrics =
-      compare_bf16_outputs(candidate_host, production_host);
-  const auto count_bits = [](const std::vector<std::uint16_t>& values,
-                             const std::uint16_t bits) {
-    return static_cast<std::size_t>(std::count(values.begin(), values.end(),
-                                               bits));
-  };
-  const std::size_t candidate_positive_zero =
-      count_bits(candidate_host, 0x0000U);
-  const std::size_t candidate_negative_zero =
-      count_bits(candidate_host, 0x8000U);
-  const std::size_t production_positive_zero =
-      count_bits(production_host, 0x0000U);
-  const std::size_t production_negative_zero =
-      count_bits(production_host, 0x8000U);
-  const bool zero_numeric_gate =
-      zero_production_status == static_cast<int>(cudaSuccess) &&
-      zero_metrics.candidate_nonfinite == 0U &&
-      zero_metrics.production_nonfinite == 0U &&
-      zero_metrics.maximum_absolute == 0.0 && zero_metrics.nrmse == 0.0 &&
-      candidate_positive_zero + candidate_negative_zero == kCElements &&
-      production_positive_zero + production_negative_zero == kCElements;
-  test.expect(zero_numeric_gate,
-              "zero-scale raw routes are finite numerical zeros");
-  test.expect(!select_hybrid_for_scale(0.0F),
-              "hybrid selector routes zero scale to production");
-  std::cout << "NVFP4_CUBLASLT_DOWN_C512_SCALE_ZERO: production_status="
-            << zero_production_status
-            << " selected_dequant=window8"
-            << " selector_admitted="
-            << (select_hybrid_for_scale(0.0F) ? "true" : "false")
-            << " selector_action=route_existing_production"
-            << " bitwise_mismatches=" << zero_metrics.bitwise_mismatches
-            << '/' << kCElements
-            << " candidate_positive_zero=" << candidate_positive_zero
-            << " candidate_negative_zero=" << candidate_negative_zero
-            << " production_positive_zero=" << production_positive_zero
-            << " production_negative_zero=" << production_negative_zero
-            << " max_abs=" << zero_metrics.maximum_absolute
-            << " nrmse=" << zero_metrics.nrmse
-            << " cosine=" << zero_metrics.cosine
-            << " gate=" << (zero_numeric_gate ? "PASS" : "FAIL") << '\n';
-
-  // The public production dispatcher rejects NaN before enqueue.  Capture
-  // proves the rejection contributes no graph nodes; the hybrid selector must
-  // perform the same host-side fail-closed check and never call cuBLASLt.
-  cudaGraph_t nan_graph = nullptr;
-  bool nan_capture_ready = test.cuda_ok(
-      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
-      "begin NaN-scale production capture");
-  int nan_production_status = static_cast<int>(cudaErrorUnknown);
-  if (nan_capture_ready) {
-    nan_production_status = q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
-            canonical_packed_weight.get(), canonical_block_scale.get(),
-            std::numeric_limits<float>::quiet_NaN(),
-            reinterpret_cast<const std::uint16_t*>(activation.get()), kM, kN,
-            kK, reinterpret_cast<std::uint16_t*>(exact_production_output),
-            static_cast<void*>(stream));
-    nan_capture_ready =
-        test.cuda_ok(cudaStreamEndCapture(stream, &nan_graph),
-                     "end NaN-scale production capture") &&
-        nan_capture_ready;
-  }
-  std::size_t nan_graph_nodes = 0U;
-  if (nan_capture_ready && nan_graph != nullptr) {
-    nan_capture_ready =
-        test.cuda_ok(cudaGraphGetNodes(nan_graph, nullptr, &nan_graph_nodes),
-                     "count NaN-scale production graph nodes") &&
-        nan_capture_ready;
-  }
-  if (nan_graph != nullptr) {
-    nan_capture_ready =
-        test.cuda_ok(cudaGraphDestroy(nan_graph),
-                     "destroy NaN-scale production graph") &&
-        nan_capture_ready;
-  }
-  const bool nan_selector_admitted = select_hybrid_for_scale(
-      std::numeric_limits<float>::quiet_NaN());
-  const bool negative_selector_admitted = select_hybrid_for_scale(-1.0F);
-  const bool nan_gate =
-      nan_capture_ready &&
-      nan_production_status == static_cast<int>(cudaErrorInvalidValue) &&
-      nan_graph_nodes == 0U && !nan_selector_admitted &&
-      !negative_selector_admitted &&
-      select_hybrid_for_scale(nvfp4_weight_scale_2);
-  test.expect(nan_gate,
-              "hybrid selector fail-closes NaN/negative before enqueue");
-  ready = ready && nan_capture_ready;
-  std::cout << "NVFP4_CUBLASLT_DOWN_C512_SCALE_SELECTOR: positive_finite="
-            << (select_hybrid_for_scale(nvfp4_weight_scale_2) ? "hybrid"
-                                                             : "reject")
-            << " zero=route_existing_production"
-            << " nan=reject_invalid negative=reject_invalid"
-            << " production_nan_status=" << nan_production_status
-            << " production_nan_graph_nodes=" << nan_graph_nodes
-            << " fail_closed_condition=isfinite(scale)&&scale>0"
-            << " gate=" << (nan_gate ? "PASS" : "FAIL") << '\n';
-
-  // Full post-run immutability checks cover all eager, graph, production, and
-  // special-scale executions above.
+  // Full post-run immutability checks cover eager, graph, reference-module,
+  // and native-comparison executions above. Invalid-scale contracts live in
+  // their respective module tests and do not imply a production selector.
   const auto validate_immutable =
       [&](const std::uint8_t* const values,
           const std::uint8_t* const snapshot, const std::size_t count,
@@ -3592,25 +3429,35 @@ int main(const int argc, char** argv) {
       validate_guards(production_output, "production_M128") && guard_gate;
   ready = ready && guard_gate;
 
-  const bool retain_candidate =
-      ready && inclusive_speed_gate && production_numerical_gate &&
-      graph_ready && zero_numeric_gate && nan_gate && immutable_gate &&
-      guard_gate && lt_pointer_alignment_gate && window8_selected &&
-      public_module_evidence_gate &&
+  const bool reference_formal_timing_complete =
+      dequant_round_milliseconds.size() ==
+          static_cast<std::size_t>(kFormalRounds) &&
+      inclusive_round_milliseconds.size() ==
+          static_cast<std::size_t>(kFormalRounds);
+  const bool reference_correctness_gate =
+      reference_scale_valid && inclusive_output_gate && graph_output_gate &&
+      public_module_evidence_gate && window8_correctness_gate &&
+      window8_guard_gate && window8_dequant_attributes.localSizeBytes == 0U &&
+      immutable_gate && guard_gate && lt_pointer_alignment_gate &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
+  const bool reference_timing_gate =
+      reference_formal_timing_complete && public_module_timing_gate &&
+      (!performance_checkpoint ||
+       (clocks.has_value() && clocks_are_fixed(*clocks)));
+  const bool reference_observation_complete =
+      reference_correctness_gate && reference_timing_gate;
   if (performance_checkpoint) {
-    std::cout << "NVFP4_CUBLASLT_DOWN_C512_P0_RECOMMENDATION: action="
-              << (retain_candidate
-                      ? "retain_existing_guarded_production_route"
-                      : "reject_or_continue_test_only")
-              << " admitted_shape=exact_C512_Down"
-              << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
-              << " scale_zero_action=route_existing_production"
-              << " scale_nonfinite_or_negative_action=reject_before_enqueue"
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_REFERENCE_OBSERVATION: action="
+              << "archive_external_reference"
+              << " measured_shape=exact_C512_Down"
+              << " decision_authority=NONE"
+              << " production_eligibility=NONE"
+              << " fallback_eligibility=NONE"
               << " workspace_bytes=0"
               << " selected_dequant=window8"
-              << " dequant_selection_gate="
-              << (window8_selected ? "true" : "false")
+              << " dequant_speed_threshold_met="
+              << (window8_screen_threshold_met ? "true" : "false")
+              << " dequant_speed_decision_authority=NONE"
               << " production_bitwise_mismatches="
               << production_metrics.bitwise_mismatches << '/' << kCElements
               << " graph_nodes=" << graph_node_count
@@ -3618,12 +3465,21 @@ int main(const int argc, char** argv) {
               << (lt_pointer_alignment_gate ? "true" : "false")
               << " input_immutable=" << (immutable_gate ? "true" : "false")
               << " guards_intact=" << (guard_gate ? "true" : "false")
-              << " public_module_evidence="
+              << " reference_module_correctness="
               << (public_module_evidence_gate ? "pass" : "fail")
-              << " public_module_extrapolation="
+              << " reference_module_timing="
+              << (public_module_timing_gate ? "pass" : "fail")
+              << " reference_module_extrapolation="
               << (public_module_extrapolation_supported ? "supported"
                                                         : "not_supported")
-              << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
+              << " speed_observation="
+              << (inclusive_speed_gate ? "POSITIVE" : "NEGATIVE")
+              << " correctness_gate="
+              << (reference_correctness_gate ? "PASS" : "FAIL")
+              << " timing_gate="
+              << (reference_timing_gate ? "PASS" : "FAIL")
+              << " status="
+              << (reference_observation_complete ? "PASS" : "FAIL") << '\n';
   }
 
   q3x::kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
@@ -3640,22 +3496,26 @@ int main(const int argc, char** argv) {
     return 1;
   }
   if (!performance_checkpoint) {
-    std::cout << "NVFP4_CUBLASLT_DOWN_C512_ADMISSION: mode=smoke"
-              << " admission=NOT_RUN evidence=synthetic_smoke status=PASS\n";
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_REFERENCE: mode=smoke"
+              << " decision=NOT_RUN evidence=synthetic_smoke"
+              << " production_eligibility=NONE status=PASS\n";
     std::cout << "Canonical-NVFP4 inclusive Down C512 smoke completed\n";
     return 0;
   }
-  std::cout << "NVFP4_CUBLASLT_DOWN_C512_ADMISSION:"
+  std::cout << "NVFP4_CUBLASLT_DOWN_C512_REFERENCE:"
             << " mode=performance-checkpoint"
-            << " admission=" << (retain_candidate ? "PASS" : "REJECT")
             << " evidence=checkpoint_weight_only"
-            << " status=" << (retain_candidate ? "PASS" : "REJECT")
+            << " role=EXTERNAL_REFERENCE_ONLY"
+            << " decision_authority=NONE"
+            << " production_eligibility=NONE"
+            << " fallback_eligibility=NONE"
+            << " speed_observation="
+            << (inclusive_speed_gate ? "POSITIVE" : "NEGATIVE")
+            << " status="
+            << (reference_observation_complete ? "PASS" : "FAIL")
             << '\n';
-  std::cout << "Canonical-NVFP4 inclusive Down C512 performance checkpoint "
-            << (retain_candidate ? "passed" : "did not clear admission")
-            << '\n';
-  if (!retain_candidate) {
-    return 3;
-  }
-  return 0;
+  std::cout << "Canonical-NVFP4 inclusive Down C512 external reference "
+            << (reference_observation_complete ? "archived"
+                                               : "incomplete") << '\n';
+  return reference_observation_complete ? 0 : 1;
 }

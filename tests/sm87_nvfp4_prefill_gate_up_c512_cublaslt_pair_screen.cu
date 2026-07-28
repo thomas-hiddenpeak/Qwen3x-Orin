@@ -3,7 +3,9 @@
 #include "q3x/io/safetensors.h"
 #include "pinned_checkpoint.h"
 
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
 #include <cublasLt.h>
+#endif
 #include <cuda_bf16.h>
 #include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
@@ -115,9 +117,11 @@ constexpr std::size_t kBlockScaleBytes = kN * (kK / 16U);
 constexpr std::size_t kGuardElements = 256U;
 constexpr std::size_t kGuardedOutputElements =
     kGuardElements + kCElements + kGuardElements;
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
 constexpr int kMaximumHeuristics = 16;
 constexpr int kSelectionWarmups = 2;
 constexpr int kSelectionIterations = 4;
+#endif
 constexpr int kWarmups = 2;
 constexpr int kIterations = 8;
 constexpr int kRounds = 6;
@@ -177,6 +181,7 @@ class TestContext {
     return status == cudaSuccess;
   }
 
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
   [[nodiscard]] bool lt_ok(const cublasStatus_t status,
                            const std::string& operation) {
     expect(status == CUBLAS_STATUS_SUCCESS,
@@ -184,6 +189,7 @@ class TestContext {
                std::to_string(static_cast<int>(status)));
     return status == CUBLAS_STATUS_SUCCESS;
   }
+#endif
 
   [[nodiscard]] int failures() const noexcept { return failures_; }
 
@@ -605,6 +611,7 @@ class DeviceBuffer {
   std::size_t count_ = 0U;
 };
 
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
 class LtObjects {
  public:
   LtObjects() = default;
@@ -699,6 +706,11 @@ class LtObjects {
   cublasLtMatrixLayout_t output_layout_ = nullptr;
   cublasLtMatmulPreference_t preference_ = nullptr;
 };
+#else
+// Compile-time marker used by the shared native harness signatures.  The
+// native-only target has no cuBLASLt type, object, symbol, or dynamic link.
+struct LtObjects final {};
+#endif
 
 class Execution {
  public:
@@ -832,11 +844,20 @@ struct Fixture {
   }
 };
 
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
 struct SelectedAlgorithm {
   cublasLtMatmulAlgo_t value{};
   int heuristic_index = -1;
   double milliseconds = std::numeric_limits<double>::quiet_NaN();
 };
+#else
+struct NativeOnlyReferenceAlgorithm final {};
+struct SelectedAlgorithm {
+  NativeOnlyReferenceAlgorithm value{};
+  int heuristic_index = -1;
+  double milliseconds = std::numeric_limits<double>::quiet_NaN();
+};
+#endif
 
 enum class Variant : std::uint8_t {
   kProduction,
@@ -1108,6 +1129,7 @@ struct ClockState {
   return cudaGetLastError() == cudaSuccess;
 }
 
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
 [[nodiscard]] bool launch_lt(const LtObjects& lt,
                              const cublasLtMatmulAlgo_t& algorithm,
                              const float alpha,
@@ -1249,6 +1271,17 @@ void print_selected_algorithm_config(
             << " custom_option=" << custom_option
             << " stages_id=" << stages_id << '\n';
 }
+#else
+[[nodiscard]] bool launch_lt(
+    const LtObjects&, const NativeOnlyReferenceAlgorithm&, float,
+    const __nv_bfloat16*, const __nv_bfloat16*, std::uint16_t*,
+    cudaStream_t) {
+  // This branch is unreachable in the native-only target.  Keeping a local
+  // stub lets the shared variant harness compile without importing any
+  // external-library type or symbol.
+  return false;
+}
+#endif
 
 [[nodiscard]] bool launch_production_branch(
     const std::uint8_t* const packed, const std::uint8_t* const scales,
@@ -1679,9 +1712,9 @@ struct GraphCounts {
   if (ready) {
     ready = query_graph_counts(test, graph, counts, label) && ready;
     const bool native_or_production =
-        variant == Variant::kProduction ||
-        variant == Variant::kNativeSerial ||
-        variant == Variant::kNativeDual;
+        variant != Variant::kSerialOneScratch &&
+        variant != Variant::kNaiveDual &&
+        variant != Variant::kStaggeredDual;
     const std::size_t minimum_kernels = native_or_production ? 2U : 4U;
     test.expect(counts.kernels >= minimum_kernels,
                 label + " graph contains expected compute nodes");
@@ -1853,10 +1886,12 @@ struct ComparisonResult {
                        test, kPackedWeightBytes, "allocate Up packed weight");
   ready = ready && fixture.up_scales.allocate(
                        test, kBlockScaleBytes, "allocate Up block scales");
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
   ready = ready && fixture.scratch0.allocate(
                        test, kBElements, "allocate BF16 scratch0");
   ready = ready && fixture.scratch1.allocate(
                        test, kBElements, "allocate BF16 scratch1");
+#endif
   ready = ready && fixture.reference_gate_store.allocate(
                        test, kGuardedOutputElements,
                        "allocate guarded reference Gate output");
@@ -2486,6 +2521,15 @@ int main(const int argc, char** const argv) {
   const bool performance_checkpoint =
       options.mode == Mode::kPerformanceCheckpoint;
   const bool profile_checkpoint = options.mode == Mode::kProfileCheckpoint;
+#if defined(Q3X_NATIVE_RETENTION_ONLY)
+  const bool cublaslt_reference_requested = false;
+#else
+  const bool cublaslt_reference_requested =
+      !performance_checkpoint &&
+      (!profile_checkpoint ||
+       (options.profile_target.has_value() &&
+        *options.profile_target != ProfileTarget::kNativeNvfp4Gemm));
+#endif
   const bool checkpoint_mode = performance_checkpoint || profile_checkpoint;
   if (checkpoint_mode && options.checkpoint_directory.empty()) {
     std::cerr << "--mode=" << mode_name(options.mode)
@@ -2506,6 +2550,14 @@ int main(const int argc, char** const argv) {
                  "--mode=profile-checkpoint\n";
     return 2;
   }
+#if defined(Q3X_NATIVE_RETENTION_ONLY)
+  if (profile_checkpoint &&
+      *options.profile_target != ProfileTarget::kNativeNvfp4Gemm) {
+    std::cerr << "native-only target accepts only "
+                 "--profile-target=native-nvfp4-gemm\n";
+    return 2;
+  }
+#endif
   TestContext test;
   CheckpointPayload checkpoint_payload;
   const CheckpointPayload* selected_checkpoint = nullptr;
@@ -2640,8 +2692,12 @@ int main(const int argc, char** const argv) {
   LtObjects auxiliary_lt;
   bool ready = allocate_fixture(test, fixture);
   ready = ready && execution.create(test);
-  ready = ready && main_lt.create(test, "main Lt");
-  ready = ready && auxiliary_lt.create(test, "auxiliary Lt");
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
+  if (cublaslt_reference_requested) {
+    ready = ready && main_lt.create(test, "main Lt");
+    ready = ready && auxiliary_lt.create(test, "auxiliary Lt");
+  }
+#endif
   if (!ready) {
     return 1;
   }
@@ -2655,6 +2711,7 @@ int main(const int argc, char** const argv) {
   constexpr std::uint64_t kPerScratchBytes =
       kBElements * sizeof(__nv_bfloat16);
   constexpr std::uint64_t kTwoScratchBytes = 2U * kPerScratchBytes;
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
   const std::uint64_t two_scratch_fixture_bytes = fixture.planned_bytes();
   const std::uint64_t one_scratch_fixture_bytes =
       two_scratch_fixture_bytes - kPerScratchBytes;
@@ -2670,6 +2727,19 @@ int main(const int argc, char** const argv) {
             << " two_scratch_incremental_bytes=" << kTwoScratchBytes
             << " per_scratch_bytes=" << kPerScratchBytes
             << " lt_workspace_bytes=0" << '\n';
+#else
+  std::cout << "NVFP4_PAIR_MEMORY: total_device_bytes=" << total_after
+            << " free_before_bytes=" << free_before
+            << " free_after_bytes=" << free_after
+            << " observed_free_drop_bytes=" << observed_drop
+            << " native_only_fixture_bytes=" << fixture.planned_bytes()
+            << " external_reference_scratch_allocated_bytes=0"
+            << " external_reference_theoretical_one_scratch_bytes="
+            << kPerScratchBytes
+            << " external_reference_theoretical_two_scratch_bytes="
+            << kTwoScratchBytes
+            << " lt_workspace_bytes=NOT_APPLICABLE" << '\n';
+#endif
 
   ready = initialize_fixture(test, fixture, execution, selected_checkpoint) &&
           ready;
@@ -2689,56 +2759,75 @@ int main(const int argc, char** const argv) {
                     ? "PASS"
                     : "FAIL")
             << '\n';
-  ready = launch_dequantize(fixture.gate_packed.get(),
-                            fixture.gate_scales.get(), fixture.scratch0.get(),
-                            execution.main()) &&
-          ready;
-  ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
-                       "prepare algorithm-selection weight") &&
-          ready;
-  const std::optional<SelectedAlgorithm> selected = select_algorithm(
-      test, main_lt, fixture.scratch0.get(), fixture.activation.get(),
-      fixture.candidate_gate(), execution.main());
-  if (!ready || !selected.has_value()) {
-    return 1;
-  }
+  SelectedAlgorithm selected;
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
+  if (cublaslt_reference_requested) {
+    ready = launch_dequantize(fixture.gate_packed.get(),
+                              fixture.gate_scales.get(), fixture.scratch0.get(),
+                              execution.main()) &&
+            ready;
+    ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
+                         "prepare algorithm-selection weight") &&
+            ready;
+    const std::optional<SelectedAlgorithm> selected_reference =
+        select_algorithm(test, main_lt, fixture.scratch0.get(),
+                         fixture.activation.get(), fixture.candidate_gate(),
+                         execution.main());
+    if (!ready || !selected_reference.has_value()) {
+      return 1;
+    }
+    selected = *selected_reference;
 
-  cublasLtMatmulHeuristicResult_t auxiliary_check{};
-  ready = test.lt_ok(
-              cublasLtMatmulAlgoCheck(
-                  auxiliary_lt.handle(), auxiliary_lt.operation(),
-                  auxiliary_lt.weight_layout(),
-                  auxiliary_lt.activation_layout(),
-                  auxiliary_lt.output_layout(), auxiliary_lt.output_layout(),
-                  &selected->value, &auxiliary_check),
-              "validate selected algorithm on auxiliary handle") &&
-          ready;
-  test.expect(auxiliary_check.workspaceSize == 0U,
-              "auxiliary handle keeps selected algorithm zero-workspace");
-  ready = ready && auxiliary_check.workspaceSize == 0U;
-  std::cout << "NVFP4_PAIR_LT_SELECTED: heuristic_index="
-            << selected->heuristic_index
-            << " selection_milliseconds=" << selected->milliseconds
-            << " main_workspace_bytes=0"
-            << " auxiliary_workspace_bytes=" << auxiliary_check.workspaceSize
-            << " gate=PASS\n";
-  print_selected_algorithm_config(*selected);
+    cublasLtMatmulHeuristicResult_t auxiliary_check{};
+    ready = test.lt_ok(
+                cublasLtMatmulAlgoCheck(
+                    auxiliary_lt.handle(), auxiliary_lt.operation(),
+                    auxiliary_lt.weight_layout(),
+                    auxiliary_lt.activation_layout(),
+                    auxiliary_lt.output_layout(),
+                    auxiliary_lt.output_layout(), &selected.value,
+                    &auxiliary_check),
+                "validate selected algorithm on auxiliary handle") &&
+            ready;
+    test.expect(auxiliary_check.workspaceSize == 0U,
+                "auxiliary handle keeps selected algorithm zero-workspace");
+    ready = ready && auxiliary_check.workspaceSize == 0U;
+    std::cout << "NVFP4_PAIR_LT_SELECTED: heuristic_index="
+              << selected.heuristic_index
+              << " selection_milliseconds=" << selected.milliseconds
+              << " main_workspace_bytes=0"
+              << " auxiliary_workspace_bytes="
+              << auxiliary_check.workspaceSize << " gate=PASS\n";
+    print_selected_algorithm_config(selected);
+  } else {
+    std::cout << "NVFP4_PAIR_CUBLASLT_REFERENCE_SETUP: status=NOT_RUN"
+              << " reason=native_decision_isolation"
+              << " decision_authority=NONE production_eligibility=NONE\n";
+  }
+#else
+  std::cout << "NVFP4_PAIR_CUBLASLT_REFERENCE_SETUP: status=ABSENT"
+            << " reason=native_only_binary"
+            << " linked=false scratch_allocated_bytes=0"
+            << " decision_authority=NONE production_eligibility=NONE\n";
+#endif
 
   ready = run_native_resource_and_status_gate(test, fixture, execution) &&
           ready;
   ready = generate_production_reference(test, fixture, execution) && ready;
   if (profile_checkpoint) {
+    if (cublaslt_reference_requested) {
+      ready = run_eager_correctness(
+                  test, fixture, execution, main_lt, auxiliary_lt, selected,
+                  Variant::kSerialOneScratch) &&
+              ready;
+    }
     ready = run_eager_correctness(
-                test, fixture, execution, main_lt, auxiliary_lt, *selected,
-                Variant::kSerialOneScratch) &&
-            ready;
-    ready = run_eager_correctness(
-                test, fixture, execution, main_lt, auxiliary_lt, *selected,
+                test, fixture, execution, main_lt, auxiliary_lt, selected,
                 Variant::kNativeSerial) &&
             ready;
     if (ready) {
       ready = run_profile_checkpoint(test, fixture, execution, main_lt,
-                                     *selected, *options.profile_target) &&
+                                     selected, *options.profile_target) &&
               ready;
     }
     ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
@@ -2762,49 +2851,73 @@ int main(const int argc, char** const argv) {
     std::cout << "Gate/Up C512 matched profile checkpoint passed\n";
     return 0;
   }
-  for (const Variant variant :
-       {Variant::kProduction, Variant::kSerialOneScratch,
-        Variant::kNaiveDual, Variant::kStaggeredDual,
-        Variant::kNativeSerial, Variant::kNativeDual}) {
+  std::vector<Variant> correctness_variants{Variant::kProduction};
+  if (cublaslt_reference_requested) {
+    correctness_variants.push_back(Variant::kSerialOneScratch);
+    correctness_variants.push_back(Variant::kNaiveDual);
+    correctness_variants.push_back(Variant::kStaggeredDual);
+  }
+  // A retention denominator is evidence only after the incumbent itself has
+  // passed the same real-weight eager and Graph exactness gates in-process.
+  if (fixture.native_kernel == NativeKernel::kM64N256ConflictFree3Stage) {
+    correctness_variants.push_back(Variant::kNativeControlSerial);
+    correctness_variants.push_back(Variant::kNativeControlDual);
+  } else if (fixture.native_kernel ==
+             NativeKernel::kM64N256BSwizzleScale5123Stage) {
+    correctness_variants.push_back(Variant::kNativeCf3ControlSerial);
+    correctness_variants.push_back(Variant::kNativeCf3ControlDual);
+  } else if (fixture.native_kernel != NativeKernel::kM64N256PairLookup) {
+    correctness_variants.push_back(Variant::kNativeBs512ControlSerial);
+    correctness_variants.push_back(Variant::kNativeBs512ControlDual);
+  }
+  correctness_variants.push_back(Variant::kNativeSerial);
+  correctness_variants.push_back(Variant::kNativeDual);
+  for (const Variant variant : correctness_variants) {
     ready = run_eager_correctness(test, fixture, execution, main_lt,
-                                  auxiliary_lt, *selected, variant) &&
+                                  auxiliary_lt, selected, variant) &&
             ready;
     ready = run_graph_correctness(test, fixture, execution, main_lt,
-                                  auxiliary_lt, *selected, variant) &&
+                                  auxiliary_lt, selected, variant) &&
             ready;
   }
 
-  const ComparisonResult production_vs_a = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kProduction, Variant::kSerialOneScratch,
-      "selfhosted_production_vs_cublaslt_reference",
-      performance_checkpoint);
-  const ComparisonResult a_vs_b = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kNaiveDual, "A_vs_B",
-      performance_checkpoint);
-  const ComparisonResult a_vs_c = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kStaggeredDual, "A_vs_C",
-      performance_checkpoint);
-  const ComparisonResult bridge_vs_native_serial = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kNativeSerial,
-      "cublaslt_reference_vs_native_serial", performance_checkpoint);
-  const ComparisonResult bridge_vs_native_dual = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kNativeDual,
-      "cublaslt_reference_vs_native_dual", performance_checkpoint);
+  ComparisonResult production_vs_a;
+  ComparisonResult a_vs_b;
+  ComparisonResult a_vs_c;
+  ComparisonResult bridge_vs_native_serial;
+  ComparisonResult bridge_vs_native_dual;
+  if (cublaslt_reference_requested) {
+    production_vs_a = run_bccb(
+        test, fixture, execution, main_lt, auxiliary_lt, selected,
+        Variant::kProduction, Variant::kSerialOneScratch,
+        "selfhosted_production_vs_cublaslt_reference",
+        performance_checkpoint);
+    a_vs_b = run_bccb(test, fixture, execution, main_lt, auxiliary_lt,
+                      selected, Variant::kSerialOneScratch,
+                      Variant::kNaiveDual, "A_vs_B", performance_checkpoint);
+    a_vs_c = run_bccb(test, fixture, execution, main_lt, auxiliary_lt,
+                      selected, Variant::kSerialOneScratch,
+                      Variant::kStaggeredDual, "A_vs_C",
+                      performance_checkpoint);
+    bridge_vs_native_serial = run_bccb(
+        test, fixture, execution, main_lt, auxiliary_lt, selected,
+        Variant::kSerialOneScratch, Variant::kNativeSerial,
+        "cublaslt_reference_vs_native_serial", performance_checkpoint);
+    bridge_vs_native_dual = run_bccb(
+        test, fixture, execution, main_lt, auxiliary_lt, selected,
+        Variant::kSerialOneScratch, Variant::kNativeDual,
+        "cublaslt_reference_vs_native_dual", performance_checkpoint);
+  }
   const ComparisonResult production_vs_native_serial = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      test, fixture, execution, main_lt, auxiliary_lt, selected,
       Variant::kProduction, Variant::kNativeSerial,
       "selfhosted_production_vs_native_serial", performance_checkpoint);
   const ComparisonResult production_vs_native_dual = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      test, fixture, execution, main_lt, auxiliary_lt, selected,
       Variant::kProduction, Variant::kNativeDual,
       "selfhosted_production_vs_native_dual", performance_checkpoint);
   const ComparisonResult native_serial_vs_dual = run_bccb(
-      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      test, fixture, execution, main_lt, auxiliary_lt, selected,
       Variant::kNativeSerial, Variant::kNativeDual,
       "native_serial_vs_native_dual", performance_checkpoint);
   std::optional<ComparisonResult> native_control_vs_candidate_serial;
@@ -2826,12 +2939,12 @@ int main(const int argc, char** const argv) {
   if (performance_checkpoint &&
       fixture.native_kernel != NativeKernel::kM64N256PairLookup) {
     native_control_vs_candidate_serial = run_bccb(
-        test, fixture, execution, main_lt, auxiliary_lt, *selected,
+        test, fixture, execution, main_lt, auxiliary_lt, selected,
         incumbent_serial_variant, Variant::kNativeSerial,
         "native_incumbent_vs_candidate_serial",
         true);
     native_control_vs_candidate_dual = run_bccb(
-        test, fixture, execution, main_lt, auxiliary_lt, *selected,
+        test, fixture, execution, main_lt, auxiliary_lt, selected,
         incumbent_dual_variant, Variant::kNativeDual,
         "native_incumbent_vs_candidate_dual",
         true);
@@ -2936,6 +3049,7 @@ int main(const int argc, char** const argv) {
   // after broader shape and end-to-end validation.
   const bool checkpoint_retention = development_retention_gate;
   if (performance_checkpoint) {
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
     std::cout << "NVFP4_PAIR_CUBLASLT_REFERENCE_FINAL: "
               << "selfhosted_production_vs_reference_speedup="
               << production_vs_a.speedup
@@ -2959,16 +3073,29 @@ int main(const int argc, char** const argv) {
               << " recommended_scratch_count="
               << (recommendation == Variant::kSerialOneScratch ? 1 : 2)
               << " reference_quality_observation="
-              << (cublaslt_reference_quality_observation ? "PASS" : "FAIL")
+              << (!cublaslt_reference_requested
+                      ? "NOT_RUN"
+                      : (cublaslt_reference_quality_observation ? "PASS"
+                                                                 : "FAIL"))
               << " reference_timing_status="
-              << (cublaslt_reference_timing_finite ? "VALID" : "INVALID")
+              << (!cublaslt_reference_requested
+                      ? "NOT_RUN"
+                      : (cublaslt_reference_timing_finite ? "VALID"
+                                                          : "INVALID"))
+              << " decision_authority=NONE"
               << " production_eligibility=NONE" << '\n';
+#else
+    std::cout << "NVFP4_PAIR_CUBLASLT_REFERENCE_FINAL: status=ABSENT"
+              << " reason=native_only_binary decision_authority=NONE"
+              << " production_eligibility=NONE\n";
+#endif
     std::cout << "NVFP4_PAIR_NATIVE_FINAL: native_kernel="
               << native_kernel_name(fixture.native_kernel)
               << " native_incumbent="
               << (candidate_has_incumbent ? native_incumbent_name : "NONE")
               << " bootstrap="
               << (candidate_has_incumbent ? "false" : "true")
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
               << " cublaslt_reference_serial_ms="
               << bridge_vs_native_serial.baseline_milliseconds
               << " native_serial_ms="
@@ -2985,6 +3112,13 @@ int main(const int argc, char** const argv) {
               << " cublaslt_reference_vs_native_dual_every_round_positive="
               << (bridge_vs_native_dual.every_round_positive ? "true"
                                                               : "false")
+#else
+              << " cublaslt_reference_execution=ABSENT"
+              << " native_serial_ms="
+              << production_vs_native_serial.candidate_milliseconds
+              << " native_dual_ms="
+              << production_vs_native_dual.candidate_milliseconds
+#endif
               << " selfhosted_production_serial_ms="
               << production_vs_native_serial.baseline_milliseconds
               << " selfhosted_production_vs_native_serial_speedup="
@@ -3021,12 +3155,17 @@ int main(const int argc, char** const argv) {
               << " recommended_native_schedule="
               << variant_name(native_recommendation)
               << " candidate_exceeds_cublaslt_reference="
-              << (candidate_exceeds_cublaslt_reference ? "true" : "false")
+              << (!cublaslt_reference_requested
+                      ? "NOT_RUN"
+                      : (candidate_exceeds_cublaslt_reference ? "true"
+                                                              : "false"))
+              << " cublaslt_decision_authority=NONE"
               << " cublaslt_production_eligibility=NONE"
               << " hard_validity_gate="
               << (hard_validity_gate ? "PASS" : "FAIL")
               << '\n';
   } else {
+#if !defined(Q3X_NATIVE_RETENTION_ONLY)
     std::cout << "NVFP4_PAIR_SMOKE_TIMING: "
               << "selfhosted_production_vs_cublaslt_reference_speedup="
               << production_vs_a.speedup
@@ -3043,6 +3182,17 @@ int main(const int argc, char** const argv) {
               << " native_serial_vs_dual_speedup="
               << native_serial_vs_dual.speedup
               << " decision=NOT_RUN evidence=synthetic_smoke\n";
+#else
+    std::cout << "NVFP4_PAIR_NATIVE_ONLY_SMOKE_TIMING:"
+              << " selfhosted_production_vs_native_serial_speedup="
+              << production_vs_native_serial.speedup
+              << " selfhosted_production_vs_native_dual_speedup="
+              << production_vs_native_dual.speedup
+              << " native_serial_vs_dual_speedup="
+              << native_serial_vs_dual.speedup
+              << " external_reference_execution=ABSENT"
+              << " decision=NOT_RUN evidence=synthetic_smoke\n";
+#endif
   }
 
   ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
@@ -3056,13 +3206,21 @@ int main(const int argc, char** const argv) {
   }
   if (test.failures() != 0) {
     std::cerr << test.failures()
+#if defined(Q3X_NATIVE_RETENTION_ONLY)
+              << " Gate/Up C512 native-only assertion(s) failed\n";
+#else
               << " Gate/Up C512 cuBLASLt pair assertion(s) failed\n";
+#endif
     return 1;
   }
   if (!performance_checkpoint) {
     std::cout << "NVFP4_PAIR_EXPERIMENT_DECISION: mode=smoke decision=NOT_RUN"
               << " evidence=synthetic_smoke status=PASS\n";
+#if defined(Q3X_NATIVE_RETENTION_ONLY)
+    std::cout << "Gate/Up C512 native-only smoke passed\n";
+#else
     std::cout << "Gate/Up C512 cuBLASLt pair smoke passed\n";
+#endif
     return 0;
   }
   std::cout << "NVFP4_PAIR_EXPERIMENT_DECISION: mode=performance-checkpoint"
@@ -3084,6 +3242,9 @@ int main(const int argc, char** const argv) {
                                                         : "NEGATIVE")
             << " production_promotion=NOT_RUN"
             << " cublaslt_role=REFERENCE_ONLY"
+            << " cublaslt_reference_execution="
+            << (cublaslt_reference_requested ? "RUN" : "NOT_RUN")
+            << " cublaslt_decision_authority=NONE"
             << " cublaslt_production_eligibility=NONE"
             << " status=" << (checkpoint_retention ? "PASS" : "REJECT")
             << '\n';

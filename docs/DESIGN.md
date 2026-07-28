@@ -28,6 +28,9 @@ checked into the repository.
   against trusted framework output.
 - Make benchmark results reproducible on Jetson, including power and clock
   configuration.
+- Keep every production inference route self-hosted.  cuBLASLt may be used by
+  isolated benchmark executables as an external performance reference, but it
+  has no production dispatch, fallback, retention, or promotion eligibility.
 
 ### Non-goals for the first release
 
@@ -111,9 +114,10 @@ BF16 Tensor Core MMA. It requires 16-byte-aligned packed weights,
 or alignments fall back to two ordered M8 launches. Neither route introduces a
 checkpoint repack or claims native NVFP4 arithmetic.
 
-The C512 large-M projection families are designed and admitted separately.
+The C512 large-M projection families are designed and retained separately.
 Their operand-residency model, Gate/Up-versus-Down specialization boundary,
-FP8 scope, and current bridge-beating gates are recorded in
+FP8 scope, native-incumbent retention gates, and external-reference reporting
+are recorded in
 [LARGE_M_PROJECTION_DATAFLOW.md](LARGE_M_PROJECTION_DATAFLOW.md).
 
 The NVIDIA artifact also stores an FP32 `input_scale` beside quantized linear
@@ -159,8 +163,9 @@ interface and numerical contract.
 
 Unquantized embeddings, normalization parameters, selected projections, and
 other fallback tensors remain BF16 (or their declared metadata dtype). Dense
-BF16 matrix products use cuBLASLt initially unless a measured custom path is
-both faster and numerically acceptable.
+BF16 matrix products use self-hosted CUDA kernels in production.  An isolated
+cuBLASLt implementation may be measured to expose the remaining architectural
+gap, but it can never be selected or used as a fallback by the runtime.
 
 ### 4.4 Pinned NVFP4 evidence
 
@@ -272,7 +277,7 @@ The expected linear dispatch policy is initially:
 | Bounded tile, `M = 2..8` | Canonical-layout weight-reuse CUDA kernels | GEMV or reference |
 | Bounded tile, `M = 9..15` | Ordered M8 plus M1..M7 SM87 launches | M scalar reference launches |
 | Exact production tile, `M = 16` | Shape-gated FP8/NVFP4 decode to BF16 plus Ampere Tensor Core MMA | Two ordered M8 launches or scalar reference |
-| Larger dense prefill | Measured Marlin or cuBLASLt-based path | Reference tiles |
+| Larger dense prefill | Measured self-hosted, shape-specialized CUDA path | Native reference tiles |
 | Routed MoE | Sorted/grouped expert kernels | Per-expert correctness path |
 
 Thresholds are device-and-shape benchmark data, not constants justified only

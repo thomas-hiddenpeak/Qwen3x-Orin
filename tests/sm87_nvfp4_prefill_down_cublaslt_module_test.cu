@@ -1,4 +1,4 @@
-#include "q3x/kernels/sm87_nvfp4_prefill_cublaslt.h"
+#include "sm87_nvfp4_prefill_cublaslt_reference.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 
 #include <cuda_bf16.h>

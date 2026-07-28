@@ -69,8 +69,9 @@ Exit criteria:
 Deliverables:
 
 - [done, reference] BF16 common decode kernels, exact Q/Gate layout split, and
-  BF16/FP8/NVFP4 allocation-free projection dispatch. cuBLASLt/optimized
-  backends remain performance work.
+  BF16/FP8/NVFP4 allocation-free projection dispatch.  Optimized self-hosted
+  backends remain performance work; cuBLASLt is benchmark-only external
+  reference evidence and is permanently ineligible for runtime dispatch.
 - [done, native reference; fixed-oracle token/text gate passed] Hybrid sequence
   layers, attention, recurrent/DeltaNet state, normalization, positional
   encoding, embeddings, and output projection for the pinned 27B revision.
@@ -298,8 +299,9 @@ Deliverables:
   codebooks and project to 0.053098500 ms/token. Both miss the 15% byte and
   0.30-ms/token gates, so no implementation or GPU run is admitted and the
   105.870500-ms/token / 9.445501816-token/s anchor remains unchanged.
-- Dense-prefill comparison among Marlin-style, cuBLASLt-assisted, and reference
-  paths.
+- Dense-prefill comparison among self-hosted native candidates and the current
+  native production path, with cuBLASLt reported separately as an external
+  reference only.
 - [done, initial diagnostic] Reproducible single-load benchmark/replay harness
   with Jetson power/clock metadata.
 
@@ -2144,11 +2146,14 @@ unpack weights to BF16. Full-model dual residency is rejected on capacity:
 47.680664 GiB of BF16 sidecars plus canonical payload already totals
 66.447344 GiB, above the machine's 61.404 GiB MemTotal before workspace.
 
-The large-M comparator is therefore two bounded checkpoint cells: FP8 Z C512
-and NVFP4 Gate C512. Persistent-BF16 Lt first establishes an ideal ceiling;
-FP8 must reach at least 1.8x and NVFP4 1.7x before inclusive JIT unpack plus Lt
-is attempted. Inclusive JIT must then reach 1.22x in every mirrored round
-before overlap or production work. In parallel, one exact C16 GDN plus
+This dated snapshot used two bounded large-M comparator cells: FP8 Z C512 and
+NVFP4 Gate C512. Persistent-BF16 Lt established an external ceiling, followed
+by an inclusive JIT-unpack-plus-Lt experiment. These thresholds are historical
+diagnostics only and are superseded by the repository-wide policy below:
+cuBLASLt has no production, fallback, retention, or promotion eligibility;
+self-hosted candidates are retained against the prior self-hosted incumbent,
+and production promotion is decided only against the self-hosted production
+baseline. In parallel, one exact C16 GDN plus
 post-RMSNorm/SiLU(Z) composite screen preserves both BF16 boundaries. It can
 remove 48 epilogue launches and 576 MiB of logical global write-plus-read, not
 the 1,536 recurrence launches; the complete chain must be bit-exact and at

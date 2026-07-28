@@ -5,6 +5,17 @@ The reports are evidence artifacts, not model files and not end-to-end support
 claims. A report reaches only `metadata-compatible` until all referenced shard
 headers and tensor contracts pass the runtime inspector on the target Orin.
 
+Policy correction effective 2026-07-29: cuBLASLt is permanently an external
+benchmark reference.  It has no production-dispatch, fallback, native
+development-retention, or production-promotion eligibility.  Older evidence
+artifacts and the historical prose below intentionally preserve the words
+`production route`, `bridge`, `admission`, and `rejection` as measurement
+provenance; every such cuBLASLt status is revoked and superseded by
+[`REAL_MODEL_PERFORMANCE_POLICY.md`](../REAL_MODEL_PERFORMANCE_POLICY.md) and
+[`LARGE_M_PROJECTION_DATAFLOW.md`](../LARGE_M_PROJECTION_DATAFLOW.md).  Their
+numeric measurements remain useful reference observations, but their old
+selection decisions have no current authority.
+
 The current reports pin the official NVIDIA ModelOpt artifacts:
 
 - `nvidia/Qwen3.6-27B-NVFP4` at
@@ -1454,15 +1465,18 @@ The diagnostic Phase 3 records are:
   input, 128-register/49,152-byte-dynamic-shared/zero-local/two-CTA, full-suite,
   and independent-audit gates pass. All six formal rounds improve
   **5.531556 ms to 5.483505 ms** (**1.008763x**), but the result remains above
-  the **5.304339 ms** absolute gate; pair timing stops and production stays on
-  the hybrid cuBLASLt bridge. Uncontrolled-cache/clock NCU is causal evidence
-  only: versus the differently tiled M64 control, matched L2 requests fall
+  the historical **5.304339 ms** absolute gate, so the old procedure stopped
+  pair timing. That bridge-derived gate is now revoked: the positive native
+  result is retained as development evidence, remains outside production, and
+  was later superseded by faster cells. Uncontrolled-cache/clock NCU is causal
+  evidence only: versus the differently tiled M64 control, matched L2 requests
+  fall
   **11.23%** and bypass bytes **51.86%**, so the full counter delta is not
   attributed to `.ca` alone. The M128 arithmetic body closes and the next
   bounded cell transfers only the A-cache operator to the frozen M64xN256
   topology.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json),
-  which retains the current fastest native exact-C512 Gate kernel as a
+  which retained the then-fastest native exact-C512 Gate kernel as a
   positive test-only baseline, not a production admission. The frozen
   M64xN256 topology is unchanged: only A's six LDGSTS sites move from
   `cp.async.cg` to `cp.async.ca`, while nine B/scale sites remain bypassing.
@@ -1470,11 +1484,11 @@ The diagnostic Phase 3 records are:
   the 69-pass/12-skip full suite, and independent audit pass. CPU-11-pinned
   six-round B-C-C-B timing is uniformly positive at **5.531551 ms to 5.388746
   ms** (**1.026501x**); matched same-topology NCU shows L2 requests down
-  **14.9294%** and bypass bytes down **45.8234%**. The unchanged **5.304339
-  ms** absolute gate still fails by **0.084407 ms**/**1.566357%**, so pair
-  timing is skipped and production stays on the hybrid cuBLASLt bridge. The
-  next native cell must be a bounded decode or scheduling structural change;
-  the gate is not relaxed.
+  **14.9294%** and bypass bytes down **45.8234%**. Under the superseded policy,
+  the **5.304339 ms** absolute gate missed by **0.084407 ms**/**1.566357%** and
+  pair timing was skipped. Under the current policy this uniformly positive
+  native result remains valid development evidence; CF3 and BS512 later
+  superseded it, and the old bridge has no current production status.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json),
   which rejects extending cache-all from activation A to packed B on the
   otherwise identical M64xN256 native cell. Exact outputs, Graph replay,

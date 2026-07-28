@@ -378,18 +378,6 @@ RequestPlanResult build_request_memory_plan(
     plan.gqa_probability_scratch = plan.fp32_scratch;
     plan.gqa_probability_scratch.byte_size = probability_elements * kFp32Bytes;
     plan.gqa_probability_scratch.element_capacity = probability_elements;
-    if (options.prefill_chunk_size >=
-            kRequestNvFp4LargeMMinimumPrefillChunkSize &&
-        options.max_sequence_length >=
-            kRequestNvFp4LargeMMinimumSequenceLength &&
-        !builder.add(kRequestNvFp4LargeMWeightBf16ScratchElements,
-                     kBf16Bytes,
-                     plan.nvfp4_large_m_weight_bf16_scratch)) {
-        return plan_failure(make_diagnostic(
-            RequestErrorCode::kArithmeticOverflow,
-            "NVFP4 large-M BF16 scratch layout overflows uint64",
-            "nvfp4_large_m_weight_bf16_scratch"));
-    }
     if (!builder.align()) {
         return plan_failure(make_diagnostic(
             RequestErrorCode::kArithmeticOverflow,
@@ -701,24 +689,6 @@ RequestViewResult RequestState::gqa_probability_scratch() noexcept {
     RequestViewResult result;
     result.value.emplace(mutable_view(plan_.gqa_probability_scratch));
     return result;
-}
-
-std::uint16_t* RequestState::nvfp4_large_m_weight_bf16_scratch() noexcept {
-    const RequestRegion& region =
-        plan_.nvfp4_large_m_weight_bf16_scratch;
-    if (arena_ == nullptr ||
-        region.byte_size != kRequestNvFp4LargeMWeightBf16ScratchBytes ||
-        region.element_capacity !=
-            kRequestNvFp4LargeMWeightBf16ScratchElements ||
-        region.element_size_bytes != kBf16Bytes ||
-        (region.arena_offset % kRequestArenaAlignment) != 0U ||
-        region.arena_offset > plan_.arena_bytes ||
-        region.byte_size > plan_.arena_bytes - region.arena_offset) {
-        return nullptr;
-    }
-    return reinterpret_cast<std::uint16_t*>(
-        static_cast<std::uint8_t*>(arena_) +
-        static_cast<std::size_t>(region.arena_offset));
 }
 
 RequestConstViewResult RequestState::rope_cos(

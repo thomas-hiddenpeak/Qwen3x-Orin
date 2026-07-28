@@ -8512,8 +8512,10 @@ Down crossover and exact GDN plus post-RMSNorm/SiLU(Z) fusion. RMSNorm and
 SiLU(Z) are already fused with each other; the proposed test removes their
 separate boundary with GDN, not two epilogue kernels. SM87 cannot directly run
 Lt FP8/FP4, so the library screen is explicitly BF16-unpack plus cuBLASLt and
-is bounded to two checkpoint cells; full-model BF16 dual residency exceeds
-physical memory.
+is bounded to two checkpoint cells. It is external-reference evidence with
+`decision_authority=none`: it cannot be linked into production or participate
+in fallback, native retention, or promotion. Full-model BF16 dual residency
+exceeds physical memory.
 
 Full identities, logs, hashes, limitations, and matched Nsight artifacts are
 in the

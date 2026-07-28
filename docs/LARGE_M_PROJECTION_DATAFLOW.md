@@ -2,7 +2,8 @@
 
 Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
 commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
-commit `43308b4` and the retained CF3 complete cell at commit `6e415b8`.
+commit `43308b4`, the retained CF3 complete cell at commit `6e415b8`, and the
+retained structured BS512 cell at commit `18c89ac`.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -11,8 +12,8 @@ eligibility.  Historical commits and measurements that called a cuBLASLt
 bridge a production route are retained below for provenance, but that status
 is explicitly revoked by the qualification policy in this revision.  The
 current native production routes remain selected until an accumulated native
-candidate clears the self-hosted production gate below.  CF3 is the retained
-native experimental baseline for the exact-C512 Gate/Up line.
+candidate clears the self-hosted production gate below.  Structured BS512 is
+the retained native experimental baseline for the exact-C512 Gate/Up line.
 All timing and profiler evidence in this plan is governed by the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
@@ -23,7 +24,8 @@ All timing and profiler evidence in this plan is governed by the
    contract.  `N/K` is useful for classifying a family, but is not a sufficient
    production selector.
 2. The M64xN256 PairLookup kernel is the reproducible historical native
-   control; CF3 supersedes it as the retained native experimental baseline.
+   control; CF3 superseded it, and structured BS512 now supersedes CF3 as the
+   retained native experimental baseline.
    Pinned layer-0 real-weight Gate+Up runs measure PairLookup at about
    11.42--11.45 ms versus 7.20--7.26 ms for the best zero-cuBLASLt-workspace
    reference.  That external reference still uses a reusable 170-MiB BF16
@@ -468,24 +470,61 @@ instructions also rise 33.80%, with the new pressure concentrated in exact
 table-free PRMT/LOP3/IMAD work.  These facts replace the broader pre-profile
 assumption that separating B and scale would by itself close their feed gap.
 
+## 2026-07-29 structured BS512 retained-cell result
+
+Commit `18c89ac` implements a test-only successor that keeps CF3's three K64
+operand slots and exact accumulation order while changing the coupled feed
+cell: raw B uses a 16-byte half swizzle, scales use aligned K512 windows, and
+the K loop is expressed as ten explicit K512 superwindows with eight K64
+phases.  The structured loop prevents the compiler from issuing predicated-off
+refill copies in the 70 non-refill phases.  Production dispatch remains
+unchanged.
+
+Pinned layer-0 Gate+Up B-C-C-B timing retains the cell against CF3:
+
+| Gate+Up schedule | CF3 | structured BS512 | Speedup | Every round positive |
+|---|---:|---:|---:|---:|
+| serial | 10.804615 ms | 10.187599 ms | 1.060565x | yes |
+| dual | 10.753194 ms | 10.118801 ms | 1.062694x | yes |
+
+Dual is itself uniformly faster than serial at `1.006650x`, so it is the
+recommended experimental schedule.  All eager and Graph Gate/Up outputs are
+bitwise exact; four invalid calls, including the 32-byte scale-alignment near
+miss, enqueue zero Graph nodes.  The kernel remains at 128 registers/thread,
+68,608 dynamic plus 512 static shared bytes, zero CUDA local bytes, and two
+256-thread CTAs/SM.
+
+Matched real-weight NCU measures 5.107296 ms for one Gate branch, versus
+5.419456 ms for CF3 (`1.06112x`).  Dynamic `LDGSTS` execution falls from the
+unstructured BS512 cell's 2,080,256 to 1,479,680, eliminating exactly 600,576
+empty predicated copies; excessive shared wavefronts fall from 25,272,444 to
+9,400,320.  Tensor throughput is 42.236%, issue active is 53.725%, and achieved
+occupancy remains 33.056%.  The remaining 1,228,992 raw shared conflicts are
+almost entirely stores, and the 44,564,480 ordinary shared-load instructions
+plus wait/math-pipe stalls are now the next coupled inner-dataflow targets.
+
+The same formal process records the external cuBLASLt reference at 7.233318 ms
+serial and 7.234424 ms on the dual comparison, leaving the selected native pair
+about 1.40x slower.  That number is an external architectural distance only;
+it neither rejected nor retained BS512 and can never enter production.
+
 ## Immediate implementation order
 
-1. Preserve the independent self-hosted exact-C512 Gate/Up and Down production
-   selectors and add route readiness/hit/fallback observability.  Remove or
-   disable any cuBLASLt production dispatch or fallback; keep it in an isolated
-   repeatable reference harness only.
+1. Preserve the independent self-hosted exact-C512 Gate/Up and Down native
+   routes and their readiness/hit/fallback observability. cuBLASLt dispatch,
+   contexts, scratch, and fallback are already absent from production; keep the
+   comparator in an isolated repeatable reference harness only.
 2. Prefill CUDA Graph remains a separate launch-overhead project; do not
    describe module-level Graph safety as an already captured production
    Prefill loop.
 3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-4. Use CF3 as the retained native experimental baseline, freezing its
-   three-slot skeleton and coalesced epilogue.  First redesign the scale
-   cooperative copy/landing that now owns the largest attributed
-   `LDGSTS` and global-sector excess.  Then replace raw-B byte gathers with a
-   bank-safe cooperative word load plus lane extraction.  Preserve exact
+4. Use structured BS512 as the retained native experimental baseline,
+   freezing its three-slot skeleton, K512 refill schedule, B/scale swizzles,
+   and coalesced epilogue.  Attack the remaining shared-store conflicts and
+   ordinary shared-load volume as one complete feed cell.  Preserve exact
    accumulation order, 128 registers/thread, zero spill, and two CTAs/SM.
-5. After the shared feed is repaired, reduce the table-free decoder's
+5. After the remaining shared feed is repaired, reduce the table-free decoder's
    PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable

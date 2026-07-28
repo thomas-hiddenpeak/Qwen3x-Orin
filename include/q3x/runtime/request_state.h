@@ -21,20 +21,11 @@ inline constexpr std::size_t kRequestLinearLayerCount = 48U;
 inline constexpr std::size_t kRequestFullLayerCount = 16U;
 inline constexpr std::size_t kRequestHiddenBufferCount = 3U;
 inline constexpr std::size_t kRequestProjectionBufferCount = 4U;
-inline constexpr std::uint32_t
-    kRequestNvFp4LargeMMinimumPrefillChunkSize = 512U;
-inline constexpr std::uint64_t
-    kRequestNvFp4LargeMMinimumSequenceLength = 512U;
-inline constexpr std::uint64_t
-    kRequestNvFp4LargeMWeightBf16ScratchElements = 17'408U * 5'120U;
-inline constexpr std::uint64_t kRequestNvFp4LargeMWeightBf16ScratchBytes =
-    kRequestNvFp4LargeMWeightBf16ScratchElements * 2U;
-
 inline constexpr std::uint64_t kRequestConvStateBytes = 2'949'120U;
 inline constexpr std::uint64_t kRequestGdnStateBytes = 75'497'472U;
 inline constexpr std::uint64_t kRequestKvBytesPerToken = 65'536U;
 inline constexpr std::uint64_t kDefaultRequestArenaBytes = 88'031'744U;
-inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'615'978'496ULL;
+inline constexpr std::uint64_t kMaximumRequestArenaBytes = 17'437'720'576ULL;
 
 enum class RequestErrorCode : std::uint8_t {
     kNone,
@@ -134,12 +125,6 @@ struct RequestMemoryPlan {
     // Aliases fp32_scratch. element_capacity is the logical minimum required
     // for [24, max_sequence_length] attention probabilities.
     RequestRegion gqa_probability_scratch;
-    // One reusable canonical [17408, 5120] BF16 weight scratch for the exact
-    // C512 NVFP4 Gate -> Up -> Down serial route. It owns workspace bytes only
-    // when both the configured chunk and sequence capacity can reach 512;
-    // otherwise all fields remain zero.
-    RequestRegion nvfp4_large_m_weight_bf16_scratch;
-
     // [max_sequence_length, 32]. Values are generated in FP32, rounded to
     // BF16 RNE like the vLLM cache, then expanded back to FP32 storage for the
     // current decode-op float-pointer ABI.
@@ -267,11 +252,6 @@ class RequestState {
     [[nodiscard]] RequestViewResult linear_b_buffer() noexcept;
     [[nodiscard]] RequestViewResult fp32_scratch() noexcept;
     [[nodiscard]] RequestViewResult gqa_probability_scratch() noexcept;
-    // Returns the sole reusable large-M scratch, or null when this state's
-    // chunk/sequence plan cannot execute an exact C512 tile.
-    [[nodiscard]] std::uint16_t*
-    nvfp4_large_m_weight_bf16_scratch() noexcept;
-
     [[nodiscard]] RequestConstViewResult rope_cos(std::size_t position) const noexcept;
     [[nodiscard]] RequestConstViewResult rope_sin(std::size_t position) const noexcept;
     [[nodiscard]] RequestConstViewResult current_rope_cos() const noexcept;

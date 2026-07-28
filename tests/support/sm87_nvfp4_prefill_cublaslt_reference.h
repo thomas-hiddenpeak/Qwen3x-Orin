@@ -5,6 +5,10 @@
 
 namespace q3x::kernels {
 
+// Benchmark-only external-reference API. Its implementation is linked only
+// into BUILD_TESTING targets. Nothing declared here is eligible for
+// production dispatch, fallback, native retention, or promotion.
+
 // Opaque, device-bound exact-C512 NVFP4 Prefill context. The factory creates
 // all cuBLASLt objects, queries the exact BF16 problem with a zero-workspace
 // preference, and retains the first successful zero-workspace heuristic.
@@ -25,7 +29,8 @@ struct Sm87Nvfp4PrefillCublasLtContext;
     std::size_t* scratch_bytes, std::size_t* workspace_bytes,
     int* heuristic_rank) noexcept;
 
-// Exact Gate/Up C512 launch. Inputs use canonical checkpoint layout:
+// Exact Gate/Up C512 external-reference launch. Inputs use canonical
+// checkpoint layout:
 //
 //   packed_weights: E2M1 pairs, row-major [17408, 5120/2]
 //   block_scales:   E4M3FN, row-major [17408, 5120/16]
@@ -78,7 +83,7 @@ struct Sm87Nvfp4PrefillDownCublasLtContext;
     std::size_t* scratch_bytes, std::size_t* workspace_bytes,
     int* heuristic_rank) noexcept;
 
-// Exact Down C512 launch over canonical checkpoint tensors:
+// Exact Down C512 external-reference launch over canonical checkpoint tensors:
 //
 //   packed_weights: E2M1 pairs, row-major [5120, 17408/2]
 //   block_scales:   E4M3FN, row-major [5120, 17408/16]
@@ -89,7 +94,7 @@ struct Sm87Nvfp4PrefillDownCublasLtContext;
 // extent. The allocation-free asynchronous launch enqueues the selected
 // Window8 canonical dequantization kernel followed by zero-workspace
 // cuBLASLt. Only the exact shape, pairwise-disjoint spans, finite positive
-// scale, and documented alignments are admitted before enqueue.
+// scale, and documented alignments are accepted before enqueue.
 [[nodiscard]] int launch_sm87_nvfp4_prefill_cublaslt_down_c512(
     Sm87Nvfp4PrefillDownCublasLtContext* context,
     const std::uint8_t* packed_weights,

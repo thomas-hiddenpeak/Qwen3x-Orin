@@ -124,7 +124,6 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/nvfp4_reference.cu
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
-  src/kernels/sm87/nvfp4_prefill_cublaslt.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -140,7 +139,6 @@ target_include_directories(q3x_kernels
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart)
-target_link_libraries(q3x_kernels PRIVATE CUDA::cublasLt)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
@@ -191,11 +189,11 @@ if(BUILD_TESTING)
   set(Q3X_E2E_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
   set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
-      "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance admission")
+      "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance measurement")
   set(Q3X_REAL_PERF_CPU "11" CACHE STRING
-      "Single host CPU used by serialized Orin performance admission")
+      "Single host CPU used by serialized Orin performance measurement")
   option(Q3X_REQUIRE_REAL_PERF
-         "Fail configuration or hardware checks instead of skipping real-payload admission"
+         "Fail configuration or hardware checks instead of skipping real-payload measurement"
          OFF)
   set(_q3x_real_perf_model_dir "${Q3X_REAL_PERF_MODEL_DIR}")
   if(NOT _q3x_real_perf_model_dir AND
@@ -224,6 +222,30 @@ if(BUILD_TESTING)
   )
   target_link_libraries(q3x_test_pinned_checkpoint PUBLIC q3x::core)
   q3x_enable_warnings(q3x_test_pinned_checkpoint)
+
+  # cuBLASLt is a benchmark-only external reference.  Keep its implementation
+  # out of q3x_kernels and every installed/production target so the runtime has
+  # no link-time route, fallback, or selection path into it.
+  add_library(q3x_test_cublaslt_reference STATIC
+    src/kernels/sm87/nvfp4_prefill_cublaslt.cu
+  )
+  target_compile_features(q3x_test_cublaslt_reference
+    PUBLIC cxx_std_17 cuda_std_17
+  )
+  target_include_directories(q3x_test_cublaslt_reference
+    PUBLIC
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_BINARY_DIR}/generated"
+  )
+  target_link_libraries(q3x_test_cublaslt_reference
+    PRIVATE CUDA::cudart CUDA::cublasLt
+  )
+  target_compile_options(q3x_test_cublaslt_reference PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+  q3x_enable_warnings(q3x_test_cublaslt_reference)
 
   add_executable(q3x_pinned_checkpoint_support_test
     tests/support/pinned_checkpoint_test.cpp
@@ -355,7 +377,8 @@ if(BUILD_TESTING)
     tests/sm87_nvfp4_prefill_down_c512_cublaslt_ceiling.cu
   )
   target_link_libraries(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
-    PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cublasLt
+    PRIVATE q3x::kernels q3x_test_pinned_checkpoint
+            q3x_test_cublaslt_reference CUDA::cublasLt
   )
   q3x_enable_warnings(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling)
   add_test(NAME nvfp4_prefill_down_c512_cublaslt_ceiling
@@ -366,15 +389,15 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Production exact-C512 NVFP4 direct-dequant + zero-workspace cuBLASLt
-  # module contract. This independently locks scalar decode equivalence,
-  # production-M128 bitwise output, two-node graph capture, bounds, and
-  # fail-closed zero-enqueue validation.
+  # Benchmark-only exact-C512 NVFP4 direct-dequant + zero-workspace cuBLASLt
+  # reference contract. This independently locks scalar decode equivalence,
+  # native-M128 bitwise output, two-node graph capture, bounds, and fail-closed
+  # zero-enqueue validation without exposing a production route.
   add_executable(q3x_sm87_nvfp4_prefill_cublaslt_module_test
     tests/sm87_nvfp4_prefill_cublaslt_module_test.cu
   )
   target_link_libraries(q3x_sm87_nvfp4_prefill_cublaslt_module_test
-    PRIVATE q3x::kernels
+    PRIVATE q3x::kernels q3x_test_cublaslt_reference
   )
   q3x_enable_warnings(q3x_sm87_nvfp4_prefill_cublaslt_module_test)
   add_test(NAME sm87_nvfp4_prefill_cublaslt_module
@@ -385,14 +408,14 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Independent production-contract test for the exact-C512 Down Window8
-  # direct-dequant + zero-workspace cuBLASLt module. Runner ownership and
-  # routing remain outside this target.
+  # Independent external-reference test for exact-C512 Down Window8
+  # direct-dequant + zero-workspace cuBLASLt.  This target is test-only and
+  # has no runner ownership, dispatch, fallback, or promotion eligibility.
   add_executable(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test
     tests/sm87_nvfp4_prefill_down_cublaslt_module_test.cu
   )
   target_link_libraries(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test
-    PRIVATE q3x::kernels
+    PRIVATE q3x::kernels q3x_test_cublaslt_reference
   )
   q3x_enable_warnings(q3x_sm87_nvfp4_prefill_down_cublaslt_module_test)
   add_test(NAME sm87_nvfp4_prefill_down_cublaslt_module
@@ -403,11 +426,8 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Isolated exact-C512 Gate/Up native-retention screen. It compares each
-  # native candidate with its self-hosted incumbent and production shape.
-  # Zero-workspace cuBLASLt schedules remain external reference measurements
-  # only; they have no production eligibility. Production dispatch and runner
-  # ownership stay unchanged until a retained native cell is integrated.
+  # Isolated exact-C512 Gate/Up external-reference and synthetic smoke screen.
+  # This is the only pair-screen target that imports cuBLASLt.
   add_executable(q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
     tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu
   )
@@ -427,13 +447,59 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # The real-weight native retention executable is compiled from the shared
+  # harness with the external-reference code physically absent.  It has no Lt
+  # header, symbol, dynamic dependency, or BF16 weight scratch allocation.
+  add_executable(q3x_nvfp4_prefill_gate_up_c512_native_retention
+    tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu
+  )
+  target_compile_definitions(
+    q3x_nvfp4_prefill_gate_up_c512_native_retention
+    PRIVATE Q3X_NATIVE_RETENTION_ONLY=1
+  )
+  target_link_libraries(
+    q3x_nvfp4_prefill_gate_up_c512_native_retention
+    PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cudart
+  )
+  q3x_enable_warnings(q3x_nvfp4_prefill_gate_up_c512_native_retention)
+  add_test(NAME nvfp4_prefill_gate_up_c512_native_only_smoke
+    COMMAND q3x_nvfp4_prefill_gate_up_c512_native_retention --mode=smoke
+  )
+  set_tests_properties(
+    nvfp4_prefill_gate_up_c512_native_only_smoke PROPERTIES
+    LABELS "cuda;sm87;prefill;correctness;synthetic;smoke;native_only"
+    SKIP_RETURN_CODE 77
+  )
+
+  set(_q3x_cublaslt_audit_prefix
+      "${CMAKE_CURRENT_BINARY_DIR}/cublaslt-isolation-install")
+  add_test(NAME production_cublaslt_isolation
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQ3X_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+      "-DQ3X_AUDIT_PREFIX=${_q3x_cublaslt_audit_prefix}"
+      "-DQ3X_PRODUCTION_EXECUTABLE=$<TARGET_FILE:qwen3x-orin>"
+      "-DQ3X_KERNEL_ARCHIVE=$<TARGET_FILE:q3x_kernels>"
+      "-DQ3X_ENGINE_ARCHIVE=$<TARGET_FILE:q3x_engine>"
+      "-DQ3X_NATIVE_RETENTION_EXECUTABLE=$<TARGET_FILE:q3x_nvfp4_prefill_gate_up_c512_native_retention>"
+      "-DQ3X_INSTALLED_EXECUTABLE=${_q3x_cublaslt_audit_prefix}/${CMAKE_INSTALL_BINDIR}/qwen3x-orin"
+      "-DQ3X_INSTALLED_KERNEL_ARCHIVE=${_q3x_cublaslt_audit_prefix}/${CMAKE_INSTALL_LIBDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}q3x_kernels${CMAKE_STATIC_LIBRARY_SUFFIX}"
+      "-DQ3X_INSTALLED_ENGINE_ARCHIVE=${_q3x_cublaslt_audit_prefix}/${CMAKE_INSTALL_LIBDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}q3x_engine${CMAKE_STATIC_LIBRARY_SUFFIX}"
+      "-DQ3X_NM=${CMAKE_NM}"
+      "-DQ3X_READELF=${CMAKE_READELF}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyCublasLtIsolation.cmake"
+  )
+  set_tests_properties(production_cublaslt_isolation PROPERTIES
+    LABELS "host;policy;production_isolation"
+    RUN_SERIAL TRUE
+  )
+
   if(_q3x_real_perf_model_dir)
     find_program(_q3x_taskset_command NAMES taskset)
     if(NOT _q3x_taskset_command)
       message(FATAL_ERROR
-        "Real-payload performance admission requires the taskset command")
+        "Real-payload performance measurement requires the taskset command")
     endif()
-    add_test(NAME nvfp4_prefill_down_c512_checkpoint_admission
+    add_test(NAME nvfp4_prefill_down_c512_checkpoint_reference
       COMMAND "${_q3x_taskset_command}" --cpu-list "${Q3X_REAL_PERF_CPU}"
               $<TARGET_FILE:q3x_nvfp4_prefill_down_c512_cublaslt_ceiling>
               --mode=performance-checkpoint
@@ -441,15 +507,15 @@ if(BUILD_TESTING)
     )
     add_test(NAME nvfp4_prefill_gate_up_c512_checkpoint_retention
       COMMAND "${_q3x_taskset_command}" --cpu-list "${Q3X_REAL_PERF_CPU}"
-              $<TARGET_FILE:q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen>
+              $<TARGET_FILE:q3x_nvfp4_prefill_gate_up_c512_native_retention>
               --mode=performance-checkpoint
               --native=m64n256bs512
               --checkpoint=${_q3x_real_perf_model_dir}
     )
     set_tests_properties(
-      nvfp4_prefill_down_c512_checkpoint_admission
+      nvfp4_prefill_down_c512_checkpoint_reference
       PROPERTIES
-      LABELS "cuda;sm87;prefill;performance;checkpoint;admission"
+      LABELS "cuda;sm87;prefill;performance;checkpoint;external_reference"
       RUN_SERIAL TRUE
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 900
@@ -464,7 +530,7 @@ if(BUILD_TESTING)
     )
     if(NOT Q3X_REQUIRE_REAL_PERF)
       set_tests_properties(
-        nvfp4_prefill_down_c512_checkpoint_admission
+        nvfp4_prefill_down_c512_checkpoint_reference
         nvfp4_prefill_gate_up_c512_checkpoint_retention
         PROPERTIES SKIP_RETURN_CODE 77
       )
@@ -1231,6 +1297,11 @@ install(TARGETS q3x_core q3x_text q3x_kernels q3x_engine
 )
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   FILES_MATCHING PATTERN "*.h"
+)
+# Remove the header exported by older builds when installing over an existing
+# prefix.  The external-reference ABI now lives under tests/support only.
+install(CODE
+  "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/q3x/kernels/sm87_nvfp4_prefill_cublaslt.h\")"
 )
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/q3x/version.h
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/q3x
