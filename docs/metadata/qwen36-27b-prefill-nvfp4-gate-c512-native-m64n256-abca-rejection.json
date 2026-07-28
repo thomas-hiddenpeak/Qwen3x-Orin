@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection",
+  "status": "test-only-negative-rejection",
+  "recorded_at": "2026-07-28T22:56:27+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "e67916a2b3e8211328f40977f6aff97f60308363",
+    "tree": "54605688f17e3c5140931ae5c33ccb12b993c069",
+    "parent_commit": "24c97fd1d6a2ab3a9e1f961de7ecde1920a5d77c",
+    "subject": "test: reject packed-B cache-all NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "After A-only cp.async.ca establishes the fastest native M64xN256 cell, does also caching packed B reduce enough global traffic to improve the otherwise identical kernel?",
+    "answer": "No. Caching packed B reduces matched NCU L2 request bytes by 17.651032% and bypass bytes by 84.581498%, but regresses every formal timing round and raises aggregate Gate latency by 5.742675%.",
+    "classification": "reject packed-B cache-all and retain the A-only-CA M64xN256 test baseline",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "grid": "68 N tiles x 8 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "accumulator_fragments_per_warp": 16,
+    "mma": "sixteen inline mma.sync.aligned.m16n8k16 BF16 accumulator fragments per warp",
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "candidate_cache_policy": "activation A and packed B use cp.async.ca; scale windows remain cp.async.cg",
+    "control_cache_policy": "activation A uses cp.async.ca; packed B and scale windows use cp.async.cg",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "packed_weight_copy": "paired adjacent lanes fill both 16-byte halves of one canonical 32-byte packed row",
+    "epilogue": "aligned packed BF16 pair stores",
+    "sidecar_required": false,
+    "comparison_baseline": "the retained M64xN256 A-only-CA test cell with identical topology, arithmetic, pipeline, and epilogue"
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 43008,
+    "logical_shared_bytes_per_cta": 43520,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "sass_cache_operator_evidence": {
+    "measurement": "static LDGSTS instruction sites in the instantiated kernels, not dynamic traffic",
+    "candidate_m64n256_abca": {
+      "ldgsts_sites_total": 15,
+      "non_bypass_sites": 12,
+      "non_bypass_roles": "six activation-A and six packed-B sites",
+      "bypass_sites": 3,
+      "bypass_role": "scale windows"
+    },
+    "control_m64n256_aca": {
+      "ldgsts_sites_total": 15,
+      "non_bypass_sites": 6,
+      "non_bypass_role": "activation A",
+      "bypass_sites": 9,
+      "bypass_roles": "six packed-B and three scale-window sites"
+    },
+    "streaming_m64n256_cg_sentinel": {
+      "ldgsts_sites_total": 15,
+      "non_bypass_sites": 0,
+      "bypass_sites": 15
+    },
+    "conclusion": "The compiled candidate adds cache-all only to the six packed-B copies; activation A remains cache-all and scale windows remain bypassing. The tile, arithmetic, pipeline, resources, and epilogue are unchanged."
+  },
+  "correctness_and_rejection_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "sidecar_allocation": "skipped; canonical direct path",
+    "output_guards": "intact",
+    "independent_audit": "pass with no blocking code, ABI, resource, correctness, Graph, cache-operator, or production-isolation findings"
+  },
+  "formal_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "retained M64xN256 activation-A-only cp.async.ca; packed B and scales cp.async.cg",
+      "candidate": "identical M64xN256 kernel with activation A and packed B on cp.async.ca; scales cp.async.cg",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "host_affinity": "taskset CPU 11",
+      "power_mode": "MAXN",
+      "system_clock_state": {
+        "cpu_ghz": 2.2016,
+        "gpu_ghz": 1.3005,
+        "emc_ghz": 3.2,
+        "state": "already fixed by the system",
+        "mutation_by_this_run": false
+      },
+      "required_speedup": 1.0,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "pair_stop_loss": "skip Gate+Up pair unless the single-Gate candidate clears both the positive-round and absolute-latency gates"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 5.388355,
+        "C1_ms": 5.698696,
+        "C2_ms": 5.698176,
+        "B2_ms": 5.388100,
+        "speedup": 0.945563
+      },
+      {
+        "round": 2,
+        "B1_ms": 5.389576,
+        "C1_ms": 5.697775,
+        "C2_ms": 5.699067,
+        "B2_ms": 5.388931,
+        "speedup": 0.945745
+      },
+      {
+        "round": 3,
+        "B1_ms": 5.389254,
+        "C1_ms": 5.698236,
+        "C2_ms": 5.698808,
+        "B2_ms": 5.389807,
+        "speedup": 0.945777
+      },
+      {
+        "round": 4,
+        "B1_ms": 5.387039,
+        "C1_ms": 5.697527,
+        "C2_ms": 5.697877,
+        "B2_ms": 5.389000,
+        "speedup": 0.945648
+      },
+      {
+        "round": 5,
+        "B1_ms": 5.388964,
+        "C1_ms": 5.698214,
+        "C2_ms": 5.698219,
+        "B2_ms": 5.390699,
+        "speedup": 0.945880
+      },
+      {
+        "round": 6,
+        "B1_ms": 5.389041,
+        "C1_ms": 5.699213,
+        "C2_ms": 5.698364,
+        "B2_ms": 5.387817,
+        "speedup": 0.945539
+      }
+    ],
+    "aggregate": {
+      "baseline_m64n256_a_only_ca_ms": 5.388882,
+      "candidate_m64n256_a_and_b_ca_ms": 5.698348,
+      "candidate_vs_baseline_speed": 0.945692,
+      "candidate_latency_increase_percent": 5.742675,
+      "positive_rounds": 0,
+      "negative_rounds": 6,
+      "rounds_total": 6,
+      "every_round_strict_positive": false,
+      "absolute_candidate_gate": "fail",
+      "absolute_gate_gap_ms": 0.394009,
+      "additional_candidate_latency_reduction_needed_for_gate_percent": 6.914443,
+      "pair_screen": "skipped by stop-loss",
+      "decision": "reject packed-B cache-all; retain the A-only-CA baseline and keep production unchanged"
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m64n256abca-validate.log",
+        "bytes": 1326,
+        "sha256": "c69975ae4ca1a0707cd29ddf9df4f90184dd845aa3e05dea3e8ecb2be7d0c702"
+      },
+      "screen_log": {
+        "path": "/tmp/q3x-m64n256abca-screen-taskset.log",
+        "bytes": 9838,
+        "sha256": "298a2f507140d48228b2694add6c04d285a4b46bd088138fdd277211a8db2c9d",
+        "expected_exit": "nonzero because all six relative rounds and the absolute candidate gate reject the candidate"
+      },
+      "sass_log": {
+        "path": "/tmp/q3x-m64n256abca-sass.log",
+        "bytes": 6026,
+        "sha256": "7fef3fb4cf29ad5cde6d539db7f45ce8ea26cacc40b8b1c2f8d953812d270080"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5394032,
+        "sha256": "702a1b64a3f4cb3742eb9a3aec977d2b6d43d70f69c109697287239926ad8164"
+      }
+    }
+  },
+  "nsight_compute_comparison": {
+    "protocol": {
+      "tool": "Nsight Compute",
+      "profile_from_start": false,
+      "replay_mode": "application",
+      "app_replay_mode": "strict",
+      "profiled_launches": 1,
+      "cache_control": "none",
+      "clock_control": "none inside Nsight Compute; the system was already fixed at MAXN CPU/GPU/EMC clocks",
+      "use": "causal attribution for the same topology and sole packed-B cache-operator change, not formal latency",
+      "warning": "Nsight Compute did not flush caches or change clocks. Same binary, M64xN256 topology, resources, arithmetic, activation-A operator, scale operator, and epilogue are compared; the CPU-11-pinned B-C-C-B screen remains authoritative for latency."
+    },
+    "baseline_m64n256_a_only_ca": {
+      "duration_ns": 5416960,
+      "l1tex_global_load_hit_bytes": 29399328,
+      "l1tex_global_load_miss_bytes": 986670816,
+      "l2_request_bytes": 1015737536,
+      "global_cp_async_cache_access_bytes": 356515840,
+      "global_cp_async_bypass_bytes": 632258560,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 39.71,
+      "issue_active_percent": 48.94,
+      "barrier_stall_percent": 6.55,
+      "long_scoreboard_stall_percent": 1.54,
+      "math_pipe_throttle_percent": 16.88,
+      "mio_throttle_percent": 10.34,
+      "report": {
+        "path": "/tmp/q3x-m64n256abca-ncu-baseline.ncu-rep",
+        "bytes": 4079579,
+        "sha256": "2b5dc55ca56d4e49776f51fd85868144cbde8ae8bb7a5bc84d00e587d419bd02"
+      },
+      "command_log": {
+        "path": "/tmp/q3x-m64n256abca-ncu-baseline.log",
+        "bytes": 11123,
+        "sha256": "337cbd962b8b867cf6d64aa97a47c05dadf9c45d12dba42127ae55ce9833d065"
+      },
+      "metrics_csv": {
+        "path": "/tmp/q3x-m64n256abca-ncu-baseline-metrics.csv",
+        "bytes": 5096,
+        "sha256": "df308ccecbc082dda91484547929be8b7dc503cec8e1235de54a4576cfa688c7"
+      }
+    },
+    "candidate_m64n256_a_and_b_ca": {
+      "duration_ns": 5713728,
+      "l1tex_global_load_hit_bytes": 30342688,
+      "l1tex_global_load_miss_bytes": 807469536,
+      "l2_request_bytes": 836449376,
+      "global_cp_async_cache_access_bytes": 713031680,
+      "global_cp_async_bypass_bytes": 97484800,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 37.62,
+      "issue_active_percent": 46.38,
+      "barrier_stall_percent": 6.15,
+      "long_scoreboard_stall_percent": 1.67,
+      "math_pipe_throttle_percent": 15.57,
+      "mio_throttle_percent": 13.03,
+      "report": {
+        "path": "/tmp/q3x-m64n256abca-ncu-candidate.ncu-rep",
+        "bytes": 4079581,
+        "sha256": "f22d2d137e915300545b0a41eeee037eebd3f07096b1d474fd2acc40fc4862d9"
+      },
+      "command_log": {
+        "path": "/tmp/q3x-m64n256abca-ncu-candidate.log",
+        "bytes": 11139,
+        "sha256": "18f22f4b6e6b12ebc7577529ccbf12f0342625fb7f3580f32f007dbfed360ac7"
+      },
+      "metrics_csv": {
+        "path": "/tmp/q3x-m64n256abca-ncu-candidate-metrics.csv",
+        "bytes": 5094,
+        "sha256": "f4fdd5a64bb3dfc1b056919192577a4509db531e44f773bb995b5b378fb98fd3"
+      }
+    },
+    "derived": {
+      "profiled_duration_increase_percent": 5.478497164,
+      "l2_request_reduction_percent": 17.651032245,
+      "cp_async_bypass_reduction_percent": 84.581497797,
+      "tensor_active_change_points": -2.09,
+      "issue_active_change_points": -2.56,
+      "barrier_stall_change_points": -0.40,
+      "long_scoreboard_change_points": 0.13,
+      "math_pipe_throttle_change_points": -1.31,
+      "mio_throttle_change_points": 2.69
+    },
+    "interpretation": "The candidate demonstrably moves the intended packed-B copies onto cache-access and substantially reduces L2 and bypass traffic, yet profiled duration increases 5.4785%, tensor and issue activity fall, and MIO throttle rises 2.69 points. On this SM87 M64 topology, putting the streaming packed-B payload through L1 is harmful despite fewer L2 request bytes; packed B must retain cp.async.cg."
+  },
+  "regression_validation": {
+    "manual_m64n256_abca_validate": "pass",
+    "retained_m64n256_a_only_ca_validate": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.25,
+      "execution": "clean sequential full suite",
+      "raw_artifact_retained": false
+    },
+    "independent_audit": {
+      "result": "pass",
+      "findings": "no blocking code, ABI, resource, correctness, Graph, cache-operator, or production-isolation findings"
+    }
+  },
+  "decision": {
+    "candidate": "rejected negative test-only cell",
+    "retained_value": "preserve the implementation and evidence as a sentinel that lower L2 traffic alone does not justify caching the large streaming packed-B payload",
+    "retained_native_baseline": "M64xN256 A-only cp.async.ca with packed B and scales on cp.async.cg",
+    "production_route": "unchanged",
+    "pair_screen": "skipped",
+    "absolute_gate": "unchanged and failed by 0.394009 ms; the candidate also fails the relative gate in all six rounds",
+    "next_bounded_work": {
+      "direction": "decode or instruction-scheduling structural change on the retained A-only-CA topology",
+      "admission_rule": "retain the 5.304339 ms absolute Gate threshold and the six-round strict-positive rule",
+      "scope_guard": "test-only until both single-Gate gates clear; run Gate+Up pair only afterward"
+    },
+    "do_not_repeat": [
+      "do not cache packed B through L1 on the current M64xN256 pipeline",
+      "do not infer performance from lower L2 request bytes without timing and issue-path counters",
+      "do not run Gate+Up pair timing after the frozen single-Gate stop-loss",
+      "do not change production dispatch or route MTP as a shortcut"
+    ]
+  }
+}

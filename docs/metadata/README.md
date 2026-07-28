@@ -1475,6 +1475,18 @@ The diagnostic Phase 3 records are:
   timing is skipped and production stays on the hybrid cuBLASLt bridge. The
   next native cell must be a bounded decode or scheduling structural change;
   the gate is not relaxed.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json),
+  which rejects extending cache-all from activation A to packed B on the
+  otherwise identical M64xN256 native cell. Exact outputs, Graph replay,
+  23/23 invalid calls, immutable inputs, 128-register/two-CTA resources, the
+  69-pass/12-skip full suite, and independent audit pass. CPU-11-pinned
+  six-round B-C-C-B timing regresses uniformly from **5.388882 ms to 5.698348
+  ms** (**0.945692x**, **5.742675%** higher latency). Matched same-topology NCU
+  records **17.6510%** fewer L2 request bytes and **84.5815%** fewer bypass
+  bytes, yet duration rises **5.4785%**, issue active falls **2.56 points**,
+  and MIO throttle rises **2.69 points**. Packed B therefore remains on
+  `cp.async.cg`; the A-only-CA native baseline and production route are
+  unchanged, and pair timing is skipped by stop-loss.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

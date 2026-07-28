@@ -393,6 +393,18 @@ cell becomes the native test-only baseline, not a production admission; the
 next bounded work must target decode or scheduling structure without relaxing
 the gate. See the [M64xN256 A-only CA development-cell
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json).
+The direct packed-B cache follow-up is a clear negative sentinel. Keeping the
+same M64xN256 topology and A-only `cp.async.ca` control, it changes only the
+six packed-B LDGSTS sites from `cp.async.cg` to `cp.async.ca`; scale windows
+continue bypassing L1. The CPU-11-pinned six-round screen regresses every
+round, from **5.388882 ms to 5.698348 ms** (**0.945692x**, **5.742675%**
+higher latency). Matched NCU still shows **17.6510%** fewer L2 request bytes
+and **84.5815%** fewer bypass bytes, but duration rises **5.4785%**, tensor and
+issue activity fall, and MIO throttle rises **2.69 points**. Packed-B L1
+caching is therefore harmful on this pipeline: the A-only cell remains the
+native test baseline, pair timing is skipped, and production remains
+unchanged. See the [M64xN256 packed-B CA rejection
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The
