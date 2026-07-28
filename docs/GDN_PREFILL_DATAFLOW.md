@@ -1,10 +1,13 @@
 # Exact Prefill GDN dataflow on SM87
 
 Status: the P0 exact composite is implemented at commit `4c135d5` as an
-isolated test-only CUDA cell and has passed T1 synthetic correctness and
-resource validation on SM87. Qualified full-model/captured-trajectory
-retention and production promotion are `NOT_RUN`; production dispatch remains
-unchanged.
+isolated test-only CUDA cell, passed T1 synthetic correctness/resource gates,
+and passed the P513/C512 complete-GDN-state correctness gate at `6e668f5`.
+Its first snapshot-free real-model generation-path direction screen is
+negative: Prefix is 2558.744418 ms for baseline versus 2565.174709 ms for the
+candidate, or 0.997493235x. The candidate is therefore rejected as a
+test-only performance incumbent. Formal retention and production promotion
+were not run; production dispatch remains unchanged.
 FlashLinearAttention and Mamba are architecture references only. No source,
 generated code, binary, package, or runtime dependency from either project is
 copied or introduced.
@@ -216,22 +219,68 @@ the sanitizer result is `NOT_RUN`/`NOT_ESTABLISHED`.
 
 The normalized evidence record is
 [`qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-norm-gate-shared-boundary-t1-2026-07-29.json).
-The next admissible decision is a full-model pinned-prompt path or pinned
-captured-real-layer-trajectory mirrored B-C-C-B comparison of the standalone
-baseline, global-boundary control, and shared-boundary candidate. Isolated real
-weights without the corresponding data-dependent activations and state have no
-retention authority. Until qualified evidence exists, the experimental
-incumbent and production path are unchanged.
+
+### P513 correctness and direction screen on 2026-07-29
+
+Commit `6e668f5` exercises the test-only route in one real engine with the
+pinned 513-token repeated-hello prompt and C512 Prefill. The baseline records
+zero route hits and the candidate records 1,536: 48 linear-attention layers
+times 32 exact-C16 slices. Both produce token 9419, text `Hello`, and 513
+ordered steps. Across the complete 75,497,472-byte GDN arena, all 37,748,736
+BF16 words match bitwise at both committed position 512 and the position-513
+finish-Prefill step. The baseline snapshots are active rather than degenerate:
+all 37,748,736 BF16 words are nonzero at both stages and 37,461,455 words
+change between them. This proves complete GDN state plus generated-token/text
+and step semantics; it does not claim full hidden, KV, or logits bitwise
+identity.
+
+The subsequent direction screen disables the snapshot hook and uses the same
+engine and ELF for one mirrored warm-up B-C-C-B and one measured B-C-C-B. It
+runs the pinned full model at MAXN on CPU 11 with GPU fixed at 1.3005 GHz and
+EMC at 3.2 GHz. Every baseline invocation records zero route hits, every
+candidate invocation records 1,536, and every invocation passes the token,
+text, and step oracle.
+
+| Measured pass | Prefix (ms) | TTFT (ms) |
+| --- | ---: | ---: |
+| B1 | 2558.881347 | 2667.558658 |
+| C1 | 2565.105279 | 2673.783135 |
+| C2 | 2565.244138 | 2673.930442 |
+| B2 | 2558.607488 | 2667.271008 |
+| Baseline mean | 2558.744418 | 2667.414833 |
+| Candidate mean | 2565.174709 | 2673.856789 |
+
+The candidate adds 6.430291 ms to Prefix and 6.441956 ms to TTFT. Prefix
+throughput moves from 200.098141 to 199.596541 token/s; the Prefix and TTFT
+ratios are 0.997493235x and 0.997590763x respectively. This single round has
+no incumbent-incumbent noise calibration and is not a retention, promotion,
+threshold, or publication anchor. It has only the direction-first stop-loss
+authority defined by the real-model policy, so the native experimental and
+production incumbents remain unchanged. The ephemeral timing harness was
+removed after measurement; its binary SHA256 is
+`32243ce9f375b7a0cbe40eb053d319bbf87eac510c2f71b1e54c61374fbaea9e` and
+its ELF build ID is `c8b36ca8ce23b3c0e959e287526156afdc9f09c4`.
+
+No six-round timing, complete noise harness, Nsys, or NCU is required to close
+this negative candidate. A later profile remains admissible only as a bounded
+diagnostic for a concrete question—for example, why replacing the 48
+standalone epilogue launches and logical raw-output round trip did not reduce
+Prefix. Such a profile cannot reverse this rejection; any revised mechanism
+must return through a new real generation-path direction screen. The
+normalized record is
+[`qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json`](metadata/qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json).
 
 ## Exact-contract experiment order after P0
 
 The references suggest mechanisms, but the measured bottleneck and exact
 contract decide their order:
 
-1. Finish P0 on the pinned P513 full-model path: baseline must record zero
-   route hits, the candidate must record 1,536 C16 hits, complete GDN state at
-   prefix and first-step boundaries must be bitwise, and only a later
-   snapshot-free mirrored timing run may make a retention decision.
+1. P0 is complete and rejected on the pinned P513 full-model path. Baseline
+   and candidate route hits are 0/1,536, complete GDN state is bitwise at both
+   committed boundaries, and the snapshot-free direction screen is negative.
+   Do not build the formal retention harness for this unchanged candidate. A
+   bounded profile is optional only if it answers a named question for the
+   next design.
 2. Inspect SASS before changing the recurrence scalars. `exp(A_log)` and
    `dt_bias` are constant for a value head across all 16 tokens. If the compiler
    has not lifted them, compute the two scalars once per CTA and retain them in
@@ -245,7 +294,7 @@ contract decide their order:
    `(x_{i+32}^2 + x_{i+96}^2)`, followed by the existing stride-16-to-1 tree.
    The same warp then applies gamma, SiLU(Z), and BF16-RNE output. This targets
    CTA-wide barriers without reopening recurrent-state arithmetic.
-4. If P0 is stable, re-screen an exact persistent C512 composite on the same
+4. Re-screen an exact persistent C512 composite on the same
    real trajectory. It must keep packed BF16 state live but preserve every C16
    output boundary; it must not allocate a C512 raw tile. The old synthetic
    1.01871x result is motivation only, not retention evidence.
@@ -258,21 +307,30 @@ contract decide their order:
 
 The experiment and production gates are intentionally different:
 
-1. Exhaustive synthetic smoke proves bitwise C1/C16 outputs and final state,
+1. Before first execution, minimum safe admission proves build/launch, bounds,
+   route isolation, resource sanity, and one applicable correctness oracle.
+2. The first timing decision uses the real full-model pinned-prompt generation
+   path, real prompt-derived activations and recurrent state, explicit route
+   hits, and a snapshot-free mirrored direction screen. A negative result may
+   be archived immediately or followed by a bounded NSys/NCU diagnostic for a
+   named causal question; it does not enter the formal retention funnel.
+3. A positive direction result unlocks exhaustive synthetic and real-state
+   qualification: bitwise C1/C16 outputs and final state,
    in-place/disjoint state, Graph replay, invalid calls, redzones, immutable
-   inputs, NaN handling, resource limits, and exact standalone reduction order.
-2. Performance retention uses a full-model pinned-prompt path or pinned
-   captured real-layer trajectories only. Isolated real weights without the
-   corresponding data-dependent activations and recurrent state have no
+   inputs, NaN handling, resource limits, exact standalone reduction order,
+   and incumbent-incumbent noise calibration.
+4. Formal performance retention uses the full-model pinned-prompt path or
+   pinned captured real-layer trajectories only. Isolated real weights without
+   the corresponding data-dependent activations and recurrent state have no
    retention authority. Each candidate is compared with the current native
-   incumbent in mirrored B-C-C-B order. A stable all-positive result may
+   incumbent in six mirrored B-C-C-B rounds. A stable all-positive result may
    become the next test-only experimental incumbent even before it clears the
    production gate.
-3. Production promotion separately requires the frozen native production
+5. Production promotion separately requires the frozen native production
    threshold, full P257/P513/P769/P1025 output and recurrent-state bitwise
    checks, route-hit proof, fresh fixed-clock Prefix/TTFT repetition, and a new
    Nsight profile showing the GDN interval and global traffic actually fall.
-4. cuBLASLt, FLA, Triton, Mamba, and MTP have no retention, promotion,
+6. cuBLASLt, FLA, Triton, Mamba, and MTP have no retention, promotion,
    fallback, or production role in this line.
 
 ## Deferred research-only line

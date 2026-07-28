@@ -29,11 +29,15 @@ model-performance conclusion is drawn from it.
 | T0 | none | build, ABI, selector, SASS, and static resource contracts | none |
 | T1 | synthetic | exhaustive correctness, robustness, Graph, and smoke tests | none |
 | T2 | pinned model tensors | same-binary component timing and candidate selection | component authority |
-| T3 | pinned model and prompts | natural layer order, route attribution, Prefix/TTFT, tokens, and state | production authority |
-| T4 | the exact T2 or T3 payload | NCU/NSys mechanism attribution after timing passes | diagnostic only |
+| T3 | pinned model and prompts | natural layer order, route attribution, Prefix/TTFT, tokens, and state | formal protocol: production authority; direction screen: early-stop only |
+| T4 | the exact T2 or T3 payload | NCU/NSys mechanism attribution after a valid timing run, including a rejected direction screen | diagnostic only |
 
 T2 is necessary but not sufficient for production promotion.  Production
 selection also requires the applicable T3 gates.
+A direction screen is a restricted protocol class on a T3 payload, not a new
+payload tier. It has early-stop authority only; T3 gains production authority
+only after the formal correctness, noise, repetition, and promotion protocol
+completes.
 
 ## Required production payload
 
@@ -77,8 +81,8 @@ adapted to an existing executable, but their behavior must match this contract:
   only; it contains no timing threshold.
 - `performance-checkpoint`: T2 or T3; a checkpoint is mandatory and no
   synthetic fallback exists.
-- `profile-checkpoint`: T4; it uses the same pinned payload and selected route
-  as the preceding timing run.
+- `profile-checkpoint`: T4; it uses the same pinned payload and exact
+  incumbent/candidate routes as the preceding valid timing run.
 
 Exit `0` means that the requested tier completed and its applicable gates
 passed.  Exit `1` means invalid evidence, a correctness failure, or a runtime
@@ -156,27 +160,54 @@ layers or explicitly scrub cache so that repeated use of one tensor does not
 create an accidental warm-cache gate.  If warm-cache behavior is relevant, it
 is recorded as a separate steady-state result.
 
-## Threshold recalibration
+## Direction-first development and threshold recalibration
 
 Synthetic thresholds and absolute timings are not transferred to real
-payloads.  Recalibration proceeds as follows:
+payloads. Development follows a direction-first funnel so that a candidate
+must first show useful movement in the natural model path before it consumes
+complete qualification effort:
 
 1. Freeze the live incumbent, payload manifest, layer panel, environment, and
    timing protocol before inspecting the candidate.
-2. Run incumbent-versus-incumbent paired controls on the real panel to measure
-   the local noise floor.
-3. A development candidate is retained when the paired real-payload result is
+2. Before the first device run, complete only the minimum safe admission:
+   build and launch contracts, bounds and resource sanity, route isolation,
+   and at least one applicable correctness oracle. Exhaustive synthetic and
+   full-state qualification are not prerequisites for the first direction
+   screen unless safety or the candidate's numerical contract requires them.
+3. Run the first performance screen in the pinned T3 generation path whenever
+   that path exists. Use one engine and one ELF, the natural layer order, the
+   real prompt-derived activations/state, explicit incumbent/candidate route
+   hits, a deterministic generation oracle, and a snapshot-free mirrored
+   order such as one B-C-C-B round. A T2 component screen may help diagnose a
+   candidate, but it does not replace this first whole-path direction check.
+4. A negative or neutral direction result has early-stop authority. Reject and
+   archive the candidate without building exhaustive correctness, noise,
+   six-round, profiler, or promotion harnesses. Alternatively, when a concrete
+   causal question could change the next design, collect a bounded T4 NSys or
+   NCU comparison on the same real payload and record it as diagnostic
+   evidence. Profiling is optional and cannot reverse the rejection.
+5. A positive direction result has no retention, promotion, or publication
+   authority by itself. It unlocks complete correctness/state/Graph/resource
+   validation and incumbent-versus-incumbent paired controls on the real panel
+   to establish the local noise floor.
+6. A development candidate is retained when the formal paired real-payload
+   result is
    stably positive against the current native development incumbent and clears
    the measured noise allowance.  It then becomes the new native development
    incumbent.  Do not impose an external reference or the terminal production
    margin on this incremental step.
-4. Use the same final binary and six B-C-C-B rounds for incumbent and
+7. Use the same final binary and six B-C-C-B rounds for incumbent and
    candidate.  Preserve all raw rounds, including reversals and failures.
-5. Production promotion is a separate cumulative decision against the current
+8. Production promotion is a separate cumulative decision against the current
    native production baseline.  It requires per-layer non-regression, the
    predeclared engineering margin (currently 1.03x where specified), an
    independent-process repeat, complete role/shape coverage, and T3.
-6. Re-run the gates after the production binary and selector are finalized.
+9. Re-run the gates after the production binary and selector are finalized.
+
+A direction screen may stop work but may never retain a candidate, update a
+production selector, recalibrate a threshold, or serve as a published
+performance anchor. A rejected candidate may be reopened only after a named
+mechanism changes, at which point the new candidate starts at step 2.
 
 Thresholds are role- and shape-specific.  Gate evidence does not set Down or
 FP8 thresholds, and a microbenchmark gain is weighted by the number of actual
@@ -200,9 +231,12 @@ each result as `synthetic_only`, `checkpoint_weight_only`,
 
 ## Profiling order
 
-NCU or NSys follows, never precedes, a completed and valid T2 timing run on the
-same real payload.  A rejected candidate may be profiled to explain its gap,
-but the profile is diagnostic and cannot reverse that rejection.  The
+NCU or NSys follows, never precedes, a completed and valid T2 or T3 timing run
+or direction screen on the same real payload. A rejected candidate may be
+profiled when an explicit causal question can guide the next design, but that
+work must be bounded and the profile is diagnostic: it cannot reverse the
+rejection. A negative candidate may instead be archived immediately; profiler
+completion is not a rejection gate. The
 authoritative T2 retention comparison is always native incumbent versus native
 candidate.  For the C512 NVFP4 external-reference study, profile the
 dequantization kernel, the immediately following cuBLASLt BF16 GEMM, and the

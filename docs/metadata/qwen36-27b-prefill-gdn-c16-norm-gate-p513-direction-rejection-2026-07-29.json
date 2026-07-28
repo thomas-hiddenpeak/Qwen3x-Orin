@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29",
+  "status": "rejected-test-only-real-generation-path-direction-stop-loss",
+  "date": "2026-07-29",
+  "timezone": "Asia/Shanghai",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "protocol_class": "DIRECTION_SCREEN",
+    "payload_class": "full_model_pinned_prompt",
+    "authority": "EARLY_STOP_ONLY",
+    "retention_authority": false,
+    "promotion_authority": false,
+    "publication_anchor_authority": false,
+    "synthetic_performance_authority": false,
+    "rule": "A snapshot-free negative result in the real generation path rejects the unchanged candidate before complete noise, six-round, profiler, or promotion work. A later bounded profile is permitted only to answer an explicit causal question and cannot reverse this rejection."
+  },
+  "source": {
+    "standalone_cell_commit": "4c135d5be75097ac3990a3167b71e8e9e1a23143",
+    "engine_route_commit": "93d4b01bc2394bed6e4820e735e8cafa3222f3f8",
+    "full_model_correctness_commit": "6e668f5428a0957362fd94e9e2f06480fb79c799",
+    "measured_head_commit": "6e668f5428a0957362fd94e9e2f06480fb79c799",
+    "measured_head_tree": "70581cf4a8629d406353becfb533211e9c924605",
+    "candidate_scope": "BUILD_TESTING-only exact-C16 GDN plus plain-RMSNorm/SiLU-gate shared-BF16-boundary admission route",
+    "production_source_changed": false,
+    "ephemeral_timing_harness": {
+      "source_committed": false,
+      "source_retained": false,
+      "reason_removed": "the first real generation-path direction result was negative, so the quick harness was removed under the stop-loss rule instead of being expanded into a complete performance harness",
+      "binary_sha256": "32243ce9f375b7a0cbe40eb053d319bbf87eac510c2f71b1e54c61374fbaea9e",
+      "elf_build_id": "c8b36ca8ce23b3c0e959e287526156afdc9f09c4",
+      "build_type": "Release",
+      "cuda_architecture": 87,
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "canonical_directory": true,
+    "read_only": true,
+    "non_symlink": true,
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "generation_config_sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
+    "shards": [
+      {
+        "file": "model-00001-of-00003.safetensors",
+        "bytes": 9965652512,
+        "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"
+      },
+      {
+        "file": "model-00002-of-00003.safetensors",
+        "bytes": 9985757032,
+        "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"
+      },
+      {
+        "file": "model-00003-of-00003.safetensors",
+        "bytes": 1970287640,
+        "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"
+      }
+    ],
+    "loader_contract": "the resident loader authenticates the pinned full-file hashes during engine creation"
+  },
+  "prompt": {
+    "manifest": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+    "manifest_sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966",
+    "label": "P513",
+    "construction": "501 space-separated occurrences of hello rendered through the pinned chat template",
+    "user_text_sha256": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2",
+    "rendered_prompt_sha256": "4ad308e4947eb28d279307ba7f81d3a4e680c5726d8949a754ba06ca36dfb838",
+    "prompt_id_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+    "prompt_token_count": 513,
+    "prefix_token_count": 512,
+    "expected_generated_ids": [
+      9419
+    ],
+    "expected_generated_text": "Hello",
+    "expected_stop_reason": "max_new_tokens",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "cuda_version": "13.3",
+    "nvpmodel": "MAXN",
+    "cpu_affinity": [
+      11
+    ],
+    "cpu_11_hz": 2201600000,
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fan_pwm": 255,
+    "fixed_clocks_post_run_readback": true,
+    "competing_gpu_process_check": "none observed before the serialized screen",
+    "temperature_celsius": {
+      "before": {
+        "cpu": 64.906,
+        "gpu": 56.812,
+        "junction": 65.093
+      },
+      "after": {
+        "cpu": 67.343,
+        "gpu": 58.531,
+        "junction": 66.968
+      }
+    }
+  },
+  "candidate": {
+    "baseline": "production exact-C16 register-resident BF16-state GDN followed by the standalone plain-RMSNorm/SiLU-gate epilogue",
+    "candidate": "test-only exact-C16 recurrence retaining rounded raw BF16 output in a padded shared tile before the in-kernel plain-RMSNorm/SiLU-gate epilogue",
+    "intended_removed_boundary": "48 standalone epilogue launches and 576 MiB of logical rounded raw-output write-plus-read over P513",
+    "unchanged_boundary": "1536 exact-C16 recurrence launches remain",
+    "exact_state_contract": "every recurrent state element remains BF16-RNE after each ordered token"
+  },
+  "correctness_reference": {
+    "commit": "6e668f5428a0957362fd94e9e2f06480fb79c799",
+    "engine_instances": 1,
+    "baseline_route_hits": 0,
+    "candidate_route_hits": 1536,
+    "generated_token_id": 9419,
+    "generated_text": "Hello",
+    "step_count": 513,
+    "gdn_region_bytes": 75497472,
+    "gdn_region_bf16_elements": 37748736,
+    "committed_positions": [
+      512,
+      513
+    ],
+    "unequal_bf16_at_each_position": [
+      0,
+      0
+    ],
+    "baseline_nonzero_bf16_at_each_position": [
+      37748736,
+      37748736
+    ],
+    "baseline_changed_between_positions_bf16": 37461455,
+    "proved_scope": "complete GDN recurrent state bitwise plus generated token/text and ordered-step semantics",
+    "not_proved": "full hidden, KV, or logits bitwise identity",
+    "performance_values_admissible": false,
+    "reason_performance_values_inadmissible": "the correctness snapshot hook copies the 75.5 MB GDN region to the host inside the runner timing boundary"
+  },
+  "protocol": {
+    "engine_instances": 1,
+    "same_elf_for_baseline_and_candidate": true,
+    "projection_backend": "sm87_weight_only",
+    "batch_size": 1,
+    "requested_prefill_chunk_size": 512,
+    "effective_prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "logits_mode": "predicted_token_only",
+    "snapshot_hook": "empty for every timed invocation",
+    "timed_device_to_host_state_copy": false,
+    "warmup": "one mirrored B-C-C-B",
+    "measurement": "one mirrored B-C-C-B",
+    "route_gate_each_invocation": "baseline 0 hits; candidate 1536 hits",
+    "oracle_each_invocation": "token 9419, text Hello, max_new_tokens stop, 513 steps",
+    "full_noise_calibration": "NOT_RUN",
+    "formal_six_round_retention": "NOT_RUN"
+  },
+  "warmup_samples": [
+    {
+      "route": "B1",
+      "prefix_ms": 2560.050658,
+      "ttft_ms": 2684.016792
+    },
+    {
+      "route": "C1",
+      "prefix_ms": 2565.593497,
+      "ttft_ms": 2674.296247
+    },
+    {
+      "route": "C2",
+      "prefix_ms": 2565.032799,
+      "ttft_ms": 2674.229986
+    },
+    {
+      "route": "B2",
+      "prefix_ms": 2558.986713,
+      "ttft_ms": 2667.635768
+    }
+  ],
+  "measured_samples": [
+    {
+      "route": "B1",
+      "prefix_ms": 2558.881347,
+      "ttft_ms": 2667.558658
+    },
+    {
+      "route": "C1",
+      "prefix_ms": 2565.105279,
+      "ttft_ms": 2673.783135
+    },
+    {
+      "route": "C2",
+      "prefix_ms": 2565.244138,
+      "ttft_ms": 2673.930442
+    },
+    {
+      "route": "B2",
+      "prefix_ms": 2558.607488,
+      "ttft_ms": 2667.271008
+    }
+  ],
+  "aggregates": {
+    "warmup_prefix": {
+      "baseline_mean_ms": 2559.5186855,
+      "candidate_mean_ms": 2565.313148,
+      "candidate_saved_ms": -5.7944625,
+      "speedup": 0.997741226
+    },
+    "measured_prefix": {
+      "baseline_mean_ms": 2558.7444175,
+      "candidate_mean_ms": 2565.1747085,
+      "candidate_saved_ms": -6.430291,
+      "speedup": 0.9974932346796136,
+      "candidate_latency_change_percent": 0.25130649845375164,
+      "baseline_prefix_tokens_per_second": 200.0981405169983,
+      "candidate_prefix_tokens_per_second": 199.59654143767648
+    },
+    "measured_ttft": {
+      "baseline_mean_ms": 2667.414833,
+      "candidate_mean_ms": 2673.8567885,
+      "candidate_saved_ms": -6.4419555,
+      "speedup": 0.9975907627036322,
+      "candidate_latency_change_percent": 0.24150557387263571,
+      "baseline_complete_prompt_tokens_per_second": 192.32104195170757,
+      "candidate_complete_prompt_tokens_per_second": 191.8576949245612
+    }
+  },
+  "profiling": {
+    "nsys": "NOT_RUN_IN_THIS_CLOSURE",
+    "ncu": "NOT_RUN_IN_THIS_CLOSURE",
+    "later_eligibility": "A bounded matched profile may be collected if it answers a named causal question that guides a materially revised next candidate.",
+    "decision_authority": "none",
+    "cannot_reverse_rejection": true
+  },
+  "decision": {
+    "direction": "NEGATIVE",
+    "candidate_retained_as_native_experimental_incumbent": false,
+    "formal_retention": "NOT_RUN",
+    "production_promotion": "NOT_RUN",
+    "production_dispatch": "UNCHANGED",
+    "production_kernel": "UNCHANGED",
+    "production_selector": "UNCHANGED",
+    "runner_default": "UNCHANGED",
+    "decode": "UNCHANGED",
+    "mtp_used": false,
+    "cublaslt": {
+      "linked": false,
+      "executed": false,
+      "role": "external_reference_only",
+      "production_eligibility": "none"
+    },
+    "stopped_work": [
+      "complete B-B-B-B noise calibration",
+      "formal six-round B-C-C-B retention screen",
+      "promotion harness and production integration"
+    ],
+    "result": "reject the unchanged shared-boundary P0 candidate under the real-generation-path direction stop-loss; leave both native incumbents unchanged"
+  },
+  "limitations": [
+    "This is one measured mirrored B-C-C-B round after one mirrored warm-up, with no incumbent-incumbent noise calibration. It is sufficient only for the predeclared early-stop decision and is not a retention, promotion, threshold, or publication anchor.",
+    "The ephemeral timing source and stdout log were not retained after the negative stop-loss; the binary SHA256/build ID and every raw timing sample are recorded here.",
+    "The generation oracle checks the predicted token and ordered step semantics, not full logits, hidden states, or KV bitwise equality; complete GDN state bitwise equality is established separately by the committed correctness test.",
+    "No Nsys or NCU causal claim is made. A later bounded profile remains permissible only for an explicit next-design question."
+  ]
+}

@@ -1725,6 +1725,20 @@ The diagnostic Phase 3 records are:
   unchanged. Device
   `compute-sanitizer` checking is unavailable because the target Orin reports
   its CUDA debug feature disabled, so no sanitizer pass is claimed.
+- [`qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json`](qwen36-27b-prefill-gdn-c16-norm-gate-p513-direction-rejection-2026-07-29.json),
+  which closes that P0 with the first real P513/C512 generation-path direction
+  screen. Commit `6e668f5` proves 0/1,536 baseline/candidate route hits,
+  complete 37,748,736-word GDN-state bitwise equality at committed positions
+  512 and 513, and token 9419/text `Hello`/513-step semantics. A separate
+  snapshot-free, same-engine/ELF measured B-C-C-B gives Prefix
+  2558.744418 versus 2565.174709 ms (**0.997493235x**, 6.430291 ms slower)
+  and TTFT 2667.414833 versus 2673.856789 ms (**0.997590763x**, 6.441956 ms
+  slower). This one-round result has early-stop authority only: no noise
+  calibration, formal six-round retention, or promotion work follows, and
+  production remains unchanged. Nsys/NCU are `NOT_RUN_IN_THIS_CLOSURE`, but a
+  later bounded profile remains admissible for an explicit causal question;
+  it cannot reverse the rejection. cuBLASLt is neither linked nor executed,
+  and MTP is unused.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and
