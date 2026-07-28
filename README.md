@@ -369,10 +369,15 @@ nearly halves math-pipe throttle (**16.41% to 8.81%**), but doubling A work
 raises L2 requests by **18.62%**, `cp.async` bypass bytes by **39.79%**, and
 MIO throttle from **11.14% to 14.66%**. Six formal rounds all regress:
 **5.531505 ms to 5.645857 ms** (**0.979746x**), so pair timing stops and
-production remains unchanged. One final bounded cell may change only the A
-copies to `cp.async.ca`; if it does not clear **5.304339 ms**, this arithmetic
-body closes. See the [M128xN128 rejection
-record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-rejection.json).
+production remains unchanged. The completed bounded follow-up changes only A
+copies to `cp.async.ca` while B and scales retain `cp.async.cg`. It improves
+all six rounds and moves **5.531556 ms to 5.483505 ms** (**1.008763x**), with
+matched NCU L2 requests down **11.23%**, but still misses the **5.304339 ms**
+absolute gate. Pair timing is therefore skipped, production remains unchanged,
+and this M128 arithmetic body closes. See the [M128xN128 CG rejection
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-rejection.json)
+and [M128xN128 A-only CA development-cell
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The

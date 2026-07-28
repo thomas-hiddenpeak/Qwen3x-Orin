@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell",
+  "status": "test-only-positive-development-cell-not-admitted",
+  "recorded_at": "2026-07-28T22:21:42+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "7230deac8bcec6bc4f4faea361f1605a890a545b",
+    "tree": "c94a42b23da7d280120ba87889dc30504aeef314",
+    "parent_commit": "ffb599b5f08ba53d70ec6f02afc8a207915bcd95",
+    "subject": "test: retain M128N128 CA NVFP4 cell",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "Can the two resident M128xN128 CTAs reuse activation A through L1 by changing only A copies to cp.async.ca while B and scales continue streaming through cp.async.cg?",
+    "answer": "Yes, the A-only-CA M128xN128 variant is repeatably positive versus the frozen M64xN256 baseline and materially repairs the earlier M128xN128-CG regression, but it still misses the absolute native admission gate.",
+    "classification": "retain as the fastest measured native test-only development cell; do not admit to production",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M128xN128xK64",
+    "grid": "136 N tiles x 4 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M128xN16",
+    "accumulator_fragments_per_warp": 16,
+    "accumulator_fp32_register_payload_per_thread": 64,
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "activation_cache_operator": "A only uses cp.async.ca",
+    "weight_and_scale_cache_operator": "packed B and scales retain cp.async.cg",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "epilogue": "aligned packed BF16 pair stores",
+    "sidecar_required": false,
+    "comparison_baseline": "frozen test-only M64xN256xK64 cp.async.cg kernel"
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 49152,
+    "logical_shared_bytes_per_cta": 49664,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "sass_cache_operator_evidence": {
+    "measurement": "static LDGSTS instruction sites in the instantiated kernel SASS, not dynamic traffic",
+    "candidate_m128n128_ca": {
+      "ldgsts_sites_total": 18,
+      "non_bypass_sites": 12,
+      "non_bypass_role": "activation A",
+      "bypass_sites": 6,
+      "bypass_role": "packed B and scales"
+    },
+    "control_m128n128_cg": {
+      "ldgsts_sites_total": 18,
+      "non_bypass_sites": 0,
+      "bypass_sites": 18,
+      "bypass_role": "activation A, packed B, and scales"
+    },
+    "conclusion": "The compiled candidate changes only A to cache-all; B and scale traffic remains L1-bypassing as designed."
+  },
+  "correctness_and_rejection_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "output_guards": "intact",
+    "independent_audit": "pass with no blocking mapping, bounds, pipeline, cache-operator, scale-slot, epilogue, resource, Graph, or production-route findings"
+  },
+  "formal_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "frozen M64xN256 cp.async.cg",
+      "candidate": "M128xN128 A-only cp.async.ca; B and scales cp.async.cg",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "required_speedup": 1.0,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "pair_stop_loss": "skip Gate+Up pair unless the single-Gate candidate clears both the positive-round and absolute-latency gates"
+    },
+    "rounds": [
+      {"round": 1, "B1_ms": 5.531626, "C1_ms": 5.484209, "C2_ms": 5.483175, "B2_ms": 5.532404, "speedup": 1.008812},
+      {"round": 2, "B1_ms": 5.532543, "C1_ms": 5.482702, "C2_ms": 5.484369, "B2_ms": 5.530394, "speedup": 1.008741},
+      {"round": 3, "B1_ms": 5.530682, "C1_ms": 5.483013, "C2_ms": 5.483158, "B2_ms": 5.531084, "speedup": 1.008717},
+      {"round": 4, "B1_ms": 5.530897, "C1_ms": 5.483212, "C2_ms": 5.482432, "B2_ms": 5.532513, "speedup": 1.008916},
+      {"round": 5, "B1_ms": 5.531644, "C1_ms": 5.484133, "C2_ms": 5.483272, "B2_ms": 5.531124, "speedup": 1.008695},
+      {"round": 6, "B1_ms": 5.530513, "C1_ms": 5.484620, "C2_ms": 5.483767, "B2_ms": 5.533247, "speedup": 1.008695}
+    ],
+    "aggregate": {
+      "baseline_m64n256_ms": 5.531556,
+      "candidate_m128n128_ca_ms": 5.483505,
+      "candidate_vs_baseline_speed": 1.008763,
+      "candidate_latency_reduction_percent": 0.868670587,
+      "positive_rounds": 6,
+      "rounds_total": 6,
+      "every_round_strict_positive": true,
+      "absolute_candidate_gate": "fail",
+      "additional_candidate_latency_reduction_needed_for_gate_percent": 3.267362754,
+      "pair_screen": "skipped by stop-loss",
+      "decision": "retain test-only as a positive development cell; reject production admission"
+    },
+    "comparison_to_m128n128_cg": {
+      "prior_candidate_ms": 5.645857,
+      "ca_candidate_ms": 5.483505,
+      "ca_vs_cg_speed": 1.029607341,
+      "interpretation": "A-only cache-all recovers the CG cell's doubled-A cache penalty, but does not make the M128 arithmetic body admissible."
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m128n128ca-validate.log",
+        "bytes": 1317,
+        "sha256": "f040197ad10d82358f0ed0a3d287185b6539cb5d7c7559ee7bab37f250481099"
+      },
+      "screen_log": {
+        "path": "/tmp/q3x-m128n128ca-screen.log",
+        "bytes": 9492,
+        "sha256": "28c3f52eb832800947665abcddf4fb1c65015ceeaeb40bd3c33f5200ef6ff065",
+        "expected_exit": "nonzero solely because the absolute candidate gate rejects the otherwise six-of-six positive cell"
+      },
+      "retained_cg_regression_log": {
+        "path": "/tmp/q3x-m128n128cg-regression.log",
+        "bytes": 1299,
+        "sha256": "a4b17f92ddfc56d45e4e261bcb6e16f55784167c9d9914c6e1937def29972b90"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5326184,
+        "sha256": "6b78d25db35f02aae6964bd15e241626d97277fe34699dba8541f6d8fecf5192"
+      }
+    }
+  },
+  "nsight_compute_comparison": {
+    "protocol": {
+      "tool": "Nsight Compute",
+      "profile_from_start": false,
+      "replay_mode": "application",
+      "app_replay_mode": "strict",
+      "profiled_launches": 1,
+      "cache_control": "none",
+      "clock_control": "none",
+      "use": "causal attribution only, not formal latency",
+      "warning": "GPU caches and clocks were uncontrolled during profiling. The baseline is M64xN256-CG while the candidate is M128xN128-CA, so the counters also mix topology effects and cannot attribute the full delta to cp.async.ca. The report is directional evidence and the B-C-C-B screen remains authoritative for latency."
+    },
+    "baseline_m64n256_cg": {
+      "duration_ns": 5557152,
+      "l1tex_global_load_hit_bytes": 29256928,
+      "l1tex_global_load_miss_bytes": 1031377696,
+      "l2_request_bytes": 1193984320,
+      "global_cp_async_cache_access_bytes": 0,
+      "global_cp_async_bypass_bytes": 1167032320,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 38.71,
+      "issue_active_percent": 47.67,
+      "barrier_stall_percent": 6.66,
+      "long_scoreboard_stall_percent": 1.66,
+      "math_pipe_throttle_percent": 16.39,
+      "mio_throttle_percent": 11.16,
+      "report": {
+        "path": "/tmp/q3x-m128n128ca-ncu-baseline.ncu-rep",
+        "bytes": 4028646,
+        "sha256": "057a8135b9fbb5a4465ef03737a126b53813c931743996554c52393dc44d7bcb"
+      }
+    },
+    "candidate_m128n128_ca": {
+      "duration_ns": 5511744,
+      "l1tex_global_load_hit_bytes": 27726784,
+      "l1tex_global_load_miss_bytes": 1032907840,
+      "l2_request_bytes": 1059844128,
+      "global_cp_async_cache_access_bytes": 713031680,
+      "global_cp_async_bypass_bytes": 561860608,
+      "warps_active_percent": 32.91,
+      "tensor_hmma_active_percent": 39.24,
+      "issue_active_percent": 45.20,
+      "barrier_stall_percent": 6.53,
+      "long_scoreboard_stall_percent": 0.81,
+      "math_pipe_throttle_percent": 9.34,
+      "mio_throttle_percent": 13.82,
+      "report": {
+        "path": "/tmp/q3x-m128n128ca-ncu-candidate.ncu-rep",
+        "bytes": 4028091,
+        "sha256": "115cd9fbfd932219b06429bf840b68e9d155dbab4e04607d386db4c4bfd2f3af"
+      }
+    },
+    "derived": {
+      "profiled_duration_reduction_percent": 0.817109196,
+      "l2_request_reduction_percent": 11.234669480,
+      "cp_async_bypass_reduction_percent": 51.855608592,
+      "tensor_active_change_points": 0.53,
+      "issue_active_change_points": -2.47,
+      "barrier_stall_change_points": -0.13,
+      "long_scoreboard_change_points": -0.85,
+      "math_pipe_throttle_change_points": -7.05,
+      "mio_throttle_change_points": 2.66
+    },
+    "interpretation": "SASS proves that the compiled A-only cache operator converts the intended activation copies from bypass to cache-access. Relative to the M64xN256-CG control, the M128xN128-CA profile has 11.23% fewer L2 request bytes, 51.86% fewer bypass bytes, and lower duration, but those deltas include both cache-operator and tile-topology effects. The remaining lower issue activity and higher MIO throttle support closing further M128 arithmetic micro-tuning rather than claiming production readiness."
+  },
+  "regression_validation": {
+    "manual_m128n128_ca_validate": "pass",
+    "retained_m128n128_cg_validate": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.35,
+      "raw_artifact_retained": false
+    },
+    "independent_audit": "pass"
+  },
+  "decision": {
+    "candidate": "positive test-only development cell, rejected from production admission",
+    "retained_value": "keep the implementation and frozen screen as evidence that A-only cp.async.ca is useful even though this M128 mapping misses the absolute gate",
+    "production_route": "unchanged",
+    "pair_screen": "skipped",
+    "m128n128_arithmetic_body": "closed to further K128, deeper-pipeline, and micro-scheduling cells",
+    "next_bounded_cell": {
+      "mapping": "M64xN256xK64",
+      "change": "transfer only activation A copies from cp.async.cg to cp.async.ca while retaining B and scales on cp.async.cg",
+      "reason": "preserve the faster frozen M64 topology and its independent two-CTA phase progress while applying the one cache mechanism that produced six-of-six positive rounds"
+    },
+    "do_not_repeat": [
+      "do not describe a positive relative screen as production admission when the absolute gate fails",
+      "do not run Gate+Up pair timing after the frozen single-Gate stop-loss",
+      "do not route MTP as a shortcut"
+    ]
+  }
+}

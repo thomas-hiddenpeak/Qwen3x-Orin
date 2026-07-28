@@ -1445,6 +1445,22 @@ The diagnostic Phase 3 records are:
   and shared-broadcast micro-tuning as incapable of credibly supplying the
   remaining 4.3%. Future native work requires a structural tile, decode, or
   data-layout change.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell.json),
+  which retains the exact-C512 M128xN128 A-only `cp.async.ca` result as a
+  positive test-only development cell, not a production admission. B and
+  scales remain on `cp.async.cg`; SASS contains 12 non-bypass A and six bypass
+  B/scale LDGSTS sites versus 18 bypass sites in the CG control. Exact
+  0/17,825,792, two-node Graph replay, 23/23 invalid-call, guard, immutable-
+  input, 128-register/49,152-byte-dynamic-shared/zero-local/two-CTA, full-suite,
+  and independent-audit gates pass. All six formal rounds improve
+  **5.531556 ms to 5.483505 ms** (**1.008763x**), but the result remains above
+  the **5.304339 ms** absolute gate; pair timing stops and production stays on
+  the hybrid cuBLASLt bridge. Uncontrolled-cache/clock NCU is causal evidence
+  only: versus the differently tiled M64 control, matched L2 requests fall
+  **11.23%** and bypass bytes **51.86%**, so the full counter delta is not
+  attributed to `.ca` alone. The M128 arithmetic body closes and the next
+  bounded cell transfers only the A-cache operator to the frozen M64xN256
+  topology.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
