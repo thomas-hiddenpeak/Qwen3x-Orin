@@ -192,6 +192,8 @@ if(BUILD_TESTING)
       "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
   set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
       "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance admission")
+  set(Q3X_REAL_PERF_CPU "11" CACHE STRING
+      "Single host CPU used by serialized Orin performance admission")
   option(Q3X_REQUIRE_REAL_PERF
          "Fail configuration or hardware checks instead of skipping real-payload admission"
          OFF)
@@ -209,6 +211,9 @@ if(BUILD_TESTING)
   if(Q3X_REQUIRE_REAL_PERF AND NOT _q3x_real_perf_model_dir)
     message(FATAL_ERROR
       "Q3X_REQUIRE_REAL_PERF=ON requires Q3X_REAL_PERF_MODEL_DIR or Q3X_E2E_MODEL_DIR")
+  endif()
+  if(NOT Q3X_REAL_PERF_CPU MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "Q3X_REAL_PERF_CPU must be one non-negative CPU id")
   endif()
 
   add_library(q3x_test_pinned_checkpoint STATIC
@@ -423,13 +428,20 @@ if(BUILD_TESTING)
   )
 
   if(_q3x_real_perf_model_dir)
+    find_program(_q3x_taskset_command NAMES taskset)
+    if(NOT _q3x_taskset_command)
+      message(FATAL_ERROR
+        "Real-payload performance admission requires the taskset command")
+    endif()
     add_test(NAME nvfp4_prefill_down_c512_checkpoint_admission
-      COMMAND q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+      COMMAND "${_q3x_taskset_command}" --cpu-list "${Q3X_REAL_PERF_CPU}"
+              $<TARGET_FILE:q3x_nvfp4_prefill_down_c512_cublaslt_ceiling>
               --mode=performance-checkpoint
               --checkpoint=${_q3x_real_perf_model_dir}
     )
     add_test(NAME nvfp4_prefill_gate_up_c512_checkpoint_admission
-      COMMAND q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+      COMMAND "${_q3x_taskset_command}" --cpu-list "${Q3X_REAL_PERF_CPU}"
+              $<TARGET_FILE:q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen>
               --mode=performance-checkpoint
               --checkpoint=${_q3x_real_perf_model_dir}
     )
