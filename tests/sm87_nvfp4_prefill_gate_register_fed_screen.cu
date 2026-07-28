@@ -97,6 +97,20 @@ query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_resources_test_cuda(
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+[[nodiscard]] int
 launch_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_test_cuda(
     const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
     float weight_scale_2, const std::uint16_t* activations,
@@ -168,6 +182,7 @@ enum class CandidateLayout {
   kK16,
   kM64N256,
   kM128N128,
+  kM128N128Ca,
   kM64N512,
 };
 
@@ -182,6 +197,8 @@ enum class CandidateLayout {
       return "m64n256";
     case CandidateLayout::kM128N128:
       return "m128n128";
+    case CandidateLayout::kM128N128Ca:
+      return "m128n128ca";
     case CandidateLayout::kM64N512:
       return "m64n512";
   }
@@ -192,12 +209,14 @@ enum class CandidateLayout {
     const CandidateLayout layout) noexcept {
   return layout == CandidateLayout::kM64N256 ||
          layout == CandidateLayout::kM128N128 ||
+         layout == CandidateLayout::kM128N128Ca ||
          layout == CandidateLayout::kM64N512;
 }
 
 [[nodiscard]] bool uses_frozen_m64n256_control(
     const CandidateLayout layout) noexcept {
   return layout == CandidateLayout::kM128N128 ||
+         layout == CandidateLayout::kM128N128Ca ||
          layout == CandidateLayout::kM64N512;
 }
 
@@ -931,6 +950,15 @@ enum class Scope {
             up ? fixture.up_output() : fixture.gate_output(),
             static_cast<void*>(stream)));
   }
+  if (fixture.candidate_layout == CandidateLayout::kM128N128Ca) {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_test_cuda(
+            up ? fixture.up_packed.get() : fixture.gate_packed.get(),
+            up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
+            fixture.activations.get(), fixture.token_count, kRows, kColumns,
+            up ? fixture.up_output() : fixture.gate_output(),
+            static_cast<void*>(stream)));
+  }
   if (fixture.candidate_layout == CandidateLayout::kM64N512) {
     return static_cast<cudaError_t>(q3x::kernels::
         launch_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_test_cuda(
@@ -1009,6 +1037,11 @@ enum class Scope {
           query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_resources_test_cuda(
               512U, kRows, kColumns, &registers, &static_shared,
               &dynamic_shared, &local, &threads, &active);
+    } else if (layout == CandidateLayout::kM128N128Ca) {
+      status = q3x::kernels::
+          query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_resources_test_cuda(
+              512U, kRows, kColumns, &registers, &static_shared,
+              &dynamic_shared, &local, &threads, &active);
     } else {
       status = q3x::kernels::
           query_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_resources_test_cuda(
@@ -1018,8 +1051,10 @@ enum class Scope {
     const bool is_n512 = layout == CandidateLayout::kM64N512;
     const std::size_t expected_dynamic_shared =
         is_n512 ? 67'584U
-                : (layout == CandidateLayout::kM128N128 ? 49'152U
-                                                         : 43'008U);
+                : ((layout == CandidateLayout::kM128N128 ||
+                    layout == CandidateLayout::kM128N128Ca)
+                       ? 49'152U
+                       : 43'008U);
     const bool gate = status == static_cast<int>(cudaSuccess) &&
                       registers <= 128 && static_shared == 512U &&
                       dynamic_shared == expected_dynamic_shared &&
@@ -1157,6 +1192,13 @@ enum class Scope {
     if (layout == CandidateLayout::kM128N128) {
       return q3x::kernels::
           launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_cuda(
+              reinterpret_cast<const std::uint8_t*>(w),
+              reinterpret_cast<const std::uint8_t*>(s), scale, a, tokens,
+              rows, columns, o, static_cast<void*>(stream));
+    }
+    if (layout == CandidateLayout::kM128N128Ca) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_test_cuda(
               reinterpret_cast<const std::uint8_t*>(w),
               reinterpret_cast<const std::uint8_t*>(s), scale, a, tokens,
               rows, columns, o, static_cast<void*>(stream));
@@ -1841,6 +1883,8 @@ struct Options {
       options.candidate_layout = CandidateLayout::kM64N256;
     } else if (argument == "--candidate=m128n128") {
       options.candidate_layout = CandidateLayout::kM128N128;
+    } else if (argument == "--candidate=m128n128ca") {
+      options.candidate_layout = CandidateLayout::kM128N128Ca;
     } else if (argument == "--candidate=m64n512") {
       options.candidate_layout = CandidateLayout::kM64N512;
     } else {

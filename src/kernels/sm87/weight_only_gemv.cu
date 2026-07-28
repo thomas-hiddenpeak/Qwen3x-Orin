@@ -6163,6 +6163,24 @@ __device__ __forceinline__ void cp_async_cg_shared_global_16(
 #endif
 }
 
+// Private cache-all counterpart used only by the bounded M128N128-CA
+// experiment below.  Keep the shared global helper above pinned to .cg:
+// packed weights and scales must continue to bypass L1 in every path.
+__device__ __forceinline__ void cp_async_ca_shared_global_16(
+    void* const shared_destination, const void* const global_source) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  const std::uint32_t shared_address =
+      static_cast<std::uint32_t>(__cvta_generic_to_shared(shared_destination));
+  asm volatile("cp.async.ca.shared.global [%0], [%1], 16;"
+               :
+               : "r"(shared_address), "l"(global_source)
+               : "memory");
+#else
+  *reinterpret_cast<uint4*>(shared_destination) =
+      *reinterpret_cast<const uint4*>(global_source);
+#endif
+}
+
 __device__ __forceinline__ void cp_async_commit_group() {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
   asm volatile("cp.async.commit_group;" ::: "memory");
@@ -9086,6 +9104,7 @@ struct alignas(32) NvFp4GateM128N128PipelineStorage {
 
 static_assert(sizeof(NvFp4GateM128N128PipelineStorage) == 49'152U);
 
+template <bool kActivationCacheAll>
 __device__ __forceinline__ void issue_nvfp4_gate_m128_n128_pipeline_stage(
     NvFp4GateM128N128PipelineStorage* const pipeline,
     const unsigned int shared_slot,
@@ -9106,13 +9125,19 @@ __device__ __forceinline__ void issue_nvfp4_gate_m128_n128_pipeline_stage(
     const unsigned int index = threadIdx.x + pass * kThreads;
     const unsigned int token = index / kActivationChunksPerToken;
     const unsigned int chunk = index % kActivationChunksPerToken;
-    cp_async_cg_shared_global_16(
+    void* const shared_destination =
         pipeline->activations[shared_slot] +
-            token * kSharedActivationChunksPerToken + chunk,
+        token * kSharedActivationChunksPerToken + chunk;
+    const void* const global_source =
         reinterpret_cast<const uint4*>(
             tile_activations + static_cast<std::size_t>(token) * kColumns +
             first_k) +
-            chunk);
+        chunk;
+    if constexpr (kActivationCacheAll) {
+      cp_async_ca_shared_global_16(shared_destination, global_source);
+    } else {
+      cp_async_cg_shared_global_16(shared_destination, global_source);
+    }
   }
 
   // Adjacent threads copy the low/high halves of one canonical row, so the
@@ -9157,6 +9182,7 @@ __device__ __forceinline__ void issue_nvfp4_gate_m128_n128_scale_window(
   }
 }
 
+template <bool kActivationCacheAll>
 __global__ __launch_bounds__(kThreads, 2) void
 nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel(
     const std::uint8_t* const packed_weights,
@@ -9217,13 +9243,13 @@ nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel(
 
   issue_nvfp4_gate_m128_n128_scale_window(
       pipeline, 0U, block_scales, first_output_column, 0U);
-  issue_nvfp4_gate_m128_n128_pipeline_stage(
+  issue_nvfp4_gate_m128_n128_pipeline_stage<kActivationCacheAll>(
       pipeline, 0U, packed_weights, first_output_column, tile_activations,
       0U);
   issue_nvfp4_gate_m128_n128_scale_window(
       pipeline, 1U, block_scales, first_output_column,
       4U * kColumnsPerStage);
-  issue_nvfp4_gate_m128_n128_pipeline_stage(
+  issue_nvfp4_gate_m128_n128_pipeline_stage<kActivationCacheAll>(
       pipeline, 1U, packed_weights, first_output_column, tile_activations,
       kColumnsPerStage);
 
@@ -9244,7 +9270,7 @@ nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel(
             pipeline, future_scale_window % 2U, block_scales,
             first_output_column, (stage + 4U) * kColumnsPerStage);
       }
-      issue_nvfp4_gate_m128_n128_pipeline_stage(
+      issue_nvfp4_gate_m128_n128_pipeline_stage<kActivationCacheAll>(
           pipeline, future_stage % 2U, packed_weights, first_output_column,
           tile_activations, future_stage * kColumnsPerStage);
     }
@@ -28398,12 +28424,12 @@ int launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   cudaError_t status = cudaFuncSetAttribute(
-      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel,
+      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<false>,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel
+  nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<false>
       <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
@@ -28427,7 +28453,94 @@ int query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_resources_test_cuda(
   }
 
   const auto kernel =
-      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel;
+      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<false>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM128N128PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 128U) * (512U / 128U);
+  static_assert(kGrid == 544U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<alignof(uint4)>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<true>
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_ca_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM128N128PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m128_n128_k64_cp_async_test_kernel<true>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
