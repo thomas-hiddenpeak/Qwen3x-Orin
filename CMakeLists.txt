@@ -266,6 +266,25 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Test-only persistent-BF16 cuBLASLt ceiling for the exact C512 Gate
+  # projection.  NVFP4 dequantization is deliberately outside this target:
+  # it measures only the dense BF16 Tensor Core control and does not link or
+  # alter the production projection library or runner.
+  add_executable(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
+    tests/sm87_nvfp4_prefill_gate_c512_cublaslt_ceiling.cu
+  )
+  target_link_libraries(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
+    PRIVATE CUDA::cublasLt CUDA::cudart
+  )
+  q3x_enable_warnings(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling)
+  add_test(NAME nvfp4_prefill_gate_c512_cublaslt_ceiling
+    COMMAND q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
+  )
+  set_tests_properties(nvfp4_prefill_gate_c512_cublaslt_ceiling PROPERTIES
+    LABELS "cuda;sm87;prefill;ceiling"
+    SKIP_RETURN_CODE 77
+  )
+
   # Isolated FP8 QKV latency-hiding candidate. The production M128xN128
   # route remains frozen; this target only screens a 512-thread split-M64
   # warp-group implementation for exact C512 [10240,5120].
