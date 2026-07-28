@@ -2444,11 +2444,10 @@ void test_exact_nvfp4_whole_chunk_branch_dispatch(TestContext& test) {
                       static_cast<void*>(stream));
             },
             label + " direct production graph");
-        const std::size_t tokens_per_cta =
-            gate_up_shape ? 128U : kM64Tokens;
+        constexpr std::size_t kWholeChunkTokensPerCta = 128U;
         const unsigned int expected_grid = static_cast<unsigned int>(
             (gate_up_shape ? kIntermediateSize : kHiddenSize) / 128U *
-            (token_count / tokens_per_cta));
+            (token_count / kWholeChunkTokensPerCta));
         const bool exact =
             dispatch.valid && dispatch.launches.size() == 1U &&
             direct.valid && direct.launches.size() == 1U &&

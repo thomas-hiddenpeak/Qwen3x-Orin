@@ -1349,6 +1349,13 @@ launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
     std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
 
 [[nodiscard]] int
+launch_sm87_nvfp4_w4a16_whole_chunk_down_m64_historical_control_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* cuda_stream = nullptr) noexcept;
+
+[[nodiscard]] int
 query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
     std::size_t token_count, std::size_t rows, std::size_t columns,
     int* registers_per_thread, std::size_t* static_shared_bytes,
@@ -25851,7 +25858,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
                          cell_label +
                              (gate_shape
                                   ? " launch repeated historical M64"
-                                  : " launch repeated production M64"));
+                                  : " launch repeated historical M64"));
     ready = ready && test.cuda_ok(
                          static_cast<cudaError_t>(launch_m_major()),
                          cell_label + " launch M-major candidate");
@@ -26113,9 +26120,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
               << '\n';
     test.expect(
         correctness_gate,
-        cell_label +
-            (gate_shape ? " is bit-exact to repeated historical M64 and "
-                        : " is bit-exact to repeated production M64 and ") +
+        cell_label + " is bit-exact to repeated historical M64 and " +
             "preserves replay, guards, and inputs");
   }
 
@@ -26143,9 +26148,7 @@ void run_nvfp4_whole_chunk_down_invalid_capture_contract(
             << (every_round_nonregressive ? "true" : "false")
             << " correctness=" << (all_correct ? "PASS" : "FAIL")
             << " graph=" << (all_graphs ? "PASS" : "FAIL")
-            << (gate_shape
-                    ? " screen=historical_M64 production_dispatch=M128"
-                    : " production_dispatch=unchanged")
+            << " screen=historical_M64 production_dispatch=M128"
             << " gate=" << (selection_gate ? "PASS" : "FAIL") << '\n';
   test.expect(selection_gate,
               label + " N-major candidate clears the whole-chunk screen");
@@ -26185,7 +26188,7 @@ void run_nvfp4_whole_chunk_down_screen(TestContext& test,
   std::cout << "PERF_NVFP4_WHOLE_CHUNK_DOWN_FINAL: m256_speedup="
             << m256.baseline_speedup << " m512_speedup="
             << m512.baseline_speedup << " required_m512_speedup=1.25"
-            << " production_dispatch=unchanged"
+            << " screen=historical_M64 production_dispatch=M128"
             << " gate=" << (complete ? "PASS" : "FAIL") << '\n';
   test.expect(complete,
               "NVFP4 whole-chunk down M256/M512 focused screen completes");
@@ -26833,11 +26836,11 @@ void run_nvfp4_down_persistent_packed_p0_screen(TestContext& test,
   std::cout << "PERF_NVFP4_DOWN_PERSISTENT_PACKED_P0_FINAL: "
             << "aggregate_speedup=" << aggregate_speedup
             << " required_speedup=" << kRequiredSpeedup
-            << " baseline=whole_chunk_n_major_m256"
+            << " baseline=production_whole_chunk_M128_n_major_m256"
             << " candidate=fixed_grid16_static_task_stride_packed_sidecar"
             << " distributions=checkpoint_like:same_bank_stress:finite_special"
             << " four_stage_cp_async=false register_e2m1_mma=false"
-            << " production_dispatch=unchanged"
+            << " production_dispatch=M128_not_persistent_P0"
             << " gate=" << (selected ? "PASS" : "FAIL") << '\n';
   test.expect(selected,
               "NVFP4 down persistent packed P0 clears frozen 1.20x gate");
@@ -26913,7 +26916,7 @@ void fill_nvfp4_gate_m128_scale_distribution(
                       shared == kExpectedSharedBytes && local == 0U &&
                       threads == kExpectedThreads &&
                       active >= kMinimumActiveBlocks;
-    std::cout << "NVFP4_DOWN_M128_TEST_RESOURCES: tokens=" << token_count
+    std::cout << "NVFP4_DOWN_M128_PRODUCTION_RESOURCES: tokens=" << token_count
               << " status=" << status
               << " registers_per_thread=" << registers
               << " static_shared_bytes=" << shared
@@ -26923,7 +26926,7 @@ void fill_nvfp4_gate_m128_scale_distribution(
               << " limits=regs<=128,shared=37376,local=0,threads=256,cta>=2"
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
     test.expect(gate,
-                "NVFP4 Down M128 test-only kernel clears the hard resource "
+                "NVFP4 Down M128 production kernel clears the hard resource "
                 "gate");
     complete = complete && gate;
   }
@@ -26944,12 +26947,12 @@ void fill_nvfp4_gate_m128_scale_distribution(
       null_status == static_cast<int>(cudaErrorInvalidValue) &&
       registers == 123 && shared == 456U && local == 789U && threads == 321 &&
       active == 654;
-  std::cout << "NVFP4_DOWN_M128_TEST_RESOURCE_INVALID: shape_status="
+  std::cout << "NVFP4_DOWN_M128_PRODUCTION_RESOURCE_INVALID: shape_status="
             << shape_status << " null_status=" << null_status
             << " outputs_unchanged=" << (invalid ? "true" : "false")
             << " gate=" << (invalid ? "PASS" : "FAIL") << '\n';
   test.expect(invalid,
-              "NVFP4 Down M128 test-only resource query rejects without "
+              "NVFP4 Down M128 production resource query rejects without "
               "writing outputs");
   complete = complete && invalid;
   return complete;
@@ -26994,7 +26997,7 @@ void fill_nvfp4_gate_m128_scale_distribution(
                           const std::size_t columns,
                           std::uint16_t* const o) noexcept {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
             w, s, scale, a, tokens, rows, columns, o,
             static_cast<void*>(stream));
   };
@@ -27071,12 +27074,453 @@ void fill_nvfp4_gate_m128_scale_distribution(
       statuses.begin(), statuses.end(),
       static_cast<int>(cudaErrorInvalidValue)));
   const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
-  std::cout << "NVFP4_DOWN_M128_TEST_INVALID_GRAPH: invalid_statuses="
+  std::cout << "NVFP4_DOWN_M128_PRODUCTION_INVALID_GRAPH: invalid_statuses="
             << invalid_count << '/' << statuses.size()
             << " total_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate,
-              "NVFP4 Down M128 test-only invalid calls enqueue zero nodes");
+              "NVFP4 Down M128 production invalid calls enqueue zero nodes");
+  return gate;
+}
+
+[[nodiscard]] bool run_nvfp4_down_m128_production_dispatch_contract(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  const auto* const weights =
+      reinterpret_cast<const std::uint8_t*>(0x10'0000'0000ULL);
+  const auto* const scales =
+      reinterpret_cast<const std::uint8_t*>(0x20'0000'0000ULL);
+  const auto* const activations =
+      reinterpret_cast<const std::uint16_t*>(0x30'0000'0000ULL);
+  auto* const output =
+      reinterpret_cast<std::uint16_t*>(0x40'0000'0000ULL);
+  bool complete = true;
+  for (const std::size_t token_count : {256U, 512U}) {
+    const auto launch_public = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+              weights, scales, 1.0F, activations, token_count, kRows,
+              kColumns, output, static_cast<void*>(stream));
+    };
+    const auto launch_direct = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+              weights, scales, 1.0F, activations, token_count, kRows,
+              kColumns, output, static_cast<void*>(stream));
+    };
+    const auto launch_historical = [&]() noexcept {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_whole_chunk_down_m64_historical_control_test_cuda(
+              weights, scales, 1.0F, activations, token_count, kRows,
+              kColumns, output, static_cast<void*>(stream));
+    };
+    const unsigned int production_grid = static_cast<unsigned int>(
+        kRows / 128U * (token_count / 128U));
+    const unsigned int historical_grid = static_cast<unsigned int>(
+        kRows / 128U * (token_count / 64U));
+    const std::string label =
+        "NVFP4 Down M128 production M" + std::to_string(token_count);
+    const WholeChunkCapturedGraph production = capture_whole_chunk_graph(
+        test, stream, launch_public, 1U, production_grid,
+        label + " public graph");
+    const WholeChunkCapturedGraph direct = capture_whole_chunk_graph(
+        test, stream, launch_direct, 1U, production_grid,
+        label + " direct compatibility graph");
+    const WholeChunkCapturedGraph historical = capture_whole_chunk_graph(
+        test, stream, launch_historical, 1U, historical_grid,
+        label + " historical M64 graph");
+    const bool production_identity =
+        production.function != nullptr &&
+        production.function == direct.function;
+    const bool historical_distinct =
+        historical.function != nullptr &&
+        historical.function != production.function;
+    const bool gate = production.valid && direct.valid && historical.valid &&
+                      production_identity && historical_distinct;
+    std::cout << "NVFP4_DOWN_M128_PRODUCTION_DISPATCH: tokens="
+              << token_count << " production_grid=" << production_grid
+              << " historical_M64_grid=" << historical_grid
+              << " public_direct_function_identity="
+              << (production_identity ? "true" : "false")
+              << " M64_M128_function_distinct="
+              << (historical_distinct ? "true" : "false")
+              << " block=256 dynamic_shared_bytes=0"
+              << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+    test.expect(gate,
+                label + " selects the exact public M128 function and grid");
+    complete = complete && gate;
+  }
+  return complete;
+}
+
+// Production admission is correctness-only for this fixture. It deliberately
+// never enters a timing loop: the two reserved E4M3FN NaN encodings are
+// coverage, classification, and sign cases, not performance inputs.
+[[nodiscard]] bool run_nvfp4_down_m128_exhaustive_correctness(
+    TestContext& test, cudaStream_t stream) {
+  constexpr std::size_t kTokens = 256U;
+  constexpr std::size_t kRows = 5'120U;
+  constexpr std::size_t kColumns = 17'408U;
+  constexpr std::size_t kPackedColumns = kColumns / 2U;
+  constexpr std::size_t kScaleColumns = kColumns / 16U;
+  constexpr std::size_t kScaleCodes = 256U;
+  constexpr std::size_t kNibbles = 16U;
+  constexpr std::size_t kExhaustiveRows = kScaleCodes * kNibbles;
+  constexpr std::size_t kScaleGroupsPerK256 = 16U;
+  constexpr std::size_t kK256Windows =
+      kScaleColumns / kScaleGroupsPerK256;
+  constexpr std::size_t kK64StagesPerK256 = 4U;
+  constexpr std::size_t kGuard = 64U;
+  constexpr std::size_t kExpectedNanOutputs = 2U * kNibbles * kTokens;
+  constexpr std::uint16_t kBaselineGuard = 0x3c3cU;
+  constexpr std::uint16_t kCandidateGuard = 0xa5a5U;
+  constexpr std::uint16_t kDirectGuard = 0x9696U;
+  constexpr std::uint16_t kReplayGuard = 0x6969U;
+  constexpr std::array<std::array<std::size_t, 2U>, 4U> kBoundaryPairs{{
+      {{15U, 16U}},
+      {{63U, 64U}},
+      {{255U, 256U}},
+      {{0U, kColumns - 1U}},
+  }};
+  static_assert(kExhaustiveRows + kBoundaryPairs.size() <= kRows);
+  static_assert(kK256Windows == 68U);
+  const std::string label =
+      "NVFP4 Down production M128 C256 exhaustive scale x E2M1";
+  const std::size_t activation_elements = kTokens * kColumns;
+  const std::size_t output_elements = kTokens * kRows;
+  const std::size_t guarded_elements = output_elements + 2U * kGuard;
+
+  std::vector<std::uint8_t> host_packed(kRows * kPackedColumns, 0U);
+  std::vector<std::uint8_t> host_scales(kRows * kScaleColumns, 0U);
+  std::vector<std::uint16_t> host_activations(
+      activation_elements, encode_bf16(1.0F));
+  std::array<std::array<bool, kNibbles>, kScaleCodes> combination_coverage{};
+  std::array<std::array<bool, kNibbles>, kNibbles>
+      nibble_position_coverage{};
+  std::array<bool, kScaleColumns> group_coverage{};
+  std::array<std::array<bool, kK64StagesPerK256>, kK256Windows>
+      window_stage_coverage{};
+  const auto set_nibble = [&](const std::size_t row,
+                              const std::size_t column,
+                              const std::uint8_t nibble) {
+    std::uint8_t& packed_byte =
+        host_packed[row * kPackedColumns + column / 2U];
+    if ((column & 1U) == 0U) {
+      packed_byte = static_cast<std::uint8_t>((packed_byte & 0xf0U) |
+                                              (nibble & 0x0fU));
+    } else {
+      packed_byte = static_cast<std::uint8_t>((packed_byte & 0x0fU) |
+                                              ((nibble & 0x0fU) << 4U));
+    }
+  };
+  for (std::size_t scale_code = 0U; scale_code < kScaleCodes;
+       ++scale_code) {
+    for (std::size_t nibble = 0U; nibble < kNibbles; ++nibble) {
+      const std::size_t row = scale_code * kNibbles + nibble;
+      const std::size_t group = row % kScaleColumns;
+      const std::size_t nibble_position = (scale_code + nibble) & 0x0fU;
+      const std::size_t column = group * 16U + nibble_position;
+      set_nibble(row, column, static_cast<std::uint8_t>(nibble));
+      host_scales[row * kScaleColumns + group] =
+          static_cast<std::uint8_t>(scale_code);
+      combination_coverage[scale_code][nibble] = true;
+      nibble_position_coverage[nibble][nibble_position] = true;
+      group_coverage[group] = true;
+      window_stage_coverage[group / kScaleGroupsPerK256]
+                           [(group % kScaleGroupsPerK256) / 4U] = true;
+    }
+  }
+
+  std::array<bool, kBoundaryPairs.size()> boundary_coverage{};
+  for (std::size_t boundary = 0U; boundary < kBoundaryPairs.size();
+       ++boundary) {
+    const std::size_t row = kExhaustiveRows + boundary;
+    const std::size_t left = kBoundaryPairs[boundary][0U];
+    const std::size_t right = kBoundaryPairs[boundary][1U];
+    set_nibble(row, left, 0x2U);
+    set_nibble(row, right, 0x3U);
+    host_scales[row * kScaleColumns + left / 16U] = 0x38U;
+    host_scales[row * kScaleColumns + right / 16U] = 0x40U;
+    boundary_coverage[boundary] = true;
+  }
+
+  bool combination_gate = true;
+  for (const auto& scale : combination_coverage) {
+    combination_gate =
+        combination_gate &&
+        std::all_of(scale.begin(), scale.end(),
+                    [](const bool covered) { return covered; });
+  }
+  const bool group_gate =
+      std::all_of(group_coverage.begin(), group_coverage.end(),
+                  [](const bool covered) { return covered; });
+  bool nibble_position_gate = true;
+  for (const auto& nibble : nibble_position_coverage) {
+    nibble_position_gate =
+        nibble_position_gate &&
+        std::all_of(nibble.begin(), nibble.end(),
+                    [](const bool covered) { return covered; });
+  }
+  bool window_stage_gate = true;
+  for (const auto& window : window_stage_coverage) {
+    window_stage_gate =
+        window_stage_gate &&
+        std::all_of(window.begin(), window.end(),
+                    [](const bool covered) { return covered; });
+  }
+  const bool boundary_fixture_gate =
+      std::all_of(boundary_coverage.begin(), boundary_coverage.end(),
+                  [](const bool covered) { return covered; });
+
+  DeviceBuffer<std::uint8_t> packed;
+  DeviceBuffer<std::uint8_t> scales;
+  DeviceBuffer<std::uint16_t> activations;
+  DeviceBuffer<std::uint16_t> baseline_guarded;
+  DeviceBuffer<std::uint16_t> candidate_guarded;
+  DeviceBuffer<std::uint16_t> direct_guarded;
+  DeviceBuffer<std::uint16_t> replay_guarded;
+  bool ready = test.cuda_ok(packed.allocate(host_packed.size()),
+                            label + " allocate weights");
+  ready = ready && test.cuda_ok(scales.allocate(host_scales.size()),
+                                label + " allocate scales");
+  ready = ready && test.cuda_ok(activations.allocate(host_activations.size()),
+                                label + " allocate activations");
+  ready = ready && test.cuda_ok(baseline_guarded.allocate(guarded_elements),
+                                label + " allocate historical output");
+  ready = ready && test.cuda_ok(candidate_guarded.allocate(guarded_elements),
+                                label + " allocate public output");
+  ready = ready && test.cuda_ok(direct_guarded.allocate(guarded_elements),
+                                label + " allocate direct output");
+  ready = ready && test.cuda_ok(replay_guarded.allocate(guarded_elements),
+                                label + " allocate replay output");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(packed.get(), host_packed.data(),
+                                       host_packed.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload exhaustive weights");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(scales.get(), host_scales.data(),
+                                       host_scales.size(),
+                                       cudaMemcpyHostToDevice, stream),
+                       label + " upload exhaustive scales");
+  ready = ready && test.cuda_ok(
+                       cudaMemcpyAsync(
+                           activations.get(), host_activations.data(),
+                           host_activations.size() * sizeof(std::uint16_t),
+                           cudaMemcpyHostToDevice, stream),
+                       label + " upload activations");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           baseline_guarded.get(), 0x3c,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison historical guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           candidate_guarded.get(), 0xa5,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison public guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           direct_guarded.get(), 0x96,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison direct guards");
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           replay_guarded.get(), 0x69,
+                           guarded_elements * sizeof(std::uint16_t), stream),
+                       label + " poison replay guards");
+  if (!ready) {
+    return false;
+  }
+
+  std::uint16_t* const baseline_output = baseline_guarded.get() + kGuard;
+  std::uint16_t* const candidate_output = candidate_guarded.get() + kGuard;
+  std::uint16_t* const direct_output = direct_guarded.get() + kGuard;
+  std::uint16_t* const replay_output = replay_guarded.get() + kGuard;
+  const auto launch_historical = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_m64_historical_control_test_cuda(
+            packed.get(), scales.get(), 1.0F, activations.get(), kTokens,
+            kRows, kColumns, output, static_cast<void*>(stream));
+  };
+  const auto launch_public = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+            packed.get(), scales.get(), 1.0F, activations.get(), kTokens,
+            kRows, kColumns, output, static_cast<void*>(stream));
+  };
+  const auto launch_direct = [&](std::uint16_t* const output) noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+            packed.get(), scales.get(), 1.0F, activations.get(), kTokens,
+            kRows, kColumns, output, static_cast<void*>(stream));
+  };
+  ready = test.cuda_ok(
+      static_cast<cudaError_t>(launch_historical(baseline_output)),
+      label + " launch historical M64");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(
+                           launch_public(candidate_output)),
+                       label + " launch public M128");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_direct(direct_output)),
+                       label + " launch direct compatibility M128");
+  ready = ready && test.cuda_ok(
+                       static_cast<cudaError_t>(launch_public(replay_output)),
+                       label + " launch public M128 replay");
+  ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                label + " kernel synchronize");
+  if (!ready) {
+    return false;
+  }
+
+  std::vector<std::uint16_t> baseline(guarded_elements);
+  std::vector<std::uint16_t> candidate(guarded_elements);
+  std::vector<std::uint16_t> direct(guarded_elements);
+  std::vector<std::uint16_t> replay(guarded_elements);
+  std::vector<std::uint8_t> packed_after(host_packed.size());
+  std::vector<std::uint8_t> scales_after(host_scales.size());
+  std::vector<std::uint16_t> activations_after(host_activations.size());
+  const auto copy_output = [&](std::vector<std::uint16_t>& host,
+                               DeviceBuffer<std::uint16_t>& device,
+                               const std::string& name) {
+    return test.cuda_ok(
+        cudaMemcpyAsync(host.data(), device.get(),
+                        guarded_elements * sizeof(std::uint16_t),
+                        cudaMemcpyDeviceToHost, stream),
+        label + " copy " + name);
+  };
+  ready = copy_output(baseline, baseline_guarded, "historical output") &&
+          ready;
+  ready = copy_output(candidate, candidate_guarded, "public output") &&
+          ready;
+  ready = copy_output(direct, direct_guarded, "direct output") && ready;
+  ready = copy_output(replay, replay_guarded, "replay output") && ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(packed_after.data(), packed.get(),
+                              packed_after.size(), cudaMemcpyDeviceToHost,
+                              stream),
+              label + " copy weights after") &&
+          ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(scales_after.data(), scales.get(),
+                              scales_after.size(), cudaMemcpyDeviceToHost,
+                              stream),
+              label + " copy scales after") &&
+          ready;
+  ready = test.cuda_ok(
+              cudaMemcpyAsync(activations_after.data(), activations.get(),
+                              activations_after.size() *
+                                  sizeof(std::uint16_t),
+                              cudaMemcpyDeviceToHost, stream),
+              label + " copy activations after") &&
+          ready;
+  ready = test.cuda_ok(cudaStreamSynchronize(stream), label + " copy sync") &&
+          ready;
+
+  std::size_t public_mismatches = 0U;
+  std::size_t direct_mismatches = 0U;
+  std::size_t replay_mismatches = 0U;
+  std::size_t classified_nan_outputs = 0U;
+  std::size_t nan_class_or_sign_mismatches = 0U;
+  std::size_t unexpected_nonfinite = 0U;
+  bool guards = ready;
+  if (ready) {
+    for (std::size_t index = 0U; index < output_elements; ++index) {
+      const std::size_t guarded_index = kGuard + index;
+      const std::uint16_t baseline_bits = baseline[guarded_index];
+      const std::uint16_t candidate_bits = candidate[guarded_index];
+      const std::uint16_t direct_bits = direct[guarded_index];
+      const std::uint16_t replay_bits = replay[guarded_index];
+      public_mismatches += candidate_bits != baseline_bits ? 1U : 0U;
+      direct_mismatches += direct_bits != baseline_bits ? 1U : 0U;
+      replay_mismatches += replay_bits != baseline_bits ? 1U : 0U;
+      const std::size_t row = index % kRows;
+      const bool expected_nan =
+          row < kExhaustiveRows &&
+          (row / kNibbles == 0x7fU || row / kNibbles == 0xffU);
+      if (expected_nan) {
+        const bool class_and_sign =
+            is_bf16_nan(baseline_bits) && is_bf16_nan(candidate_bits) &&
+            is_bf16_nan(direct_bits) && is_bf16_nan(replay_bits) &&
+            ((candidate_bits ^ baseline_bits) & 0x8000U) == 0U &&
+            ((direct_bits ^ baseline_bits) & 0x8000U) == 0U &&
+            ((replay_bits ^ baseline_bits) & 0x8000U) == 0U;
+        classified_nan_outputs += class_and_sign ? 1U : 0U;
+        nan_class_or_sign_mismatches += class_and_sign ? 0U : 1U;
+      } else {
+        unexpected_nonfinite +=
+            !is_bf16_finite(baseline_bits) ||
+                    !is_bf16_finite(candidate_bits) ||
+                    !is_bf16_finite(direct_bits) ||
+                    !is_bf16_finite(replay_bits)
+                ? 1U
+                : 0U;
+      }
+    }
+    for (std::size_t guard = 0U; guard < kGuard; ++guard) {
+      guards = guards && baseline[guard] == kBaselineGuard &&
+               baseline[kGuard + output_elements + guard] == kBaselineGuard &&
+               candidate[guard] == kCandidateGuard &&
+               candidate[kGuard + output_elements + guard] ==
+                   kCandidateGuard &&
+               direct[guard] == kDirectGuard &&
+               direct[kGuard + output_elements + guard] == kDirectGuard &&
+               replay[guard] == kReplayGuard &&
+               replay[kGuard + output_elements + guard] == kReplayGuard;
+    }
+  }
+  bool boundary_outputs = ready;
+  for (const std::size_t token : {0U, 63U, 64U, 127U, 128U, 255U}) {
+    for (std::size_t boundary = 0U; boundary < kBoundaryPairs.size();
+         ++boundary) {
+      const std::size_t row = kExhaustiveRows + boundary;
+      const std::uint16_t bits = baseline[kGuard + token * kRows + row];
+      boundary_outputs =
+          boundary_outputs && bits == encode_bf16(4.0F);
+    }
+  }
+  const bool inputs_preserved =
+      ready && packed_after == host_packed && scales_after == host_scales &&
+      activations_after == host_activations;
+  const bool gate =
+      ready && combination_gate && nibble_position_gate && group_gate &&
+      window_stage_gate && boundary_fixture_gate && boundary_outputs &&
+      public_mismatches == 0U &&
+      direct_mismatches == 0U && replay_mismatches == 0U &&
+      classified_nan_outputs == kExpectedNanOutputs &&
+      nan_class_or_sign_mismatches == 0U && unexpected_nonfinite == 0U &&
+      guards && inputs_preserved;
+  std::cout << "NVFP4_DOWN_M128_PRODUCTION_EXHAUSTIVE_DIFF: tokens="
+            << kTokens << " scale_codes=" << kScaleCodes
+            << " e2m1_nibbles=" << kNibbles
+            << " scale_groups=" << kScaleColumns
+            << " K256_windows=" << kK256Windows
+            << " K64_stages_per_window=" << kK64StagesPerK256
+            << " nibble_position_16x16="
+            << (nibble_position_gate ? "complete" : "INCOMPLETE")
+            << " public_mismatches=" << public_mismatches << '/'
+            << output_elements << " direct_mismatches=" << direct_mismatches
+            << '/' << output_elements
+            << " replay_mismatches=" << replay_mismatches << '/'
+            << output_elements << " classified_nan_outputs="
+            << classified_nan_outputs << '/' << kExpectedNanOutputs
+            << " nan_class_or_sign_mismatches="
+            << nan_class_or_sign_mismatches
+            << " unexpected_nonfinite=" << unexpected_nonfinite
+            << " boundary_sentinels=15/16:63/64:255/256:0/17407"
+            << " boundary_outputs="
+            << (boundary_outputs ? "exact_bf16_4" : "BAD")
+            << " guards=" << (guards ? "intact" : "BAD")
+            << " inputs_preserved="
+            << (inputs_preserved ? "true" : "false")
+            << " oracle=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128"
+            << " timed=false gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate,
+              label + " is bit-exact for raw 256x16 codes, NaN class/sign, "
+                      "all K64/K256 stages, boundaries, guards, and inputs");
   return gate;
 }
 
@@ -27185,7 +27629,7 @@ run_nvfp4_down_m128_b_reuse_case(
   std::uint16_t* const replay_output = replay_guarded.get() + kGuard;
   const auto launch_baseline = [&]() noexcept {
     return q3x::kernels::
-        launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_m64_historical_control_test_cuda(
             packed.get(), scales.get(), kWeightScale2, activations.get(),
             token_count, kRows, kColumns, baseline_output,
             static_cast<void*>(stream));
@@ -27193,11 +27637,18 @@ run_nvfp4_down_m128_b_reuse_case(
   const auto launch_candidate_to =
       [&](std::uint16_t* const destination) noexcept {
         return q3x::kernels::
-            launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+            launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
                 packed.get(), scales.get(), kWeightScale2, activations.get(),
                 token_count, kRows, kColumns, destination,
                 static_cast<void*>(stream));
       };
+  const auto launch_direct_compatibility = [&]() noexcept {
+    return q3x::kernels::
+        launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+            packed.get(), scales.get(), kWeightScale2, activations.get(),
+            token_count, kRows, kColumns, candidate_output,
+            static_cast<void*>(stream));
+  };
   const auto launch_candidate = [&]() noexcept {
     return launch_candidate_to(candidate_output);
   };
@@ -27297,8 +27748,8 @@ run_nvfp4_down_m128_b_reuse_case(
                        inputs_preserved;
   std::cout << "NVFP4_DOWN_M128_B_REUSE_DIFF: tokens=" << token_count
             << " distribution=" << distribution_name
-            << " baseline=public_production_M64_N_major"
-            << " candidate=test_only_M128"
+            << " baseline=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128"
             << " candidate_mismatches="
             << candidate_mismatches << '/' << output_elements
             << " replay_mismatches=" << replay_mismatches << '/'
@@ -27325,24 +27776,34 @@ run_nvfp4_down_m128_b_reuse_case(
   const WholeChunkCapturedGraph candidate_graph = capture_whole_chunk_graph(
       test, stream, launch_candidate, 1U, candidate_grid,
       label + " candidate graph", true);
-  const bool function_distinct =
+  const WholeChunkCapturedGraph direct_graph = capture_whole_chunk_graph(
+      test, stream, launch_direct_compatibility, 1U, candidate_grid,
+      label + " direct compatibility graph");
+  const bool production_function_identity =
+      candidate_graph.function != nullptr &&
+      candidate_graph.function == direct_graph.function;
+  const bool historical_function_distinct =
       baseline_graph.function != nullptr &&
       candidate_graph.function != nullptr &&
       baseline_graph.function != candidate_graph.function;
   result.graph = baseline_graph.valid && candidate_graph.valid &&
-                 candidate_graph.execution_replay && function_distinct;
+                 direct_graph.valid && candidate_graph.execution_replay &&
+                 production_function_identity && historical_function_distinct;
   std::cout << "NVFP4_DOWN_M128_B_REUSE_GRAPH: tokens=" << token_count
             << " distribution=" << distribution_name
-            << " baseline=public_production_M64_N_major"
-            << " candidate=test_only_M128"
+            << " baseline=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128"
             << " baseline_nodes=" << baseline_graph.total_nodes
             << " baseline_grid=" << baseline_grid
             << " candidate_nodes=" << candidate_graph.total_nodes
             << " candidate_grid=" << candidate_grid
+            << " direct_nodes=" << direct_graph.total_nodes
             << " candidate_graph_replay="
             << (candidate_graph.execution_replay ? "true" : "false")
+            << " public_direct_function_identity="
+            << (production_function_identity ? "true" : "false")
             << " M64_M128_function_distinct="
-            << (function_distinct ? "true" : "false")
+            << (historical_function_distinct ? "true" : "false")
             << " block=256 dynamic_shared_bytes=0"
             << " gate=" << (result.graph ? "PASS" : "FAIL") << '\n';
   test.expect(result.graph,
@@ -27390,8 +27851,8 @@ run_nvfp4_down_m128_b_reuse_case(
     }
     std::cout << "PERF_NVFP4_DOWN_M128_B_REUSE_ROUND: tokens="
               << token_count << " distribution=" << distribution_name
-              << " baseline=public_production_M64_N_major"
-              << " candidate=test_only_M128"
+              << " baseline=test_only_historical_M64_N_major"
+              << " candidate=production_public_M128"
               << " round="
               << round + 1 << " order=B-C-C-B iterations=" << kIterations
               << " B1_ms=" << b1 << " C1_ms=" << c1
@@ -27409,8 +27870,8 @@ run_nvfp4_down_m128_b_reuse_case(
                           result.speedup >= required_speedup;
   std::cout << "PERF_NVFP4_DOWN_M128_B_REUSE_CELL: tokens=" << token_count
             << " distribution=" << distribution_name
-            << " baseline=public_production_M64_N_major"
-            << " candidate=test_only_M128 baseline_ms="
+            << " baseline=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128 baseline_ms="
             << result.baseline_ms << " candidate_ms=" << result.candidate_ms
             << " speedup=" << result.speedup
             << " required_speedup=" << required_speedup
@@ -27436,6 +27897,23 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
       NvFp4GateM128ScaleDistribution::kFiniteSpecial,
   }};
   constexpr std::array<std::size_t, 2U> kTokenCounts{{256U, 512U}};
+
+  std::cout
+      << "NVFP4_DOWN_M128_PRODUCTION_PROTOCOL: shape=5120x17408"
+         " tokens=256,512 tile=M128xN128xK64 grid=80,160"
+         " baseline=test_only_historical_M64_N_major"
+         " candidate=production_public_M128"
+         " direct=test_compatibility_delegates_public"
+         " exhaustive=raw_E4M3FN_256xE2M1_16_C256_correctness_only"
+         " NaN_codes=0x7f,0xff timed_NaN=false"
+         " K_boundaries=15/16:63/64:255/256:0/17407"
+         " public_ABI=unchanged runner=unchanged MTP=false\n";
+  if (!run_nvfp4_down_m128_exhaustive_correctness(test, stream)) {
+    std::cout << "PERF_NVFP4_DOWN_M128_B_REUSE_FINAL: "
+                 "stage=exhaustive_correctness production_dispatch=M128 "
+                 "gate=FAIL\n";
+    return;
+  }
 
   std::vector<std::uint8_t> host_packed(kRows * kPackedColumns);
   for (std::size_t row = 0U; row < kRows; ++row) {
@@ -27471,9 +27949,9 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
             << first.speedup
             << " required_stop_loss=" << kFirstProcessM512StopLoss
             << " distribution=checkpoint_like"
-            << " baseline=public_production_M64_N_major"
-            << " candidate=test_only_M128"
-            << " production_dispatch=unchanged"
+            << " baseline=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128"
+            << " production_dispatch=M128"
             << " gate=" << (first_process ? "PASS" : "FAIL") << '\n';
   test.expect(first_process,
               "NVFP4 Down M128 clears the first-process C512 stop-loss");
@@ -27522,9 +28000,9 @@ void run_nvfp4_down_m128_b_reuse_screen(TestContext& test,
             << " required_M512_speedup=" << kRequiredM512Speedup
             << " distributions=checkpoint_like:same_bank_stress:finite_special"
             << " every_round_speedup_gt_1=true"
-            << " baseline=public_production_M64_N_major"
-            << " candidate=test_only_M128"
-            << " production_dispatch=unchanged"
+            << " baseline=test_only_historical_M64_N_major"
+            << " candidate=production_public_M128"
+            << " production_dispatch=M128"
             << " gate=" << (selected ? "PASS" : "FAIL") << '\n';
   test.expect(selected,
               "NVFP4 Down M128 B-reuse clears its frozen C256/C512 gates");
@@ -65465,12 +65943,15 @@ int main() {
       run_nvfp4_down_m128_b_reuse_resource_gate(test);
   const bool down_m128_invalid_ready =
       run_nvfp4_down_m128_b_reuse_invalid_graph(test, stream);
+  const bool down_m128_dispatch_ready =
+      run_nvfp4_down_m128_production_dispatch_contract(test, stream);
   if (nvfp4_down_m128_b_reuse_performance_enabled()) {
-    if (down_m128_resources_ready && down_m128_invalid_ready) {
+    if (down_m128_resources_ready && down_m128_invalid_ready &&
+        down_m128_dispatch_ready) {
       run_nvfp4_down_m128_b_reuse_screen(test, stream);
     } else {
       std::cout << "PERF_NVFP4_DOWN_M128_B_REUSE_FINAL: "
-                   "stage=default_test_contract gate=FAIL\n";
+                   "stage=default_production_contract gate=FAIL\n";
     }
     (void)test.cuda_ok(
         cudaStreamDestroy(stream),
@@ -65481,7 +65962,7 @@ int main() {
       return 1;
     }
     std::cout << "NVFP4 Down M128 B-reuse checkpoint canary passed; "
-                 "production dispatch remains M64\n";
+                 "production dispatch uses M128\n";
     return 0;
   }
   if (nvfp4_gate_m128_b_reuse_performance_enabled()) {

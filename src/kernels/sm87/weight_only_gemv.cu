@@ -6255,14 +6255,13 @@ nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel(
   }
 }
 
-// Test-only exact Down M128 candidate. It intentionally duplicates the
-// proven Gate/Up M128 arithmetic instead of parameterizing that production
-// kernel, preserving the production Gate cubin symbol and the public Down M64
-// dispatch. One CTA owns M128xN128, decodes each canonical B tile once, and
-// applies it to eight ordered M16 accumulator panels.
+// Exact production Down M128 path. It intentionally duplicates the proven
+// Gate/Up M128 arithmetic instead of parameterizing that kernel, preserving
+// the already-admitted Gate cubin symbol. One CTA owns M128xN128, decodes each
+// canonical B tile once, and applies it to eight ordered M16 accumulators.
 template <unsigned int kM128TileCount>
 __global__ __launch_bounds__(kThreads, 2) void
-nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel(
+nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
     const std::uint16_t* const activations, std::uint16_t* const output) {
@@ -16718,11 +16717,11 @@ void launch_nvfp4_small_m32_wmma_k64_dual_a_table_free_e2m1_unchecked(
           packed_weights, block_scales, weight_scale_2, activations, output);
 }
 
-// Production exact-M64 down-projection schedule. Four M16 accumulator panels
-// consume each decoded B tile while only two panels are resident in shared A
-// at a time.  The lower launch-bound occupancy target leaves enough registers
-// for four WMMA accumulators; the 40-CTA down grid cannot use five CTAs/SM in
-// any case on the target Orin.
+// Exact-M64 down-projection schedule retained for C64 production and frozen
+// whole-chunk controls. Four M16 accumulator panels consume each decoded B
+// tile while only two panels are resident in shared A at a time. The lower
+// launch-bound occupancy target leaves enough registers for four WMMA
+// accumulators; its 40-CTA tile cannot use five CTAs/SM on the target Orin.
 template <std::size_t kRows, std::size_t kColumns,
           unsigned int kSharedLeadingDimension = 72U,
           unsigned int kM64TileCount = 1U, bool kNMajor = true>
@@ -23743,6 +23742,53 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
+  constexpr unsigned int kOutputColumnBlockCount = 5'120U / 128U;
+  if (token_count == 256U) {
+    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>
+        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
+  } else {
+    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>
+        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test-only frozen control for the exact N-major M64 production route that
+// preceded the Down M128 promotion. This must launch M64 directly and must
+// never delegate back to the public dispatcher.
+int launch_sm87_nvfp4_w4a16_whole_chunk_down_m64_historical_control_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
   if (token_count == 256U) {
     launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
         5'120U, 17'408U, 72U, 4U>(
@@ -23860,10 +23906,8 @@ int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only exact-M128 Down candidate. The production Down dispatcher above
-// deliberately remains on its selected N-major M64 schedule until this
-// candidate clears the frozen correctness, resource, graph, and performance
-// admission screen. No sidecar or alternate checkpoint layout is involved.
+// Test compatibility entry for the promoted M128 implementation. Keep its
+// validation, launch geometry, and function identity anchored to production.
 int launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -23871,41 +23915,9 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
     const std::size_t token_count, const std::size_t rows,
     const std::size_t columns, std::uint16_t* const output,
     void* const cuda_stream) noexcept {
-  if (rows != 5'120U || columns != 17'408U) {
-    return invalid_value();
-  }
-  const int validation = validate_nvfp4_m64_tiles_launch(
+  return launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
       packed_weights, block_scales, weight_scale_2, activations, token_count,
-      rows, columns, output);
-  if (validation != static_cast<int>(cudaSuccess)) {
-    return validation;
-  }
-  const bool aligned =
-      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
-          0U &&
-      (reinterpret_cast<std::uintptr_t>(block_scales) %
-       alignof(std::uint16_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(activations) %
-       alignof(std::uint64_t)) == 0U &&
-      (reinterpret_cast<std::uintptr_t>(output) %
-       alignof(std::uint16_t)) == 0U;
-  if (!aligned) {
-    return invalid_value();
-  }
-
-  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
-  (void)cudaGetLastError();
-  constexpr unsigned int kOutputColumnBlockCount = 5'120U / 128U;
-  if (token_count == 256U) {
-    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>
-        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  } else {
-    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>
-        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
-            packed_weights, block_scales, weight_scale_2, activations, output);
-  }
-  return static_cast<int>(cudaGetLastError());
+      rows, columns, output, cuda_stream);
 }
 
 int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
@@ -23927,7 +23939,7 @@ int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
   int active_blocks = 0;
   if (token_count == 256U) {
     const auto kernel =
-        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>;
+        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<2U>;
     status = cudaFuncGetAttributes(&attributes, kernel);
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -23935,7 +23947,7 @@ int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
     }
   } else {
     const auto kernel =
-        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>;
+        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>;
     status = cudaFuncGetAttributes(&attributes, kernel);
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
@@ -23953,8 +23965,9 @@ int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// The legacy screen keeps its M-major control, while its N-major candidate
-// delegates to the exact production entry above.
+// The legacy whole-chunk screen retains independently callable historical
+// M64 N-major and M-major controls after the public Down route advances to
+// M128. Neither branch may delegate to production.
 int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -23962,11 +23975,6 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
     const std::size_t token_count, const bool n_major,
     const std::size_t rows, const std::size_t columns,
     std::uint16_t* const output, void* const cuda_stream) noexcept {
-  if (n_major) {
-    return launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
-        packed_weights, block_scales, weight_scale_2, activations,
-        token_count, rows, columns, output, cuda_stream);
-  }
   if (rows != 5'120U || columns != 17'408U) {
     return invalid_value();
   }
@@ -23991,9 +23999,19 @@ int launch_sm87_nvfp4_w4a16_whole_chunk_down_wmma_test_cuda(
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
-  if (token_count == 256U) {
+  if (token_count == 256U && n_major) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 4U>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else if (token_count == 256U) {
     launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
         5'120U, 17'408U, 72U, 4U, false>(
+        packed_weights, block_scales, weight_scale_2, activations, output,
+        stream);
+  } else if (n_major) {
+    launch_nvfp4_small_m64_down_wmma_k64_quad_a_table_free_e2m1_unchecked<
+        5'120U, 17'408U, 72U, 8U>(
         packed_weights, block_scales, weight_scale_2, activations, output,
         stream);
   } else {

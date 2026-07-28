@@ -439,9 +439,11 @@ launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
 
 // Exact C256/C512 NVFP4 dense-MLP Down branch. activations is contiguous
 // token-major BF16 [token_count, 17408] and output is contiguous token-major
-// BF16 [token_count, 5120]. The complete chunk is validated before one
-// N-major grid is enqueued. Only token_count=256 or 512 and the exact aligned
-// checkpoint shape are accepted; every near miss fails closed.
+// BF16 [token_count, 5120]. One production CTA owns an M128xN128 tile and
+// reuses each decoded B fragment across eight ordered M16 panels. The complete
+// chunk is validated before one N-major grid is enqueued (80 CTAs for C256,
+// 160 for C512). Only token_count=256 or 512 and the exact aligned checkpoint
+// shape are accepted; every near miss fails closed.
 [[nodiscard]] int
 launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda(
     const std::uint8_t* packed_weights,
