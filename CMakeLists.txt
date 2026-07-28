@@ -284,6 +284,30 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated exact-C512 Gate/Up scheduling screen. It compares the production
+  # M128 two-stream fork/join with one-scratch serial and two distinct
+  # zero-workspace cuBLASLt dual-stream schedules. Production kernels,
+  # projection dispatch, runner ownership, and the single-branch ceiling stay
+  # unchanged.
+  add_executable(q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+    tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu
+  )
+  target_link_libraries(
+    q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+    PRIVATE q3x::kernels CUDA::cublasLt CUDA::cudart
+  )
+  q3x_enable_warnings(
+    q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+  )
+  add_test(NAME nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+    COMMAND q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+  )
+  set_tests_properties(
+    nvfp4_prefill_gate_up_c512_cublaslt_pair_screen PROPERTIES
+    LABELS "cuda;sm87;prefill;screen"
+    SKIP_RETURN_CODE 77
+  )
+
   # Isolated FP8 QKV latency-hiding candidate. The production M128xN128
   # route remains frozen; this target only screens a 512-thread split-M64
   # warp-group implementation for exact C512 [10240,5120].
