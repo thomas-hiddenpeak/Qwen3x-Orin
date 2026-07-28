@@ -85,11 +85,13 @@ passed.  Exit `1` means invalid evidence, a correctness failure, or a runtime
 failure.  Exit `2` means invalid or incomplete command-line configuration.
 Exit `3` distinguishes a valid, completed measurement that rejected the
 performance candidate.  Exit `77` means that optional hardware or checkpoint
-data is unavailable in a non-admission environment.  When strict admission is
+data is unavailable in a non-performance environment.  When strict evidence is
 enabled, for example with `Q3X_REQUIRE_REAL_PERF=1`, missing model data,
 incorrect hashes, unsupported hardware, or unlocked required clocks are
 failures, not skips.  A missing checkpoint must never select a synthetic
-performance path implicitly.
+performance path implicitly.  For native development screens, exit `3`
+means that the candidate was not retained against the frozen native
+incumbent; an external-library reference may never cause that exit.
 
 ## Current C512 migration state
 
@@ -107,27 +109,29 @@ Their layer-0 results are useful migration controls but remain provisional
 until the candidate-independent four-layer panel and T3 full-model gates are
 implemented.  No historical synthetic threshold is thereby re-certified.
 
-The production exact-C512 Down bridge no longer times synthetic BF16 operands
-while constructing its cuBLASLt context.  It scans the runtime heuristic list
-for the zero-workspace configuration locked by the current T2 checkpoint
-evidence (`algorithm_id=6`, `tile_id=23`, `split_k=1`, no reduction,
-`cta_swizzle=1`, `custom_option=0`, `stages_id=15`) and fails closed when that
-configuration is unavailable.  Heuristic-list rank is recorded but is not an
-ABI or selection key.
+The historical exact-C512 Down cuBLASLt module no longer times synthetic BF16
+operands while constructing its reference context.  It scans the runtime
+heuristic list for the zero-workspace configuration locked by the current T2
+checkpoint evidence (`algorithm_id=6`, `tile_id=23`, `split_k=1`, no
+reduction, `cta_swizzle=1`, `custom_option=0`, `stages_id=15`).  This module is
+an external benchmark reference only: it has no production dispatch,
+fallback, retention, or promotion eligibility.  Heuristic-list rank is
+recorded but is not an ABI or native selection key.
 
 ## CI lanes
 
 Ordinary CI requires T0 and T1.  It may report T2--T4 as explicit skips when
 the pinned model or SM87 device is unavailable; a skip is not a performance
 pass.  Suggested labels are `correctness;synthetic`,
-`correctness;checkpoint`, `performance;checkpoint;sm87;admission`, and
-`profile;checkpoint`.
+`correctness;checkpoint`, `performance;checkpoint;sm87;retention`,
+`performance;checkpoint;sm87;promotion`, and `profile;checkpoint`.
 
-The Orin admission lane requires the pinned checkpoint, strict admission,
-fixed GPU and EMC clocks, CPU affinity, and serialized ownership of the GPU.
-Kernel, selector, pipeline, cache-policy, or threshold changes may not claim a
-performance completion without evidence from this lane.  Release promotion
-requires both T2 and T3 results.
+The Orin performance lane requires the pinned checkpoint, strict evidence
+validation, fixed GPU and EMC clocks, CPU affinity, and serialized ownership
+of the GPU.  Kernel, selector, pipeline, cache-policy, or threshold changes
+may not claim a performance completion without evidence from this lane.
+Development retention and production promotion are separate test labels and
+decisions.  Release promotion requires both T2 and T3 results.
 
 ## Layer panels and cache state
 
@@ -154,13 +158,17 @@ payloads.  Recalibration proceeds as follows:
    timing protocol before inspecting the candidate.
 2. Run incumbent-versus-incumbent paired controls on the real panel to measure
    the local noise floor.
-3. Predeclare a relative continuation or promotion threshold that exceeds
-   both the engineering minimum benefit and the measured noise allowance.
-   Absolute milliseconds are drift alarms, not the primary admission gate.
+3. A development candidate is retained when the paired real-payload result is
+   stably positive against the current native development incumbent and clears
+   the measured noise allowance.  It then becomes the new native development
+   incumbent.  Do not impose an external reference or the terminal production
+   margin on this incremental step.
 4. Use the same final binary and six B-C-C-B rounds for incumbent and
    candidate.  Preserve all raw rounds, including reversals and failures.
-5. Require per-layer non-regression and the predeclared aggregate gain.  Final
-   promotion repeats the test in independent processes and completes T3.
+5. Production promotion is a separate cumulative decision against the current
+   native production baseline.  It requires per-layer non-regression, the
+   predeclared engineering margin (currently 1.03x where specified), an
+   independent-process repeat, complete role/shape coverage, and T3.
 6. Re-run the gates after the production binary and selector are finalized.
 
 Thresholds are role- and shape-specific.  Gate evidence does not set Down or
@@ -187,12 +195,13 @@ each result as `synthetic_only`, `checkpoint_weight_only`,
 
 NCU or NSys follows, never precedes, a completed and valid T2 timing run on the
 same real payload.  A rejected candidate may be profiled to explain its gap,
-but the profile is diagnostic and cannot reverse that rejection.  For the
-C512 NVFP4 bridge comparison, profile the dequantization
-kernel, the immediately following cuBLASLt BF16 GEMM, and the native NVFP4
-kernel separately, while retaining `dequantization + Lt` versus `native` as
-the authoritative timing comparison.  The Lt-only comparison is diagnostic
-because it assumes an already materialized BF16 weight.
+but the profile is diagnostic and cannot reverse that rejection.  The
+authoritative T2 retention comparison is always native incumbent versus native
+candidate.  For the C512 NVFP4 external-reference study, profile the
+dequantization kernel, the immediately following cuBLASLt BF16 GEMM, and the
+native NVFP4 kernel separately.  Both `dequantization + Lt` versus `native`
+and Lt-only results are diagnostic reference observations; neither may retain,
+reject, select, or promote a production route.
 
 Collect occupancy and launch resources, pipeline/SASS structure, issue and
 Tensor activity, HMMA count, stall reasons, global/L2/L1/shared traffic, and

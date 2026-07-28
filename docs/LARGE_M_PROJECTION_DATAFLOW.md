@@ -2,12 +2,17 @@
 
 Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
 commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
-commit `43308b4`.
+commit `43308b4` and the retained CF3 complete cell at commit `6e415b8`.
 
-This document defines the next Prefill projection work.  It deliberately does
-not promote the current M64xN256 pair-lookup kernel.  The production C512
-NVFP4 cuBLASLt bridges and the existing FP8 specializations remain selected
-until a new native cell beats its live opponent under the gates below.
+This document defines the next Prefill projection work.  The self-hosted
+kernel line is the only line eligible for production: cuBLASLt is an external
+performance reference and has no production-dispatch, fallback, or promotion
+eligibility.  Historical commits and measurements that called a cuBLASLt
+bridge a production route are retained below for provenance, but that status
+is explicitly revoked by the qualification policy in this revision.  The
+current native production routes remain selected until an accumulated native
+candidate clears the self-hosted production gate below.  CF3 is the retained
+native experimental baseline for the exact-C512 Gate/Up line.
 All timing and profiler evidence in this plan is governed by the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
@@ -17,11 +22,13 @@ All timing and profiler evidence in this plan is governed by the
    format, projection role, exact shape, token count, alignment, and payload
    contract.  `N/K` is useful for classifying a family, but is not a sufficient
    production selector.
-2. The current M64xN256 kernel is a reproducible native control, not a
-   production candidate.  Pinned layer-0 real-weight Gate+Up runs measure
-   about 11.42--11.45 ms versus 7.20--7.26 ms for the best
-   zero-cuBLASLt-workspace bridge.  That bridge still uses a reusable 170-MiB
-   BF16 dequant scratch.  Synthetic timings have no promotion authority.
+2. The M64xN256 PairLookup kernel is the reproducible historical native
+   control; CF3 supersedes it as the retained native experimental baseline.
+   Pinned layer-0 real-weight Gate+Up runs measure PairLookup at about
+   11.42--11.45 ms versus 7.20--7.26 ms for the best zero-cuBLASLt-workspace
+   reference.  That external reference still uses a reusable 170-MiB BF16
+   dequant scratch and can never be selected by production dispatch.
+   Synthetic timings have no retention or promotion authority.
 3. Single-variable screens resume only after a complete dataflow cell exists.
    Cache policy, tile ownership, synchronization domain, decode placement, and
    pipeline depth are treated as a coupled configuration.
@@ -58,7 +65,7 @@ scale-window lifetime, tile order, and useful cache residence therefore differ.
 The small-N FP8 K/V family is different again: device saturation and launch
 topology can dominate its arithmetic.
 
-## Why the current Gate cell cannot close the bridge gap
+## Gap to the external cuBLASLt reference
 
 For a logical native tile, ignoring cache hits and implementation overhead:
 
@@ -73,13 +80,17 @@ The current M64xN256 NCU report observes about 1.02 GB of L2 traffic per Gate
 branch, above even the 739.5-MiB logical presentation.  Pair lookup removes
 integer/permutation work but does not change that structural traffic.  It moves
 the bottleneck toward shared/MIO and therefore cannot by itself recover the
-36--38% latency reduction required to beat and safely promote over the bridge.
+36--38% latency reduction required to match the external reference.  Closing
+that gap is an architectural objective, not an experiment-retention or
+production-promotion prerequisite.
 
-The bridge writes and rereads a 170-MiB BF16 weight matrix.  Its approximate
-one-pass logical floor is still about 410 MiB per branch, but the Lt MMA body
-organizes that traffic well enough to reach roughly 25 TFLOP/s effective.  A
-native kernel wins only if it combines lower traffic with comparable Tensor
-Core feeding; avoiding the BF16 scratch is not sufficient by itself.
+The cuBLASLt reference writes and rereads a 170-MiB BF16 weight matrix.  Its
+approximate one-pass logical floor is still about 410 MiB per branch, but the
+Lt MMA body organizes that traffic well enough to reach roughly 25 TFLOP/s
+effective.  A native kernel can match this external reference only if it
+combines lower traffic with comparable Tensor Core feeding; avoiding the BF16
+scratch is not sufficient by itself.  It may nevertheless be retained or
+promoted through the native-only gates before it reaches that reference.
 
 The same accounting must be repeated for every projection family rather than
 transferred from Gate:
@@ -96,8 +107,10 @@ transferred from Gate:
 | FP8 output M128xN256 | 120.000 MiB | 120.000 MiB | 5.000 MiB | 245.000 MiB |
 
 These are topology bounds, not predicted timings.  In particular, the FP8
-rows do not overrule the currently selected register-feed and whole-chunk
-implementations; each target must beat the live role-specific opponent.
+rows do not overrule the currently selected native register-feed and
+whole-chunk implementations; each target is retained against the current
+native experimental champion for its role and is promoted only against the
+current native production baseline.
 
 ## Primary NVFP4 skeleton: M128xN256 as two sub-CTAs
 
@@ -153,9 +166,9 @@ flowchart LR
 ```
 
 This is not the previously rejected ordinary 512-thread implementation.  The
-admission question is specifically whether alternating common-A production and
-two private B/decode domains preserve the issue/tensor utilization of two CTAs
-while coupling global A reuse with M128 decoded-B reuse.
+development question is specifically whether alternating common-A production
+and two private B/decode domains preserve the issue/tensor utilization of two
+CTAs while coupling global A reuse with M128 decoded-B reuse.
 
 One primary M128xN256 K64 steady-state step has the following target balance:
 
@@ -167,8 +180,8 @@ One primary M128xN256 K64 steady-state step has the following target balance:
 The historical planning target is at most 3.4737 ms per Gate-equivalent branch,
 or at least 26.28 effective TFLOP/s.  NCU planning targets are roughly 60% or
 better Tensor throughput, MIO throttle no more than 15%, and barrier stall no
-more than 4%.  They are diagnostics, not substitutes for a live same-payload
-paired admission test.
+more than 4%.  They are diagnostics, not substitutes for a same-payload paired
+native retention or promotion test.
 
 ## Complete-cell alternatives
 
@@ -200,10 +213,11 @@ The skeleton is shared source infrastructure, not one selected configuration.
 | Initial tile order | N-major control | N-major and M-major complete cells |
 | Initial A policy | `.ca` | `.ca` and `.cg` complete cells |
 | Packed B / scale | `.cg`; 20 K256 windows, each reused for 4 K64 stages | `.cg`; 68 K256 windows, each reused for 4 K64 stages |
-| Historical regression anchor | Gate+Up Lt pair, 7.155811 ms | Down inclusive Lt bridge, 4.534723 ms |
+| Historical external reference | Gate+Up Lt pair, 7.155811 ms | Down inclusive Lt bridge, 4.534723 ms |
 
 No Down result is inferred from Gate NCU.  Each specialization gets pinned
-Down payload timing and its own NCU report before it can alter production.
+Down payload timing, its own native control comparison, and its own NCU report
+before it can alter production.
 
 ## FP8 scope
 
@@ -211,7 +225,8 @@ FP8 reuses the registry, residency accounting, exact-shape validation, pinned
 checkpoint protocol, and sub-CTA synchronization infrastructure.  It does not
 reuse NVFP4 scale/decode code.
 
-- QKV `[10240,5120]` retains its production fragment-native/register-feed
+- QKV `[10240,5120]` retains its self-hosted production
+  fragment-native/register-feed
   sidecar while any new canonical or wider-tile cell is screened against it.
 - Z `[6144,5120]` and output `[5120,6144]` remain distinct specializations;
   transposed N/K does not imply the same cache policy.
@@ -219,9 +234,9 @@ reuse NVFP4 scale/decode code.
 - Full K/V `[1024,5120]` is a small-N saturation cell.  Its 64-CTA C512 grid
   makes tile order and occupancy more important than a Gate-derived pipeline.
 
-FP8 work starts only after a current-production NSys audit ranks its projection
-families against NVFP4 Gate/Up and Down.  Existing promoted FP8 routes are not
-reopened merely because the NVFP4 skeleton changes.
+FP8 work starts only after a current self-hosted-production NSys audit ranks
+its projection families against NVFP4 Gate/Up and Down.  Existing promoted
+native FP8 routes are not reopened merely because the NVFP4 skeleton changes.
 
 ## Decoder placement
 
@@ -253,12 +268,18 @@ Three other structures are excluded from the native target:
 - split-K: it introduces FP32 partial-C traffic and changes or threatens the
   frozen accumulation order required for bitwise equality;
 - a BF16 weight sidecar: materializing the 170-MiB BF16 matrix is the existing
-  bridge mechanism.  A future NVFP4 sidecar may only losslessly permute the
-  same packed values and scales with explicit memory ownership and provenance.
+  cuBLASLt reference mechanism and is excluded from self-hosted production.  A
+  future native NVFP4 sidecar may only losslessly permute the same packed
+  values and scales with explicit memory ownership and provenance.
 
-## Admission sequence
+## Three-layer qualification sequence
 
-### P0: static and semantic feasibility
+The three gates answer different questions and must not be collapsed into one
+threshold.  In particular, the cuBLASLt number is never an opponent in any
+gate.  It is measured periodically to show the remaining architectural gap
+after several native improvements have accumulated.
+
+### Layer 1: hard validity
 
 - exact supported shape and narrow alignment validation before enqueue;
 - exhaustive decoder bits, whole projection, guards, immutable inputs, and
@@ -269,39 +290,50 @@ Three other structures are excluded from the native target:
 - SASS confirms the intended cache operators, async copies, named barriers,
   and absence of an accidental global BF16 weight materialization.
 
-### P1: pinned single-layer mechanism screen
+Failure at this layer invalidates the experiment regardless of its timing.
+Synthetic payloads may exercise this layer, but they cannot provide performance
+evidence.
+
+### Layer 2: development retention
 
 - layer-0 Gate and Up tensor bytes, then layer-0 Down tensor bytes;
 - same process, same activation and output fixture, fixed clocks and CPU
   affinity;
-- six B-C-C-B rounds, every round strictly positive versus the family opponent;
+- each candidate is compared only with the retained native experimental
+  champion for the same exact role, shape, and schedule;
+- six B-C-C-B rounds must be stable and every round strictly positive.  A
+  candidate that passes becomes the new retained native experimental baseline,
+  even if its cumulative result remains slower than cuBLASLt;
 - NCU is collected only after the timing gate, on the same pinned payload;
 - report compulsory/logical/measured traffic, Tensor utilization, issue rate,
   MIO/math/barrier/scoreboard stalls, and shared wavefronts.
 
-### P2: production-selection screen
+The historical Gate+Up Lt pair at 7.155811 ms, its 6.947389-ms 1.03x planning
+target, and the Down Lt result at 4.534723 ms remain external regression
+references only.  They do not reject, retain, or promote a native candidate.
 
-- Gate+Up must beat a live cuBLASLt pair by at least 1.03x in every paired
-  round, in the same process and on the same pinned payload.  The historical
-  7.155811-ms pair and its 6.947389-ms 1.03x planning target are regression
-  anchors, not hard denominators for a future checkpoint run.
-- Down must independently beat its live same-payload inclusive Lt opponent by
-  at least 1.03x; the historical 4.534723-ms result is only a regression
-  anchor, and Gate results provide no credit.
-- FP8 must beat the currently selected specialization for that exact role and
-  shape, not an older generic control.
-- serial/dual scheduling is compared directly.  The current M64 native dual
-  result of about 1.0022x is below an engineering promotion margin.
+### Layer 3: self-hosted production promotion
 
-### P3: production and end-to-end
-
-- route only the exact admitted role/shape; preserve bridge and native
+- promotion is evaluated at accumulated native milestones, not after every
+  mechanism experiment;
+- Gate+Up, Down, and FP8 each compare with the currently selected self-hosted
+  native production baseline for that exact role and shape.  A promotion
+  candidate must beat that native baseline by at least 1.03x in every paired
+  round under the pinned real-weight protocol; Gate results give Down no
+  credit, and serial/dual scheduling is compared directly;
+- the complete target shape set and all required projection roles must have
+  native routes.  No cuBLASLt dispatch or fallback may be required for the
+  promoted configuration;
+- route only the exact promoted native role/shape and preserve native
   fallbacks;
 - P257 remains an unchanged C256 control;
 - P513 uses mirrored independent-process B-C-C-B Prefix and TTFT;
 - NSys call counts must prove which Gate/Up, Down, and FP8 specialization ran;
 - Decode P1/P2 graphs, oracle tokens/state, the full Release suite, request
   memory accounting, and MTP-off policy remain unchanged.
+
+Passing the external cuBLASLt reference is a useful cumulative performance
+milestone, but it neither grants nor withholds self-hosted production status.
 
 ## 2026-07-28 executable audit result
 
@@ -312,35 +344,35 @@ The full evidence is recorded in
 - Gate/Up P0 is exact and spill-free at 128 registers/thread, 61,440 dynamic
   shared bytes, one 512-thread CTA/SM, and 16 resident warps.  Its CTA-wide
   barrier schedule takes 12.015 ms per real-checkpoint pair versus 7.202 ms for
-  the live bridge.
+  the external cuBLASLt reference.
 - Replacing the steady-state barrier with raw SM80 ready/free mbarriers also
   remains exact and spill-free, but regresses the pair to 13.086 ms.  Per-K64
   multi-barrier control is therefore rejected for this skeleton.
 - The failure is not attributed to synthetic payload sensitivity: both cells
   were run against the SHA256-pinned layer-0 Gate and Up tensors, and every
   eager/Graph output was bitwise equal.
-- Pinned Down produces a different decision.  The existing native M128 route
-  takes 6.660 ms; the separately compiled public Window8 plus zero-workspace
-  cuBLASLt module takes 4.652 ms, or 1.4315x.  Its decoded 89,128,960-value
-  weight image and 2,621,440-value output are bitwise exact.
+- Pinned Down shows a different external-reference gap.  The existing native
+  M128 route takes 6.660 ms; the separately compiled public Window8 plus
+  zero-workspace cuBLASLt module takes 4.652 ms, or 1.4315x.  Its decoded
+  89,128,960-value weight image and 2,621,440-value output are bitwise exact.
 - A six-round B-C-C-B comparison measures the ceiling TU at 4.655 ms and the
   public module at 4.652 ms, a 0.0581% difference with every round inside 3%.
-  The earlier 4.63-ms ceiling result is therefore valid production-module
-  evidence rather than an extrapolation from a duplicate implementation.
-- The Gate/Up bridge is already an exact-C512 production route from commit
-  `1632976`.  Its module is CUDA-Graph safe, but the production Prefill loop is
-  still eager and the runtime does not expose route hit/fallback counters.
-- The Down bridge is likewise already a production route from commit
-  `690b899`.  Its former one-shot 5-ms context-creation threshold could
-  silently disable the route under frequency or concurrent-startup noise.
-  Runtime availability now keeps the fastest successfully measured
-  zero-workspace candidate without an absolute latency threshold; serial
-  factory regression passes 10/10 and four-way contended creation passes 8/8.
+  The earlier 4.63-ms ceiling result is therefore valid external-module timing
+  rather than an extrapolation from a duplicate implementation.
+- Commit `1632976` historically wired the exact-C512 Gate/Up bridge as a
+  production route.  Under the current policy it is benchmark-only despite
+  being CUDA-Graph safe; any selectable runtime route must be removed or
+  disabled before a conforming release.
+- Commit `690b899` likewise historically wired the Down bridge as a production
+  route.  Its context-creation, zero-workspace selection, 10/10 serial factory,
+  and 8/8 four-way contended results remain useful benchmark-harness evidence,
+  but provide no production eligibility.
 
-This audit rejects the concrete single-CTA synchronization structures, not
-coupled operand reuse in general.  It also removes the earlier dependency that
-made Down wait for a successful native Gate topology: Down now has its own
-live, shape-specific admission evidence.
+This audit rejects the concrete single-CTA synchronization structures against
+their native development controls, not coupled operand reuse in general.  It
+also removes the earlier dependency that made Down wait for a successful
+native Gate topology: Down now has shape-specific external-reference evidence,
+while its development line still advances only through native comparisons.
 
 ## 2026-07-29 matched real-weight NCU result
 
@@ -348,15 +380,16 @@ The exact evidence, report hashes, metric caveats, and discarded contaminated
 runs are archived in
 `metadata/qwen36-27b-gate-c512-matched-ncu-2026-07-29.json`.  Each row below is
 a one-launch, kernel-replay diagnostic from an independently started NCU
-process.  It is not a substitute for the paired admission timings above.
+process.  It is not a substitute for the paired native retention and promotion
+timings above.
 
 | Gate target | NCU duration | Achieved occupancy | Tensor throughput | Registers | Shared/CTA |
 |---|---:|---:|---:|---:|---:|
-| bridge dequant | 1.282208 ms | 89.796% | 0% | 32 | 0 |
-| cuBLASLt BF16 GEMM | 2.388960 ms | 17.088% | 92.481% | 238 | 147,456 B |
+| external-reference dequant | 1.282208 ms | 89.796% | 0% | 32 | 0 |
+| external cuBLASLt BF16 GEMM | 2.388960 ms | 17.088% | 92.481% | 238 | 147,456 B |
 | native NVFP4 M64xN256 | 5.757120 ms | 33.069% | 37.505% | 128 | 44,544 B |
 
-The diagnostic inclusive bridge body is 3.671168 ms, making the native body
+The diagnostic inclusive cuBLASLt reference body is 3.671168 ms, making the native body
 1.568198x as slow.  Yet native records only 259,227,968 bytes of L2
 system-memory sector proxy traffic versus 513,641,120 bytes for dequant plus
 BF16 GEMM, or 50.47%.  These counters are not complete EMC traffic, but they
@@ -410,10 +443,15 @@ Against the retained PairLookup control, six-round real-weight B-C-C-B gives:
 | serial | 11.445442 ms | 10.804724 ms | 1.059300x | yes |
 | dual | 11.421768 ms | 10.754227 ms | 1.062072x | yes |
 
-This clears the 1.03x development-cell threshold, but not production
-admission.  The same run measures the live bridge at 7.234311 ms serial and
-7.222422 ms dual, so the native cell remains about 1.49x slower and production
-dispatch is unchanged.
+This is a stable positive result against the preceding native control, so CF3
+is retained and becomes the native experimental baseline under Layer 2.  It
+also happens to clear the former 1.03x development-cell margin; that fixed
+margin is no longer required for retaining an intermediate improvement.  The
+same run measures the external cuBLASLt reference at 7.234311 ms serial and
+7.222422 ms dual, so CF3 remains about 1.49x slower than that reference.  This
+gap is informational and does not reject CF3.  Native production dispatch is
+unchanged because CF3 has not yet completed the accumulated native-production,
+full-shape, and end-to-end Layer-3 gate.
 
 Matched NCU agrees with the paired timing: the native Gate body improves from
 5.757120 to 5.419456 ms, or 1.062306x.  Tensor throughput rises from 37.505%
@@ -432,29 +470,34 @@ assumption that separating B and scale would by itself close their feed gap.
 
 ## Immediate implementation order
 
-1. Preserve the independent exact-C512 Gate/Up and Down production selectors
-   and add route readiness/hit/fallback observability.  Keep absolute
-   performance thresholds in repeatable ceiling/CI screens, not production
-   factory availability checks.
+1. Preserve the independent self-hosted exact-C512 Gate/Up and Down production
+   selectors and add route readiness/hit/fallback observability.  Remove or
+   disable any cuBLASLt production dispatch or fallback; keep it in an isolated
+   repeatable reference harness only.
 2. Prefill CUDA Graph remains a separate launch-overhead project; do not
    describe module-level Graph safety as an already captured production
    Prefill loop.
 3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-4. Freeze CF3's three-slot skeleton and coalesced epilogue.  First redesign the
-   scale cooperative copy/landing that now owns the largest attributed
+4. Use CF3 as the retained native experimental baseline, freezing its
+   three-slot skeleton and coalesced epilogue.  First redesign the scale
+   cooperative copy/landing that now owns the largest attributed
    `LDGSTS` and global-sector excess.  Then replace raw-B byte gathers with a
    bank-safe cooperative word load plus lane extraction.  Preserve exact
    accumulation order, 128 registers/thread, zero spill, and two CTAs/SM.
 5. After the shared feed is repaired, reduce the table-free decoder's
    PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
-   pinned real-weight six-round B-C-C-B screen and matched NCU comparison after
-   each complete configuration; synthetic matrices remain correctness/smoke
-   evidence only.
-6. Keep Gate/Up and Down as separate runtime configurations.  Gate qualifies
-   first against its live real-weight bridge; Down then receives its own tile
-   order, pipeline-depth, pinned timing, and NCU decision rather than inheriting
-   Gate settings.
-7. Refresh production NSys and rank FP8 QKV, Z, O, full Q, and full K/V before
-   opening any FP8 kernel line.  Reuse selector and scheduling infrastructure,
-   not the NVFP4 decoder.
+   pinned real-weight six-round B-C-C-B screen against the current retained
+   native champion after each complete configuration; keep every stable
+   all-positive result and update that champion.  Run matched NCU to attribute
+   the retained change.  Synthetic matrices remain correctness/smoke evidence
+   only.
+6. Keep Gate/Up and Down as separate runtime configurations.  Each advances
+   against its own retained native experimental champion; at an accumulated
+   milestone, each is compared with its own self-hosted native production
+   baseline and full end-to-end gate.  Down receives its own tile order,
+   pipeline-depth, pinned timing, and NCU decision rather than inheriting Gate
+   settings.
+7. Refresh self-hosted production NSys and rank FP8 QKV, Z, O, full Q, and full
+   K/V before opening any FP8 kernel line.  Reuse selector and scheduling
+   infrastructure, not the NVFP4 decoder.

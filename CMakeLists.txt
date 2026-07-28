@@ -403,11 +403,11 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Isolated exact-C512 Gate/Up scheduling screen. It compares the production
-  # M128 two-stream fork/join with one-scratch serial and two distinct
-  # zero-workspace cuBLASLt dual-stream schedules. Production kernels,
-  # projection dispatch, runner ownership, and the single-branch ceiling stay
-  # unchanged.
+  # Isolated exact-C512 Gate/Up native-retention screen. It compares each
+  # native candidate with its self-hosted incumbent and production shape.
+  # Zero-workspace cuBLASLt schedules remain external reference measurements
+  # only; they have no production eligibility. Production dispatch and runner
+  # ownership stay unchanged until a retained native cell is integrated.
   add_executable(q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
     tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu
   )
@@ -439,17 +439,25 @@ if(BUILD_TESTING)
               --mode=performance-checkpoint
               --checkpoint=${_q3x_real_perf_model_dir}
     )
-    add_test(NAME nvfp4_prefill_gate_up_c512_checkpoint_admission
+    add_test(NAME nvfp4_prefill_gate_up_c512_checkpoint_retention
       COMMAND "${_q3x_taskset_command}" --cpu-list "${Q3X_REAL_PERF_CPU}"
               $<TARGET_FILE:q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen>
               --mode=performance-checkpoint
+              --native=m64n256bs512
               --checkpoint=${_q3x_real_perf_model_dir}
     )
     set_tests_properties(
       nvfp4_prefill_down_c512_checkpoint_admission
-      nvfp4_prefill_gate_up_c512_checkpoint_admission
       PROPERTIES
       LABELS "cuda;sm87;prefill;performance;checkpoint;admission"
+      RUN_SERIAL TRUE
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 900
+    )
+    set_tests_properties(
+      nvfp4_prefill_gate_up_c512_checkpoint_retention
+      PROPERTIES
+      LABELS "cuda;sm87;prefill;performance;checkpoint;retention"
       RUN_SERIAL TRUE
       RESOURCE_LOCK q3x_sm87_gpu
       TIMEOUT 900
@@ -457,7 +465,7 @@ if(BUILD_TESTING)
     if(NOT Q3X_REQUIRE_REAL_PERF)
       set_tests_properties(
         nvfp4_prefill_down_c512_checkpoint_admission
-        nvfp4_prefill_gate_up_c512_checkpoint_admission
+        nvfp4_prefill_gate_up_c512_checkpoint_retention
         PROPERTIES SKIP_RETURN_CODE 77
       )
     endif()
