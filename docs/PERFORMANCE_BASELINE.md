@@ -8522,3 +8522,35 @@ in the
 [production record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-register-feed-production-benchmark.json)
 and
 [Prefix audit](analysis/prefill-p513-nsys-2026-07-28/README.md).
+
+## 2026-07-29 native-only C512 baseline after cuBLASLt isolation
+
+Commit `3a688a4` removes cuBLASLt from the production executable, installed
+kernel library, runner selectors and contexts, request scratch, fallback, and
+native retention process. It does not change the established native Gate/Up,
+Down, FP8, Attention, or SSM production selectors. The L1024/C512 request arena
+falls by exactly 178,257,920 bytes to 233,940,992 bytes.
+
+The current P513/C512/max1 baseline uses the tokenizer-pinned 513-token prompt,
+CPU 11, MAXN, GPU 1.3005 GHz, EMC 3.2 GHz, one warmup, and five measured
+generations in each of two independent processes. No cuBLASLt component is
+linked or executed.
+
+| Process | Prefix median | Prefix throughput | TTFT median | Complete-prompt throughput |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2558.999 ms | 200.078234 token/s | 2667.778 ms | 192.294861 token/s |
+| 2 | 2557.218 ms | 200.217580 token/s | 2665.999 ms | 192.423178 token/s |
+| Mean of medians | **2558.108500 ms** | **200.147883 token/s** | **2666.888500 ms** | **192.358998 token/s** |
+
+The between-process deltas are 0.069622% for Prefix and 0.066707% for TTFT.
+All ten measured generations produce token 9419 (`Hello`) at step 513; Graph
+replay/fallback counts stay zero and neither process reports a persistent-drop
+failure. The difference from the last historical native production record is
+about -0.048% throughput, smaller than the present cross-process spread, and
+is treated as noise rather than a regression. This is the current native
+production anchor. The historical 231.807/246.768 token/s cuBLASLt-backed
+values remain external-reference provenance only. Temperature was not
+captured, so the record is not a thermal characterization. Exact samples,
+payload and prompt hashes, binaries, logs, memory, and limitations are frozen
+in the
+[native-only baseline record](metadata/qwen36-27b-native-only-c512-p513-baseline-2026-07-29.json).

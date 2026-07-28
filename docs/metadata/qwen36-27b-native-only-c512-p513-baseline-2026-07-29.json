@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "record": "Qwen3.6-27B native-only exact-C512 P513 production baseline after cuBLASLt isolation",
+  "date": "2026-07-29",
+  "status": "current-native-only-two-process-observed-baseline",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T3",
+    "purpose": "measure the current production baseline, not compare or promote a candidate",
+    "decision_authority": "current_native_production_baseline",
+    "real_model_weights": true,
+    "real_tokenizer_pinned_prompt": true,
+    "synthetic_performance_authority": "none",
+    "cublaslt": {
+      "role": "external_reference_only",
+      "linked": false,
+      "executed": false,
+      "decision_authority": "none",
+      "production_eligibility": "none",
+      "fallback_eligibility": "none"
+    }
+  },
+  "source": {
+    "commit": "3a688a4a7c38f0073155d97c43c97b1628df8687",
+    "tree": "50948241175bc170066ab808e6106a01ec9da5b0",
+    "binary": {
+      "path": "build/orin-release/qwen3x-orin",
+      "bytes": 7566408,
+      "sha256": "130dd3b29a08da480b953727a17b2af22e1826b6a657beb2f55c6da5bba85e9f",
+      "build_id": "39aa7c5f179b326447082ed237081a2056911b3f",
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "checkpoint": {
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "canonical_directory": true,
+    "read_only": true,
+    "non_symlink": true,
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_config_sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
+    "generation_config_sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
+    "shards": [
+      {"file": "model-00001-of-00003.safetensors", "bytes": 9965652512, "sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d"},
+      {"file": "model-00002-of-00003.safetensors", "bytes": 9985757032, "sha256": "06da4242b0f491118d19d4d4c7564307a7bd6059c6bed284e08c93f6fc5a556d"},
+      {"file": "model-00003-of-00003.safetensors", "bytes": 1970287640, "sha256": "e90f5b2bb16814a0565de284ea179edec201edfb120d13f1debaab66f9e60845"}
+    ]
+  },
+  "prompt": {
+    "manifest": "benchmarks/qwen36-27b-sm87-prefill-prompts-v1.json",
+    "manifest_sha256": "18e719e9e9fac23bb409066c664c5bab961e94d67434045d709558d38dc3e966",
+    "label": "P513",
+    "user_text_sha256": "8d7c3cf87620b2b2f7b27bb388c2e15df9daee140e1628813e6026fb55bef6a2",
+    "rendered_prompt_sha256": "4ad308e4947eb28d279307ba7f81d3a4e680c5726d8949a754ba06ca36dfb838",
+    "prompt_id_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+    "canonical_output_extraction_sha256": "e5341ba049865b5233dc73275564c0c171d615ccd4a4f1256b0227efe8ea52c1",
+    "prompt_token_count": 513,
+    "prefix_token_count": 512,
+    "expected_generated_ids": [9419],
+    "expected_generated_text": "Hello",
+    "expected_stop_reason": "max_new_tokens",
+    "expected_step_count": 513
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "cuda_version": "13.3",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "emc_rate_locked": true,
+    "cpu_11_hz": 2201600000,
+    "fan_pwm": 255,
+    "fixed_clocks_post_run_readback": true,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED",
+    "competing_gpu_process_check": "none observed before either serialized process"
+  },
+  "protocol": {
+    "command_mode": "benchmark",
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "max_sequence_length": 1024,
+    "requested_prefill_chunk_size": 512,
+    "effective_prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "logits_mode": "predicted_token_only",
+    "nvtx_phase_ranges": false,
+    "decode_graph_policy": "disabled",
+    "independent_processes": 2,
+    "warmup_rounds_per_process": 1,
+    "measured_rounds_per_process": 5,
+    "cache_protocol": "one model load and one warmup per independent process followed by five measured generations",
+    "candidate_comparison": "NOT_RUN"
+  },
+  "runs": [
+    {
+      "process": 1,
+      "artifact": {
+        "path": "/tmp/q3x-native-only-p513-3a688a4.xn5xW0.log",
+        "bytes": 19938,
+        "sha256": "6a91f63455ee4377b1dd5ac893da695fab3b992e96bfa60b04110d8bafbc5c66"
+      },
+      "load_total_ms": 25666.317,
+      "request_arena_bytes": 233940992,
+      "prefix_samples_ms": [2559.053, 2558.999, 2559.233, 2558.664, 2558.877],
+      "finish_prefill_samples_ms": [108.777, 108.779, 108.764, 108.727, 108.780],
+      "ttft_samples_ms": [2667.830, 2667.778, 2667.997, 2667.391, 2667.657],
+      "prefix_median_ms": 2558.999,
+      "prefix_tokens_per_second": 200.078233715605,
+      "finish_prefill_median_ms": 108.777,
+      "ttft_median_ms": 2667.778,
+      "complete_prompt_tokens_per_second": 192.294861116630,
+      "generated_ids": [9419],
+      "persistent_drop_bytes": 13758464,
+      "maximum_observed_drop_bytes": 23298048,
+      "drop_tolerance_bytes": 67108864,
+      "persistent_drop_detected": false,
+      "decode_graph_replays": 0,
+      "decode_graph_serial_fallbacks": 0,
+      "status": "PASS"
+    },
+    {
+      "process": 2,
+      "artifact": {
+        "path": "/tmp/q3x-native-only-p513-repeat2-3a688a4.3Oa1i5.log",
+        "bytes": 19931,
+        "sha256": "13363ac48c0f2a023b564183423c7e3aa2ab7c7e4a23d2e9553125a1a7c6b492"
+      },
+      "load_total_ms": 25029.952,
+      "request_arena_bytes": 233940992,
+      "prefix_samples_ms": [2557.408, 2556.918, 2557.021, 2557.489, 2557.218],
+      "finish_prefill_samples_ms": [108.769, 108.781, 108.976, 108.794, 108.781],
+      "ttft_samples_ms": [2666.176, 2665.698, 2665.996, 2666.283, 2665.999],
+      "prefix_median_ms": 2557.218,
+      "prefix_tokens_per_second": 200.217580198481,
+      "finish_prefill_median_ms": 108.781,
+      "ttft_median_ms": 2665.999,
+      "complete_prompt_tokens_per_second": 192.423177953180,
+      "generated_ids": [9419],
+      "persistent_drop_bytes": 0,
+      "maximum_observed_drop_bytes": 10346496,
+      "drop_tolerance_bytes": 67108864,
+      "persistent_drop_detected": false,
+      "decode_graph_replays": 0,
+      "decode_graph_serial_fallbacks": 0,
+      "status": "PASS"
+    }
+  ],
+  "baseline": {
+    "aggregation": "mean of the two independent-process medians",
+    "prefix_median_mean_ms": 2558.108500,
+    "prefix_tokens_per_second": 200.147882703,
+    "finish_prefill_median_mean_ms": 108.779000,
+    "ttft_median_mean_ms": 2666.888500,
+    "complete_prompt_tokens_per_second": 192.358998136,
+    "between_process_prefix_delta_percent": 0.069621754,
+    "between_process_ttft_delta_percent": 0.066706951,
+    "between_process_finish_prefill_delta_percent": 0.003677180,
+    "request_arena_bytes": 233940992,
+    "arena_reduction_from_removed_reference_scratch_bytes": 178257920,
+    "generated_output_exact_processes": "2/2",
+    "generated_output_exact_samples": "10/10",
+    "persistent_drop_detected_processes": "0/2",
+    "status": "PASS"
+  },
+  "stability_and_historical_context": {
+    "prefix_process_median_spread_ms": 1.781,
+    "ttft_process_median_spread_ms": 1.779,
+    "historical_native_commit_9967985_prefix_ms": 2556.879,
+    "historical_native_commit_9967985_ttft_ms": 2665.6585,
+    "current_vs_historical_prefix_throughput_change_percent": -0.048062981295,
+    "current_vs_historical_complete_throughput_change_percent": -0.046121017746,
+    "interpretation": "The approximately 0.048% difference from the last historical native production record is smaller than the 0.067-0.070% between-process spread and is treated as noise, not a regression."
+  },
+  "limitations": [
+    "Clock and power state were read back after the runs, not embedded per process; the temperature envelope was not captured, so this record is not a thermal, power, or per-sample clock characterization.",
+    "This is batch one, one tokenizer-pinned repeated-text prompt, and one generated token; it is not serving throughput or an EvalScope result.",
+    "No candidate B-C-C-B promotion comparison or fresh Nsys/NCU attribution was run in this baseline measurement.",
+    "Historical cuBLASLt-backed 231.807 and 246.768 prefix-token/s values are external-reference provenance and are not current production anchors."
+  ]
+}

@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "record": "Qwen3.6-27B layer-0 Gate/Up C512 BS512 native development retention",
+  "date": "2026-07-29",
+  "status": "test-only-positive-native-development-retained-not-production-promoted",
+  "policy": {
+    "document": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+    "evidence_tier": "T2",
+    "evidence_authority": "provisional_component_development_retention",
+    "performance_payload": "pinned_real_checkpoint_weights",
+    "synthetic_performance_authority": "none",
+    "retention_comparator": "previous_native_development_incumbent",
+    "production_promotion": "NOT_RUN",
+    "production_dispatch_changed": false,
+    "cublaslt": {
+      "role": "external_performance_reference_only",
+      "execution": "ABSENT",
+      "linked": false,
+      "scratch_allocated_bytes": 0,
+      "decision_authority": "none",
+      "production_dispatch_eligibility": "none",
+      "fallback_eligibility": "none",
+      "development_retention_eligibility": "none",
+      "production_promotion_eligibility": "none"
+    }
+  },
+  "source": {
+    "commit": "3a688a4a7c38f0073155d97c43c97b1628df8687",
+    "tree": "50948241175bc170066ab808e6106a01ec9da5b0",
+    "implementation_commit": "18c89ac803017123d7651155f32ed2fbfdb2cde6",
+    "kernel_file": "src/kernels/sm87/weight_only_gemv.cu",
+    "harness_file": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "kernel_identifier": "m64n256_bswizzle_scale512_3stage",
+    "native_incumbent": "m64n256_conflict_free_3stage",
+    "recommended_native_schedule": "dual",
+    "compile_definition": "Q3X_NATIVE_RETENTION_ONLY=1",
+    "production_dispatch_changed": false,
+    "formal_binary": {
+      "path": "build/orin-release/q3x_nvfp4_prefill_gate_up_c512_native_retention",
+      "bytes": 5967464,
+      "sha256": "a0387745ff8ac141f1ef720514ec6b61a894a9421ced43ab1a775f6ff2b90072",
+      "build_id": "ffaf77bc92e5d05881816a7543f6b7fd2029d1de",
+      "cublaslt_dynamic_dependency": false,
+      "cublaslt_dynamic_import": false
+    }
+  },
+  "qualification": {
+    "real_checkpoint_weights": true,
+    "captured_real_layer_activation": false,
+    "activation": {
+      "kind": "deterministic_bf16",
+      "seed": "0x12345678",
+      "scale": 0.015625
+    },
+    "layer_coverage": "layer0_gate_and_up_pair",
+    "shape": {
+      "M": 512,
+      "N": 17408,
+      "K": 5120
+    },
+    "limitation": "This T2 component result retains a native development cell only. It is not a four-layer panel, a real-prompt activation capture, a full-model T3 promotion, or a production selector change."
+  },
+  "checkpoint": {
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "config_sha256": "c04a19ba293737ad7be4f6e96d6666cb7e479cbe19ecc0c289fad267135b0338",
+    "quantization_config_sha256": "fd7200cd8bca2a8a5d777061521abf83e2deb97ab6bc2f04e7a0a3d3f8ecd5c1",
+    "index_sha256": "7aa103a2582b7d26631988de33dea19e8a308ee9c239e8e14feb374af30905e2",
+    "shard": "model-00001-of-00003.safetensors",
+    "shard_file_bytes": 9965652512,
+    "header_bytes": 126504,
+    "data_offset": 126512,
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "canonical_directory": true,
+    "read_only": true,
+    "non_symlink": true,
+    "payload_sha256_pins": true,
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "gate_weight_scale_2": 0.000151134678,
+    "gate_weight_scale_2_bits": "0x391e79e8",
+    "gate_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "up_block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "up_weight_scale_2": 0.000151134678,
+    "up_weight_scale_2_bits": "0x391e79e8",
+    "up_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "tensors": [
+      {"name": "model.language_model.layers.0.mlp.gate_proj.weight", "layer": 0, "role": "gate_weight", "dtype": "U8", "shape": [17408, 2560], "file_begin": 6757009952, "file_end": 6801574432, "bytes": 44564480, "sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8"},
+      {"name": "model.language_model.layers.0.mlp.gate_proj.weight_scale", "layer": 0, "role": "gate_block_scale", "dtype": "F8_E4M3", "shape": [17408, 320], "file_begin": 3606039072, "file_end": 3611609632, "bytes": 5570560, "sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e"},
+      {"name": "model.language_model.layers.0.mlp.gate_proj.weight_scale_2", "layer": 0, "role": "gate_tensor_scale", "dtype": "F32", "shape": [], "file_begin": 126548, "file_end": 126552, "bytes": 4, "bits": "0x391e79e8", "sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91"},
+      {"name": "model.language_model.layers.0.mlp.up_proj.weight", "layer": 0, "role": "up_weight", "dtype": "U8", "shape": [17408, 2560], "file_begin": 6801574432, "file_end": 6846138912, "bytes": 44564480, "sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f"},
+      {"name": "model.language_model.layers.0.mlp.up_proj.weight_scale", "layer": 0, "role": "up_block_scale", "dtype": "F8_E4M3", "shape": [17408, 320], "file_begin": 3611609632, "file_end": 3617180192, "bytes": 5570560, "sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947"},
+      {"name": "model.language_model.layers.0.mlp.up_proj.weight_scale_2", "layer": 0, "role": "up_tensor_scale", "dtype": "F32", "shape": [], "file_begin": 126556, "file_end": 126560, "bytes": 4, "bits": "0x391e79e8", "sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91"}
+    ]
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "driver_version": "595.78",
+    "cuda_version": "13.3",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fixed_clocks_reported_by_target": true,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED"
+  },
+  "formal_performance": {
+    "artifact": {
+      "path": "/tmp/q3x-gate-bs512-native-only-3a688a4.wgMUsj.log",
+      "bytes": 19612,
+      "sha256": "1e07ade9838fbc46b01ebfcbfcfd4a9e48b6304b1868344c50f32c02da367298"
+    },
+    "protocol": {
+      "rounds": 6,
+      "warmups_per_sample": 2,
+      "iterations_per_sample": 8,
+      "order": "B-C-C-B",
+      "same_process": true,
+      "fixed_clock_required": true,
+      "process_status": 0,
+      "cache_protocol": "steady_state_same_layer_weights_no_explicit_l2_scrub"
+    },
+    "memory": {
+      "native_only_fixture_bytes": 176820272,
+      "external_reference_scratch_allocated_bytes": 0,
+      "external_reference_theoretical_one_scratch_bytes": 178257920,
+      "external_reference_theoretical_two_scratch_bytes": 356515840,
+      "observed_free_drop_bytes": 0
+    },
+    "resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 68608,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 2,
+      "gate": "PASS"
+    },
+    "correctness": {
+      "variants": [
+        "production_m128_fork_join",
+        "D1_native_cf3_control_serial",
+        "E1_native_cf3_control_dual",
+        "D_native_selected_serial",
+        "E_native_selected_dual"
+      ],
+      "eager_replays_per_variant": 2,
+      "graph_replays_per_variant": 2,
+      "graph_kernel_nodes_per_variant": 2,
+      "gate_mismatches": "0/8912896",
+      "up_mismatches": "0/8912896",
+      "nonfinite": 0,
+      "guards": "intact",
+      "gate_encoded_sum": 284967507894,
+      "up_encoded_sum": 285031039318,
+      "invalid_statuses": "4/4",
+      "invalid_graph_nodes": 0,
+      "gate": "PASS"
+    },
+    "raw_round_columns": ["B1_ms", "C1_ms", "C2_ms", "B2_ms", "speedup"],
+    "comparisons": {
+      "native_incumbent_vs_candidate_serial": {
+        "incumbent_pair_ms": 10.803806,
+        "candidate_pair_ms": 10.182849,
+        "speedup": 1.060981,
+        "every_round_strict_positive": true,
+        "round_speedups": [1.060992, 1.061162, 1.061000, 1.060901, 1.060842, 1.060988],
+        "raw_rounds": [
+          [10.803540, 10.183604, 10.181096, 10.803240, 1.060992],
+          [10.805684, 10.181892, 10.180168, 10.801752, 1.061162],
+          [10.801596, 10.182460, 10.181956, 10.805040, 1.061000],
+          [10.803980, 10.184440, 10.183880, 10.804792, 1.060901],
+          [10.804316, 10.184068, 10.184348, 10.803364, 1.060842],
+          [10.804808, 10.182784, 10.183488, 10.803556, 1.060988]
+        ]
+      },
+      "native_incumbent_vs_candidate_dual": {
+        "incumbent_pair_ms": 10.753809,
+        "candidate_pair_ms": 10.112928,
+        "speedup": 1.063372,
+        "every_round_strict_positive": true,
+        "round_speedups": [1.063296, 1.063475, 1.063404, 1.063448, 1.063246, 1.063365],
+        "raw_rounds": [
+          [10.753008, 10.114320, 10.110896, 10.752388, 1.063296],
+          [10.754596, 10.113752, 10.113812, 10.756908, 1.063475],
+          [10.753676, 10.112180, 10.113244, 10.754124, 1.063404],
+          [10.755012, 10.112752, 10.114144, 10.755248, 1.063448],
+          [10.753220, 10.112836, 10.114248, 10.753148, 1.063246],
+          [10.751804, 10.112516, 10.110440, 10.752572, 1.063365]
+        ]
+      },
+      "candidate_serial_vs_dual": {
+        "serial_pair_ms": 10.183593,
+        "dual_pair_ms": 10.114104,
+        "speedup": 1.006871,
+        "every_round_strict_positive": true,
+        "round_speedups": [1.007021, 1.006625, 1.006900, 1.006886, 1.006943, 1.006847],
+        "raw_rounds": [
+          [10.184496, 10.114292, 10.113316, 10.185140, 1.007021],
+          [10.181516, 10.115204, 10.117012, 10.184748, 1.006625],
+          [10.182900, 10.113192, 10.113616, 10.183480, 1.006900],
+          [10.184472, 10.114596, 10.113788, 10.183196, 1.006886],
+          [10.182992, 10.112008, 10.113484, 10.182932, 1.006943],
+          [10.184204, 10.114432, 10.114308, 10.183044, 1.006847]
+        ]
+      },
+      "selfhosted_m128_shape_observation_vs_candidate_serial": {
+        "selfhosted_pair_ms": 12.890345,
+        "candidate_pair_ms": 10.184746,
+        "speedup": 1.265652,
+        "every_round_strict_positive": true,
+        "decision_authority": "none_for_production_promotion",
+        "raw_rounds": [
+          [12.888856, 10.183932, 10.183604, 12.888660, 1.265618],
+          [12.890320, 10.185868, 10.184520, 12.892340, 1.265693],
+          [12.892396, 10.185624, 10.186380, 12.888100, 1.265486],
+          [12.890872, 10.182032, 10.182256, 12.891372, 1.266052],
+          [12.888172, 10.187344, 10.183104, 12.893076, 1.265620],
+          [12.890904, 10.186796, 10.185492, 12.889072, 1.265443]
+        ]
+      },
+      "selfhosted_m128_shape_observation_vs_candidate_dual": {
+        "selfhosted_pair_ms": 12.890082,
+        "candidate_pair_ms": 10.115982,
+        "speedup": 1.274229,
+        "every_round_strict_positive": true,
+        "decision_authority": "none_for_production_promotion",
+        "raw_rounds": [
+          [12.886764, 10.117768, 10.115708, 12.891748, 1.274053],
+          [12.890064, 10.116700, 10.117252, 12.888600, 1.274030],
+          [12.890620, 10.117316, 10.115972, 12.884652, 1.273904],
+          [12.890380, 10.116476, 10.114084, 12.892220, 1.274438],
+          [12.890556, 10.116376, 10.116268, 12.895620, 1.274484],
+          [12.892080, 10.113720, 10.114140, 12.887676, 1.274468]
+        ]
+      }
+    },
+    "decision": {
+      "hard_validity_gate": "PASS",
+      "development_retention_gate": "PASS",
+      "candidate": "m64n256_bswizzle_scale512_3stage",
+      "replaced_native_development_incumbent": "m64n256_conflict_free_3stage",
+      "new_native_development_incumbent": "m64n256_bswizzle_scale512_3stage",
+      "recommended_native_schedule": "dual",
+      "production_promotion": "NOT_RUN",
+      "production_route": "unchanged"
+    }
+  },
+  "ncu_diagnostic": {
+    "authority": "T4_diagnostic_only",
+    "profile_source_commit": "18c89ac803017123d7651155f32ed2fbfdb2cde6",
+    "profiled_kernel_source_matches_formal_commit": true,
+    "profiled_kernel_source_diff_status": 0,
+    "limitation": "The NCU capture predates the native-only harness isolation and came from a mixed test-only binary that initialized an Lt heuristic. NCU captured only one native Gate kernel, used unlocked profiler clocks, and cannot replace the fixed-clock six-round T2 result. The formal 3a688a4 retention binary is the linked=false, execution=ABSENT, scratch=0 evidence.",
+    "artifacts": {
+      "core_report": {
+        "path": "/tmp/q3x-gate-bs512-18c89ac-core.7VkdSu.ncu-rep",
+        "sha256": "aa308a890861b6e454c2f79dc9d688e107525877d2e9279f7799d33fb61fbd3f"
+      },
+      "memory_report": {
+        "path": "/tmp/q3x-gate-bs512-18c89ac-memory.UnZGEj.ncu-rep",
+        "sha256": "53197c174c2aef0e96952c4773108655566b247a94ee4a55116b8761a4f28439"
+      }
+    },
+    "kernel": {
+      "duration_ms": 5.107296,
+      "grid_ctas": 544,
+      "block_threads": 256,
+      "registers_per_thread": 128,
+      "dynamic_shared_bytes": 68608,
+      "static_shared_bytes": 512,
+      "achieved_occupancy_percent": 33.056263,
+      "compute_throughput_percent": 53.497283,
+      "tensor_throughput_percent": 42.235884,
+      "issue_active_percent": 53.725159,
+      "memory_throughput_percent": 48.642858,
+      "l1_tex_throughput_percent": 48.841175,
+      "l2_throughput_percent": 43.036183,
+      "l1_hit_rate_percent": 1.412037,
+      "l2_hit_rate_percent": 69.428687,
+      "eligible_warps_per_scheduler": 1.090081,
+      "executed_instructions": 225736064,
+      "local_spill_bytes": 0,
+      "shared_excessive_wavefronts": 9400320,
+      "raw_shared_conflicts": 1228992,
+      "raw_shared_load_conflicts": 26699,
+      "raw_shared_store_conflicts": 1199212,
+      "ordinary_shared_loads": 44564480,
+      "ldgsts_instructions": 1479680,
+      "async_copy_comparator": "unstructured_bs512_control",
+      "comparator_ldgsts_instructions": 2080256,
+      "eliminated_empty_async_copies_vs_unstructured_bs512": 600576
+    }
+  },
+  "validation": {
+    "full_ctest_after_isolation": {
+      "total": 87,
+      "passed": 75,
+      "skipped": 12,
+      "failed": 0
+    },
+    "production_cublaslt_isolation": "PASS",
+    "native_only_real_weight_retention": "PASS",
+    "synthetic_smoke": "PASS and not used as performance evidence"
+  },
+  "next": [
+    "rerun the P513 full-model native production baseline after isolation",
+    "freeze separate real-weight Gate/Up and Down panels rather than transferring this Gate shape result",
+    "collect matched NCU for native NVFP4 and the external BF16 reference to quantify occupancy, pipeline, bank-conflict, stall, and traffic gaps",
+    "use Triton and FlashInfer kernels as dataflow references only; retain a dependency-free self-hosted production path"
+  ]
+}

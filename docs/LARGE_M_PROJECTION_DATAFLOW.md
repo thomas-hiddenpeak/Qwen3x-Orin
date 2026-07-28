@@ -430,7 +430,10 @@ MIO and conflict structure.
 The first coupled successor is implemented and retained as a test-only cell in
 commit `6e415b8`.  The exact real-weight timings, report hashes, source-counter
 attribution, and caveats are archived in
-`metadata/qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json`.
+`metadata/qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json`. Its original
+bridge-derived decision wording is historical provenance; the append-only
+`metadata/qwen36-27b-gate-c512-cf3-policy-correction-2026-07-29.json` governs
+current retention and authority semantics.
 
 The cell combines a three-slot K64 `cp.async` pipeline, separate raw-B and
 scale arrays, exact table-free E2M1 decode with direct-register MMA feed, and
@@ -477,24 +480,30 @@ operand slots and exact accumulation order while changing the coupled feed
 cell: raw B uses a 16-byte half swizzle, scales use aligned K512 windows, and
 the K loop is expressed as ten explicit K512 superwindows with eight K64
 phases.  The structured loop prevents the compiler from issuing predicated-off
-refill copies in the 70 non-refill phases.  Production dispatch remains
-unchanged.
+refill copies in the 70 non-refill phases.  Commit `3a688a4` then requalified
+that cell from a native-only binary after removing cuBLASLt from the production
+link, runtime, installed API, request arena, and native retention process.  The
+machine-readable record is
+[`metadata/qwen36-27b-gate-c512-bs512-retention-2026-07-29.json`](metadata/qwen36-27b-gate-c512-bs512-retention-2026-07-29.json).
+Production dispatch remains unchanged.
 
 Pinned layer-0 Gate+Up B-C-C-B timing retains the cell against CF3:
 
 | Gate+Up schedule | CF3 | structured BS512 | Speedup | Every round positive |
 |---|---:|---:|---:|---:|
-| serial | 10.804615 ms | 10.187599 ms | 1.060565x | yes |
-| dual | 10.753194 ms | 10.118801 ms | 1.062694x | yes |
+| serial | 10.803806 ms | 10.182849 ms | 1.060981x | yes |
+| dual | 10.753809 ms | 10.112928 ms | 1.063372x | yes |
 
-Dual is itself uniformly faster than serial at `1.006650x`, so it is the
+Dual is itself uniformly faster than serial at `1.006871x`, so it is the
 recommended experimental schedule.  All eager and Graph Gate/Up outputs are
 bitwise exact; four invalid calls, including the 32-byte scale-alignment near
 miss, enqueue zero Graph nodes.  The kernel remains at 128 registers/thread,
 68,608 dynamic plus 512 static shared bytes, zero CUDA local bytes, and two
-256-thread CTAs/SM.
+256-thread CTAs/SM.  The native fixture uses 176,820,272 bytes and allocates
+zero external-reference scratch.
 
-Matched real-weight NCU measures 5.107296 ms for one Gate branch, versus
+The source-identical pre-isolation matched real-weight NCU capture measures
+5.107296 ms for one Gate branch, versus
 5.419456 ms for CF3 (`1.06112x`).  Dynamic `LDGSTS` execution falls from the
 unstructured BS512 cell's 2,080,256 to 1,479,680, eliminating exactly 600,576
 empty predicated copies; excessive shared wavefronts fall from 25,272,444 to
@@ -503,10 +512,56 @@ occupancy remains 33.056%.  The remaining 1,228,992 raw shared conflicts are
 almost entirely stores, and the 44,564,480 ordinary shared-load instructions
 plus wait/math-pipe stalls are now the next coupled inner-dataflow targets.
 
-The same formal process records the external cuBLASLt reference at 7.233318 ms
-serial and 7.234424 ms on the dual comparison, leaving the selected native pair
-about 1.40x slower.  That number is an external architectural distance only;
-it neither rejected nor retained BS512 and can never enter production.
+A historical pre-isolation reference process recorded cuBLASLt at 7.233318 ms
+serial and 7.234424 ms on the dual comparison, leaving that native pair about
+1.40x slower.  The exact `3a688a4` retention process did not link, initialize,
+allocate scratch for, or execute cuBLASLt.  The historical number is an
+external architectural distance only; it neither rejected nor retained BS512
+and can never enter production.
+
+## Triton and vLLM design-reference screen
+
+The reference screen pins Triton `78420176` and vLLM `2899dca`. Their native
+NVFP4 dot and persistent/TMA implementations target CC 10 or newer and are not
+an SM87 execution path. Triton, vLLM, CUTLASS, TMA, and cuBLASLt therefore do
+not become production dependencies; only layout and scheduling principles are
+eligible for a native CUDA experiment.
+
+The highest-value transferable mechanism is the block-scale layout used by
+the [Triton block-scaled matmul tutorial](https://github.com/triton-lang/triton/blob/78420176f2d90c3270a48c9218e27e9b5d923c8d/python/tutorials/10-block-scaled-matmul.py#L29-L63)
+and [vLLM's NVFP4 swizzle utility](https://github.com/vllm-project/vllm/blob/2899dca8432d40632987b0ec24253a8fe6df2710/vllm/model_executor/layers/quantization/utils/nvfp4_utils.py#L13-L53):
+
+```text
+logical:  S[N, K/16]
+packed:   S_pack[N/128, K/64, 32, 4, 4]
+Gate/Up:  [136, 80, 32, 4, 4]
+Down:     [40, 272, 32, 4, 4]
+```
+
+Each `N128 x K64` scale slab is exactly 512 bytes, and both production shapes
+are tail-free. The first bounded cell will keep BS512's M64xN256xK64 tile,
+three operand slots, accumulation order, decoder, and epilogue fixed while
+replacing only the scale landing/consumer layout. It must remain packed E4M3,
+must use real checkpoint weights for timing, and must not introduce a BF16
+weight sidecar. A production change may replace the canonical scale allocation
+only after all Decode and Prefill consumers support the new layout; a test-only
+copy is acceptable for mechanism measurement but cannot silently become
+persistent production duplication.
+
+The secondary reference is `M-fast` grouped CTA ordering from
+[Triton's GEMM tutorial](https://github.com/triton-lang/triton/blob/78420176f2d90c3270a48c9218e27e9b5d923c8d/python/tutorials/03-matrix-multiplication.py)
+and [vLLM's block-FP8 PID mapping](https://github.com/vllm-project/vllm/blob/2899dca8432d40632987b0ec24253a8fe6df2710/vllm/model_executor/layers/quantization/utils/fp8_utils.py#L735-L813).
+The native screen will compare complete B-stationary and A-stationary CTA
+orders as one isolated scheduling cell after the scale layout. Gate/Up and
+Down remain separately specialized: Gate keeps M64xN256 as its incumbent;
+Down separately screens N256/N128/N64 and two/three stages.
+
+Split-K is excluded because even M128xN256 provides 272 Gate and 80 Down CTAs
+on 16 SMs, while partial-output reduction adds traffic and changes accumulation
+order. Blackwell persistent FP4 and grouped Gate+Up are also excluded: the
+former relies on TMA/cluster machinery, and the latter does not share A within
+a CTA and reproduces the already measured dual-B/dual-accumulator residency
+problem.
 
 ## Immediate implementation order
 
@@ -514,29 +569,35 @@ it neither rejected nor retained BS512 and can never enter production.
    routes and their readiness/hit/fallback observability. cuBLASLt dispatch,
    contexts, scratch, and fallback are already absent from production; keep the
    comparator in an isolated repeatable reference harness only.
-2. Prefill CUDA Graph remains a separate launch-overhead project; do not
+2. Preserve the new two-process native-only P513 anchor at 200.147883 Prefix
+   token/s and collect a matched real-weight NCU diagnostic for native NVFP4,
+   reference BF16 GEMM, and reference dequantization. The external reference
+   has diagnostic authority only.
+3. Prefill CUDA Graph remains a separate launch-overhead project; do not
    describe module-level Graph safety as an already captured production
    Prefill loop.
-3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
+4. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-4. Use structured BS512 as the retained native experimental baseline,
+5. Use structured BS512 as the retained native experimental baseline,
    freezing its three-slot skeleton, K512 refill schedule, B/scale swizzles,
-   and coalesced epilogue.  Attack the remaining shared-store conflicts and
-   ordinary shared-load volume as one complete feed cell.  Preserve exact
-   accumulation order, 128 registers/thread, zero spill, and two CTAs/SM.
-5. After the remaining shared feed is repaired, reduce the table-free decoder's
+   and coalesced epilogue. First screen the tail-free packed-scale layout above;
+   then compare complete B-stationary and A-stationary CTA order. Attack the
+   remaining shared-store conflicts and ordinary shared-load volume as one
+   complete feed cell. Preserve exact accumulation order, 128 registers/thread,
+   zero spill, and two CTAs/SM.
+6. After the remaining shared feed is repaired, reduce the table-free decoder's
    PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
    pinned real-weight six-round B-C-C-B screen against the current retained
    native champion after each complete configuration; keep every stable
    all-positive result and update that champion.  Run matched NCU to attribute
    the retained change.  Synthetic matrices remain correctness/smoke evidence
    only.
-6. Keep Gate/Up and Down as separate runtime configurations.  Each advances
+7. Keep Gate/Up and Down as separate runtime configurations.  Each advances
    against its own retained native experimental champion; at an accumulated
    milestone, each is compared with its own self-hosted native production
    baseline and full end-to-end gate.  Down receives its own tile order,
    pipeline-depth, pinned timing, and NCU decision rather than inheriting Gate
    settings.
-7. Refresh self-hosted production NSys and rank FP8 QKV, Z, O, full Q, and full
+8. Refresh self-hosted production NSys and rank FP8 QKV, Z, O, full Q, and full
    K/V before opening any FP8 kernel line.  Reuse selector and scheduling
    infrastructure, not the NVFP4 decoder.

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "record": "Append-only policy correction for the Qwen3.6-27B Gate/Up C512 CF3 complete-cell result",
+  "date": "2026-07-29",
+  "status": "active_policy_correction",
+  "effective_by_isolation_commit": "3a688a4a7c38f0073155d97c43c97b1628df8687",
+  "policy": "docs/REAL_MODEL_PERFORMANCE_POLICY.md",
+  "historical_artifact": {
+    "path": "docs/metadata/qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json",
+    "sha256": "2e9e83df68d5d7bb346bbf35707983099c8c6825712b1997ffc6833b04a5d041",
+    "immutable": true,
+    "historical_measurements_unchanged": true,
+    "legacy_wording_preserved_as_provenance": true
+  },
+  "superseded_legacy_decision_fields": [
+    "status",
+    "qualification.authority",
+    "formal_performance.protocol.expected_process_status",
+    "formal_performance.protocol.expected_status_reason",
+    "formal_performance.decision.complete_cell_required_speedup",
+    "formal_performance.decision.native_clears_bridge",
+    "formal_performance.decision.admission",
+    "formal_performance.decision.production_route",
+    "validation.full_ctest.failed",
+    "validation.full_ctest.failure",
+    "assessment.not_achieved[0]"
+  ],
+  "superseded_legacy_phrases": [
+    "test-only-positive-complete-cell-not-admitted",
+    "correctly rejected",
+    "does not beat the bridge",
+    "live cuBLASLt bridge",
+    "formal_performance_admission"
+  ],
+  "corrected_decision": {
+    "evidence_authority": "provisional_T2_development_retention",
+    "hard_validity": "PASS",
+    "development_retention_at_measurement": "RETAIN",
+    "retained_native_schedule": "dual",
+    "current_development_status": "SUPERSEDED_BY_BS512",
+    "production_promotion": "NOT_RUN",
+    "production_route": "unchanged",
+    "legacy_exit_3_and_ctest_failure": "invalid_as_current_retention_or_production_decisions"
+  },
+  "successor_evidence": "docs/metadata/qwen36-27b-gate-c512-bs512-retention-2026-07-29.json",
+  "cublaslt": {
+    "role": "external_performance_reference_only",
+    "decision_authority": "none",
+    "production_dispatch_eligibility": "none",
+    "fallback_eligibility": "none",
+    "development_retention_eligibility": "none",
+    "production_promotion_eligibility": "none"
+  },
+  "consumer_rule": "When this correction and the immutable historical artifact disagree on a decision or authority field, this correction governs. Historical numerical measurements remain unchanged."
+}

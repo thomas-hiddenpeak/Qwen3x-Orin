@@ -89,10 +89,11 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 The current scope is text-only, batch-one correctness and performance. The
 achieved non-MTP P19/C32/max26 Decode result of **105.870500 ms/token /
 9.445501816 token/s** is frozen as the regression anchor while dedicated
-Prefill optimization resumes. The current exact-C512 FP8 QKV production route
-reaches **198.483270 Prefix token/s** and **190.825320 complete-prompt
-token/s** at P513. That is only **46.386%** of the matched stock-vLLM result,
-leaving a **2.155820x** gap, so the project is not yet close to its vLLM
+Prefill optimization resumes. The post-isolation exact-C512 native-only
+production baseline reaches **200.147883 Prefix token/s** and **192.358998
+complete-prompt token/s** at P513, averaged over two independent processes.
+That is only **46.758869%** of the matched stock-vLLM complete-prompt result,
+leaving a **2.138632x** gap, so the project is not yet close to its vLLM
 reference. A minimal OpenAI-compatible evaluation gateway is staged alongside
 Prefill work; Paged KV, continuous batching, production serving, MTP, and
 vision remain later work. See [the roadmap](docs/ROADMAP.md).
@@ -312,9 +313,14 @@ The historical fixed-clock P513 results—231.807 token/s after Gate/Up and
 current production anchors. Current production uses the established native
 whole-chunk Gate/Up and Down kernels until a retained native candidate
 passes the separate full production-promotion gate.  Removing the bridge also
-reduces every eligible C512 request arena by exactly 178,257,920 bytes.  A
-fresh native-only P513 baseline is required before another end-to-end
-performance claim.
+reduces every eligible C512 request arena by exactly 178,257,920 bytes.  The
+fresh native-only P513 baseline is now complete: two independent processes
+measure mean-of-medians **2558.108500 ms / 200.147883 token/s** for the
+512-token Prefix and **2666.888500 ms / 192.358998 token/s** for complete
+513-token TTFT. Both processes produce token 9419 (`Hello`), report no Graph
+fallback or persistent-drop failure, and use a 233,940,992-byte L1024 request
+arena. See the
+[native-only P513 baseline record](docs/metadata/qwen36-27b-native-only-c512-p513-baseline-2026-07-29.json).
 
 The [Gate/Up historical reference record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json),
 [Down historical reference record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-production-benchmark.json),

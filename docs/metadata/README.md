@@ -1542,6 +1542,30 @@ The diagnostic Phase 3 records are:
   Gate+Up pair work. The isolated full suite is clean at 69 passes and 12
   expected skips. Production dispatch, Decode, and MTP are unchanged, though
   the test binary physically changes.
+- [`qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json`](qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json),
+  which immutably preserves the real-weight Gate/Up CF3 complete-cell
+  measurement and its original legacy bridge-derived decision wording.
+- [`qwen36-27b-gate-c512-cf3-policy-correction-2026-07-29.json`](qwen36-27b-gate-c512-cf3-policy-correction-2026-07-29.json),
+  which append-only corrects the historical decision semantics without
+  rewriting that artifact. CF3 was a valid positive native development
+  retention result, was later superseded by structured BS512, and was never
+  promoted to production; every old bridge rejection field has no current
+  authority.
+- [`qwen36-27b-gate-c512-bs512-retention-2026-07-29.json`](qwen36-27b-gate-c512-bs512-retention-2026-07-29.json),
+  which records the exact native-only structured-BS512 requalification on the
+  isolation commit. The binary has no cuBLASLt dependency or import, allocates
+  zero reference scratch, validates CF3 and BS512 eagerly and through CUDA
+  Graph replay, and retains BS512 by **1.060981x** serial and **1.063372x**
+  dual across six all-positive real-weight B-C-C-B rounds. Production
+  promotion and dispatch remain unchanged.
+- [`qwen36-27b-native-only-c512-p513-baseline-2026-07-29.json`](qwen36-27b-native-only-c512-p513-baseline-2026-07-29.json),
+  which establishes the post-isolation current-production P513/C512 baseline
+  from two independent native-only processes. The mean Prefix median is
+  **2558.108500 ms / 200.147883 token/s** and mean TTFT median is
+  **2666.888500 ms / 192.358998 complete-prompt token/s**; all ten measured
+  generations produce token 9419 (`Hello`), no process reports a persistent
+  drop, and the L1024 request arena is 233,940,992 bytes. The missing
+  temperature envelope is explicit rather than inferred.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
