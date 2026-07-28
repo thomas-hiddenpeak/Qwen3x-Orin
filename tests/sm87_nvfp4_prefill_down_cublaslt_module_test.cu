@@ -742,9 +742,9 @@ int main() {
       "factory rejects null output pointer");
 
   // Context construction may overlap across runners during process startup.
-  // Both factories must retain a valid zero-workspace algorithm even though
-  // their one-time timing streams contend for the same GPU.  Absolute tuning
-  // latency is deliberately not an availability contract.
+  // Every factory must independently find the real-checkpoint-pinned
+  // zero-workspace configuration without timing or synthetic operands. The
+  // runtime heuristic-list rank may differ and is deliberately not fixed.
   constexpr std::size_t kConcurrentContextCount = 2U;
   std::array<q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext*,
              kConcurrentContextCount>
@@ -768,7 +768,7 @@ int main() {
   }
   for (std::size_t index = 0U; index < kConcurrentContextCount; ++index) {
     test.expect(concurrent_statuses[index] == static_cast<int>(cudaSuccess),
-                "concurrent factory retains an available context");
+                "concurrent factory finds the pinned algorithm");
     test.expect(concurrent_contexts[index] != nullptr,
                 "concurrent factory returns an opaque context");
     if (concurrent_contexts[index] != nullptr) {
@@ -787,7 +787,7 @@ int main() {
       test.expect(concurrent_workspace_bytes == 0U,
                   "concurrent context retains zero-workspace algorithm");
       test.expect(concurrent_rank >= 0,
-                  "concurrent context retains a runtime heuristic result");
+                  "concurrent context records the pinned algorithm rank");
     }
     q3x::kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
         concurrent_contexts[index]);
@@ -815,7 +815,7 @@ int main() {
   test.expect(workspace_bytes == 0U,
               "selected cuBLASLt algorithm has zero workspace");
   test.expect(heuristic_rank >= 0,
-              "factory saves a runtime heuristic result");
+              "factory records the pinned algorithm runtime rank");
   std::size_t ignored_scratch = 0U;
   std::size_t ignored_workspace = 0U;
   int ignored_rank = -1;

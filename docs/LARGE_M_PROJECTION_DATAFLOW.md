@@ -7,6 +7,8 @@ This document defines the next Prefill projection work.  It deliberately does
 not promote the current M64xN256 pair-lookup kernel.  The production C512
 NVFP4 cuBLASLt bridges and the existing FP8 specializations remain selected
 until a new native cell beats its live opponent under the gates below.
+All timing and profiler evidence in this plan is governed by the
+[real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
 ## Decisions
 

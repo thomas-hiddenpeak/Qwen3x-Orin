@@ -1,6 +1,7 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
 #include "q3x/core/sha256.h"
 #include "q3x/io/safetensors.h"
+#include "pinned_checkpoint.h"
 
 #include <cublasLt.h>
 #include <cuda_bf16.h>
@@ -1645,7 +1646,8 @@ struct ComparisonResult {
     TestContext& test, Fixture& fixture, const Execution& execution,
     const LtObjects& main_lt, const LtObjects& auxiliary_lt,
     const SelectedAlgorithm& selected, const Variant baseline,
-    const Variant candidate, const std::string& comparison) {
+    const Variant candidate, const std::string& comparison,
+    const bool admission_enabled) {
   double baseline_sum = 0.0;
   double candidate_sum = 0.0;
   bool every_round_positive = true;
@@ -1682,7 +1684,12 @@ struct ComparisonResult {
               << " C2_ms=" << c2 << " B2_ms=" << b2
               << " speedup=" << speedup
               << " strict_positive_gate="
-              << (finite && speedup > 1.0 ? "PASS" : "FAIL") << '\n';
+              << (admission_enabled
+                      ? (finite && speedup > 1.0 ? "PASS" : "FAIL")
+                      : "NOT_RUN")
+              << " admission="
+              << (admission_enabled ? "DIAGNOSTIC_SUBGATE" : "NOT_RUN")
+              << '\n';
   }
   ComparisonResult result;
   result.baseline_milliseconds = baseline_sum / (2.0 * kRounds);
@@ -1698,7 +1705,11 @@ struct ComparisonResult {
             << " every_round_strict_positive="
             << (result.every_round_positive ? "true" : "false")
             << " rounds=" << kRounds << " iterations=" << kIterations
-            << " fixed_clock_required=true" << '\n';
+            << " fixed_clock_required="
+            << (admission_enabled ? "true" : "false")
+            << " admission="
+            << (admission_enabled ? "DIAGNOSTIC_SUBGATE" : "NOT_RUN")
+            << '\n';
   return result;
 }
 
@@ -1929,9 +1940,19 @@ struct ComparisonResult {
   return resource_gate && status_gate;
 }
 
+enum class Mode {
+  kSmoke,
+  kPerformanceCheckpoint,
+};
+
+[[nodiscard]] constexpr const char* mode_name(const Mode mode) noexcept {
+  return mode == Mode::kSmoke ? "smoke" : "performance-checkpoint";
+}
+
 struct Options {
   std::string checkpoint_directory;
   NativeKernel native_kernel = NativeKernel::kM64N256PairLookup;
+  Mode mode = Mode::kSmoke;
 };
 
 [[nodiscard]] bool parse_native_kernel(const std::string& value,
@@ -1957,9 +1978,32 @@ struct Options {
                                  Options& options) {
   bool checkpoint_seen = false;
   bool native_seen = false;
+  bool mode_seen = false;
   for (int index = 1; index < argc; ++index) {
     const std::string argument(argv[index]);
-    if (argument == "--checkpoint") {
+    if (argument == "--mode" || argument.rfind("--mode=", 0U) == 0U) {
+      if (mode_seen) {
+        std::cerr << "duplicate --mode argument\n";
+        return false;
+      }
+      mode_seen = true;
+      if (argument == "--mode" && index + 1 >= argc) {
+        std::cerr << "--mode requires smoke or performance-checkpoint\n";
+        return false;
+      }
+      const std::string value =
+          argument == "--mode"
+              ? std::string(argv[++index])
+              : argument.substr(std::string("--mode=").size());
+      if (value == "smoke") {
+        options.mode = Mode::kSmoke;
+      } else if (value == "performance-checkpoint") {
+        options.mode = Mode::kPerformanceCheckpoint;
+      } else {
+        std::cerr << "unknown --mode value: " << value << '\n';
+        return false;
+      }
+    } else if (argument == "--checkpoint") {
       if (checkpoint_seen) {
         std::cerr << "duplicate --checkpoint argument\n";
         return false;
@@ -2111,9 +2155,66 @@ int main(const int argc, char** const argv) {
   if (!parse_options(argc, argv, options)) {
     return 2;
   }
+  const bool performance_checkpoint =
+      options.mode == Mode::kPerformanceCheckpoint;
+  if (performance_checkpoint && options.checkpoint_directory.empty()) {
+    std::cerr << "--mode=performance-checkpoint requires --checkpoint DIR\n";
+    return 2;
+  }
+  if (!performance_checkpoint && !options.checkpoint_directory.empty()) {
+    std::cerr << "--checkpoint is only valid with "
+                 "--mode=performance-checkpoint; no implicit performance "
+                 "mode is selected\n";
+    return 2;
+  }
   TestContext test;
   CheckpointPayload checkpoint_payload;
   const CheckpointPayload* selected_checkpoint = nullptr;
+  if (performance_checkpoint) {
+    q3x::test::support::PinnedBundleLoadOptions pinned_options;
+    pinned_options.tensor_names = {
+        std::string(q3x::test::support::kQwen36Layer0GateWeight),
+        std::string(q3x::test::support::kQwen36Layer0GateBlockScale),
+        std::string(q3x::test::support::kQwen36Layer0GateWeightScale2),
+        std::string(q3x::test::support::kQwen36Layer0UpWeight),
+        std::string(q3x::test::support::kQwen36Layer0UpBlockScale),
+        std::string(q3x::test::support::kQwen36Layer0UpWeightScale2),
+    };
+    constexpr std::uint64_t kPinnedPayloadBytes =
+        2U * (kPackedWeightBytes + kBlockScaleBytes + sizeof(float));
+    pinned_options.maximum_total_payload_bytes = kPinnedPayloadBytes;
+    const q3x::test::support::PinnedBundleLoadResult pinned_bundle =
+        q3x::test::support::load_pinned_checkpoint_bundle(
+            options.checkpoint_directory,
+            q3x::test::support::qwen36_27b_nvfp4_layer0_mlp_bundle(),
+            pinned_options);
+    if (!pinned_bundle) {
+      std::cerr << "NVFP4_PAIR_PINNED_BUNDLE_ERROR: ";
+      if (pinned_bundle.error.has_value()) {
+        std::cerr << q3x::test::support::describe_pinned_checkpoint_error(
+            *pinned_bundle.error);
+      } else {
+        std::cerr << "loader failed without a structured error";
+      }
+      std::cerr << '\n';
+      return 1;
+    }
+    const q3x::test::support::LoadedPinnedBundle& loaded =
+        *pinned_bundle.value;
+    if (loaded.tensors.size() != pinned_options.tensor_names.size()) {
+      std::cerr << "NVFP4_PAIR_PINNED_BUNDLE_ERROR: expected "
+                << pinned_options.tensor_names.size() << " tensors, loaded "
+                << loaded.tensors.size() << '\n';
+      return 1;
+    }
+    std::cout << "NVFP4_PAIR_PINNED_BUNDLE: descriptor="
+              << loaded.descriptor_id << " model=" << loaded.model_id
+              << " repository=" << loaded.repository
+              << " revision=" << loaded.revision
+              << " tensor_count=" << loaded.tensors.size()
+              << " maximum_total_payload_bytes=" << kPinnedPayloadBytes
+              << " checkpoint_read_only=true\n";
+  }
   if (!options.checkpoint_directory.empty()) {
     if (!load_checkpoint_payload(test, options.checkpoint_directory,
                                  checkpoint_payload)) {
@@ -2122,6 +2223,13 @@ int main(const int argc, char** const argv) {
     selected_checkpoint = &checkpoint_payload;
   }
   print_payload_provenance(selected_checkpoint);
+  std::cout << "NVFP4_PAIR_MODE: mode=" << mode_name(options.mode)
+            << " admission="
+            << (performance_checkpoint ? "PENDING" : "NOT_RUN")
+            << " evidence="
+            << (performance_checkpoint ? "checkpoint_weight_only"
+                                       : "synthetic_smoke")
+            << '\n';
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
     return 1;
@@ -2138,13 +2246,17 @@ int main(const int argc, char** const argv) {
   }
 
   const std::optional<ClockState> clocks = read_clock_state();
-  if (!clocks.has_value() || !clocks_are_fixed(*clocks)) {
+  if (performance_checkpoint &&
+      (!clocks.has_value() || !clocks_are_fixed(*clocks))) {
     std::cout << "SKIP: Gate/Up pair performance screen requires fixed GPU and "
                  "EMC clocks"
               << " clock_state_available="
               << (clocks.has_value() ? "true" : "false") << '\n';
     return 77;
   }
+  const ClockState observed_clocks = clocks.value_or(ClockState{});
+  const bool fixed_clocks =
+      clocks.has_value() && clocks_are_fixed(observed_clocks);
 
   std::size_t free_before = 0U;
   std::size_t total_before = 0U;
@@ -2169,13 +2281,16 @@ int main(const int argc, char** const argv) {
                     : selected_checkpoint->up_weight_scale_2.value)
             << " native_kernel=" << native_kernel_name(options.native_kernel)
             << " workspace_bytes=0"
-            << " gpu_min_hz=" << clocks->gpu_min
-            << " gpu_current_hz=" << clocks->gpu_current
-            << " gpu_max_hz=" << clocks->gpu_max
-            << " emc_min_hz=" << clocks->emc_min
-            << " emc_current_hz=" << clocks->emc_current
-            << " emc_max_hz=" << clocks->emc_max
-            << " fixed_clocks=true" << '\n';
+            << " clock_state_available="
+            << (clocks.has_value() ? "true" : "false")
+            << " gpu_min_hz=" << observed_clocks.gpu_min
+            << " gpu_current_hz=" << observed_clocks.gpu_current
+            << " gpu_max_hz=" << observed_clocks.gpu_max
+            << " emc_min_hz=" << observed_clocks.emc_min
+            << " emc_current_hz=" << observed_clocks.emc_current
+            << " emc_max_hz=" << observed_clocks.emc_max
+            << " fixed_clocks=" << (fixed_clocks ? "true" : "false")
+            << '\n';
 
   Fixture fixture;
   fixture.native_kernel = options.native_kernel;
@@ -2268,25 +2383,28 @@ int main(const int argc, char** const argv) {
 
   const ComparisonResult production_vs_a = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kProduction, Variant::kSerialOneScratch, "production_vs_A");
+      Variant::kProduction, Variant::kSerialOneScratch, "production_vs_A",
+      performance_checkpoint);
   const ComparisonResult a_vs_b = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kNaiveDual, "A_vs_B");
+      Variant::kSerialOneScratch, Variant::kNaiveDual, "A_vs_B",
+      performance_checkpoint);
   const ComparisonResult a_vs_c = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
-      Variant::kSerialOneScratch, Variant::kStaggeredDual, "A_vs_C");
+      Variant::kSerialOneScratch, Variant::kStaggeredDual, "A_vs_C",
+      performance_checkpoint);
   const ComparisonResult bridge_vs_native_serial = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
       Variant::kSerialOneScratch, Variant::kNativeSerial,
-      "cublaslt_bridge_vs_native_serial");
+      "cublaslt_bridge_vs_native_serial", performance_checkpoint);
   const ComparisonResult bridge_vs_native_dual = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
       Variant::kSerialOneScratch, Variant::kNativeDual,
-      "cublaslt_bridge_vs_native_dual");
+      "cublaslt_bridge_vs_native_dual", performance_checkpoint);
   const ComparisonResult native_serial_vs_dual = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
       Variant::kNativeSerial, Variant::kNativeDual,
-      "native_serial_vs_native_dual");
+      "native_serial_vs_native_dual", performance_checkpoint);
 
   const bool serial_gate = production_vs_a.every_round_positive &&
                            std::isfinite(production_vs_a.speedup) &&
@@ -2334,58 +2452,71 @@ int main(const int argc, char** const argv) {
       bridge_vs_best_native.every_round_positive &&
       std::isfinite(bridge_vs_best_native.speedup) &&
       bridge_vs_best_native.speedup > 1.0;
-  test.expect(serial_gate,
-              "serial one-scratch route clears 1.22x production pair gate");
-  std::cout << "NVFP4_PAIR_FINAL: production_vs_A_speedup="
-            << production_vs_a.speedup
-            << " production_vs_A_required=" << kRequiredSerialVsProduction
-            << " production_vs_A_every_round_positive="
-            << (production_vs_a.every_round_positive ? "true" : "false")
-            << " A_vs_B_speedup=" << a_vs_b.speedup
-            << " A_vs_B_required=" << kRequiredTwoScratchVsSerial
-            << " A_vs_B_every_round_positive="
-            << (a_vs_b.every_round_positive ? "true" : "false")
-            << " A_vs_B_recommend="
-            << (naive_recommendation ? "true" : "false")
-            << " A_vs_C_speedup=" << a_vs_c.speedup
-            << " A_vs_C_required=" << kRequiredTwoScratchVsSerial
-            << " A_vs_C_every_round_positive="
-            << (a_vs_c.every_round_positive ? "true" : "false")
-            << " A_vs_C_recommend="
-            << (staggered_recommendation ? "true" : "false")
-            << " recommended_variant=" << variant_name(recommendation)
-            << " recommended_scratch_count="
-            << (recommendation == Variant::kSerialOneScratch ? 1 : 2)
-            << " hard_gate=" << (serial_gate ? "PASS" : "FAIL") << '\n';
-  std::cout << "NVFP4_PAIR_NATIVE_FINAL: native_kernel="
-            << native_kernel_name(fixture.native_kernel)
-            << " bridge_serial_ms="
-            << bridge_vs_native_serial.baseline_milliseconds
-            << " native_serial_ms="
-            << bridge_vs_native_serial.candidate_milliseconds
-            << " bridge_vs_native_serial_speedup="
-            << bridge_vs_native_serial.speedup
-            << " bridge_vs_native_serial_every_round_positive="
-            << (bridge_vs_native_serial.every_round_positive ? "true"
+  const bool performance_admission = serial_gate && native_clears_bridge;
+  if (performance_checkpoint) {
+    std::cout << "NVFP4_PAIR_FINAL: production_vs_A_speedup="
+              << production_vs_a.speedup
+              << " production_vs_A_required=" << kRequiredSerialVsProduction
+              << " production_vs_A_every_round_positive="
+              << (production_vs_a.every_round_positive ? "true" : "false")
+              << " A_vs_B_speedup=" << a_vs_b.speedup
+              << " A_vs_B_required=" << kRequiredTwoScratchVsSerial
+              << " A_vs_B_every_round_positive="
+              << (a_vs_b.every_round_positive ? "true" : "false")
+              << " A_vs_B_recommend="
+              << (naive_recommendation ? "true" : "false")
+              << " A_vs_C_speedup=" << a_vs_c.speedup
+              << " A_vs_C_required=" << kRequiredTwoScratchVsSerial
+              << " A_vs_C_every_round_positive="
+              << (a_vs_c.every_round_positive ? "true" : "false")
+              << " A_vs_C_recommend="
+              << (staggered_recommendation ? "true" : "false")
+              << " recommended_variant=" << variant_name(recommendation)
+              << " recommended_scratch_count="
+              << (recommendation == Variant::kSerialOneScratch ? 1 : 2)
+              << " hard_gate=" << (serial_gate ? "PASS" : "FAIL") << '\n';
+    std::cout << "NVFP4_PAIR_NATIVE_FINAL: native_kernel="
+              << native_kernel_name(fixture.native_kernel)
+              << " bridge_serial_ms="
+              << bridge_vs_native_serial.baseline_milliseconds
+              << " native_serial_ms="
+              << bridge_vs_native_serial.candidate_milliseconds
+              << " bridge_vs_native_serial_speedup="
+              << bridge_vs_native_serial.speedup
+              << " bridge_vs_native_serial_every_round_positive="
+              << (bridge_vs_native_serial.every_round_positive ? "true"
+                                                                : "false")
+              << " native_dual_ms="
+              << bridge_vs_native_dual.candidate_milliseconds
+              << " bridge_vs_native_dual_speedup="
+              << bridge_vs_native_dual.speedup
+              << " bridge_vs_native_dual_every_round_positive="
+              << (bridge_vs_native_dual.every_round_positive ? "true"
                                                               : "false")
-            << " native_dual_ms="
-            << bridge_vs_native_dual.candidate_milliseconds
-            << " bridge_vs_native_dual_speedup="
-            << bridge_vs_native_dual.speedup
-            << " bridge_vs_native_dual_every_round_positive="
-            << (bridge_vs_native_dual.every_round_positive ? "true"
-                                                            : "false")
-            << " native_serial_vs_dual_speedup="
-            << native_serial_vs_dual.speedup
-            << " native_serial_vs_dual_every_round_positive="
-            << (native_serial_vs_dual.every_round_positive ? "true"
-                                                            : "false")
-            << " recommended_native_schedule="
-            << variant_name(native_recommendation)
-            << " native_clears_bridge="
-            << (native_clears_bridge ? "true" : "false")
-            << " correctness_graph_resource_status_gate="
-            << (ready && native_timing_finite ? "PASS" : "FAIL") << '\n';
+              << " native_serial_vs_dual_speedup="
+              << native_serial_vs_dual.speedup
+              << " native_serial_vs_dual_every_round_positive="
+              << (native_serial_vs_dual.every_round_positive ? "true"
+                                                              : "false")
+              << " recommended_native_schedule="
+              << variant_name(native_recommendation)
+              << " native_clears_bridge="
+              << (native_clears_bridge ? "true" : "false")
+              << " correctness_graph_resource_status_gate="
+              << (ready && native_timing_finite ? "PASS" : "FAIL") << '\n';
+  } else {
+    std::cout << "NVFP4_PAIR_SMOKE_TIMING: production_vs_A_speedup="
+              << production_vs_a.speedup
+              << " A_vs_B_speedup=" << a_vs_b.speedup
+              << " A_vs_C_speedup=" << a_vs_c.speedup
+              << " bridge_vs_native_serial_speedup="
+              << bridge_vs_native_serial.speedup
+              << " bridge_vs_native_dual_speedup="
+              << bridge_vs_native_dual.speedup
+              << " native_serial_vs_dual_speedup="
+              << native_serial_vs_dual.speedup
+              << " admission=NOT_RUN evidence=synthetic_smoke\n";
+  }
 
   ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
                        "final main synchronize") &&
@@ -2401,6 +2532,27 @@ int main(const int argc, char** const argv) {
               << " Gate/Up C512 cuBLASLt pair assertion(s) failed\n";
     return 1;
   }
-  std::cout << "Gate/Up C512 cuBLASLt pair screen passed\n";
+  if (!performance_checkpoint) {
+    std::cout << "NVFP4_PAIR_ADMISSION: mode=smoke admission=NOT_RUN"
+              << " evidence=synthetic_smoke status=PASS\n";
+    std::cout << "Gate/Up C512 cuBLASLt pair smoke passed\n";
+    return 0;
+  }
+  std::cout << "NVFP4_PAIR_ADMISSION: mode=performance-checkpoint"
+            << " admission=" << (performance_admission ? "PASS" : "REJECT")
+            << " evidence=checkpoint_weight_only"
+            << " candidate=" << native_kernel_name(fixture.native_kernel)
+            << " bridge_gate=" << (serial_gate ? "PASS" : "REJECT")
+            << " native_gate="
+            << (native_clears_bridge ? "PASS" : "REJECT")
+            << " status=" << (performance_admission ? "PASS" : "REJECT")
+            << '\n';
+  std::cout << "Gate/Up C512 cuBLASLt pair performance checkpoint "
+            << (performance_admission ? "passed"
+                                      : "did not clear admission")
+            << '\n';
+  if (!performance_admission) {
+    return 3;
+  }
   return 0;
 }

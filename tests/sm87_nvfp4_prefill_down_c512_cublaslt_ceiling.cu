@@ -2,6 +2,7 @@
 #include "q3x/io/safetensors.h"
 #include "q3x/kernels/sm87_nvfp4_prefill_cublaslt.h"
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#include "pinned_checkpoint.h"
 
 #include <cublasLt.h>
 #include <cuda_bf16.h>
@@ -1541,16 +1542,49 @@ struct ClockState {
          state.emc_current == state.emc_max;
 }
 
+enum class Mode {
+  kSmoke,
+  kPerformanceCheckpoint,
+};
+
+[[nodiscard]] constexpr const char* mode_name(const Mode mode) noexcept {
+  return mode == Mode::kSmoke ? "smoke" : "performance-checkpoint";
+}
+
 struct Options {
   std::string checkpoint_directory;
+  Mode mode = Mode::kSmoke;
 };
 
 [[nodiscard]] bool parse_options(const int argc, char** argv,
                                  Options& options) {
   bool checkpoint_seen = false;
+  bool mode_seen = false;
   for (int index = 1; index < argc; ++index) {
     const std::string argument(argv[index]);
-    if (argument.rfind("--checkpoint=", 0U) == 0U) {
+    if (argument == "--mode" || argument.rfind("--mode=", 0U) == 0U) {
+      if (mode_seen) {
+        std::cerr << "duplicate --mode argument\n";
+        return false;
+      }
+      mode_seen = true;
+      if (argument == "--mode" && index + 1 >= argc) {
+        std::cerr << "--mode requires smoke or performance-checkpoint\n";
+        return false;
+      }
+      const std::string value =
+          argument == "--mode"
+              ? std::string(argv[++index])
+              : argument.substr(std::string("--mode=").size());
+      if (value == "smoke") {
+        options.mode = Mode::kSmoke;
+      } else if (value == "performance-checkpoint") {
+        options.mode = Mode::kPerformanceCheckpoint;
+      } else {
+        std::cerr << "unknown --mode value: " << value << '\n';
+        return false;
+      }
+    } else if (argument.rfind("--checkpoint=", 0U) == 0U) {
       if (checkpoint_seen) {
         std::cerr << "duplicate --checkpoint argument\n";
         return false;
@@ -1558,6 +1592,10 @@ struct Options {
       checkpoint_seen = true;
       options.checkpoint_directory =
           argument.substr(std::string("--checkpoint=").size());
+      if (options.checkpoint_directory.empty()) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
     } else if (argument == "--checkpoint") {
       if (checkpoint_seen) {
         std::cerr << "duplicate --checkpoint argument\n";
@@ -1569,12 +1607,12 @@ struct Options {
       }
       checkpoint_seen = true;
       options.checkpoint_directory = argv[++index];
+      if (options.checkpoint_directory.empty()) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
-      return false;
-    }
-    if (options.checkpoint_directory.empty()) {
-      std::cerr << "--checkpoint requires a non-empty directory\n";
       return false;
     }
   }
@@ -1588,9 +1626,63 @@ int main(const int argc, char** argv) {
   if (!parse_options(argc, argv, options)) {
     return 2;
   }
+  const bool performance_checkpoint =
+      options.mode == Mode::kPerformanceCheckpoint;
+  if (performance_checkpoint && options.checkpoint_directory.empty()) {
+    std::cerr << "--mode=performance-checkpoint requires --checkpoint DIR\n";
+    return 2;
+  }
+  if (!performance_checkpoint && !options.checkpoint_directory.empty()) {
+    std::cerr << "--checkpoint is only valid with "
+                 "--mode=performance-checkpoint; no implicit performance "
+                 "mode is selected\n";
+    return 2;
+  }
   TestContext test;
   CheckpointPayload checkpoint_payload;
   const CheckpointPayload* selected_checkpoint = nullptr;
+  if (performance_checkpoint) {
+    q3x::test::support::PinnedBundleLoadOptions pinned_options;
+    pinned_options.tensor_names = {
+        std::string(q3x::test::support::kQwen36Layer0DownWeight),
+        std::string(q3x::test::support::kQwen36Layer0DownBlockScale),
+        std::string(q3x::test::support::kQwen36Layer0DownWeightScale2),
+    };
+    constexpr std::uint64_t kPinnedPayloadBytes =
+        kPackedWeightBytes + kBlockScaleBytes + sizeof(float);
+    pinned_options.maximum_total_payload_bytes = kPinnedPayloadBytes;
+    const q3x::test::support::PinnedBundleLoadResult pinned_bundle =
+        q3x::test::support::load_pinned_checkpoint_bundle(
+            options.checkpoint_directory,
+            q3x::test::support::qwen36_27b_nvfp4_layer0_mlp_bundle(),
+            pinned_options);
+    if (!pinned_bundle) {
+      std::cerr << "NVFP4_DOWN_C512_PINNED_BUNDLE_ERROR: ";
+      if (pinned_bundle.error.has_value()) {
+        std::cerr << q3x::test::support::describe_pinned_checkpoint_error(
+            *pinned_bundle.error);
+      } else {
+        std::cerr << "loader failed without a structured error";
+      }
+      std::cerr << '\n';
+      return 1;
+    }
+    const q3x::test::support::LoadedPinnedBundle& loaded =
+        *pinned_bundle.value;
+    if (loaded.tensors.size() != pinned_options.tensor_names.size()) {
+      std::cerr << "NVFP4_DOWN_C512_PINNED_BUNDLE_ERROR: expected "
+                << pinned_options.tensor_names.size() << " tensors, loaded "
+                << loaded.tensors.size() << '\n';
+      return 1;
+    }
+    std::cout << "NVFP4_DOWN_C512_PINNED_BUNDLE: descriptor="
+              << loaded.descriptor_id << " model=" << loaded.model_id
+              << " repository=" << loaded.repository
+              << " revision=" << loaded.revision
+              << " tensor_count=" << loaded.tensors.size()
+              << " maximum_total_payload_bytes=" << kPinnedPayloadBytes
+              << " checkpoint_read_only=true\n";
+  }
   if (!options.checkpoint_directory.empty()) {
     if (!load_checkpoint_payload(test, options.checkpoint_directory,
                                  checkpoint_payload)) {
@@ -1631,6 +1723,13 @@ int main(const int argc, char** argv) {
               << " weight_bytes=" << kPackedWeightBytes
               << " block_scale_bytes=" << kBlockScaleBytes << '\n';
   }
+  std::cout << "NVFP4_DOWN_C512_MODE: mode=" << mode_name(options.mode)
+            << " admission="
+            << (performance_checkpoint ? "PENDING" : "NOT_RUN")
+            << " evidence="
+            << (performance_checkpoint ? "checkpoint_weight_only"
+                                       : "synthetic_smoke")
+            << '\n';
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
     return 1;
@@ -1647,7 +1746,7 @@ int main(const int argc, char** argv) {
   }
 
   const std::optional<ClockState> clocks = read_clock_state();
-  if (selected_checkpoint != nullptr &&
+  if (performance_checkpoint &&
       (!clocks.has_value() || !clocks_are_fixed(*clocks))) {
     std::cout << "SKIP: real-checkpoint public Down module proof requires "
                  "fixed GPU and EMC clocks"
@@ -1922,6 +2021,17 @@ int main(const int argc, char** argv) {
 
   int selected_index = -1;
   double selected_milliseconds = std::numeric_limits<double>::infinity();
+  const auto read_algorithm_config = [](
+                                         const cublasLtMatmulAlgo_t& algorithm,
+                                         const cublasLtMatmulAlgoConfigAttributes_t attribute,
+                                         auto* const value) {
+    std::size_t written = 0U;
+    return value != nullptr &&
+           cublasLtMatmulAlgoConfigGetAttribute(
+               &algorithm, attribute, value, sizeof(*value), &written) ==
+               CUBLAS_STATUS_SUCCESS &&
+           written == sizeof(*value);
+  };
   for (int index = 0; index < returned_algorithms; ++index) {
     if (heuristics[static_cast<std::size_t>(index)].state !=
             CUBLAS_STATUS_SUCCESS ||
@@ -1934,10 +2044,45 @@ int main(const int argc, char** argv) {
         persistent_weight.get(), activation.get(), candidate_output,
         workspace.get(), kWorkspaceBytes, stream, kSelectionWarmups,
         kSelectionIterations, "select algorithm " + std::to_string(index));
+    const auto& algorithm =
+        heuristics[static_cast<std::size_t>(index)].algo;
+    std::int32_t algorithm_id = -1;
+    std::uint32_t tile_id = 0U;
+    std::int32_t split_k = 0;
+    std::uint32_t reduction_scheme = 0U;
+    std::uint32_t cta_swizzle = 0U;
+    std::uint32_t custom_option = 0U;
+    std::uint32_t stages_id = 0U;
+    const bool config_available =
+        read_algorithm_config(algorithm, CUBLASLT_ALGO_CONFIG_ID,
+                              &algorithm_id) &&
+        read_algorithm_config(algorithm, CUBLASLT_ALGO_CONFIG_TILE_ID,
+                              &tile_id) &&
+        read_algorithm_config(algorithm, CUBLASLT_ALGO_CONFIG_SPLITK_NUM,
+                              &split_k) &&
+        read_algorithm_config(
+            algorithm, CUBLASLT_ALGO_CONFIG_REDUCTION_SCHEME,
+            &reduction_scheme) &&
+        read_algorithm_config(algorithm,
+                              CUBLASLT_ALGO_CONFIG_CTA_SWIZZLING,
+                              &cta_swizzle) &&
+        read_algorithm_config(algorithm, CUBLASLT_ALGO_CONFIG_CUSTOM_OPTION,
+                              &custom_option) &&
+        read_algorithm_config(algorithm, CUBLASLT_ALGO_CONFIG_STAGES_ID,
+                              &stages_id);
     const double tflops = kUsefulFlops / (milliseconds * 1.0e9);
     std::cout << "CUBLASLT_DOWN_C512_HEURISTIC: index=" << index
               << " workspace_bytes="
               << heuristics[static_cast<std::size_t>(index)].workspaceSize
+              << " config_available="
+              << (config_available ? "true" : "false")
+              << " algorithm_id=" << algorithm_id
+              << " tile_id=" << tile_id
+              << " split_k=" << split_k
+              << " reduction_scheme=" << reduction_scheme
+              << " cta_swizzle=" << cta_swizzle
+              << " custom_option=" << custom_option
+              << " stages_id=" << stages_id
               << " milliseconds=" << milliseconds
               << " TFLOP_per_s=" << tflops << '\n';
     if (std::isfinite(milliseconds) && milliseconds < selected_milliseconds) {
@@ -2381,8 +2526,17 @@ int main(const int argc, char** argv) {
               << (sequential_correctness_gate ? "true" : "false")
               << " guards_intact="
               << (sequential_guard_gate ? "true" : "false")
-              << " action=" << (sequential_selected ? "SELECT" : "REJECT")
-              << " gate=" << (sequential_selected ? "PASS" : "FAIL")
+              << " action="
+              << (performance_checkpoint
+                      ? (sequential_selected ? "SELECT" : "REJECT")
+                      : "NOT_EVALUATED")
+              << " gate="
+              << (performance_checkpoint
+                      ? (sequential_selected ? "PASS" : "FAIL")
+                      : "NOT_RUN")
+              << " admission="
+              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
+                                         : "NOT_RUN")
               << '\n';
   }
 
@@ -2539,8 +2693,18 @@ int main(const int argc, char** argv) {
               << (window8_correctness_gate ? "true" : "false")
               << " guards_intact="
               << (window8_guard_gate ? "true" : "false")
-              << " action=" << (window8_selected ? "SELECT" : "REJECT")
-              << " gate=" << (window8_selected ? "PASS" : "FAIL") << '\n';
+              << " action="
+              << (performance_checkpoint
+                      ? (window8_selected ? "SELECT" : "REJECT")
+                      : "NOT_EVALUATED")
+              << " gate="
+              << (performance_checkpoint
+                      ? (window8_selected ? "PASS" : "FAIL")
+                      : "NOT_RUN")
+              << " admission="
+              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
+                                         : "NOT_RUN")
+              << '\n';
   }
 
   // Validate the exact timed chain against the trusted scalar-dequantized
@@ -3066,7 +3230,13 @@ int main(const int argc, char** argv) {
               << " production_M128_bitwise_mismatches="
               << production_metrics.bitwise_mismatches
               << " dequantization_timed=true gate="
-              << (inclusive_speed_gate ? "PASS" : "FAIL") << '\n';
+              << (performance_checkpoint
+                      ? (inclusive_speed_gate ? "PASS" : "FAIL")
+                      : "NOT_RUN")
+              << " admission="
+              << (performance_checkpoint ? "DIAGNOSTIC_SUBGATE"
+                                         : "NOT_RUN")
+              << '\n';
   }
 
   // A same-process B-C-C-B comparison determines whether the local ceiling
@@ -3428,35 +3598,33 @@ int main(const int argc, char** argv) {
       guard_gate && lt_pointer_alignment_gate && window8_selected &&
       public_module_evidence_gate &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
-  std::cout << "NVFP4_CUBLASLT_DOWN_C512_P0_RECOMMENDATION: action="
-            << (retain_candidate
-                    ? "retain_existing_guarded_production_route"
-                    : "reject_or_continue_test_only")
-            << " admitted_shape=exact_C512_Down"
-            << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
-            << " scale_zero_action=route_existing_production"
-            << " scale_nonfinite_or_negative_action=reject_before_enqueue"
-            << " workspace_bytes=0"
-            << " selected_dequant=window8"
-            << " dequant_selection_gate="
-            << (window8_selected ? "true" : "false")
-            << " production_bitwise_mismatches="
-            << production_metrics.bitwise_mismatches << '/' << kCElements
-            << " graph_nodes=" << graph_node_count
-            << " lt_pointer_alignment="
-            << (lt_pointer_alignment_gate ? "true" : "false")
-            << " input_immutable=" << (immutable_gate ? "true" : "false")
-            << " guards_intact=" << (guard_gate ? "true" : "false")
-            << " public_module_evidence="
-            << (selected_checkpoint == nullptr
-                    ? "not_requested"
-                    : (public_module_evidence_gate ? "pass" : "fail"))
-            << " public_module_extrapolation="
-            << (selected_checkpoint == nullptr
-                    ? "not_requested"
-                    : (public_module_extrapolation_supported ? "supported"
-                                                             : "not_supported"))
-            << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
+  if (performance_checkpoint) {
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_P0_RECOMMENDATION: action="
+              << (retain_candidate
+                      ? "retain_existing_guarded_production_route"
+                      : "reject_or_continue_test_only")
+              << " admitted_shape=exact_C512_Down"
+              << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
+              << " scale_zero_action=route_existing_production"
+              << " scale_nonfinite_or_negative_action=reject_before_enqueue"
+              << " workspace_bytes=0"
+              << " selected_dequant=window8"
+              << " dequant_selection_gate="
+              << (window8_selected ? "true" : "false")
+              << " production_bitwise_mismatches="
+              << production_metrics.bitwise_mismatches << '/' << kCElements
+              << " graph_nodes=" << graph_node_count
+              << " lt_pointer_alignment="
+              << (lt_pointer_alignment_gate ? "true" : "false")
+              << " input_immutable=" << (immutable_gate ? "true" : "false")
+              << " guards_intact=" << (guard_gate ? "true" : "false")
+              << " public_module_evidence="
+              << (public_module_evidence_gate ? "pass" : "fail")
+              << " public_module_extrapolation="
+              << (public_module_extrapolation_supported ? "supported"
+                                                        : "not_supported")
+              << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
+  }
 
   q3x::kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
       public_down_context);
@@ -3471,7 +3639,23 @@ int main(const int argc, char** argv) {
               << " NVFP4 Down ceiling assertion(s) failed\n";
     return 1;
   }
-  std::cout << "Canonical-NVFP4 inclusive Down C512 ceiling completed: result="
-            << (retain_candidate ? "RETAIN" : "REJECT") << '\n';
+  if (!performance_checkpoint) {
+    std::cout << "NVFP4_CUBLASLT_DOWN_C512_ADMISSION: mode=smoke"
+              << " admission=NOT_RUN evidence=synthetic_smoke status=PASS\n";
+    std::cout << "Canonical-NVFP4 inclusive Down C512 smoke completed\n";
+    return 0;
+  }
+  std::cout << "NVFP4_CUBLASLT_DOWN_C512_ADMISSION:"
+            << " mode=performance-checkpoint"
+            << " admission=" << (retain_candidate ? "PASS" : "REJECT")
+            << " evidence=checkpoint_weight_only"
+            << " status=" << (retain_candidate ? "PASS" : "REJECT")
+            << '\n';
+  std::cout << "Canonical-NVFP4 inclusive Down C512 performance checkpoint "
+            << (retain_candidate ? "passed" : "did not clear admission")
+            << '\n';
+  if (!retain_candidate) {
+    return 3;
+  }
   return 0;
 }

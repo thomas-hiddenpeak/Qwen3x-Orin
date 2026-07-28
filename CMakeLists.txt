@@ -188,6 +188,63 @@ target_link_libraries(qwen3x-inspect PRIVATE q3x::core)
 q3x_enable_warnings(qwen3x-inspect)
 
 if(BUILD_TESTING)
+  set(Q3X_E2E_MODEL_DIR "" CACHE PATH
+      "Pinned Qwen3.6-27B-NVFP4 model directory for optional E2E tests")
+  set(Q3X_REAL_PERF_MODEL_DIR "" CACHE PATH
+      "Pinned Qwen3.6-27B-NVFP4 model directory for real-payload performance admission")
+  option(Q3X_REQUIRE_REAL_PERF
+         "Fail configuration or hardware checks instead of skipping real-payload admission"
+         OFF)
+  set(_q3x_real_perf_model_dir "${Q3X_REAL_PERF_MODEL_DIR}")
+  if(NOT _q3x_real_perf_model_dir AND
+     DEFINED ENV{Q3X_REAL_PERF_MODEL_DIR})
+    set(_q3x_real_perf_model_dir "$ENV{Q3X_REAL_PERF_MODEL_DIR}")
+  endif()
+  if(NOT _q3x_real_perf_model_dir AND Q3X_E2E_MODEL_DIR)
+    set(_q3x_real_perf_model_dir "${Q3X_E2E_MODEL_DIR}")
+  endif()
+  if(NOT _q3x_real_perf_model_dir AND DEFINED ENV{Q3X_E2E_MODEL_DIR})
+    set(_q3x_real_perf_model_dir "$ENV{Q3X_E2E_MODEL_DIR}")
+  endif()
+  if(Q3X_REQUIRE_REAL_PERF AND NOT _q3x_real_perf_model_dir)
+    message(FATAL_ERROR
+      "Q3X_REQUIRE_REAL_PERF=ON requires Q3X_REAL_PERF_MODEL_DIR or Q3X_E2E_MODEL_DIR")
+  endif()
+
+  add_library(q3x_test_pinned_checkpoint STATIC
+    tests/support/pinned_checkpoint.cpp
+  )
+  target_include_directories(q3x_test_pinned_checkpoint
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+  )
+  target_link_libraries(q3x_test_pinned_checkpoint PUBLIC q3x::core)
+  q3x_enable_warnings(q3x_test_pinned_checkpoint)
+
+  add_executable(q3x_pinned_checkpoint_support_test
+    tests/support/pinned_checkpoint_test.cpp
+  )
+  target_link_libraries(q3x_pinned_checkpoint_support_test
+    PRIVATE q3x_test_pinned_checkpoint
+  )
+  q3x_enable_warnings(q3x_pinned_checkpoint_support_test)
+  add_test(NAME pinned_checkpoint_support
+    COMMAND q3x_pinned_checkpoint_support_test
+  )
+  set_tests_properties(pinned_checkpoint_support PROPERTIES
+    LABELS "checkpoint;correctness;host"
+  )
+  if(_q3x_real_perf_model_dir)
+    add_test(NAME pinned_checkpoint_support_real_model
+      COMMAND q3x_pinned_checkpoint_support_test
+              "${_q3x_real_perf_model_dir}"
+    )
+    set_tests_properties(pinned_checkpoint_support_real_model PROPERTIES
+      LABELS "checkpoint;correctness;model"
+      RUN_SERIAL TRUE
+      TIMEOUT 120
+    )
+  endif()
+
   add_executable(q3x_device_info_test tests/device_info_test.cpp)
   target_link_libraries(q3x_device_info_test PRIVATE q3x::core q3x::kernels)
   q3x_enable_warnings(q3x_device_info_test)
@@ -279,10 +336,10 @@ if(BUILD_TESTING)
   )
   q3x_enable_warnings(q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling)
   add_test(NAME nvfp4_prefill_gate_c512_cublaslt_ceiling
-    COMMAND q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling
+    COMMAND q3x_nvfp4_prefill_gate_c512_cublaslt_ceiling --mode=smoke
   )
   set_tests_properties(nvfp4_prefill_gate_c512_cublaslt_ceiling PROPERTIES
-    LABELS "cuda;sm87;prefill;ceiling"
+    LABELS "cuda;sm87;prefill;correctness;synthetic;smoke"
     SKIP_RETURN_CODE 77
   )
 
@@ -293,14 +350,14 @@ if(BUILD_TESTING)
     tests/sm87_nvfp4_prefill_down_c512_cublaslt_ceiling.cu
   )
   target_link_libraries(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
-    PRIVATE q3x::kernels CUDA::cublasLt
+    PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cublasLt
   )
   q3x_enable_warnings(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling)
   add_test(NAME nvfp4_prefill_down_c512_cublaslt_ceiling
-    COMMAND q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+    COMMAND q3x_nvfp4_prefill_down_c512_cublaslt_ceiling --mode=smoke
   )
   set_tests_properties(nvfp4_prefill_down_c512_cublaslt_ceiling PROPERTIES
-    LABELS "cuda;sm87;prefill;ceiling;screen"
+    LABELS "cuda;sm87;prefill;correctness;synthetic;smoke"
     SKIP_RETURN_CODE 77
   )
 
@@ -351,19 +408,48 @@ if(BUILD_TESTING)
   )
   target_link_libraries(
     q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
-    PRIVATE q3x::kernels CUDA::cublasLt CUDA::cudart
+    PRIVATE q3x::kernels q3x_test_pinned_checkpoint CUDA::cublasLt CUDA::cudart
   )
   q3x_enable_warnings(
     q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
   )
   add_test(NAME nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
-    COMMAND q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+    COMMAND q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen --mode=smoke
   )
   set_tests_properties(
     nvfp4_prefill_gate_up_c512_cublaslt_pair_screen PROPERTIES
-    LABELS "cuda;sm87;prefill;screen"
+    LABELS "cuda;sm87;prefill;correctness;synthetic;smoke"
     SKIP_RETURN_CODE 77
   )
+
+  if(_q3x_real_perf_model_dir)
+    add_test(NAME nvfp4_prefill_down_c512_checkpoint_admission
+      COMMAND q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+              --mode=performance-checkpoint
+              --checkpoint=${_q3x_real_perf_model_dir}
+    )
+    add_test(NAME nvfp4_prefill_gate_up_c512_checkpoint_admission
+      COMMAND q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen
+              --mode=performance-checkpoint
+              --checkpoint=${_q3x_real_perf_model_dir}
+    )
+    set_tests_properties(
+      nvfp4_prefill_down_c512_checkpoint_admission
+      nvfp4_prefill_gate_up_c512_checkpoint_admission
+      PROPERTIES
+      LABELS "cuda;sm87;prefill;performance;checkpoint;admission"
+      RUN_SERIAL TRUE
+      RESOURCE_LOCK q3x_sm87_gpu
+      TIMEOUT 900
+    )
+    if(NOT Q3X_REQUIRE_REAL_PERF)
+      set_tests_properties(
+        nvfp4_prefill_down_c512_checkpoint_admission
+        nvfp4_prefill_gate_up_c512_checkpoint_admission
+        PROPERTIES SKIP_RETURN_CODE 77
+      )
+    endif()
+  endif()
 
   # Isolated FP8 QKV latency-hiding candidate. The production M128xN128
   # route remains frozen; this target only screens a 512-thread split-M64
@@ -664,8 +750,6 @@ if(BUILD_TESTING)
     COMMAND q3x_reference_benchmark_control_test
   )
 
-  set(Q3X_E2E_MODEL_DIR "" CACHE PATH
-      "Pinned Qwen3.6-27B-NVFP4 model directory for the optional E2E test")
   set(Q3X_E2E_PROJECTION_BACKEND "reference" CACHE STRING
       "Projection backend for the optional E2E test (reference or sm87)")
   set_property(CACHE Q3X_E2E_PROJECTION_BACKEND PROPERTY STRINGS

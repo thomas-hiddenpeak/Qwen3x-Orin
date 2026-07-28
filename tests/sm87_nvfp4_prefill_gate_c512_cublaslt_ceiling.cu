@@ -14,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -737,7 +738,15 @@ __global__ void validate_bf16_guards_kernel(
 
 }  // namespace
 
-int main() {
+int main(const int argc, char** argv) {
+  if (argc > 2 ||
+      (argc == 2 && std::string_view(argv[1]) != "--mode=smoke")) {
+    std::cerr << "usage: " << argv[0] << " [--mode=smoke]\n"
+              << "This executable is synthetic correctness/Graph smoke only; "
+                 "use the checkpoint Gate/Up pair admission for performance "
+                 "decisions.\n";
+    return 2;
+  }
   TestContext test;
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
@@ -755,6 +764,8 @@ int main() {
   }
 
   std::cout << std::fixed << std::setprecision(6)
+            << "NVFP4_GATE_C512_MODE: mode=smoke admission=NOT_RUN"
+            << " evidence=synthetic_smoke performance_authority=none\n"
             << "CUBLASLT_GATE_C512_PROTOCOL: device=" << properties.name
             << " cc=" << properties.major << '.' << properties.minor
             << " M=" << kM << " N=" << kN << " K=" << kK
@@ -1007,7 +1018,8 @@ int main() {
               << kProductionGateReferenceMilliseconds /
                      persistent_median_milliseconds
               << " comparison_scope=absolute_persistent_BF16_control"
-              << " dequantization_timed=false gate=PASS\n";
+              << " dequantization_timed=false"
+              << " performance_authority=none gate=NOT_RUN\n";
   }
 
   // Build a canonical production-shaped NVFP4 Gate matrix in [N,K] order,
@@ -1431,7 +1443,7 @@ int main() {
     }
   }
 
-  bool inclusive_speed_gate = false;
+  bool legacy_directional_target_met = false;
   if (inclusive_round_milliseconds.size() ==
           static_cast<std::size_t>(kFormalRounds) &&
       dequant_round_milliseconds.size() ==
@@ -1451,9 +1463,8 @@ int main() {
                             kBElements * sizeof(__nv_bfloat16));
     const double dequant_effective_gigabytes_per_second =
         kMinimumDequantBytes / (dequant_median * 1.0e6);
-    inclusive_speed_gate = inclusive_speedup >= kRequiredInclusiveSpeedup;
-    test.expect(inclusive_speed_gate,
-                "inclusive NVFP4 + cuBLASLt reaches the 1.22x Gate target");
+    legacy_directional_target_met =
+        inclusive_speedup >= kRequiredInclusiveSpeedup;
     std::cout << "NVFP4_CUBLASLT_GATE_C512_FINAL: selected_index="
               << selected_index << " rounds=" << kFormalRounds
               << " selected_workspace_bytes="
@@ -1480,8 +1491,10 @@ int main() {
               << " production_M128_bitwise_compared=true"
               << " production_M128_bitwise_mismatches="
               << production_metrics.bitwise_mismatches
-              << " dequantization_timed=true gate="
-              << (inclusive_speed_gate ? "PASS" : "FAIL") << '\n';
+              << " dequantization_timed=true"
+              << " legacy_directional_target_met="
+              << (legacy_directional_target_met ? "true" : "false")
+              << " performance_authority=none gate=NOT_RUN\n";
   }
 
   // Probe the scale boundary without admitting it to the hybrid selector.
@@ -1721,17 +1734,13 @@ int main() {
       validate_guards(production_output, "production_M128") && guard_gate;
   ready = ready && guard_gate;
 
-  const bool retain_candidate =
-      ready && inclusive_speed_gate && production_numerical_gate &&
-      graph_ready && zero_numeric_gate && nan_gate && immutable_gate &&
-      guard_gate &&
+  const bool smoke_contract =
+      ready && production_numerical_gate && graph_ready && zero_numeric_gate &&
+      nan_gate && immutable_gate && guard_gate &&
       heuristics[static_cast<std::size_t>(selected_index)].workspaceSize == 0U;
-  test.expect(retain_candidate,
-              "zero-workspace hybrid candidate passes P0 retention gates");
-  std::cout << "NVFP4_CUBLASLT_GATE_C512_P0_RECOMMENDATION: action="
-            << (retain_candidate
-                    ? "retain_for_guarded_production_integration"
-                    : "reject_or_continue_test_only")
+  test.expect(smoke_contract,
+              "zero-workspace hybrid candidate passes synthetic smoke gates");
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_P0_RECOMMENDATION: action=NOT_EVALUATED"
             << " admitted_shape=exact_C512_Gate"
             << " selector_condition=shape_exact&&aligned&&isfinite(scale)&&scale>0"
             << " scale_zero_action=route_existing_production"
@@ -1742,7 +1751,10 @@ int main() {
             << " graph_nodes=" << graph_node_count
             << " input_immutable=" << (immutable_gate ? "true" : "false")
             << " guards_intact=" << (guard_gate ? "true" : "false")
-            << " gate=" << (retain_candidate ? "PASS" : "FAIL") << '\n';
+            << " legacy_directional_target_met="
+            << (legacy_directional_target_met ? "true" : "false")
+            << " admission=NOT_RUN evidence=synthetic_smoke"
+            << " performance_authority=none gate=NOT_RUN\n";
 
   if (stream != nullptr) {
     (void)test.cuda_ok(cudaStreamDestroy(stream), "destroy stream");
@@ -1755,6 +1767,8 @@ int main() {
               << " NVFP4 Gate ceiling assertion(s) failed\n";
     return 1;
   }
-  std::cout << "Canonical-NVFP4 inclusive Gate C512 ceiling passed\n";
+  std::cout << "NVFP4_CUBLASLT_GATE_C512_ADMISSION: mode=smoke"
+            << " admission=NOT_RUN evidence=synthetic_smoke status=PASS\n";
+  std::cout << "Canonical-NVFP4 inclusive Gate C512 smoke passed\n";
   return 0;
 }
