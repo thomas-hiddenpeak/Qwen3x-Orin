@@ -419,6 +419,22 @@ dispatch semantics remain unchanged and the runtime-codebook A-only cell
 remains the native baseline; physically, the test module does add a 512-byte
 `.nv.global.init` seed and changes binary size. See the [M64xN256 CA seed
 rejection](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-seed-rejection.json).
+The exact scale-factored decoder follow-up is also a decisive rejection. It
+computes `scale * 1.5` once per x4, then selects that value or the original
+scale and adjusts BF16 exponent/sign bits for the seven nonzero E2M1
+magnitudes. The candidate-specific exhaustive gate is bitwise exact for all
+131,072 scale/packed-byte/byte-position combinations, all 17,825,792
+projection and Graph-replay outputs match, and the kernel keeps two CTAs/SM
+with 123 registers and zero local memory. Static SASS halves HFMA2 sites from
+32 to 16 and removes all 128 PRMT sites, but the compiled body expands from
+1416 to 2240 instructions. Six CPU-11-pinned MAXN B-C-C-B rounds all regress:
+**5.387814 ms to 10.429699 ms** (**0.516584x**), so the unchanged **5.304339
+ms** absolute gate fails and Gate+Up pair timing is skipped. The authoritative
+isolated serial 81-test run is clean at 69 passes and 12 expected skips; an
+earlier performance-test failure under concurrent GPU resource contention is
+excluded and is not a regression. Production and MTP remain unchanged. See
+the [M64xN256 CA scale-factored rejection
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-factored-rejection.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The

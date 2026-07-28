@@ -1499,6 +1499,19 @@ The diagnostic Phase 3 records are:
   NCU, and pair timing. Production dispatch semantics and the A-only baseline
   are unchanged, although the test module physically adds a 512-byte ordinary
   `.nv.global.init` seed and changes binary bytes.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-factored-rejection.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-factored-rejection.json),
+  which rejects the exact scale-factored x4 decoder in the retained
+  M64xN256 A-only-CA topology. Its 131,072 candidate-specific exhaustive
+  combinations, 17,825,792 projection outputs and Graph replay, 23/23 invalid
+  calls, guards, immutable inputs, and 123-register/zero-local/two-CTA
+  resources pass. SASS halves HFMA2 sites from 32 to 16 and removes 128 PRMT
+  sites, but grows from 1416 to 2240 instructions. All six CPU-11 MAXN formal
+  rounds regress from **5.387814 ms to 10.429699 ms** (**0.516584x**), the
+  unchanged **5.304339 ms** absolute gate fails, and Gate+Up timing stops.
+  The sole authoritative isolated serial suite is clean at 69 passes and 12
+  expected skips; an earlier ceiling-test miss during concurrent GPU resource
+  contention is excluded rather than classified as a regression. Production,
+  Decode, and MTP remain unchanged.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

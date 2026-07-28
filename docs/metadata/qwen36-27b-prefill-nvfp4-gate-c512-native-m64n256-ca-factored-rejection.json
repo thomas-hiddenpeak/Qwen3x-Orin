@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-factored-rejection",
+  "status": "test-only-negative-rejection",
+  "recorded_at": "2026-07-28T23:37:04+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "9943df9d0c3527945e54e2758581234255b9baac",
+    "tree": "e9a76502e05b6967e694995d2a21d6c69cb68d37",
+    "parent_commit": "0f70e8ca6f83fb1bb2285fdae90f0f8a4f083937",
+    "subject": "test: reject scale-factored M64N256 NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "Can an exact scale-factored E2M1 decoder remove enough HFMA2 and PRMT work from the retained M64xN256 A-only-CA kernel to clear the native C512 Gate admission threshold?",
+    "answer": "No. The formulation is bitwise exact and compiles to half as many HFMA2 sites and no PRMT sites, but the compiler expands its scalar integer, predicate, and select path enough to grow the kernel from 1416 to 2240 static instructions and nearly double measured latency.",
+    "classification": "reject the compiled scale-factored decoder and retain the runtime-codebook A-only-CA M64xN256 test baseline",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "production_dispatch_changed": false,
+    "decode_route_changed": false,
+    "mtp_used": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "grid": "68 N tiles x 8 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "accumulator_fragments_per_warp": 16,
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "activation_cache_operator": "A uses cp.async.ca",
+    "weight_and_scale_cache_operator": "packed B and scales use cp.async.cg",
+    "sidecar_required": false,
+    "comparison_baseline": "retained M64xN256 A-only-CA test kernel with identical tile, cache operators, pipeline, HMMA body, and packed-BF16 epilogue"
+  },
+  "scale_factored_decoder": {
+    "scope": "test-only candidate decoder for one packed NVFP4 x4 and one decoded E4M3FN BF16 scale",
+    "construction": "compute scale times 1.5 once with one packed BF16 multiply; for each E2M1 magnitude select scale or scale times 1.5, adjust the BF16 exponent field by -1, 0, +1, or +2, XOR the encoded signs, and explicitly select signed zero or canonical NaN",
+    "magnitude_mapping": {
+      "q1": "scale with exponent -1",
+      "q2": "scale with exponent +0",
+      "q3": "scale*1.5 with exponent +0",
+      "q4": "scale with exponent +1",
+      "q5": "scale*1.5 with exponent +1",
+      "q6": "scale with exponent +2",
+      "q7": "scale*1.5 with exponent +2"
+    },
+    "exactness_basis": "Every finite E4M3FN scale and its product by 1.5 are exactly representable in BF16; the finite E4M3FN range keeps the selected exponent-adjusted products normal and finite, while zero and both NaN encodings are handled explicitly.",
+    "candidate_specific_exhaustive": {
+      "scale_encodings": 256,
+      "packed_byte_values": 256,
+      "packed_byte_positions": 2,
+      "combinations": 131072,
+      "mismatches": 0,
+      "gate": "pass"
+    }
+  },
+  "resource_contract": {
+    "registers_per_thread": 123,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 43008,
+    "logical_shared_bytes_per_cta": 43520,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "sass_comparison": {
+    "measurement": "static instruction sites in the instantiated kernel SASS, not dynamic execution counts",
+    "baseline_m64n256_a_only_ca": {
+      "instructions": 1416,
+      "hfma2_bf16_v2_sites": 32,
+      "hmma_sites": 64,
+      "prmt_sites": 128,
+      "ldgsts_sites": 15,
+      "barsync_sites": 3,
+      "depbar_sites": 6,
+      "local_memory_instruction_sites": 0
+    },
+    "candidate_scale_factored": {
+      "instructions": 2240,
+      "hfma2_bf16_v2_sites": 16,
+      "hmma_sites": 64,
+      "prmt_sites": 0,
+      "ldgsts_sites": 15,
+      "barsync_sites": 3,
+      "depbar_sites": 6,
+      "local_memory_instruction_sites": 0
+    },
+    "candidate_minus_baseline": {
+      "instructions": 824,
+      "instruction_increase_percent": 58.192090395,
+      "hfma2_bf16_v2_sites": -16,
+      "hmma_sites": 0,
+      "prmt_sites": -128,
+      "ldgsts_sites": 0,
+      "barsync_sites": 0,
+      "depbar_sites": 0,
+      "local_memory_instruction_sites": 0
+    },
+    "conclusion": "Removing arithmetic and permutation sites is insufficient when the replacement source expands into a much larger scalar integer/predicate/select body. No Nsight causal attribution is claimed after the decisive formal timing rejection."
+  },
+  "correctness_and_graph_contract": {
+    "retained_x4_exhaustive_gate": "pass",
+    "scale_factored_candidate_exhaustive_mismatches": 0,
+    "scale_factored_candidate_exhaustive_combinations": 131072,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_projection_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_outputs_compared": 17825792,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "sidecars_immutable": true,
+    "sidecar_allocation": "skipped; canonical direct path",
+    "output_guards": "intact",
+    "gate": "pass"
+  },
+  "formal_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "retained M64xN256 A-only-CA kernel with table-free BF16x2 multiply decoder",
+      "candidate": "identical M64xN256 kernel with the exact scale-factored x4 decoder",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "host_affinity": "taskset CPU 11",
+      "power_mode": "MAXN",
+      "system_clock_state": {
+        "cpu_ghz": 2.2016,
+        "gpu_ghz": 1.3005,
+        "emc_ghz": 3.2,
+        "state": "already fixed by the system",
+        "mutation_by_this_run": false
+      },
+      "required_speedup": 1.0,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "pair_stop_loss": "skip Gate+Up pair unless every single-Gate round is positive and the candidate clears the absolute-latency gate"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 5.388255,
+        "C1_ms": 10.429093,
+        "C2_ms": 10.429800,
+        "B2_ms": 5.386927,
+        "speedup": 0.516575
+      },
+      {
+        "round": 2,
+        "B1_ms": 5.387604,
+        "C1_ms": 10.430211,
+        "C2_ms": 10.429131,
+        "B2_ms": 5.387218,
+        "speedup": 0.516547
+      },
+      {
+        "round": 3,
+        "B1_ms": 5.387437,
+        "C1_ms": 10.429237,
+        "C2_ms": 10.428488,
+        "B2_ms": 5.387149,
+        "speedup": 0.516575
+      },
+      {
+        "round": 4,
+        "B1_ms": 5.388084,
+        "C1_ms": 10.429523,
+        "C2_ms": 10.429687,
+        "B2_ms": 5.388744,
+        "speedup": 0.516646
+      },
+      {
+        "round": 5,
+        "B1_ms": 5.388104,
+        "C1_ms": 10.429185,
+        "C2_ms": 10.430651,
+        "B2_ms": 5.387815,
+        "speedup": 0.516587
+      },
+      {
+        "round": 6,
+        "B1_ms": 5.388929,
+        "C1_ms": 10.430129,
+        "C2_ms": 10.431257,
+        "B2_ms": 5.387500,
+        "speedup": 0.516573
+      }
+    ],
+    "aggregate": {
+      "baseline_m64n256_a_only_ca_ms": 5.387814,
+      "candidate_scale_factored_ms": 10.429699,
+      "candidate_vs_baseline_speed": 0.516584,
+      "candidate_latency_increase_percent": 93.579418295,
+      "positive_rounds": 0,
+      "negative_rounds": 6,
+      "rounds_total": 6,
+      "every_round_strict_positive": false,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "absolute_candidate_gate": "fail",
+      "absolute_gate_gap_ms": 5.125360,
+      "additional_candidate_latency_reduction_needed_for_gate_percent": 49.141974279,
+      "pair_screen": "skipped by stop-loss",
+      "nsight_compute": "not run after decisive formal rejection",
+      "decision": "reject the scale-factored decoder and retain the A-only-CA baseline"
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m64n256cafactored-validate.log",
+        "bytes": 1788,
+        "sha256": "cbca4f1edd1fbeccd47634f75ece602452a03159a45506e10b0f801baebc874b"
+      },
+      "screen_log": {
+        "path": "/tmp/q3x-m64n256cafactored-screen-taskset.log",
+        "bytes": 10235,
+        "sha256": "373108713ea29994f08bbf138b395ae40e603fbbe88636d7ec653aa0e74f3d55",
+        "expected_exit": "nonzero because all six relative rounds and the absolute candidate gate reject the candidate"
+      },
+      "baseline_sass": {
+        "path": "/tmp/q3x-m64n256ca-current.sass",
+        "bytes": 356910,
+        "sha256": "d6e8a32adae68df032fdbcab57295777798c2e0e6ec8944fb563333b260eb2d8"
+      },
+      "candidate_sass": {
+        "path": "/tmp/q3x-m64n256cafactored.sass",
+        "bytes": 564558,
+        "sha256": "e92b62c59027d5749435bbf5ea870d198e4f951c3da9cb03e2bb7ea924583048"
+      },
+      "clean_full_ctest_log": {
+        "path": "/tmp/q3x-m64n256cafactored-ctest-clean.log",
+        "bytes": 13915,
+        "sha256": "e033dd89e6fcbb83ad62e35fa93df512ce33bb103bfa2e0ff0b6b4aecfa788f8"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5464112,
+        "sha256": "51c37d29d46b5f7e510d29cebf183f8e5b5b4de06c6c00f382784b4d2cd66212"
+      }
+    }
+  },
+  "regression_validation": {
+    "manual_m64n256_ca_factored_validate": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.10,
+      "execution": "authoritative isolated clean sequential full suite"
+    },
+    "concurrency_incident": {
+      "classification": "invalidated performance evidence, not a regression",
+      "initial_non_authoritative_result": "one nvfp4_prefill_gate_c512_cublaslt_ceiling timing failure while another GPU workload competed for resources",
+      "isolated_target_rerun": "pass",
+      "authoritative_unique_serial_full_suite": "69 passed, 12 expected skips, 0 failed",
+      "statement_guard": "Do not report the concurrent ceiling-test miss as a code regression; the isolated rerun and the sole clean serial full suite exclude it."
+    }
+  },
+  "decision": {
+    "candidate": "rejected",
+    "retained_value": "keep the test-only exact implementation and exhaustive/SASS evidence as a sentinel against source-level operation-count assumptions that compile into branch-heavy scalar instruction expansion",
+    "retained_native_baseline": "M64xN256 A-only cp.async.ca with runtime codebook construction",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "production_dispatch_semantics": "unchanged",
+    "decode_route": "unchanged",
+    "mtp_used": false,
+    "pair_screen": "skipped",
+    "nsight_compute": "not run",
+    "next_bounded_work": "Any further native decode candidate must demonstrate compact compiled SASS before consuming formal timing budget; do not repeat this compiler-expanded scalar exponent/select formulation."
+  }
+}
