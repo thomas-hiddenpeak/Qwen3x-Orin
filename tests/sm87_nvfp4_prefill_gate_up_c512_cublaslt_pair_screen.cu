@@ -5,6 +5,7 @@
 
 #include <cublasLt.h>
 #include <cuda_bf16.h>
+#include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 
 #include <algorithm>
@@ -1156,6 +1157,46 @@ struct ClockState {
   return selected;
 }
 
+void print_selected_algorithm_config(
+    const SelectedAlgorithm& selected) {
+  const auto read_config = [&selected](
+                               const cublasLtMatmulAlgoConfigAttributes_t
+                                   attribute,
+                               auto* const value) {
+    std::size_t written = 0U;
+    return value != nullptr &&
+           cublasLtMatmulAlgoConfigGetAttribute(
+               &selected.value, attribute, value, sizeof(*value), &written) ==
+               CUBLAS_STATUS_SUCCESS &&
+           written == sizeof(*value);
+  };
+  std::int32_t algorithm_id = -1;
+  std::uint32_t tile_id = 0U;
+  std::int32_t split_k = 0;
+  std::uint32_t reduction_scheme = 0U;
+  std::uint32_t cta_swizzle = 0U;
+  std::uint32_t custom_option = 0U;
+  std::uint32_t stages_id = 0U;
+  const bool available =
+      read_config(CUBLASLT_ALGO_CONFIG_ID, &algorithm_id) &&
+      read_config(CUBLASLT_ALGO_CONFIG_TILE_ID, &tile_id) &&
+      read_config(CUBLASLT_ALGO_CONFIG_SPLITK_NUM, &split_k) &&
+      read_config(CUBLASLT_ALGO_CONFIG_REDUCTION_SCHEME,
+                  &reduction_scheme) &&
+      read_config(CUBLASLT_ALGO_CONFIG_CTA_SWIZZLING, &cta_swizzle) &&
+      read_config(CUBLASLT_ALGO_CONFIG_CUSTOM_OPTION, &custom_option) &&
+      read_config(CUBLASLT_ALGO_CONFIG_STAGES_ID, &stages_id);
+  std::cout << "NVFP4_PAIR_LT_CONFIG: available="
+            << (available ? "true" : "false")
+            << " heuristic_index=" << selected.heuristic_index
+            << " algorithm_id=" << algorithm_id
+            << " tile_id=" << tile_id << " split_k=" << split_k
+            << " reduction_scheme=" << reduction_scheme
+            << " cta_swizzle=" << cta_swizzle
+            << " custom_option=" << custom_option
+            << " stages_id=" << stages_id << '\n';
+}
+
 [[nodiscard]] bool launch_production_branch(
     const std::uint8_t* const packed, const std::uint8_t* const scales,
     const float weight_scale_2, const __nv_bfloat16* const activation,
@@ -1943,17 +1984,63 @@ struct ComparisonResult {
 enum class Mode {
   kSmoke,
   kPerformanceCheckpoint,
+  kProfileCheckpoint,
 };
 
 [[nodiscard]] constexpr const char* mode_name(const Mode mode) noexcept {
-  return mode == Mode::kSmoke ? "smoke" : "performance-checkpoint";
+  switch (mode) {
+    case Mode::kSmoke:
+      return "smoke";
+    case Mode::kPerformanceCheckpoint:
+      return "performance-checkpoint";
+    case Mode::kProfileCheckpoint:
+      return "profile-checkpoint";
+  }
+  return "unknown";
+}
+
+enum class ProfileTarget : std::uint8_t {
+  kBridgeDequant,
+  kBridgeBf16Gemm,
+  kNativeNvfp4Gemm,
+};
+
+[[nodiscard]] constexpr const char* profile_target_name(
+    const ProfileTarget target) noexcept {
+  switch (target) {
+    case ProfileTarget::kBridgeDequant:
+      return "bridge-dequant";
+    case ProfileTarget::kBridgeBf16Gemm:
+      return "bridge-bf16-gemm";
+    case ProfileTarget::kNativeNvfp4Gemm:
+      return "native-nvfp4-gemm";
+  }
+  return "unknown";
 }
 
 struct Options {
   std::string checkpoint_directory;
   NativeKernel native_kernel = NativeKernel::kM64N256PairLookup;
+  std::optional<ProfileTarget> profile_target;
   Mode mode = Mode::kSmoke;
 };
+
+[[nodiscard]] bool parse_profile_target(const std::string& value,
+                                        ProfileTarget& target) {
+  if (value == "bridge-dequant") {
+    target = ProfileTarget::kBridgeDequant;
+    return true;
+  }
+  if (value == "bridge-bf16-gemm") {
+    target = ProfileTarget::kBridgeBf16Gemm;
+    return true;
+  }
+  if (value == "native-nvfp4-gemm") {
+    target = ProfileTarget::kNativeNvfp4Gemm;
+    return true;
+  }
+  return false;
+}
 
 [[nodiscard]] bool parse_native_kernel(const std::string& value,
                                        NativeKernel& kernel) {
@@ -1979,6 +2066,7 @@ struct Options {
   bool checkpoint_seen = false;
   bool native_seen = false;
   bool mode_seen = false;
+  bool profile_target_seen = false;
   for (int index = 1; index < argc; ++index) {
     const std::string argument(argv[index]);
     if (argument == "--mode" || argument.rfind("--mode=", 0U) == 0U) {
@@ -1988,7 +2076,8 @@ struct Options {
       }
       mode_seen = true;
       if (argument == "--mode" && index + 1 >= argc) {
-        std::cerr << "--mode requires smoke or performance-checkpoint\n";
+        std::cerr << "--mode requires smoke, performance-checkpoint, or "
+                     "profile-checkpoint\n";
         return false;
       }
       const std::string value =
@@ -1999,6 +2088,8 @@ struct Options {
         options.mode = Mode::kSmoke;
       } else if (value == "performance-checkpoint") {
         options.mode = Mode::kPerformanceCheckpoint;
+      } else if (value == "profile-checkpoint") {
+        options.mode = Mode::kProfileCheckpoint;
       } else {
         std::cerr << "unknown --mode value: " << value << '\n';
         return false;
@@ -2049,12 +2140,108 @@ struct Options {
         std::cerr << "unknown --native value: " << value << '\n';
         return false;
       }
+    } else if (argument == "--profile-target" ||
+               argument.rfind("--profile-target=", 0U) == 0U) {
+      if (profile_target_seen) {
+        std::cerr << "duplicate --profile-target argument\n";
+        return false;
+      }
+      profile_target_seen = true;
+      if (argument == "--profile-target" && index + 1 >= argc) {
+        std::cerr << "--profile-target requires a value\n";
+        return false;
+      }
+      const std::string value =
+          argument == "--profile-target"
+              ? std::string(argv[++index])
+              : argument.substr(std::string("--profile-target=").size());
+      ProfileTarget target = ProfileTarget::kBridgeDequant;
+      if (!parse_profile_target(value, target)) {
+        std::cerr << "unknown --profile-target value: " << value << '\n';
+        return false;
+      }
+      options.profile_target = target;
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return false;
     }
   }
   return true;
+}
+
+[[nodiscard]] bool run_profile_checkpoint(
+    TestContext& test, Fixture& fixture, const Execution& execution,
+    const LtObjects& main_lt, const SelectedAlgorithm& selected,
+    const ProfileTarget target) {
+  const cudaStream_t stream = execution.main();
+  bool ready = true;
+  if (target == ProfileTarget::kBridgeDequant) {
+    ready = launch_dequantize(
+                fixture.gate_packed.get(), fixture.gate_scales.get(),
+                fixture.scratch0.get(), stream) &&
+            ready;
+  } else if (target == ProfileTarget::kBridgeBf16Gemm) {
+    ready = launch_dequantize(
+                fixture.gate_packed.get(), fixture.gate_scales.get(),
+                fixture.scratch0.get(), stream) &&
+            ready;
+    ready = launch_lt(main_lt, selected.value,
+                      fixture.gate_weight_scale_2, fixture.scratch0.get(),
+                      fixture.activation.get(), fixture.candidate_gate(),
+                      stream) &&
+            ready;
+  } else {
+    ready = launch_native_branch(
+                fixture.native_kernel, fixture.gate_packed.get(),
+                fixture.gate_scales.get(), fixture.gate_weight_scale_2,
+                fixture.activation.get(), fixture.candidate_gate(), stream) &&
+            ready;
+  }
+  ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                       "profile target warmup synchronize") &&
+          ready;
+  if (!ready) {
+    return false;
+  }
+
+  std::cout << "NVFP4_PAIR_PROFILE_ARMED: target="
+            << profile_target_name(target)
+            << " M=" << kM << " N=" << kN << " K=" << kK
+            << " branch=gate"
+            << " launches=1"
+            << " evidence=checkpoint_weight_only"
+            << " profile_authority=diagnostic\n";
+  ready = test.cuda_ok(cudaProfilerStart(), "start external profiler") &&
+          ready;
+  bool launch_ready = false;
+  if (ready && target == ProfileTarget::kBridgeDequant) {
+    launch_ready = launch_dequantize(
+        fixture.gate_packed.get(), fixture.gate_scales.get(),
+        fixture.scratch0.get(), stream);
+  } else if (ready && target == ProfileTarget::kBridgeBf16Gemm) {
+    launch_ready = launch_lt(
+        main_lt, selected.value, fixture.gate_weight_scale_2,
+        fixture.scratch0.get(), fixture.activation.get(),
+        fixture.candidate_gate(), stream);
+  } else if (ready) {
+    launch_ready = launch_native_branch(
+        fixture.native_kernel, fixture.gate_packed.get(),
+        fixture.gate_scales.get(), fixture.gate_weight_scale_2,
+        fixture.activation.get(), fixture.candidate_gate(), stream);
+  }
+  test.expect(launch_ready, "profile target launch succeeds");
+  ready = launch_ready && ready;
+  ready = test.cuda_ok(cudaStreamSynchronize(stream),
+                       "profile target synchronize") &&
+          ready;
+  ready = test.cuda_ok(cudaProfilerStop(), "stop external profiler") && ready;
+  std::cout << "NVFP4_PAIR_PROFILE_RESULT: target="
+            << profile_target_name(target)
+            << " launches=1 admission=NOT_RUN"
+            << " evidence=checkpoint_weight_only"
+            << " profile_authority=diagnostic"
+            << " status=" << (ready ? "PASS" : "FAIL") << '\n';
+  return ready;
 }
 
 void print_payload_provenance(
@@ -2157,20 +2344,31 @@ int main(const int argc, char** const argv) {
   }
   const bool performance_checkpoint =
       options.mode == Mode::kPerformanceCheckpoint;
-  if (performance_checkpoint && options.checkpoint_directory.empty()) {
-    std::cerr << "--mode=performance-checkpoint requires --checkpoint DIR\n";
+  const bool profile_checkpoint = options.mode == Mode::kProfileCheckpoint;
+  const bool checkpoint_mode = performance_checkpoint || profile_checkpoint;
+  if (checkpoint_mode && options.checkpoint_directory.empty()) {
+    std::cerr << "--mode=" << mode_name(options.mode)
+              << " requires --checkpoint DIR\n";
     return 2;
   }
-  if (!performance_checkpoint && !options.checkpoint_directory.empty()) {
-    std::cerr << "--checkpoint is only valid with "
-                 "--mode=performance-checkpoint; no implicit performance "
-                 "mode is selected\n";
+  if (!checkpoint_mode && !options.checkpoint_directory.empty()) {
+    std::cerr << "--checkpoint is only valid with a checkpoint mode; no "
+                 "implicit performance or profile mode is selected\n";
+    return 2;
+  }
+  if (profile_checkpoint && !options.profile_target.has_value()) {
+    std::cerr << "--mode=profile-checkpoint requires --profile-target\n";
+    return 2;
+  }
+  if (!profile_checkpoint && options.profile_target.has_value()) {
+    std::cerr << "--profile-target is only valid with "
+                 "--mode=profile-checkpoint\n";
     return 2;
   }
   TestContext test;
   CheckpointPayload checkpoint_payload;
   const CheckpointPayload* selected_checkpoint = nullptr;
-  if (performance_checkpoint) {
+  if (checkpoint_mode) {
     q3x::test::support::PinnedBundleLoadOptions pinned_options;
     pinned_options.tensor_names = {
         std::string(q3x::test::support::kQwen36Layer0GateWeight),
@@ -2227,8 +2425,10 @@ int main(const int argc, char** const argv) {
             << " admission="
             << (performance_checkpoint ? "PENDING" : "NOT_RUN")
             << " evidence="
-            << (performance_checkpoint ? "checkpoint_weight_only"
-                                       : "synthetic_smoke")
+            << (checkpoint_mode ? "checkpoint_weight_only"
+                                : "synthetic_smoke")
+            << " profile_authority="
+            << (profile_checkpoint ? "diagnostic" : "not_applicable")
             << '\n';
   int device = 0;
   if (!test.cuda_ok(cudaGetDevice(&device), "get active CUDA device")) {
@@ -2246,9 +2446,9 @@ int main(const int argc, char** const argv) {
   }
 
   const std::optional<ClockState> clocks = read_clock_state();
-  if (performance_checkpoint &&
+  if (checkpoint_mode &&
       (!clocks.has_value() || !clocks_are_fixed(*clocks))) {
-    std::cout << "SKIP: Gate/Up pair performance screen requires fixed GPU and "
+    std::cout << "SKIP: Gate/Up pair checkpoint screen requires fixed GPU and "
                  "EMC clocks"
               << " clock_state_available="
               << (clocks.has_value() ? "true" : "false") << '\n';
@@ -2365,10 +2565,45 @@ int main(const int argc, char** const argv) {
             << " main_workspace_bytes=0"
             << " auxiliary_workspace_bytes=" << auxiliary_check.workspaceSize
             << " gate=PASS\n";
+  print_selected_algorithm_config(*selected);
 
   ready = run_native_resource_and_status_gate(test, fixture, execution) &&
           ready;
   ready = generate_production_reference(test, fixture, execution) && ready;
+  if (profile_checkpoint) {
+    ready = run_eager_correctness(
+                test, fixture, execution, main_lt, auxiliary_lt, *selected,
+                Variant::kSerialOneScratch) &&
+            ready;
+    ready = run_eager_correctness(
+                test, fixture, execution, main_lt, auxiliary_lt, *selected,
+                Variant::kNativeSerial) &&
+            ready;
+    if (ready) {
+      ready = run_profile_checkpoint(test, fixture, execution, main_lt,
+                                     *selected, *options.profile_target) &&
+              ready;
+    }
+    ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
+                         "profile final main synchronize") &&
+            ready;
+    ready = test.cuda_ok(cudaStreamSynchronize(execution.auxiliary()),
+                         "profile final auxiliary synchronize") &&
+            ready;
+    if (!ready) {
+      test.expect(false, "profile checkpoint completed all CUDA work");
+    }
+    if (test.failures() != 0) {
+      std::cerr << test.failures()
+                << " Gate/Up profile checkpoint assertion(s) failed\n";
+      return 1;
+    }
+    std::cout << "NVFP4_PAIR_ADMISSION: mode=profile-checkpoint"
+              << " admission=NOT_RUN evidence=checkpoint_weight_only"
+              << " profile_authority=diagnostic status=PASS\n";
+    std::cout << "Gate/Up C512 matched profile checkpoint passed\n";
+    return 0;
+  }
   for (const Variant variant :
        {Variant::kProduction, Variant::kSerialOneScratch,
         Variant::kNaiveDual, Variant::kStaggeredDual,
