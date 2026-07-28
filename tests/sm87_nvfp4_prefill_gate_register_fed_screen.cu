@@ -82,6 +82,20 @@ query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
 }  // namespace q3x::kernels
 
 namespace {
@@ -114,6 +128,7 @@ constexpr int kIterations = 24;
 constexpr int kRounds = 6;
 constexpr double kRequiredGateSpeedup = 1.22;
 constexpr double kRequiredPairSpeedup = 1.20;
+constexpr double kM64N512MaximumMilliseconds = 5.304339;
 constexpr std::uint32_t kSidecarWeightPoison = 0xcdcd'cdcdU;
 constexpr std::uint16_t kSidecarScalePoison = 0xcdcdU;
 constexpr std::array<std::uint8_t, 32U> kCheckpointLikeScaleCodes{{
@@ -138,6 +153,7 @@ enum class CandidateLayout {
   kK64,
   kK16,
   kM64N256,
+  kM64N512,
 };
 
 [[nodiscard]] const char* candidate_layout_name(
@@ -149,8 +165,16 @@ enum class CandidateLayout {
       return "k16";
     case CandidateLayout::kM64N256:
       return "m64n256";
+    case CandidateLayout::kM64N512:
+      return "m64n512";
   }
   return "unknown";
+}
+
+[[nodiscard]] bool uses_canonical_direct_path(
+    const CandidateLayout layout) noexcept {
+  return layout == CandidateLayout::kM64N256 ||
+         layout == CandidateLayout::kM64N512;
 }
 
 class TestContext {
@@ -441,7 +465,7 @@ struct Fixture {
                                           "allocate Gate canonical scales");
     ready = ready && up_scales.allocate(test, kScaleBytes,
                                         "allocate Up canonical scales");
-    if (candidate_layout != CandidateLayout::kM64N256) {
+    if (!uses_canonical_direct_path(candidate_layout)) {
       ready = ready && gate_sidecar_weight_store.allocate(
                            test, kSidecarWeightCount + 2U * kGuardElements,
                            "allocate guarded Gate weight sidecar");
@@ -498,7 +522,7 @@ struct Fixture {
                              activation_elements * sizeof(std::uint16_t),
                              cudaMemcpyHostToDevice, execution.main()),
                          "upload BF16 activations");
-    if (candidate_layout != CandidateLayout::kM64N256) {
+    if (!uses_canonical_direct_path(candidate_layout)) {
       ready = ready && test.cuda_ok(
                            cudaMemsetAsync(gate_sidecar_weight_store.get(),
                                            0xcd,
@@ -540,7 +564,7 @@ struct Fixture {
       return false;
     }
 
-    if (candidate_layout == CandidateLayout::kM64N256) {
+    if (uses_canonical_direct_path(candidate_layout)) {
       std::cout << "REGISTER_FED_SIDECAR_SKIPPED: candidate_layout="
                 << candidate_layout_name(candidate_layout)
                 << " reason=canonical_direct_path"
@@ -848,6 +872,15 @@ enum class Scope {
     Fixture& fixture, const Variant variant, const bool up,
     const cudaStream_t stream) noexcept {
   if (variant == Variant::kBaseline) {
+    if (fixture.candidate_layout == CandidateLayout::kM64N512) {
+      return static_cast<cudaError_t>(q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
+              up ? fixture.up_packed.get() : fixture.gate_packed.get(),
+              up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
+              fixture.activations.get(), fixture.token_count, kRows, kColumns,
+              up ? fixture.up_output() : fixture.gate_output(),
+              static_cast<void*>(stream)));
+    }
     return static_cast<cudaError_t>(q3x::kernels::
         launch_sm87_nvfp4_w4a16_whole_chunk_gate_up_branch_gemm_bf16_cuda(
             up ? fixture.up_packed.get() : fixture.gate_packed.get(),
@@ -859,6 +892,15 @@ enum class Scope {
   if (fixture.candidate_layout == CandidateLayout::kM64N256) {
     return static_cast<cudaError_t>(q3x::kernels::
         launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
+            up ? fixture.up_packed.get() : fixture.gate_packed.get(),
+            up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
+            fixture.activations.get(), fixture.token_count, kRows, kColumns,
+            up ? fixture.up_output() : fixture.gate_output(),
+            static_cast<void*>(stream)));
+  }
+  if (fixture.candidate_layout == CandidateLayout::kM64N512) {
+    return static_cast<cudaError_t>(q3x::kernels::
+        launch_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_test_cuda(
             up ? fixture.up_packed.get() : fixture.gate_packed.get(),
             up ? fixture.up_scales.get() : fixture.gate_scales.get(), 1.0F,
             fixture.activations.get(), fixture.token_count, kRows, kColumns,
@@ -916,21 +958,29 @@ enum class Scope {
 
 [[nodiscard]] bool run_resource_gate(TestContext& test,
                                      const CandidateLayout layout) {
-  if (layout == CandidateLayout::kM64N256) {
+  if (uses_canonical_direct_path(layout)) {
     int registers = -1;
     std::size_t static_shared = std::numeric_limits<std::size_t>::max();
     std::size_t dynamic_shared = std::numeric_limits<std::size_t>::max();
     std::size_t local = std::numeric_limits<std::size_t>::max();
     int threads = -1;
     int active = -1;
-    const int status = q3x::kernels::
-        query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
-            512U, kRows, kColumns, &registers, &static_shared,
-            &dynamic_shared, &local, &threads, &active);
+    const int status =
+        layout == CandidateLayout::kM64N512
+            ? q3x::kernels::
+                  query_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_resources_test_cuda(
+                      512U, kRows, kColumns, &registers, &static_shared,
+                      &dynamic_shared, &local, &threads, &active)
+            : q3x::kernels::
+                  query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
+                      512U, kRows, kColumns, &registers, &static_shared,
+                      &dynamic_shared, &local, &threads, &active);
+    const bool is_n512 = layout == CandidateLayout::kM64N512;
     const bool gate = status == static_cast<int>(cudaSuccess) &&
                       registers <= 128 && static_shared == 512U &&
-                      dynamic_shared == 43'008U && local == 0U &&
-                      threads == 256 && active >= 2;
+                      dynamic_shared == (is_n512 ? 67'584U : 43'008U) &&
+                      local == 0U && threads == (is_n512 ? 512 : 256) &&
+                      active >= (is_n512 ? 1 : 2);
     std::cout << "REGISTER_FED_RESOURCES: candidate_layout="
               << candidate_layout_name(layout) << " tokens=512"
               << " status=" << status << " registers=" << registers
@@ -939,7 +989,8 @@ enum class Scope {
               << " local_bytes=" << local << " threads=" << threads
               << " active_blocks_per_sm=" << active
               << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
-    test.expect(gate, "M64N256 candidate clears frozen resources");
+    test.expect(gate, std::string(candidate_layout_name(layout)) +
+                          " candidate clears frozen resources");
     return gate;
   }
 
@@ -1059,6 +1110,13 @@ enum class Scope {
               reinterpret_cast<const std::uint8_t*>(s), scale, a, tokens,
               rows, columns, o, static_cast<void*>(stream));
     }
+    if (layout == CandidateLayout::kM64N512) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gate_c512_m64_n512_k64_cp_async_test_cuda(
+              reinterpret_cast<const std::uint8_t*>(w),
+              reinterpret_cast<const std::uint8_t*>(s), scale, a, tokens,
+              rows, columns, o, static_cast<void*>(stream));
+    }
     return q3x::kernels::
         launch_sm87_nvfp4_w4a16_whole_chunk_gate_m128_register_fed_test_cuda(
             w, s, scale, a, tokens, rows, columns, o,
@@ -1069,7 +1127,12 @@ enum class Scope {
   bool ready = test.cuda_ok(
       cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
       "invalid begin capture");
-  std::array<int, 21U> statuses{};
+  constexpr std::size_t kCommonInvalidCaseCount = 21U;
+  constexpr std::size_t kCanonicalDirectInvalidCaseCount = 23U;
+  const std::size_t expected_status_count =
+      uses_canonical_direct_path(layout) ? kCanonicalDirectInvalidCaseCount
+                                         : kCommonInvalidCaseCount;
+  std::array<int, kCanonicalDirectInvalidCaseCount> statuses{};
   statuses.fill(static_cast<int>(cudaErrorUnknown));
   if (ready) {
     statuses[0] = launch(nullptr, scales, 1.0F, activations, kTokens, kRows,
@@ -1121,6 +1184,16 @@ enum class Scope {
                           kRows, kColumns, output);
     statuses[20] = launch(weights, scales, 1.0F, activations, kTokens, kRows,
                           kColumns, wrapping_output);
+    if (uses_canonical_direct_path(layout)) {
+      statuses[21] = launch(
+          weights,
+          reinterpret_cast<const std::uint16_t*>(kScaleAddress + 4U), 1.0F,
+          activations, kTokens, kRows, kColumns, output);
+      statuses[22] = launch(
+          weights,
+          reinterpret_cast<const std::uint16_t*>(kScaleAddress + 8U), 1.0F,
+          activations, kTokens, kRows, kColumns, output);
+    }
     ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
                          "invalid end capture") &&
             ready;
@@ -1136,12 +1209,14 @@ enum class Scope {
             ready;
   }
   const std::size_t invalid_count = static_cast<std::size_t>(std::count(
-      statuses.begin(), statuses.end(),
+      statuses.begin(), statuses.begin() + expected_status_count,
       static_cast<int>(cudaErrorInvalidValue)));
-  const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
+  const bool gate = ready && invalid_count == expected_status_count &&
+                    nodes == 0U;
   std::cout << "REGISTER_FED_INVALID_GRAPH: candidate_layout="
             << candidate_layout_name(layout)
-            << " invalid_statuses=" << invalid_count << '/' << statuses.size()
+            << " invalid_statuses=" << invalid_count << '/'
+            << expected_status_count
             << " graph_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "invalid register-fed calls enqueue zero graph nodes");
@@ -1238,7 +1313,11 @@ enum class Scope {
                 "valid candidate instantiate graph") &&
             ready;
   }
-  const bool gate = ready && node_count > 0U;
+  const bool graph_shape =
+      fixture.candidate_layout == CandidateLayout::kM64N512
+          ? node_count == 2U
+          : node_count > 0U;
+  const bool gate = ready && graph_shape;
   std::cout << "REGISTER_FED_VALID_GRAPH: candidate_layout="
             << candidate_layout_name(fixture.candidate_layout)
             << " graph_nodes=" << node_count
@@ -1252,7 +1331,7 @@ enum class Scope {
                                            const Fixture& fixture,
                                            const Execution& execution) {
   const bool uses_sidecars =
-      fixture.candidate_layout != CandidateLayout::kM64N256;
+      !uses_canonical_direct_path(fixture.candidate_layout);
   std::vector<std::uint8_t> gate_packed(kPackedBytes);
   std::vector<std::uint8_t> up_packed(kPackedBytes);
   std::vector<std::uint8_t> gate_scales(kScaleBytes);
@@ -1474,7 +1553,9 @@ enum class Scope {
   const bool gate = ready && candidate_mismatches == 0U &&
                     replay_mismatches == 0U &&
                     unexpected_nonfinite == 0U && guards && immutable &&
-                    graph_nodes > 0U;
+                    (fixture.candidate_layout == CandidateLayout::kM64N512
+                         ? graph_nodes == 2U
+                         : graph_nodes > 0U);
   std::cout << "REGISTER_FED_CORRECTNESS: candidate_layout="
             << candidate_layout_name(fixture.candidate_layout)
             << " tokens=" << fixture.token_count
@@ -1611,8 +1692,14 @@ enum class Scope {
   const double speedup =
       sums_valid ? baseline_sum / candidate_sum
                  : std::numeric_limits<double>::quiet_NaN();
+  const bool absolute_candidate_gate =
+      fixture.candidate_layout != CandidateLayout::kM64N512 ||
+      scope != Scope::kGate ||
+      (std::isfinite(candidate_ms) &&
+       candidate_ms <= kM64N512MaximumMilliseconds);
   const bool gate = fixture.token_count == 512U && every_round &&
-                    std::isfinite(speedup) && speedup >= required_speedup;
+                    std::isfinite(speedup) && speedup >= required_speedup &&
+                    absolute_candidate_gate;
   std::cout << "PERF_REGISTER_FED_AGGREGATE: candidate_layout="
             << candidate_layout_name(fixture.candidate_layout)
             << " scope=" << scope_name(scope)
@@ -1620,6 +1707,13 @@ enum class Scope {
             << " baseline_ms=" << baseline_ms
             << " candidate_ms=" << candidate_ms << " speedup=" << speedup
             << " required_speedup=" << required_speedup
+            << " maximum_candidate_ms="
+            << (fixture.candidate_layout == CandidateLayout::kM64N512 &&
+                        scope == Scope::kGate
+                    ? kM64N512MaximumMilliseconds
+                    : std::numeric_limits<double>::quiet_NaN())
+            << " absolute_candidate_gate="
+            << (absolute_candidate_gate ? "PASS" : "FAIL")
             << " every_round_strict_positive="
             << (every_round ? "true" : "false") << " rounds=" << kRounds
             << " iterations_per_pass=" << kIterations
@@ -1634,6 +1728,17 @@ enum class Scope {
 
 [[nodiscard]] bool run_screen(TestContext& test, Fixture& fixture,
                               const Execution& execution) {
+  if (fixture.candidate_layout == CandidateLayout::kM64N512) {
+    const bool gate_branch = run_bccb_screen(
+        test, fixture, execution, Scope::kGate, 1.0);
+    if (!gate_branch) {
+      std::cout << "PERF_REGISTER_FED_PAIR_SKIPPED: candidate_layout="
+                << candidate_layout_name(fixture.candidate_layout)
+                << " reason=m64n512_single_gate_stop_loss gate=FAIL\n";
+      return false;
+    }
+    return run_bccb_screen(test, fixture, execution, Scope::kPair, 1.0);
+  }
   const bool gate_branch = run_bccb_screen(test, fixture, execution,
                                            Scope::kGate,
                                            kRequiredGateSpeedup);
@@ -1683,6 +1788,8 @@ struct Options {
       options.candidate_layout = CandidateLayout::kK16;
     } else if (argument == "--candidate=m64n256") {
       options.candidate_layout = CandidateLayout::kM64N256;
+    } else if (argument == "--candidate=m64n512") {
+      options.candidate_layout = CandidateLayout::kM64N512;
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return false;
@@ -1690,6 +1797,12 @@ struct Options {
   }
   if (options.mode == Mode::kScreen && options.token_count != 512U) {
     std::cerr << "screen mode is frozen to --tokens=512\n";
+    return false;
+  }
+  if (uses_canonical_direct_path(options.candidate_layout) &&
+      options.token_count != 512U) {
+    std::cerr << candidate_layout_name(options.candidate_layout)
+              << " is frozen to --tokens=512\n";
     return false;
   }
   return true;
@@ -1746,15 +1859,15 @@ int main(const int argc, char** argv) {
             << " canonical_bytes_per_tensor="
             << kPackedBytes + kScaleBytes
             << " sidecar_bytes_per_tensor="
-            << (options.candidate_layout == CandidateLayout::kM64N256
+            << (uses_canonical_direct_path(options.candidate_layout)
                     ? 0U
                     : kSidecarWeightBytes + kSidecarScaleBytes)
             << " sidecar_required="
-            << (options.candidate_layout == CandidateLayout::kM64N256
+            << (uses_canonical_direct_path(options.candidate_layout)
                     ? "false"
                     : "true")
             << " same_byte_layout="
-            << (options.candidate_layout == CandidateLayout::kM64N256
+            << (uses_canonical_direct_path(options.candidate_layout)
                     ? "not_applicable"
                     : "true")
             << '\n';
