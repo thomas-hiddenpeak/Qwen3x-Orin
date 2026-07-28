@@ -28,6 +28,12 @@ constexpr std::uint32_t kOutputGuard = 0xdeadbeefU;
 
 static_assert(kProbeElements == kTileElements);
 
+[[nodiscard]] __device__ __forceinline__ std::uint32_t pack_bf16_pair(
+    const __nv_bfloat16 low, const __nv_bfloat16 high) noexcept {
+  return static_cast<std::uint32_t>(__bfloat16_as_ushort(low)) |
+         (static_cast<std::uint32_t>(__bfloat16_as_ushort(high)) << 16U);
+}
+
 [[nodiscard]] __host__ __device__ constexpr std::uint16_t marker_for_linear(
     const unsigned int linear) noexcept {
   return static_cast<std::uint16_t>(kMarkerBase + linear);
@@ -125,6 +131,91 @@ extern "C" __global__ void q3x_sm87_bf16_matrix_b_register_feed_kernel(
   wmma::store_matrix_sync(reinterpret_cast<float*>(register_feed_output),
                           register_accumulator, kTileExtent,
                           wmma::mem_row_major);
+}
+
+// Test-only sentinel for the inline instruction shape needed by the proposed
+// M64xN256 Gate cell.  SM87 lowers one public WMMA m16n16 operation to two
+// m16n8 instructions.  Feed those two instructions from the exact A/B
+// fragment registers loaded by WMMA, then store their accumulator registers
+// with the documented m16n8 lane ownership.  A bitwise match proves both the
+// operand split and accumulator ownership before either is used in a full
+// projection kernel.
+extern "C" __global__ void q3x_sm87_bf16_mma_m16n8k16_sentinel_kernel(
+    const std::uint16_t* const a_raw, const std::uint16_t* const b_raw,
+    std::uint32_t* const wmma_output, std::uint32_t* const inline_output) {
+  __shared__ __align__(32) __nv_bfloat16 shared_a[kTileElements];
+  __shared__ __align__(32) __nv_bfloat16 shared_b[kTileElements];
+  const unsigned int lane = threadIdx.x;
+  for (unsigned int linear = lane; linear < kTileElements;
+       linear += kWarpSize) {
+    shared_a[linear] = __ushort_as_bfloat16(a_raw[linear]);
+    shared_b[linear] = __ushort_as_bfloat16(b_raw[linear]);
+  }
+  __syncwarp();
+
+  wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                 wmma::row_major>
+      a_fragment;
+  wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                 wmma::col_major>
+      b_fragment;
+  static_assert(a_fragment.num_elements == kFragmentElements);
+  static_assert(b_fragment.num_elements == kFragmentElements);
+  wmma::load_matrix_sync(a_fragment, shared_a, kTileExtent);
+  wmma::load_matrix_sync(b_fragment, shared_b, kTileExtent);
+
+  const std::uint32_t a0 = pack_bf16_pair(a_fragment.x[0], a_fragment.x[1]);
+  const std::uint32_t a1 = pack_bf16_pair(a_fragment.x[2], a_fragment.x[3]);
+  const std::uint32_t a2 = pack_bf16_pair(a_fragment.x[4], a_fragment.x[5]);
+  const std::uint32_t a3 = pack_bf16_pair(a_fragment.x[6], a_fragment.x[7]);
+  const std::uint32_t b0 = pack_bf16_pair(b_fragment.x[0], b_fragment.x[1]);
+  const std::uint32_t b1 = pack_bf16_pair(b_fragment.x[2], b_fragment.x[3]);
+  const std::uint32_t b2 = pack_bf16_pair(b_fragment.x[4], b_fragment.x[5]);
+  const std::uint32_t b3 = pack_bf16_pair(b_fragment.x[6], b_fragment.x[7]);
+
+  float d00 = 0.0F;
+  float d01 = 0.0F;
+  float d02 = 0.0F;
+  float d03 = 0.0F;
+  float d10 = 0.0F;
+  float d11 = 0.0F;
+  float d12 = 0.0F;
+  float d13 = 0.0F;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};"
+      : "+f"(d00), "+f"(d01), "+f"(d02), "+f"(d03)
+      : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};"
+      : "+f"(d10), "+f"(d11), "+f"(d12), "+f"(d13)
+      : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b2), "r"(b3));
+#endif
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> reference;
+  wmma::fill_fragment(reference, 0.0F);
+  wmma::mma_sync(reference, a_fragment, b_fragment, reference);
+  wmma::store_matrix_sync(reinterpret_cast<float*>(wmma_output), reference,
+                          kTileExtent, wmma::mem_row_major);
+
+  const unsigned int group = lane / 4U;
+  const unsigned int thread_in_group = lane % 4U;
+  const unsigned int column0 = 2U * thread_in_group;
+  const unsigned int row0 = group;
+  const unsigned int row1 = group + 8U;
+  auto* const output = reinterpret_cast<float*>(inline_output);
+  output[row0 * kTileExtent + column0] = d00;
+  output[row0 * kTileExtent + column0 + 1U] = d01;
+  output[row1 * kTileExtent + column0] = d02;
+  output[row1 * kTileExtent + column0 + 1U] = d03;
+  output[row0 * kTileExtent + column0 + 8U] = d10;
+  output[row0 * kTileExtent + column0 + 9U] = d11;
+  output[row1 * kTileExtent + column0 + 8U] = d12;
+  output[row1 * kTileExtent + column0 + 9U] = d13;
 }
 
 class TestContext {
@@ -243,12 +334,16 @@ void expect_guards(TestContext& test, const ManagedBuffer<T>& buffer,
   const bool register_ok = print_one(
       "q3x_sm87_bf16_matrix_b_register_feed_kernel",
       q3x_sm87_bf16_matrix_b_register_feed_kernel);
+  const bool inline_mma_ok = print_one(
+      "q3x_sm87_bf16_mma_m16n8k16_sentinel_kernel",
+      q3x_sm87_bf16_mma_m16n8k16_sentinel_kernel);
   std::cout
       << "BF16_B_FRAGMENT_SASS_INTERFACE: symbols="
       << "q3x_sm87_bf16_matrix_b_fragment_probe_kernel,"
-      << "q3x_sm87_bf16_matrix_b_register_feed_kernel"
+      << "q3x_sm87_bf16_matrix_b_register_feed_kernel,"
+      << "q3x_sm87_bf16_mma_m16n8k16_sentinel_kernel"
       << " tool=cuobjdump flags=--dump-resource-usage,--dump-sass\n";
-  return probe_ok && register_ok;
+  return probe_ok && register_ok && inline_mma_ok;
 }
 
 [[nodiscard]] bool collect_and_validate_mapping(
@@ -416,6 +511,107 @@ void test_register_feed(TestContext& test) {
             << " inputs=immutable outputs=written finite=true\n";
 }
 
+void test_inline_m16n8(TestContext& test) {
+  constexpr std::size_t kGuardedInputElements =
+      kGuardElements + kTileElements + kGuardElements;
+  constexpr std::size_t kGuardedOutputElements =
+      kGuardElements + kTileElements + kGuardElements;
+  ManagedBuffer<std::uint16_t> a;
+  ManagedBuffer<std::uint16_t> b;
+  ManagedBuffer<std::uint32_t> wmma_first;
+  ManagedBuffer<std::uint32_t> inline_first;
+  ManagedBuffer<std::uint32_t> wmma_replay;
+  ManagedBuffer<std::uint32_t> inline_replay;
+  bool ready = test.cuda_ok(a.allocate(kGuardedInputElements),
+                            "allocate inline sentinel A") &&
+               test.cuda_ok(b.allocate(kGuardedInputElements),
+                            "allocate inline sentinel B") &&
+               test.cuda_ok(wmma_first.allocate(kGuardedOutputElements),
+                            "allocate first WMMA sentinel output") &&
+               test.cuda_ok(inline_first.allocate(kGuardedOutputElements),
+                            "allocate first inline sentinel output") &&
+               test.cuda_ok(wmma_replay.allocate(kGuardedOutputElements),
+                            "allocate replay WMMA sentinel output") &&
+               test.cuda_ok(inline_replay.allocate(kGuardedOutputElements),
+                            "allocate replay inline sentinel output");
+  if (!ready) {
+    return;
+  }
+
+  fill_buffer(a, kInputGuard);
+  fill_buffer(b, kInputGuard);
+  fill_buffer(wmma_first, kOutputGuard);
+  fill_buffer(inline_first, kOutputGuard);
+  fill_buffer(wmma_replay, kOutputGuard);
+  fill_buffer(inline_replay, kOutputGuard);
+  for (unsigned int linear = 0U; linear < kTileElements; ++linear) {
+    a[kGuardElements + linear] = make_a_value(linear);
+    b[kGuardElements + linear] = make_b_value(linear);
+  }
+
+  const auto launch = [&](ManagedBuffer<std::uint32_t>& wmma_result,
+                          ManagedBuffer<std::uint32_t>& inline_result,
+                          const std::string& label) {
+    q3x_sm87_bf16_mma_m16n8k16_sentinel_kernel<<<1U, kWarpSize>>>(
+        a.data() + kGuardElements, b.data() + kGuardElements,
+        wmma_result.data() + kGuardElements,
+        inline_result.data() + kGuardElements);
+    ready = test.cuda_ok(cudaGetLastError(), label + " launch") && ready;
+    ready = test.cuda_ok(cudaDeviceSynchronize(), label + " synchronize") &&
+            ready;
+  };
+  launch(wmma_first, inline_first, "first inline m16n8 comparison");
+  launch(wmma_replay, inline_replay, "replay inline m16n8 comparison");
+  if (!ready) {
+    return;
+  }
+
+  const auto payload_equal = [](const auto& lhs, const auto& rhs) {
+    return std::equal(lhs.data() + kGuardElements,
+                      lhs.data() + kGuardElements + kTileElements,
+                      rhs.data() + kGuardElements);
+  };
+  test.expect(payload_equal(wmma_first, inline_first),
+              "two inline m16n8 instructions match one WMMA m16n16 bitwise");
+  test.expect(payload_equal(wmma_first, wmma_replay),
+              "inline sentinel WMMA reference is replay-bitwise");
+  test.expect(payload_equal(inline_first, inline_replay),
+              "inline m16n8 output is replay-bitwise");
+  test.expect(payload_equal(wmma_replay, inline_replay),
+              "replay inline m16n8 matches replay WMMA bitwise");
+
+  expect_guards(test, a, kTileElements, kInputGuard, "inline sentinel A");
+  expect_guards(test, b, kTileElements, kInputGuard, "inline sentinel B");
+  expect_guards(test, wmma_first, kTileElements, kOutputGuard,
+                "first WMMA sentinel output");
+  expect_guards(test, inline_first, kTileElements, kOutputGuard,
+                "first inline sentinel output");
+  expect_guards(test, wmma_replay, kTileElements, kOutputGuard,
+                "replay WMMA sentinel output");
+  expect_guards(test, inline_replay, kTileElements, kOutputGuard,
+                "replay inline sentinel output");
+  bool inputs_immutable = true;
+  bool outputs_written = true;
+  bool finite_outputs = true;
+  for (unsigned int linear = 0U; linear < kTileElements; ++linear) {
+    inputs_immutable =
+        inputs_immutable &&
+        a[kGuardElements + linear] == make_a_value(linear) &&
+        b[kGuardElements + linear] == make_b_value(linear);
+    const std::uint32_t bits = inline_first[kGuardElements + linear];
+    outputs_written = outputs_written && bits != kOutputGuard;
+    finite_outputs = finite_outputs && (bits & 0x7f800000U) != 0x7f800000U;
+  }
+  test.expect(inputs_immutable,
+              "inline sentinel A/B payloads remain bitwise immutable");
+  test.expect(outputs_written,
+              "inline m16n8 sentinel writes every output element");
+  test.expect(finite_outputs, "inline m16n8 sentinel outputs are finite");
+  std::cout << "BF16_INLINE_M16N8_RESULT: wmma_m16n16_vs_two_m16n8=bitwise"
+            << " replay=bitwise guards=intact inputs=immutable"
+            << " outputs=written finite=true\n";
+}
+
 }  // namespace
 
 int main() {
@@ -454,6 +650,7 @@ int main() {
   std::array<unsigned int, kProbeElements> mapping{};
   if (collect_and_validate_mapping(test, probe, &mapping)) {
     test_register_feed(test);
+    test_inline_m16n8(test);
   }
 
   if (test.failures() != 0) {
