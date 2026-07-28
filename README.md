@@ -405,6 +405,20 @@ caching is therefore harmful on this pipeline: the A-only cell remains the
 native test baseline, pair timing is skipped, and production remains
 unchanged. See the [M64xN256 packed-B CA rejection
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection.json).
+A bounded codebook-seed follow-up also stops at its preset short-screen gate.
+It replaces the A-only baseline's per-CTA scalar E4M3FN-to-BF16 lookup-table
+construction with one warp-coalesced 512-byte `cp.async.ca` copy from an
+ordinary device-global seed. All 256 seed entries, 17,825,792 projection
+outputs, and Graph replay are exact; resources remain 128 registers, zero
+local memory, and two CTAs/SM. SASS falls from 1416 to 1392 instructions while
+64 HMMA, 128 PRMT, and nine bypass LDGSTS sites stay fixed, but the CPU-11
+B-C-C-B short screen regresses **5.416544 ms to 5.450288 ms**
+(**0.993808768x**) against the preset **1.008x** continuation gate. The
+six-round screen, NCU, and Gate+Up pair are therefore not run. Production
+dispatch semantics remain unchanged and the runtime-codebook A-only cell
+remains the native baseline; physically, the test module does add a 512-byte
+`.nv.global.init` seed and changes binary size. See the [M64xN256 CA seed
+rejection](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-seed-rejection.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The

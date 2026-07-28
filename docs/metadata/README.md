@@ -1487,6 +1487,18 @@ The diagnostic Phase 3 records are:
   and MIO throttle rises **2.69 points**. Packed B therefore remains on
   `cp.async.cg`; the A-only-CA native baseline and production route are
   unchanged, and pair timing is skipped by stop-loss.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-seed-rejection.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-seed-rejection.json),
+  which rejects replacing the retained A-only-CA kernel's per-CTA scalar
+  E4M3FN-to-BF16 table construction with a warp-coalesced 512-byte
+  device-global seed. The 256/256 seed values, 17,825,792 projection outputs,
+  Graph replay, resources, full 69-pass/12-skip suite, and independent audit
+  pass. SASS removes 24 instructions while preserving 64 HMMA, 128 PRMT, and
+  nine bypass LDGSTS sites, but the CPU-11 MAXN B-C-C-B short screen regresses
+  **5.416544 ms to 5.450288 ms** (**0.993808768x**) and misses the preset
+  **1.008x** continuation gate. Stop-loss therefore skips six formal rounds,
+  NCU, and pair timing. Production dispatch semantics and the A-only baseline
+  are unchanged, although the test module physically adds a 512-byte ordinary
+  `.nv.global.init` seed and changes binary bytes.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

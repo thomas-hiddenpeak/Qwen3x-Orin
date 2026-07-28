@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-seed-rejection",
+  "status": "test-only-short-screen-stop-loss-rejection",
+  "recorded_at": "2026-07-28T23:15:13+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "26c49dddd806d269e8f26d29e49b515464923b7f",
+    "tree": "e3c50b813798441dc5d02c0d8f5bd7505a65c95a",
+    "parent_commit": "e95f7014307df87c31402139f888f3e66185b5da",
+    "subject": "test: reject M64N256 CA seed NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points and one test-module device-global seed"
+  },
+  "purpose": {
+    "question": "Can replacing the retained M64xN256 A-only-CA kernel's per-CTA scalar E4M3FN-to-BF16 codebook construction with one coalesced 512-byte global-to-shared seed remove enough setup instructions to improve Gate latency?",
+    "answer": "No. The static kernel body is 24 instructions shorter and preserves HMMA, PRMT, and streaming-copy counts, but the CPU-pinned B-C-C-B short screen regresses from 5.416544 ms to 5.450288 ms and reaches only 0.993808768x versus the preset 1.008x continuation gate.",
+    "classification": "reject at the preset short-screen stop-loss; do not spend six-round, NCU, or Gate+Up pair budget",
+    "retained_native_baseline": "M64xN256 A-only cp.async.ca with runtime per-CTA codebook construction",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "grid": "68 N tiles x 8 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "accumulator_fragments_per_warp": 16,
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "activation_cache_operator": "A uses cp.async.ca",
+    "weight_and_scale_cache_operator": "packed B and scales use cp.async.cg",
+    "sidecar_required": false,
+    "control_codebook_initialization": "all 256 CTA threads independently decode one E4M3FN code and RNE-encode its BF16 lookup value into shared memory",
+    "candidate_codebook_initialization": "warp 0 issues one 16-byte cp.async.ca per lane, collectively copying the 512-byte precomputed device-global codebook into shared memory, then commits, waits, and synchronizes the CTA",
+    "comparison_isolation": "tile, arithmetic, A/B/scale cache operators, steady-state pipeline, and packed-BF16 epilogue are unchanged"
+  },
+  "seed_contract": {
+    "entries": 256,
+    "entry_type": "uint16 BF16 bit pattern",
+    "payload_bytes": 512,
+    "alignment_bytes": 16,
+    "declaration_storage": "ordinary __device__ const global data; deliberately not __constant__",
+    "elf_section": ".nv.global.init",
+    "elf_section_size_bytes": 512,
+    "elf_symbol_size_bytes": 512,
+    "relocation": "R_CUDA_64",
+    "seed_exhaustive_mismatches": 0,
+    "seed_values_compared": 256,
+    "seed_exhaustive_gate": "pass",
+    "traffic_scope": "the candidate adds a 512-byte logical global-to-shared seed copy per CTA; cache behavior was not profiled after the short-screen rejection"
+  },
+  "module_footprint": {
+    "semantic_production_dispatch_change": false,
+    "physical_module_change": true,
+    "new_initialized_device_global_bytes": 512,
+    "tested_binary": {
+      "bytes": 5461928,
+      "sha256": "720127814604a0aab3caa622b135c3d85f2415cc2b8ee76b518b5b5fdabbe357"
+    },
+    "immediately_preceding_recorded_binary": {
+      "bytes": 5394032,
+      "sha256": "702a1b64a3f4cb3742eb9a3aec977d2b6d43d70f69c109697287239926ad8164",
+      "source_record": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-abca-rejection"
+    },
+    "binary_size_change_bytes": 67896,
+    "attribution_caveat": "The binary-size delta includes the candidate/test entry points and their instantiated code in addition to the 512-byte seed, so it is not attributed solely to initialized global data.",
+    "statement_guard": "Production routing semantics are unchanged, but neither global-data bytes nor tested binary bytes are unchanged."
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 43008,
+    "logical_shared_bytes_per_cta": 43520,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "candidate_matches_control": true,
+    "resource_gate": "pass"
+  },
+  "sass_comparison": {
+    "measurement": "static instruction sites in the instantiated kernel SASS, not dynamic execution counts",
+    "runtime_codebook_control": {
+      "instructions": 1416,
+      "ldgsts_sites": 15,
+      "cache_access_ldgsts_sites": 6,
+      "bypass_ldgsts_sites": 9,
+      "hmma_sites": 64,
+      "prmt_sites": 128,
+      "barsync_sites": 3,
+      "depbar_sites": 6
+    },
+    "global_seed_candidate": {
+      "instructions": 1392,
+      "ldgsts_sites": 16,
+      "cache_access_ldgsts_sites": 7,
+      "bypass_ldgsts_sites": 9,
+      "hmma_sites": 64,
+      "prmt_sites": 128,
+      "barsync_sites": 3,
+      "depbar_sites": 8
+    },
+    "candidate_minus_control": {
+      "instructions": -24,
+      "ldgsts_sites": 1,
+      "cache_access_ldgsts_sites": 1,
+      "bypass_ldgsts_sites": 0,
+      "hmma_sites": 0,
+      "prmt_sites": 0,
+      "barsync_sites": 0,
+      "depbar_sites": 2
+    },
+    "conclusion": "The seed removes scalar setup instructions without changing the steady HMMA/PRMT body or nine streaming B/scale LDGSTS sites, but adds one cached seed-copy LDGSTS site and two DEPBAR sites. Static instruction reduction alone does not predict the measured latency."
+  },
+  "correctness_and_graph_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "seed_exhaustive_mismatches": 0,
+    "seed_values_compared": 256,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_projection_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "sidecar_allocation": "skipped; canonical direct path",
+    "output_guards": "intact",
+    "gate": "pass"
+  },
+  "short_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "retained M64xN256 A-only-CA kernel with runtime shared codebook construction",
+      "candidate": "identical kernel with the ordinary device-global codebook seed",
+      "order": "B-C-C-B",
+      "passes": 4,
+      "warmups_per_pass": 0,
+      "iterations_per_pass": 1,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct profile-range launch",
+      "builder_in_timing": false,
+      "host_affinity": "taskset CPU 11",
+      "power_mode": "MAXN",
+      "system_clock_state": {
+        "cpu_ghz": 2.2016,
+        "gpu_ghz": 1.3005,
+        "emc_ghz": 3.2,
+        "state": "already fixed by the system",
+        "mutation_by_this_run": false
+      },
+      "continuation_speedup_required": 1.008,
+      "stop_loss": "do not run the formal six-round screen, NCU, or Gate+Up pair unless the B-C-C-B short-screen aggregate reaches at least 1.008x"
+    },
+    "passes": {
+      "B1_ms": 5.411168,
+      "C1_ms": 5.452032,
+      "C2_ms": 5.448544,
+      "B2_ms": 5.421920
+    },
+    "aggregate": {
+      "baseline_runtime_codebook_ms": 5.416544,
+      "candidate_global_seed_ms": 5.450288,
+      "candidate_vs_baseline_speed": 0.993808768,
+      "candidate_latency_increase_percent": 0.622980262,
+      "continuation_speedup_required": 1.008,
+      "maximum_candidate_ms_for_continuation": 5.373555556,
+      "continuation_gate_gap_ms": 0.076732444,
+      "continuation_gate": "fail",
+      "formal_six_round_screen": "not run by preset stop-loss",
+      "nsight_compute": "not run by preset stop-loss",
+      "gate_up_pair_screen": "not run by preset stop-loss",
+      "decision": "reject the seed candidate and retain the runtime-codebook A-only-CA baseline"
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m64n256caseed-validate.log",
+        "bytes": 1443,
+        "sha256": "d1619700a55841c4de2699306944004c254b56f0fd953a392ac1f13cf7975614"
+      },
+      "baseline_B1_log": {
+        "path": "/tmp/q3x-m64n256caseed-short-baseline-1.log",
+        "bytes": 2024,
+        "sha256": "e4dc7c6337bd61e84531c9a84d9e3da4d75cceabfa32eb4f446c157db04dda5d"
+      },
+      "candidate_C1_log": {
+        "path": "/tmp/q3x-m64n256caseed-short-candidate-1.log",
+        "bytes": 2027,
+        "sha256": "b33c177ef24b4bbc977c610b62cf069f1464bbafcf8601c99769442cf705a275"
+      },
+      "candidate_C2_log": {
+        "path": "/tmp/q3x-m64n256caseed-short-candidate-2.log",
+        "bytes": 2027,
+        "sha256": "f5524c80b34c901837a8232048392c9276025ed3e8e604cc6757ea4a5d66ccfe"
+      },
+      "baseline_B2_log": {
+        "path": "/tmp/q3x-m64n256caseed-short-baseline-2.log",
+        "bytes": 2024,
+        "sha256": "7153c4a4c9fd0c02510006ad0172daab82345690c0159df36aa366472321b697"
+      },
+      "aggregate_log": {
+        "path": "/tmp/q3x-m64n256caseed-short-aggregate.log",
+        "bytes": 179,
+        "sha256": "e4276486fc85868895408366c6cd7067503f34263ffa7eb63d6bb8bce923af53"
+      },
+      "sass_summary_log": {
+        "path": "/tmp/q3x-m64n256caseed-sass-summary.log",
+        "bytes": 326,
+        "sha256": "8fb796c996721411d105014928ffe4207d569a2c9eb35f6dd03e8f74d9dc07ee"
+      },
+      "sass_and_elf_log": {
+        "path": "/tmp/q3x-m64n256caseed-sass.log",
+        "bytes": 1505,
+        "sha256": "7fb25efc23aafe655890c9bb321295e8b9ae0358f06f3eb65cb1e1a7a81a8f3d"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5461928,
+        "sha256": "720127814604a0aab3caa622b135c3d85f2415cc2b8ee76b518b5b5fdabbe357"
+      }
+    }
+  },
+  "regression_validation": {
+    "manual_m64n256_ca_seed_validate": "pass",
+    "retained_m64n256_a_only_ca_regression": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.25,
+      "execution": "clean sequential full suite",
+      "raw_artifact_retained": false
+    },
+    "independent_audit": {
+      "result": "pass",
+      "findings": "no blocking seed-table, exhaustive-value, bounds, alignment, resource, Graph, production-isolation, or stop-loss findings"
+    }
+  },
+  "decision": {
+    "candidate": "rejected at the bounded short-screen stop-loss",
+    "retained_value": "keep the test-only implementation and SASS/ELF evidence as a sentinel that removing 24 static setup instructions does not amortize the ordinary-global seed copy and synchronization",
+    "retained_native_baseline": "M64xN256 A-only cp.async.ca with runtime codebook construction",
+    "production_route": "unchanged",
+    "production_dispatch_semantics": "unchanged",
+    "physical_test_module": "changed by a 512-byte initialized device-global seed, additional candidate/test code, and a 67,896-byte tested-binary size increase",
+    "six_round_screen": "not run",
+    "nsight_compute": "not run",
+    "pair_screen": "not run",
+    "next_bounded_work": {
+      "direction": "a structural decode or instruction-scheduling change with a credible path beyond the retained baseline's remaining admission gap",
+      "scope_guard": "use a preset short stop-loss before full six-round, NCU, and pair evidence"
+    },
+    "do_not_repeat": [
+      "do not describe unchanged production dispatch semantics as unchanged module-global or binary bytes",
+      "do not infer latency improvement from a lower static instruction count alone",
+      "do not spend six-round, NCU, or pair budget after the 1.008x short continuation gate fails",
+      "do not route MTP as a shortcut"
+    ]
+  }
+}
