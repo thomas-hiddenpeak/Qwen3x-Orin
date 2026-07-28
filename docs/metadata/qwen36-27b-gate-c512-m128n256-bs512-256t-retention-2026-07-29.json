@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-gate-c512-m128n256-bs512-256t-retention-2026-07-29",
+  "status": "retained-native-test-only-development-cell",
+  "date": "2026-07-29",
+  "source": {
+    "implementation_commit": "375f8df",
+    "implementation_tree": "831603d0821390abd6c109e8804b2b67ce791add",
+    "subject": "perf: retain M128N256 BS512 Gate cell",
+    "files": [
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu"
+    ],
+    "binary": {
+      "path": "build/orin-release/q3x_nvfp4_prefill_gate_up_c512_native_retention",
+      "bytes": 6099920,
+      "sha256": "d449d274349bef7c987c56bb7dd62528aa329a069a46c2de914c6c9e0b4997e0",
+      "elf_build_id": "5907ce0f06c57d3f4f4e51240d329078cb7a7956",
+      "compile_definition": "Q3X_NATIVE_RETENTION_ONLY=1",
+      "cublas_dependency": "ABSENT",
+      "cublaslt_dependency": "ABSENT"
+    },
+    "formal_log": {
+      "path": "/tmp/q3x-m128n256-bs512-256t-retention.BLExu6.log",
+      "bytes": 19588,
+      "sha256": "b247039fdd0d7e6f9a34c8037e420e9b2439fb28260a4e1e1702db77ef410f89",
+      "checked_in": false,
+      "raw_rounds_embedded_below": true
+    }
+  },
+  "policy": {
+    "retention_denominator": "current native experimental incumbent structured BS512",
+    "retention_rule": "hard validity plus every real-weight B-C-C-B round positive and aggregate speedup greater than 1.0",
+    "terminal_external_reference": "cuBLASLt reference-only and not executed",
+    "external_reference_decision_authority": "NONE",
+    "external_reference_production_eligibility": "NONE",
+    "production_promotion": "NOT_RUN",
+    "synthetic_performance_authority": false,
+    "mtp_used": false
+  },
+  "checkpoint": {
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "shard": "model-00001-of-00003.safetensors",
+    "shard_sha256": "b4a0d9a57ff1859dac1144b53ca285011db072737d8813fc16d8d1e07ecae17d",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "gate_weight_scale_2_bits": "0x391e79e8",
+    "gate_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "up_block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "up_weight_scale_2_bits": "0x391e79e8",
+    "up_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "read_only": true,
+    "payload_sha256_pins": true
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "driver": "595.78",
+    "cuda": "13.3",
+    "nvpmodel": "MAXN",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fixed_clocks_reported_by_target": true,
+    "cpu_affinity": [11],
+    "temperature_envelope": "NOT_CAPTURED"
+  },
+  "candidate": {
+    "name": "m128n256_bswizzle_scale512_3stage_256t",
+    "role": "layer-0 exact-C512 Gate and Up native development cell",
+    "shape": {
+      "M": 512,
+      "N": 17408,
+      "K": 5120,
+      "cta_tile": "M128xN256xK64",
+      "grid_ctas_per_branch": 272,
+      "threads_per_cta": 256,
+      "waves_on_16_sms": 17
+    },
+    "mechanism": [
+      "grow retained BS512 token ownership from M64 to M128 without widening the eight-warp CTA",
+      "reuse each decoded B fragment across eight ordered M16 panels rather than four",
+      "retain three raw operand stages, 16-byte B half swizzle, K512 scale windows, exact table-free decoder, K ordering, and coalesced BF16 epilogue",
+      "halve the Gate grid from 544 to 272 CTAs"
+    ],
+    "unchanged": [
+      "production dispatch",
+      "installed API and ABI",
+      "Decode",
+      "Down and FP8 routes",
+      "MTP",
+      "cuBLASLt production isolation"
+    ],
+    "resources": {
+      "registers_per_thread": 241,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 96256,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 1,
+      "resource_gate": "PASS"
+    }
+  },
+  "protocol": {
+    "command": "/usr/bin/taskset --cpu-list 11 build/orin-release/q3x_nvfp4_prefill_gate_up_c512_native_retention --mode=performance-checkpoint --native=m128n256bs512_256t --checkpoint=/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "mode": "performance-checkpoint",
+    "warmups": 2,
+    "iterations_per_sample": 8,
+    "rounds_per_comparison": 6,
+    "order": "B-C-C-B",
+    "cache_protocol": "steady_state_same_layer_weights_no_explicit_l2_scrub",
+    "native_only_fixture_bytes": 176820272,
+    "external_reference_scratch_allocated_bytes": 0
+  },
+  "validation": {
+    "gate_elements_compared_per_replay": 8912896,
+    "up_elements_compared_per_replay": 8912896,
+    "production_eager_replays": 2,
+    "production_graph_replays": 2,
+    "incumbent_serial_eager_and_graph": "bitwise exact",
+    "incumbent_dual_eager_and_graph": "bitwise exact",
+    "candidate_serial_eager_and_graph": "bitwise exact",
+    "candidate_dual_eager_and_graph": "bitwise exact",
+    "nonfinite_outputs": 0,
+    "guards": "intact",
+    "invalid_calls": 4,
+    "invalid_statuses": 4,
+    "scale_32byte_near_miss": "PASS",
+    "invalid_capture_graph_nodes": 0,
+    "build": "PASS",
+    "candidate_smoke": "PASS",
+    "native_only_ctest": "PASS"
+  },
+  "raw_rounds": {
+    "selfhosted_production_vs_candidate_serial": [
+      {"round":1,"order":"B-C-C-B","B1_ms":12.884052,"C1_ms":9.375952,"C2_ms":9.377988,"B2_ms":12.884504,"speedup":1.374034},
+      {"round":2,"order":"B-C-C-B","B1_ms":12.885632,"C1_ms":9.371592,"C2_ms":9.373692,"B2_ms":12.883708,"speedup":1.374711},
+      {"round":3,"order":"B-C-C-B","B1_ms":12.885680,"C1_ms":9.373288,"C2_ms":9.374564,"B2_ms":12.885052,"speedup":1.374596},
+      {"round":4,"order":"B-C-C-B","B1_ms":12.885032,"C1_ms":9.375624,"C2_ms":9.375400,"B2_ms":12.884128,"speedup":1.374280},
+      {"round":5,"order":"B-C-C-B","B1_ms":12.884104,"C1_ms":9.372868,"C2_ms":9.372824,"B2_ms":12.884284,"speedup":1.374630},
+      {"round":6,"order":"B-C-C-B","B1_ms":12.895476,"C1_ms":9.374840,"C2_ms":9.374424,"B2_ms":12.891672,"speedup":1.375369}
+    ],
+    "selfhosted_production_vs_candidate_dual": [
+      {"round":1,"order":"B-C-C-B","B1_ms":12.884336,"C1_ms":9.327976,"C2_ms":9.322240,"B2_ms":12.879484,"speedup":1.381422},
+      {"round":2,"order":"B-C-C-B","B1_ms":12.884824,"C1_ms":9.325232,"C2_ms":9.321732,"B2_ms":12.891020,"speedup":1.382308},
+      {"round":3,"order":"B-C-C-B","B1_ms":12.884388,"C1_ms":9.325192,"C2_ms":9.324972,"B2_ms":12.888844,"speedup":1.381931},
+      {"round":4,"order":"B-C-C-B","B1_ms":12.884904,"C1_ms":9.322204,"C2_ms":9.322788,"B2_ms":12.884440,"speedup":1.382105},
+      {"round":5,"order":"B-C-C-B","B1_ms":12.885732,"C1_ms":9.325928,"C2_ms":9.324124,"B2_ms":12.883524,"speedup":1.381726},
+      {"round":6,"order":"B-C-C-B","B1_ms":12.886980,"C1_ms":9.325860,"C2_ms":9.324108,"B2_ms":12.894328,"speedup":1.382378}
+    ],
+    "candidate_serial_vs_candidate_dual": [
+      {"round":1,"order":"B-C-C-B","B1_ms":9.374876,"C1_ms":9.323000,"C2_ms":9.326644,"B2_ms":9.375236,"speedup":1.005387},
+      {"round":2,"order":"B-C-C-B","B1_ms":9.373280,"C1_ms":9.326408,"C2_ms":9.321992,"B2_ms":9.372964,"speedup":1.005247},
+      {"round":3,"order":"B-C-C-B","B1_ms":9.374372,"C1_ms":9.326968,"C2_ms":9.328172,"B2_ms":9.375924,"speedup":1.005101},
+      {"round":4,"order":"B-C-C-B","B1_ms":9.370584,"C1_ms":9.326400,"C2_ms":9.327896,"B2_ms":9.374548,"speedup":1.004869},
+      {"round":5,"order":"B-C-C-B","B1_ms":9.373512,"C1_ms":9.324660,"C2_ms":9.327276,"B2_ms":9.374412,"speedup":1.005146},
+      {"round":6,"order":"B-C-C-B","B1_ms":9.374008,"C1_ms":9.326100,"C2_ms":9.322936,"B2_ms":9.378176,"speedup":1.005531}
+    ],
+    "native_incumbent_vs_candidate_serial": [
+      {"round":1,"order":"B-C-C-B","B1_ms":10.183448,"C1_ms":9.372332,"C2_ms":9.371256,"B2_ms":10.182820,"speedup":1.086573},
+      {"round":2,"order":"B-C-C-B","B1_ms":10.182760,"C1_ms":9.371448,"C2_ms":9.371712,"B2_ms":10.181340,"speedup":1.086482},
+      {"round":3,"order":"B-C-C-B","B1_ms":10.184040,"C1_ms":9.370352,"C2_ms":9.371844,"B2_ms":10.184404,"speedup":1.086769},
+      {"round":4,"order":"B-C-C-B","B1_ms":10.184568,"C1_ms":9.373496,"C2_ms":9.374012,"B2_ms":10.185412,"speedup":1.086543},
+      {"round":5,"order":"B-C-C-B","B1_ms":10.186600,"C1_ms":9.375768,"C2_ms":9.372068,"B2_ms":10.184816,"speedup":1.086601},
+      {"round":6,"order":"B-C-C-B","B1_ms":10.182136,"C1_ms":9.373196,"C2_ms":9.371956,"B2_ms":10.186544,"speedup":1.086611}
+    ],
+    "native_incumbent_vs_candidate_dual": [
+      {"round":1,"order":"B-C-C-B","B1_ms":10.113996,"C1_ms":9.322404,"C2_ms":9.325872,"B2_ms":10.117896,"speedup":1.084920},
+      {"round":2,"order":"B-C-C-B","B1_ms":10.115384,"C1_ms":9.324232,"C2_ms":9.326644,"B2_ms":10.117456,"speedup":1.084820},
+      {"round":3,"order":"B-C-C-B","B1_ms":10.118632,"C1_ms":9.323224,"C2_ms":9.322436,"B2_ms":10.115488,"speedup":1.085192},
+      {"round":4,"order":"B-C-C-B","B1_ms":10.114592,"C1_ms":9.324248,"C2_ms":9.325548,"B2_ms":10.115576,"speedup":1.084739},
+      {"round":5,"order":"B-C-C-B","B1_ms":10.114316,"C1_ms":9.327888,"C2_ms":9.326392,"B2_ms":10.114792,"speedup":1.084422},
+      {"round":6,"order":"B-C-C-B","B1_ms":10.113372,"C1_ms":9.325472,"C2_ms":9.324580,"B2_ms":10.117156,"speedup":1.084744}
+    ]
+  },
+  "aggregates": {
+    "selfhosted_production_vs_candidate_serial": {
+      "baseline_ms": 12.886110,
+      "candidate_ms": 9.374421,
+      "speedup": 1.374603,
+      "all_rounds_positive": true,
+      "authority": "shape observation only"
+    },
+    "selfhosted_production_vs_candidate_dual": {
+      "baseline_ms": 12.886067,
+      "candidate_ms": 9.324363,
+      "speedup": 1.381978,
+      "all_rounds_positive": true,
+      "authority": "shape observation only"
+    },
+    "candidate_serial_vs_candidate_dual": {
+      "serial_ms": 9.374324,
+      "dual_ms": 9.325704,
+      "speedup": 1.005214,
+      "all_rounds_positive": true,
+      "recommended_schedule": "dual"
+    },
+    "native_incumbent_vs_candidate_serial": {
+      "incumbent_ms": 10.184074,
+      "candidate_ms": 9.372453,
+      "speedup": 1.086596,
+      "all_rounds_positive": true
+    },
+    "native_incumbent_vs_candidate_dual": {
+      "incumbent_ms": 10.115721,
+      "candidate_ms": 9.324912,
+      "speedup": 1.084806,
+      "all_rounds_positive": true
+    }
+  },
+  "decision": {
+    "hard_validity_gate": "PASS",
+    "development_retention_gate": "PASS",
+    "result": "RETAIN",
+    "new_native_experimental_incumbent": "m128n256_bswizzle_scale512_3stage_256t",
+    "recommended_schedule": "dual",
+    "production_promotion": "NOT_RUN",
+    "production_dispatch": "UNCHANGED",
+    "end_to_end_claim": false
+  },
+  "next": {
+    "immediate": "source-identical matched NCU against structured BS512 to verify whether doubled-M reuse reduces decode, scalar shared feed, raw-B landing, and barrier work while improving Tensor duty",
+    "after_attribution": "screen coupled raw-B plus packed-scale consumer-order layout against this new native incumbent",
+    "separate": "implement exact C16 GDN plus BF16 shared-boundary RMSNorm/SiLU composite from docs/GDN_PREFILL_DATAFLOW.md",
+    "down": "repeat shape-specific design and profile; do not transfer the Gate configuration automatically"
+  }
+}

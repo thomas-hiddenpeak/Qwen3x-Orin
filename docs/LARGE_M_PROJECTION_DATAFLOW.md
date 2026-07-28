@@ -4,7 +4,8 @@ Status: architecture reset after the exact-C512 NVFP4 Gate/Up head-to-head at
 commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
 commit `43308b4`, the retained CF3 complete cell at commit `6e415b8`, and the
 retained structured BS512 cell at commit `18c89ac`.  The post-isolation
-BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`.
+BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`,
+and the 256-thread M128xN256 successor is retained at commit `375f8df`.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -13,8 +14,9 @@ eligibility.  Historical commits and measurements that called a cuBLASLt
 bridge a production route are retained below for provenance, but that status
 is explicitly revoked by the qualification policy in this revision.  The
 current native production routes remain selected until an accumulated native
-candidate clears the self-hosted production gate below.  Structured BS512 is
-the retained native experimental baseline for the exact-C512 Gate/Up line.
+candidate clears the self-hosted production gate below.  The 256-thread
+M128xN256 BS512 successor is the retained native experimental baseline for the
+exact-C512 Gate/Up line; production dispatch remains unchanged.
 All timing and profiler evidence in this plan is governed by the
 [real-model performance evidence policy](REAL_MODEL_PERFORMANCE_POLICY.md).
 
@@ -25,7 +27,8 @@ All timing and profiler evidence in this plan is governed by the
    contract.  `N/K` is useful for classifying a family, but is not a sufficient
    production selector.
 2. The M64xN256 PairLookup kernel is the reproducible historical native
-   control; CF3 superseded it, and structured BS512 now supersedes CF3 as the
+   control; CF3 superseded it, structured BS512 superseded CF3, and the
+   256-thread M128xN256 reuse cell now supersedes structured BS512 as the
    retained native experimental baseline.
    Pinned layer-0 real-weight Gate+Up runs measure PairLookup at about
    11.42--11.45 ms versus 7.20--7.26 ms for the best zero-cuBLASLt-workspace
@@ -116,9 +119,9 @@ whole-chunk implementations; each target is retained against the current
 native experimental champion for its role and is promoted only against the
 current native production baseline.
 
-## Primary next NVFP4 cell: one 256-thread M128xN256 CTA
+## Retained NVFP4 cell: one 256-thread M128xN256 CTA
 
-The next bounded Gate experiment grows the retained BS512 CTA vertically from
+The retained Gate experiment grows the prior BS512 CTA vertically from
 M64 to M128 without widening its eight-warp thread block.  It keeps BS512's
 three raw-operand stages, 16-byte B half-swizzle, K512 scale superwindows,
 table-free decoder, K-stage order, and packed-BF16 epilogue.  Only the token
@@ -136,9 +139,9 @@ instead of four.
 - Semantic gate: preserve the exact K64/K16 accumulation order and compare all
   Gate and Up BF16 bits, eager replay, Graph replay, invalid shapes,
   alignments, canaries, and immutable inputs.
-- Retention gate: six real-checkpoint B-C-C-B rounds against structured BS512.
-  Any stable all-positive improvement updates the native experimental
-  champion; cuBLASLt has no vote in that decision.
+- Retention gate: six real-checkpoint B-C-C-B rounds against structured BS512;
+  passed for both serial and dual schedules. cuBLASLt had no vote in that
+  decision and was absent from the native-only binary.
 
 This is intentionally not a cache-policy micro-tune.  It halves the CTA count
 and approximately halves raw-B landing, exact decode, scale presentation, and
@@ -147,6 +150,25 @@ BF16 reference reaches high Tensor utilization with the same 272-CTA,
 256-thread, one-CTA/SM geometry, making this a credible test-only exception to
 the incumbent two-CTA heuristic.  Its lack of an NVFP4 decoder means it is
 evidence of schedulability, not evidence that the new native cell will win.
+
+Commit `375f8df` implements that test-only cell. The exact native-only record
+is
+[`metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-retention-2026-07-29.json`](metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-retention-2026-07-29.json).
+The compiler reports 241 registers/thread, 96,256 dynamic plus 512 static
+shared bytes, zero local bytes, 256 threads, and one CTA/SM. Gate and Up are
+bitwise exact through eager and Graph replay; four invalid calls capture zero
+Graph nodes.
+
+Against structured BS512, six real-weight B-C-C-B rounds retain the new cell:
+
+| Gate+Up schedule | Structured BS512 | M128xN256 256T | Speedup | Every round positive |
+|---|---:|---:|---:|---:|
+| serial | 10.184074 ms | 9.372453 ms | 1.086596x | yes |
+| dual | 10.115721 ms | 9.324912 ms | 1.084806x | yes |
+
+Dual is also uniformly faster than serial at 1.005214x and becomes the
+recommended experimental schedule. This is a development retention result,
+not a production promotion or end-to-end Prefill claim.
 
 ## Prior wide-CTA skeleton: M128xN256 as two sub-CTAs
 
@@ -588,11 +610,13 @@ structural answer.
 Source counters locate 8,042,496 of the native excessive shared wavefronts at
 the two raw-B `LDGSTS.BYPASS.128` sites, versus 835,584 at the two next-largest
 scale/window sites.  Scale prelayout remains a valid bounded experiment, but
-its isolated ceiling is too small to be the primary route.  The immediate
-priority is the 256-thread M128xN256 cell above, which reuses one decoded B
-presentation across twice as many token panels.  The next layout cell treats
-raw B and scale together in consumer order.  Only after those structural
-changes should PRMT/LOP3/IMAD decoder reduction resume.
+its isolated ceiling is too small to be the primary route.  The retained
+256-thread M128xN256 cell above now reuses one decoded B presentation across
+twice as many token panels and improves the real-weight pair by about 8.5%.
+Its source-identical matched NCU comparison with structured BS512 is the
+immediate attribution step.  The next layout cell then treats raw B and scale
+together in consumer order.  Only after those structural changes should
+PRMT/LOP3/IMAD decoder reduction resume.
 
 The one-CTA external kernel uses 238 registers/thread and 147,456 shared bytes
 yet reaches 92.552% Tensor throughput over the same 17 waves.  Occupancy and
@@ -661,14 +685,12 @@ problem.
    Prefill loop.
 4. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-5. Use structured BS512 as the retained native experimental baseline.  First
-   build the 256-thread M128xN256 structural cell, freezing the incumbent's
-   three stages, K512 refill schedule, B/scale swizzles, decoder, accumulation
-   order, and coalesced epilogue.  Admit one CTA/SM only for this shape-specific
-   test cell, with at most 255 registers and zero spill.  Retain it only on six
-   all-positive real-weight B-C-C-B rounds versus BS512.
-6. If the structural cell survives, screen a coupled raw-B plus packed-scale
-   consumer-order layout and complete B-stationary/A-stationary CTA ordering.
+5. The 256-thread M128xN256 structural cell is now the retained native
+   experimental baseline after six all-positive real-weight rounds. Preserve
+   its 241-register, zero-spill, one-CTA/SM resource envelope and collect the
+   source-identical matched NCU attribution against structured BS512.
+6. After attribution, screen a coupled raw-B plus packed-scale consumer-order
+   layout and complete B-stationary/A-stationary CTA ordering.
    A scale-only win may update the native experimental baseline, but it does
    not close the raw-B feed line by itself.  After the shared feed is repaired,
    reduce the table-free decoder's

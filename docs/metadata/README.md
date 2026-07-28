@@ -1577,6 +1577,14 @@ The diagnostic Phase 3 records are:
   M128xN256 decoded-B-reuse cell the next test-only priority. The external
   path remains reference-only with no retention, promotion, fallback, or
   production authority.
+- [`qwen36-27b-gate-c512-m128n256-bs512-256t-retention-2026-07-29.json`](qwen36-27b-gate-c512-m128n256-bs512-256t-retention-2026-07-29.json),
+  which retains the 256-thread M128xN256 structural successor against
+  structured BS512 on the pinned layer-0 Gate/Up checkpoint. Serial improves
+  **10.184074 -> 9.372453 ms (1.086596x)** and dual improves
+  **10.115721 -> 9.324912 ms (1.084806x)**, with all twelve rounds positive.
+  The candidate is bitwise exact, uses 241 registers, 96,256 dynamic plus 512
+  static shared bytes, zero local bytes, and one CTA/SM. cuBLASLt is absent;
+  production promotion and dispatch remain unchanged.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
