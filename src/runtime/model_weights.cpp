@@ -658,6 +658,142 @@ bool ModelWeights::attach_fp8_m1_output_projection_sidecars(
   return true;
 }
 
+bool ModelWeights::attach_fp8_prefill_qkv_register_feed_sidecars(
+    const std::uint8_t* const arena, const std::size_t arena_bytes,
+    const Fp8PrefillQkvRegisterFeedSidecarDescriptor* const descriptors,
+    const std::size_t descriptor_count) noexcept {
+  constexpr std::uintptr_t kRequiredAlignment = 16U;
+  constexpr auto kPointerMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+
+  // The sole empty representation is an explicit detach. Do not make detach
+  // depend on the current projection dtype/shape: clearing every extant FP8
+  // QKV view is always safe and leaves a partially modified test fixture in a
+  // canonical state too.
+  if (descriptor_count == 0U) {
+    if (arena != nullptr || arena_bytes != 0U || descriptors != nullptr) {
+      return false;
+    }
+    for (DecoderLayerWeights& layer : layers_) {
+      auto* const linear =
+          std::get_if<LinearAttentionWeights>(&layer.attention);
+      if (linear == nullptr) {
+        continue;
+      }
+      if (auto* const qkv =
+              std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+          qkv != nullptr) {
+        qkv->prefill_qkv_register_feed_sidecar = nullptr;
+      }
+    }
+    return true;
+  }
+
+  if (descriptor_count != kQwen36LinearAttentionLayerCount ||
+      arena == nullptr || descriptors == nullptr ||
+      descriptor_count >
+          std::numeric_limits<std::size_t>::max() /
+              kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer ||
+      arena_bytes !=
+          descriptor_count *
+              kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer) {
+    return false;
+  }
+
+  const std::uintptr_t arena_address =
+      reinterpret_cast<std::uintptr_t>(arena);
+  if ((arena_address % kRequiredAlignment) != 0U ||
+      arena_bytes > kPointerMaximum ||
+      arena_address > kPointerMaximum - arena_bytes) {
+    return false;
+  }
+  const std::uintptr_t arena_end = arena_address + arena_bytes;
+
+  // Enumerate the actual hybrid schedule first. This deliberately does not
+  // derive layer indices from a 3:1 pattern or assume the 48 linear layers
+  // occupy a contiguous prefix.
+  std::array<Fp8LinearWeight*, kQwen36DenseLayerCount> qkv_by_layer{};
+  std::size_t linear_layer_count = 0U;
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    auto* const linear =
+        std::get_if<LinearAttentionWeights>(&layers_[layer_index].attention);
+    if (linear == nullptr) {
+      continue;
+    }
+    ++linear_layer_count;
+    auto* const qkv = std::get_if<Fp8LinearWeight>(&linear->in_proj_qkv);
+    if (!has_valid_fp8_payload(qkv) ||
+        qkv->output_size != kFp8PrefillQkvRegisterFeedRows ||
+        qkv->input_size != kFp8PrefillQkvRegisterFeedColumns) {
+      return false;
+    }
+    qkv_by_layer[layer_index] = qkv;
+  }
+  if (linear_layer_count != kQwen36LinearAttentionLayerCount) {
+    return false;
+  }
+
+  std::array<bool, kQwen36DenseLayerCount> seen_layers{};
+  std::array<Fp8LinearWeight*, kQwen36LinearAttentionLayerCount> targets{};
+  std::array<const std::uint8_t*, kQwen36LinearAttentionLayerCount>
+      validated_sidecars{};
+  std::array<std::uintptr_t, kQwen36LinearAttentionLayerCount>
+      range_begins{};
+  std::array<std::uintptr_t, kQwen36LinearAttentionLayerCount> range_ends{};
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    const Fp8PrefillQkvRegisterFeedSidecarDescriptor& descriptor =
+        descriptors[index];
+    if (descriptor.layer_index >= kQwen36DenseLayerCount ||
+        seen_layers[descriptor.layer_index] || descriptor.sidecar == nullptr ||
+        descriptor.bytes !=
+            kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer ||
+        descriptor.output_size != kFp8PrefillQkvRegisterFeedRows ||
+        descriptor.input_size != kFp8PrefillQkvRegisterFeedColumns ||
+        qkv_by_layer[descriptor.layer_index] == nullptr) {
+      return false;
+    }
+
+    const std::uintptr_t sidecar_address =
+        reinterpret_cast<std::uintptr_t>(descriptor.sidecar);
+    if ((sidecar_address % kRequiredAlignment) != 0U ||
+        sidecar_address < arena_address || sidecar_address >= arena_end ||
+        descriptor.bytes > kPointerMaximum ||
+        sidecar_address > kPointerMaximum - descriptor.bytes) {
+      return false;
+    }
+    const std::uintptr_t sidecar_end = sidecar_address + descriptor.bytes;
+    if (sidecar_end > arena_end) {
+      return false;
+    }
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (sidecar_address < range_ends[prior] &&
+          range_begins[prior] < sidecar_end) {
+        return false;
+      }
+    }
+
+    seen_layers[descriptor.layer_index] = true;
+    targets[index] = qkv_by_layer[descriptor.layer_index];
+    validated_sidecars[index] = descriptor.sidecar;
+    range_begins[index] = sidecar_address;
+    range_ends[index] = sidecar_end;
+  }
+
+  // Validation is complete. Clear the full old set and install the complete
+  // replacement without any remaining fallible operation.
+  for (Fp8LinearWeight* const qkv : qkv_by_layer) {
+    if (qkv != nullptr) {
+      qkv->prefill_qkv_register_feed_sidecar = nullptr;
+    }
+  }
+  for (std::size_t index = 0U; index < descriptor_count; ++index) {
+    targets[index]->prefill_qkv_register_feed_sidecar =
+        validated_sidecars[index];
+  }
+  return true;
+}
+
 bool ModelWeights::attach_nvfp4_down_scale6_sidecars(
     const std::uint8_t* const arena, const std::size_t arena_bytes,
     const NvFp4DownScale6SidecarDescriptor* const descriptors,

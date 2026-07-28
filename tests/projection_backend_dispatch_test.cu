@@ -2012,6 +2012,180 @@ void test_exact_fp8_whole_chunk_projection_dispatch(TestContext& test) {
                       "FP8 O C" + std::to_string(token_count));
   }
 
+  const auto* const register_feed_sidecar =
+      reinterpret_cast<const std::uint8_t*>(0x50'0000'0000ULL);
+  runtime::Fp8LinearWeight attached_qkv_payload =
+      std::get<runtime::Fp8LinearWeight>(qkv);
+  attached_qkv_payload.prefill_qkv_register_feed_sidecar =
+      register_feed_sidecar;
+  const runtime::LinearWeight attached_qkv = attached_qkv_payload;
+  const CapturedKernelChain attached_c512 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, attached_qkv, input,
+            512U, output, static_cast<void*>(stream));
+      },
+      "FP8 attached QKV C512 production dispatch graph");
+  const CapturedKernelChain register_feed_oracle =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return q3x::kernels::
+                launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+                    register_feed_sidecar, 1.0F, input, 512U, 10'240U,
+                    5'120U, output, static_cast<void*>(stream));
+          },
+          "FP8 QKV C512 register-feed oracle graph");
+  const CapturedKernelChain canonical_c512 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, input, 512U,
+            output, static_cast<void*>(stream));
+      },
+      "FP8 null-sidecar QKV C512 production dispatch graph");
+  test.expect(
+      attached_c512.valid && attached_c512.launches.size() == 1U &&
+          register_feed_oracle.valid &&
+          register_feed_oracle.launches.size() == 1U &&
+          canonical_c512.valid && canonical_c512.launches.size() == 1U &&
+          attached_c512.launches.front().function ==
+              register_feed_oracle.launches.front().function &&
+          attached_c512.launches.front().function !=
+              canonical_c512.launches.front().function &&
+          attached_c512.launches.front().grid.x == 320U &&
+          attached_c512.launches.front().grid.y == 1U &&
+          attached_c512.launches.front().grid.z == 1U &&
+          attached_c512.launches.front().block.x == 256U &&
+          attached_c512.launches.front().block.y == 1U &&
+          attached_c512.launches.front().block.z == 1U &&
+          attached_c512.launches.front().dynamic_shared_bytes == 79'872U,
+      "FP8 attached exact QKV C512 selects one screened register-feed grid");
+
+  const auto expect_same_single_kernel =
+      [&](const CapturedKernelChain& first, const CapturedKernelChain& second,
+          const std::string& label) {
+        test.expect(first.valid && first.launches.size() == 1U &&
+                        second.valid && second.launches.size() == 1U &&
+                        first.launches.front().function ==
+                            second.launches.front().function &&
+                        first.launches.front().grid.x ==
+                            second.launches.front().grid.x &&
+                        first.launches.front().block.x ==
+                            second.launches.front().block.x &&
+                        first.launches.front().dynamic_shared_bytes ==
+                            second.launches.front().dynamic_shared_bytes,
+                    label);
+      };
+  const CapturedKernelChain attached_c256 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, attached_qkv, input,
+            256U, output, static_cast<void*>(stream));
+      },
+      "FP8 attached QKV C256 dispatch graph");
+  const CapturedKernelChain canonical_c256 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, input, 256U,
+            output, static_cast<void*>(stream));
+      },
+      "FP8 canonical QKV C256 dispatch graph");
+  expect_same_single_kernel(
+      attached_c256, canonical_c256,
+      "FP8 QKV C256 ignores the exact-C512 register-feed sidecar");
+
+  const auto* const eight_not_sixteen_aligned_input =
+      reinterpret_cast<const std::uint16_t*>(
+          reinterpret_cast<std::uintptr_t>(input) + 8U);
+  const CapturedKernelChain attached_c512_alignment_fallback =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::
+                launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                    runtime::ProjectionBackend::kSm87WeightOnly,
+                    attached_qkv, eight_not_sixteen_aligned_input, 512U,
+                    output, static_cast<void*>(stream));
+          },
+          "FP8 attached QKV C512 8-byte activation fallback graph");
+  const CapturedKernelChain canonical_c512_alignment_fallback =
+      capture_ordered_kernel_chain(
+          test,
+          [&](cudaStream_t stream) noexcept {
+            return runtime::
+                launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+                    runtime::ProjectionBackend::kSm87WeightOnly, qkv,
+                    eight_not_sixteen_aligned_input, 512U, output,
+                    static_cast<void*>(stream));
+          },
+          "FP8 canonical QKV C512 8-byte activation graph");
+  expect_same_single_kernel(
+      attached_c512_alignment_fallback,
+      canonical_c512_alignment_fallback,
+      "FP8 QKV C512 8-byte activation alignment preserves canonical ABI");
+
+  runtime::Fp8LinearWeight attached_z_payload =
+      std::get<runtime::Fp8LinearWeight>(z);
+  attached_z_payload.prefill_qkv_register_feed_sidecar =
+      register_feed_sidecar;
+  const CapturedKernelChain attached_z_c512 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly,
+            runtime::LinearWeight{attached_z_payload}, input, 512U, output,
+            static_cast<void*>(stream));
+      },
+      "FP8 attached near-shape Z C512 dispatch graph");
+  const CapturedKernelChain canonical_z_c512 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, z, input, 512U,
+            output, static_cast<void*>(stream));
+      },
+      "FP8 canonical Z C512 dispatch graph");
+  expect_same_single_kernel(
+      attached_z_c512, canonical_z_c512,
+      "FP8 non-QKV C512 ignores the QKV register-feed sidecar");
+
+  const CapturedKernelChain attached_qkv_m1 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, attached_qkv, input,
+            1U, nullptr, 0U, output, static_cast<void*>(stream));
+      },
+      "FP8 attached QKV M1 dispatch graph");
+  const CapturedKernelChain canonical_qkv_m1 = capture_ordered_kernel_chain(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_projection_tile_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly, qkv, input, 1U,
+            nullptr, 0U, output, static_cast<void*>(stream));
+      },
+      "FP8 canonical QKV M1 dispatch graph");
+  expect_same_single_kernel(
+      attached_qkv_m1, canonical_qkv_m1,
+      "FP8 QKV Decode M1 remains on the canonical layout");
+
+  runtime::Fp8LinearWeight misaligned_sidecar_payload = attached_qkv_payload;
+  misaligned_sidecar_payload.prefill_qkv_register_feed_sidecar =
+      register_feed_sidecar + 1U;
+  expect_invalid_capture_has_no_nodes(
+      test,
+      [&](cudaStream_t stream) noexcept {
+        return runtime::launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
+            runtime::ProjectionBackend::kSm87WeightOnly,
+            runtime::LinearWeight{misaligned_sidecar_payload}, input, 512U,
+            output, static_cast<void*>(stream));
+      },
+      "FP8 QKV C512 rejects a malformed attached register-feed sidecar");
+
   const auto expect_full_attention_layout =
       [&](const runtime::LinearWeight& weight, const std::size_t rows,
           const std::size_t token_count, const bool is_query,

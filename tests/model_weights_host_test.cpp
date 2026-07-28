@@ -61,9 +61,11 @@ class SyntheticArena {
  public:
   explicit SyntheticArena(
       const bool force_fp8_attention_outputs = false,
-      const bool force_nvfp4_down_projections = false)
+      const bool force_nvfp4_down_projections = false,
+      const bool force_fp8_linear_qkv = false)
       : force_fp8_attention_outputs_(force_fp8_attention_outputs),
-        force_nvfp4_down_projections_(force_nvfp4_down_projections) {
+        force_nvfp4_down_projections_(force_nvfp4_down_projections),
+        force_fp8_linear_qkv_(force_fp8_linear_qkv) {
     build();
   }
 
@@ -214,7 +216,8 @@ class SyntheticArena {
           q3x::model::LayerType::kLinearAttention) {
         add_linear(prefix + "linear_attn.in_proj_qkv",
                    config->linear_qkv_projection_dim(), config->hidden_size,
-                   next_kind());
+                   force_fp8_linear_qkv_ ? SyntheticLinearKind::kFp8
+                                         : next_kind());
         add_linear(prefix + "linear_attn.in_proj_z",
                    config->linear_value_dim(), config->hidden_size,
                    next_kind());
@@ -271,6 +274,7 @@ class SyntheticArena {
   int scalar_status_ = 0;
   bool force_fp8_attention_outputs_ = false;
   bool force_nvfp4_down_projections_ = false;
+  bool force_fp8_linear_qkv_ = false;
 };
 
 [[nodiscard]] runtime::Fp8LinearWeight* mutable_attention_output(
@@ -301,6 +305,46 @@ class SyntheticArena {
     if (output == nullptr ||
         reinterpret_cast<std::uintptr_t>(
             output->m1_aosoa4_preswizzled_weight) != expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] runtime::Fp8LinearWeight* mutable_linear_attention_qkv(
+    runtime::ModelWeights& weights, const std::size_t layer_index) {
+  auto& layer =
+      const_cast<runtime::DecoderLayerWeights&>(weights.layer(layer_index));
+  auto* const linear =
+      std::get_if<runtime::LinearAttentionWeights>(&layer.attention);
+  return linear == nullptr
+             ? nullptr
+             : std::get_if<runtime::Fp8LinearWeight>(&linear->in_proj_qkv);
+}
+
+[[nodiscard]] bool qkv_register_feed_attachments_match(
+    runtime::ModelWeights& weights,
+    const std::vector<
+        runtime::Fp8PrefillQkvRegisterFeedSidecarDescriptor>& expected) {
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    if (!std::holds_alternative<runtime::LinearAttentionWeights>(
+            weights.layer(layer_index).attention)) {
+      continue;
+    }
+    const runtime::Fp8LinearWeight* const qkv =
+        mutable_linear_attention_qkv(weights, layer_index);
+    if (qkv == nullptr) {
+      return false;
+    }
+    const auto selected = std::find_if(
+        expected.begin(), expected.end(),
+        [layer_index](const auto& descriptor) {
+          return descriptor.layer_index == layer_index;
+        });
+    const std::uint8_t* const expected_sidecar =
+        selected == expected.end() ? nullptr : selected->sidecar;
+    if (qkv->prefill_qkv_register_feed_sidecar != expected_sidecar) {
       return false;
     }
   }
@@ -519,6 +563,253 @@ void test_fp8_m1_output_projection_sidecar_attachment(TestContext& test) {
     test.expect(!mixed_result.value->attach_fp8_m1_output_projection_sidecars(
                     first_arena, kSidecarBytes),
                 "non-FP8 attention output rejects the sidecar contract");
+  }
+}
+
+void test_fp8_prefill_qkv_register_feed_sidecar_attachment(
+    TestContext& test) {
+  static_assert(runtime::kFp8PrefillQkvRegisterFeedRows == 10'240U);
+  static_assert(runtime::kFp8PrefillQkvRegisterFeedColumns == 5'120U);
+  static_assert(
+      runtime::kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer ==
+      52'428'800U);
+  static_assert(runtime::kQwen36Fp8PrefillQkvRegisterFeedSidecarBytes ==
+                2'516'582'400U);
+
+  SyntheticArena arena(/*force_fp8_attention_outputs=*/false,
+                       /*force_nvfp4_down_projections=*/false,
+                       /*force_fp8_linear_qkv=*/true);
+  runtime::WeightBindResult result =
+      runtime::bind_qwen36_27b_weights(arena.source());
+  test.expect(result.ok(), "all-FP8 linear QKV synthetic ABI binds");
+  if (!result) {
+    return;
+  }
+  runtime::ModelWeights& weights = *result.value;
+
+  std::vector<std::size_t> linear_layers;
+  std::size_t full_attention_layer = runtime::kQwen36DenseLayerCount;
+  for (std::size_t layer_index = 0U;
+       layer_index < runtime::kQwen36DenseLayerCount; ++layer_index) {
+    if (std::holds_alternative<runtime::LinearAttentionWeights>(
+            weights.layer(layer_index).attention)) {
+      linear_layers.push_back(layer_index);
+    } else if (full_attention_layer == runtime::kQwen36DenseLayerCount) {
+      full_attention_layer = layer_index;
+    }
+  }
+  test.expect(linear_layers.size() ==
+                      runtime::kQwen36LinearAttentionLayerCount &&
+                  full_attention_layer < runtime::kQwen36DenseLayerCount,
+              "QKV sidecar test discovers the actual 48/16 schedule");
+
+  using Descriptor =
+      runtime::Fp8PrefillQkvRegisterFeedSidecarDescriptor;
+  const std::vector<Descriptor> empty_state;
+  test.expect(qkv_register_feed_attachments_match(weights, empty_state),
+              "FP8 QKV register-feed views default to detached");
+
+  constexpr std::size_t kSidecarBytes =
+      runtime::kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer;
+  constexpr std::size_t kArenaBytes =
+      runtime::kQwen36Fp8PrefillQkvRegisterFeedSidecarBytes;
+  constexpr std::uintptr_t kFirstArenaAddress = 0x0000080000000000ULL;
+  constexpr std::uintptr_t kSecondArenaAddress = 0x0000090000000000ULL;
+  const auto pointer = [](const std::uintptr_t address) {
+    return reinterpret_cast<const std::uint8_t*>(address);
+  };
+  const auto make_descriptors =
+      [&](const std::uintptr_t arena_address) {
+        std::vector<Descriptor> descriptors;
+        descriptors.reserve(linear_layers.size());
+        // Reverse descriptor order to prove binding is by explicit actual
+        // layer index, not a contiguous or schedule-derived position.
+        for (std::size_t index = 0U; index < linear_layers.size(); ++index) {
+          const std::size_t layer_index =
+              linear_layers[linear_layers.size() - 1U - index];
+          descriptors.push_back(
+              {layer_index, pointer(arena_address + index * kSidecarBytes),
+               kSidecarBytes, runtime::kFp8PrefillQkvRegisterFeedRows,
+               runtime::kFp8PrefillQkvRegisterFeedColumns});
+        }
+        return descriptors;
+      };
+
+  const std::vector<Descriptor> first_descriptors =
+      make_descriptors(kFirstArenaAddress);
+  test.expect(weights.attach_fp8_prefill_qkv_register_feed_sidecars(
+                  pointer(kFirstArenaAddress), kArenaBytes,
+                  first_descriptors.data(), first_descriptors.size()) &&
+                  qkv_register_feed_attachments_match(weights,
+                                                      first_descriptors),
+              "exact unordered 48-layer QKV sidecars attach atomically");
+
+  const auto expect_rejected_preserves =
+      [&](const std::uint8_t* const candidate_arena,
+          const std::size_t candidate_bytes,
+          const Descriptor* const candidate_descriptors,
+          const std::size_t candidate_count, const std::string_view label) {
+        test.expect(
+            !weights.attach_fp8_prefill_qkv_register_feed_sidecars(
+                candidate_arena, candidate_bytes, candidate_descriptors,
+                candidate_count) &&
+                qkv_register_feed_attachments_match(weights,
+                                                    first_descriptors),
+            label);
+      };
+
+  expect_rejected_preserves(nullptr, kArenaBytes, first_descriptors.data(),
+                            first_descriptors.size(),
+                            "null QKV sidecar arena preserves prior set");
+  expect_rejected_preserves(pointer(kSecondArenaAddress), kArenaBytes,
+                            nullptr, first_descriptors.size(),
+                            "null QKV descriptors preserve prior set");
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes - 16U,
+                            first_descriptors.data(),
+                            first_descriptors.size(),
+                            "wrong QKV arena span is rejected atomically");
+  expect_rejected_preserves(pointer(kSecondArenaAddress + 1U), kArenaBytes,
+                            first_descriptors.data(),
+                            first_descriptors.size(),
+                            "misaligned QKV arena is rejected atomically");
+  expect_rejected_preserves(
+      pointer(std::numeric_limits<std::uintptr_t>::max() - 15U),
+      kArenaBytes, first_descriptors.data(), first_descriptors.size(),
+      "wrapping QKV arena span is rejected atomically");
+  expect_rejected_preserves(
+      pointer(kFirstArenaAddress),
+      (first_descriptors.size() - 1U) * kSidecarBytes,
+      first_descriptors.data(), first_descriptors.size() - 1U,
+      "non-48 QKV descriptor count is rejected atomically");
+
+  std::vector<Descriptor> invalid = first_descriptors;
+  invalid.back().layer_index = invalid.front().layer_index;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "duplicate QKV layer is rejected atomically");
+  invalid = first_descriptors;
+  invalid.back().layer_index = runtime::kQwen36DenseLayerCount;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "out-of-range QKV layer is rejected atomically");
+  invalid = first_descriptors;
+  invalid.back().layer_index = full_attention_layer;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "full-attention layer cannot claim a QKV sidecar");
+  invalid = first_descriptors;
+  invalid.back().bytes = kSidecarBytes - 16U;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "wrong QKV descriptor byte span is atomic");
+  invalid = first_descriptors;
+  invalid.back().output_size =
+      runtime::kFp8PrefillQkvRegisterFeedRows - 1U;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "wrong QKV descriptor output shape is atomic");
+  invalid = first_descriptors;
+  invalid.back().input_size =
+      runtime::kFp8PrefillQkvRegisterFeedColumns - 1U;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "wrong QKV descriptor input shape is atomic");
+  invalid = first_descriptors;
+  invalid.back().sidecar = nullptr;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "null QKV descriptor sidecar is atomic");
+  invalid = first_descriptors;
+  invalid.back().sidecar =
+      pointer(reinterpret_cast<std::uintptr_t>(invalid.back().sidecar) + 1U);
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "misaligned QKV descriptor sidecar is atomic");
+  invalid = first_descriptors;
+  invalid.back().sidecar = pointer(kFirstArenaAddress - 16U);
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "QKV sidecar before arena is rejected atomically");
+  invalid = first_descriptors;
+  invalid.back().sidecar =
+      pointer(kFirstArenaAddress + kArenaBytes - kSidecarBytes + 16U);
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "QKV sidecar past arena is rejected atomically");
+  invalid = first_descriptors;
+  invalid[1U].sidecar = invalid[0U].sidecar;
+  expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                            invalid.data(), invalid.size(),
+                            "overlapping QKV sidecars are rejected atomically");
+
+  runtime::Fp8LinearWeight* const late_qkv =
+      mutable_linear_attention_qkv(weights,
+                                   first_descriptors.back().layer_index);
+  test.expect(late_qkv != nullptr,
+              "late QKV target exists for shape atomicity test");
+  if (late_qkv != nullptr) {
+    const std::size_t original_input_size = late_qkv->input_size;
+    late_qkv->input_size =
+        runtime::kFp8PrefillQkvRegisterFeedColumns - 1U;
+    expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                              first_descriptors.data(),
+                              first_descriptors.size(),
+                              "late QKV target shape failure preserves set");
+    late_qkv->input_size = original_input_size;
+
+    const std::size_t original_output_size = late_qkv->output_size;
+    late_qkv->output_size =
+        runtime::kFp8PrefillQkvRegisterFeedRows - 1U;
+    expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                              first_descriptors.data(),
+                              first_descriptors.size(),
+                              "late QKV output shape failure preserves set");
+    late_qkv->output_size = original_output_size;
+
+    const std::uint8_t* const original_weight = late_qkv->weight;
+    late_qkv->weight = nullptr;
+    expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                              first_descriptors.data(),
+                              first_descriptors.size(),
+                              "late invalid FP8 QKV payload preserves set");
+    late_qkv->weight = original_weight;
+
+    const float* const original_scale = late_qkv->weight_scale_device;
+    late_qkv->weight_scale_device = nullptr;
+    expect_rejected_preserves(pointer(kFirstArenaAddress), kArenaBytes,
+                              first_descriptors.data(),
+                              first_descriptors.size(),
+                              "late QKV null scale payload preserves set");
+    late_qkv->weight_scale_device = original_scale;
+  }
+
+  expect_rejected_preserves(nullptr, 0U, first_descriptors.data(), 0U,
+                            "noncanonical QKV detach preserves prior set");
+
+  const std::vector<Descriptor> second_descriptors =
+      make_descriptors(kSecondArenaAddress);
+  test.expect(weights.attach_fp8_prefill_qkv_register_feed_sidecars(
+                  pointer(kSecondArenaAddress), kArenaBytes,
+                  second_descriptors.data(), second_descriptors.size()) &&
+                  qkv_register_feed_attachments_match(weights,
+                                                      second_descriptors),
+              "valid QKV replacement atomically changes all 48 views");
+  test.expect(weights.attach_fp8_prefill_qkv_register_feed_sidecars(
+                  nullptr, 0U, nullptr, 0U) &&
+                  qkv_register_feed_attachments_match(weights, empty_state),
+              "canonical empty QKV call detaches every sidecar");
+
+  SyntheticArena mixed_arena;
+  runtime::WeightBindResult mixed_result =
+      runtime::bind_qwen36_27b_weights(mixed_arena.source());
+  test.expect(mixed_result.ok(), "mixed QKV synthetic ABI binds");
+  if (mixed_result) {
+    test.expect(
+        !mixed_result.value
+             ->attach_fp8_prefill_qkv_register_feed_sidecars(
+                 pointer(kFirstArenaAddress), kArenaBytes,
+                 first_descriptors.data(), first_descriptors.size()),
+        "non-FP8 linear QKV payload rejects the sidecar contract");
   }
 }
 
@@ -1209,6 +1500,7 @@ int main() {
   TestContext test;
   test_successful_bind(test);
   test_fp8_m1_output_projection_sidecar_attachment(test);
+  test_fp8_prefill_qkv_register_feed_sidecar_attachment(test);
   test_nvfp4_down_scale6_sidecar_attachment(test);
   test_projection_pair_eligibility(test);
   test_fp8_qkv_z_projection_pair_eligibility(test);

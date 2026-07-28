@@ -1022,6 +1022,31 @@ int launch_exact_fp8_whole_chunk_projection_to_bf16_cuda(
     return static_cast<int>(cudaErrorNotSupported);
   }
 
+  // The register-feed layout is an opt-in, Prefill-only sidecar. Keep the
+  // canonical FP8 allocation authoritative for validation and every other
+  // token count/shape so Decode and the C256 schedule cannot change merely
+  // because the sidecar is attached to the model view.
+  if (qkv_shape && token_count == 512U &&
+      selected->prefill_qkv_register_feed_sidecar != nullptr) {
+    if (!pointer_is_aligned(selected->prefill_qkv_register_feed_sidecar,
+                            16U)) {
+      // An attached but malformed sidecar is corrupted model state, not a
+      // scheduling near miss. Refuse to enqueue instead of silently masking
+      // the defect with the canonical path.
+      return static_cast<int>(cudaErrorInvalidValue);
+    }
+    if (pointer_is_aligned(input, 16U)) {
+      return kernels::
+          launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+              selected->prefill_qkv_register_feed_sidecar,
+              selected->weight_scale, input, token_count, spans.rows,
+              spans.columns, output, cuda_stream);
+    }
+    // The canonical whole-chunk ABI accepts 8-byte activation alignment.
+    // Preserve that public contract when an otherwise valid caller misses
+    // the register-feed kernel's narrower 16-byte eligibility condition.
+  }
+
   return kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
       selected->weight, selected->weight_scale, input, token_count,
       spans.rows, spans.columns, output, cuda_stream);

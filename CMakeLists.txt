@@ -284,9 +284,9 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
-  # Isolated FP8 QKV dataflow candidate. The production route remains frozen;
-  # this target screens an equal-byte fragment-native sidecar, a three-stage
-  # raw A/B cp.async pipeline, and direct matrix_b register feed at exact C512.
+  # Production FP8 QKV C512 dataflow sentinel. This target validates the GPU
+  # fragment-native sidecar pack, three-stage raw A/B cp.async pipeline, and
+  # direct matrix_b register feed independently of the full model runner.
   add_executable(q3x_fp8_prefill_qkv_m128_cp_async_register_feed_screen
     tests/sm87_fp8_prefill_qkv_m128_cp_async_register_feed_screen.cu
   )

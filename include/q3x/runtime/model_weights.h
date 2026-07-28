@@ -25,10 +25,33 @@ inline constexpr std::size_t
     kQwen36Fp8M1OutputProjectionAosoa4PreswizzledBytes =
         kQwen36DenseLayerCount *
         kFp8M1OutputProjectionAosoa4PreswizzledBytesPerLayer;
+inline constexpr std::size_t kFp8PrefillQkvRegisterFeedRows = 10'240U;
+inline constexpr std::size_t kFp8PrefillQkvRegisterFeedColumns = 5'120U;
+inline constexpr std::size_t
+    kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer = 52'428'800U;
+inline constexpr std::size_t
+    kQwen36Fp8PrefillQkvRegisterFeedSidecarBytes =
+        kQwen36LinearAttentionLayerCount *
+        kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer;
+static_assert(kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer ==
+              kFp8PrefillQkvRegisterFeedRows *
+                  kFp8PrefillQkvRegisterFeedColumns);
 inline constexpr std::size_t kNvFp4DownScale6Rows = 5'120U;
 inline constexpr std::size_t kNvFp4DownScale6Columns = 17'408U;
 inline constexpr std::size_t
     kNvFp4DownScale6SidecarBytesPerProjection = 4'177'920U;
+
+// One descriptor for an exact C512 linear-attention FP8 QKV Prefill
+// register-feed sidecar. Descriptor fields are copied by the attach call;
+// the pointed-to arena remains non-owning and must outlive ModelWeights and
+// every queued kernel that consumes an attached sidecar.
+struct Fp8PrefillQkvRegisterFeedSidecarDescriptor {
+  std::size_t layer_index = 0U;
+  const std::uint8_t* sidecar = nullptr;
+  std::size_t bytes = 0U;
+  std::size_t output_size = 0U;
+  std::size_t input_size = 0U;
+};
 
 // One descriptor for an exact Decode down-projection scale6 sidecar. The
 // descriptor array must remain valid only for the attach call because its
@@ -68,6 +91,9 @@ struct Fp8LinearWeight {
   std::size_t output_size = 0U;
   std::size_t input_size = 0U;
   const std::uint8_t* m1_aosoa4_preswizzled_weight = nullptr;
+  // Only the exact C512 linear-attention QKV Prefill register-feed kernel may
+  // consume this sidecar. Other FP8 shapes and token counts must ignore it.
+  const std::uint8_t* prefill_qkv_register_feed_sidecar = nullptr;
 };
 
 struct NvFp4LinearWeight {
@@ -284,6 +310,23 @@ class ModelWeights {
   // must outlive this ModelWeights view and all queued kernels using it.
   [[nodiscard]] bool attach_fp8_m1_output_projection_sidecars(
       const std::uint8_t* arena, std::size_t bytes) noexcept;
+
+  // Transactionally attaches the exact 48-layer set of C512 FP8 QKV Prefill
+  // register-feed sidecars. Descriptors identify actual linear-attention
+  // layer indices; those indices are not assumed to be contiguous. Every
+  // descriptor, target FP8 [10240,5120] QKV projection, 16-byte alignment,
+  // sidecar range, and exact compact arena span is validated before any
+  // existing attachment is changed. The canonical all-null/zero call
+  // detaches all such sidecars. Only the arena must outlive this view and all
+  // queued kernels that consume an attached pointer. Transactional means
+  // all-or-nothing validation, not CPU synchronization: callers must attach,
+  // replace, or detach before publishing the runner or during a global
+  // quiescent period. This call does not synchronize prior CUDA work, so a
+  // replaced arena must remain alive until its last queued consumer retires.
+  [[nodiscard]] bool attach_fp8_prefill_qkv_register_feed_sidecars(
+      const std::uint8_t* arena, std::size_t arena_bytes,
+      const Fp8PrefillQkvRegisterFeedSidecarDescriptor* descriptors,
+      std::size_t descriptor_count) noexcept;
 
   // Atomically attaches a sparse set of exact [5120,17408] NVFP4 down
   // scale6 sidecars. descriptor_count is derived from checkpoint eligibility

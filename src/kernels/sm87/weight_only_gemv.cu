@@ -73,6 +73,22 @@ constexpr unsigned int kFp8FullAttentionCta512Blocks =
 constexpr std::size_t kFp8QkvRows = 10'240U;
 constexpr std::size_t kFp8ZRows = 6'144U;
 constexpr std::size_t kFp8QkvZColumns = 5'120U;
+constexpr std::size_t kFp8QkvRegisterFeedTokenCount = 512U;
+constexpr std::size_t kFp8QkvRegisterFeedNBlockRows = 128U;
+constexpr std::size_t kFp8QkvRegisterFeedKStageColumns = 64U;
+constexpr std::size_t kFp8QkvRegisterFeedNBlocks =
+    kFp8QkvRows / kFp8QkvRegisterFeedNBlockRows;
+constexpr std::size_t kFp8QkvRegisterFeedKStages =
+    kFp8QkvZColumns / kFp8QkvRegisterFeedKStageColumns;
+constexpr std::size_t kFp8QkvRegisterFeedK16Groups = 4U;
+constexpr std::size_t kFp8QkvRegisterFeedFragmentSlots = 8U;
+constexpr std::size_t kFp8QkvRegisterFeedSidecarBytes =
+    kFp8QkvRows * kFp8QkvZColumns;
+constexpr std::size_t kFp8QkvRegisterFeedActivationBytes =
+    kFp8QkvRegisterFeedTokenCount * kFp8QkvZColumns *
+    sizeof(std::uint16_t);
+constexpr std::size_t kFp8QkvRegisterFeedOutputBytes =
+    kFp8QkvRegisterFeedTokenCount * kFp8QkvRows * sizeof(std::uint16_t);
 constexpr std::size_t kFp8OutputProjectionRows = 5'120U;
 constexpr std::size_t kFp8OutputProjectionColumns = 6'144U;
 constexpr unsigned int kFp8OutputProjectionRowQuads =
@@ -148,6 +164,13 @@ static_assert(kFp8FullAttentionQRowQuads ==
                   kFp8FullAttentionKvFirstBlock);
 static_assert(kFp8FullAttentionKvRowPairs == kFp8FullAttentionKvBlocks);
 static_assert(kFp8FullAttentionCta512Threads == 512U);
+static_assert(kFp8QkvRegisterFeedNBlocks == 80U);
+static_assert(kFp8QkvRegisterFeedKStages == 80U);
+static_assert(kFp8QkvRegisterFeedK16Groups * kThreads *
+                  kFp8QkvRegisterFeedFragmentSlots ==
+              kFp8QkvRegisterFeedNBlockRows *
+                  kFp8QkvRegisterFeedKStageColumns);
+static_assert(kFp8QkvRegisterFeedSidecarBytes == 52'428'800U);
 static_assert((kFp8FullAttentionBlocks % 2U) == 0U);
 static_assert((kFp8FullAttentionKvFirstBlock % 2U) == 0U);
 static_assert((kFp8FullAttentionKvBlocks % 2U) == 0U);
@@ -4836,17 +4859,70 @@ __device__ __forceinline__ void issue_fp8_qkv_register_pipeline_stage(
   cp_async_commit_group();
 }
 
-// Test-only exact-C512 QKV traffic-changing candidate.  It keeps the
-// production M128xN128 ownership and eight ordered accumulator panels, but
+// Out-of-place builder for the exact-C512 QKV register-feed sidecar. One
+// CTA owns one N128/K64 tile. Each thread gathers the eight frozen matrix-B
+// fragment bytes for each of four K16 planes and writes one contiguous uint2
+// per plane, producing the exact layout consumed by the projection kernel:
+//   [nblock 80][kstage 80][k16 4][thread 256][slot 8].
+__global__ __launch_bounds__(kThreads) void
+fp8_w8a16_whole_chunk_qkv_register_feed_pack_kernel(
+    const std::uint8_t* const canonical_weights,
+    uint2* const sidecar_weights) {
+  const unsigned int tile = blockIdx.x;
+  const unsigned int nblock =
+      tile / static_cast<unsigned int>(kFp8QkvRegisterFeedKStages);
+  const unsigned int kstage =
+      tile % static_cast<unsigned int>(kFp8QkvRegisterFeedKStages);
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const unsigned int lane = thread % kWarpSize;
+  const unsigned int row0 =
+      nblock * static_cast<unsigned int>(kFp8QkvRegisterFeedNBlockRows) +
+      warp * 16U + lane / 4U;
+  const unsigned int row1 = row0 + 8U;
+  uint2* const sidecar_tile =
+      sidecar_weights +
+      static_cast<std::size_t>(tile) *
+          kFp8QkvRegisterFeedK16Groups * kThreads;
+
+#pragma unroll
+  for (unsigned int k16 = 0U;
+       k16 < static_cast<unsigned int>(kFp8QkvRegisterFeedK16Groups);
+       ++k16) {
+    const unsigned int column =
+        kstage * static_cast<unsigned int>(kFp8QkvRegisterFeedKStageColumns) +
+        k16 * 16U + 2U * (lane % 4U);
+    const auto* const row0_bytes =
+        canonical_weights +
+        static_cast<std::size_t>(row0) * kFp8QkvZColumns + column;
+    const auto* const row1_bytes =
+        canonical_weights +
+        static_cast<std::size_t>(row1) * kFp8QkvZColumns + column;
+    const std::uint32_t row0_low =
+        *reinterpret_cast<const std::uint16_t*>(row0_bytes);
+    const std::uint32_t row0_high =
+        *reinterpret_cast<const std::uint16_t*>(row0_bytes + 8U);
+    const std::uint32_t row1_low =
+        *reinterpret_cast<const std::uint16_t*>(row1_bytes);
+    const std::uint32_t row1_high =
+        *reinterpret_cast<const std::uint16_t*>(row1_bytes + 8U);
+    sidecar_tile[k16 * kThreads + thread] =
+        uint2{row0_low | (row0_high << 16U),
+              row1_low | (row1_high << 16U)};
+  }
+}
+
+// Production exact-C512 QKV traffic-changing kernel. It keeps the
+// M128xN128 ownership and eight ordered accumulator panels, but
 // consumes an equal-byte fragment-native FP8 sidecar through a three-stage
 // raw A/B cp.async pipeline.  B is decoded after its asynchronous shared
 // arrival directly into matrix_b fragment registers, removing the decoded-B
 // shared stores, ldmatrix loads, and the second K64 barrier.  The three raw
 // slots occupy 79,872 dynamic bytes total; with the 512-byte codebook, two
-// CTA/SM remain feasible on Orin. Production dispatch and canonical weights
-// remain untouched.
+// CTA/SM remain feasible on Orin. Canonical checkpoint weights are converted
+// once by the production pack kernel above.
 __global__ __launch_bounds__(kThreads, 2) void
-fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel(
+fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel(
     const uint4* const sidecar_weights, const float weight_scale,
     const std::uint16_t* const activations, std::uint16_t* const output) {
   constexpr unsigned int kRows = 10'240U;
@@ -21249,13 +21325,7 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_resources_test_cuda(
   return static_cast<int>(cudaSuccess);
 }
 
-// Test-only direct entry for the strict C512 QKV three-stage raw A/B pipeline
-// and register-fed matrix_b upper-bound screen. The sidecar is an equal-byte
-// permutation of canonical FP8 weights, so the standard launch validator is
-// also the exact allocation-size contract. Validation and alignment precede
-// every CUDA state mutation, and no production selector references this
-// symbol.
-int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_cuda(
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
     const std::uint8_t* const sidecar_weights, const float weight_scale,
     const std::uint16_t* const activations,
     const std::size_t token_count, const std::size_t rows,
@@ -21282,23 +21352,67 @@ int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_cuda(
   }
   if (!pointer_is_aligned<alignof(uint4)>(sidecar_weights) ||
       !pointer_is_aligned<alignof(uint4)>(activations) ||
-      !pointer_is_aligned<alignof(std::uint16_t)>(output)) {
+      !pointer_is_aligned<alignof(std::uint16_t)>(output) ||
+      ranges_overlap(sidecar_weights, kFp8QkvRegisterFeedSidecarBytes,
+                     activations, kFp8QkvRegisterFeedActivationBytes) ||
+      ranges_overlap(sidecar_weights, kFp8QkvRegisterFeedSidecarBytes,
+                     output, kFp8QkvRegisterFeedOutputBytes) ||
+      ranges_overlap(activations, kFp8QkvRegisterFeedActivationBytes,
+                     output, kFp8QkvRegisterFeedOutputBytes)) {
     return invalid_value();
   }
 
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   const cudaError_t attribute_status = cudaFuncSetAttribute(
-      fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel,
+      fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (attribute_status != cudaSuccess) {
     return static_cast<int>(attribute_status);
   }
-  fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel
+  fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel
       <<<kBlocks, kCtaThreads, kDynamicSharedBytes, stream>>>(
           reinterpret_cast<const uint4*>(sidecar_weights), weight_scale,
           activations, output);
   return static_cast<int>(cudaGetLastError());
+}
+
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
+    const std::uint8_t* const canonical_weights,
+    std::uint8_t* const sidecar_weights, const std::size_t rows,
+    const std::size_t columns, void* const cuda_stream) noexcept {
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kFp8QkvRegisterFeedNBlocks *
+                                kFp8QkvRegisterFeedKStages);
+  if (rows != kFp8QkvRows || columns != kFp8QkvZColumns ||
+      canonical_weights == nullptr || sidecar_weights == nullptr ||
+      !pointer_is_aligned<alignof(uint4)>(canonical_weights) ||
+      !pointer_is_aligned<alignof(uint4)>(sidecar_weights) ||
+      ranges_overlap(canonical_weights, kFp8QkvRegisterFeedSidecarBytes,
+                     sidecar_weights, kFp8QkvRegisterFeedSidecarBytes)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  fp8_w8a16_whole_chunk_qkv_register_feed_pack_kernel
+      <<<kBlocks, kThreads, 0U, stream>>>(
+          canonical_weights, reinterpret_cast<uint2*>(sidecar_weights));
+  return static_cast<int>(cudaGetLastError());
+}
+
+// Test compatibility entry for the promoted exact-C512 QKV register-feed
+// implementation. It delegates to the public launcher so graph capture sees
+// the identical production kernel function and launch geometry.
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_cuda(
+    const std::uint8_t* const sidecar_weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  return launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+      sidecar_weights, weight_scale, activations, token_count, rows, columns,
+      output, cuda_stream);
 }
 
 int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_test_cuda(
@@ -21323,19 +21437,19 @@ int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_resources_t
 
   cudaFuncAttributes attributes{};
   cudaError_t status = cudaFuncSetAttribute(
-      fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel,
+      fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel,
       cudaFuncAttributeMaxDynamicSharedMemorySize,
       static_cast<int>(kDynamicSharedBytes));
   if (status == cudaSuccess) {
     status = cudaFuncGetAttributes(
         &attributes,
-        fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel);
+        fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel);
   }
   int active_blocks = 0;
   if (status == cudaSuccess) {
     status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
         &active_blocks,
-        fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_kernel,
+        fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel,
         kCtaThreads, kDynamicSharedBytes);
   }
   if (status != cudaSuccess) {

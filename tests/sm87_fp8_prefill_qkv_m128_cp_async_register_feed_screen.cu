@@ -632,10 +632,9 @@ struct Fixture {
                         cudaMemcpyHostToDevice, stream),
         "upload FP8 QKV weights");
     ready = ready && test.cuda_ok(
-                         cudaMemcpyAsync(sidecar.get(), host_sidecar.data(),
-                                         kSidecarBytes,
-                                         cudaMemcpyHostToDevice, stream),
-                         "upload fragment-native sidecar");
+                         cudaMemsetAsync(sidecar.get(), 0xcd, kSidecarBytes,
+                                         stream),
+                         "poison GPU-built fragment-native sidecar");
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              activations.get(), host_activations.data(),
@@ -645,9 +644,26 @@ struct Fixture {
     ready = ready && test.cuda_ok(
                          cudaMemsetAsync(scrub.get(), 0, kScrubBytes, stream),
                          "initialize L2 scrub");
+    ready = ready && test.cuda_ok(
+                         static_cast<cudaError_t>(q3x::kernels::
+                             launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
+                                 weights.get(), sidecar.get(), kRows,
+                                 kColumns, static_cast<void*>(stream))),
+                         "launch production QKV register-feed GPU pack");
     ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
                                   "fixture upload synchronize");
-    return ready;
+    std::vector<std::uint8_t> gpu_built_sidecar(kSidecarBytes);
+    ready = ready && test.cuda_ok(
+                         cudaMemcpyAsync(gpu_built_sidecar.data(),
+                                         sidecar.get(), kSidecarBytes,
+                                         cudaMemcpyDeviceToHost, stream),
+                         "copy GPU-built fragment-native sidecar");
+    ready = ready && test.cuda_ok(cudaStreamSynchronize(stream),
+                                  "GPU-built sidecar copy synchronize");
+    const bool exact_pack = ready && gpu_built_sidecar == host_sidecar;
+    test.expect(exact_pack,
+                "production GPU pack exactly matches the host sidecar oracle");
+    return exact_pack;
   }
 };
 
@@ -670,7 +686,7 @@ enum class Variant {
                 kTokens, kRows, kColumns, fixture.output(),
                 static_cast<void*>(stream))
           : q3x::kernels::
-                launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_cuda(
+                launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
                     fixture.sidecar.get(), kWeightScale,
                     fixture.activations.get(), kTokens, kRows, kColumns,
                     fixture.output(), static_cast<void*>(stream));
@@ -726,7 +742,7 @@ enum class Variant {
           const std::size_t rows, const std::size_t columns,
           std::uint16_t* const o) noexcept {
         return q3x::kernels::
-            launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_test_cuda(
+            launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
                 w, scale, a, tokens, rows, columns, o,
                 static_cast<void*>(stream));
       };
@@ -812,6 +828,77 @@ enum class Variant {
             << " graph_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "all invalid candidate calls enqueue zero nodes");
+  return gate;
+}
+
+[[nodiscard]] bool run_pack_invalid_graph_gate(
+    TestContext& test, const cudaStream_t stream) {
+  constexpr std::uintptr_t kCanonicalAddress = 0x1'0000'0000ULL;
+  constexpr std::uintptr_t kSidecarAddress = 0x2'0000'0000ULL;
+  constexpr std::uintptr_t kMaximum =
+      std::numeric_limits<std::uintptr_t>::max();
+  const auto* const canonical =
+      reinterpret_cast<const std::uint8_t*>(kCanonicalAddress);
+  auto* const sidecar = reinterpret_cast<std::uint8_t*>(kSidecarAddress);
+  const auto launch = [&](const std::uint8_t* const source,
+                          std::uint8_t* const destination,
+                          const std::size_t rows,
+                          const std::size_t columns) noexcept {
+    return q3x::kernels::
+        launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
+            source, destination, rows, columns,
+            static_cast<void*>(stream));
+  };
+
+  cudaGraph_t graph = nullptr;
+  bool ready = test.cuda_ok(
+      cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
+      "invalid pack begin capture");
+  std::array<int, 10U> statuses{};
+  statuses.fill(static_cast<int>(cudaErrorUnknown));
+  if (ready) {
+    statuses[0] = launch(nullptr, sidecar, kRows, kColumns);
+    statuses[1] = launch(canonical, nullptr, kRows, kColumns);
+    statuses[2] = launch(canonical, sidecar, kRows - 1U, kColumns);
+    statuses[3] = launch(canonical, sidecar, kRows, kColumns - 1U);
+    statuses[4] = launch(canonical + 1U, sidecar, kRows, kColumns);
+    statuses[5] = launch(canonical, sidecar + 1U, kRows, kColumns);
+    statuses[6] = launch(
+        canonical, reinterpret_cast<std::uint8_t*>(kCanonicalAddress),
+        kRows, kColumns);
+    statuses[7] = launch(
+        canonical, reinterpret_cast<std::uint8_t*>(kCanonicalAddress + 16U),
+        kRows, kColumns);
+    statuses[8] = launch(
+        reinterpret_cast<const std::uint8_t*>(kMaximum - 15U), sidecar,
+        kRows, kColumns);
+    statuses[9] = launch(
+        canonical, reinterpret_cast<std::uint8_t*>(kMaximum - 15U), kRows,
+        kColumns);
+    ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
+                         "invalid pack end capture") &&
+            ready;
+  }
+  std::size_t nodes = 0U;
+  if (ready && graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &nodes),
+                         "invalid pack count graph nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph),
+                         "invalid pack destroy graph") &&
+            ready;
+  }
+  const std::size_t invalid_count = static_cast<std::size_t>(std::count(
+      statuses.begin(), statuses.end(),
+      static_cast<int>(cudaErrorInvalidValue)));
+  const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
+  std::cout << "FP8_REGISTER_FEED_PACK_INVALID_GRAPH: invalid_statuses="
+            << invalid_count << '/' << statuses.size()
+            << " graph_nodes=" << nodes
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, "all invalid production pack calls enqueue zero nodes");
   return gate;
 }
 
@@ -1390,7 +1477,8 @@ int main(const int argc, char** argv) {
             << (selected_checkpoint == nullptr ? "synthetic" : "checkpoint")
             << " tokens=" << kTokens << " rows=" << kRows
             << " columns=" << kColumns
-            << " production_dispatch_unchanged=true\n";
+            << " production_launcher=true"
+            << " production_gpu_pack=true\n";
 
   Execution execution;
   if (!execution.create(test)) {
@@ -1398,6 +1486,7 @@ int main(const int argc, char** argv) {
   }
   bool ready = run_resource_gate(test);
   ready = run_invalid_graph_gate(test, execution.stream()) && ready;
+  ready = run_pack_invalid_graph_gate(test, execution.stream()) && ready;
   if (!ready) {
     return 1;
   }

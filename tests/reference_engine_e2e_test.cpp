@@ -300,6 +300,8 @@ int main(const int argc, char** const argv) {
       load.fp8_output_sidecar_milliseconds >= 0.0 &&
       std::isfinite(load.nvfp4_down_scale6_sidecar_milliseconds) &&
       load.nvfp4_down_scale6_sidecar_milliseconds >= 0.0 &&
+      std::isfinite(load.fp8_prefill_qkv_sidecar_milliseconds) &&
+      load.fp8_prefill_qkv_sidecar_milliseconds >= 0.0 &&
       std::isfinite(load.runner_factory_milliseconds) &&
       load.runner_factory_milliseconds >= 0.0 &&
       std::isfinite(load.total_milliseconds) &&
@@ -357,6 +359,32 @@ int main(const int argc, char** const argv) {
                     load.nvfp4_down_scale6_sidecar_bytes == 0U &&
                     load.nvfp4_down_scale6_sidecar_fallback_reason.empty(),
                 "unrequested NVFP4 down scale6 sidecars retain an empty "
+                "fallback report");
+  }
+  constexpr std::uint64_t kExpectedFp8PrefillQkvSidecarBytes =
+      2'516'582'400ULL;
+  const bool fp8_prefill_qkv_sidecars_requested =
+      projection_backend == runtime::ProjectionBackend::kSm87WeightOnly &&
+      prefill_chunk_size == runtime::kMaximumRequestPrefillChunkSize;
+  if (load.fp8_prefill_qkv_sidecars_enabled) {
+    test.expect(fp8_prefill_qkv_sidecars_requested &&
+                    load.fp8_prefill_qkv_sidecar_layers == 48U &&
+                    load.fp8_prefill_qkv_sidecar_bytes ==
+                        kExpectedFp8PrefillQkvSidecarBytes &&
+                    load.fp8_prefill_qkv_sidecar_fallback_reason.empty(),
+                "enabled FP8 Prefill QKV sidecars report the exact "
+                "48-layer allocation");
+  } else if (fp8_prefill_qkv_sidecars_requested) {
+    test.expect(load.fp8_prefill_qkv_sidecar_layers == 0U &&
+                    load.fp8_prefill_qkv_sidecar_bytes == 0U &&
+                    !load.fp8_prefill_qkv_sidecar_fallback_reason.empty(),
+                "disabled SM87 FP8 Prefill QKV sidecars retain an explicit "
+                "and internally consistent fallback report");
+  } else {
+    test.expect(load.fp8_prefill_qkv_sidecar_layers == 0U &&
+                    load.fp8_prefill_qkv_sidecar_bytes == 0U &&
+                    load.fp8_prefill_qkv_sidecar_fallback_reason.empty(),
+                "unrequested FP8 Prefill QKV sidecars retain an empty "
                 "fallback report");
   }
   if (!load.tokenizer_resident_overlap) {
@@ -426,7 +454,17 @@ int main(const int argc, char** const argv) {
               << " nvfp4_down_scale6_sidecar_ms="
               << load.nvfp4_down_scale6_sidecar_milliseconds
               << " nvfp4_down_scale6_sidecar_fallback_reason="
-              << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n';
+              << load.nvfp4_down_scale6_sidecar_fallback_reason
+              << " fp8_prefill_qkv_sidecars_enabled="
+              << (load.fp8_prefill_qkv_sidecars_enabled ? 1 : 0)
+              << " fp8_prefill_qkv_sidecar_layers="
+              << load.fp8_prefill_qkv_sidecar_layers
+              << " fp8_prefill_qkv_sidecar_bytes="
+              << load.fp8_prefill_qkv_sidecar_bytes
+              << " fp8_prefill_qkv_sidecar_ms="
+              << load.fp8_prefill_qkv_sidecar_milliseconds
+              << " fp8_prefill_qkv_sidecar_fallback_reason="
+              << load.fp8_prefill_qkv_sidecar_fallback_reason << '\n';
     return 0;
   }
   return 1;

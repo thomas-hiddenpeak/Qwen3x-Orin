@@ -143,6 +143,7 @@ struct ReferenceEngineLoadStats {
   double request_state_milliseconds = 0.0;
   double fp8_output_sidecar_milliseconds = 0.0;
   double nvfp4_down_scale6_sidecar_milliseconds = 0.0;
+  double fp8_prefill_qkv_sidecar_milliseconds = 0.0;
   double runner_factory_milliseconds = 0.0;
   ReferenceDecodeGraphCachePolicy decode_graph_cache_requested_policy =
       ReferenceDecodeGraphCachePolicy::kDisabled;
@@ -188,6 +189,16 @@ struct ReferenceEngineLoadStats {
   // Empty when the optional SM87 sidecar inventory was attached or was not
   // requested. Admission/allocation failures preserve canonical execution.
   std::string nvfp4_down_scale6_sidecar_fallback_reason;
+  // The exact C512 register-feed layout is optional and intentionally
+  // co-resident with the canonical 48 linear-attention QKV tensors. A
+  // capacity miss preserves the canonical Prefill route; all non-capacity
+  // preparation failures remain engine-creation failures.
+  bool fp8_prefill_qkv_sidecars_enabled = false;
+  std::size_t fp8_prefill_qkv_sidecar_layers = 0U;
+  std::uint64_t fp8_prefill_qkv_sidecar_bytes = 0U;
+  // Empty when the complete 48-layer inventory was attached or when the
+  // exact SM87 C512 sidecar route was not requested.
+  std::string fp8_prefill_qkv_sidecar_fallback_reason;
   // True only when tokenizer parsing and resident loading actually executed
   // concurrently. When true, total_milliseconds is wall time and phase
   // timings intentionally overlap.

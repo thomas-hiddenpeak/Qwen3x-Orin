@@ -335,6 +335,42 @@ launch_sm87_fp8_w8a16_m64_attention_output_gemm_bf16_cuda(
     std::size_t rows, std::size_t columns, std::uint16_t* output,
     void* cuda_stream = nullptr) noexcept;
 
+// Exact C512 linear-attention QKV projection over the equal-byte
+// fragment-native register-feed sidecar. Only token_count=512 and checkpoint
+// shape [rows=10240, columns=5120] are accepted. The sidecar contains exactly
+// 52,428,800 bytes in
+//   [nblock 80][kstage 80][k16 4][thread 256][slot 8]
+// order. The eight slot bytes follow the frozen SM87 BF16 matrix-B fragment
+// lane mapping. The launch uses a three-stage cp.async raw A/B pipeline,
+// decodes B directly into fragment registers, and writes contiguous
+// token-major BF16 [512,10240] output.
+//
+// sidecar_weights and activations require 16-byte alignment; output requires
+// 2-byte alignment. Their complete 52,428,800-byte, 5,242,880-byte, and
+// 10,485,760-byte spans must be pairwise disjoint. weight_scale must be finite
+// and nonnegative. Every near-miss returns cudaErrorInvalidValue before CUDA
+// state is touched or work is enqueued. The successful launch is asynchronous
+// on cuda_stream and uses a fixed 320-CTA, 256-thread grid with 79,872 bytes of
+// dynamic shared memory per CTA.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_gemm_bf16_cuda(
+    const std::uint8_t* sidecar_weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream = nullptr) noexcept;
+
+// Builds the exact register-feed sidecar above from one canonical row-major
+// FP8 [10240,5120] QKV matrix. One 256-thread CTA owns each N128/K64 tile and
+// each thread gathers four uint2 fragment payloads. canonical_weights and
+// sidecar_weights both require 16-byte alignment; their complete, equal
+// 52,428,800-byte spans must be disjoint. Only the exact checkpoint shape is
+// accepted. The operation is allocation-free and asynchronous on cuda_stream.
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
+    const std::uint8_t* canonical_weights,
+    std::uint8_t* sidecar_weights, std::size_t rows,
+    std::size_t columns, void* cuda_stream = nullptr) noexcept;
+
 [[nodiscard]] int launch_sm87_nvfp4_w4a16_small_m_gemm_bf16_cuda(
     const std::uint8_t* packed_weights,
     const std::uint8_t* block_scales, float weight_scale_2,

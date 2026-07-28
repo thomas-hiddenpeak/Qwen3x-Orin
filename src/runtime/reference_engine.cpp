@@ -152,6 +152,38 @@ struct Sm87NvFp4DownScale6Preparation {
   std::string fallback_reason;
 };
 
+struct Sm87Fp8PrefillQkvSidecars {
+  std::uint8_t* data = nullptr;
+  std::size_t bytes = 0U;
+  std::vector<Fp8PrefillQkvRegisterFeedSidecarDescriptor> descriptors;
+
+  Sm87Fp8PrefillQkvSidecars() noexcept = default;
+  Sm87Fp8PrefillQkvSidecars(const Sm87Fp8PrefillQkvSidecars&) = delete;
+  Sm87Fp8PrefillQkvSidecars& operator=(
+      const Sm87Fp8PrefillQkvSidecars&) = delete;
+
+  ~Sm87Fp8PrefillQkvSidecars() { release(); }
+
+  void release() noexcept {
+    if (data != nullptr) {
+      (void)cudaFree(data);
+    }
+    data = nullptr;
+    bytes = 0U;
+    descriptors.clear();
+  }
+};
+
+struct Sm87Fp8PrefillQkvPreparation {
+  bool enabled = false;
+  bool hard_failure = false;
+  std::size_t layers = 0U;
+  std::uint64_t bytes = 0U;
+  int cuda_error = 0;
+  std::string message;
+  std::string fallback_reason;
+};
+
 constexpr std::size_t kNvFp4DownScale6GroupSize = 16U;
 constexpr std::size_t kNvFp4DownScale6ColumnsPerTile = 512U;
 constexpr std::size_t kNvFp4DownScale6RowsPerQuad = 4U;
@@ -176,6 +208,11 @@ struct NvFp4DownScale6LayerPlan {
   unsigned int scale_base = 0U;
 };
 
+struct Fp8PrefillQkvLayerPlan {
+  std::size_t layer_index = 0U;
+  const Fp8LinearWeight* qkv = nullptr;
+};
+
 [[nodiscard]] const Fp8LinearWeight* attention_output_projection(
     const DecoderLayerWeights& layer) noexcept {
   if (const auto* const linear =
@@ -187,6 +224,30 @@ struct NvFp4DownScale6LayerPlan {
     return std::get_if<Fp8LinearWeight>(&full->o_proj);
   }
   return nullptr;
+}
+
+[[nodiscard]] const Fp8LinearWeight* linear_attention_qkv_projection(
+    const DecoderLayerWeights& layer) noexcept {
+  const auto* const attention =
+      std::get_if<LinearAttentionWeights>(&layer.attention);
+  if (attention == nullptr ||
+      attention->in_proj_qkv.valueless_by_exception()) {
+    return nullptr;
+  }
+  return std::get_if<Fp8LinearWeight>(&attention->in_proj_qkv);
+}
+
+[[nodiscard]] bool is_exact_fp8_prefill_qkv_payload(
+    const Fp8LinearWeight* const qkv) noexcept {
+  return qkv != nullptr && qkv->weight != nullptr &&
+         qkv->weight_scale_device != nullptr &&
+         qkv->input_scale_device != nullptr &&
+         std::isfinite(qkv->weight_scale) && qkv->weight_scale >= 0.0F &&
+         std::isfinite(qkv->input_scale) && qkv->input_scale >= 0.0F &&
+         qkv->output_size == kFp8PrefillQkvRegisterFeedRows &&
+         qkv->input_size == kFp8PrefillQkvRegisterFeedColumns &&
+         qkv->prefill_qkv_register_feed_sidecar == nullptr &&
+         (reinterpret_cast<std::uintptr_t>(qkv->weight) % 16U) == 0U;
 }
 
 [[nodiscard]] const NvFp4LinearWeight* exact_nvfp4_down_projection(
@@ -1173,16 +1234,204 @@ prepare_sm87_nvfp4_down_scale6_sidecars(
   return result;
 }
 
+[[nodiscard]] Sm87Fp8PrefillQkvPreparation
+prepare_sm87_fp8_prefill_qkv_sidecars(
+    ModelWeights& model_weights,
+    const std::uint64_t minimum_free_bytes_after_prepare,
+    Sm87Fp8PrefillQkvSidecars& owner) {
+  Sm87Fp8PrefillQkvPreparation result;
+  if (owner.data != nullptr || owner.bytes != 0U ||
+      !owner.descriptors.empty()) {
+    result.hard_failure = true;
+    result.message =
+        "FP8 Prefill QKV sidecar owner was not empty before prepare";
+    return result;
+  }
+
+  // Inventory the actual linear-attention layer indices instead of assuming
+  // that the 48 layers are contiguous. This phase is allocation-free on the
+  // device and leaves every ModelWeights sidecar pointer untouched.
+  std::vector<Fp8PrefillQkvLayerPlan> plans;
+  plans.reserve(kQwen36LinearAttentionLayerCount);
+  for (std::size_t layer_index = 0U;
+       layer_index < kQwen36DenseLayerCount; ++layer_index) {
+    const DecoderLayerWeights& layer = model_weights.layer(layer_index);
+    if (!std::holds_alternative<LinearAttentionWeights>(layer.attention)) {
+      continue;
+    }
+    const Fp8LinearWeight* const qkv =
+        linear_attention_qkv_projection(layer);
+    if (!is_exact_fp8_prefill_qkv_payload(qkv)) {
+      result.fallback_reason = "ineligible_model_weights";
+      return result;
+    }
+    plans.push_back({layer_index, qkv});
+  }
+  if (plans.size() != kQwen36LinearAttentionLayerCount) {
+    result.fallback_reason = "ineligible_model_weights";
+    return result;
+  }
+
+  constexpr std::size_t kArenaBytes =
+      kQwen36Fp8PrefillQkvRegisterFeedSidecarBytes;
+  static_assert(kArenaBytes == 2'516'582'400ULL);
+  static_assert(
+      kArenaBytes ==
+      kQwen36LinearAttentionLayerCount *
+          kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer);
+
+  // This optional derived layout deliberately uses bounded dual residency:
+  // the canonical 48-layer QKV payload stays authoritative while the exact
+  // same-byte register-feed layout is admitted only when the request safety
+  // margin remains available both before and after cudaMalloc.
+  (void)cudaGetLastError();
+  std::size_t free_bytes = 0U;
+  std::size_t total_bytes = 0U;
+  cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  (void)total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed before FP8 Prefill QKV sidecar prepare";
+    return result;
+  }
+  const std::uint64_t free_u64 = static_cast<std::uint64_t>(free_bytes);
+  if (kArenaBytes > free_u64 ||
+      minimum_free_bytes_after_prepare > free_u64 - kArenaBytes) {
+    result.fallback_reason = "insufficient_device_memory_margin";
+    return result;
+  }
+
+  void* allocation = nullptr;
+  status = cudaMalloc(&allocation, kArenaBytes);
+  if (status == cudaErrorMemoryAllocation) {
+    (void)cudaGetLastError();
+    result.fallback_reason = "cuda_memory_allocation";
+    return result;
+  }
+  if (status != cudaSuccess || allocation == nullptr) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMalloc failed while creating FP8 Prefill QKV sidecars";
+    return result;
+  }
+  owner.data = static_cast<std::uint8_t*>(allocation);
+  owner.bytes = kArenaBytes;
+  if ((reinterpret_cast<std::uintptr_t>(owner.data) % 16U) != 0U) {
+    result.hard_failure = true;
+    result.message =
+        "cudaMalloc returned a misaligned FP8 Prefill QKV sidecar arena";
+    owner.release();
+    return result;
+  }
+
+  std::size_t remaining_free_bytes = 0U;
+  std::size_t remaining_total_bytes = 0U;
+  status =
+      cudaMemGetInfo(&remaining_free_bytes, &remaining_total_bytes);
+  (void)remaining_total_bytes;
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaMemGetInfo failed after FP8 Prefill QKV sidecar allocation";
+    owner.release();
+    return result;
+  }
+  if (static_cast<std::uint64_t>(remaining_free_bytes) <
+      minimum_free_bytes_after_prepare) {
+    result.fallback_reason =
+        "insufficient_device_memory_margin_after_allocation";
+    owner.release();
+    return result;
+  }
+
+  std::vector<Fp8PrefillQkvRegisterFeedSidecarDescriptor> descriptors;
+  descriptors.reserve(plans.size());
+  cudaStream_t stream = nullptr;
+  status = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  if (status != cudaSuccess) {
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(status);
+    result.message =
+        "cudaStreamCreateWithFlags failed for FP8 Prefill QKV sidecar "
+        "prepare";
+    owner.release();
+    return result;
+  }
+
+  for (std::size_t descriptor_index = 0U;
+       descriptor_index < plans.size(); ++descriptor_index) {
+    const Fp8PrefillQkvLayerPlan& plan = plans[descriptor_index];
+    std::uint8_t* const destination =
+        owner.data +
+        descriptor_index *
+            kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer;
+    status = static_cast<cudaError_t>(
+        kernels::
+            launch_sm87_fp8_w8a16_whole_chunk_qkv_register_feed_pack_cuda(
+                plan.qkv->weight, destination, plan.qkv->output_size,
+                plan.qkv->input_size, static_cast<void*>(stream)));
+    if (status != cudaSuccess) {
+      result.hard_failure = true;
+      result.cuda_error = static_cast<int>(status);
+      result.message =
+          "FP8 Prefill QKV sidecar pack launch failed at layer " +
+          std::to_string(plan.layer_index);
+      (void)cudaStreamDestroy(stream);
+      owner.release();
+      return result;
+    }
+    descriptors.push_back(
+        {plan.layer_index, destination,
+         kFp8PrefillQkvRegisterFeedSidecarBytesPerLayer,
+         plan.qkv->output_size, plan.qkv->input_size});
+  }
+
+  status = cudaStreamSynchronize(stream);
+  const cudaError_t destroy_status = cudaStreamDestroy(stream);
+  if (status != cudaSuccess || destroy_status != cudaSuccess) {
+    const cudaError_t failure =
+        status != cudaSuccess ? status : destroy_status;
+    result.hard_failure = true;
+    result.cuda_error = static_cast<int>(failure);
+    result.message =
+        "FP8 Prefill QKV sidecar pack stream failed to synchronize or "
+        "destroy";
+    owner.release();
+    return result;
+  }
+
+  if (!model_weights.attach_fp8_prefill_qkv_register_feed_sidecars(
+          owner.data, owner.bytes, descriptors.data(),
+          descriptors.size())) {
+    result.hard_failure = true;
+    result.message =
+        "ModelWeights rejected the complete FP8 Prefill QKV sidecar arena";
+    owner.release();
+    return result;
+  }
+
+  owner.descriptors = std::move(descriptors);
+  result.enabled = true;
+  result.layers = plans.size();
+  result.bytes = kArenaBytes;
+  return result;
+}
+
 }  // namespace
 
 struct ReferenceEngine::Impl {
   // Declaration order is part of the safety contract. Destruction is exactly
-  // runner -> request_state -> model_weights -> down scale6 sidecars ->
-  // output sidecars -> resident_weights -> tokenizer.
+  // runner -> request_state -> model_weights -> Prefill QKV sidecars -> down
+  // scale6 sidecars -> output sidecars -> resident_weights -> tokenizer.
   std::unique_ptr<text::Tokenizer> tokenizer;
   std::optional<ResidentWeights> resident_weights;
   Sm87Fp8OutputProjectionSidecars fp8_output_sidecars;
   Sm87NvFp4DownScale6Sidecars nvfp4_down_scale6_sidecars;
+  Sm87Fp8PrefillQkvSidecars fp8_prefill_qkv_sidecars;
   std::optional<ModelWeights> model_weights;
   std::optional<RequestState> request_state;
   std::optional<ReferenceRunner> runner;
@@ -1361,6 +1610,38 @@ struct ReferenceEngine::Impl {
             down_scale6_preparation.bytes;
         impl->load.nvfp4_down_scale6_sidecar_fallback_reason =
             down_scale6_preparation.fallback_reason;
+
+        // The register-feed compute route is exact-C512-only. Treat smaller
+        // engine chunk capacities as "not requested" so they do not pay for
+        // 2.34 GiB of derived weights that their scheduler cannot dispatch.
+        if (impl->load.request_prefill_chunk_size ==
+            kMaximumRequestPrefillChunkSize) {
+          const Clock::time_point prefill_qkv_begin = Clock::now();
+          const Sm87Fp8PrefillQkvPreparation prefill_qkv_preparation =
+              prepare_sm87_fp8_prefill_qkv_sidecars(
+                  *impl->model_weights,
+                  options.request_options.min_free_bytes_after_create,
+                  impl->fp8_prefill_qkv_sidecars);
+          impl->load.fp8_prefill_qkv_sidecar_milliseconds =
+              elapsed_milliseconds(prefill_qkv_begin);
+          if (prefill_qkv_preparation.hard_failure) {
+            result.diagnostic = engine_diagnostic(
+                ReferenceEngineError::kRunnerFactoryFailure,
+                "fp8_prefill_qkv_sidecar_prepare",
+                prefill_qkv_preparation.message);
+            result.diagnostic.cuda_error =
+                prefill_qkv_preparation.cuda_error;
+            return result;
+          }
+          impl->load.fp8_prefill_qkv_sidecars_enabled =
+              prefill_qkv_preparation.enabled;
+          impl->load.fp8_prefill_qkv_sidecar_layers =
+              prefill_qkv_preparation.layers;
+          impl->load.fp8_prefill_qkv_sidecar_bytes =
+              prefill_qkv_preparation.bytes;
+          impl->load.fp8_prefill_qkv_sidecar_fallback_reason =
+              prefill_qkv_preparation.fallback_reason;
+        }
       }
 
       {

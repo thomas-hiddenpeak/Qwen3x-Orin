@@ -774,6 +774,8 @@ void PrintGeneration(
          << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.nvfp4_down_scale6_sidecar_ms="
          << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
+         << "load.fp8_prefill_qkv_sidecar_ms="
+         << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -794,6 +796,14 @@ void PrintGeneration(
          << load.nvfp4_down_scale6_sidecar_bytes << '\n'
          << "load.nvfp4_down_scale6_sidecar_fallback_reason="
          << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
+         << "load.fp8_prefill_qkv_sidecars_enabled="
+         << (load.fp8_prefill_qkv_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_prefill_qkv_sidecar_layers="
+         << load.fp8_prefill_qkv_sidecar_layers << '\n'
+         << "load.fp8_prefill_qkv_sidecar_bytes="
+         << load.fp8_prefill_qkv_sidecar_bytes << '\n'
+         << "load.fp8_prefill_qkv_sidecar_fallback_reason="
+         << load.fp8_prefill_qkv_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.bytes_read=" << load.resident.bytes_read << '\n'
@@ -964,6 +974,8 @@ void PrintBenchmarkReport(
          << load.fp8_output_sidecar_milliseconds << '\n'
          << "load.nvfp4_down_scale6_sidecar_ms="
          << load.nvfp4_down_scale6_sidecar_milliseconds << '\n'
+         << "load.fp8_prefill_qkv_sidecar_ms="
+         << load.fp8_prefill_qkv_sidecar_milliseconds << '\n'
          << "load.runner_factory_ms=" << load.runner_factory_milliseconds
          << '\n'
          << "load.fp8_output_sidecars_enabled="
@@ -984,6 +996,14 @@ void PrintBenchmarkReport(
          << load.nvfp4_down_scale6_sidecar_bytes << '\n'
          << "load.nvfp4_down_scale6_sidecar_fallback_reason="
          << load.nvfp4_down_scale6_sidecar_fallback_reason << '\n'
+         << "load.fp8_prefill_qkv_sidecars_enabled="
+         << (load.fp8_prefill_qkv_sidecars_enabled ? 1 : 0) << '\n'
+         << "load.fp8_prefill_qkv_sidecar_layers="
+         << load.fp8_prefill_qkv_sidecar_layers << '\n'
+         << "load.fp8_prefill_qkv_sidecar_bytes="
+         << load.fp8_prefill_qkv_sidecar_bytes << '\n'
+         << "load.fp8_prefill_qkv_sidecar_fallback_reason="
+         << load.fp8_prefill_qkv_sidecar_fallback_reason << '\n'
          << "load.tokenizer_resident_overlap="
          << (load.tokenizer_resident_overlap ? 1 : 0) << '\n'
          << "load.resident.sha256_backend="
