@@ -7818,3 +7818,85 @@ reuse follows. A bounded OpenAI-compatible API and EvalScope path proceeds in
 parallel. Full protocol, route counts, state metrics, binaries, raw-log
 hashes, and limitations are in the
 [real-checkpoint rejection record](metadata/qwen36-27b-prefill-gdn-b8-real-checkpoint-rejection.json).
+
+## FP8 large-N M128 B-tile-reuse production admission
+
+Commit `c9a0edb` promotes the exact C256/C512 FP8 QKV `[10240,5120]`, Z
+`[6144,5120]`, attention-output `[5120,6144]`, and full-attention Q
+`[12288,5120]` projections from M64 to M128xN128 K64 B-tile reuse. One CTA
+decodes and stages each B tile once for eight ordered M16 accumulator panels.
+Full-attention K/V `[1024,5120]` remains on M64: C256 is M-major and C512 is
+N-major. Public API, workspace, Decode, MTP, FlashInfer, buffering, and
+Prefill/Decode-overlap policy are unchanged.
+
+The production route is locked by CUDA Graph function identity rather than
+grid shape alone. All eight large-N shape/chunk cells prove that the public
+entry and independent M128 control capture the same function, and that the
+historical M64 control captures a different one. Both K/V cells prove the
+inverse: public production is the exact historical M64 function. The M128
+kernel uses 123 registers/thread, 37,376 bytes static shared memory, no local
+memory, 256 threads, and two active CTA/SM. Fifteen invalid or aliased calls
+enqueue zero nodes.
+
+Three independent fixed-clock admission processes compare the independent
+historical M64 launcher to public production M128. Every B-C-C-B timing round,
+shape, and chunk improves. C256 weighted speedup is **1.39417x--1.39491x**,
+C512 is **1.39043x--1.39181x**, and joint speedup is
+**1.39169x--1.39285x**. QKV/C512 exhaustive E4M3FN coverage compares
+5,242,880 outputs with zero candidate, replay, or deterministic mismatch;
+all 4,096 classified NaNs preserve class and sign.
+
+The formal model protocol freezes `3ed400e` before the production edit and
+uses `B1-C1-C2-B2`, batch one, C512, output one, one warmup, and five measured
+rounds for each tokenizer-pinned P257/P513 prompt:
+
+| Prompt / phase | Mirrored M64 B | Mirrored M128 C | Saved | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,457.9455 ms | 1,369.1645 ms | 88.7810 ms | **1.064843195x** |
+| P257 TTFT | 1,565.9370 ms | 1,476.9655 ms | 88.9715 ms | **1.060239389x** |
+| P513 Prefix | 2,913.6805 ms | 2,739.8665 ms | 173.8140 ms | **1.063438857x** |
+| P513 TTFT | 3,022.4050 ms | 2,848.5860 ms | 173.8190 ms | **1.061019397x** |
+
+Prefix throughput reaches **186.975342 token/s at P257** and **186.870419
+token/s at P513**, up from 175.589554/175.722767 token/s. Complete-prompt
+throughput reaches **174.005419/180.089350 token/s**. The directional gap to
+the earlier different-system stock-vLLM complete-prompt measurements narrows
+to 2.146938884x/2.284338302x. The user's separately tuned 2k--8k token/s
+vLLM/FlashInfer range does not share this raw protocol and is not presented as
+a matched comparison.
+
+All 40 formal results generate token 9419 (`Hello`) with exact 257/513 steps.
+Each log emits the same 19-line canonical contract hash
+`b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118`.
+No process crosses the 64-MiB persistent-drop gate. The real-checkpoint bulk
+E2E compares C256/C512 to C64 exactly for both prompts and passes in 38.92 s.
+The default SM87 and projection-dispatch tests pass; the full suite has 52
+passes, 12 expected skips, and zero failures.
+
+A fresh P513/C512 Nsight report contains one 2,751.725312-ms Prefix NVTX range
+and 8,209 GPU operations. It proves exactly 48 QKV, 48 Z, 64 O, and 16 full-Q
+M128 calls, for 176 promoted calls total, plus 32 retained M64 K/V calls.
+Their grids are exactly 320/192/160/384 and 64, respectively. The large-N FP8
+raw kernel sum falls from the prior M64 profile's 739.064832 ms to 564.677856
+ms, saving 174.386976 ms at 1.308825597x. No large-N M64 or K/V M128 symbol
+appears.
+
+The production QKV/C512 NCU capture reports grid 320, block 256, 123 registers,
+37,376 bytes static shared memory, 105,923,328 SM instructions, 13,107,200
+Tensor instructions, 629,145,600 L1 global-load bytes, 638,745,824 LTS bytes,
+and 628,188,992 L2-miss-equivalent bytes. Versus the historical M64 structural
+capture this is 25.0% less L1 global-load traffic, 24.57% less LTS traffic,
+24.88% less L2-miss-equivalent traffic, and 38.57% fewer SM instructions.
+GA10B exposes no direct DRAM-byte metric in this collection; L2-miss-equivalent
+and fixed-EMC MCC throughput-times-duration remain proxies, not DRAM bytes.
+
+After this promotion, the largest raw P513 groups are NVFP4 Gate/Up at
+839.988864 ms across the existing two streams, NVFP4 Down at 542.446976 ms,
+and exact per-token-BF16 GDN state update at 488.597216 ms. Raw Gate/Up time
+double-counts any overlapping intervals, so the next selection must use
+interval union and end-to-end evidence. The immediate investigation is exact
+NVFP4 Down M128 reuse, in parallel with Gate/Up overlap and exact GDN-state
+dataflow audits. Rejected FP32-B8 and MTP remain outside this path. Full
+binaries, raw medians, hashes, route counts, profiler metrics, and limitations
+are in the
+[FP8 M128 production record](metadata/qwen36-27b-prefill-fp8-m128-b-reuse-production-benchmark.json).

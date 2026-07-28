@@ -1392,6 +1392,19 @@ The diagnostic Phase 3 records are:
   `BUILD_TESTING`; the OFF executable remains bitwise identical to the frozen
   M128 production binary. Production stays on exact per-token BF16 M16 GDN;
   no MTP, public ABI, Decode, or buffering policy changes.
+- [`qwen36-27b-prefill-fp8-m128-b-reuse-production-benchmark.json`](qwen36-27b-prefill-fp8-m128-b-reuse-production-benchmark.json),
+  which promotes exact C256/C512 FP8 QKV/Z/O/full-Q to M128xN128 K64
+  decoded-B reuse while retaining full-attention K/V on the screened M64
+  layouts. Three production-admission processes reach **1.39169x--1.39285x**
+  weighted kernel speedup. Frozen-binary P257/P513 Prefix improves by
+  **1.064843195x/1.063438857x** to **186.975342/186.870419 token/s**, and
+  TTFT improves by **1.060239389x/1.061019397x**. All 40 formal outputs and
+  steps have one canonical hash; real-checkpoint C64-versus-C256/C512 E2E,
+  exhaustive E4M3FN, Graph identity, invalid-call, memory, and the
+  52-pass/12-skip suite pass. Fresh P513 Nsight proves exactly 176 promoted
+  M128 calls and 32 retained M64 K/V calls, while NCU records 25% less L1
+  global-load traffic for QKV/C512. No MTP, FlashInfer, new buffering,
+  Prefill/Decode overlap, workspace, public-ABI, or Decode change is used.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

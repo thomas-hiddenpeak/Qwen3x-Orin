@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-m128-b-reuse-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-28T09:14:13+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "c9a0edbcf6f1fb937433b286f4121fbc607f3af1",
+    "tree": "d43c310e1693f28b3ef269a97bebcfb6f650691f",
+    "parent_commit": "3ed400ecceb5fd3fc4f32a2caa3025e9a917f5e8",
+    "subject": "feat: promote FP8 M128 Prefill B reuse",
+    "project_version": "0.4.0",
+    "abi_version": "0.4.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "frozen_baseline_binary": {
+      "path": "/tmp/q3x-prefill-fp8-m64-production-baseline-3ed400e",
+      "bytes": 6475288,
+      "sha256": "3d20d148d9aeecaf4fcf518026b1fe142c3ccdb0beeeca25f73d42e36d99708a",
+      "elf_build_id": "7de6b795f2e3598939baa953d3ea2b9dca0cac7f",
+      "source_commit": "3ed400ecceb5fd3fc4f32a2caa3025e9a917f5e8",
+      "role": "production M64 comparator frozen before any production-promotion source edit"
+    },
+    "candidate_measured_binary": {
+      "path": "/tmp/q3x-prefill-fp8-m128-production-candidate",
+      "bytes": 6476280,
+      "sha256": "77ec83ddc0d734264a8c4d004080467a08365157d3e50e2a8e105bbf5c30112d",
+      "elf_build_id": "fe5a7c7c8b3a03bd1de246a6af12d8338a8d0429",
+      "source_commit": "c9a0edbcf6f1fb937433b286f4121fbc607f3af1"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback_hz": {
+      "gpu_min": 1300500000,
+      "gpu_max": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_min": 3200000000,
+      "emc_max": 3200000000,
+      "emc_current": 3200000000
+    },
+    "nsight_systems_version": "2026.1.3.243-261337792075v0",
+    "nsight_compute_version": "2026.2.0.0",
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one pinned checkpoint, batch one, output one, and the native SM87 runner"
+  },
+  "production_route": {
+    "request_scheduler_palette": [512, 256, 64, 32, "tail<=31"],
+    "selected_token_counts": [256, 512],
+    "selected_backend": "sm87_weight_only",
+    "weight_format": "FP8 E4M3FN",
+    "activation_and_output_format": "BF16",
+    "selected_kernel": "one CTA owns M128xN128, decodes and stages each K64xN128 B tile once, and updates eight ordered M16 accumulator panels",
+    "selected_shapes": [
+      {"role": "linear-attention QKV", "rows": 10240, "columns": 5120, "layers": 48, "c256_grid_x": 160, "c512_grid_x": 320},
+      {"role": "linear-attention Z", "rows": 6144, "columns": 5120, "layers": 48, "c256_grid_x": 96, "c512_grid_x": 192},
+      {"role": "attention output", "rows": 5120, "columns": 6144, "layers": 64, "c256_grid_x": 80, "c512_grid_x": 160},
+      {"role": "full-attention Q", "rows": 12288, "columns": 5120, "layers": 16, "c256_grid_x": 192, "c512_grid_x": 384}
+    ],
+    "retained_m64_shape": {
+      "role": "full-attention K and V",
+      "rows": 1024,
+      "columns": 5120,
+      "c256_layout": "M-major",
+      "c512_layout": "N-major",
+      "c256_grid_x": 32,
+      "c512_grid_x": 64
+    },
+    "p513_calls": {
+      "m128_qkv": 48,
+      "m128_z": 48,
+      "m128_attention_output": 64,
+      "m128_full_attention_q": 16,
+      "m128_total": 176,
+      "retained_m64_kv": 32
+    },
+    "eligibility": "exact C256/C512, exact pinned shapes, selected SM87 backend, 16-byte weight alignment, 8-byte activation alignment, 2-byte output alignment, and the existing complete FP8 payload contract",
+    "fallback": "all non-whole-chunk schedules and structural near misses retain their existing validated routes; malformed or aliased launches reject before enqueue",
+    "public_runtime_api_changed": false,
+    "additional_workspace_bytes": 0,
+    "decode_route_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false,
+    "new_double_or_triple_buffering_used": false,
+    "prefill_decode_overlap_used": false
+  },
+  "production_admission": {
+    "protocol": "three independent fixed-clock processes; historical M64 versus public production M128; B-C-C-B per timing round",
+    "resources": {
+      "registers_per_thread": 123,
+      "static_shared_bytes": 37376,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2
+    },
+    "invalid_graph_cases": 15,
+    "invalid_graph_nodes": 0,
+    "dispatch_contract": "all eight large-N shape-by-token cells capture public==direct M128 and public!=historical M64; both K/V cells capture public==historical M64",
+    "exhaustive_e4m3fn": {
+      "shape": "QKV C512",
+      "raw_codes_per_byte_position": 256,
+      "byte_positions": 4,
+      "candidate_mismatches": 0,
+      "compared_outputs": 5242880,
+      "replay_oracle_mismatches": 0,
+      "deterministic_mismatches": 0,
+      "classified_nan_outputs": 4096,
+      "expected_classified_nan_outputs": 4096,
+      "nan_class_or_sign_mismatches": 0
+    },
+    "weighted_speedups": [
+      {"process": 1, "c256": 1.39483, "c512": 1.39127, "joint": 1.39247, "log_sha256": "3f8079a03a21ae0b6e0b9439afe6b5b0a82fb71ec248d27197ba6465659b16c8"},
+      {"process": 2, "c256": 1.39491, "c512": 1.39181, "joint": 1.39285, "log_sha256": "f00ca5b7610aba0fb2ba903fc1870e9d9388ea7d608cdbb43d9c69a6de2d0bd8"},
+      {"process": 3, "c256": 1.39417, "c512": 1.39043, "joint": 1.39169, "log_sha256": "abffba9f808958af5da97943ac1a5ca1793c57afb331947f83ea840654569b19"}
+    ],
+    "gates": {
+      "every_timing_round_speedup_greater_than_one": true,
+      "every_cell_speedup_at_least": 1.08,
+      "c256_weighted_speedup_at_least": 1.12,
+      "c512_weighted_speedup_at_least": 1.15,
+      "joint_weighted_speedup_at_least": 1.12,
+      "result": "pass"
+    }
+  },
+  "formal_protocol": {
+    "order": ["B1_frozen_M64", "C1_production_M128", "C2_production_M128", "B2_frozen_M64"],
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompts": ["P257", "P513"],
+    "prompt_construction": "P(N) uses N-12 space-separated copies of ASCII hello and the pinned non-thinking single-user chat template",
+    "comparison": "arithmetic mean of mirrored process medians: B=(B1+B2)/2 and C=(C1+C2)/2",
+    "prefix_definition": "all prompt tokens except the final prompt token and LM head",
+    "complete_prompt_throughput_definition": "P divided by native time_to_first_token",
+    "decode_graph_cache": "disabled"
+  },
+  "raw_process_medians_ms": {
+    "B1": {"P257": {"prefix": 1458.268, "ttft": 1566.448}, "P513": {"prefix": 2914.240, "ttft": 3023.013}},
+    "C1": {"P257": {"prefix": 1368.557, "ttft": 1476.352}, "P513": {"prefix": 2738.743, "ttft": 2847.498}},
+    "C2": {"P257": {"prefix": 1369.772, "ttft": 1477.579}, "P513": {"prefix": 2740.990, "ttft": 2849.674}},
+    "B2": {"P257": {"prefix": 1457.623, "ttft": 1565.426}, "P513": {"prefix": 2913.121, "ttft": 3021.797}}
+  },
+  "formal_results": [
+    {
+      "id": "P257",
+      "prompt_tokens": 257,
+      "prefix_tokens": 256,
+      "baseline_prefix_mirrored_mean_ms": 1457.9455,
+      "candidate_prefix_mirrored_mean_ms": 1369.1645,
+      "prefix_saved_ms": 88.7810,
+      "prefix_speedup": 1.064843195,
+      "prefix_latency_reduction_percent": 6.089459,
+      "baseline_prefix_tokens_per_second": 175.589554,
+      "candidate_prefix_tokens_per_second": 186.975342,
+      "baseline_ttft_mirrored_mean_ms": 1565.9370,
+      "candidate_ttft_mirrored_mean_ms": 1476.9655,
+      "ttft_saved_ms": 88.9715,
+      "ttft_speedup": 1.060239389,
+      "baseline_complete_prompt_tokens_per_second": 164.118991,
+      "candidate_complete_prompt_tokens_per_second": 174.005419,
+      "gate": "pass"
+    },
+    {
+      "id": "P513",
+      "prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "baseline_prefix_mirrored_mean_ms": 2913.6805,
+      "candidate_prefix_mirrored_mean_ms": 2739.8665,
+      "prefix_saved_ms": 173.8140,
+      "prefix_speedup": 1.063438857,
+      "prefix_latency_reduction_percent": 5.965445,
+      "baseline_prefix_tokens_per_second": 175.722767,
+      "candidate_prefix_tokens_per_second": 186.870419,
+      "baseline_ttft_mirrored_mean_ms": 3022.4050,
+      "candidate_ttft_mirrored_mean_ms": 2848.5860,
+      "ttft_saved_ms": 173.8190,
+      "ttft_speedup": 1.061019397,
+      "baseline_complete_prompt_tokens_per_second": 169.732382,
+      "candidate_complete_prompt_tokens_per_second": 180.089350,
+      "gate": "pass"
+    }
+  ],
+  "correctness": {
+    "formal_processes": 4,
+    "measured_prompt_results": 40,
+    "generated_ids_for_every_prompt": [9419],
+    "generated_text_for_every_prompt": "Hello",
+    "step_counts": {"P257": 257, "P513": 513},
+    "streamed_canonical_lines_per_process": 19,
+    "streamed_canonical_sha256_each": "b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118",
+    "formal_log_sha256": {
+      "B1": "040d8d4490704f9a16179086ad5c63bb7febfbdd03cbfdae1d4b29825b2009dd",
+      "C1": "4452ea95ecfae2afde16c15ca4ee4b2a7b8b04c89036e80604c8215ed5edb2ed",
+      "C2": "2bc89a748481d0a948ef89269e559708fac49a1ab9b3917b2eba2294b523295d",
+      "B2": "ef5e78b95b4802b7381748f34f353633c53bdd295b25eaca40d691c5182e820a"
+    },
+    "bulk_e2e": {
+      "test": "reference_prefill_bulk_attention_e2e",
+      "P257_token_csv_sha256": "e24c73f282d6dabf42b48ea8fb9b71a452cdbaadc9fc0d4eebf7672ee584e2ce",
+      "P513_token_csv_sha256": "45ae21468cb8a0b0ac64566985daba4c0b78e429b99cac3453a98664587efd6d",
+      "c64_candidate_exact": true,
+      "elapsed_seconds": 38.92,
+      "log_sha256": "917e141fc5341aa40f1f78720e55ad093c9422fe6ec83516380e1eb7b698367d"
+    }
+  },
+  "memory": {
+    "request_arena_bytes_each_process": 233940992,
+    "drop_tolerance_bytes": 67108864,
+    "persistent_drop_bytes": {"B1": 32006144, "C1": 0, "C2": 25903104, "B2": 13795328},
+    "maximum_observed_drop_bytes": {"B1": 32006144, "C1": 32178176, "C2": 33738752, "B2": 43024384},
+    "persistent_drop_detected": {"B1": false, "C1": false, "C2": false, "B2": false},
+    "additional_candidate_workspace_bytes": 0
+  },
+  "nsight_systems_p513_c512": {
+    "report_path": "/tmp/q3x-fp8-m128-production-p513-c512.nsys-rep",
+    "report_bytes": 848343,
+    "report_sha256": "91d28d6320d3fd81b606cc8a64f2107ce9433bac8893d275f64b5c01108ba7c0",
+    "console_sha256": "73afcc3745da35f810e686922cc5e6b7fb7b155c4d1f96c93bc10e1e51f6bf6c",
+    "prompt_tokens": 513,
+    "generated_id": 9419,
+    "generated_text": "Hello",
+    "prefix_nvtx_wall_ms": 2751.725312,
+    "prefix_projected_gpu_time_ms": 2750.810848,
+    "prefix_gpu_ops": 8209,
+    "finish_gpu_ops": 438,
+    "large_n_m128_raw_sum_ms": 564.677856,
+    "historical_m64_large_n_raw_sum_ms": 739.064832,
+    "large_n_profile_speedup": 1.308825597014,
+    "large_n_profile_saved_ms": 174.386976,
+    "route_closure": {
+      "qkv_calls_grid": "48 x 320",
+      "z_calls_grid": "48 x 192",
+      "attention_output_calls_grid": "64 x 160",
+      "full_q_calls_grid": "16 x 384",
+      "retained_kv_m64_calls_grid": "32 x 64",
+      "unexpected_large_n_m64_calls": 0,
+      "unexpected_kv_m128_calls": 0
+    },
+    "next_largest_raw_kernel_groups_ms": {
+      "nvfp4_gate_up_two_stream_raw_sum": 839.988864,
+      "nvfp4_down": 542.446976,
+      "exact_gdn_state_update": 488.597216
+    },
+    "limitation": "raw per-kernel sums can double-count intervals overlapped by the existing Gate/Up two-stream fork; formal latency comes only from the unprofiled mirrored benchmark"
+  },
+  "nsight_compute_qkv_c512": {
+    "report_path": "/tmp/q3x-fp8-m128-production-qkv-c512.ncu-rep",
+    "report_bytes": 3463965,
+    "report_sha256": "236e1422b513885dd02feaa959bf7097d0f25c2698ba92307a08f3f8b3dc2160",
+    "exact_production_symbol": "fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel<10240,5120,4>",
+    "grid": 320,
+    "block": 256,
+    "registers_per_thread": 123,
+    "static_shared_bytes": 37376,
+    "gpu_time_ns": 4194816,
+    "sm_cycles_elapsed_avg": 5426093.5,
+    "smsp_instructions": 105923328,
+    "tensor_instructions": 13107200,
+    "global_load_instructions": 2048000,
+    "l1_global_load_bytes": 629145600,
+    "l1_global_load_hit_bytes": 956608,
+    "l1_global_load_miss_bytes": 628188992,
+    "lts_bytes": 638745824,
+    "l2_miss_equivalent_bytes": 628188992,
+    "mcc_read_percent_of_peak": 18.084451,
+    "mcc_write_percent_of_peak": 1.161626,
+    "historical_m64_structural_reduction_percent": {
+      "l1_global_load_bytes": 25.0,
+      "lts_bytes": 24.569968898,
+      "l2_miss_equivalent_bytes": 24.882210564,
+      "smsp_instructions": 38.572279042,
+      "global_load_instructions": 16.666666667
+    },
+    "metric_boundary": "GA10B exposes no direct DRAM byte metric here; L2 miss-equivalent and MCC throughput-times-duration are proxies and are not reported as DRAM bytes; profiler timing is diagnostic only"
+  },
+  "testing": {
+    "build_targets": ["qwen3x-orin", "q3x_sm87_weight_only_gemv_test", "q3x_projection_backend_dispatch_test"],
+    "projection_backend_dispatch": "pass",
+    "sm87_default": "pass",
+    "full_ctest": {"total": 64, "passed": 52, "expected_skipped": 12, "failed": 0, "log_sha256": "630c841934a9f9ed529fa8c8e99f93e63eb66fe24a00ca3b0d43c6b21b248595"}
+  },
+  "assessment": {
+    "result": "promote",
+    "measured_p513_prefix_tokens_per_second": 186.870419,
+    "directional_gap_to_prior_stock_vllm_p513_complete_prompt": 2.284338302071,
+    "custom_vllm_2k_to_8k_note": "the user's 2k-8k token/s result uses a different vLLM/FlashInfer protocol and is not treated as a matched comparison",
+    "next_priority": "audit exact NVFP4 Down M128 reuse first, while separately assessing Gate/Up overlap and an exact per-token-BF16 GDN state-update dataflow; do not retry rejected FP32-B8 or use MTP"
+  }
+}
