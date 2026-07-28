@@ -483,6 +483,56 @@ void dequantize_nvfp4_contiguous_kernel(
   }
 }
 
+// Minimal stop-loss candidate for the Down staging path.  Unlike the locked
+// 34-pass prefetch control above, this keeps only the current packed byte and
+// scale word live: each pass loads, decodes, and stores before the next pass.
+// The non-unrolled loop is deliberate so the compiler cannot materialize a
+// 34-element local array behind the source-level scalar form.
+__global__ __launch_bounds__(256, 4)
+void dequantize_nvfp4_contiguous_sequential_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const canonical_bf16) {
+  constexpr unsigned int kPackedPerRow = kK / 2U;
+  constexpr unsigned int kScalesPerRow = kK / 16U;
+  constexpr unsigned int kThreads = 256U;
+  constexpr unsigned int kPasses = kPackedPerRow / kThreads;
+  static_assert(kPasses == 34U);
+  static_assert(kPackedPerRow == kPasses * kThreads);
+  const unsigned int n = blockIdx.x;
+  const unsigned int lane = threadIdx.x & 31U;
+  const unsigned int warp = threadIdx.x >> 5U;
+  const std::size_t packed_base =
+      static_cast<std::size_t>(n) * kPackedPerRow;
+  const std::size_t scale_base =
+      static_cast<std::size_t>(n) * kScalesPerRow;
+  auto* const output_pairs = reinterpret_cast<std::uint32_t*>(canonical_bf16);
+
+#pragma unroll 1
+  for (unsigned int pass = 0U; pass < kPasses; ++pass) {
+    const unsigned int packed_k = threadIdx.x + pass * kThreads;
+    const std::uint8_t packed = packed_weights[packed_base + packed_k];
+    std::uint32_t scale_word = 0U;
+    if (lane == 0U) {
+      const std::size_t word_index =
+          scale_base + pass * (kThreads / 8U) + warp * 4U;
+      scale_word = *reinterpret_cast<const std::uint32_t*>(
+          block_scales + word_index);
+    }
+    scale_word = __shfl_sync(0xffff'ffffU, scale_word, 0);
+    const std::uint8_t scale_code = static_cast<std::uint8_t>(
+        scale_word >> ((lane >> 3U) * 8U));
+    const float scale = decode_e4m3fn_device(scale_code);
+    const __nv_bfloat16 low = __float2bfloat16_rn(
+        decode_e2m1_device(packed & 0x0fU) * scale);
+    const __nv_bfloat16 high = __float2bfloat16_rn(
+        decode_e2m1_device(packed >> 4U) * scale);
+    output_pairs[packed_base + packed_k] =
+        static_cast<std::uint32_t>(__bfloat16_as_ushort(low)) |
+        (static_cast<std::uint32_t>(__bfloat16_as_ushort(high)) << 16U);
+  }
+}
+
 __global__ void validate_bf16_replay_kernel(
     const __nv_bfloat16* const output,
     const __nv_bfloat16* const replay_reference, const std::size_t count,
@@ -592,6 +642,18 @@ __global__ void validate_bf16_guards_kernel(
   return test.cuda_ok(cudaGetLastError(), label);
 }
 
+[[nodiscard]] bool launch_dequantize_contiguous_sequential(
+    TestContext& test, const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const transient_weight, const cudaStream_t stream,
+    const std::string& label) {
+  constexpr unsigned int kThreads = 256U;
+  dequantize_nvfp4_contiguous_sequential_kernel<<<
+      static_cast<unsigned int>(kN), kThreads, 0, stream>>>(
+      packed_weights, block_scales, transient_weight);
+  return test.cuda_ok(cudaGetLastError(), label);
+}
+
 [[nodiscard]] double measure_algorithm(
     TestContext& test, const LtObjects& lt,
     const cublasLtMatmulAlgo_t& algorithm,
@@ -669,6 +731,55 @@ __global__ void validate_bf16_guards_kernel(
           test.cuda_ok(cudaEventRecord(start, stream), label + " record start");
   for (int iteration = 0; ready && iteration < iterations; ++iteration) {
     ready = launch_dequantize_contiguous(
+        test, packed_weights, block_scales, transient_weight, stream,
+        label + " measured " + std::to_string(iteration));
+  }
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(stop, stream), label + " record stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventSynchronize(stop), label + " stop sync");
+  float total_milliseconds = 0.0F;
+  ready = ready && test.cuda_ok(
+                       cudaEventElapsedTime(&total_milliseconds, start, stop),
+                       label + " elapsed time");
+  if (stop != nullptr) {
+    (void)cudaEventDestroy(stop);
+  }
+  if (start != nullptr) {
+    (void)cudaEventDestroy(start);
+  }
+  if (!ready) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<double>(total_milliseconds) /
+         static_cast<double>(iterations);
+}
+
+[[nodiscard]] double measure_dequantize_sequential(
+    TestContext& test, const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales,
+    __nv_bfloat16* const transient_weight, const cudaStream_t stream,
+    const int warmups, const int iterations, const std::string& label) {
+  for (int warmup = 0; warmup < warmups; ++warmup) {
+    if (!launch_dequantize_contiguous_sequential(
+            test, packed_weights, block_scales, transient_weight, stream,
+            label + " warmup " + std::to_string(warmup))) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+  if (!test.cuda_ok(cudaStreamSynchronize(stream), label + " warmup sync")) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  bool ready = test.cuda_ok(cudaEventCreate(&start), label + " create start");
+  ready = ready &&
+          test.cuda_ok(cudaEventCreate(&stop), label + " create stop");
+  ready = ready &&
+          test.cuda_ok(cudaEventRecord(start, stream), label + " record start");
+  for (int iteration = 0; ready && iteration < iterations; ++iteration) {
+    ready = launch_dequantize_contiguous_sequential(
         test, packed_weights, block_scales, transient_weight, stream,
         label + " measured " + std::to_string(iteration));
   }
@@ -872,6 +983,22 @@ int main() {
           "query Down direct-dequant occupancy")) {
     return 1;
   }
+  cudaFuncAttributes sequential_dequant_attributes{};
+  if (!test.cuda_ok(
+          cudaFuncGetAttributes(
+              &sequential_dequant_attributes,
+              dequantize_nvfp4_contiguous_sequential_kernel),
+          "query sequential Down direct-dequant resources")) {
+    return 1;
+  }
+  int active_sequential_dequant_blocks_per_sm = 0;
+  if (!test.cuda_ok(
+          cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+              &active_sequential_dequant_blocks_per_sm,
+              dequantize_nvfp4_contiguous_sequential_kernel, 256, 0U),
+          "query sequential Down direct-dequant occupancy")) {
+    return 1;
+  }
 
   std::cout << std::fixed << std::setprecision(6)
             << "CUBLASLT_DOWN_C512_PROTOCOL: device=" << properties.name
@@ -890,6 +1017,18 @@ int main() {
             << dequant_attributes.maxDynamicSharedSizeBytes
             << " active_blocks_per_sm=" << active_dequant_blocks_per_sm
             << '\n';
+  std::cout << "NVFP4_DEQUANT_DOWN_C512_SEQUENTIAL_RESOURCES: threads=256"
+            << " blocks=" << kN
+            << " registers_per_thread="
+            << sequential_dequant_attributes.numRegs
+            << " static_shared_bytes="
+            << sequential_dequant_attributes.sharedSizeBytes
+            << " local_bytes_per_thread="
+            << sequential_dequant_attributes.localSizeBytes
+            << " max_dynamic_shared_bytes="
+            << sequential_dequant_attributes.maxDynamicSharedSizeBytes
+            << " active_blocks_per_sm="
+            << active_sequential_dequant_blocks_per_sm << '\n';
 
   DeviceBuffer<__nv_bfloat16> activation;
   DeviceBuffer<__nv_bfloat16> persistent_weight;
@@ -897,6 +1036,7 @@ int main() {
   DeviceBuffer<__nv_bfloat16> replay_reference;
   DeviceBuffer<__nv_bfloat16> production_output;
   DeviceBuffer<__nv_bfloat16> dequant_reference;
+  DeviceBuffer<__nv_bfloat16> sequential_dequant_output;
   DeviceBuffer<std::uint8_t> canonical_packed_weight;
   DeviceBuffer<std::uint8_t> canonical_block_scale;
   DeviceBuffer<__nv_bfloat16> activation_snapshot;
@@ -917,6 +1057,9 @@ int main() {
                        "allocate guarded production M128 C");
   ready = ready && dequant_reference.allocate(
                        test, kBElements, "allocate BF16 dequant reference");
+  ready = ready && sequential_dequant_output.allocate(
+                       test, kBElements + 2U * kGuardElements,
+                       "allocate guarded sequential BF16 dequant output");
   ready = ready && canonical_packed_weight.allocate(
                        test, kPackedWeightBytes,
                        "allocate canonical NVFP4 packed weight");
@@ -951,6 +1094,8 @@ int main() {
       replay_reference.get() + kGuardElements;
   __nv_bfloat16* const exact_production_output =
       production_output.get() + kGuardElements;
+  __nv_bfloat16* const sequential_dequant_payload =
+      sequential_dequant_output.get() + kGuardElements;
   const std::size_t weight_alignment =
       pointer_alignment_bytes(persistent_weight.get());
   const std::size_t activation_alignment =
@@ -988,6 +1133,14 @@ int main() {
                                        static_cast<int>(kGuardBits & 0xffU),
                                        guarded_output_bytes, stream),
                        "initialize production output guards");
+  const std::size_t guarded_dequant_bytes =
+      (kBElements + 2U * kGuardElements) * sizeof(__nv_bfloat16);
+  ready = ready && test.cuda_ok(
+                       cudaMemsetAsync(
+                           sequential_dequant_output.get(),
+                           static_cast<int>(kGuardBits & 0xffU),
+                           guarded_dequant_bytes, stream),
+                       "initialize sequential dequant output guards");
 
   constexpr unsigned int kFillThreads = 256U;
   const auto fill = [&](DeviceBuffer<__nv_bfloat16>& buffer,
@@ -1270,6 +1423,198 @@ int main() {
                     ? "PASS"
                     : "FAIL")
             << '\n';
+
+  // Minimal dequant stop-loss: compare the locked 34-pass prefetch control
+  // with a scalar-live sequential loop.  Both eager and replay launches are
+  // checked over the complete 89,128,960-element canonical BF16 matrix.
+  const auto validate_sequential_output =
+      [&](const std::string& phase,
+          std::array<unsigned long long, 3U>& counts) {
+        bool validation_ready = test.cuda_ok(
+            cudaMemsetAsync(validation.get(), 0,
+                            3U * sizeof(unsigned long long), stream),
+            phase + " zero validation counts");
+        validate_bf16_replay_kernel<<<256U, 256U, 0, stream>>>(
+            sequential_dequant_payload, dequant_reference.get(), kBElements,
+            validation.get(), validation.get() + 1U, validation.get() + 2U);
+        validation_ready =
+            validation_ready &&
+            test.cuda_ok(cudaGetLastError(), phase + " launch validation");
+        validation_ready =
+            validation_ready &&
+            test.cuda_ok(cudaMemcpyAsync(
+                             counts.data(), validation.get(), sizeof(counts),
+                             cudaMemcpyDeviceToHost, stream),
+                         phase + " copy validation counts");
+        validation_ready =
+            validation_ready &&
+            test.cuda_ok(cudaStreamSynchronize(stream),
+                         phase + " synchronize validation");
+        const bool exact = validation_ready && counts[0] == 0U &&
+                           counts[1] == 0U && counts[2] != 0U;
+        test.expect(exact,
+                    phase + " is bit exact versus trusted scalar decode");
+        std::cout << "NVFP4_DEQUANT_DOWN_C512_SEQUENTIAL_VALIDATION: phase="
+                  << phase << " mismatches=" << counts[0] << '/'
+                  << kBElements << " nonfinite=" << counts[1]
+                  << " encoded_sum=" << counts[2]
+                  << " gate=" << (exact ? "PASS" : "FAIL") << '\n';
+        return exact;
+      };
+
+  ready = ready && launch_dequantize_contiguous_sequential(
+                       test, canonical_packed_weight.get(),
+                       canonical_block_scale.get(), sequential_dequant_payload,
+                       stream, "launch sequential dequant validation");
+  std::array<unsigned long long, 3U> sequential_eager_counts{};
+  const bool sequential_eager_exact =
+      validate_sequential_output("eager", sequential_eager_counts);
+  ready = ready && sequential_eager_exact;
+
+  ready = ready && launch_dequantize_contiguous_sequential(
+                       test, canonical_packed_weight.get(),
+                       canonical_block_scale.get(), sequential_dequant_payload,
+                       stream, "launch sequential dequant replay");
+  std::array<unsigned long long, 3U> sequential_replay_counts{};
+  const bool sequential_replay_exact =
+      validate_sequential_output("replay", sequential_replay_counts);
+  const bool sequential_correctness_gate =
+      sequential_eager_exact && sequential_replay_exact &&
+      sequential_eager_counts[2] == sequential_replay_counts[2];
+  test.expect(sequential_correctness_gate,
+              "sequential eager and replay checksums are identical");
+  ready = ready && sequential_correctness_gate;
+
+  constexpr int kSequentialScreenWarmups = 10;
+  constexpr int kSequentialScreenIterations = 24;
+  constexpr int kSequentialScreenRounds = 6;
+  constexpr double kSequentialRequiredSpeedup = 1.03;
+  std::vector<double> sequential_baseline_rounds;
+  std::vector<double> sequential_candidate_rounds;
+  sequential_baseline_rounds.reserve(kSequentialScreenRounds);
+  sequential_candidate_rounds.reserve(kSequentialScreenRounds);
+  for (int round = 0; ready && round < kSequentialScreenRounds; ++round) {
+    double baseline_milliseconds = 0.0;
+    double candidate_milliseconds = 0.0;
+    if ((round & 1) == 0) {
+      baseline_milliseconds = measure_dequantize(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          persistent_weight.get(), stream, kSequentialScreenWarmups,
+          kSequentialScreenIterations,
+          "sequential screen baseline round " + std::to_string(round + 1));
+      candidate_milliseconds = measure_dequantize_sequential(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          sequential_dequant_payload, stream, kSequentialScreenWarmups,
+          kSequentialScreenIterations,
+          "sequential screen candidate round " + std::to_string(round + 1));
+    } else {
+      candidate_milliseconds = measure_dequantize_sequential(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          sequential_dequant_payload, stream, kSequentialScreenWarmups,
+          kSequentialScreenIterations,
+          "sequential screen candidate round " + std::to_string(round + 1));
+      baseline_milliseconds = measure_dequantize(
+          test, canonical_packed_weight.get(), canonical_block_scale.get(),
+          persistent_weight.get(), stream, kSequentialScreenWarmups,
+          kSequentialScreenIterations,
+          "sequential screen baseline round " + std::to_string(round + 1));
+    }
+    const bool timing_ok = std::isfinite(baseline_milliseconds) &&
+                           baseline_milliseconds > 0.0 &&
+                           std::isfinite(candidate_milliseconds) &&
+                           candidate_milliseconds > 0.0;
+    test.expect(timing_ok,
+                "sequential dequant screen timing is finite and positive");
+    ready = ready && timing_ok;
+    if (timing_ok) {
+      sequential_baseline_rounds.push_back(baseline_milliseconds);
+      sequential_candidate_rounds.push_back(candidate_milliseconds);
+      std::cout << "NVFP4_DEQUANT_DOWN_C512_SEQUENTIAL_ROUND: round="
+                << round + 1 << " order="
+                << (((round & 1) == 0) ? "B-C" : "C-B")
+                << " warmups=" << kSequentialScreenWarmups
+                << " iterations=" << kSequentialScreenIterations
+                << " baseline_milliseconds=" << baseline_milliseconds
+                << " candidate_milliseconds=" << candidate_milliseconds
+                << " speedup="
+                << baseline_milliseconds / candidate_milliseconds << '\n';
+    }
+  }
+
+  unsigned long long sequential_guard_mismatches = 0U;
+  bool sequential_guard_gate = test.cuda_ok(
+      cudaMemsetAsync(validation.get(), 0, sizeof(unsigned long long), stream),
+      "sequential dequant zero guard count");
+  validate_bf16_guards_kernel<<<1U, 256U, 0, stream>>>(
+      sequential_dequant_output.get(), kBElements, kGuardElements, kGuardBits,
+      validation.get());
+  sequential_guard_gate =
+      sequential_guard_gate &&
+      test.cuda_ok(cudaGetLastError(),
+                   "launch sequential dequant guard validation");
+  sequential_guard_gate =
+      sequential_guard_gate &&
+      test.cuda_ok(cudaMemcpyAsync(
+                       &sequential_guard_mismatches, validation.get(),
+                       sizeof(sequential_guard_mismatches),
+                       cudaMemcpyDeviceToHost, stream),
+                   "copy sequential dequant guard count");
+  sequential_guard_gate =
+      sequential_guard_gate &&
+      test.cuda_ok(cudaStreamSynchronize(stream),
+                   "synchronize sequential dequant guard validation") &&
+      sequential_guard_mismatches == 0U;
+  test.expect(sequential_guard_gate,
+              "sequential dequant prefix/suffix guards are intact");
+  ready = ready && sequential_guard_gate;
+
+  bool sequential_selected = false;
+  if (sequential_baseline_rounds.size() ==
+          static_cast<std::size_t>(kSequentialScreenRounds) &&
+      sequential_candidate_rounds.size() ==
+          static_cast<std::size_t>(kSequentialScreenRounds)) {
+    const double baseline_median = median(sequential_baseline_rounds);
+    const double candidate_median = median(sequential_candidate_rounds);
+    const double median_speedup = baseline_median / candidate_median;
+    double minimum_round_speedup = std::numeric_limits<double>::infinity();
+    bool all_round_positive = true;
+    for (std::size_t round = 0U;
+         round < sequential_baseline_rounds.size(); ++round) {
+      const double speedup =
+          sequential_baseline_rounds[round] /
+          sequential_candidate_rounds[round];
+      minimum_round_speedup = std::min(minimum_round_speedup, speedup);
+      all_round_positive = all_round_positive && speedup > 1.0;
+    }
+    const bool local_memory_gate =
+        sequential_dequant_attributes.localSizeBytes == 0U;
+    sequential_selected =
+        sequential_correctness_gate && sequential_guard_gate &&
+        local_memory_gate && all_round_positive &&
+        median_speedup >= kSequentialRequiredSpeedup;
+    std::cout << "NVFP4_DEQUANT_DOWN_C512_SEQUENTIAL_FINAL: rounds="
+              << kSequentialScreenRounds
+              << " baseline_median_milliseconds=" << baseline_median
+              << " candidate_median_milliseconds=" << candidate_median
+              << " median_speedup=" << median_speedup
+              << " minimum_round_speedup=" << minimum_round_speedup
+              << " all_round_positive="
+              << (all_round_positive ? "true" : "false")
+              << " required_speedup=" << kSequentialRequiredSpeedup
+              << " registers_per_thread="
+              << sequential_dequant_attributes.numRegs
+              << " local_bytes_per_thread="
+              << sequential_dequant_attributes.localSizeBytes
+              << " active_blocks_per_sm="
+              << active_sequential_dequant_blocks_per_sm
+              << " correctness="
+              << (sequential_correctness_gate ? "true" : "false")
+              << " guards_intact="
+              << (sequential_guard_gate ? "true" : "false")
+              << " action=" << (sequential_selected ? "SELECT" : "REJECT")
+              << " gate=" << (sequential_selected ? "PASS" : "FAIL")
+              << '\n';
+  }
 
   // Validate the exact timed chain against the trusted scalar-dequantized
   // matrix.  Production applies the non-unit global weight scale as Lt alpha;

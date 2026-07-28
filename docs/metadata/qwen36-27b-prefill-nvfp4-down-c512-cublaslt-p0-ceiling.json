@@ -69,6 +69,68 @@
       "active_blocks_per_sm": 4
     }
   },
+  "sequential_no_spill_followup": {
+    "recorded_at": "2026-07-28T20:18:30+08:00",
+    "source_parent_commit": "297df292c76dd5fa1d3c7c11e6e8692e3daceacd",
+    "objective": "test whether eliminating the 34-pass prefetch arrays and all local spill can improve the direct-dequant stage",
+    "candidate": "one sequential load-decode-store operation per pass with no cross-pass prefetch",
+    "protocol": {
+      "warmups": 10,
+      "iterations": 24,
+      "rounds": 6,
+      "order": "alternating B-C and C-B",
+      "required_median_speedup": 1.03,
+      "all_rounds_must_be_strictly_positive": true
+    },
+    "resources": {
+      "baseline_registers_per_thread": 64,
+      "baseline_local_bytes_per_thread": 64,
+      "baseline_active_blocks_per_sm": 4,
+      "candidate_registers_per_thread": 20,
+      "candidate_local_bytes_per_thread": 0,
+      "candidate_active_blocks_per_sm": 6
+    },
+    "correctness": {
+      "eager_values_compared": 89128960,
+      "eager_bitwise_mismatches": 0,
+      "replay_values_compared": 89128960,
+      "replay_bitwise_mismatches": 0,
+      "nonfinite": 0,
+      "guard_mismatches": 0,
+      "input_immutability": "pass"
+    },
+    "timing": {
+      "baseline_median_ms": 1.730331,
+      "candidate_median_ms": 1.965257,
+      "median_speedup": 0.880460,
+      "minimum_round_speedup": 0.876991,
+      "positive_rounds": 0,
+      "total_rounds": 6,
+      "candidate_regression_percent": 13.576940,
+      "gate": "fail"
+    },
+    "p0_recheck": {
+      "production_M128_median_ms": 6.655575,
+      "inclusive_original_candidate_median_ms": 5.003354,
+      "inclusive_speedup": 1.330223,
+      "minimum_round_speedup": 1.329664,
+      "positive_rounds": 6,
+      "gate": "pass"
+    },
+    "artifacts": {
+      "raw_log": {
+        "path": "/tmp/q3x-down-c512-sequential-strict.log",
+        "bytes": 9404,
+        "sha256": "695acf148b2946d6e8dfeab3e4bf083c85d6ae81bb91244b6675df49932ecd33"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_down_c512_cublaslt_ceiling",
+        "bytes": 5328480,
+        "sha256": "21b77e0ce778b6644ad808e0f91b36ed279e3d88b7f073d346e874558ce6eef0"
+      }
+    },
+    "decision": "reject: zero spill and higher occupancy do not compensate for losing cross-pass memory-level parallelism; the original prefetching decoder remains the P0 candidate"
+  },
   "baseline": {
     "identity": "current public exact-C512 production Down dispatcher",
     "launcher": "launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda",
@@ -164,7 +226,7 @@
     "why": "the inclusive candidate is exact for this P0, beats the live production M128 baseline in all six rounds, and exceeds the 1.22x retention gate with zero Lt workspace",
     "scratch_reuse": "the existing exact-C512 Gate/Up 170 MiB request scratch has the identical element count and can be overwritten after SiLU once a production Down module is admitted",
     "next_steps": [
-      "remove or justify the 64-byte-per-thread dequant local spill and rescreen",
+      "retain the prefetched decoder after the sequential zero-spill route regressed 13.576940%; only screen a bounded windowed decoder if it preserves cross-pass memory-level parallelism",
       "replicate across an independent process and additional finite input distributions",
       "add an independent Down context/descriptor/algorithm and complete fail-closed launcher validation",
       "integrate exact C512 only without changing C256, finish-Prefill, Decode, or MTP",
@@ -173,7 +235,7 @@
   },
   "limitations": [
     "This is a synthetic test-only P0 ceiling, not a production or whole-Prefill result.",
-    "The dequant kernel spills 64 bytes of local storage per thread; production hardening should screen a bounded no-spill windowed decoder.",
+    "The selected dequant kernel spills 64 bytes of local storage per thread; a fully sequential no-spill rewrite was exact but 13.576940% slower and was rejected.",
     "Only part of the proposed invalid-input selector contract is tested here; the full contract belongs in a production module test.",
     "The hybrid candidate still writes and rereads a 170 MiB BF16 weight image and is not the final fused native NVFP4 large-M upper bound."
   ]
