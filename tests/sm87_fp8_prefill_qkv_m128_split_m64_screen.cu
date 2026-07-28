@@ -481,18 +481,19 @@ struct GraphIdentity {
   bool ready = test.cuda_ok(
       cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
       std::string("begin ") + variant_name(variant) + " capture");
-  if (ready) {
+  const bool capture_started = ready;
+  if (capture_started) {
     ready = test.cuda_ok(launch_variant(fixture, stream, variant),
                          std::string("launch ") + variant_name(variant) +
                              " capture") &&
             ready;
-  }
-  if (ready) {
-    ready = test.cuda_ok(cudaStreamEndCapture(stream,
-                                              captured.graph_address()),
-                         std::string("end ") + variant_name(variant) +
-                             " capture") &&
-            ready;
+    // End every successfully started capture even when the launcher fails.
+    // CUDA may report an invalidated capture here, but the call still restores
+    // the stream so later diagnostics do not inherit capture state.
+    const bool capture_ended = test.cuda_ok(
+        cudaStreamEndCapture(stream, captured.graph_address()),
+        std::string("end ") + variant_name(variant) + " capture");
+    ready = capture_ended && ready;
   }
   std::array<cudaGraphNode_t, 2U> nodes{};
   std::size_t capacity = nodes.size();
@@ -693,7 +694,8 @@ struct GraphIdentity {
   const bool gate =
       ready && graph_identity && raw_code_coverage &&
       candidate_mismatches == 0U && replay1_mismatches == 0U &&
-      replay2_mismatches == 0U && nan_class_or_sign_mismatches == 0U &&
+      replay2_mismatches == 0U && nan_outputs == kTokens &&
+      nan_class_or_sign_mismatches == 0U &&
       unexpected_nonfinite == 0U && guards && immutable;
   std::cout << "FP8_SPLIT_M64_CORRECTNESS: candidate_mismatches="
             << candidate_mismatches << '/' << kOutputElements
@@ -705,6 +707,7 @@ struct GraphIdentity {
             << " raw_code_coverage="
             << (raw_code_coverage ? "true" : "false")
             << " classified_nan_outputs=" << nan_outputs
+            << " required_classified_nan_outputs=" << kTokens
             << " nan_class_or_sign_mismatches="
             << nan_class_or_sign_mismatches
             << " unexpected_nonfinite=" << unexpected_nonfinite
@@ -849,7 +852,9 @@ struct GraphIdentity {
             << " rounds=" << kRounds
             << " warmups_per_pass=" << kWarmups
             << " iterations_per_pass=" << kIterations
-            << " order=B-C-C-B traffic_and_hmma_unchanged=true"
+            << " order=B-C-C-B"
+            << " global_traffic_and_hmma_unchanged=true"
+            << " shared_B_fragment_reads_unchanged=false"
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "split-M64 clears frozen C512 QKV performance gate");
   return gate;
