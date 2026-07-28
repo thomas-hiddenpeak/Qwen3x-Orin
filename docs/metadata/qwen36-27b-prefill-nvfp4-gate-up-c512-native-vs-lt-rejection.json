@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-up-c512-native-vs-lt-rejection",
+  "status": "native-main-route-rejected-architecture-reset",
+  "recorded_at": "2026-07-29T00:29:01+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "1fcad2f85f32ae9e4838f2e9a9eeca10220c4b10",
+    "tree": "89e8ac8281835fb48699e9c40fdb3e1faa6c7791",
+    "parent_commit": "5e73355e810138699b76de0e717e46913c562f00",
+    "subject": "test: compare native NVFP4 Gate Up against Lt",
+    "screen": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "native_kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "production_dispatch_changed": false,
+    "public_abi_changed": false,
+    "decode_route_changed": false,
+    "mtp_used": false
+  },
+  "purpose": {
+    "question": "Does the first admitted test-only M64xN256 pair-lookup native Gate/Up cell beat the selected zero-cuBLASLt-workspace direct-dequant plus cuBLASLt C512 pair under one process, one fixture, and one timing protocol?",
+    "answer": "No. Native serial and dual schedules are both bitwise exact and resource/Graph clean, but reach only 0.633x to 0.639x of the best zero-cuBLASLt-workspace Lt pair in the paired blocks; that pair still reuses one 170-MiB BF16 dequant scratch.",
+    "decision": "retain the cuBLASLt bridge as production; retain pair lookup only as a native development control; reset native work around whole-dataflow operand reuse",
+    "next_design": "docs/LARGE_M_PROJECTION_DATAFLOW.md"
+  },
+  "shape": {
+    "tokens_M": 512,
+    "rows_N": 17408,
+    "columns_K": 5120,
+    "branches": ["Gate", "Up"],
+    "weight_format": "canonical packed NVFP4 E2M1 plus E4M3FN block-16 scales",
+    "activation_and_output_format": "BF16",
+    "native_tile": "M64xN256xK64",
+    "native_grid_per_branch": 544,
+    "native_threads_per_cta": 256
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset CPU 11",
+    "fixed_frequency_readback": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "payload_scope": "deterministic synthetic Gate and Up tensors from the common pair-screen fixture",
+    "checkpoint_timing_claimed": false
+  },
+  "protocol": {
+    "same_process": true,
+    "same_fixture": true,
+    "order_per_round": "B-C-C-B",
+    "rounds": 6,
+    "warmups_per_pass": 2,
+    "logical_pair_iterations_per_pass": 8,
+    "allocations_in_timing": false,
+    "initialization_in_timing": false,
+    "validation_in_timing": false,
+    "graph_instantiation_in_timing": false,
+    "lt_workspace_bytes": 0,
+    "lt_policy": "screen selects the fastest successful zero-cuBLASLt-workspace heuristic for the ceiling comparison and reuses one 178257920-byte BF16 dequant scratch",
+    "production_context_boundary": "the production context uses its runtime successful heuristic contract rather than this screen's timing-ranked identity; observed index-0 versus selected-index-2 Lt time differs by about 0.2%, far below the native rejection gap"
+  },
+  "correctness_graph_and_resources": {
+    "gate_outputs_compared_per_replay": 8912896,
+    "up_outputs_compared_per_replay": 8912896,
+    "native_serial_bitwise_mismatches": 0,
+    "native_dual_bitwise_mismatches": 0,
+    "eager_replays_per_variant": 2,
+    "graph_replays_per_variant": 2,
+    "native_serial_graph_kernel_nodes": 2,
+    "native_dual_graph_kernel_nodes": 2,
+    "near_miss_invalid_cases_passed": 3,
+    "near_miss_invalid_cases_total": 3,
+    "near_miss_invalid_graph_nodes": 0,
+    "full_candidate_invalid_contract": "23/23 remains covered by the dedicated native candidate screen",
+    "guards": "intact",
+    "nonfinite_outputs": 0,
+    "native_resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 1536,
+      "dynamic_shared_bytes": 43008,
+      "local_bytes_per_thread": 0,
+      "maximum_threads_per_block": 256,
+      "active_ctas_per_sm": 2
+    },
+    "gate": "pass"
+  },
+  "fixed_post_audit_screen": {
+    "bridge_vs_native_serial": {
+      "bridge_pair_ms": 7.222206,
+      "native_pair_ms": 11.400807,
+      "native_vs_bridge_speed": 0.633482,
+      "native_latency_increase_percent": 57.8605,
+      "native_every_round_positive": false,
+      "decision": "reject"
+    },
+    "bridge_vs_native_dual": {
+      "bridge_pair_ms": 7.269251,
+      "native_pair_ms": 11.374424,
+      "native_vs_bridge_speed": 0.639087,
+      "native_latency_increase_percent": 56.4720,
+      "native_every_round_positive": false,
+      "decision": "reject"
+    },
+    "native_serial_vs_native_dual": {
+      "native_serial_pair_ms": 11.397013,
+      "native_dual_pair_ms": 11.372029,
+      "dual_speedup": 1.002197,
+      "dual_positive_rounds": 6,
+      "rounds": 6,
+      "engineering_interpretation": "the 0.2197% paired gain is reproducible in this process but too small to justify a production scheduling decision"
+    },
+    "gate": "fail native main-route promotion"
+  },
+  "prior_native_internal_admission": {
+    "scope": "synthetic native M64xN256 A-only-CA control versus pair lookup, not versus Lt",
+    "single_gate_control_ms": 5.388441,
+    "single_gate_pair_lookup_ms": 5.128448,
+    "single_gate_speedup": 1.050696,
+    "gate_up_control_ms": 10.733688,
+    "gate_up_pair_lookup_ms": 10.219578,
+    "gate_up_speedup": 1.050306,
+    "interpretation": "pair lookup remains a real native-internal improvement, but the stricter Lt comparison supersedes it for production selection"
+  },
+  "causal_boundary": {
+    "current_native_problem": "M64 ownership still presents compressed B and scales across eight M tiles and A across 68 N tiles; pair lookup changes decode instruction pressure but not those repetitions",
+    "dual_stream_result": "Gate/Up concurrency recovers only about 0.2% in the direct paired screen",
+    "synthetic_ncu_boundary": "the existing pair-lookup NCU payload is synthetic; no real-checkpoint shared-wavefront or bank-distribution production claim is made",
+    "architecture_action": "model Gate/Up, long-K Down, and the FP8 projection families separately before implementing the next complete cell"
+  },
+  "regression": {
+    "ctest_total": 81,
+    "passed": 69,
+    "expected_skipped": 12,
+    "failed": 0,
+    "elapsed_seconds": 34.53
+  },
+  "artifacts": {
+    "fixed_screen_log": {
+      "path": "/tmp/q3x-native-vs-cublaslt-c512-pair-screen-fixed.log",
+      "bytes": 17772,
+      "sha256": "49ce998e80e6ea27eb82c6960b1f5085a36140c6a58609c756e34a90f0e1dfef"
+    },
+    "fixed_full_ctest": {
+      "path": "/tmp/q3x-native-vs-cublaslt-headtohead-fixed-ctest.log",
+      "bytes": 13521,
+      "sha256": "a62ee78b3cab65c0ed3470d69b572c38507548408a2177be600c8eba80ec3446"
+    },
+    "measured_binary": {
+      "path": "build/q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen",
+      "bytes": 5601904,
+      "sha256": "43cfeb3ba535ea1665eb7a37d57391c0b9eeddacd1ea62f8e9118641f22274ae"
+    }
+  }
+}

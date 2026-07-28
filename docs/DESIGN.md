@@ -111,6 +111,11 @@ BF16 Tensor Core MMA. It requires 16-byte-aligned packed weights,
 or alignments fall back to two ordered M8 launches. Neither route introduces a
 checkpoint repack or claims native NVFP4 arithmetic.
 
+The C512 large-M projection families are designed and admitted separately.
+Their operand-residency model, Gate/Up-versus-Down specialization boundary,
+FP8 scope, and current bridge-beating gates are recorded in
+[LARGE_M_PROJECTION_DATAFLOW.md](LARGE_M_PROJECTION_DATAFLOW.md).
+
 The NVIDIA artifact also stores an FP32 `input_scale` beside quantized linear
 modules. That value belongs to an activation-quantized W4A4 calibration path.
 Qwen3x-Orin's initial W4A16 path keeps BF16 activations, so it validates and
