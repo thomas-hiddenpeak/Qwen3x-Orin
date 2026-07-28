@@ -286,6 +286,24 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Test-only exact-C512 Down P0 ceiling. It keeps the production runner and
+  # public integration untouched while comparing the current production M128
+  # kernel with canonical NVFP4 direct dequantization + zero-workspace Lt.
+  add_executable(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+    tests/sm87_nvfp4_prefill_down_c512_cublaslt_ceiling.cu
+  )
+  target_link_libraries(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+    PRIVATE q3x::kernels CUDA::cublasLt
+  )
+  q3x_enable_warnings(q3x_nvfp4_prefill_down_c512_cublaslt_ceiling)
+  add_test(NAME nvfp4_prefill_down_c512_cublaslt_ceiling
+    COMMAND q3x_nvfp4_prefill_down_c512_cublaslt_ceiling
+  )
+  set_tests_properties(nvfp4_prefill_down_c512_cublaslt_ceiling PROPERTIES
+    LABELS "cuda;sm87;prefill;ceiling;screen"
+    SKIP_RETURN_CODE 77
+  )
+
   # Production exact-C512 NVFP4 direct-dequant + zero-workspace cuBLASLt
   # module contract. This independently locks scalar decode equivalence,
   # production-M128 bitwise output, two-node graph capture, bounds, and

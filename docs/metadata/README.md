@@ -1418,6 +1418,18 @@ The diagnostic Phase 3 records are:
   unchanged within noise at **105.8270/105.8995 ms per subsequent token**.
   C256, Down, finish-Prefill, Decode, MTP, and near misses remain unchanged;
   the next bounded screen is exact-C512 Down reuse of the same scratch.
+- [`qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json`](qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json),
+  which retains that test-only Down P0 without changing production. The live
+  exact-C512 production M128 baseline takes **6.610938 ms**; direct dequant plus
+  zero-workspace Lt takes **4.965268 ms** inclusive (**1.331436x**), with all
+  six rounds positive and a **1.330784x** worst round against the 1.22x gate.
+  All 89,128,960 decoded BF16 values and 2,621,440 production outputs match
+  bitwise; exact two-node Graph replay, 16-byte Lt preference, guards, input
+  immutability, and scale handling pass. Production remains unchanged because
+  the decoder still has 64 local bytes/thread and the full null/shape/alias/
+  overflow/device rejection contract is not yet implemented. A hardened Down
+  module may reuse the existing 170-MiB request scratch after SiLU; it must not
+  allocate another scratch or persistent BF16 weights.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json),
   which freezes the self-developed exact-C512 M64xN256xK64 test-only baseline.
   K256 scale reuse, paired packed-weight copies, and aligned 32-bit BF16 stores

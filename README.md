@@ -312,11 +312,17 @@ TTFT from **2666.918 ms** to **2317.622 ms** (**1.150713x**). Nsight records
 Gate/Up M128 kernel. The 74-test suite has zero failures, and mirrored C32
 Decode remains noise-equivalent at **105.8270 vs 105.8995 ms/token**. C256,
 Down, finish-Prefill, Decode, and all selector near misses keep their existing
-routes. Down is the next bounded hybrid ceiling screen; the native fused
+routes. A separate test-only Down P0 now measures **6.610938 ms** production
+M128 versus **4.965268 ms** inclusive direct-dequant plus Lt (**1.331436x**,
+6/6 positive), with all 89,128,960 decoded values and 2,621,440 outputs
+bitwise exact. It remains outside production while its 64-byte/thread local
+spill and complete launcher rejection contract are hardened. The native fused
 large-M NVFP4 kernel remains the higher-ceiling path.
 See the [C512 inclusive cuBLASLt admission
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
 and [Gate+Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-production-benchmark.json).
+The [Down P0 ceiling record](docs/metadata/qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling.json)
+keeps that independent test-only result and its remaining gates.
 The parallel native large-M effort now has a frozen test-only M64xN256xK64
 baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
 epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)

@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-28T20:01:38+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "test-only-p0-retained-for-production-hardening",
+  "artifact": "qwen36-27b-prefill-nvfp4-down-c512-cublaslt-p0-ceiling",
+  "source": {
+    "parent_commit": "394b33cb4394b2308b228bf1cc72492a5bcfbe0a",
+    "test": "tests/sm87_nvfp4_prefill_down_c512_cublaslt_ceiling.cu",
+    "cmake_target": "q3x_nvfp4_prefill_down_c512_cublaslt_ceiling",
+    "production_changed": false,
+    "runner_changed": false,
+    "public_api_changed": false
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin Developer Kit",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "cpu_affinity": "taskset -c 11",
+    "fixed_frequency_readback": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin; synthetic canonical exact-C512 Down P0; no whole-model or production claim"
+  },
+  "shape_and_layout": {
+    "tokens_M": 512,
+    "output_rows_N": 5120,
+    "input_columns_K": 17408,
+    "packed_weights": "canonical E2M1 pairs, row-major [5120,17408/2]",
+    "block_scales": "canonical E4M3FN, row-major [5120,17408/16]",
+    "activations": "BF16 token-major [512,17408]",
+    "output": "BF16 token-major [512,5120]",
+    "transient_weight": "BF16 row-major [5120,17408]",
+    "transient_weight_bytes": 178257920,
+    "physical_transpose": false,
+    "lt_weight_view": "logical transpose of contiguous [N,K]",
+    "weight_scale_2": 1.25,
+    "scale_application": "FP32 cuBLASLt alpha after BF16 direct dequantization"
+  },
+  "candidate": {
+    "chain": [
+      "direct canonical NVFP4-to-contiguous-BF16 dequantization",
+      "zero-workspace cuBLASLt BF16 GEMM"
+    ],
+    "inclusive_timing": "every measured iteration enqueues both ordered operations on the same stream",
+    "persistent_bf16_weight_used_for_inclusive_timing": false,
+    "selected_heuristic_index": 1,
+    "selected_workspace_bytes": 0,
+    "preference_min_alignment_bytes": {
+      "A": 16,
+      "B": 16,
+      "C": 16,
+      "D": 16
+    },
+    "actual_pointer_alignment_bytes": {
+      "A_weight": 16384,
+      "B_activation": 16384,
+      "C_output": 512,
+      "D_output": 512
+    },
+    "dequant_kernel_resources": {
+      "threads_per_block": 256,
+      "blocks": 5120,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 0,
+      "local_bytes_per_thread": 64,
+      "active_blocks_per_sm": 4
+    }
+  },
+  "baseline": {
+    "identity": "current public exact-C512 production Down dispatcher",
+    "launcher": "launch_sm87_nvfp4_w4a16_whole_chunk_down_gemm_bf16_cuda",
+    "selected_kernel": "production M128 N128 K64 B-reuse Down specialization <4U>",
+    "measured_live_in_every_round": true,
+    "historical_constant_used": false
+  },
+  "protocol": {
+    "selection_warmups": 2,
+    "selection_iterations": 4,
+    "formal_warmups": 10,
+    "formal_iterations": 24,
+    "formal_rounds": 6,
+    "round_order": "alternating production-first and candidate-first",
+    "required_inclusive_speedup": 1.22,
+    "all_rounds_must_be_positive": true,
+    "performance_gate_is_soft": "a speed miss reports REJECT while correctness failures fail CTest"
+  },
+  "timing": {
+    "production_M128_median_ms": 6.610938,
+    "production_M128_minimum_ms": 6.608425,
+    "production_M128_maximum_ms": 6.612272,
+    "direct_dequant_median_ms": 1.688163,
+    "direct_dequant_minimum_ms": 1.687665,
+    "direct_dequant_maximum_ms": 1.689569,
+    "persistent_bf16_lt_control_median_ms": 3.267439,
+    "inclusive_median_ms": 4.965268,
+    "inclusive_minimum_ms": 4.964979,
+    "inclusive_maximum_ms": 4.967900,
+    "inclusive_tflop_per_second": 18.381295,
+    "inclusive_speedup_vs_production_M128": 1.331436,
+    "minimum_round_speedup": 1.330784,
+    "positive_rounds": 6,
+    "total_rounds": 6,
+    "gate": "pass"
+  },
+  "correctness": {
+    "decoded_bf16_values_compared": 89128960,
+    "decoded_bf16_bitwise_mismatches": 0,
+    "production_outputs_compared": 2621440,
+    "production_output_bitwise_mismatches": 0,
+    "candidate_nonfinite": 0,
+    "production_nonfinite": 0,
+    "maximum_absolute_error": 0.0,
+    "maximum_relative_error": 0.0,
+    "nrmse": 0.0,
+    "cosine": 1.0,
+    "cold_graph_bitwise_mismatches": 0,
+    "warm_graph_bitwise_mismatches": 0,
+    "graph_nodes": 2,
+    "graph_node_count_required_exact": true,
+    "scale_zero": "bitwise exact diagnostic, but selector retains production route",
+    "scale_nan": "production invalid-value status before enqueue and zero captured nodes",
+    "negative_scale": "selector rejects",
+    "activation_immutable": true,
+    "packed_weight_immutable": true,
+    "block_scale_immutable": true,
+    "candidate_guard_mismatches": 0,
+    "trusted_reference_guard_mismatches": 0,
+    "production_guard_mismatches": 0,
+    "gate": "pass"
+  },
+  "artifacts": {
+    "raw_log": {
+      "path": "/tmp/q3x-down-c512-p0-alignment-audit.log",
+      "bytes": 7594,
+      "sha256": "726fa77d43743812f5fb1cf480f627556d45a01fa484ff2abd62d1eb2784fff8"
+    },
+    "binary": {
+      "path": "build/q3x_nvfp4_prefill_down_c512_cublaslt_ceiling",
+      "bytes": 5327048,
+      "sha256": "5ee5ba0e086089f10e9efb54de1e0954e08db5d2298451043d47b16a725d5d88"
+    },
+    "ctest": {
+      "command": "ctest --test-dir build -R '^nvfp4_prefill_down_c512_cublaslt_ceiling$' --output-on-failure",
+      "passed": 1,
+      "failed": 0,
+      "seconds": 4.12
+    }
+  },
+  "independent_review": {
+    "inclusive_chain_and_event_scope": "confirmed",
+    "production_M128_baseline_identity": "confirmed",
+    "shape_transpose_and_layout": "confirmed",
+    "full_scalar_and_output_comparisons": "confirmed",
+    "alignment_finding": "fixed by setting A/B/C/D minimum alignment preferences to 16 bytes and rerunning",
+    "graph_finding": "fixed by requiring exactly two nodes and rerunning",
+    "remaining_contract_finding": "candidate has no production launcher validator yet; null, near-miss shape, alias, range-wrap, +inf, and wrong-device zero-node gates remain required before integration"
+  },
+  "decision": {
+    "p0": "retain",
+    "production": "unchanged",
+    "why": "the inclusive candidate is exact for this P0, beats the live production M128 baseline in all six rounds, and exceeds the 1.22x retention gate with zero Lt workspace",
+    "scratch_reuse": "the existing exact-C512 Gate/Up 170 MiB request scratch has the identical element count and can be overwritten after SiLU once a production Down module is admitted",
+    "next_steps": [
+      "remove or justify the 64-byte-per-thread dequant local spill and rescreen",
+      "replicate across an independent process and additional finite input distributions",
+      "add an independent Down context/descriptor/algorithm and complete fail-closed launcher validation",
+      "integrate exact C512 only without changing C256, finish-Prefill, Decode, or MTP",
+      "run pinned-checkpoint B-C-C-B, Nsight route attribution, full suite, and Decode non-regression"
+    ]
+  },
+  "limitations": [
+    "This is a synthetic test-only P0 ceiling, not a production or whole-Prefill result.",
+    "The dequant kernel spills 64 bytes of local storage per thread; production hardening should screen a bounded no-spill windowed decoder.",
+    "Only part of the proposed invalid-input selector contract is tested here; the full contract belongs in a production module test.",
+    "The hybrid candidate still writes and rereads a 170 MiB BF16 weight image and is not the final fused native NVFP4 large-M upper bound."
+  ]
+}
