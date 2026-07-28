@@ -17,6 +17,26 @@
 #include <string>
 #include <vector>
 
+namespace q3x::kernels {
+
+// Test-only ABI for the admitted native C512 M64N256 pair-lookup candidate.
+// Keep it out of the installed header until the production route is selected.
+[[nodiscard]] int
+launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
+    const std::uint8_t* packed_weights, const std::uint8_t* block_scales,
+    float weight_scale_2, const std::uint16_t* activations,
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    std::uint16_t* output, void* stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+
+}  // namespace q3x::kernels
+
 namespace {
 
 constexpr std::size_t kM = 512U;
@@ -330,6 +350,8 @@ enum class Variant : std::uint8_t {
   kSerialOneScratch,
   kNaiveDual,
   kStaggeredDual,
+  kNativeSerial,
+  kNativeDual,
 };
 
 [[nodiscard]] const char* variant_name(const Variant variant) noexcept {
@@ -342,6 +364,10 @@ enum class Variant : std::uint8_t {
       return "B_naive_two_handle_two_scratch";
     case Variant::kStaggeredDual:
       return "C_staggered_two_handle_two_scratch";
+    case Variant::kNativeSerial:
+      return "D_native_m64n256_pairlookup_serial";
+    case Variant::kNativeDual:
+      return "E_native_m64n256_pairlookup_dual";
   }
   return "unknown";
 }
@@ -685,6 +711,18 @@ struct ClockState {
          static_cast<int>(cudaSuccess);
 }
 
+[[nodiscard]] bool launch_native_pairlookup_branch(
+    const std::uint8_t* const packed, const std::uint8_t* const scales,
+    const float weight_scale_2, const __nv_bfloat16* const activation,
+    std::uint16_t* const output, const cudaStream_t stream) {
+  return q3x::kernels::
+             launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
+                 packed, scales, weight_scale_2,
+                 reinterpret_cast<const std::uint16_t*>(activation), kM, kN,
+                 kK, output, static_cast<void*>(stream)) ==
+         static_cast<int>(cudaSuccess);
+}
+
 [[nodiscard]] bool launch_variant(
     const Variant variant, Fixture& fixture, const Execution& execution,
     const LtObjects& main_lt, const LtObjects& auxiliary_lt,
@@ -721,6 +759,35 @@ struct ClockState {
            launch_lt(main_lt, selected.value, kUpWeightScale2,
                      fixture.scratch0.get(), fixture.activation.get(),
                      fixture.candidate_up(), main);
+  }
+
+  if (variant == Variant::kNativeSerial) {
+    return launch_native_pairlookup_branch(
+               fixture.gate_packed.get(), fixture.gate_scales.get(),
+               kGateWeightScale2, fixture.activation.get(),
+               fixture.candidate_gate(), main) &&
+           launch_native_pairlookup_branch(
+               fixture.up_packed.get(), fixture.up_scales.get(),
+               kUpWeightScale2, fixture.activation.get(),
+               fixture.candidate_up(), main);
+  }
+
+  if (variant == Variant::kNativeDual) {
+    bool ready = cudaEventRecord(execution.fork(), main) == cudaSuccess;
+    ready = ready &&
+            cudaStreamWaitEvent(auxiliary, execution.fork(), 0U) == cudaSuccess;
+    ready = ready && launch_native_pairlookup_branch(
+                         fixture.gate_packed.get(), fixture.gate_scales.get(),
+                         kGateWeightScale2, fixture.activation.get(),
+                         fixture.candidate_gate(), main);
+    ready = ready && launch_native_pairlookup_branch(
+                         fixture.up_packed.get(), fixture.up_scales.get(),
+                         kUpWeightScale2, fixture.activation.get(),
+                         fixture.candidate_up(), auxiliary);
+    ready = ready && cudaEventRecord(execution.done(), auxiliary) == cudaSuccess;
+    ready = ready &&
+            cudaStreamWaitEvent(main, execution.done(), 0U) == cudaSuccess;
+    return ready;
   }
 
   if (variant == Variant::kNaiveDual) {
@@ -989,8 +1056,11 @@ struct GraphCounts {
   GraphCounts counts;
   if (ready) {
     ready = query_graph_counts(test, graph, counts, label) && ready;
-    const std::size_t minimum_kernels =
-        variant == Variant::kProduction ? 2U : 4U;
+    const bool native_or_production =
+        variant == Variant::kProduction ||
+        variant == Variant::kNativeSerial ||
+        variant == Variant::kNativeDual;
+    const std::size_t minimum_kernels = native_or_production ? 2U : 4U;
     test.expect(counts.kernels >= minimum_kernels,
                 label + " graph contains expected compute nodes");
     ready = ready && counts.kernels >= minimum_kernels;
@@ -1206,6 +1276,86 @@ struct ComparisonResult {
   return ready;
 }
 
+[[nodiscard]] bool run_native_resource_and_status_gate(
+    TestContext& test, Fixture& fixture, const Execution& execution) {
+  int registers = -1;
+  std::size_t static_shared = std::numeric_limits<std::size_t>::max();
+  std::size_t dynamic_shared = std::numeric_limits<std::size_t>::max();
+  std::size_t local = std::numeric_limits<std::size_t>::max();
+  int threads = -1;
+  int active = -1;
+  const int resource_status = q3x::kernels::
+      query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_resources_test_cuda(
+          kM, kN, kK, &registers, &static_shared, &dynamic_shared, &local,
+          &threads, &active);
+  const bool resource_gate =
+      resource_status == static_cast<int>(cudaSuccess) && registers <= 128 &&
+      static_shared == 1'536U && dynamic_shared == 43'008U && local == 0U &&
+      threads == 256 && active >= 2;
+  test.expect(resource_gate,
+              "native pair-lookup candidate clears frozen resources");
+  std::cout << "NVFP4_PAIR_NATIVE_RESOURCES: status=" << resource_status
+            << " registers=" << registers
+            << " static_shared_bytes=" << static_shared
+            << " dynamic_shared_bytes=" << dynamic_shared
+            << " local_bytes=" << local << " threads=" << threads
+            << " active_blocks_per_sm=" << active
+            << " gate=" << (resource_gate ? "PASS" : "FAIL") << '\n';
+
+  bool ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
+                            "native invalid pre-capture synchronize");
+  cudaGraph_t graph = nullptr;
+  ready = test.cuda_ok(
+              cudaStreamBeginCapture(execution.main(),
+                                     cudaStreamCaptureModeThreadLocal),
+              "native invalid begin capture") &&
+          ready;
+  std::array<int, 3U> invalid_statuses{};
+  if (ready) {
+    const auto launch_invalid = [&](const std::size_t tokens,
+                                    const std::size_t rows,
+                                    const std::size_t columns) {
+      return q3x::kernels::
+          launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_capairlookup_test_cuda(
+              fixture.gate_packed.get(), fixture.gate_scales.get(),
+              kGateWeightScale2,
+              reinterpret_cast<const std::uint16_t*>(
+                  fixture.activation.get()),
+              tokens, rows, columns, fixture.candidate_gate(),
+              static_cast<void*>(execution.main()));
+    };
+    invalid_statuses[0] = launch_invalid(kM - 1U, kN, kK);
+    invalid_statuses[1] = launch_invalid(kM, kN - 1U, kK);
+    invalid_statuses[2] = launch_invalid(kM, kN, kK - 1U);
+    ready = test.cuda_ok(cudaStreamEndCapture(execution.main(), &graph),
+                         "native invalid end capture") &&
+            ready;
+  }
+  std::size_t graph_nodes = 0U;
+  if (ready && graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphGetNodes(graph, nullptr, &graph_nodes),
+                         "native invalid query graph nodes") &&
+            ready;
+  }
+  if (graph != nullptr) {
+    ready = test.cuda_ok(cudaGraphDestroy(graph),
+                         "native invalid destroy graph") &&
+            ready;
+  }
+  const std::size_t invalid_count = static_cast<std::size_t>(std::count(
+      invalid_statuses.begin(), invalid_statuses.end(),
+      static_cast<int>(cudaErrorInvalidValue)));
+  const bool status_gate =
+      ready && invalid_count == invalid_statuses.size() && graph_nodes == 0U;
+  test.expect(status_gate,
+              "native pair-lookup near misses enqueue zero graph nodes");
+  std::cout << "NVFP4_PAIR_NATIVE_STATUS: invalid_statuses="
+            << invalid_count << '/' << invalid_statuses.size()
+            << " graph_nodes=" << graph_nodes
+            << " gate=" << (status_gate ? "PASS" : "FAIL") << '\n';
+  return resource_gate && status_gate;
+}
+
 }  // namespace
 
 int main() {
@@ -1328,10 +1478,13 @@ int main() {
             << " auxiliary_workspace_bytes=" << auxiliary_check.workspaceSize
             << " gate=PASS\n";
 
+  ready = run_native_resource_and_status_gate(test, fixture, execution) &&
+          ready;
   ready = generate_production_reference(test, fixture, execution) && ready;
   for (const Variant variant :
        {Variant::kProduction, Variant::kSerialOneScratch,
-        Variant::kNaiveDual, Variant::kStaggeredDual}) {
+        Variant::kNaiveDual, Variant::kStaggeredDual,
+        Variant::kNativeSerial, Variant::kNativeDual}) {
     ready = run_eager_correctness(test, fixture, execution, main_lt,
                                   auxiliary_lt, *selected, variant) &&
             ready;
@@ -1349,6 +1502,18 @@ int main() {
   const ComparisonResult a_vs_c = run_bccb(
       test, fixture, execution, main_lt, auxiliary_lt, *selected,
       Variant::kSerialOneScratch, Variant::kStaggeredDual, "A_vs_C");
+  const ComparisonResult bridge_vs_native_serial = run_bccb(
+      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      Variant::kSerialOneScratch, Variant::kNativeSerial,
+      "cublaslt_bridge_vs_native_serial");
+  const ComparisonResult bridge_vs_native_dual = run_bccb(
+      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      Variant::kSerialOneScratch, Variant::kNativeDual,
+      "cublaslt_bridge_vs_native_dual");
+  const ComparisonResult native_serial_vs_dual = run_bccb(
+      test, fixture, execution, main_lt, auxiliary_lt, *selected,
+      Variant::kNativeSerial, Variant::kNativeDual,
+      "native_serial_vs_native_dual");
 
   const bool serial_gate = production_vs_a.every_round_positive &&
                            std::isfinite(production_vs_a.speedup) &&
@@ -1366,6 +1531,36 @@ int main() {
           ? Variant::kStaggeredDual
           : (naive_recommendation ? Variant::kNaiveDual
                                   : Variant::kSerialOneScratch);
+  const bool native_timing_finite =
+      std::isfinite(bridge_vs_native_serial.baseline_milliseconds) &&
+      std::isfinite(bridge_vs_native_serial.candidate_milliseconds) &&
+      std::isfinite(bridge_vs_native_serial.speedup) &&
+      std::isfinite(bridge_vs_native_dual.baseline_milliseconds) &&
+      std::isfinite(bridge_vs_native_dual.candidate_milliseconds) &&
+      std::isfinite(bridge_vs_native_dual.speedup) &&
+      std::isfinite(native_serial_vs_dual.baseline_milliseconds) &&
+      std::isfinite(native_serial_vs_dual.candidate_milliseconds) &&
+      std::isfinite(native_serial_vs_dual.speedup);
+  test.expect(native_timing_finite,
+              "native and cuBLASLt head-to-head timings are finite");
+  // Select the native schedule only from its direct paired comparison.  The
+  // two bridge-vs-native blocks execute at different points in the process,
+  // so comparing their absolute candidate times would admit clock/thermal
+  // drift into what is already measured by native_serial_vs_dual.
+  const bool native_dual_wins_direct_pair =
+      native_serial_vs_dual.every_round_positive &&
+      native_serial_vs_dual.speedup > 1.0;
+  const Variant native_recommendation =
+      native_dual_wins_direct_pair ? Variant::kNativeDual
+                                   : Variant::kNativeSerial;
+  const ComparisonResult& bridge_vs_best_native =
+      native_recommendation == Variant::kNativeDual
+          ? bridge_vs_native_dual
+          : bridge_vs_native_serial;
+  const bool native_clears_bridge =
+      bridge_vs_best_native.every_round_positive &&
+      std::isfinite(bridge_vs_best_native.speedup) &&
+      bridge_vs_best_native.speedup > 1.0;
   test.expect(serial_gate,
               "serial one-scratch route clears 1.22x production pair gate");
   std::cout << "NVFP4_PAIR_FINAL: production_vs_A_speedup="
@@ -1389,6 +1584,33 @@ int main() {
             << " recommended_scratch_count="
             << (recommendation == Variant::kSerialOneScratch ? 1 : 2)
             << " hard_gate=" << (serial_gate ? "PASS" : "FAIL") << '\n';
+  std::cout << "NVFP4_PAIR_NATIVE_FINAL: bridge_serial_ms="
+            << bridge_vs_native_serial.baseline_milliseconds
+            << " native_serial_ms="
+            << bridge_vs_native_serial.candidate_milliseconds
+            << " bridge_vs_native_serial_speedup="
+            << bridge_vs_native_serial.speedup
+            << " bridge_vs_native_serial_every_round_positive="
+            << (bridge_vs_native_serial.every_round_positive ? "true"
+                                                              : "false")
+            << " native_dual_ms="
+            << bridge_vs_native_dual.candidate_milliseconds
+            << " bridge_vs_native_dual_speedup="
+            << bridge_vs_native_dual.speedup
+            << " bridge_vs_native_dual_every_round_positive="
+            << (bridge_vs_native_dual.every_round_positive ? "true"
+                                                            : "false")
+            << " native_serial_vs_dual_speedup="
+            << native_serial_vs_dual.speedup
+            << " native_serial_vs_dual_every_round_positive="
+            << (native_serial_vs_dual.every_round_positive ? "true"
+                                                            : "false")
+            << " recommended_native_schedule="
+            << variant_name(native_recommendation)
+            << " native_clears_bridge="
+            << (native_clears_bridge ? "true" : "false")
+            << " correctness_graph_resource_status_gate="
+            << (ready && native_timing_finite ? "PASS" : "FAIL") << '\n';
 
   ready = test.cuda_ok(cudaStreamSynchronize(execution.main()),
                        "final main synchronize") &&
