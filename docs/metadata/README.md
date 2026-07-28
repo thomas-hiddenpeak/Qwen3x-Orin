@@ -1405,6 +1405,21 @@ The diagnostic Phase 3 records are:
   M128 calls and 32 retained M64 K/V calls, while NCU records 25% less L1
   global-load traffic for QKV/C512. No MTP, FlashInfer, new buffering,
   Prefill/Decode overlap, workspace, public-ABI, or Decode change is used.
+- [`qwen36-27b-prefill-nvfp4-down-m128-production-benchmark.json`](qwen36-27b-prefill-nvfp4-down-m128-production-benchmark.json),
+  which promotes only exact C256/C512 NVFP4 Down `[5120,17408]` to
+  M128xN128 K64 decoded-B reuse. Three production-admission processes retain
+  two CTA/SM and reach **1.29838x--1.29880x C256** and
+  **1.26845x--1.26979x C512** cross-distribution minimum speedups. Mirrored
+  frozen-binary P257/P513 Prefix improves by **1.050250272x/1.043924307x**
+  to **196.261675/195.040523 token/s**; complete-prompt throughput reaches
+  **181.985297/187.647869 token/s**. All 40 model results, exhaustive raw
+  E4M3FN-by-E2M1 coverage, replay, Graph identity, invalid-call, memory, bulk
+  E2E, and the 52-pass/12-skip suite pass. Fresh P513 attribution keeps 64
+  Down nodes, halves grid X from 320 to 160, and reduces raw Down time from
+  542.446976 to 426.948448 ms (**1.270521016x**). Matched NCU records 19.23%
+  less L1 global-load traffic and 40.81% fewer SM instructions with unchanged
+  Tensor instructions. No MTP, FlashInfer, new buffering, API, workspace,
+  public-ABI, or Decode change is used.
 
 The model-compatibility reports contain raw SHA-256 hashes for `config.json`,
 `hf_quant_config.json`, and `model.safetensors.index.json`; normalized model and

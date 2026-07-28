@@ -7900,3 +7900,110 @@ dataflow audits. Rejected FP32-B8 and MTP remain outside this path. Full
 binaries, raw medians, hashes, route counts, profiler metrics, and limitations
 are in the
 [FP8 M128 production record](metadata/qwen36-27b-prefill-fp8-m128-b-reuse-production-benchmark.json).
+
+## NVFP4 Down M128 B-tile-reuse production admission
+
+Selection commit `82c30d2` adds an independent exact M64 control and screens
+M128 reuse without changing production. Commit `c885d8e` then promotes only
+the exact aligned C256/C512 dense-MLP Down projection `[5120,17408]`. One CTA
+owns an M128xN128 output tile, decodes and stages each K64 B tile once, and
+updates eight ordered M16 accumulator panels. The grid is N-major and halves
+from 160 to 80 at C256 and from 320 to 160 at C512. Each of the 64 layers
+still enqueues one Down node. C32/C64 and near misses, Gate/Up, FP8, GDN,
+runner workspace, public API/ABI, Decode, MTP, FlashInfer, buffering, and
+Prefill/Decode overlap remain unchanged.
+
+The frozen M64 comparator is the 6,543,968-byte binary
+`/tmp/q3x-prefill-nvfp4-down-m64-production-baseline-82c30d2`, with SHA-256
+`825c33ed6aeeb783118e424d8c5247a19eaced3bef9dab193ef325f76b56ccf1`
+and ELF build ID `f72b5ff1584c4b4c3183a16ed62b1b2492966211`. The measured
+6,544,592-byte M128 candidate has SHA-256
+`2b14ed6f61054382dd1fcf56acfa6552f64f0fcdfb5a0cf3b62e54d0a5e8d39d`
+and build ID `c44bbac56d36338967a75b3eca3616a587184d8b`. It is the exact
+production source committed as `c885d8e`; the baseline was frozen before the
+production edit.
+
+Three independent fixed-clock admission processes compare the frozen
+historical M64 launcher to public production M128. Every distribution and
+every mirrored `B-C-C-B` timing round improves:
+
+| Process | C256 cross-distribution minimum | C512 cross-distribution minimum |
+| ---: | ---: | ---: |
+| 1 | 1.29838x | 1.26845x |
+| 2 | 1.29855x | 1.26954x |
+| 3 | 1.29880x | 1.26979x |
+
+These clear the frozen 1.15x C256 and 1.20x C512 gates while retaining 126
+registers/thread, 37,376 bytes static shared memory, no local memory, 256
+threads, and two active CTA/SM. Both public chunk routes capture the same
+function as the direct M128 control and a different function from historical
+M64. All 21 malformed or aliased cases enqueue zero Graph nodes.
+
+Each process repeats exhaustive C256 raw-scale validation: all 256 E4M3FN
+codes cross all 16 E2M1 nibbles at every nibble position, spanning 1,088 scale
+groups, 68 K256 windows, four K64 stages per window, and the 15/16, 63/64,
+255/256, and 0/17407 boundaries. Public, direct, and replay each compare
+1,310,720 outputs with zero mismatch. All 8,192 classified NaNs preserve
+class and sign; guards and immutable inputs pass.
+
+The formal model protocol uses the frozen binaries in `B1-C1-C2-B2` order at
+fixed 1.3005-GHz GPU and locked 3.2-GHz EMC clocks. It loads the pinned
+checkpoint once per process and uses batch one, C512, output one, one warmup,
+and five measured rounds for each tokenizer-pinned P257/P513 prompt:
+
+| Prompt / phase | Mirrored M64 B | Mirrored M128 C | Saved | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| P257 Prefix | 1,369.9265 ms | 1,304.3810 ms | 65.5455 ms | **1.050250272x** |
+| P257 TTFT | 1,477.6780 ms | 1,412.2020 ms | 65.4760 ms | **1.046364472x** |
+| P513 Prefix | 2,740.4010 ms | 2,625.0955 ms | 115.3055 ms | **1.043924307x** |
+| P513 TTFT | 2,849.0960 ms | 2,733.8440 ms | 115.2520 ms | **1.042157490x** |
+
+Prefix throughput reaches **196.261675 token/s at P257** and **195.040523
+token/s at P513**, up from 186.871339/186.833971 token/s. Complete-prompt
+`P/TTFT` throughput reaches **181.985297/187.647869 token/s**. Against the
+earlier different-system stock-vLLM complete-prompt measurements, the
+directional P257/P513 gaps narrow to **2.052799903x/2.192324678x**. The
+user's separately tuned 2k--8k token/s range lacks a matched raw protocol and
+is not presented as a comparable result.
+
+All 40 formal results generate token 9419 (`Hello`) with exact 257/513 steps.
+Each log emits the same 19-line canonical contract hash
+`b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118`.
+No process crosses the 64-MiB persistent-drop gate: B1/C1/C2/B2 persistent
+drops are 3,325,952/4,878,336/0/0 bytes, with maxima
+4,771,840/4,878,336/131,072/3,334,144 bytes. The real-checkpoint bulk E2E
+passes in 28.37 s. The full 64-test suite has **52 passes, 12 expected skips,
+and zero failures**.
+
+A fresh P513/C512 profile contains one 2,636.000128-ms Prefix NVTX range and
+2,635.075232 ms projected GPU time across 8,209 operations. The immediately
+preceding M64 profile measured 2,751.725312/2,750.810848 ms with the same
+8,209 operations. Down remains exactly 64 nodes, grid X halves from 320 to
+160, and its raw sum falls from 542.446976 to 426.948448 ms, saving
+115.498528 ms at **1.270521016x**. This closely closes the formal P513 Prefix
+saving without attributing profiler overhead to the unprofiled latency result.
+
+Matched isolated C512 NCU reports explain the mechanism:
+
+| Metric | Historical M64 | Production M128 | Change |
+| --- | ---: | ---: | ---: |
+| Duration | 8.474400 ms | 6.686240 ms | **1.267438800x** |
+| L1 global-load bytes | 1,158,676,480 | 935,854,080 | **-19.230769%** |
+| LTS bytes | 1,160,703,360 | 939,841,664 | **-19.028264%** |
+| L2-miss-equivalent bytes | 1,155,409,376 | 934,525,152 | **-19.117399%** |
+| SASS global-load instructions | 4,177,920 | 3,481,600 | **-16.666667%** |
+| SM instructions | 316,063,232 | 187,069,568 | **-40.812613%** |
+| Tensor instructions | 22,282,240 | 22,282,240 | unchanged |
+
+The unchanged Tensor instruction count preserves matrix arithmetic while B
+reuse removes duplicated decode/load and control work. GA10B exposes no
+direct DRAM-byte counter in this collection; L2-miss-equivalent bytes and
+fixed-EMC MCC throughput-times-duration remain proxies, not direct DRAM
+bytes.
+
+The next decision comes from a refreshed post-promotion hotspot ranking.
+Bounded exact Gate/Up or per-token-BF16 GDN candidates must again pass
+correctness, resource, memory, fixed-clock model, and fresh-profile gates.
+MTP remains outside the current target path. Full binary identities, raw
+medians, hashes, route counts, profiler counters, and limitations are in the
+[Down M128 production record](metadata/qwen36-27b-prefill-nvfp4-down-m128-production-benchmark.json).

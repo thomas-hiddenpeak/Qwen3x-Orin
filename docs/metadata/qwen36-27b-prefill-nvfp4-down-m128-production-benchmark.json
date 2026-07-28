@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-down-m128-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-28T10:36:33+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "selection_commit": "82c30d2723e22f6fc8c3d099dcf029f3ff65cb67",
+    "selection_subject": "test: select NVFP4 Down M128 B reuse",
+    "commit": "c885d8e8a4203b6ddbe5ccc7dc823e00986812b9",
+    "tree": "d7eac87bf6ed1ba836a51933d68bee99fbef9cb0",
+    "parent_commit": "82c30d2723e22f6fc8c3d099dcf029f3ff65cb67",
+    "subject": "feat: promote NVFP4 Down M128 B reuse",
+    "project_version": "0.4.0",
+    "abi_version": "0.4.0",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "tokenizer_json_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "frozen_baseline_binary": {
+      "path": "/tmp/q3x-prefill-nvfp4-down-m64-production-baseline-82c30d2",
+      "bytes": 6543968,
+      "sha256": "825c33ed6aeeb783118e424d8c5247a19eaced3bef9dab193ef325f76b56ccf1",
+      "elf_build_id": "f72b5ff1584c4b4c3183a16ed62b1b2492966211",
+      "source_commit": "82c30d2723e22f6fc8c3d099dcf029f3ff65cb67",
+      "role": "production M64 comparator frozen before any production-promotion source edit"
+    },
+    "candidate_measured_binary": {
+      "path": "/tmp/q3x-prefill-nvfp4-down-m128-production-candidate",
+      "bytes": 6544592,
+      "sha256": "2b14ed6f61054382dd1fcf56acfa6552f64f0fcdfb5a0cf3b62e54d0a5e8d39d",
+      "elf_build_id": "c44bbac56d36338967a75b3eca3616a587184d8b",
+      "source_commit": "c885d8e8a4203b6ddbe5ccc7dc823e00986812b9"
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback_hz": {
+      "gpu_min": 1300500000,
+      "gpu_max": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_min": 3200000000,
+      "emc_max": 3200000000,
+      "emc_current": 3200000000
+    },
+    "nsight_systems_version": "2026.1.3.243-261337792075v0",
+    "nsight_compute_version": "2026.2.0.0",
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one pinned checkpoint, batch one, output one, and the native SM87 runner"
+  },
+  "production_route": {
+    "shape": {
+      "role": "dense MLP Down projection",
+      "rows": 5120,
+      "columns": 17408,
+      "layers": 64,
+      "selected_token_counts": [256, 512]
+    },
+    "weight_format": "NVFP4 E2M1 packed, block-16 E4M3FN scales",
+    "activation_and_output_format": "BF16",
+    "layout": "N-major whole-chunk grid",
+    "selected_kernel": "one CTA owns M128xN128, decodes and stages each K64 B tile once, and updates eight ordered M16 accumulator panels",
+    "grid_x": {
+      "C256": {"historical_M64": 160, "production_M128": 80},
+      "C512": {"historical_M64": 320, "production_M128": 160}
+    },
+    "nodes_per_layer": 1,
+    "p513_calls": 64,
+    "eligibility": "exact C256/C512, exact [5120,17408] checkpoint shape, 16-byte packed-weight alignment, 2-byte scale alignment, 8-byte activation alignment, 2-byte output alignment, and the existing complete payload/span contract",
+    "fallback": "C32/C64, all non-whole-chunk schedules, and structural near misses retain their existing validated routes; malformed or aliased launches reject before enqueue",
+    "gate_up_route_changed": false,
+    "fp8_route_changed": false,
+    "gdn_route_changed": false,
+    "public_runtime_api_changed": false,
+    "public_runtime_abi_changed": false,
+    "additional_workspace_bytes": 0,
+    "decode_route_changed": false,
+    "mtp_used": false,
+    "flashinfer_used": false,
+    "openai_compatible_api_changed": false,
+    "new_double_or_triple_buffering_used": false,
+    "prefill_decode_overlap_used": false,
+    "interpretation": "The production gain comes from reusing decoded and staged B work across twice as many token rows inside each CTA. It does not add a pipeline, a new runtime buffer, or independent Prefill and Decode executors."
+  },
+  "production_admission": {
+    "protocol": "three independent fixed-clock processes; frozen historical M64 versus public production M128; B-C-C-B per timing round; checkpoint-like, same-bank-stress, and finite-special distributions",
+    "resources": {
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2
+    },
+    "invalid_graph_cases": 21,
+    "invalid_graph_nodes": 0,
+    "dispatch_contract": "C256/C512 capture public==direct production M128 and public!=frozen historical M64; public grid X is exactly half of M64 while both routes remain one node",
+    "exhaustive_nvfp4": {
+      "token_count": 256,
+      "raw_scale_codes": 256,
+      "e2m1_nibbles": 16,
+      "nibble_position_matrix": "16x16 complete",
+      "scale_groups": 1088,
+      "k256_windows": 68,
+      "k64_stages_per_window": 4,
+      "boundary_sentinels": ["15/16", "63/64", "255/256", "0/17407"],
+      "public_mismatches_per_process": 0,
+      "direct_mismatches_per_process": 0,
+      "replay_mismatches_per_process": 0,
+      "compared_outputs_per_comparator_per_process": 1310720,
+      "classified_nan_outputs_per_process": 8192,
+      "expected_classified_nan_outputs_per_process": 8192,
+      "nan_class_or_sign_mismatches_per_process": 0,
+      "unexpected_nonfinite_per_process": 0,
+      "guards": "intact",
+      "inputs_preserved": true
+    },
+    "cross_distribution_minimum_speedups": [
+      {"process": 1, "c256": 1.29838, "c512": 1.26845, "log_sha256": "105deb74732eb573d385850acf8ce782ae4a9032ab7ff9b0ab8739fe4e7467a8"},
+      {"process": 2, "c256": 1.29855, "c512": 1.26954, "log_sha256": "02b0f5a89373505eb565dc24b01d49cdc9f5a9378ca0c06ce19846bfc320e543"},
+      {"process": 3, "c256": 1.29880, "c512": 1.26979, "log_sha256": "0b04ed011bfd97482317a19af73e94e750f1db2fa87c6e9d751bd9c8716a91ff"}
+    ],
+    "gates": {
+      "every_timing_round_speedup_greater_than_one": true,
+      "c256_cross_distribution_minimum_at_least": 1.15,
+      "c512_cross_distribution_minimum_at_least": 1.20,
+      "first_process_c512_stop_loss_at_least": 1.15,
+      "result": "pass"
+    }
+  },
+  "formal_protocol": {
+    "order": ["B1_frozen_M64", "C1_production_M128", "C2_production_M128", "B2_frozen_M64"],
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_prompt": 5,
+    "prompts": ["P257", "P513"],
+    "prompt_construction": "P(N) uses N-12 space-separated copies of ASCII hello and the pinned non-thinking single-user chat template",
+    "comparison": "arithmetic mean of mirrored process medians: B=(B1+B2)/2 and C=(C1+C2)/2",
+    "prefix_definition": "all prompt tokens except the final prompt token and LM head",
+    "complete_prompt_throughput_definition": "P divided by native time_to_first_token",
+    "decode_graph_cache": "disabled"
+  },
+  "raw_process_medians_ms": {
+    "B1": {"P257": {"prefix": 1370.336, "ttft": 1478.114}, "P513": {"prefix": 2740.963, "ttft": 2849.650}},
+    "C1": {"P257": {"prefix": 1304.001, "ttft": 1411.850}, "P513": {"prefix": 2624.677, "ttft": 2733.433}},
+    "C2": {"P257": {"prefix": 1304.761, "ttft": 1412.554}, "P513": {"prefix": 2625.514, "ttft": 2734.255}},
+    "B2": {"P257": {"prefix": 1369.517, "ttft": 1477.242}, "P513": {"prefix": 2739.839, "ttft": 2848.542}}
+  },
+  "formal_results": [
+    {
+      "id": "P257",
+      "prompt_tokens": 257,
+      "prefix_tokens": 256,
+      "baseline_prefix_mirrored_mean_ms": 1369.9265,
+      "candidate_prefix_mirrored_mean_ms": 1304.3810,
+      "prefix_saved_ms": 65.5455,
+      "prefix_speedup": 1.050250272,
+      "prefix_latency_reduction_percent": 4.784600,
+      "baseline_prefix_tokens_per_second": 186.871339,
+      "candidate_prefix_tokens_per_second": 196.261675,
+      "baseline_ttft_mirrored_mean_ms": 1477.6780,
+      "candidate_ttft_mirrored_mean_ms": 1412.2020,
+      "ttft_saved_ms": 65.4760,
+      "ttft_speedup": 1.046364472,
+      "baseline_complete_prompt_tokens_per_second": 173.921517,
+      "candidate_complete_prompt_tokens_per_second": 181.985297,
+      "gate": "pass"
+    },
+    {
+      "id": "P513",
+      "prompt_tokens": 513,
+      "prefix_tokens": 512,
+      "baseline_prefix_mirrored_mean_ms": 2740.4010,
+      "candidate_prefix_mirrored_mean_ms": 2625.0955,
+      "prefix_saved_ms": 115.3055,
+      "prefix_speedup": 1.043924307,
+      "prefix_latency_reduction_percent": 4.207614,
+      "baseline_prefix_tokens_per_second": 186.833971,
+      "candidate_prefix_tokens_per_second": 195.040523,
+      "baseline_ttft_mirrored_mean_ms": 2849.0960,
+      "candidate_ttft_mirrored_mean_ms": 2733.8440,
+      "ttft_saved_ms": 115.2520,
+      "ttft_speedup": 1.042157490,
+      "baseline_complete_prompt_tokens_per_second": 180.057113,
+      "candidate_complete_prompt_tokens_per_second": 187.647869,
+      "gate": "pass"
+    }
+  ],
+  "correctness": {
+    "formal_processes": 4,
+    "measured_prompt_results": 40,
+    "generated_ids_for_every_prompt": [9419],
+    "generated_text_for_every_prompt": "Hello",
+    "step_counts": {"P257": 257, "P513": 513},
+    "streamed_canonical_lines_per_process": 19,
+    "streamed_canonical_sha256_each": "b5a65339a3003d06bee32053047b9cfed27baaf2b07bc689c8dc7431dc397118",
+    "formal_log_sha256": {
+      "B1": "6cadfdc064b68aa533e4c62c7ff7fde67b17ff16f9a44d3bf3218690e33763d1",
+      "C1": "f3f8956f5fb86e778bfe534ce2811edeccdaa2f516bf9c0394335db307fc96ab",
+      "C2": "c74ae9f4e0665bbbeb03b557dab97ff8e32f4a89c28d933e466bc04a0496848e",
+      "B2": "bc0a3df2f902557d67a3781de5c665ac109666339c171532bab3448612176199"
+    },
+    "bulk_e2e": {
+      "test": "reference_prefill_bulk_attention_e2e",
+      "coverage": "real-checkpoint P257/P513 bulk Prefill versus the C64 reference route",
+      "generated_id": 9419,
+      "generated_text": "Hello",
+      "step_counts": [257, 513],
+      "elapsed_seconds": 28.37,
+      "log_sha256": "2e048d4e160ed1a8bab69a90e22b3e92f2b0cad3135c42a93c85270ad0751741",
+      "result": "pass"
+    },
+    "full_ctest": {
+      "total": 64,
+      "passed": 52,
+      "expected_skips": 12,
+      "failed": 0,
+      "log_sha256": "3c268cbd0e1a5959faff038c511a3ab23b79cfa3f102266ba4113a13bb0c02e5"
+    }
+  },
+  "memory": {
+    "request_arena_bytes_each_process": 233940992,
+    "drop_tolerance_bytes": 67108864,
+    "persistent_drop_bytes": {"B1": 3325952, "C1": 4878336, "C2": 0, "B2": 0},
+    "maximum_observed_drop_bytes": {"B1": 4771840, "C1": 4878336, "C2": 131072, "B2": 3334144},
+    "persistent_drop_detected": {"B1": false, "C1": false, "C2": false, "B2": false},
+    "additional_candidate_workspace_bytes": 0
+  },
+  "nsight_systems_p513_c512": {
+    "comparison_scope": "the immediately preceding FP8-M128 production report versus a fresh Down-M128 report; both use one valid P513 generation and the same production route except the Down substitution; formal latency comes only from the unprofiled mirrored benchmark",
+    "historical_m64_report": {
+      "source_commit": "c9a0edbcf6f1fb937433b286f4121fbc607f3af1",
+      "path": "/tmp/q3x-fp8-m128-production-p513-c512.nsys-rep",
+      "bytes": 848343,
+      "sha256": "91d28d6320d3fd81b606cc8a64f2107ce9433bac8893d275f64b5c01108ba7c0"
+    },
+    "production_m128_report": {
+      "source_commit": "c885d8e8a4203b6ddbe5ccc7dc823e00986812b9",
+      "path": "/tmp/q3x-nvfp4-down-m128-production-p513-c512.nsys-rep",
+      "bytes": 847973,
+      "sha256": "4970cf3cf788356ba085faac328aa873ee72326795181cf6a455256f6360bce2",
+      "console_path": "/tmp/q3x-nvfp4-down-m128-production-p513-c512-nsys-console.log",
+      "console_sha256": "57ee3574103820cbffead46bf36cebda03f95de219ebff2681247642f6d30319",
+      "sqlite_path": "/tmp/q3x-nvfp4-down-m128-production-p513-c512.sqlite",
+      "sqlite_bytes": 2404352,
+      "sqlite_sha256": "32bfc86caf1e74fd8d52a138fe221e52e0a83aa43d9ca1b37f0816291d3a2375"
+    },
+    "prompt_tokens": 513,
+    "generated_id": 9419,
+    "generated_text": "Hello",
+    "prefix_nvtx_wall_ms": {
+      "historical_M64": 2751.725312,
+      "production_M128": 2636.000128,
+      "saved": 115.725184,
+      "speedup": 1.043901813
+    },
+    "prefix_projected_gpu_time_ms": {
+      "historical_M64": 2750.810848,
+      "production_M128": 2635.075232,
+      "saved": 115.735616,
+      "speedup": 1.043921181
+    },
+    "prefix_gpu_ops": {"historical_M64": 8209, "production_M128": 8209},
+    "down": {
+      "calls": {"historical_M64": 64, "production_M128": 64},
+      "grid_x": {"historical_M64": 320, "production_M128": 160},
+      "block": 256,
+      "production_registers_per_thread": 126,
+      "production_static_shared_bytes": 37376,
+      "historical_raw_sum_ms": 542.446976,
+      "production_raw_sum_ms": 426.948448,
+      "saved_ms": 115.498528,
+      "speedup": 1.270521016,
+      "unexpected_historical_m64_calls_in_production": 0,
+      "attribution": "Node count is unchanged and grid X halves; the measured gain is arithmetic and B-traffic reuse inside each M128 CTA, not launch removal."
+    }
+  },
+  "nsight_compute_down_c512": {
+    "comparison_scope": "one isolated exact Down C512 launch per report, collected with the same metric set; the frozen M64 test control and public M128 production route have bitwise-equal outputs",
+    "historical_m64": {
+      "source_commit": "82c30d2723e22f6fc8c3d099dcf029f3ff65cb67",
+      "report_path": "/tmp/q3x-nvfp4-down-m128-baseline-c512.ncu-rep",
+      "report_bytes": 3528765,
+      "report_sha256": "ff663fc95aa876614659b171e12fbc655979ffd1aa573ca427dddaa6a99ccc3c",
+      "console_path": "/tmp/q3x-nvfp4-down-m128-baseline-c512-ncu-console.log",
+      "console_sha256": "870e7563b61754a92cdb29b57fa4068af721cf67184ec0c688614c57310b7358",
+      "exact_symbol": "nvfp4_w4a16_small_m32_gemm_bf16_wmma_k64_dual_a_scale_window_kernel<5120,17408,72,1,1,32,1,64,3,8,1>",
+      "grid": 320,
+      "block": 256,
+      "registers_per_thread": 79,
+      "static_shared_bytes": 23552,
+      "duration_ns": 8474400,
+      "sm_cycles_elapsed_average": 10986670.0,
+      "sm_instructions": 316063232,
+      "tensor_instructions": 22282240,
+      "sass_global_load_instructions": 4177920,
+      "l1_global_load_bytes": 1158676480,
+      "l1_global_load_hit_bytes": 3267104,
+      "l1_global_load_miss_bytes": 1155409376,
+      "lts_bytes": 1160703360,
+      "l2_miss_equivalent_bytes": 1155409376,
+      "mcc_read_percent_of_peak": 22.299324,
+      "mcc_write_percent_of_peak": 0.287961
+    },
+    "production_m128": {
+      "source_commit": "c885d8e8a4203b6ddbe5ccc7dc823e00986812b9",
+      "report_path": "/tmp/q3x-nvfp4-down-m128-production-c512-ncu.ncu-rep",
+      "report_bytes": 3528556,
+      "report_sha256": "15a264c2a12cb04b9f8e55c7226876e2afae9c90e0292dbf0f2a2432b7c8f0e4",
+      "console_path": "/tmp/q3x-nvfp4-down-m128-production-c512-ncu-console.log",
+      "console_sha256": "1c932376a7e75c5a35f5ceb9c77838ff72302003ae9b7cb2d876411e0641b5d7",
+      "exact_symbol": "nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_kernel<4>",
+      "grid": 160,
+      "block": 256,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 37376,
+      "duration_ns": 6686240,
+      "sm_cycles_elapsed_average": 8666945.5,
+      "sm_instructions": 187069568,
+      "tensor_instructions": 22282240,
+      "sass_global_load_instructions": 3481600,
+      "l1_global_load_bytes": 935854080,
+      "l1_global_load_hit_bytes": 1328928,
+      "l1_global_load_miss_bytes": 934525152,
+      "lts_bytes": 939841664,
+      "l2_miss_equivalent_bytes": 934525152,
+      "mcc_read_percent_of_peak": 16.015026,
+      "mcc_write_percent_of_peak": 0.345848
+    },
+    "production_vs_historical": {
+      "duration_speedup": 1.267438800,
+      "duration_reduction_percent": 21.100727,
+      "cycle_reduction_percent": 21.113991,
+      "l1_global_load_reduction_percent": 19.230769,
+      "lts_reduction_percent": 19.028264,
+      "l2_miss_equivalent_reduction_percent": 19.117399,
+      "sass_global_load_instruction_reduction_percent": 16.666667,
+      "sm_instruction_reduction_percent": 40.812613,
+      "tensor_instruction_change_percent": 0.0,
+      "interpretation": "The unchanged Tensor instruction count preserves the matrix arithmetic while the M128 route removes duplicated B decode/load and control work."
+    },
+    "limitation": "GA10B exposes no direct DRAM-byte metric in this collection. L2-miss-equivalent bytes and fixed-EMC MCC throughput-times-duration are traffic proxies, not direct DRAM bytes."
+  },
+  "evidence": {
+    "production_admission_logs": [
+      {"path": "/tmp/q3x-nvfp4-down-m128-production-final-p1.log", "bytes": 23468, "sha256": "105deb74732eb573d385850acf8ce782ae4a9032ab7ff9b0ab8739fe4e7467a8"},
+      {"path": "/tmp/q3x-nvfp4-down-m128-production-final-p2.log", "bytes": 23464, "sha256": "02b0f5a89373505eb565dc24b01d49cdc9f5a9378ca0c06ce19846bfc320e543"},
+      {"path": "/tmp/q3x-nvfp4-down-m128-production-final-p3.log", "bytes": 23471, "sha256": "0b04ed011bfd97482317a19af73e94e750f1db2fa87c6e9d751bd9c8716a91ff"}
+    ],
+    "formal_logs": {
+      "B1": {"path": "/tmp/q3x-nvfp4-down-m128-production-b1.log", "bytes": 29239, "sha256": "6cadfdc064b68aa533e4c62c7ff7fde67b17ff16f9a44d3bf3218690e33763d1"},
+      "C1": {"path": "/tmp/q3x-nvfp4-down-m128-production-c1.log", "bytes": 29239, "sha256": "f3f8956f5fb86e778bfe534ce2811edeccdaa2f516bf9c0394335db307fc96ab"},
+      "C2": {"path": "/tmp/q3x-nvfp4-down-m128-production-c2.log", "bytes": 29231, "sha256": "c74ae9f4e0665bbbeb03b557dab97ff8e32f4a89c28d933e466bc04a0496848e"},
+      "B2": {"path": "/tmp/q3x-nvfp4-down-m128-production-b2.log", "bytes": 29233, "sha256": "bc0a3df2f902557d67a3781de5c665ac109666339c171532bab3448612176199"}
+    },
+    "production_default": {"path": "/tmp/q3x-nvfp4-down-m128-production-default-final.log", "bytes": 75060, "sha256": "0368dd5a31b31a3fdddcbb6dafb1a750c9e1d25508f294eecf396558e15d864b"},
+    "production_projection_dispatch": {"path": "/tmp/q3x-nvfp4-down-m128-production-projection-dispatch-final.log", "bytes": 190, "sha256": "d2066fdf459cf8b63e693859b4ff17e52534b80b1dd2ad4b6e4422d59b14fdbb"},
+    "production_checkpoint_canary": {"path": "/tmp/q3x-nvfp4-down-m128-production-canary-final.log", "bytes": 23479, "sha256": "b6e70977e61477f3ed13cb6a43044546f58c421b5409389064294938893a3ac3"},
+    "bulk_e2e": {"path": "/tmp/q3x-nvfp4-down-m128-production-bulk-e2e.log", "bytes": 591, "sha256": "2e048d4e160ed1a8bab69a90e22b3e92f2b0cad3135c42a93c85270ad0751741"},
+    "full_ctest": {"path": "/tmp/q3x-nvfp4-down-m128-production-full-ctest.log", "bytes": 9467, "sha256": "3c268cbd0e1a5959faff038c511a3ab23b79cfa3f102266ba4113a13bb0c02e5"}
+  },
+  "external_comparison": {
+    "matched_stock_vllm_complete_prompt_tokens_per_second": {"P257": 373.5793994695759, "P513": 411.3850533338813},
+    "native_production_complete_prompt_tokens_per_second": {"P257": 181.985297, "P513": 187.647869},
+    "directional_gap": {"P257": 2.052799903, "P513": 2.192324678},
+    "interpretation": "This is a directional comparison between different runtime systems using complete-prompt P/TTFT accounting. It is not a same-kernel A/B and does not attribute the remaining gap to one backend component.",
+    "user_tuned_vllm_range": "2k-8k token/s",
+    "user_tuned_range_comparable": false,
+    "reason_not_comparable": "No matching raw protocol, prompt accounting, backend controls, clock evidence, or run logs were supplied for that separately tuned range."
+  },
+  "decision": {
+    "result": "promoted",
+    "selected_mechanism": "exact NVFP4 Down M128 decoded/staged B-tile reuse",
+    "next_priority": "refresh the post-promotion hotspot order, then screen only bounded exact Gate/Up or per-token-BF16 GDN dataflows behind the same correctness, resource, memory, fixed-clock model, and fresh-profile gates; keep MTP outside the current target path"
+  },
+  "limitations": [
+    "This is batch-one latency on one fixed-clock Orin, not multi-request serving throughput, tail latency, power, or energy.",
+    "The three-distribution kernel admission is synthetic; achieved Prefix and TTFT claims come only from the frozen-binary pinned-checkpoint B1-C1-C2-B2 protocol.",
+    "The historical Nsight Systems report is used for valid-path GPU attribution; formal end-to-end latency uses the independently frozen 82c30d2 binary.",
+    "The matched stock-vLLM values are a different-system comparison, and the user's separately tuned 2k-8k token/s range is not a matched measurement.",
+    "No MTP, FlashInfer dependency, new double/triple buffering, OpenAI-compatible API, independent Prefill/Decode executor, Prefill/Decode overlap, workspace, public ABI, or Decode change is introduced."
+  ]
+}
