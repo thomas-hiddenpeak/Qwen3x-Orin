@@ -1,0 +1,284 @@
+{
+  "schema_version": 1,
+  "record": "Qwen3.6-27B layer-0 Gate/Up C512 CF3 complete-cell result",
+  "date": "2026-07-29",
+  "status": "test-only-positive-complete-cell-not-admitted",
+  "source": {
+    "commit": "6e415b8f5fa3f7cf9d83693cf8f3de03adc52c51",
+    "kernel_file": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen_file": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "kernel_identifier": "m64n256_conflict_free_3stage",
+    "production_dispatch_changed": false,
+    "formal_binary": {
+      "path": "build/orin-release/q3x_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen",
+      "sha256": "16be00f5db5b5577408a4e4aae75444ab1be5d8cd49357239e7ab87b383a9f5c"
+    }
+  },
+  "qualification": {
+    "authority": "formal_performance_admission",
+    "evidence": "checkpoint_weight_only",
+    "real_checkpoint_weights": true,
+    "captured_real_layer_activation": false,
+    "activation": {
+      "kind": "deterministic_bf16",
+      "seed": "0x12345678",
+      "scale": 0.015625
+    },
+    "layer_coverage": "layer0_gate_and_up_pair",
+    "shape": {
+      "M": 512,
+      "N": 17408,
+      "K": 5120
+    },
+    "performance_policy": "Synthetic payloads are correctness and smoke evidence only. Every performance decision in this record uses the pinned real checkpoint payload."
+  },
+  "checkpoint": {
+    "descriptor": "nvidia-qwen3.6-27b-nvfp4@0893e160",
+    "directory": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+    "revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "baseline_metadata": "docs/metadata/qwen36-27b-c512-real-weight-admission-baseline.json",
+    "gate_weight_sha256": "e9e2d70cef19e52d65a0f7917ea6d936c172809ed247b350443b4344297159d8",
+    "gate_block_scale_sha256": "6eeaaa3bf8605b1d85252e13e6c495f6cf1b06e7fee8f27ea6367abbbb8fde0e",
+    "gate_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91",
+    "up_weight_sha256": "e604b0b18206afe695a191ecf77a6aaf4dfbc0f7e93f1f9789d9b579aed6215f",
+    "up_block_scale_sha256": "ba393d3f9d25a1f4decba80715c6079d27d9de1d059a038a2f3f3f0932870947",
+    "up_weight_scale_2_sha256": "10f036efcb439d7571cc2c35568c9786ae3315b169f3972ff1c2aae782131f91"
+  },
+  "environment": {
+    "device": "NVIDIA Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "architecture": "SM87",
+    "gpu_hz": 1300500000,
+    "emc_hz": 3200000000,
+    "fixed_clocks_reported_by_target": true,
+    "cpu_affinity": [11]
+  },
+  "formal_performance": {
+    "artifacts": {
+      "log": {
+        "path": "/tmp/q3x-gate-cf3-postfix-real-admission.dQpSK6.log",
+        "sha256": "b220430694059480f8b35ddbf87b6d1aea7fcb7190dd73f5c7665247ff03f321"
+      },
+      "competing_gpu_process_monitor": {
+        "path": "/tmp/q3x-gate-cf3-postfix-real-monitor.tOvUTm.log",
+        "lines": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "protocol": {
+      "rounds": 6,
+      "iterations_per_sample": 8,
+      "order": "B-C-C-B",
+      "same_process": true,
+      "fixed_clock_required": true,
+      "expected_process_status": 3,
+      "expected_status_reason": "The test-only native cell does not beat the live cuBLASLt bridge and is therefore rejected."
+    },
+    "resources": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 60416,
+      "local_bytes": 0,
+      "threads_per_cta": 256,
+      "active_ctas_per_sm": 2,
+      "gate": "PASS"
+    },
+    "correctness": {
+      "variants": [
+        "production_m128_fork_join",
+        "A_serial_one_handle_one_scratch",
+        "B_naive_two_handle_two_scratch",
+        "C_staggered_two_handle_two_scratch",
+        "D_native_selected_serial",
+        "E_native_selected_dual"
+      ],
+      "eager_replays_per_variant": 2,
+      "graph_replays_per_variant": 2,
+      "gate_mismatches": "0/8912896",
+      "up_mismatches": "0/8912896",
+      "nonfinite": 0,
+      "guards": "intact",
+      "gate_encoded_sum": 284967507894,
+      "up_encoded_sum": 285031039318,
+      "invalid_statuses": "3/3",
+      "invalid_graph_nodes": 0,
+      "gate": "PASS"
+    },
+    "comparisons": {
+      "pairlookup_control_vs_cf3_serial": {
+        "control_pair_ms": 11.445442,
+        "candidate_pair_ms": 10.804724,
+        "speedup": 1.059300,
+        "every_round_strict_positive": true,
+        "round_speedups": [1.059564, 1.059059, 1.059208, 1.059218, 1.059377, 1.059372]
+      },
+      "pairlookup_control_vs_cf3_dual": {
+        "control_pair_ms": 11.421768,
+        "candidate_pair_ms": 10.754227,
+        "speedup": 1.062072,
+        "every_round_strict_positive": true,
+        "round_speedups": [1.061966, 1.062049, 1.062106, 1.061918, 1.062343, 1.062053]
+      },
+      "bridge_vs_cf3_serial": {
+        "bridge_pair_ms": 7.234311,
+        "candidate_pair_ms": 10.802692,
+        "bridge_over_candidate": 0.669677,
+        "candidate_over_bridge_time": 1.493258,
+        "every_round_strict_positive": false
+      },
+      "bridge_vs_cf3_dual": {
+        "bridge_pair_ms": 7.222422,
+        "candidate_pair_ms": 10.752370,
+        "bridge_over_candidate": 0.671705,
+        "candidate_over_bridge_time": 1.488749,
+        "every_round_strict_positive": false
+      },
+      "cf3_serial_vs_dual": {
+        "serial_pair_ms": 10.803694,
+        "dual_pair_ms": 10.751975,
+        "speedup": 1.004810,
+        "every_round_strict_positive": true
+      }
+    },
+    "decision": {
+      "complete_cell_clears_pairlookup_control": true,
+      "complete_cell_required_speedup": 1.03,
+      "recommended_native_schedule": "dual",
+      "native_clears_bridge": false,
+      "admission": "REJECT",
+      "production_route": "unchanged"
+    }
+  },
+  "ncu_diagnostic": {
+    "qualification": {
+      "authority": "diagnostic",
+      "admission": "NOT_RUN",
+      "payload": "pinned_real_layer0_gate_weight",
+      "launch_count": 1,
+      "replay_mode": "kernel",
+      "core_profile_passes": 20,
+      "memory_profile_passes": 24,
+      "clock_control": "none",
+      "unmodified_clock_warning": true,
+      "limitation": "NCU durations cannot replace the six-round paired admission result."
+    },
+    "source": {
+      "profiled_binary_sha256": "93e2aba64003c01b8797cff457a392f68bf6dc4ad14e3f899e56175ba6bdb8b8",
+      "device_kernel_source_matches_commit": "6e415b8f5fa3f7cf9d83693cf8f3de03adc52c51",
+      "note": "A later host-only test-field fix rebuilt and relinked the screen but did not rebuild the q3x_kernels device object."
+    },
+    "artifacts": {
+      "core_report": {
+        "path": "/tmp/q3x-gate-cf3-matched-clean.ncu-rep",
+        "sha256": "2f6f10a681e962fa50d19ef4fe2a9440f2a04a8323cfd612aa375193ae9e0b3f"
+      },
+      "memory_report": {
+        "path": "/tmp/q3x-gate-cf3-memory-clean.ncu-rep",
+        "sha256": "ceb98e99afc43a19b62184dd0814fd4ca100ac38908dcbea4958903871887c7b"
+      },
+      "core_console_sha256": "c443d0bb05afd8c8bb5ccdfbba2801ff92564dfabeb2fc8b8621d6273316bf04",
+      "memory_console_sha256": "a06f1e25c66613379f0def088bd421337a065fea20226409e68b509a0b2affb6",
+      "monitor_count": 0,
+      "monitor_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "matched_control": "docs/metadata/qwen36-27b-gate-c512-matched-ncu-2026-07-29.json",
+    "pairlookup_control": {
+      "duration_ms": 5.757120,
+      "achieved_occupancy_percent": 33.068948,
+      "sm_throughput_percent": 49.932259,
+      "memory_throughput_percent": 73.967394,
+      "tensor_throughput_percent": 37.505049,
+      "issue_active_percent": 35.421219,
+      "eligible_warps_per_scheduler": 0.710443,
+      "instructions": 168346240,
+      "predicated_on_thread_instructions": 5253498304,
+      "raw_shared_bank_conflicts": 25890660,
+      "ordinary_shared_loads": 55705600,
+      "shared_excessive_wavefronts": 41087160,
+      "output_store_sectors": 1114112,
+      "stall_cycles_per_issued": {
+        "mio_throttle": 2.947652,
+        "short_scoreboard": 1.084887,
+        "lg_throttle": 1.056496,
+        "math_pipe_throttle": 0.864094
+      }
+    },
+    "cf3_candidate": {
+      "duration_ms": 5.419456,
+      "achieved_occupancy_percent": 33.046640,
+      "sm_throughput_percent": 50.211389,
+      "memory_throughput_percent": 57.231392,
+      "tensor_throughput_percent": 39.735113,
+      "issue_active_percent": 50.211389,
+      "eligible_warps_per_scheduler": 1.053803,
+      "instructions": 225248640,
+      "predicated_on_thread_instructions": 7084402112,
+      "raw_shared_bank_conflicts": 12323232,
+      "ordinary_shared_loads": 44564480,
+      "shared_excessive_wavefronts": 28681856,
+      "output_store_sectors": 557056,
+      "stall_cycles_per_issued": {
+        "mio_throttle": 0.916565,
+        "short_scoreboard": 0.289271,
+        "lg_throttle": 0.402076,
+        "math_pipe_throttle": 1.377955
+      }
+    },
+    "derived": {
+      "duration_speedup": 1.062306,
+      "tensor_throughput_change_percent": 5.946037,
+      "issue_active_change_percent": 41.755113,
+      "eligible_warps_change_percent": 48.330408,
+      "raw_shared_bank_conflict_change_percent": -52.402789,
+      "shared_excessive_wavefront_change_percent": -30.192654,
+      "output_store_sector_change_percent": -50.0,
+      "instruction_change_percent": 33.800814,
+      "predicated_on_thread_instruction_change_percent": 34.851135
+    },
+    "source_attribution": {
+      "pairlookup_control": {
+        "lookup_lds_excessive_wavefronts": 24723640,
+        "b_scale_ldgsts_excessive_wavefronts": 16363520,
+        "cg_sectors": 19758080
+      },
+      "cf3_candidate": {
+        "raw_b_lds_u8_excessive_wavefronts": 11141120,
+        "b_scale_ldgsts_excessive_wavefronts": 17540736,
+        "cg_sectors": 21701248
+      },
+      "interpretation": "The table-free decoder and epilogue closed major measured gaps. The separate B/scale layout did not close the LDGSTS source-wavefront problem: LDGSTS excessive wavefronts rose 7.19% and cg sectors rose 9.83%. Raw LDGSTS bank-conflict counters are zero in both reports and must not be described as a new elimination."
+    }
+  },
+  "assessment": {
+    "achieved": [
+      "strictly positive real-weight control speedup above 1.03x in all serial and dual rounds",
+      "compiled three-slot K64 cp.async pipeline at 128 registers and two CTAs per SM",
+      "bitwise exact table-free E2M1 decode with direct register MMA feed",
+      "ideal output-store sector count through a register-shuffle epilogue",
+      "large reductions in MIO, short-scoreboard, and LG-throttle stalls"
+    ],
+    "not_achieved": [
+      "the live cuBLASLt bridge remains about 1.49x faster for the Gate/Up pair",
+      "raw-B LDS.U8 still contributes 11,141,120 excessive shared wavefronts",
+      "B/scale LDGSTS excessive wavefronts and cg sectors regress",
+      "the table-free decoder raises total instruction count and math-pipe throttle"
+    ],
+    "next_priority": [
+      "freeze the three-slot skeleton and coalesced epilogue",
+      "redesign scale cooperative copy and shared landing",
+      "replace raw-B byte gathers with a bank-safe cooperative word load and lane extraction",
+      "then compress PRMT, LOP3, and IMAD work in the exact table-free decoder",
+      "re-run the same pinned real-weight B-C-C-B and matched NCU gates"
+    ]
+  },
+  "validation": {
+    "build": "PASS",
+    "focused_synthetic_smoke": "PASS and not used as performance evidence",
+    "full_ctest": {
+      "passed": 72,
+      "skipped": 12,
+      "failed": 1,
+      "failure": "The default PairLookup real-weight Gate/Up admission test correctly rejected a native candidate that does not beat the bridge."
+    }
+  }
+}

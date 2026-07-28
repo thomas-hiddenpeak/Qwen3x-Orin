@@ -390,6 +390,46 @@ to cover the remaining load latency.  Pipeline depth is evaluated only after
 that cell has a resource budget; a third slot alone cannot repair the measured
 MIO and conflict structure.
 
+## 2026-07-29 CF3 complete-cell result
+
+The first coupled successor is implemented and retained as a test-only cell in
+commit `6e415b8`.  The exact real-weight timings, report hashes, source-counter
+attribution, and caveats are archived in
+`metadata/qwen36-27b-gate-c512-cf3-complete-cell-2026-07-29.json`.
+
+The cell combines a three-slot K64 `cp.async` pipeline, separate raw-B and
+scale arrays, exact table-free E2M1 decode with direct-register MMA feed, and
+an XOR-4 register-shuffle epilogue.  It compiles at 128 registers/thread, zero
+local memory, 60,416 dynamic plus 512 static shared bytes, and two 256-thread
+CTAs/SM.  All real-checkpoint Gate/Up eager and Graph replays are bitwise exact.
+
+Against the retained PairLookup control, six-round real-weight B-C-C-B gives:
+
+| Gate+Up schedule | PairLookup | CF3 | Speedup | Every round positive |
+|---|---:|---:|---:|---:|
+| serial | 11.445442 ms | 10.804724 ms | 1.059300x | yes |
+| dual | 11.421768 ms | 10.754227 ms | 1.062072x | yes |
+
+This clears the 1.03x development-cell threshold, but not production
+admission.  The same run measures the live bridge at 7.234311 ms serial and
+7.222422 ms dual, so the native cell remains about 1.49x slower and production
+dispatch is unchanged.
+
+Matched NCU agrees with the paired timing: the native Gate body improves from
+5.757120 to 5.419456 ms, or 1.062306x.  Tensor throughput rises from 37.505%
+to 39.735%, issue active rises from 35.421% to 50.211%, raw shared conflicts
+fall 52.40%, and shared excessive wavefronts fall 30.19%.  The epilogue fully
+achieves its target: output-store sectors fall from 1,114,112 to the ideal
+557,056 without changing the HMMA accumulation or BF16 rounding order.
+
+The `conflict_free_3stage` identifier must not be read as proof that all shared
+access is conflict-free.  Source attribution shows 11,141,120 excessive
+wavefronts on raw-B `LDS.U8`.  B/scale `LDGSTS` excessive wavefronts increase
+from 16,363,520 to 17,540,736 and `.cg` sectors increase 9.83%.  Total
+instructions also rise 33.80%, with the new pressure concentrated in exact
+table-free PRMT/LOP3/IMAD work.  These facts replace the broader pre-profile
+assumption that separating B and scale would by itself close their feed gap.
+
 ## Immediate implementation order
 
 1. Preserve the independent exact-C512 Gate/Up and Down production selectors
@@ -401,19 +441,16 @@ MIO and conflict structure.
    Prefill loop.
 3. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
-4. Build the next native Gate cell around independent 256-thread CTAs and at
-   least 16 resident warps/SM.  Change the decoder/register-fragment feed, the
-   48-byte B/scale shared layout and `LDGSTS` destination map, and the packed
-   BF16 epilogue ownership together.  Preserve exact accumulation order, 128
-   registers/thread or less, no spill, and bitwise equality.
-5. Add a third K64 operand slot only if the complete cell still keeps two
-   CTAs/SM.  The current slot is 21,504 B, so three slots plus the conservative
-   existing 1,536-B static allocation would be 66,048 B/CTA and 132,096 B for
-   two CTAs, below the measured 166,912-B SM budget.  Registers are the tighter
-   constraint: 128 registers x 256 threads x 2 CTAs consumes the full 65,536
-   register file.  Compare the two- and three-slot forms as complete
-   configurations; do not promote pipeline depth from an isolated
-   microbenchmark.
+4. Freeze CF3's three-slot skeleton and coalesced epilogue.  First redesign the
+   scale cooperative copy/landing that now owns the largest attributed
+   `LDGSTS` and global-sector excess.  Then replace raw-B byte gathers with a
+   bank-safe cooperative word load plus lane extraction.  Preserve exact
+   accumulation order, 128 registers/thread, zero spill, and two CTAs/SM.
+5. After the shared feed is repaired, reduce the table-free decoder's
+   PRMT/LOP3/IMAD expansion without reintroducing PairLookup.  Re-run the same
+   pinned real-weight six-round B-C-C-B screen and matched NCU comparison after
+   each complete configuration; synthetic matrices remain correctness/smoke
+   evidence only.
 6. Keep Gate/Up and Down as separate runtime configurations.  Gate qualifies
    first against its live real-weight bridge; Down then receives its own tile
    order, pipeline-depth, pinned timing, and NCU decision rather than inheriting
