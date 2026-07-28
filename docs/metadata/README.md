@@ -1585,6 +1585,17 @@ The diagnostic Phase 3 records are:
   The candidate is bitwise exact, uses 241 registers, 96,256 dynamic plus 512
   static shared bytes, zero local bytes, and one CTA/SM. cuBLASLt is absent;
   production promotion and dispatch remain unchanged.
+- [`qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json`](qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json),
+  which completes the source-identical full matched-NCU attribution for the
+  retained M128 cell against structured BS512. On one real-checkpoint layer-0
+  Gate launch, M128 takes **4.696736 ms** versus **5.119744 ms**
+  (**1.090064x**) while preserving all 22,282,240 HMMA executions. It halves
+  compressed-B decode/dependency opcodes, cuts warp instructions **33.56%**,
+  TEX-sourced L2 read-sector bytes **26.47%**, and excessive shared wavefronts
+  **50%**. The activation is deterministic BF16 rather than a captured layer
+  tensor, so the report is diagnostic-only. cuBLASLt is `NOT_RUN`; production
+  promotion and dispatch remain unchanged. The next native cell couples raw-B
+  and packed-scale consumer order rather than reopening isolated cache tuning.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

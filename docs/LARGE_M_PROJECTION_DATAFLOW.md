@@ -5,7 +5,9 @@ commit `1fcad2f`, updated by the pinned layer-0 Gate matched-NCU comparison at
 commit `43308b4`, the retained CF3 complete cell at commit `6e415b8`, and the
 retained structured BS512 cell at commit `18c89ac`.  The post-isolation
 BS512/BF16/dequant matched-NCU decomposition is pinned at commit `9908add`,
-and the 256-thread M128xN256 successor is retained at commit `375f8df`.
+and the 256-thread M128xN256 successor is retained at commit `375f8df`.  Its
+source-identical M64-to-M128 matched-NCU attribution is pinned to that same
+implementation commit.
 
 This document defines the next Prefill projection work.  The self-hosted
 kernel line is the only line eligible for production: cuBLASLt is an external
@@ -613,16 +615,60 @@ scale/window sites.  Scale prelayout remains a valid bounded experiment, but
 its isolated ceiling is too small to be the primary route.  The retained
 256-thread M128xN256 cell above now reuses one decoded B presentation across
 twice as many token panels and improves the real-weight pair by about 8.5%.
-Its source-identical matched NCU comparison with structured BS512 is the
-immediate attribution step.  The next layout cell then treats raw B and scale
-together in consumer order.  Only after those structural changes should
-PRMT/LOP3/IMAD decoder reduction resume.
+Its source-identical matched-NCU comparison with structured BS512 is now
+complete and confirms that the retained gain comes from halving compressed-B
+landing, decode, scale-feed, and dependency work.  The next layout cell treats
+raw B and scale together in consumer order.  Only after those structural
+changes should PRMT/LOP3/IMAD decoder reduction resume.
 
 The one-CTA external kernel uses 238 registers/thread and 147,456 shared bytes
 yet reaches 92.552% Tensor throughput over the same 17 waves.  Occupancy and
 two-CTA residency therefore do not explain the gap.  They remain useful
 resource diagnostics, but one-CTA M128 prototypes are now admissible to the
 test-only retention screen.
+
+### Source-identical M64-to-M128 native attribution
+
+The full 35-pass matched diagnostic at implementation commit `375f8df`
+profiles the retained M64 structured-BS512 incumbent and M128 successor from
+the same test-only binary.  Each process arms exactly one layer-0 Gate launch
+at M512xN17408xK5120.  The weights and scales are pinned real checkpoint
+bytes; the activation is deterministic BF16 rather than a captured layer
+tensor.  cuBLASLt setup and profiling are `NOT_RUN`, and this evidence has
+diagnostic authority only.  Production dispatch remains unchanged.  Binary,
+report, checkpoint, opcode, load/L2, shared, stall, and derived-counter hashes
+and values are preserved in
+[`metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json`](metadata/qwen36-27b-gate-c512-m128n256-bs512-256t-matched-ncu-2026-07-29.json).
+
+| Metric | M64xN256 BS512 | M128xN256 256T | Change |
+|---|---:|---:|---:|
+| Duration | 5.119744 ms | 4.696736 ms | **1.090064x** |
+| Grid / active CTAs per SM | 544 / 2 | 272 / 1 | CTA grid -50% |
+| Registers / dynamic shared | 128 / 68,608 B | 241 / 96,256 B | +113 / +27,648 B |
+| Achieved occupancy | 33.07% | 16.73% | -16.34 points |
+| Tensor throughput | 42.147649% | 45.870418% | +3.722769 points |
+| Warp instructions / HMMA | 225,736,064 / 22,282,240 | 149,986,240 / 22,282,240 | instructions -33.56%; HMMA equal |
+| Instructions per HMMA | 10.130762 | 6.731201 | -33.56% |
+| TEX-sourced L2 read-sector bytes | 757,596,160 B | 557,056,000 B | -26.47% |
+| Excessive shared wavefronts | 9,400,320 | 4,700,160 | -50% |
+| Shared bank conflicts | 1,234,171 | 972,565 | -21.20% |
+| Warp cycles per issued instruction | 7.36 | 5.11 | -30.57% |
+
+The arithmetic body is invariant: both kernels execute 22,282,240 HMMA and
+91,268,055,040 Tensor operations.  M128 exactly halves PRMT, LDS.U8, LDS.U16,
+HFMA2, bypass `LDGSTS`, and barrier/dependency executions, while cached
+`LDGSTS.E.128` and scalar `LD.E` remain unchanged.  This directly verifies the
+doubled-M decoded-B reuse mechanism; it is not a cache-policy inference.
+
+The profile also bounds the next work.  M128 still uses 241 registers/thread,
+96,256 dynamic shared bytes, and one CTA/SM; `LDSM` remains absent, while
+4,700,160 excessive shared wavefronts and 972,565 conflicts remain.  Math,
+MIO, barrier, dispatch, and short-scoreboard stalls fall, but LG throttle and
+wait rise as the one-CTA resource envelope exposes latency.  Preserve the
+larger-M reuse and repair raw-B/scale consumer order, shared layout, and the A
+feed as one coupled dataflow cell.  If two CTAs/SM later becomes desirable, it
+requires a different tile/warp skeleton rather than a local cache toggle.
+This result is Gate-only and does not select a Down configuration.
 
 ## Triton and vLLM design-reference screen
 
@@ -686,11 +732,14 @@ problem.
 4. Retain horizontal P0 as a resource/correctness sentinel and P1 as a named-
    barrier negative sentinel.  Do not tune either with isolated cache toggles.
 5. The 256-thread M128xN256 structural cell is now the retained native
-   experimental baseline after six all-positive real-weight rounds. Preserve
-   its 241-register, zero-spill, one-CTA/SM resource envelope and collect the
-   source-identical matched NCU attribution against structured BS512.
-6. After attribution, screen a coupled raw-B plus packed-scale consumer-order
-   layout and complete B-stationary/A-stationary CTA ordering.
+   experimental baseline after six all-positive real-weight rounds. Its
+   source-identical matched NCU attribution against structured BS512 is
+   complete: identical HMMA work, half the compressed-B decode/dependency
+   operations, 33.56% fewer warp instructions, and 1.090064x lower profiled
+   duration verify the mechanism. Preserve its zero-spill one-CTA exception
+   and the larger-M reuse; do not treat 241 registers as the end-state target.
+6. Next, screen a coupled raw-B plus packed-scale consumer-order layout and
+   complete B-stationary/A-stationary CTA ordering.
    A scale-only win may update the native experimental baseline, but it does
    not close the raw-B feed line by itself.  After the shared feed is repaired,
    reduce the table-free decoder's
