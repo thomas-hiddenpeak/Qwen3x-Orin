@@ -266,6 +266,24 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated FP8 QKV latency-hiding candidate. The production M128xN128
+  # route remains frozen; this target only screens a 512-thread split-M64
+  # warp-group implementation for exact C512 [10240,5120].
+  add_executable(q3x_fp8_prefill_qkv_m128_split_m64_screen
+    tests/sm87_fp8_prefill_qkv_m128_split_m64_screen.cu
+  )
+  target_link_libraries(q3x_fp8_prefill_qkv_m128_split_m64_screen
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_fp8_prefill_qkv_m128_split_m64_screen)
+  add_test(NAME fp8_prefill_qkv_m128_split_m64_screen
+    COMMAND q3x_fp8_prefill_qkv_m128_split_m64_screen
+  )
+  set_tests_properties(fp8_prefill_qkv_m128_split_m64_screen PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   # Test-only SM87 sentinel for the lane/slot layout used when a BF16 WMMA
   # matrix_b fragment is fed directly from registers instead of shared memory.
   add_executable(q3x_sm87_bf16_matrix_b_register_feed_sentinel

@@ -4768,6 +4768,246 @@ fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel(
   }
 }
 
+// Test-only exact-C512 QKV candidate. One 512-thread CTA retains the
+// production M128xN128 ownership but splits its M128 token tile into two
+// independent M64 warp groups. Both groups reuse one cooperatively loaded A
+// tile and one decoded B tile; each warp therefore carries only four ordered
+// M16 accumulators. The separate group C buffers allow both groups to drain in
+// parallel without serializing the B-to-C overlay lifetime. Production
+// dispatch and the admitted M128 kernel above remain unchanged.
+__global__ __launch_bounds__(512, 2) void
+fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kCtaThreads = 512U;
+  constexpr unsigned int kGroupThreads = 256U;
+  constexpr unsigned int kGroupCount = 2U;
+  constexpr unsigned int kWarpsPerGroup = 8U;
+  constexpr unsigned int kRows = 10'240U;
+  constexpr unsigned int kColumns = 5'120U;
+  constexpr unsigned int kTokenCount = 512U;
+  constexpr unsigned int kResidentTokenCount = 128U;
+  constexpr unsigned int kGroupTokenCount = 64U;
+  constexpr unsigned int kPanelTokenCount = 16U;
+  constexpr unsigned int kPanelsPerGroup =
+      kGroupTokenCount / kPanelTokenCount;
+  constexpr unsigned int kM128TileCount =
+      kTokenCount / kResidentTokenCount;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kSharedLeadingDimension = 72U;
+  constexpr unsigned int kBf16ValuesPerActivationWord = 4U;
+  constexpr unsigned int kActivationWordsPerToken =
+      kColumnsPerStage / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kSharedActivationWordsPerToken =
+      kSharedLeadingDimension / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kActivationWordCount =
+      kResidentTokenCount * kActivationWordsPerToken;
+  constexpr unsigned int kActivationLoadPasses =
+      kActivationWordCount / kCtaThreads;
+  constexpr unsigned int kWeightVectorsPerRow =
+      kColumnsPerStage / sizeof(uint4);
+  constexpr unsigned int kWeightVectorCount =
+      kOutputColumnsPerBlock * kWeightVectorsPerRow;
+  constexpr unsigned int kBf16ValuesPerWeightWord = 2U;
+  constexpr unsigned int kSharedWeightWordsPerRow =
+      kSharedLeadingDimension / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kSharedWeightWordCount =
+      kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
+  constexpr unsigned int kSharedOutputTokenCount = 32U;
+  constexpr unsigned int kSharedOutputCount =
+      kSharedOutputTokenCount * kOutputColumnsPerBlock;
+  constexpr unsigned int kOutputColumnBlockCount =
+      kRows / kOutputColumnsPerBlock;
+  static_assert(kCtaThreads == kGroupCount * kGroupThreads);
+  static_assert(kGroupThreads == kWarpsPerGroup * kWarpSize);
+  static_assert(kPanelsPerGroup == 4U);
+  static_assert(kM128TileCount == 4U);
+  static_assert(kActivationWordCount == 2'048U);
+  static_assert(kActivationLoadPasses == 4U);
+  static_assert(kWeightVectorsPerRow == 4U);
+  static_assert(kWeightVectorCount == kCtaThreads);
+  static_assert(kSharedWeightWordsPerRow == 36U);
+  static_assert(kOutputColumnBlockCount == 80U);
+
+  union __align__(32) BOrCStorage {
+    std::uint32_t weights[kSharedWeightWordCount];
+    float output[kGroupCount][kSharedOutputCount];
+  };
+  static_assert(sizeof(BOrCStorage) == 32'768U);
+  __shared__ std::uint16_t decoded_weights[kFp8EncodedValueCount];
+  __shared__ BOrCStorage b_or_c;
+  extern __shared__ __align__(32) std::uint64_t shared_activations[];
+
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int group = thread / kGroupThreads;
+  const unsigned int local_thread = thread % kGroupThreads;
+  const unsigned int local_warp = local_thread / kWarpSize;
+  if (thread < kFp8EncodedValueCount) {
+    decoded_weights[thread] = encode_bf16_rne(
+        decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  }
+  __syncthreads();
+
+  const unsigned int output_column_block = blockIdx.x / kM128TileCount;
+  const unsigned int token_tile = blockIdx.x % kM128TileCount;
+  const unsigned int first_output_column =
+      output_column_block * kOutputColumnsPerBlock;
+  const std::size_t first_token =
+      static_cast<std::size_t>(token_tile) * kResidentTokenCount;
+  const std::uint16_t* const tile_activations =
+      activations + first_token * kColumns;
+  std::uint16_t* const tile_output = output + first_token * kRows;
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator2;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator3;
+  wmma::fill_fragment(accumulator0, 0.0F);
+  wmma::fill_fragment(accumulator1, 0.0F);
+  wmma::fill_fragment(accumulator2, 0.0F);
+  wmma::fill_fragment(accumulator3, 0.0F);
+
+#pragma unroll 1
+  for (unsigned int first_k = 0U; first_k < kColumns;
+       first_k += kColumnsPerStage) {
+#pragma unroll
+    for (unsigned int load_pass = 0U;
+         load_pass < kActivationLoadPasses; ++load_pass) {
+      const unsigned int activation_index =
+          thread + load_pass * kCtaThreads;
+      const unsigned int token =
+          activation_index / kActivationWordsPerToken;
+      const unsigned int activation_word =
+          activation_index % kActivationWordsPerToken;
+      shared_activations[token * kSharedActivationWordsPerToken +
+                         activation_word] =
+          *reinterpret_cast<const std::uint64_t*>(
+              tile_activations + static_cast<std::size_t>(token) * kColumns +
+              first_k +
+              activation_word * kBf16ValuesPerActivationWord);
+    }
+
+    const unsigned int local_output_column =
+        thread / kWeightVectorsPerRow;
+    const unsigned int vector_in_row = thread % kWeightVectorsPerRow;
+    const uint4 packed = *reinterpret_cast<const uint4*>(
+        weights +
+        static_cast<std::size_t>(first_output_column + local_output_column) *
+            kColumns +
+        first_k + vector_in_row * sizeof(uint4));
+    std::uint32_t* const decoded =
+        b_or_c.weights +
+        local_output_column * kSharedWeightWordsPerRow +
+        vector_in_row * (sizeof(uint4) / sizeof(std::uint16_t));
+    decode_fp8x4_to_bf16x4(packed.x, decoded_weights, decoded);
+    decode_fp8x4_to_bf16x4(packed.y, decoded_weights, decoded + 2U);
+    decode_fp8x4_to_bf16x4(packed.z, decoded_weights, decoded + 4U);
+    decode_fp8x4_to_bf16x4(packed.w, decoded_weights, decoded + 6U);
+    __syncthreads();
+
+    const auto* const shared_a =
+        reinterpret_cast<const __nv_bfloat16*>(shared_activations);
+    const auto* const shared_b =
+        reinterpret_cast<const __nv_bfloat16*>(b_or_c.weights);
+    const unsigned int first_group_token = group * kGroupTokenCount;
+#pragma unroll 1
+    for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+         inner_k += 16U) {
+      wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                     wmma::row_major>
+          activation_fragment;
+      wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                     wmma::col_major>
+          weight_fragment;
+      wmma::load_matrix_sync(
+          weight_fragment,
+          shared_b +
+              local_warp * kOutputColumnsPerWarp *
+                  kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::load_matrix_sync(
+          activation_fragment,
+          shared_a + first_group_token * kSharedLeadingDimension + inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator0, activation_fragment, weight_fragment,
+                     accumulator0);
+      wmma::load_matrix_sync(
+          activation_fragment,
+          shared_a +
+              (first_group_token + kPanelTokenCount) *
+                  kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator1, activation_fragment, weight_fragment,
+                     accumulator1);
+      wmma::load_matrix_sync(
+          activation_fragment,
+          shared_a +
+              (first_group_token + 2U * kPanelTokenCount) *
+                  kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator2, activation_fragment, weight_fragment,
+                     accumulator2);
+      wmma::load_matrix_sync(
+          activation_fragment,
+          shared_a +
+              (first_group_token + 3U * kPanelTokenCount) *
+                  kSharedLeadingDimension +
+              inner_k,
+          kSharedLeadingDimension);
+      wmma::mma_sync(accumulator3, activation_fragment, weight_fragment,
+                     accumulator3);
+    }
+    __syncthreads();
+  }
+
+  float* const group_output = b_or_c.output[group];
+  wmma::store_matrix_sync(
+      group_output + local_warp * kOutputColumnsPerWarp, accumulator0,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      group_output + kPanelTokenCount * kOutputColumnsPerBlock +
+          local_warp * kOutputColumnsPerWarp,
+      accumulator1, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = local_thread; index < kSharedOutputCount;
+       index += kGroupThreads) {
+    const unsigned int token =
+        group * kGroupTokenCount + index / kOutputColumnsPerBlock;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(group_output[index] * weight_scale);
+  }
+  __syncthreads();
+
+  wmma::store_matrix_sync(
+      group_output + local_warp * kOutputColumnsPerWarp, accumulator2,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      group_output + kPanelTokenCount * kOutputColumnsPerBlock +
+          local_warp * kOutputColumnsPerWarp,
+      accumulator3, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = local_thread; index < kSharedOutputCount;
+       index += kGroupThreads) {
+    const unsigned int token =
+        group * kGroupTokenCount + 2U * kPanelTokenCount +
+        index / kOutputColumnsPerBlock;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(group_output[index] * weight_scale);
+  }
+}
+
 __device__ __forceinline__ void decode_nvfp4x8_to_bf16x8(
     const std::uint32_t packed,
     const std::uint16_t* const decoded_products,
@@ -20559,6 +20799,103 @@ int query_sm87_fp8_w8a16_whole_chunk_large_n_m128_b_reuse_resources_test_cuda(
   return query_fp8_m128_tiles_resources<5'120U, 6'144U>(
       token_count, registers_per_thread, static_shared_bytes, local_bytes,
       maximum_threads_per_block, active_blocks_per_sm);
+}
+
+// Test-only direct entry for the strict C512 QKV split-M64 warp-group
+// candidate. Validation and alignment precede every CUDA state or function
+// attribute operation so malformed calls remain capture-safe and enqueue no
+// work. No production selector or dispatcher references this symbol.
+int launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_cuda(
+    const std::uint8_t* const weights, const float weight_scale,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kRows = 10'240U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kM128TileCount = 4U;
+  constexpr unsigned int kBlocks =
+      static_cast<unsigned int>(kRows / kOutputColumnsPerBlock) *
+      kM128TileCount;
+  constexpr unsigned int kCtaThreads = 512U;
+  constexpr int kDynamicSharedBytes = 18'432;
+  if (token_count != kTokenCount || rows != kRows || columns != kColumns) {
+    return invalid_value();
+  }
+  const int validation = validate_fp8_m64_tiles_launch(
+      weights, weight_scale, activations, token_count, rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  if (!pointer_is_aligned<alignof(uint4)>(weights) ||
+      !pointer_is_aligned<alignof(std::uint64_t)>(activations) ||
+      !pointer_is_aligned<alignof(std::uint16_t)>(output)) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  const cudaError_t attribute_status = cudaFuncSetAttribute(
+      fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (attribute_status != cudaSuccess) {
+    return static_cast<int>(attribute_status);
+  }
+  fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel
+      <<<kBlocks, kCtaThreads, kDynamicSharedBytes, stream>>>(
+          weights, weight_scale, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr std::size_t kTokenCount = 512U;
+  constexpr std::size_t kRows = 10'240U;
+  constexpr std::size_t kColumns = 5'120U;
+  constexpr int kCtaThreads = 512;
+  constexpr std::size_t kDynamicSharedBytes = 18'432U;
+  if (token_count != kTokenCount || rows != kRows || columns != kColumns ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaFuncSetAttribute(
+      fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      static_cast<int>(kDynamicSharedBytes));
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(
+        &attributes,
+        fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks,
+        fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_kernel, kCtaThreads,
+        kDynamicSharedBytes);
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = kDynamicSharedBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
 }
 
 // Test-only frozen control for the exact production M64 dispatch that
