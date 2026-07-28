@@ -349,6 +349,19 @@ gate. Nsight-guided stop-loss rejects the remaining low-upside scale,
 triple-pipeline, and shared-broadcast tweaks; future native work must introduce
 a structural change with credible greater-than-4.3% upside. See the [native
 M64xN256 development baseline](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json).
+A direct M64xN512 successor is now retained as a negative structural sentinel,
+not a production candidate. It cuts Nsight Compute L2 request traffic by
+**22.41%**, remains bitwise exact, and uses the same 16 resident warps/SM, but
+replacing two independently phased 8-warp CTAs with one 16-warp CTA reduces
+issue active from **47.77% to 42.83%** and tensor active from **38.73% to
+35.18%**. The six-round screen is uniformly negative at **5.530674 ms versus
+6.061099 ms** (**0.912487x**), so the pair screen stops early and production
+dispatch remains unchanged. Barrier stall also falls, from **6.66% to 5.03%**,
+which rules out the earlier hypothesis that barrier percentage alone explains
+the regression. The [M64xN512 rejection
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n512-rejection.json)
+keeps the exact screen, resource contract, NCU comparison, and next-design
+constraints.
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The

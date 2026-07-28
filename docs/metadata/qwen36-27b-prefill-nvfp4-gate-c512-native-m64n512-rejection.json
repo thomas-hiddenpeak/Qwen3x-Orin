@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n512-rejection",
+  "status": "test-only-structural-candidate-rejected",
+  "recorded_at": "2026-07-28T21:41:49+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "e2af6bc4144dcedb5d14d0bcf0bb1bd9088aec94",
+    "tree": "c7111e181d90e8c76313d2baf543a01c45e2c155",
+    "parent_commit": "e0daab196a1d01d593becd0f86164b611c9b5176",
+    "subject": "test: reject M64N512 NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "Can one M64xN512 CTA reuse each canonical A tile across twice as many output columns and outperform the frozen M64xN256 native baseline?",
+    "answer": "No. The candidate reduces measured L2 request traffic by 22.41% but loses issue and tensor-pipe utilization, producing a stable 9.59% latency regression.",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN512xK64",
+    "grid": "34 N tiles x 8 M tiles = 272 CTAs",
+    "threads_per_cta": 512,
+    "warps_per_cta": 16,
+    "warp_tile": "M64xN32",
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "epilogue": "aligned packed BF16 pair stores",
+    "sidecar_required": false,
+    "canonical_weight_layout_changed": false,
+    "comparison_baseline": "frozen test-only M64xN256xK64 kernel at two CTAs per SM"
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 67584,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 512,
+    "active_ctas_per_sm": 1,
+    "resident_warps_per_sm": 16,
+    "baseline_resident_topology": "2 CTAs/SM x 8 warps = 16 resident warps",
+    "candidate_resident_topology": "1 CTA/SM x 16 warps = 16 resident warps",
+    "resource_gate": "pass"
+  },
+  "correctness_and_rejection_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "output_guards": "intact",
+    "scale_pointer_alignment_bytes": 16,
+    "alignment_hardening": "both retained canonical-direct M64 launchers reject +4-byte and +8-byte scale offsets because their scale path issues 16-byte cp.async operations",
+    "independent_audit": "pass with no blocking mapping, bounds, pipeline, resource, Graph, or route findings"
+  },
+  "final_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "pair_stop_loss": "skip Gate+Up pair when the single-Gate candidate is not strictly positive"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 5.531313,
+        "C1_ms": 6.060551,
+        "C2_ms": 6.061032,
+        "B2_ms": 5.531601,
+        "speedup": 0.912663
+      },
+      {
+        "round": 2,
+        "B1_ms": 5.530984,
+        "C1_ms": 6.059243,
+        "C2_ms": 6.061789,
+        "B2_ms": 5.531717,
+        "speedup": 0.912687
+      },
+      {
+        "round": 3,
+        "B1_ms": 5.531128,
+        "C1_ms": 6.063641,
+        "C2_ms": 6.058723,
+        "B2_ms": 5.530609,
+        "speedup": 0.912507
+      },
+      {
+        "round": 4,
+        "B1_ms": 5.529877,
+        "C1_ms": 6.062675,
+        "C2_ms": 6.061935,
+        "B2_ms": 5.530651,
+        "speedup": 0.912238
+      },
+      {
+        "round": 5,
+        "B1_ms": 5.529800,
+        "C1_ms": 6.059447,
+        "C2_ms": 6.060614,
+        "B2_ms": 5.528927,
+        "speedup": 0.912432
+      },
+      {
+        "round": 6,
+        "B1_ms": 5.531530,
+        "C1_ms": 6.062568,
+        "C2_ms": 6.060977,
+        "B2_ms": 5.529953,
+        "speedup": 0.912397
+      }
+    ],
+    "aggregate": {
+      "baseline_m64n256_ms": 5.530674,
+      "candidate_m64n512_ms": 6.061099,
+      "candidate_vs_baseline_speed": 0.912487,
+      "candidate_latency_regression_percent": 9.590603243,
+      "every_round_strict_positive": false,
+      "positive_rounds": 0,
+      "maximum_candidate_ms": 5.304339,
+      "absolute_candidate_gate": "fail",
+      "pair_screen": "skipped by stop-loss",
+      "decision": "reject"
+    },
+    "final_binary": {
+      "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+      "bytes": 5258480,
+      "sha256": "ee89629872d4a3659c6bcfa04a460ad5962d4d1315284c16b3e441087fe0410b"
+    },
+    "raw_artifact_retained": false,
+    "qualification": "The final post-alignment-hardening screen was observed directly and intentionally exits 1 because the frozen performance gate rejects the candidate; no raw log path or hash is asserted."
+  },
+  "nsight_compute_comparison": {
+    "protocol": {
+      "tool": "Nsight Compute",
+      "profile_from_start": false,
+      "replay_mode": "application",
+      "app_replay_mode": "strict",
+      "profiled_launches": 1,
+      "cache_control": "none",
+      "clock_control": "none",
+      "use": "causal attribution only, not formal latency",
+      "warning": "GPU caches and clocks were uncontrolled during profiling, so only large directional differences are used."
+    },
+    "baseline_m64n256": {
+      "duration_ns": 5548096,
+      "l2_request_bytes": 1193986944,
+      "global_cp_async_bypass_bytes": 1167032320,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 38.73,
+      "issue_active_percent": 47.77,
+      "barrier_stall_percent": 6.66,
+      "long_scoreboard_stall_percent": 1.66,
+      "math_pipe_throttle_percent": 16.43,
+      "mio_throttle_percent": 11.18,
+      "report": {
+        "path": "/tmp/q3x-m64n256-ncu-baseline.ncu-rep",
+        "bytes": 3977805,
+        "sha256": "4adaa507ac0e2435fe000c4ae145b95ee316fb1aa39402052432bb6993093ff7"
+      }
+    },
+    "candidate_m64n512": {
+      "duration_ns": 6110368,
+      "l2_request_bytes": 926360288,
+      "global_cp_async_bypass_bytes": 958136320,
+      "warps_active_percent": 33.11,
+      "tensor_hmma_active_percent": 35.18,
+      "issue_active_percent": 42.83,
+      "barrier_stall_percent": 5.03,
+      "long_scoreboard_stall_percent": 2.03,
+      "math_pipe_throttle_percent": 18.46,
+      "mio_throttle_percent": 12.82,
+      "report": {
+        "path": "/tmp/q3x-m64n512-ncu-candidate.ncu-rep",
+        "bytes": 3977543,
+        "sha256": "2cd680b9f3d3bf2fce85de9822c6525de2ab17ca7c9cd7e56a474c1d0a1a269d"
+      }
+    },
+    "derived": {
+      "l2_request_reduction_percent": 22.414537893,
+      "resident_warp_occupancy_change_points": 0.21,
+      "tensor_active_change_points": -3.55,
+      "issue_active_change_points": -4.94,
+      "barrier_stall_change_points": -1.63,
+      "math_pipe_throttle_change_points": 2.03,
+      "mio_throttle_change_points": 1.64
+    },
+    "interpretation": "The rejected candidate is not primarily limited by a larger measured barrier fraction: barrier stall falls while latency rises. Both variants retain about 16 warps/SM, but M64N512 replaces two independently phased 8-warp CTAs with one 16-warp CTA. The resulting lower issue and tensor utilization plus higher MIO/math throttling outweigh the saved L2 requests. This is an inference from the paired counters, not a hardware proof."
+  },
+  "regression_validation": {
+    "manual_m64n512_validate": "pass",
+    "manual_m64n256_validate": "pass",
+    "retained_c512_ctest": "pass",
+    "retained_c256_ctest": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.26,
+      "raw_artifact_retained": false
+    }
+  },
+  "decision": {
+    "candidate": "reject from production and from the next native baseline",
+    "retained_value": "keep the test-only implementation and frozen screen as a structural negative sentinel",
+    "production_route": "unchanged",
+    "baseline_for_next_cell": "M64xN256xK64",
+    "do_not_repeat": [
+      "do not widen the same CTA beyond N256 without restoring independent scheduling domains",
+      "do not claim that CTA barrier count is the dominant bottleneck from source inspection alone",
+      "do not trade two resident CTAs for one solely to reduce canonical weight traffic",
+      "do not route MTP as a shortcut"
+    ],
+    "next_native_requirement": "preserve or recreate independent producer/consumer progress while reducing canonical NVFP4 decode and weight traffic; require exact output, zero local memory, Graph safety, and a positive isolated Gate screen before any whole-Prefill integration"
+  }
+}
