@@ -435,6 +435,58 @@ __device__ __forceinline__ float decode_e4m3fn(const std::uint8_t bits) {
                          (mantissa << 20U));
 }
 
+// Test-only ordinary device-global seed for the exact E4M3FN-to-BF16
+// codebook.  This deliberately is not __constant__: the bounded M64N256
+// candidate below measures one coalesced 512-byte global-to-shared cp.async
+// seed against the retained per-CTA scalar decoder.
+__device__ __align__(16) const std::uint16_t
+    kNvFp4E4m3Bf16CodebookSeed[kFp8EncodedValueCount] = {
+    0x0000U, 0x3b00U, 0x3b80U, 0x3bc0U, 0x3c00U, 0x3c20U, 0x3c40U, 0x3c60U,
+    0x3c80U, 0x3c90U, 0x3ca0U, 0x3cb0U, 0x3cc0U, 0x3cd0U, 0x3ce0U, 0x3cf0U,
+    0x3d00U, 0x3d10U, 0x3d20U, 0x3d30U, 0x3d40U, 0x3d50U, 0x3d60U, 0x3d70U,
+    0x3d80U, 0x3d90U, 0x3da0U, 0x3db0U, 0x3dc0U, 0x3dd0U, 0x3de0U, 0x3df0U,
+    0x3e00U, 0x3e10U, 0x3e20U, 0x3e30U, 0x3e40U, 0x3e50U, 0x3e60U, 0x3e70U,
+    0x3e80U, 0x3e90U, 0x3ea0U, 0x3eb0U, 0x3ec0U, 0x3ed0U, 0x3ee0U, 0x3ef0U,
+    0x3f00U, 0x3f10U, 0x3f20U, 0x3f30U, 0x3f40U, 0x3f50U, 0x3f60U, 0x3f70U,
+    0x3f80U, 0x3f90U, 0x3fa0U, 0x3fb0U, 0x3fc0U, 0x3fd0U, 0x3fe0U, 0x3ff0U,
+    0x4000U, 0x4010U, 0x4020U, 0x4030U, 0x4040U, 0x4050U, 0x4060U, 0x4070U,
+    0x4080U, 0x4090U, 0x40a0U, 0x40b0U, 0x40c0U, 0x40d0U, 0x40e0U, 0x40f0U,
+    0x4100U, 0x4110U, 0x4120U, 0x4130U, 0x4140U, 0x4150U, 0x4160U, 0x4170U,
+    0x4180U, 0x4190U, 0x41a0U, 0x41b0U, 0x41c0U, 0x41d0U, 0x41e0U, 0x41f0U,
+    0x4200U, 0x4210U, 0x4220U, 0x4230U, 0x4240U, 0x4250U, 0x4260U, 0x4270U,
+    0x4280U, 0x4290U, 0x42a0U, 0x42b0U, 0x42c0U, 0x42d0U, 0x42e0U, 0x42f0U,
+    0x4300U, 0x4310U, 0x4320U, 0x4330U, 0x4340U, 0x4350U, 0x4360U, 0x4370U,
+    0x4380U, 0x4390U, 0x43a0U, 0x43b0U, 0x43c0U, 0x43d0U, 0x43e0U, 0x7fc0U,
+    0x8000U, 0xbb00U, 0xbb80U, 0xbbc0U, 0xbc00U, 0xbc20U, 0xbc40U, 0xbc60U,
+    0xbc80U, 0xbc90U, 0xbca0U, 0xbcb0U, 0xbcc0U, 0xbcd0U, 0xbce0U, 0xbcf0U,
+    0xbd00U, 0xbd10U, 0xbd20U, 0xbd30U, 0xbd40U, 0xbd50U, 0xbd60U, 0xbd70U,
+    0xbd80U, 0xbd90U, 0xbda0U, 0xbdb0U, 0xbdc0U, 0xbdd0U, 0xbde0U, 0xbdf0U,
+    0xbe00U, 0xbe10U, 0xbe20U, 0xbe30U, 0xbe40U, 0xbe50U, 0xbe60U, 0xbe70U,
+    0xbe80U, 0xbe90U, 0xbea0U, 0xbeb0U, 0xbec0U, 0xbed0U, 0xbee0U, 0xbef0U,
+    0xbf00U, 0xbf10U, 0xbf20U, 0xbf30U, 0xbf40U, 0xbf50U, 0xbf60U, 0xbf70U,
+    0xbf80U, 0xbf90U, 0xbfa0U, 0xbfb0U, 0xbfc0U, 0xbfd0U, 0xbfe0U, 0xbff0U,
+    0xc000U, 0xc010U, 0xc020U, 0xc030U, 0xc040U, 0xc050U, 0xc060U, 0xc070U,
+    0xc080U, 0xc090U, 0xc0a0U, 0xc0b0U, 0xc0c0U, 0xc0d0U, 0xc0e0U, 0xc0f0U,
+    0xc100U, 0xc110U, 0xc120U, 0xc130U, 0xc140U, 0xc150U, 0xc160U, 0xc170U,
+    0xc180U, 0xc190U, 0xc1a0U, 0xc1b0U, 0xc1c0U, 0xc1d0U, 0xc1e0U, 0xc1f0U,
+    0xc200U, 0xc210U, 0xc220U, 0xc230U, 0xc240U, 0xc250U, 0xc260U, 0xc270U,
+    0xc280U, 0xc290U, 0xc2a0U, 0xc2b0U, 0xc2c0U, 0xc2d0U, 0xc2e0U, 0xc2f0U,
+    0xc300U, 0xc310U, 0xc320U, 0xc330U, 0xc340U, 0xc350U, 0xc360U, 0xc370U,
+    0xc380U, 0xc390U, 0xc3a0U, 0xc3b0U, 0xc3c0U, 0xc3d0U, 0xc3e0U, 0xffc0U,
+};
+
+static_assert(sizeof(kNvFp4E4m3Bf16CodebookSeed) == 512U);
+
+__global__ void nvfp4_e4m3_bf16_codebook_seed_exhaustive_test_kernel(
+    std::uint32_t* const mismatch_count) {
+  const unsigned int code = threadIdx.x;
+  const std::uint16_t runtime = encode_bf16_rne(
+      decode_e4m3fn(static_cast<std::uint8_t>(code)));
+  if (kNvFp4E4m3Bf16CodebookSeed[code] != runtime) {
+    atomicAdd(mismatch_count, 1U);
+  }
+}
+
 __device__ __forceinline__ float decode_e2m1(const std::uint8_t nibble) {
   const unsigned int sign =
       static_cast<unsigned int>(nibble & 0x08U) << 28U;
@@ -8917,7 +8969,8 @@ issue_nvfp4_gate_m64_n256_scale_window(
           first_window_k / kNvFp4GroupSize);
 }
 
-template <bool kActivationCacheAll, bool kPackedWeightCacheAll>
+template <bool kActivationCacheAll, bool kPackedWeightCacheAll,
+          bool kSeedScaleCodebook>
 __global__ __launch_bounds__(kThreads, 2) void
 nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
     const std::uint8_t* const packed_weights,
@@ -8951,8 +9004,19 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
   const unsigned int lane = thread % kWarpSize;
   const unsigned int lane_group = lane / 4U;
   const unsigned int lane_in_group = lane % 4U;
-  product_lookup.scale_values[thread] =
-      encode_bf16_rne(decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  if constexpr (kSeedScaleCodebook) {
+    if (warp == 0U) {
+      cp_async_ca_shared_global_16(
+          reinterpret_cast<uint4*>(product_lookup.scale_values) + lane,
+          reinterpret_cast<const uint4*>(kNvFp4E4m3Bf16CodebookSeed) +
+              lane);
+      cp_async_commit_group();
+      cp_async_wait_group_0();
+    }
+  } else {
+    product_lookup.scale_values[thread] =
+        encode_bf16_rne(decode_e4m3fn(static_cast<std::uint8_t>(thread)));
+  }
   __syncthreads();
 
   const unsigned int output_column_block = blockIdx.x / kM64TileCount;
@@ -28322,6 +28386,20 @@ int launch_sm87_nvfp4_w4a16_gate_m128_register_fed_x4_exhaustive_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_e4m3_bf16_codebook_seed_exhaustive_test_cuda(
+    std::uint32_t* const device_mismatch_count,
+    void* const cuda_stream) noexcept {
+  if (device_mismatch_count == nullptr ||
+      !pointer_is_aligned<alignof(std::uint32_t)>(device_mismatch_count)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_e4m3_bf16_codebook_seed_exhaustive_test_kernel
+      <<<1U, kFp8EncodedValueCount, 0U, stream>>>(device_mismatch_count);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
     const std::uint8_t* const packed_weights,
     const std::uint8_t* const block_scales, const float weight_scale_2,
@@ -28353,12 +28431,14 @@ int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   cudaError_t status = cudaFuncSetAttribute(
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false>,
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false,
+                                                               false>,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false>
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false,
+                                                           false>
       <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
@@ -28382,7 +28462,8 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_resources_test_cuda(
   }
 
   const auto kernel =
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false>;
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<false, false,
+                                                               false>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
@@ -28439,12 +28520,14 @@ int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_ca_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   cudaError_t status = cudaFuncSetAttribute(
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false>,
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                               false>,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false>
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                           false>
       <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
@@ -28468,7 +28551,96 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_ca_resources_test_cud
   }
 
   const auto kernel =
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false>;
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                               false>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_caseed_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 256U) * (512U / 64U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<alignof(uint4)>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                               true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false, true>
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_caseed_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                               true>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
@@ -28525,12 +28697,14 @@ int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_abca_test_cuda(
   const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
   (void)cudaGetLastError();
   cudaError_t status = cudaFuncSetAttribute(
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true>,
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true,
+                                                               false>,
       cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
   if (status != cudaSuccess) {
     return static_cast<int>(status);
   }
-  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true>
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true,
+                                                           false>
       <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
           packed_weights, block_scales, weight_scale_2, activations, output);
   return static_cast<int>(cudaGetLastError());
@@ -28554,7 +28728,8 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_abca_resources_test_c
   }
 
   const auto kernel =
-      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true>;
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, true,
+                                                               false>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
