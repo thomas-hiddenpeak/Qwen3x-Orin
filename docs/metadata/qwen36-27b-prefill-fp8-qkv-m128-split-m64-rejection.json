@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-qkv-m128-split-m64-rejection",
+  "status": "rejected-test-only-first-C512-QKV-performance-stop-loss",
+  "recorded_at": "2026-07-28T14:03:13+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "experiment_base_head": "ba0eb64628564ef693badf1f0f92af22441f9fb0",
+    "experiment_base_tree": "9e835a283775b167b99ac2938b06bb090fe42347",
+    "experiment_base_subject": "docs: record shared-A Gate Up rejection",
+    "test_only_source_commit": "b626b7d11a7addaaa1dc0ad0ffefcc8b20477b5f",
+    "test_only_source_tree": "34c1a69dce28c11c35193a4524eb32088a2ad52d",
+    "test_only_source_subject": "test: screen split-M64 FP8 QKV prefill",
+    "post_measurement_harness_hardening": {
+      "commit": "b67ca70d788214d387008a50d240a103a503a69a",
+      "tree": "7932d168589eed5417564463b74451f9401c1056",
+      "subject": "test: harden split-M64 FP8 screen",
+      "scope": "always end a successfully started Graph capture, require exactly 512 classified NaN outputs, and distinguish unchanged global A/B traffic from increased shared-B fragment reads; candidate kernel code is unchanged",
+      "validation_result": "resource, invalid-call, Graph, direct/replay exactness, E4M3FN, classified-NaN, guard, immutable-input, build, and CTest gates pass"
+    },
+    "candidate_scope": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_fp8_prefill_qkv_m128_split_m64_screen.cu"
+    ],
+    "candidate_test_only": true,
+    "standalone_test_target": "q3x_fp8_prefill_qkv_m128_split_m64_screen",
+    "ctest_name": "fp8_prefill_qkv_m128_split_m64_screen",
+    "production_dispatch_changed": false,
+    "production_kernel_selection_changed": false,
+    "runner_changed": false,
+    "workspace_changed": false,
+    "public_header_or_abi_changed": false,
+    "decode_changed": false,
+    "mtp_used": false,
+    "retention": "retain the isolated BUILD_TESTING target and test-only direct launcher as reproducible negative evidence; do not admit the split-M64 route to production",
+    "measured_binary": {
+      "path": "build/q3x_fp8_prefill_qkv_m128_split_m64_screen",
+      "bytes": 5049992,
+      "sha256": "83569b0f43f5c3c6d6e6b4e5071e0d1d175d0cc83645e6b15e2556dfaf97a422",
+      "elf_build_id": "660f73e0c7304cdb80c8f2f0b946210878ed0bf3",
+      "build_type": "Release"
+    },
+    "post_measurement_validated_binary": {
+      "path": "build/q3x_fp8_prefill_qkv_m128_split_m64_screen",
+      "bytes": 5049912,
+      "sha256": "6558b4cd4812c4b710c89bac5c09e452aaba154a675f2e131a67596648aa3654",
+      "elf_build_id": "c7e4c3eb4c978ea1212a0733b768f6e35bfe7dbb",
+      "performance_remeasured": false
+    }
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "measurement_cpu": 0,
+    "fixed_frequency_readback_hz": {
+      "gpu_minimum": 1300500000,
+      "gpu_maximum": 1300500000,
+      "gpu_current": 1300500000,
+      "emc_minimum": 3200000000,
+      "emc_maximum": 3200000000,
+      "emc_current": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, one deterministic checkpoint-like exact-C512 QKV validation fixture, and one six-round isolated eager timing process"
+  },
+  "experiment": {
+    "role": "compare the public production FP8 whole-chunk M128 QKV kernel with one test-only 512-thread implementation that splits each resident M128 token tile across two M64 warp groups",
+    "shape": {
+      "notation": "[M512,N10240,K5120]",
+      "token_count_M": 512,
+      "rows_N": 10240,
+      "columns_K": 5120,
+      "output_elements": 5242880,
+      "strict_shape_only": true
+    },
+    "weight_format": "canonical row-major E4M3FN FP8",
+    "weight_scale": 0.00100708,
+    "activation_and_output_format": "BF16",
+    "baseline": {
+      "name": "public production FP8 M128xN128 whole-chunk QKV kernel",
+      "stream": "one nonblocking stream",
+      "threads_per_cta": 256,
+      "registers_per_thread": 123,
+      "static_shared_bytes": 37376,
+      "dynamic_shared_bytes": 0,
+      "total_shared_bytes": 37376,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 2,
+      "resident_warps_per_sm": 16
+    },
+    "candidate": {
+      "name": "test-only FP8 QKV M128 split-M64 warp-group kernel",
+      "stream": "the same one nonblocking stream",
+      "mapping": "one 512-thread CTA retains production M128xN128 ownership; two independent 256-thread groups each own M64 tokens, share one cooperatively loaded M128 activation tile and one decoded B tile, retain four ordered M16 accumulators per warp, and drain through separate C buffers",
+      "permanent_sidecar": false,
+      "threads_per_cta": 512,
+      "registers_per_thread": 64,
+      "static_shared_bytes": 33280,
+      "dynamic_shared_bytes": 18432,
+      "total_shared_bytes": 51712,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 2,
+      "resident_warps_per_sm": 32
+    },
+    "selection_gates": {
+      "first_cell": "strict C512 QKV [10240,5120] with deterministic checkpoint-like E4M3FN weights",
+      "required_aggregate_speedup": 1.2,
+      "required_every_round_speedup": 1.15,
+      "required_strict_positive_rounds": 6,
+      "timing_order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "execution": "eager direct",
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "l2_scrub_inside_timing": false,
+      "stop_loss": "failure ends this candidate before profiling, whole-model work, or production integration"
+    }
+  },
+  "validation": {
+    "resources": {
+      "production": {
+        "registers_per_thread": 123,
+        "static_shared_bytes": 37376,
+        "dynamic_shared_bytes": 0,
+        "total_shared_bytes": 37376,
+        "local_bytes": 0,
+        "threads_per_cta": 256,
+        "active_blocks_per_sm": 2,
+        "resident_warps_per_sm": 16
+      },
+      "candidate": {
+        "registers_per_thread": 64,
+        "static_shared_bytes": 33280,
+        "dynamic_shared_bytes": 18432,
+        "total_shared_bytes": 51712,
+        "local_bytes": 0,
+        "threads_per_cta": 512,
+        "active_blocks_per_sm": 2,
+        "resident_warps_per_sm": 32
+      },
+      "result": "pass"
+    },
+    "invalid_graph": {
+      "invalid_statuses": 20,
+      "invalid_cases": 20,
+      "expected_status": "cudaErrorInvalidValue",
+      "captured_kernel_nodes": 0,
+      "result": "pass"
+    },
+    "valid_graph": {
+      "baseline": {
+        "kernel_nodes": 1,
+        "grid_x": 320,
+        "block_x": 256,
+        "dynamic_shared_bytes": 0
+      },
+      "candidate": {
+        "kernel_nodes": 1,
+        "grid_x": 320,
+        "block_x": 512,
+        "dynamic_shared_bytes": 18432,
+        "graph_replays": 2
+      },
+      "kernel_functions_distinct": true,
+      "result": "pass"
+    },
+    "correctness": {
+      "fixture": "deterministic checkpoint-like canonical E4M3FN weights at scalar scale 0.00100708 and BF16 activations",
+      "raw_E4M3_code_coverage": {
+        "codes": 256,
+        "byte_positions_per_uint32": 4,
+        "covered_code_position_pairs": 1024,
+        "result": "pass"
+      },
+      "direct_baseline_candidate_mismatches": 0,
+      "first_graph_replay_mismatches": 0,
+      "second_graph_replay_mismatches": 0,
+      "compared_output_elements_per_comparison": 5242880,
+      "classified_nan_outputs": 512,
+      "nan_class_or_sign_mismatches": 0,
+      "unexpected_nonfinite_outputs": 0,
+      "output_guards": "intact",
+      "weights_and_activations": "immutable",
+      "result": "pass"
+    }
+  },
+  "performance": {
+    "protocol": {
+      "processes": 1,
+      "token_count": 512,
+      "order": "B-C-C-B",
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "rounds": 6,
+      "l2_scrub_bytes_before_each_pass": 33554432,
+      "scrub_outside_timed_events": true,
+      "timing_boundary": "CUDA events on the single stream around 24 eager launches"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 4.801858,
+        "C1_ms": 5.129389,
+        "C2_ms": 5.128957,
+        "B2_ms": 4.802717,
+        "speedup": 0.936269,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      },
+      {
+        "round": 2,
+        "B1_ms": 4.802230,
+        "C1_ms": 5.127908,
+        "C2_ms": 5.129282,
+        "B2_ms": 4.802665,
+        "speedup": 0.936406,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      },
+      {
+        "round": 3,
+        "B1_ms": 4.801759,
+        "C1_ms": 5.129158,
+        "C2_ms": 5.127401,
+        "B2_ms": 4.802595,
+        "speedup": 0.936411,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      },
+      {
+        "round": 4,
+        "B1_ms": 4.801871,
+        "C1_ms": 5.131123,
+        "C2_ms": 5.135130,
+        "B2_ms": 4.802345,
+        "speedup": 0.935513,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      },
+      {
+        "round": 5,
+        "B1_ms": 4.802785,
+        "C1_ms": 5.132576,
+        "C2_ms": 5.130264,
+        "B2_ms": 4.802487,
+        "speedup": 0.935927,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      },
+      {
+        "round": 6,
+        "B1_ms": 4.804971,
+        "C1_ms": 5.129061,
+        "C2_ms": 5.130396,
+        "B2_ms": 4.804208,
+        "speedup": 0.936617,
+        "required_speedup": 1.15,
+        "gate": "fail"
+      }
+    ],
+    "aggregate": {
+      "baseline_ms": 4.802708,
+      "candidate_ms": 5.130054,
+      "speedup": 0.936190,
+      "latency_change_percent": 6.815863050596,
+      "throughput_change_percent": -6.380946477367,
+      "strict_positive_rounds": 0,
+      "rounds_meeting_1_15": 0,
+      "rounds_total": 6,
+      "required_aggregate_speedup": 1.2,
+      "required_every_round_speedup": 1.15,
+      "result": "fail"
+    },
+    "artifact": {
+      "path": "/tmp/q3x-prefill-fp8-qkv-split-m64-c512-first.log",
+      "bytes": 6810,
+      "sha256": "7b0afefe25d01948f46e650e1e94b2df4eb917577bd17402a43913801baad342",
+      "expected_exit": "nonzero solely because all six per-round performance gates and the aggregate performance gate fail after resource, invalid-call, Graph, exactness, replay, NaN-class/sign, guard, and immutable-input gates pass"
+    }
+  },
+  "static_sass": {
+    "scope": "production and split-M64 candidate function blocks in the measured binary",
+    "production": {
+      "instructions": 1728,
+      "LDG": 10,
+      "LDS": 96,
+      "STS": 45,
+      "BAR": 10,
+      "HMMA": 16,
+      "SHFL": 0,
+      "LDL": 0,
+      "STL": 0
+    },
+    "candidate": {
+      "instructions": 856,
+      "LDG": 5,
+      "LDS": 48,
+      "STS": 23,
+      "BAR": 6,
+      "HMMA": 8,
+      "SHFL": 0,
+      "LDL": 0,
+      "STL": 0
+    },
+    "thread_topology_note": "the candidate function uses 512 threads instead of 256; its roughly halved per-thread static instruction and HMMA body does not imply halved CTA work or traffic",
+    "operand_traffic_observation": {
+      "global_A_and_B_bytes": "unchanged by construction",
+      "HMMA_work": "unchanged by construction",
+      "shared_A_fragment_reads": "unchanged in aggregate",
+      "shared_B_fragment_reads": "doubled because both M64 warp groups load the same B fragment that production loads once and reuses across eight A panels",
+      "equivalent_WMMA_operand_shared_read_change": "approximately 9 to 10 parts, or +11.1 percent"
+    },
+    "causal_limit": "static SASS counts are structural evidence only; candidate NCU and Nsys were intentionally skipped after the frozen first-cell stop-loss"
+  },
+  "stop_loss_and_skipped_work": {
+    "trigger": "aggregate speedup is 0.936190 against the required 1.20x, every round is below the required 1.15x, and all six rounds regress below 1.0x",
+    "not_run": [
+      "candidate NCU",
+      "candidate Nsys",
+      "full-model Prefix or TTFT",
+      "production dispatch integration",
+      "production promotion",
+      "external replication"
+    ]
+  },
+  "decision": {
+    "result": "reject production integration and close this exact 512-thread M128 split-M64 QKV mapping",
+    "reason": "reducing per-thread accumulator pressure while doubling CTA width and preserving the same M128xN128 ownership does not improve this C512 QKV cell; the candidate is 6.38 percent slower. Source topology shows doubled shared-B fragment reads and a wider synchronization domain, but no profiler-based causal attribution is made",
+    "closed_scope": [
+      "the exact-C512 [10240,5120] 512-thread two-M64-warp-group implementation recorded here",
+      "further tuning that retains the same shared-A/shared-B split-M64 CTA structure without a materially different traffic or synchronization mechanism"
+    ],
+    "production_prefill_anchor": "unchanged",
+    "decode_anchor": "unchanged",
+    "mtp_used": false,
+    "next_priority": {
+      "hotspot": "FP8 QKV/Z/O",
+      "selection_rule": "choose a materially different bounded candidate that reduces measured global/shared traffic or a kernel boundary rather than only repartitioning unchanged M128 arithmetic across more threads",
+      "parallel_work": "continue the bounded OpenAI-compatible API and EvalScope path without delaying the next kernel screen"
+    }
+  },
+  "reproduction": {
+    "build": "cmake --build build --target q3x_fp8_prefill_qkv_m128_split_m64_screen -j2",
+    "validation": "taskset -c 0 ./build/q3x_fp8_prefill_qkv_m128_split_m64_screen --mode=validate",
+    "C512_screen": "taskset -c 0 ./build/q3x_fp8_prefill_qkv_m128_split_m64_screen --mode=screen",
+    "artifact_verification": "wc -c /tmp/q3x-prefill-fp8-qkv-split-m64-c512-first.log build/q3x_fp8_prefill_qkv_m128_split_m64_screen && sha256sum /tmp/q3x-prefill-fp8-qkv-split-m64-c512-first.log build/q3x_fp8_prefill_qkv_m128_split_m64_screen && readelf -n build/q3x_fp8_prefill_qkv_m128_split_m64_screen",
+    "environment_requirement": "run under MAXN on CPU 0 with GPU 1300500000 Hz and EMC 3200000000 Hz read back before accepting timings"
+  },
+  "limitations": [
+    "The payload is deterministic and checkpoint-like rather than loaded checkpoint QKV tensor bytes.",
+    "Only the isolated exact-C512 QKV cell was admitted; no C256, whole-layer, whole-model, API, or EvalScope performance follows.",
+    "No candidate NCU or Nsys capture was run, so the regression is not attributed to a measured traffic, stall, cache, or synchronization cause.",
+    "The result closes this exact split-M64 mapping, not every possible FP8 QKV/Z/O dataflow or wider Prefill optimization."
+  ]
+}

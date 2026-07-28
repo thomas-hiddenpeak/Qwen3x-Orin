@@ -1308,13 +1308,18 @@ not used. Reopen only for a materially different exact incumbent source or
 row-search structure without an unpriced global-progress assumption. See the
 [q20 exact-sector rejection](metadata/qwen36-27b-lm-head-q20-exact-sector-rejection.json).
 
-- [active, Decode baseline lock and Prefill handoff] Freeze the achieved
+- [active, Decode baseline lock and Prefill FP8 traffic-first continuation]
+  Freeze the achieved
   non-MTP P19/C32/max26 fixed-clock result at **105.870500 ms/token /
   9.445501816 token/s** as the Phase 3 Decode regression anchor. The original
   no-more-than-100-ms/token and at-least-10-token/s objective remains an unmet
   stretch target, but no longer gates dedicated Prefill work. Earlier Phase 3
   statements that placed Prefill behind that gate are historical decisions
-  superseded by this handoff. MTP remains excluded.
+  superseded by this handoff. The first bounded strict-C512 FP8 QKV
+  split-M64 cell is rejected below; the active Prefill line now requires a
+  materially different QKV/Z/O mechanism that reduces measured global/shared
+  traffic or a kernel boundary instead of only repartitioning the same M128
+  arithmetic across more threads. MTP remains excluded.
 - [done, current-HEAD Prefill baseline lock] At `edef543`, one fixed-frequency
   reusable-engine process with one warmup and five measured generations per
   prompt establishes the C32/max1 direct baseline. P33/P65/P129/P513 median
@@ -1631,6 +1636,28 @@ row-search structure without an unpriced global-progress assumption. See the
   time, and combine that inventory with the independent read-only first-cell
   analysis before selecting an implementation. See the
   [fused/shared-A rejection](metadata/qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json).
+- [measured and rejected, FP8 QKV M128 split-M64] Commit `b626b7d`
+  keeps production dispatch frozen and screens only exact
+  `[M512,N10240,K5120]`. The 512-thread candidate retains M128xN128 CTA
+  ownership but divides the resident token tile between two M64 warp groups,
+  lowering registers from 123 to 64 per thread while using 33,280 B static
+  plus 18,432 B dynamic shared memory, zero local memory, and two CTA/SM
+  (32 resident warps). Resource, 20/20 zero-node invalid-call, distinct
+  one-node baseline/candidate Graph, direct plus two-replay bitwise, exhaustive
+  256-code-by-four-byte-position E4M3FN, 512 classified-NaN class/sign, guard,
+  and immutable-input gates pass. Fixed-clock six-round `B-C-C-B` timing
+  regresses from **4.802708 to 5.130054 ms**, only **0.936190x**; all six
+  rounds are below one and miss the required per-round 1.15x and aggregate
+  1.20x gates. Static candidate SASS roughly halves the per-thread instruction,
+  load, and HMMA body, but the CTA has twice as many threads; no NCU/Nsys
+  causal claim follows. Profiling, full-model work, promotion, and production
+  changes are stopped. Source topology also shows that the two M64 groups each
+  load the same shared B fragment, doubling B-fragment shared reads even though
+  global A/B traffic and HMMA work are unchanged; this is structural evidence,
+  not a profiler-derived causal attribution. Follow-up `b67ca70` hardens Graph
+  cleanup, locks the 512-NaN gate, and corrects that traffic label without
+  changing candidate arithmetic. Decode and MTP remain unchanged. See the
+  [split-M64 rejection](metadata/qwen36-27b-prefill-fp8-qkv-m128-split-m64-rejection.json).
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
@@ -1684,11 +1711,16 @@ subsequent K16/K64 single-branch register-fed sidecars all failed their frozen
 stop-losses. K64's consistent **1.017890x** is insufficient and the line is
 closed before pair/full-model work. The canonical-weight 512-thread M128
 fused Gate+Up/shared-A follow-up is also rejected: **0.890109x** at C512,
-with all six rounds regressing. The immediate main line now moves to the FP8
-QKV/Z/O group at **564.576448 ms / 21.425%** of P513 projected GPU time.
-Audit the existing FP8 candidates and wait for the independent read-only
-first-cell ranking before selecting a bounded implementation. Bulk attention
-is already production-integrated and only 2.904% of the current profile.
+with all six rounds regressing. The subsequent first FP8 QKV cell also rejects
+the 512-thread M128 split-M64 mapping at **0.936190x**: resource, exactness,
+Graph, replay, NaN-class/sign, guard, and immutable-input gates pass, but all
+six rounds regress. That result closes same-traffic split-M64 tuning before
+profiling or model work. The immediate main line remains the FP8 QKV/Z/O group
+at **564.576448 ms / 21.425%** of P513 projected GPU time, but its next bounded
+candidate must materially reduce measured global/shared traffic or a kernel
+boundary rather than only redistribute M128 arithmetic across a wider CTA.
+Bulk attention is already production-integrated and only 2.904% of the current
+profile.
 Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
@@ -1705,9 +1737,11 @@ These are different runtime systems and leave directional
 **2.052799903x/2.192324678x** gaps, not a same-kernel attribution. The user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
 a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
-shared-A screen are now closed as rejected. Continue the HTTP adapter and
-EvalScope in parallel with the FP8 QKV/Z/O audit and its next admitted bounded
-screen so the external baseline precedes later system-level optimization.
+shared-A screen are now closed as rejected. The exact-C512 FP8 QKV split-M64
+screen is also closed at **0.936190x** without candidate profiling or
+production promotion. Continue the HTTP adapter and EvalScope in parallel
+with selection of a traffic-changing FP8 QKV/Z/O screen so the external
+baseline precedes later system-level optimization.
 Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
