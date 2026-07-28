@@ -378,6 +378,21 @@ and this M128 arithmetic body closes. See the [M128xN128 CG rejection
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-rejection.json)
 and [M128xN128 A-only CA development-cell
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-ca-development-cell.json).
+Transferring that cache operator back to the faster frozen M64xN256 topology
+produces the current fastest native test-only cell. Only activation A changes
+from `cp.async.cg` to `cp.async.ca`; packed B and scales remain streaming, and
+the CA/CG SASS differs only at the six activation LDGSTS cache modifiers and
+their control words. A CPU-11-pinned six-round B-C-C-B screen improves every
+round and moves **5.531551 ms to 5.388746 ms** (**1.026501x**, **2.581645%**
+lower latency). Matched same-topology NCU records **14.9294%** fewer L2 request
+bytes, **45.8234%** fewer bypass bytes, and higher tensor and issue activity.
+The result is nevertheless **0.084407 ms** above the unchanged **5.304339 ms**
+absolute gate and still needs **1.566357%** lower latency, so Gate+Up pair
+timing is skipped and production remains on the hybrid cuBLASLt bridge. This
+cell becomes the native test-only baseline, not a production admission; the
+next bounded work must target decode or scheduling structure without relaxing
+the gate. See the [M64xN256 A-only CA development-cell
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The

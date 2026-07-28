@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell",
+  "status": "test-only-positive-development-cell-not-admitted",
+  "recorded_at": "2026-07-28T22:37:43+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "3022208f7318969f781d1115327643fb20817ac6",
+    "tree": "f3a453de9e082b171b5b9ecdaaa86a13aff39fb5",
+    "parent_commit": "69de165a7ea7c120b84b14ade74339882259ca4f",
+    "subject": "test: retain M64N256 CA NVFP4 cell",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "Does transferring only the proven activation-A cp.async.ca operator to the frozen M64xN256 topology preserve its independent two-CTA scheduling while reusing activation data through L1?",
+    "answer": "Yes. The same-topology A-only-CA candidate improves every formal round and lowers Gate latency by 2.581645%, making it the fastest measured native test-only cell, but it remains 0.084407 ms above the unchanged absolute admission gate.",
+    "classification": "retain as the current fastest native test-only development baseline; do not admit to production",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "grid": "68 N tiles x 8 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "accumulator_fragments_per_warp": 16,
+    "mma": "sixteen inline mma.sync.aligned.m16n8k16 BF16 accumulator fragments per warp",
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "activation_cache_operator": "A only uses cp.async.ca",
+    "weight_and_scale_cache_operator": "packed B and scales retain cp.async.cg",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "packed_weight_copy": "paired adjacent lanes fill both 16-byte halves of one canonical 32-byte packed row",
+    "epilogue": "aligned packed BF16 pair stores",
+    "sidecar_required": false,
+    "comparison_baseline": "the identical frozen M64xN256xK64 topology with A, B, and scales on cp.async.cg"
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 43008,
+    "logical_shared_bytes_per_cta": 43520,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "sass_cache_operator_evidence": {
+    "measurement": "static LDGSTS instruction sites in the instantiated kernels, not dynamic traffic",
+    "candidate_m64n256_ca": {
+      "ldgsts_sites_total": 15,
+      "non_bypass_sites": 6,
+      "non_bypass_role": "activation A",
+      "bypass_sites": 9,
+      "bypass_role": "packed B and scales"
+    },
+    "control_m64n256_cg": {
+      "ldgsts_sites_total": 15,
+      "non_bypass_sites": 0,
+      "bypass_sites": 15,
+      "bypass_role": "activation A, packed B, and scales"
+    },
+    "independent_instruction_diff": "A row-by-row CA/CG SASS audit found only the six activation LDGSTS cache modifiers and their corresponding control words different; all other instructions match.",
+    "conclusion": "The compiled candidate changes only activation A from cache-global/bypass to cache-all; B, scale, arithmetic, tile, pipeline, and epilogue code remain identical."
+  },
+  "correctness_and_rejection_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "sidecar_allocation": "skipped; canonical direct path",
+    "output_guards": "intact",
+    "independent_audit": "pass with no blocking code, ABI, resource, correctness, Graph, cache-operator, or production-isolation findings"
+  },
+  "formal_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "frozen M64xN256 cp.async.cg",
+      "candidate": "the identical M64xN256 topology with only activation A on cp.async.ca; B and scales remain cp.async.cg",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "host_affinity": "taskset CPU 11",
+      "power_mode": "MAXN",
+      "system_clock_state": {
+        "cpu_ghz": 2.2016,
+        "gpu_ghz": 1.3005,
+        "emc_ghz": 3.2,
+        "state": "already fixed by the system",
+        "mutation_by_this_run": false
+      },
+      "required_speedup": 1.0,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "pair_stop_loss": "skip Gate+Up pair unless the single-Gate candidate clears both the positive-round and absolute-latency gates"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "B1_ms": 5.532751,
+        "C1_ms": 5.388068,
+        "C2_ms": 5.391537,
+        "B2_ms": 5.530910,
+        "speedup": 1.026351
+      },
+      {
+        "round": 2,
+        "B1_ms": 5.533313,
+        "C1_ms": 5.388361,
+        "C2_ms": 5.387992,
+        "B2_ms": 5.531552,
+        "speedup": 1.026773
+      },
+      {
+        "round": 3,
+        "B1_ms": 5.529244,
+        "C1_ms": 5.389688,
+        "C2_ms": 5.391179,
+        "B2_ms": 5.532944,
+        "speedup": 1.026094
+      },
+      {
+        "round": 4,
+        "B1_ms": 5.532068,
+        "C1_ms": 5.387711,
+        "C2_ms": 5.388404,
+        "B2_ms": 5.530869,
+        "speedup": 1.026616
+      },
+      {
+        "round": 5,
+        "B1_ms": 5.531156,
+        "C1_ms": 5.387905,
+        "C2_ms": 5.387556,
+        "B2_ms": 5.532047,
+        "speedup": 1.026703
+      },
+      {
+        "round": 6,
+        "B1_ms": 5.531822,
+        "C1_ms": 5.387408,
+        "C2_ms": 5.389147,
+        "B2_ms": 5.529936,
+        "speedup": 1.026465
+      }
+    ],
+    "aggregate": {
+      "baseline_m64n256_cg_ms": 5.531551,
+      "candidate_m64n256_ca_ms": 5.388746,
+      "candidate_vs_baseline_speed": 1.026501,
+      "candidate_latency_reduction_percent": 2.581645,
+      "positive_rounds": 6,
+      "rounds_total": 6,
+      "every_round_strict_positive": true,
+      "absolute_candidate_gate": "fail",
+      "absolute_gate_gap_ms": 0.084407,
+      "additional_candidate_latency_reduction_needed_for_gate_percent": 1.566357,
+      "pair_screen": "skipped by stop-loss",
+      "decision": "retain as the current native test-only baseline; reject production admission"
+    },
+    "comparison_to_prior_fastest_native_cell": {
+      "prior_m128n128_ca_ms": 5.483505,
+      "candidate_m64n256_ca_ms": 5.388746,
+      "candidate_vs_prior_speed": 1.017584611,
+      "interpretation": "Applying A-only cache-all without changing the faster M64 topology recovers the M128 cell's topology cost and establishes the new fastest native test-only result."
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m64n256ca-validate.log",
+        "bytes": 1308,
+        "sha256": "e7a1759286ad4ddfa5a8c8f56b94bc2f4802de3380ef94475634e9a8fcf2c613"
+      },
+      "screen_log": {
+        "path": "/tmp/q3x-m64n256ca-screen-taskset.log",
+        "bytes": 9755,
+        "sha256": "6992d709571e29646c21e5467ea0367f3f7d3320722fb41d20fd914e0807c329",
+        "expected_exit": "nonzero solely because the absolute candidate gate rejects the otherwise six-of-six positive cell"
+      },
+      "sass_log": {
+        "path": "/tmp/q3x-m64n256ca-sass.log",
+        "bytes": 3985,
+        "sha256": "6b201f6ee34e12e8e2c4466d8727517216bacfc6efe7549055946aed3b681e9d"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5327344,
+        "sha256": "85ec3522292c76539720d7a94f42e4acac33ea540e05410de3df864c7a568273"
+      }
+    }
+  },
+  "nsight_compute_comparison": {
+    "protocol": {
+      "tool": "Nsight Compute",
+      "profile_from_start": false,
+      "replay_mode": "application",
+      "app_replay_mode": "strict",
+      "profiled_launches": 1,
+      "cache_control": "none",
+      "clock_control": "none inside Nsight Compute; the system was already fixed at MAXN CPU/GPU/EMC clocks",
+      "use": "causal attribution for the same topology and sole A-cache-operator change, not formal latency",
+      "warning": "Nsight Compute did not flush caches or change clocks. Same binary, M64xN256 topology, resources, arithmetic, B/scale operators, and epilogue are compared; SASS confirms the only instruction differences are the six A-copy cache modifiers and their control words. The CPU-pinned B-C-C-B screen remains authoritative for latency."
+    },
+    "baseline_m64n256_cg": {
+      "duration_ns": 5559136,
+      "l1tex_global_load_hit_bytes": 29373344,
+      "l1tex_global_load_miss_bytes": 1031261280,
+      "l2_request_bytes": 1194020096,
+      "global_cp_async_cache_access_bytes": 0,
+      "global_cp_async_bypass_bytes": 1167032320,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 38.69,
+      "issue_active_percent": 47.72,
+      "barrier_stall_percent": 6.68,
+      "long_scoreboard_stall_percent": 1.66,
+      "math_pipe_throttle_percent": 16.40,
+      "mio_throttle_percent": 11.16,
+      "report": {
+        "path": "/tmp/q3x-m64n256ca-ncu-baseline.ncu-rep",
+        "bytes": 4053789,
+        "sha256": "ac8f56cc5539b6df31c880de88d62d4552110b1f184725ba4d0bd66ab96bb298"
+      }
+    },
+    "candidate_m64n256_ca": {
+      "duration_ns": 5411936,
+      "l1tex_global_load_hit_bytes": 29418400,
+      "l1tex_global_load_miss_bytes": 986651744,
+      "l2_request_bytes": 1015759808,
+      "global_cp_async_cache_access_bytes": 356515840,
+      "global_cp_async_bypass_bytes": 632258560,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 39.75,
+      "issue_active_percent": 48.97,
+      "barrier_stall_percent": 6.56,
+      "long_scoreboard_stall_percent": 1.54,
+      "math_pipe_throttle_percent": 16.89,
+      "mio_throttle_percent": 10.32,
+      "report": {
+        "path": "/tmp/q3x-m64n256ca-ncu-candidate.ncu-rep",
+        "bytes": 4053791,
+        "sha256": "773dcd7bd477be9e785926527dced2affb335cda4d1b16360ed3f4d071922325"
+      }
+    },
+    "derived": {
+      "profiled_duration_reduction_percent": 2.647893486,
+      "l1tex_global_load_hit_change_percent": 0.153390775,
+      "l1tex_global_load_miss_reduction_percent": 4.325725872,
+      "l2_request_reduction_percent": 14.929421087,
+      "cp_async_bypass_reduction_percent": 45.823389021,
+      "tensor_active_change_points": 1.06,
+      "issue_active_change_points": 1.25,
+      "barrier_stall_change_points": -0.12,
+      "long_scoreboard_change_points": -0.12,
+      "math_pipe_throttle_change_points": 0.49,
+      "mio_throttle_change_points": -0.84
+    },
+    "interpretation": "Because topology and compiled work are identical except for the six activation cache modifiers, the 14.9294% L2-request and 45.8234% bypass-byte reductions are attributable to A-only cache-all under this profile. Higher tensor and issue activity, lower MIO throttle, and the 2.6479% profiled duration reduction align with the independent 2.581645% formal latency reduction. The candidate still is not admissible because the frozen absolute gate, not NCU, controls production entry."
+  },
+  "regression_validation": {
+    "manual_m64n256_ca_validate": "pass",
+    "retained_m64n256_cg_validate": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.03,
+      "execution": "clean sequential full suite",
+      "raw_artifact_retained": false
+    },
+    "independent_audit": {
+      "result": "pass",
+      "findings": "no blocking code, ABI, resource, correctness, Graph, cache-operator, or production-isolation findings",
+      "sass_equivalence": "CA/CG row-by-row SASS differs only in six activation LDGSTS cache modifiers and their corresponding control words; all remaining instructions are identical",
+      "timing_caveat_resolution": "pass; the formal screen was rerun with taskset CPU 11 while system MAXN CPU 2.2016 GHz, GPU 1.3005 GHz, and EMC 3.2 GHz clocks were already fixed"
+    }
+  },
+  "decision": {
+    "candidate": "current fastest native test-only baseline, rejected from production admission",
+    "retained_value": "keep the exact implementation and evidence because the isolated cache-policy transfer is uniformly positive and its causal mechanism is confirmed on the same topology",
+    "production_route": "unchanged",
+    "pair_screen": "skipped",
+    "absolute_gate": "unchanged and failed by 0.084407 ms; 1.566357% additional latency reduction is required",
+    "next_bounded_work": {
+      "direction": "select one decode-structure or instruction-scheduling cell using the same-topology NCU evidence",
+      "admission_rule": "retain the 5.304339 ms absolute Gate threshold and the six-round strict-positive rule",
+      "scope_guard": "test-only until both single-Gate gates clear; run Gate+Up pair only afterward"
+    },
+    "do_not_repeat": [
+      "do not describe the fastest native test cell as production-ready while the absolute gate fails",
+      "do not relax the absolute gate to admit an otherwise positive result",
+      "do not run Gate+Up pair timing after the frozen single-Gate stop-loss",
+      "do not route MTP as a shortcut"
+    ]
+  }
+}

@@ -1461,6 +1461,20 @@ The diagnostic Phase 3 records are:
   attributed to `.ca` alone. The M128 arithmetic body closes and the next
   bounded cell transfers only the A-cache operator to the frozen M64xN256
   topology.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-development-cell.json),
+  which retains the current fastest native exact-C512 Gate kernel as a
+  positive test-only baseline, not a production admission. The frozen
+  M64xN256 topology is unchanged: only A's six LDGSTS sites move from
+  `cp.async.cg` to `cp.async.ca`, while nine B/scale sites remain bypassing.
+  All 17,825,792 outputs, Graph replay, 23/23 invalid calls, resource gates,
+  the 69-pass/12-skip full suite, and independent audit pass. CPU-11-pinned
+  six-round B-C-C-B timing is uniformly positive at **5.531551 ms to 5.388746
+  ms** (**1.026501x**); matched same-topology NCU shows L2 requests down
+  **14.9294%** and bypass bytes down **45.8234%**. The unchanged **5.304339
+  ms** absolute gate still fails by **0.084407 ms**/**1.566357%**, so pair
+  timing is skipped and production stays on the hybrid cuBLASLt bridge. The
+  next native cell must be a bounded decode or scheduling structural change;
+  the gate is not relaxed.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while
