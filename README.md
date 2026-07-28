@@ -304,13 +304,18 @@ ms**, and cuBLASLt consumes the contiguous BF16 allocation without a physical
 transpose in **2.323137 ms**. The inclusive **3.561288 ms** median is
 **1.842441x** faster than the fresh **6.561464 ms** production M128 Gate
 reference. Canonical decode is bitwise exact across 89,128,960 BF16 values and
-the exact two-node CUDA Graph replays cleanly, but production-M128 bitwise
-equivalence and whole-Prefill gains are deliberately not claimed. The route
-must next pass a production-shaped Gate+Up paired-stream benchmark, Down
-reuse, memory-reserve, and pinned-checkpoint end-to-end gates. The native
-fused large-M NVFP4 kernel continues in parallel as the higher-ceiling route.
+the exact two-node CUDA Graph replays cleanly. The zero-workspace P0 follow-up
+also matches all 8,912,896 production-M128 outputs bitwise. A production-shaped
+Gate+Up screen selects one handle and one reusable 170-MiB scratch: serial
+Gate then Up takes **7.155811 ms** versus **12.894805 ms** production
+(**1.802005x**). Naive dual-stream and staggered schedules are slower than
+serial in all six rounds, so the second 170-MiB scratch is rejected. Down,
+memory-reserve, runner, and pinned-checkpoint gates remain; no whole-Prefill
+gain is claimed yet. The native fused large-M NVFP4 kernel continues in
+parallel as the higher-ceiling route.
 See the [C512 inclusive cuBLASLt admission
-record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json).
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-inclusive-cublaslt-admission.json)
+and [Gate+Up schedule selection](docs/metadata/qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection.json).
 The parallel native large-M effort now has a frozen test-only M64xN256xK64
 baseline. K256 scale reuse, paired canonical-weight copies, and a packed BF16
 epilogue reduce Gate from **6.471293 ms** to **5.532324 ms** (**1.169724x**)

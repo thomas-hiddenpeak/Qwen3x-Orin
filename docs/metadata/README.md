@@ -1392,7 +1392,19 @@ The diagnostic Phase 3 records are:
   **1.840714x**. Production remains unchanged: Gate+Up pair contention,
   production-M128 numerical comparison, Down reuse, memory admission, and
   pinned-checkpoint Prefix gates are still required. The native fused large-M
-  kernel remains the parallel upper-bound route.
+  kernel remains the parallel upper-bound route. The later pair-selection
+  record below closes the zero-workspace production comparison and Gate/Up
+  scheduling gates without rewriting this historical admission result.
+- [`qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection.json`](qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection.json),
+  which closes P0 and selects the exact-C512 production-integration schedule.
+  Zero-workspace candidate output matches all 8,912,896 production-M128 values
+  bitwise. The two-weight screen measures **12.894805 ms** production versus
+  **7.155811 ms** for one-handle/one-scratch serial Gate then Up
+  (**1.802005x**, 6/6 positive rounds). Naive dual-stream and staggered
+  schedules reach only **0.980728x/0.984581x** relative to serial and are
+  rejected together with the second 170-MiB scratch. All eager and Graph
+  outputs are exact with intact guards. Production remains unchanged pending
+  the request-workspace, runner, pinned-checkpoint, and mirrored Prefix gates.
 - [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-development-baseline.json),
   which freezes the self-developed exact-C512 M64xN256xK64 test-only baseline.
   K256 scale reuse, paired packed-weight copies, and aligned 32-bit BF16 stores

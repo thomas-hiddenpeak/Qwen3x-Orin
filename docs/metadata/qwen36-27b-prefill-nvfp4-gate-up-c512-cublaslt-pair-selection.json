@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-up-c512-cublaslt-pair-selection",
+  "status": "test-only-serial-route-selected-for-production-integration",
+  "recorded_at": "2026-07-28T19:05:44+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "pair_commit": "575b5be808e370d30b3f226bde512f49e85bead1",
+    "pair_tree": "34711b2fa7501487d72f9f687f24ecf658941407",
+    "pair_parent_commit": "ea200154af02dcd4ac0a601f8a7415372913ee49",
+    "pair_subject": "test: select serial C512 NVFP4 Gate Up Lt path",
+    "pair_test": "tests/sm87_nvfp4_prefill_gate_up_c512_cublaslt_pair_screen.cu",
+    "production_p0_commit": "ea200154af02dcd4ac0a601f8a7415372913ee49",
+    "production_p0_test": "tests/sm87_nvfp4_prefill_gate_c512_cublaslt_ceiling.cu",
+    "production_changed": false,
+    "raw_pair_log_persisted": false
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_hz": 1300500000,
+      "emc_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Jetson AGX Orin; two synthetic exact-C512 Gate/Up weights; test-only scheduling screen"
+  },
+  "production_p0_closure": {
+    "cublaslt_max_workspace_bytes": 0,
+    "selected_workspace_bytes": 0,
+    "selection": "fastest measured successful zero-workspace heuristic in the P0 test; heuristic rank is not treated as an ABI",
+    "process_results": [
+      {
+        "inclusive_median_milliseconds": 3.583457,
+        "speedup_vs_production_M128": 1.831043,
+        "raw_log": {
+          "path": "/tmp/q3x_p0_final_run1.log",
+          "bytes": 6804,
+          "sha256": "ef131bc02192360d2c57cfe89856876a2d8359a1735d1d9f640955a499d5659b"
+        }
+      },
+      {
+        "inclusive_median_milliseconds": 3.593436,
+        "speedup_vs_production_M128": 1.825958,
+        "raw_log": {
+          "path": "/tmp/q3x_p0_final_run2.log",
+          "bytes": 6804,
+          "sha256": "4081e7a13008e2746fd0584838cb889f5f219fb0c923f08a0ee54eb431be04a7"
+        }
+      }
+    ],
+    "production_M128_comparison": {
+      "outputs_compared": 8912896,
+      "bitwise_mismatches": 0,
+      "maximum_absolute_error": 0.0,
+      "maximum_relative_error": 0.0,
+      "nrmse": 0.0,
+      "cosine": 1.0,
+      "candidate_nonfinite": 0,
+      "production_nonfinite": 0,
+      "gate": "pass"
+    },
+    "scale_policy": {
+      "positive_finite": "hybrid route eligible",
+      "zero": "retain production route even though the test is bitwise exact, including positive- and negative-zero counts",
+      "nan_or_negative": "reject before enqueue",
+      "nan_production_status": "cudaErrorInvalidValue",
+      "nan_captured_graph_nodes": 0
+    },
+    "graph_nodes": 2,
+    "cold_and_warm_replay": "bitwise exact",
+    "activation_packed_weight_and_block_scale_immutable": true,
+    "candidate_reference_and_production_guards_intact": true,
+    "gate": "pass"
+  },
+  "pair_shape": {
+    "tokens_M": 512,
+    "rows_N": 17408,
+    "columns_K": 5120,
+    "canonical_weight_count": 2,
+    "bf16_scratch_bytes_each": 178257920,
+    "cublaslt_workspace_bytes_each": 0
+  },
+  "schedules": [
+    {
+      "id": "production",
+      "description": "current M128 Gate on main stream and Up on auxiliary stream with the production event fork/join",
+      "scratch_count": 0,
+      "median_milliseconds": 12.894805,
+      "graph_kernel_nodes": 2,
+      "decision": "baseline"
+    },
+    {
+      "id": "A_serial",
+      "description": "one handle and one BF16 scratch on the main stream: Gate dequant, Gate Lt, Up dequant overwriting the same scratch, Up Lt",
+      "scratch_count": 1,
+      "fixture_device_bytes": 355078192,
+      "median_milliseconds": 7.155811,
+      "speedup_vs_production": 1.802005,
+      "measured_rounds": 6,
+      "positive_rounds": 6,
+      "graph_kernel_nodes": 4,
+      "gate_vs_production_1_22": "pass",
+      "decision": "selected"
+    },
+    {
+      "id": "B_naive_dual",
+      "description": "two handles, two streams, and two BF16 scratch buffers; both complete dequant-plus-Lt chains start after the same branch event",
+      "scratch_count": 2,
+      "fixture_device_bytes": 533336112,
+      "median_milliseconds": 7.295366,
+      "speedup_vs_selected_serial": 0.980728,
+      "positive_rounds_vs_serial": 0,
+      "graph_kernel_nodes": 4,
+      "gate_vs_serial_1_03": "fail",
+      "decision": "rejected"
+    },
+    {
+      "id": "C_staggered",
+      "description": "Gate dequant first, then Gate Lt on main overlaps Up dequant on auxiliary before Up Lt and join",
+      "scratch_count": 2,
+      "fixture_device_bytes": 533336112,
+      "median_milliseconds": 7.266419,
+      "speedup_vs_selected_serial": 0.984581,
+      "positive_rounds_vs_serial": 0,
+      "graph_kernel_nodes": 4,
+      "gate_vs_serial_1_03": "fail",
+      "decision": "rejected"
+    }
+  ],
+  "correctness": {
+    "paths": ["production", "A_serial", "B_naive_dual", "C_staggered"],
+    "eager_gate_mismatches_each": 0,
+    "eager_up_mismatches_each": 0,
+    "graph_replay_gate_mismatches_each": 0,
+    "graph_replay_up_mismatches_each": 0,
+    "nonfinite_outputs_each": 0,
+    "guards": "intact",
+    "build": "pass",
+    "ctest": "pass"
+  },
+  "decision": {
+    "selected_schedule": "A_serial",
+    "production_scratch_count": 1,
+    "production_scratch_bytes": 178257920,
+    "second_scratch_rejected": true,
+    "why": "both two-stream schedules are slower than serial in all six rounds, so their extra 170 MiB cannot be justified",
+    "production_order": "Gate direct-dequant plus Lt, Up direct-dequant overwriting the same scratch plus Lt, SiLU, then later Down may reuse the scratch only after an independent Down admission",
+    "selector_scope": "SM87 weight-only exact-C512 Gate/Up with aligned canonical NVFP4 tensors, available context and scratch, and both global scales finite and positive",
+    "fallback_scope": "C256, C64, Decode, finish-Prefill, near misses, scale zero, unavailable context or unavailable scratch retain the current production kernels",
+    "not_yet_claimed": [
+      "production runner integration",
+      "Down hybrid speedup",
+      "real-checkpoint end-to-end correctness",
+      "whole-Prefill or TTFT improvement"
+    ],
+    "next_gates": [
+      "production zero-workspace context and exact-C512 launcher",
+      "one conditional request-level 170 MiB scratch with existing memory-reserve accounting",
+      "runner selector, fallback and partial-enqueue failure contract",
+      "full Release suite and pinned-checkpoint token/state validation",
+      "mirrored fixed-clock P513 Prefix and TTFT benchmark plus Nsight route attribution"
+    ]
+  }
+}
