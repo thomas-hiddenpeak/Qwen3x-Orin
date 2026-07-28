@@ -6118,6 +6118,82 @@ decode_nvfp4x4_to_bf16x4_table_free_vector(
   return result;
 }
 
+// Exact x4 decoder specialized for the E2M1 magnitude set.  E4M3FN values
+// are exactly representable in BF16, as are their products by 1.5.  One
+// packed BF16 multiply therefore constructs scale*1.5 for both lanes; every
+// E2M1 value can then select scale or scale*1.5 and adjust only the BF16
+// exponent field:
+//
+//   q:       1    2    3    4    5    6    7
+//   base:    s    s  1.5s    s  1.5s    s  1.5s
+//   exp:    -1    0    0   +1   +1   +2   +2
+//
+// The finite E4M3FN range keeps every intermediate and adjusted result
+// normal and finite.  Zero and NaN are selected explicitly so this remains
+// raw-bitwise equivalent to the retained BF16x2 multiply for all 256 scale
+// encodings, including signed zero and both NaN encodings.
+[[nodiscard]] __device__ __forceinline__ std::uint16_t
+decode_nvfp4_nibble_scale_factored_exact(
+    const std::uint8_t nibble, const std::uint16_t decoded_scale,
+    const std::uint16_t decoded_scale_times_one_point_five) {
+  const unsigned int magnitude = static_cast<unsigned int>(nibble & 0x07U);
+  const unsigned int scale_magnitude = decoded_scale & 0x7fffU;
+  const unsigned int scale_one_point_five_magnitude =
+      decoded_scale_times_one_point_five & 0x7fffU;
+  const unsigned int use_one_point_five_mask =
+      0U - static_cast<unsigned int>((magnitude & 1U) != 0U &&
+                                     magnitude > 1U);
+  const unsigned int base_magnitude =
+      (scale_magnitude & ~use_one_point_five_mask) |
+      (scale_one_point_five_magnitude & use_one_point_five_mask);
+  const int exponent_offset =
+      (static_cast<int>(magnitude >> 1U) - 1) * 0x80;
+  const unsigned int adjusted_magnitude = static_cast<unsigned int>(
+      static_cast<int>(base_magnitude) + exponent_offset);
+  const unsigned int nonzero_mask =
+      0U - static_cast<unsigned int>(magnitude != 0U &&
+                                     scale_magnitude != 0U);
+  const unsigned int sign =
+      (static_cast<unsigned int>(decoded_scale) ^
+       (static_cast<unsigned int>(nibble & 0x08U) << 12U)) &
+      0x8000U;
+  const unsigned int finite = sign | (adjusted_magnitude & nonzero_mask);
+  const unsigned int nan_mask =
+      0U - static_cast<unsigned int>(scale_magnitude == 0x7fc0U);
+  return static_cast<std::uint16_t>((finite & ~nan_mask) |
+                                    (0x7fffU & nan_mask));
+}
+
+[[nodiscard]] __device__ __forceinline__ std::uint32_t
+decode_nvfp4_byte_scale_factored_exact(
+    const std::uint8_t packed, const std::uint16_t decoded_scale,
+    const std::uint16_t decoded_scale_times_one_point_five) {
+  const std::uint16_t low = decode_nvfp4_nibble_scale_factored_exact(
+      packed & 0x0fU, decoded_scale, decoded_scale_times_one_point_five);
+  const std::uint16_t high = decode_nvfp4_nibble_scale_factored_exact(
+      packed >> 4U, decoded_scale, decoded_scale_times_one_point_five);
+  return static_cast<std::uint32_t>(low) |
+         (static_cast<std::uint32_t>(high) << 16U);
+}
+
+[[nodiscard]] __device__ __forceinline__ uint2
+decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(
+    const std::uint16_t packed, const std::uint16_t decoded_scale) {
+  constexpr std::uint32_t kOnePointFiveBf16x2 = 0x3fc0'3fc0U;
+  const std::uint32_t decoded_scale_times_one_point_five_x2 =
+      multiply_bf16x2_bits(kOnePointFiveBf16x2, decoded_scale);
+  const std::uint16_t decoded_scale_times_one_point_five =
+      static_cast<std::uint16_t>(decoded_scale_times_one_point_five_x2);
+  uint2 result{};
+  result.x = decode_nvfp4_byte_scale_factored_exact(
+      static_cast<std::uint8_t>(packed), decoded_scale,
+      decoded_scale_times_one_point_five);
+  result.y = decode_nvfp4_byte_scale_factored_exact(
+      static_cast<std::uint8_t>(packed >> 8U), decoded_scale,
+      decoded_scale_times_one_point_five);
+  return result;
+}
+
 // Exhaustive semantic gate for both packed-byte positions of the x4 decoder.
 // The 256 E4M3FN scale codes include +/-zero and both NaN encodings; the 256
 // packed-byte values cover all 16 E2M1 codes in both nibble positions.  Each
@@ -6147,6 +6223,44 @@ __global__ void nvfp4_register_fed_x4_exhaustive_test_kernel(
       decode_nvfp4x4_to_bf16x4_table_free_vector(packed, decoded_scale);
   const uint4 reference = decode_nvfp4x8_to_bf16x8_table_free_vector(
       static_cast<std::uint32_t>(packed), decoded_scale);
+  const std::uint32_t candidate_pair =
+      byte_position == 0U ? candidate.x : candidate.y;
+  const std::uint32_t reference_pair =
+      byte_position == 0U ? reference.x : reference.y;
+  if (candidate_pair != reference_pair) {
+    atomicAdd(mismatch_count, 1U);
+  }
+}
+
+// Candidate-specific exhaustive gate.  Placing every packed byte in both
+// halves of the x4 word covers all four nibble positions and all 16x16 E2M1
+// pairs for each of the 256 E4M3FN scale codes.
+__global__ void nvfp4_scale_factored_x4_exhaustive_test_kernel(
+    std::uint32_t* const mismatch_count) {
+  constexpr unsigned int kPackedByteCount = 256U;
+  constexpr unsigned int kPackedBytePositions = 2U;
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * kPackedByteCount * kPackedBytePositions;
+  const unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= kCombinationCount) {
+    return;
+  }
+
+  const unsigned int pair_index = index / kPackedBytePositions;
+  const unsigned int byte_position = index % kPackedBytePositions;
+  const std::uint8_t scale_code =
+      static_cast<std::uint8_t>(pair_index / kPackedByteCount);
+  const std::uint8_t packed_byte =
+      static_cast<std::uint8_t>(pair_index % kPackedByteCount);
+  const std::uint16_t packed = static_cast<std::uint16_t>(
+      static_cast<unsigned int>(packed_byte) << (byte_position * 8U));
+  const std::uint16_t decoded_scale =
+      encode_bf16_rne(decode_e4m3fn(scale_code));
+  const uint2 candidate =
+      decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(packed,
+                                                            decoded_scale);
+  const uint2 reference =
+      decode_nvfp4x4_to_bf16x4_table_free_vector(packed, decoded_scale);
   const std::uint32_t candidate_pair =
       byte_position == 0U ? candidate.x : candidate.y;
   const std::uint32_t reference_pair =
@@ -8970,7 +9084,7 @@ issue_nvfp4_gate_m64_n256_scale_window(
 }
 
 template <bool kActivationCacheAll, bool kPackedWeightCacheAll,
-          bool kSeedScaleCodebook>
+          bool kSeedScaleCodebook, bool kScaleFactoredDecoder = false>
 __global__ __launch_bounds__(kThreads, 2) void
 nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
     const std::uint8_t* const packed_weights,
@@ -9110,9 +9224,15 @@ nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel(
         const std::uint16_t decoded_scale =
             product_lookup.scale_values[
                 shared_scale_row[32U + (stage % 4U) * 4U + k16]];
-        decoded_b[n_panel] =
-            decode_nvfp4x4_to_bf16x4_table_free_vector(packed,
-                                                        decoded_scale);
+        if constexpr (kScaleFactoredDecoder) {
+          decoded_b[n_panel] =
+              decode_nvfp4x4_to_bf16x4_scale_factored_exact_vector(
+                  packed, decoded_scale);
+        } else {
+          decoded_b[n_panel] =
+              decode_nvfp4x4_to_bf16x4_table_free_vector(packed,
+                                                          decoded_scale);
+        }
       }
 
 #pragma unroll
@@ -28386,6 +28506,24 @@ int launch_sm87_nvfp4_w4a16_gate_m128_register_fed_x4_exhaustive_test_cuda(
   return static_cast<int>(cudaGetLastError());
 }
 
+int launch_sm87_nvfp4_w4a16_gate_m64_n256_scale_factored_x4_exhaustive_test_cuda(
+    std::uint32_t* const device_mismatch_count,
+    void* const cuda_stream) noexcept {
+  constexpr unsigned int kCombinationCount =
+      kFp8EncodedValueCount * 256U * 2U;
+  constexpr unsigned int kBlocks =
+      (kCombinationCount + kThreads - 1U) / kThreads;
+  if (device_mismatch_count == nullptr ||
+      !pointer_is_aligned<alignof(std::uint32_t)>(device_mismatch_count)) {
+    return invalid_value();
+  }
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  nvfp4_scale_factored_x4_exhaustive_test_kernel
+      <<<kBlocks, kThreads, 0U, stream>>>(device_mismatch_count);
+  return static_cast<int>(cudaGetLastError());
+}
+
 int launch_sm87_nvfp4_e4m3_bf16_codebook_seed_exhaustive_test_cuda(
     std::uint32_t* const device_mismatch_count,
     void* const cuda_stream) noexcept {
@@ -28553,6 +28691,95 @@ int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_ca_resources_test_cud
   const auto kernel =
       nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
                                                                false>;
+  cudaError_t status = cudaFuncSetAttribute(
+      kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+      kDynamicSharedBytes);
+  cudaFuncAttributes attributes{};
+  if (status == cudaSuccess) {
+    status = cudaFuncGetAttributes(&attributes, kernel);
+  }
+  int active_blocks = 0;
+  if (status == cudaSuccess) {
+    status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &active_blocks, kernel, static_cast<int>(kThreads),
+        static_cast<std::size_t>(kDynamicSharedBytes));
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *dynamic_shared_bytes = static_cast<std::size_t>(kDynamicSharedBytes);
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+int launch_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_cafactored_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  constexpr unsigned int kGrid = (17'408U / 256U) * (512U / 64U);
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      pointer_is_aligned<alignof(uint4)>(packed_weights) &&
+      pointer_is_aligned<alignof(uint4)>(block_scales) &&
+      pointer_is_aligned<alignof(uint4)>(activations) &&
+      pointer_is_aligned<alignof(std::uint32_t)>(output);
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  cudaError_t status = cudaFuncSetAttribute(
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, true>,
+      cudaFuncAttributeMaxDynamicSharedMemorySize, kDynamicSharedBytes);
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<true, false,
+                                                           false, true>
+      <<<kGrid, kThreads, kDynamicSharedBytes, stream>>>(
+          packed_weights, block_scales, weight_scale_2, activations, output);
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_cafactored_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes,
+    std::size_t* const dynamic_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  constexpr int kDynamicSharedBytes =
+      static_cast<int>(sizeof(NvFp4GateM64N256PipelineStorage));
+  if (token_count != 512U || rows != 17'408U || columns != 5'120U ||
+      registers_per_thread == nullptr || static_shared_bytes == nullptr ||
+      dynamic_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  const auto kernel =
+      nvfp4_w4a16_gate_c512_m64_n256_k64_cp_async_test_kernel<
+          true, false, false, true>;
   cudaError_t status = cudaFuncSetAttribute(
       kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
       kDynamicSharedBytes);
