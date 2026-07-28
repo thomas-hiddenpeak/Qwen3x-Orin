@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m128n128-rejection",
+  "status": "test-only-vertical-reuse-candidate-rejected",
+  "recorded_at": "2026-07-28T22:03:35+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "977a986f85b6979345d7b8bdba05fa1d6c6ba5e8",
+    "tree": "e727ca62596d123b2e066cde7641c979d97c7de3",
+    "parent_commit": "96e48ff3b3596c53c8315ead7eb0d5b0d3df80ac",
+    "subject": "test: reject M128N128 NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points"
+  },
+  "purpose": {
+    "question": "Can M128xN128 preserve the frozen two-CTA topology while halving canonical NVFP4 B decode work through vertical reuse?",
+    "answer": "The mapping and resource hypothesis are valid, but doubled A work raises MIO and cache traffic enough to make every formal round slower.",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "mtp_used": false,
+    "decode_route_changed": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M128xN128xK64",
+    "grid": "136 N tiles x 4 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M128xN16",
+    "accumulator_fragments_per_warp": 16,
+    "accumulator_fp32_register_payload_per_thread": 64,
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async.cg",
+    "scale_reuse": "one K256 16-byte scale window per output row, retained for four K64 stages",
+    "epilogue": "aligned packed BF16 pair stores",
+    "sidecar_required": false,
+    "comparison_baseline": "frozen test-only M64xN256xK64 kernel"
+  },
+  "static_work_model": {
+    "baseline_m64n256_source_payload_bytes": {
+      "activation_A": 356515840,
+      "packed_B": 356515840,
+      "scales": 44564480,
+      "total": 757596160
+    },
+    "candidate_m128n128_source_payload_bytes": {
+      "activation_A": 713031680,
+      "packed_B": 178257920,
+      "scales": 22282240,
+      "total": 913571840
+    },
+    "candidate_total_payload_increase_percent": 20.588235294,
+    "per_warp_per_k64": {
+      "baseline_x4_B_decodes": 16,
+      "candidate_x4_B_decodes": 8,
+      "baseline_A_fragment_loads": 16,
+      "candidate_A_fragment_loads": 32
+    },
+    "trade": "B and scale work halve, but A copies and A fragment loads double"
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 512,
+    "dynamic_shared_bytes": 49152,
+    "logical_shared_bytes_per_cta": 49664,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "correctness_and_rejection_contract": {
+    "decoded_mapping_exhaustive_mismatches": 0,
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "output_guards": "intact",
+    "independent_audit": "pass with no blocking mapping, bounds, pipeline, scale-slot, epilogue, resource, Graph, or route findings"
+  },
+  "formal_screen": {
+    "protocol": {
+      "shape": "one exact-C512 Gate projection",
+      "control": "frozen M64xN256",
+      "order_per_round": "B-C-C-B",
+      "rounds": 6,
+      "warmups_per_pass": 10,
+      "iterations_per_pass": 24,
+      "l2_scrub_bytes_outside_timing": 33554432,
+      "execution": "eager direct",
+      "builder_in_timing": false,
+      "absolute_candidate_maximum_ms": 5.304339,
+      "pair_stop_loss": "skip Gate+Up pair when the single-Gate candidate is not strictly positive"
+    },
+    "rounds": [
+      {"round": 1, "B1_ms": 5.532738, "C1_ms": 5.647355, "C2_ms": 5.645504, "B2_ms": 5.534178, "speedup": 0.979993},
+      {"round": 2, "B1_ms": 5.532206, "C1_ms": 5.645981, "C2_ms": 5.646187, "B2_ms": 5.530880, "speedup": 0.979713},
+      {"round": 3, "B1_ms": 5.530176, "C1_ms": 5.645896, "C2_ms": 5.645704, "B2_ms": 5.532047, "speedup": 0.979686},
+      {"round": 4, "B1_ms": 5.529685, "C1_ms": 5.647732, "C2_ms": 5.644634, "B2_ms": 5.532800, "speedup": 0.979643},
+      {"round": 5, "B1_ms": 5.531160, "C1_ms": 5.644709, "C2_ms": 5.646125, "B2_ms": 5.531147, "speedup": 0.979760},
+      {"round": 6, "B1_ms": 5.530513, "C1_ms": 5.645365, "C2_ms": 5.645088, "B2_ms": 5.530531, "speedup": 0.979681}
+    ],
+    "aggregate": {
+      "baseline_m64n256_ms": 5.531505,
+      "candidate_m128n128_ms": 5.645857,
+      "candidate_vs_baseline_speed": 0.979746,
+      "candidate_latency_regression_percent": 2.067285486,
+      "candidate_throughput_loss_percent": 2.025414388,
+      "positive_rounds": 0,
+      "rounds_total": 6,
+      "absolute_candidate_gate": "fail",
+      "additional_candidate_latency_reduction_needed_for_gate_percent": 6.049001950,
+      "pair_screen": "skipped by stop-loss",
+      "decision": "reject"
+    },
+    "artifacts": {
+      "validation_log": {
+        "path": "/tmp/q3x-m128n128-validate-final.log",
+        "bytes": 1299,
+        "sha256": "a4b17f92ddfc56d45e4e261bcb6e16f55784167c9d9914c6e1937def29972b90"
+      },
+      "screen_log": {
+        "path": "/tmp/q3x-m128n128-screen-final.log",
+        "bytes": 9413,
+        "sha256": "9b170b500ecb54a24591d185ac94e20ede0ca023968caab4c8c04b5173e61a78",
+        "expected_exit": "nonzero solely because the frozen performance gate rejects the candidate"
+      },
+      "binary": {
+        "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+        "bytes": 5325392,
+        "sha256": "c9fb4833bb773a74cf7a865910580953cded64d5d348e9eb1b94f305cc764655"
+      }
+    }
+  },
+  "nsight_compute_comparison": {
+    "protocol": {
+      "tool": "Nsight Compute",
+      "profile_from_start": false,
+      "replay_mode": "application",
+      "app_replay_mode": "strict",
+      "profiled_launches": 1,
+      "cache_control": "none",
+      "clock_control": "none",
+      "use": "causal attribution only, not formal latency",
+      "warning": "GPU caches and clocks were uncontrolled during profiling, so only large directional differences are used."
+    },
+    "baseline_m64n256": {
+      "duration_ns": 5551808,
+      "l2_request_bytes": 1194015552,
+      "global_cp_async_bypass_bytes": 1167032320,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 38.73,
+      "issue_active_percent": 47.69,
+      "barrier_stall_percent": 6.69,
+      "long_scoreboard_stall_percent": 1.66,
+      "math_pipe_throttle_percent": 16.41,
+      "mio_throttle_percent": 11.14,
+      "report": {
+        "path": "/tmp/q3x-m128n128-ncu-baseline.ncu-rep",
+        "bytes": 4002794,
+        "sha256": "99d5a68aa78c83fe41fc628df8ffcde5f70921afdea140c963b8e1bd3e59bee9"
+      }
+    },
+    "candidate_m128n128": {
+      "duration_ns": 5673632,
+      "l2_request_bytes": 1416376608,
+      "global_cp_async_bypass_bytes": 1631408128,
+      "warps_active_percent": 32.90,
+      "tensor_hmma_active_percent": 37.94,
+      "issue_active_percent": 43.64,
+      "barrier_stall_percent": 7.14,
+      "long_scoreboard_stall_percent": 1.09,
+      "math_pipe_throttle_percent": 8.81,
+      "mio_throttle_percent": 14.66,
+      "report": {
+        "path": "/tmp/q3x-m128n128-ncu-candidate.ncu-rep",
+        "bytes": 4002218,
+        "sha256": "beb0a05a11af72b33dd54b37a0d525b985394d9182d1562a2fa323fa5da6b34b"
+      }
+    },
+    "derived": {
+      "profiled_duration_increase_percent": 2.194312195,
+      "l2_request_increase_percent": 18.622961454,
+      "cp_async_bypass_increase_percent": 39.791169451,
+      "tensor_active_change_points": -0.79,
+      "issue_active_change_points": -4.05,
+      "barrier_stall_change_points": 0.45,
+      "long_scoreboard_change_points": -0.57,
+      "math_pipe_throttle_change_points": -7.60,
+      "mio_throttle_change_points": 3.52
+    },
+    "interpretation": "Vertical B reuse works: math-pipe throttling nearly halves. The doubled A copy and fragment-load work nevertheless raises L2, cp.async, and MIO pressure, lowers issue utilization, and produces the measured regression. Long-scoreboard pressure falls, so a deeper pipeline is not justified."
+  },
+  "regression_validation": {
+    "manual_m128n128_validate": "pass",
+    "retained_c512_ctest": "pass",
+    "retained_c256_ctest": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.15,
+      "raw_artifact_retained": false
+    }
+  },
+  "decision": {
+    "candidate": "reject from production and from the next native baseline",
+    "retained_value": "keep the test-only implementation and frozen screen as a vertical-reuse negative sentinel",
+    "production_route": "unchanged",
+    "baseline_for_next_cell": "M64xN256xK64",
+    "one_bounded_follow_up": {
+      "mechanism": "change only M128N128 activation A copies from cp.async.cg to a private cp.async.ca helper; keep B and scales on cp.async.cg",
+      "hypothesis": "the two resident CTAs assigned the same token tile may reuse each 16-KiB K64 A stage through L1 while streaming B around L1",
+      "short_gate": "at least 1.04x versus this M128N128-CG cell",
+      "formal_gate": "six of six rounds positive versus frozen M64N256 and candidate <=5.304339 ms",
+      "close_rule": "if A-only cp.async.ca misses, close the M128N128 arithmetic body; do not try K128, three-stage buffering, or micro-scheduling"
+    },
+    "do_not_repeat": [
+      "do not infer benefit from halving B decode without accounting for A work",
+      "do not add pipeline stages at 128 registers/thread and low long-scoreboard stall",
+      "do not route MTP as a shortcut"
+    ]
+  }
+}
