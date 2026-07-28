@@ -1,4 +1,8 @@
 #include "q3x/kernels/sm87_weight_only_gemv.h"
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+#include "q3x/core/sha256.h"
+#include "q3x/io/safetensors.h"
+#endif
 
 #include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
@@ -10,10 +14,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+#include <filesystem>
+#include <fstream>
+#endif
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <string>
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+#include <string_view>
+#endif
 #include <vector>
 
 namespace q3x::kernels {
@@ -32,19 +43,54 @@ query_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_resources_test_cuda(
     std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
     int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
 
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+[[nodiscard]] int
+launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+    const std::uint8_t* weights, float weight_scale,
+    const std::uint16_t* activations, std::size_t token_count,
+    std::size_t rows, std::size_t columns, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+[[nodiscard]] int
+query_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_resources_test_cuda(
+    std::size_t token_count, std::size_t rows, std::size_t columns,
+    int* registers_per_thread, std::size_t* static_shared_bytes,
+    std::size_t* dynamic_shared_bytes, std::size_t* local_bytes,
+    int* maximum_threads_per_block, int* active_blocks_per_sm) noexcept;
+#endif
+
 }  // namespace q3x::kernels
 
 namespace {
 
 constexpr std::size_t kTokens = 512U;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+constexpr std::size_t kRows = 6'144U;
+#else
 constexpr std::size_t kRows = 10'240U;
+#endif
 constexpr std::size_t kColumns = 5'120U;
 constexpr std::size_t kWeightBytes = kRows * kColumns;
 constexpr std::size_t kActivationElements = kTokens * kColumns;
 constexpr std::size_t kOutputElements = kTokens * kRows;
 constexpr std::size_t kGuardElements = 64U;
 constexpr std::size_t kScrubBytes = 32U * 1024U * 1024U;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+constexpr float kWeightScale = 0.0005231585237197578F;
+constexpr std::string_view kDefaultCheckpointTensor =
+    "model.language_model.layers.0.linear_attn.in_proj_z.weight";
+constexpr std::string_view kDefaultCheckpointScaleTensor =
+    "model.language_model.layers.0.linear_attn.in_proj_z.weight_scale";
+constexpr std::string_view kPinnedCheckpointWeightSha256 =
+    "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae";
+constexpr std::string_view kPinnedCheckpointScaleSha256 =
+    "861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9";
+constexpr const char* kLogStem = "FP8_Z_CANONICAL_XOR";
+constexpr const char* kCellDescription = "Z canonical XOR+U16";
+#else
 constexpr float kWeightScale = 0.00100708F;
+constexpr const char* kLogStem = "FP8_SPLIT_M64";
+#endif
 constexpr int kWarmups = 10;
 constexpr int kIterations = 24;
 constexpr int kRounds = 6;
@@ -54,6 +100,12 @@ constexpr std::array<std::uint8_t, 16U> kCheckpointCodes{{
     0x00U, 0x80U, 0x18U, 0x20U, 0x28U, 0x30U, 0x38U, 0x3cU,
     0xb8U, 0x40U, 0xc0U, 0x48U, 0x50U, 0xd0U, 0x70U, 0xf0U,
 }};
+
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+static_assert(kWeightBytes == 31'457'280U);
+static_assert(kActivationElements == 2'621'440U);
+static_assert(kOutputElements == 3'145'728U);
+#endif
 
 class TestContext {
  public:
@@ -76,6 +128,237 @@ class TestContext {
  private:
   int failures_ = 0;
 };
+
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+struct CheckpointPayload {
+  std::vector<std::uint8_t> weights;
+  float weight_scale = 0.0F;
+  std::string tensor;
+  std::string scale_tensor;
+  std::string shard;
+  std::string weight_sha256;
+  std::string scale_sha256;
+};
+
+[[nodiscard]] std::string describe_safetensors_error(
+    const q3x::io::safetensors::Error& error) {
+  std::string description =
+      std::string(q3x::io::safetensors::to_string(error.code)) + ": " +
+      std::string(error.message());
+  if (!error.context.empty()) {
+    description += " context=" + error.context;
+  }
+  if (!error.expected.empty()) {
+    description += " expected=" + error.expected;
+  }
+  if (!error.actual.empty()) {
+    description += " actual=" + error.actual;
+  }
+  return description;
+}
+
+[[nodiscard]] bool path_is_strictly_within(
+    const std::filesystem::path& directory,
+    const std::filesystem::path& candidate) noexcept {
+  auto directory_component = directory.begin();
+  auto candidate_component = candidate.begin();
+  while (directory_component != directory.end() &&
+         candidate_component != candidate.end()) {
+    if (*directory_component != *candidate_component) {
+      return false;
+    }
+    ++directory_component;
+    ++candidate_component;
+  }
+  return directory_component == directory.end() &&
+         candidate_component != candidate.end();
+}
+
+[[nodiscard]] bool load_checkpoint_payload(
+    TestContext& test, const std::string& checkpoint_directory,
+    CheckpointPayload& payload) {
+  namespace fs = std::filesystem;
+  namespace st = q3x::io::safetensors;
+
+  std::error_code filesystem_error;
+  const fs::path requested_directory(checkpoint_directory);
+  const fs::file_status directory_link_status =
+      fs::symlink_status(requested_directory, filesystem_error);
+  if (filesystem_error || !fs::is_directory(directory_link_status) ||
+      fs::is_symlink(directory_link_status)) {
+    test.expect(false, "checkpoint path is an accessible directory: " +
+                           checkpoint_directory);
+    return false;
+  }
+  const fs::path directory =
+      fs::canonical(requested_directory, filesystem_error);
+  if (filesystem_error || directory.empty()) {
+    test.expect(false, "checkpoint directory canonicalization succeeds");
+    return false;
+  }
+  const fs::path requested_index =
+      requested_directory / "model.safetensors.index.json";
+  const fs::file_status index_link_status =
+      fs::symlink_status(requested_index, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(index_link_status) ||
+      fs::is_symlink(index_link_status)) {
+    test.expect(false,
+                "checkpoint index is a regular non-symlink file");
+    return false;
+  }
+  const fs::path index_path = fs::canonical(requested_index, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, index_path) ||
+      index_path != directory / "model.safetensors.index.json") {
+    test.expect(false,
+                "checkpoint index resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Index> index = st::read_index(index_path.string());
+  if (!index) {
+    test.expect(false, "read checkpoint safetensors index: " +
+                           describe_safetensors_error(index.error));
+    return false;
+  }
+  const std::string* const weight_shard =
+      index.value->shard_for(kDefaultCheckpointTensor);
+  const std::string* const scale_shard =
+      index.value->shard_for(kDefaultCheckpointScaleTensor);
+  if (weight_shard == nullptr || scale_shard == nullptr ||
+      *weight_shard != *scale_shard ||
+      !st::is_safe_relative_shard_path(*weight_shard)) {
+    test.expect(false,
+                "checkpoint index pins Z weight and scale to one safe shard");
+    return false;
+  }
+  const fs::path requested_shard =
+      requested_directory / fs::path(*weight_shard);
+  const fs::file_status shard_link_status =
+      fs::symlink_status(requested_shard, filesystem_error);
+  if (filesystem_error || !fs::is_regular_file(shard_link_status) ||
+      fs::is_symlink(shard_link_status)) {
+    test.expect(false,
+                "checkpoint shard is a regular non-symlink file");
+    return false;
+  }
+  const fs::path shard_path = fs::canonical(requested_shard, filesystem_error);
+  if (filesystem_error || !path_is_strictly_within(directory, shard_path) ||
+      shard_path != directory / fs::path(*weight_shard)) {
+    test.expect(false,
+                "checkpoint shard resolves inside checkpoint directory");
+    return false;
+  }
+  const st::Result<st::Header> header = st::read_header(shard_path.string());
+  if (!header) {
+    test.expect(false, "read checkpoint safetensors shard header: " +
+                           describe_safetensors_error(header.error));
+    return false;
+  }
+  const st::TensorInfo* const weight =
+      header.value->find_tensor(kDefaultCheckpointTensor);
+  const st::TensorInfo* const scale =
+      header.value->find_tensor(kDefaultCheckpointScaleTensor);
+  const bool weight_exact =
+      weight != nullptr && weight->dtype == st::DType::kF8E4M3 &&
+      weight->shape.size() == 2U && weight->shape[0] == kRows &&
+      weight->shape[1] == kColumns && weight->byte_size == kWeightBytes &&
+      weight->file_begin <= weight->file_end &&
+      weight->file_end - weight->file_begin == kWeightBytes &&
+      weight->file_end <= header.value->file_size;
+  test.expect(weight_exact,
+              "checkpoint Z tensor is F8_E4M3 [6144,5120] / 31457280B");
+  const bool scale_exact =
+      scale != nullptr && scale->dtype == st::DType::kF32 &&
+      scale->shape.empty() && scale->element_count == 1U &&
+      scale->byte_size == sizeof(float) &&
+      scale->file_begin <= scale->file_end &&
+      scale->file_end - scale->file_begin == sizeof(float) &&
+      scale->file_end <= header.value->file_size;
+  test.expect(scale_exact,
+              "checkpoint Z weight_scale is one F32 scalar");
+  if (!weight_exact || !scale_exact) {
+    return false;
+  }
+  const std::uint64_t maximum_streamoff = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamoff>::max());
+  const std::uint64_t maximum_streamsize = static_cast<std::uint64_t>(
+      std::numeric_limits<std::streamsize>::max());
+  const bool stream_ranges_representable =
+      weight->file_begin <= maximum_streamoff &&
+      weight->file_end <= maximum_streamoff &&
+      scale->file_begin <= maximum_streamoff &&
+      scale->file_end <= maximum_streamoff &&
+      weight->byte_size <= maximum_streamsize &&
+      scale->byte_size <= maximum_streamsize;
+  test.expect(stream_ranges_representable,
+              "checkpoint Z tensor ranges are stream-representable");
+  if (!stream_ranges_representable) {
+    return false;
+  }
+
+  std::ifstream input(shard_path, std::ios::binary);
+  if (!input) {
+    test.expect(false, "open checkpoint Z shard read-only");
+    return false;
+  }
+  input.seekg(0, std::ios::end);
+  const std::streamoff observed_file_size = input.tellg();
+  const bool file_size_pinned =
+      input && observed_file_size >= 0 &&
+      static_cast<std::uint64_t>(observed_file_size) ==
+          header.value->file_size;
+  test.expect(file_size_pinned,
+              "checkpoint Z shard size remains pinned after header read");
+  if (!file_size_pinned) {
+    return false;
+  }
+  payload.weights.resize(kWeightBytes);
+  const auto read_exact =
+      [&input](const std::uint64_t offset, void* const destination,
+               const std::size_t bytes) {
+        input.clear();
+        input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!input) {
+          return false;
+        }
+        input.read(static_cast<char*>(destination),
+                   static_cast<std::streamsize>(bytes));
+        return input.gcount() == static_cast<std::streamsize>(bytes);
+      };
+  const bool weight_read = read_exact(weight->file_begin,
+                                      payload.weights.data(), kWeightBytes);
+  const bool scale_read = read_exact(scale->file_begin, &payload.weight_scale,
+                                     sizeof(payload.weight_scale));
+  const bool scale_valid =
+      scale_read && std::isfinite(payload.weight_scale) &&
+      payload.weight_scale > 0.0F;
+  test.expect(weight_read, "read complete bounded checkpoint Z payload");
+  test.expect(scale_valid,
+              "read finite positive checkpoint Z weight_scale");
+  if (!weight_read || !scale_valid) {
+    payload.weights.clear();
+    return false;
+  }
+  payload.weight_sha256 = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(payload.weights.data()),
+      payload.weights.size())).hex();
+  payload.scale_sha256 = q3x::core::sha256(std::string_view(
+      reinterpret_cast<const char*>(&payload.weight_scale),
+      sizeof(payload.weight_scale))).hex();
+  const bool hashes_pinned =
+      payload.weight_sha256 == kPinnedCheckpointWeightSha256 &&
+      payload.scale_sha256 == kPinnedCheckpointScaleSha256;
+  test.expect(hashes_pinned,
+              "checkpoint Z weight and scale SHA256 match pinned payloads");
+  if (!hashes_pinned) {
+    payload.weights.clear();
+    return false;
+  }
+  payload.tensor = std::string(kDefaultCheckpointTensor);
+  payload.scale_tensor = std::string(kDefaultCheckpointScaleTensor);
+  payload.shard = *weight_shard;
+  return true;
+}
+#endif
 
 template <typename T>
 class DeviceBuffer {
@@ -211,6 +494,10 @@ struct Fixture {
   DeviceBuffer<std::uint32_t> scrub;
   std::vector<std::uint8_t> host_weights;
   std::vector<std::uint16_t> host_activations;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  float weight_scale = kWeightScale;
+  bool checkpoint_payload = false;
+#endif
 
   [[nodiscard]] std::uint16_t* output() noexcept {
     return output_store.get() + kGuardElements;
@@ -219,10 +506,33 @@ struct Fixture {
     return kOutputElements + 2U * kGuardElements;
   }
 
-  [[nodiscard]] bool initialize(TestContext& test,
-                                const cudaStream_t stream) {
+  [[nodiscard]] bool initialize(
+      TestContext& test, const cudaStream_t stream
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+      , const CheckpointPayload* const checkpoint
+#endif
+  ) {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    checkpoint_payload = checkpoint != nullptr;
+    if (checkpoint_payload) {
+      if (checkpoint->weights.size() != kWeightBytes ||
+          !std::isfinite(checkpoint->weight_scale) ||
+          checkpoint->weight_scale <= 0.0F) {
+        test.expect(false, "prepared checkpoint Z payload is exact");
+        return false;
+      }
+      host_weights = checkpoint->weights;
+      weight_scale = checkpoint->weight_scale;
+    } else {
+      host_weights.resize(kWeightBytes);
+    }
+#else
     host_weights.resize(kWeightBytes);
+#endif
     host_activations.resize(kActivationElements);
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    if (!checkpoint_payload) {
+#endif
     for (std::size_t index = 0U; index < host_weights.size(); ++index) {
       const std::size_t row = index / kColumns;
       const std::size_t column = index - row * kColumns;
@@ -239,14 +549,19 @@ struct Fixture {
             static_cast<std::uint8_t>(code);
       }
     }
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    }
+#endif
     for (std::size_t index = 0U; index < host_activations.size(); ++index) {
       const int centered = static_cast<int>(index % 31U) - 15;
       host_activations[index] =
           encode_bf16(static_cast<float>(centered) / 16.0F);
     }
 
-    bool ready = weights.allocate(test, kWeightBytes,
-                                  "allocate FP8 QKV weights");
+    bool ready = weights.allocate(
+        test, kWeightBytes,
+        std::string("allocate FP8 ") +
+            (kRows == 6'144U ? "Z" : "QKV") + " weights");
     ready = ready && activations.allocate(test, kActivationElements,
                                            "allocate BF16 activations");
     ready = ready && output_store.allocate(test, guarded_output_elements(),
@@ -259,7 +574,8 @@ struct Fixture {
     ready = test.cuda_ok(
         cudaMemcpyAsync(weights.get(), host_weights.data(), kWeightBytes,
                         cudaMemcpyHostToDevice, stream),
-        "upload FP8 QKV weights");
+        std::string("upload FP8 ") +
+            (kRows == 6'144U ? "Z" : "QKV") + " weights");
     ready = ready && test.cuda_ok(
                          cudaMemcpyAsync(
                              activations.get(), host_activations.data(),
@@ -287,17 +603,31 @@ enum class Variant {
 [[nodiscard]] cudaError_t launch_variant(Fixture& fixture,
                                          const cudaStream_t stream,
                                          const Variant variant) noexcept {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  const float weight_scale = fixture.weight_scale;
+#else
+  const float weight_scale = kWeightScale;
+#endif
   const int status =
       variant == Variant::kBaseline
           ? q3x::kernels::launch_sm87_fp8_w8a16_whole_chunk_gemm_bf16_cuda(
-                fixture.weights.get(), kWeightScale, fixture.activations.get(),
+                fixture.weights.get(), weight_scale,
+                fixture.activations.get(),
                 kTokens, kRows, kColumns, fixture.output(),
                 static_cast<void*>(stream))
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
           : q3x::kernels::
-                launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_cuda(
-                    fixture.weights.get(), kWeightScale,
+                launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+                    fixture.weights.get(), weight_scale,
                     fixture.activations.get(), kTokens, kRows, kColumns,
                     fixture.output(), static_cast<void*>(stream));
+#else
+          : q3x::kernels::
+                launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_cuda(
+                    fixture.weights.get(), weight_scale,
+                    fixture.activations.get(), kTokens, kRows, kColumns,
+                    fixture.output(), static_cast<void*>(stream));
+#endif
   return static_cast<cudaError_t>(status);
 }
 
@@ -309,6 +639,17 @@ enum class Variant {
   int threads = -1;
   int active = -1;
   const int status = q3x::kernels::
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+      query_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_resources_test_cuda(
+          kTokens, kRows, kColumns, &registers, &static_shared,
+          &dynamic_shared, &local, &threads, &active);
+  const bool gate =
+      status == static_cast<int>(cudaSuccess) && registers > 0 &&
+      registers <= 128 && static_shared == 512U &&
+      dynamic_shared == 79'872U &&
+      static_shared + dynamic_shared == 80'384U && local == 0U &&
+      threads == 256 && active == 2;
+#else
       query_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_resources_test_cuda(
           kTokens, kRows, kColumns, &registers, &static_shared,
           &dynamic_shared, &local, &threads, &active);
@@ -317,7 +658,8 @@ enum class Variant {
       static_shared == 33'280U && dynamic_shared == 18'432U &&
       static_shared + dynamic_shared == 51'712U && local == 0U &&
       threads == 512 && active == 2;
-  std::cout << "FP8_SPLIT_M64_RESOURCES: status=" << status
+#endif
+  std::cout << kLogStem << "_RESOURCES: status=" << status
             << " registers=" << registers
             << " static_shared_bytes=" << static_shared
             << " dynamic_shared_bytes=" << dynamic_shared
@@ -326,7 +668,13 @@ enum class Variant {
             << " active_blocks_per_sm=" << active
             << " resident_warps_per_sm=" << active * threads / 32
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  test.expect(gate,
+              std::string(kCellDescription) +
+                  " candidate clears exact resource gate");
+#else
   test.expect(gate, "split-M64 candidate clears exact resource gate");
+#endif
   return gate;
 }
 
@@ -348,16 +696,27 @@ enum class Variant {
           const std::size_t rows, const std::size_t columns,
           std::uint16_t* const o) noexcept {
         return q3x::kernels::
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            launch_sm87_fp8_w8a16_whole_chunk_z_m128_cp_async_canonical_xor_register_feed_test_cuda(
+                w, scale, a, tokens, rows, columns, o,
+                static_cast<void*>(stream));
+#else
             launch_sm87_fp8_w8a16_whole_chunk_qkv_m128_split_m64_test_cuda(
                 w, scale, a, tokens, rows, columns, o,
                 static_cast<void*>(stream));
+#endif
       };
 
   cudaGraph_t graph = nullptr;
   bool ready = test.cuda_ok(
       cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal),
       "invalid begin capture");
-  std::array<int, 20U> statuses{};
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  constexpr std::size_t kInvalidCount = 23U;
+#else
+  constexpr std::size_t kInvalidCount = 20U;
+#endif
+  std::array<int, kInvalidCount> statuses{};
   statuses.fill(static_cast<int>(cudaErrorUnknown));
   if (ready) {
     statuses[0] = launch(nullptr, kWeightScale, activations, kTokens, kRows,
@@ -411,6 +770,18 @@ enum class Variant {
     statuses[19] = launch(
         weights, std::numeric_limits<float>::infinity(), activations,
         kTokens, kRows, kColumns, output);
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    statuses[20] = launch(weights + 8U, kWeightScale, activations, kTokens,
+                          kRows, kColumns, output);
+    statuses[21] = launch(
+        weights, kWeightScale,
+        reinterpret_cast<const std::uint16_t*>(kActivationAddress + 8U),
+        kTokens, kRows, kColumns, output);
+    statuses[22] = launch(
+        weights, kWeightScale,
+        reinterpret_cast<const std::uint16_t*>(kWeightAddress), kTokens,
+        kRows, kColumns, output);
+#endif
     ready = test.cuda_ok(cudaStreamEndCapture(stream, &graph),
                          "invalid end capture") &&
             ready;
@@ -429,7 +800,7 @@ enum class Variant {
       statuses.begin(), statuses.end(),
       static_cast<int>(cudaErrorInvalidValue)));
   const bool gate = ready && invalid_count == statuses.size() && nodes == 0U;
-  std::cout << "FP8_SPLIT_M64_INVALID_GRAPH: invalid_statuses="
+  std::cout << kLogStem << "_INVALID_GRAPH: invalid_statuses="
             << invalid_count << '/' << statuses.size()
             << " graph_nodes=" << nodes
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
@@ -528,13 +899,22 @@ struct GraphIdentity {
                     " graph") &&
             ready;
   }
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  constexpr unsigned int kExpectedGrid = 192U;
+  constexpr unsigned int kCandidateBlock = 256U;
+  constexpr unsigned int kCandidateDynamic = 79'872U;
+#else
+  constexpr unsigned int kExpectedGrid = 320U;
+  constexpr unsigned int kCandidateBlock = 512U;
+  constexpr unsigned int kCandidateDynamic = 18'432U;
+#endif
   const unsigned int expected_block =
-      variant == Variant::kBaseline ? 256U : 512U;
+      variant == Variant::kBaseline ? 256U : kCandidateBlock;
   const unsigned int expected_dynamic =
-      variant == Variant::kBaseline ? 0U : 18'432U;
+      variant == Variant::kBaseline ? 0U : kCandidateDynamic;
   identity.valid =
       ready && capacity == 1U && type == cudaGraphNodeTypeKernel &&
-      identity.parameters.gridDim.x == 320U &&
+      identity.parameters.gridDim.x == kExpectedGrid &&
       identity.parameters.blockDim.x == expected_block &&
       identity.parameters.sharedMemBytes == expected_dynamic &&
       identity.parameters.func != nullptr;
@@ -599,7 +979,7 @@ struct GraphIdentity {
   const bool graph_identity =
       ready && baseline_identity.valid && candidate_identity.valid &&
       baseline_identity.parameters.func != candidate_identity.parameters.func;
-  std::cout << "FP8_SPLIT_M64_VALID_GRAPH: baseline_nodes="
+  std::cout << kLogStem << "_VALID_GRAPH: baseline_nodes="
             << baseline_identity.node_count
             << " candidate_nodes=" << candidate_identity.node_count
             << " baseline_grid_x=" << baseline_identity.parameters.gridDim.x
@@ -681,22 +1061,68 @@ struct GraphIdentity {
                replay2[tail] == 0x6969U;
     }
   }
+  const bool raw_code_coverage_required =
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+      !fixture.checkpoint_payload;
+#else
+      true;
+#endif
   bool raw_code_coverage = true;
-  for (std::size_t code = 0U; code < 256U; ++code) {
-    for (std::size_t position = 0U; position < 4U; ++position) {
-      raw_code_coverage =
-          raw_code_coverage &&
-          fixture.host_weights[code * 4U + position] ==
-              static_cast<std::uint8_t>(code);
+  if (raw_code_coverage_required) {
+    for (std::size_t code = 0U; code < 256U; ++code) {
+      for (std::size_t position = 0U; position < 4U; ++position) {
+        raw_code_coverage =
+            raw_code_coverage &&
+            fixture.host_weights[code * 4U + position] ==
+                static_cast<std::uint8_t>(code);
+      }
     }
   }
   const bool immutable = ready && verify_immutable(test, fixture, stream);
+  const bool payload_specific_gate =
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+      fixture.checkpoint_payload
+          ? true
+          : raw_code_coverage && nan_outputs == kTokens &&
+                unexpected_nonfinite == 0U;
+#else
+      raw_code_coverage && nan_outputs == kTokens &&
+      unexpected_nonfinite == 0U;
+#endif
   const bool gate =
-      ready && graph_identity && raw_code_coverage &&
+      ready && graph_identity && payload_specific_gate &&
       candidate_mismatches == 0U && replay1_mismatches == 0U &&
-      replay2_mismatches == 0U && nan_outputs == kTokens &&
-      nan_class_or_sign_mismatches == 0U &&
-      unexpected_nonfinite == 0U && guards && immutable;
+      replay2_mismatches == 0U && nan_class_or_sign_mismatches == 0U &&
+      guards && immutable;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  std::cout << kLogStem << "_CORRECTNESS: candidate_mismatches="
+            << candidate_mismatches << '/' << kOutputElements
+            << " replay1_mismatches=" << replay1_mismatches << '/'
+            << kOutputElements
+            << " replay2_mismatches=" << replay2_mismatches << '/'
+            << kOutputElements
+            << " raw_codes_per_byte_position=256 byte_positions=4"
+            << " raw_code_coverage_required="
+            << (raw_code_coverage_required ? "true" : "false")
+            << " raw_code_coverage="
+            << (raw_code_coverage ? "true" : "false")
+            << " classified_nan_outputs=" << nan_outputs
+            << " expected_nan_policy="
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << (fixture.checkpoint_payload ? "checkpoint_unconstrained"
+                                           : "synthetic_exact_512")
+#else
+            << "synthetic_exact_512"
+#endif
+            << " nan_class_or_sign_mismatches="
+            << nan_class_or_sign_mismatches
+            << " unexpected_nonfinite=" << unexpected_nonfinite
+            << " guards=" << (guards ? "intact" : "BAD")
+            << " immutable=" << (immutable ? "true" : "false")
+            << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+  test.expect(gate, std::string(kCellDescription) +
+                        " candidate is exact across direct and Graph replay");
+#else
   std::cout << "FP8_SPLIT_M64_CORRECTNESS: candidate_mismatches="
             << candidate_mismatches << '/' << kOutputElements
             << " replay1_mismatches=" << replay1_mismatches << '/'
@@ -715,6 +1141,7 @@ struct GraphIdentity {
             << " immutable=" << (immutable ? "true" : "false")
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
   test.expect(gate, "candidate is exact across direct and Graph replay");
+#endif
   return gate;
 }
 
@@ -777,7 +1204,7 @@ struct GraphIdentity {
   const double wall_ms =
       std::chrono::duration<double, std::milli>(wall_stop - wall_start)
           .count();
-  std::cout << "FP8_SPLIT_M64_PASS: label=" << label
+  std::cout << kLogStem << "_PASS: label=" << label
             << " variant=" << variant_name(variant)
             << " warmups=" << warmups << " iterations=" << iterations
             << " average_ms=" << average
@@ -819,7 +1246,7 @@ struct GraphIdentity {
       baseline_sum += static_cast<double>(b1 + b2);
       candidate_sum += static_cast<double>(c1 + c2);
     }
-    std::cout << "PERF_FP8_SPLIT_M64_ROUND: round=" << round + 1
+    std::cout << "PERF_" << kLogStem << "_ROUND: round=" << round + 1
               << " order=B-C-C-B B1_ms=" << b1 << " C1_ms=" << c1
               << " C2_ms=" << c2 << " B2_ms=" << b2
               << " speedup=" << speedup
@@ -841,7 +1268,8 @@ struct GraphIdentity {
                  : std::numeric_limits<double>::quiet_NaN();
   const bool gate = every_round && std::isfinite(speedup) &&
                     speedup >= kRequiredAggregateSpeedup;
-  std::cout << "PERF_FP8_SPLIT_M64_AGGREGATE: baseline_ms=" << baseline_ms
+  std::cout << "PERF_" << kLogStem
+            << "_AGGREGATE: baseline_ms=" << baseline_ms
             << " candidate_ms=" << candidate_ms
             << " speedup=" << speedup
             << " required_aggregate_speedup="
@@ -853,10 +1281,24 @@ struct GraphIdentity {
             << " warmups_per_pass=" << kWarmups
             << " iterations_per_pass=" << kIterations
             << " order=B-C-C-B"
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " canonical_weight_no_sidecar=true"
+            << " candidate_sidecar_not_allocated=true"
+            << " avoided_candidate_sidecar_bytes_per_layer=31457280"
+            << " avoided_candidate_sidecar_bytes_48_layers=1509949440"
+            << " xor_key=row_shift1_and3"
+            << " gather_load=u16"
+#else
             << " global_traffic_and_hmma_unchanged=true"
             << " shared_B_fragment_reads_unchanged=false"
+#endif
             << " gate=" << (gate ? "PASS" : "FAIL") << '\n';
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  test.expect(gate, std::string(kCellDescription) +
+                        " clears frozen C512 performance gate");
+#else
   test.expect(gate, "split-M64 clears frozen C512 QKV performance gate");
+#endif
   return gate;
 }
 
@@ -871,10 +1313,16 @@ enum class Mode {
 
 struct Options {
   Mode mode = Mode::kValidate;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  std::string checkpoint_directory;
+#endif
 };
 
 [[nodiscard]] bool parse_options(const int argc, char** argv,
                                  Options& options) {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  bool checkpoint_seen = false;
+#endif
   for (int index = 1; index < argc; ++index) {
     const std::string argument(argv[index]);
     if (argument == "--mode=validate") {
@@ -889,6 +1337,20 @@ struct Options {
       options.mode = Mode::kProfileBaseline;
     } else if (argument == "--mode=profile-candidate") {
       options.mode = Mode::kProfileCandidate;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    } else if (argument.rfind("--checkpoint=", 0U) == 0U) {
+      if (checkpoint_seen) {
+        std::cerr << "duplicate --checkpoint argument\n";
+        return false;
+      }
+      checkpoint_seen = true;
+      options.checkpoint_directory =
+          argument.substr(std::string("--checkpoint=").size());
+      if (options.checkpoint_directory.empty()) {
+        std::cerr << "--checkpoint requires a non-empty directory\n";
+        return false;
+      }
+#endif
     } else {
       std::cerr << "unknown argument: " << argument << '\n';
       return false;
@@ -923,10 +1385,37 @@ int main(const int argc, char** argv) {
     return 2;
   }
   TestContext test;
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  CheckpointPayload checkpoint_payload;
+  const CheckpointPayload* selected_checkpoint = nullptr;
+  if (!options.checkpoint_directory.empty()) {
+    if (!load_checkpoint_payload(test, options.checkpoint_directory,
+                                 checkpoint_payload)) {
+      return 1;
+    }
+    selected_checkpoint = &checkpoint_payload;
+    std::cout << kLogStem << "_PAYLOAD: payload=checkpoint"
+              << " tensor=" << checkpoint_payload.tensor
+              << " scale_tensor=" << checkpoint_payload.scale_tensor
+              << " shard=" << checkpoint_payload.shard
+              << " bytes=" << checkpoint_payload.weights.size()
+              << " weight_scale=" << checkpoint_payload.weight_scale
+              << " weight_sha256=" << checkpoint_payload.weight_sha256
+              << " scale_sha256=" << checkpoint_payload.scale_sha256
+              << " checkpoint_read_only=true\n";
+  } else {
+    std::cout << kLogStem << "_PAYLOAD: payload=synthetic"
+              << " tensor=none shard=none bytes=" << kWeightBytes << '\n';
+  }
+#endif
   int device_count = 0;
   const cudaError_t count_status = cudaGetDeviceCount(&device_count);
   if (count_status != cudaSuccess || device_count == 0) {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    std::cout << "SKIP: " << kCellDescription << " screen requires CUDA\n";
+#else
     std::cout << "SKIP: FP8 split-M64 screen requires CUDA\n";
+#endif
     (void)cudaGetLastError();
     return 77;
   }
@@ -936,16 +1425,25 @@ int main(const int argc, char** argv) {
     return 1;
   }
   if (properties.major != 8 || properties.minor != 7) {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    std::cout << "SKIP: " << kCellDescription << " requires SM87; got sm_"
+              << properties.major << properties.minor << '\n';
+#else
     std::cout << "SKIP: FP8 split-M64 requires SM87; got sm_"
               << properties.major << properties.minor << '\n';
+#endif
     return 77;
   }
   std::cout << std::fixed << std::setprecision(6)
-            << "FP8_SPLIT_M64_DEVICE: name=" << properties.name
+            << kLogStem << "_DEVICE: name=" << properties.name
             << " sm=" << properties.major << properties.minor
             << " sm_count=" << properties.multiProcessorCount
             << " shared_per_sm=" << properties.sharedMemPerMultiprocessor
             << " mode=" << mode_name(options.mode)
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+            << " payload="
+            << (selected_checkpoint == nullptr ? "synthetic" : "checkpoint")
+#endif
             << " tokens=" << kTokens << " rows=" << kRows
             << " columns=" << kColumns
             << " production_dispatch_unchanged=true\n";
@@ -960,7 +1458,12 @@ int main(const int argc, char** argv) {
     return 1;
   }
   Fixture fixture;
-  if (!fixture.initialize(test, execution.stream())) {
+  if (!fixture.initialize(
+          test, execution.stream()
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+          , selected_checkpoint
+#endif
+          )) {
     return 1;
   }
   const bool correct = run_correctness(test, fixture, execution.stream());
@@ -986,7 +1489,7 @@ int main(const int argc, char** argv) {
                                     : Variant::kCandidate;
         const float milliseconds = measure_pass(
             test, fixture, execution, variant, "single_profile", 0, 1, true);
-        std::cout << "FP8_SPLIT_M64_PROFILE_MARKER: mode="
+        std::cout << kLogStem << "_PROFILE_MARKER: mode="
                   << mode_name(options.mode)
                   << " milliseconds=" << milliseconds
                   << " profiler_range_kernel_launches=1"
@@ -996,10 +1499,19 @@ int main(const int argc, char** argv) {
     }
   }
   if (test.failures() != 0) {
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+    std::cerr << test.failures() << ' ' << kCellDescription
+              << " assertion(s) failed\n";
+#else
     std::cerr << test.failures()
               << " FP8 split-M64 assertion(s) failed\n";
+#endif
     return 1;
   }
+#if defined(Q3X_FP8_Z_CANONICAL_XOR_SCREEN)
+  std::cout << kCellDescription << " SM87 screen passed\n";
+#else
   std::cout << "FP8 QKV split-M64 SM87 screen passed\n";
+#endif
   return 0;
 }

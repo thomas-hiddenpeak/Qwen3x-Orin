@@ -284,6 +284,33 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Strictly test-only Z C512 canonical raw-B XOR+U16 register-feed cell.
+  # This reuses the two-variant screen harness without adding a persistent
+  # sidecar or changing production dispatch and ModelWeights.
+  add_executable(q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen
+    tests/sm87_fp8_prefill_qkv_m128_split_m64_screen.cu
+  )
+  target_compile_definitions(
+    q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen
+    PRIVATE Q3X_FP8_Z_CANONICAL_XOR_SCREEN=1
+  )
+  target_link_libraries(
+    q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(
+    q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen
+  )
+  add_test(NAME fp8_prefill_z_m128_canonical_xor_register_feed_validate
+    COMMAND q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen
+            --mode=validate
+  )
+  set_tests_properties(
+    fp8_prefill_z_m128_canonical_xor_register_feed_validate PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   # Production FP8 QKV C512 dataflow sentinel. This target validates the GPU
   # fragment-native sidecar pack, three-stage raw A/B cp.async pipeline, and
   # direct matrix_b register feed independently of the full model runner.
