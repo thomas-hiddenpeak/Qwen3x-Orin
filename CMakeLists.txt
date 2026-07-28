@@ -259,6 +259,30 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Isolated first-cell screen for the fragment-native, register-fed NVFP4
+  # Gate candidate. Sidecar construction and layout validation remain test
+  # setup; neither the production dispatch nor the timed launch includes it.
+  add_executable(q3x_nvfp4_prefill_gate_register_fed_screen
+    tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu
+  )
+  target_link_libraries(q3x_nvfp4_prefill_gate_register_fed_screen
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_nvfp4_prefill_gate_register_fed_screen)
+  add_test(NAME nvfp4_prefill_gate_register_fed_screen
+    COMMAND q3x_nvfp4_prefill_gate_register_fed_screen
+  )
+  add_test(NAME nvfp4_prefill_gate_register_fed_screen_c256
+    COMMAND q3x_nvfp4_prefill_gate_register_fed_screen --tokens=256
+  )
+  set_tests_properties(
+    nvfp4_prefill_gate_register_fed_screen
+    nvfp4_prefill_gate_register_fed_screen_c256
+    PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   add_executable(q3x_sm87_projection_route_registry_test
     tests/sm87_projection_route_registry_test.cpp
   )
