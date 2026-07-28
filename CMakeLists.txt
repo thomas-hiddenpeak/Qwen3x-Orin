@@ -124,6 +124,7 @@ add_library(q3x_kernels STATIC
   src/kernels/reference/nvfp4_reference.cu
   src/kernels/reference/projection_dispatch.cpp
   src/kernels/sm87/device_probe.cu
+  src/kernels/sm87/nvfp4_prefill_cublaslt.cu
   src/kernels/sm87/weight_only_gemv.cu
 )
 add_library(q3x::kernels ALIAS q3x_kernels)
@@ -139,6 +140,7 @@ target_include_directories(q3x_kernels
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(q3x_kernels PUBLIC q3x::core CUDA::cudart)
+target_link_libraries(q3x_kernels PRIVATE CUDA::cublasLt)
 target_compile_options(q3x_kernels PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
 )
@@ -281,6 +283,25 @@ if(BUILD_TESTING)
   )
   set_tests_properties(nvfp4_prefill_gate_c512_cublaslt_ceiling PROPERTIES
     LABELS "cuda;sm87;prefill;ceiling"
+    SKIP_RETURN_CODE 77
+  )
+
+  # Production exact-C512 NVFP4 direct-dequant + zero-workspace cuBLASLt
+  # module contract. This independently locks scalar decode equivalence,
+  # production-M128 bitwise output, two-node graph capture, bounds, and
+  # fail-closed zero-enqueue validation.
+  add_executable(q3x_sm87_nvfp4_prefill_cublaslt_module_test
+    tests/sm87_nvfp4_prefill_cublaslt_module_test.cu
+  )
+  target_link_libraries(q3x_sm87_nvfp4_prefill_cublaslt_module_test
+    PRIVATE q3x::kernels
+  )
+  q3x_enable_warnings(q3x_sm87_nvfp4_prefill_cublaslt_module_test)
+  add_test(NAME sm87_nvfp4_prefill_cublaslt_module
+    COMMAND q3x_sm87_nvfp4_prefill_cublaslt_module_test
+  )
+  set_tests_properties(sm87_nvfp4_prefill_cublaslt_module PROPERTIES
+    LABELS "cuda;sm87;prefill;module"
     SKIP_RETURN_CODE 77
   )
 
