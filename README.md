@@ -89,9 +89,13 @@ seconds to 21.5 seconds without weakening the three full-file SHA-256 checks.
 The current scope is text-only, batch-one correctness and performance. The
 achieved non-MTP P19/C32/max26 Decode result of **105.870500 ms/token /
 9.445501816 token/s** is frozen as the regression anchor while dedicated
-Prefill optimization resumes. A minimal OpenAI-compatible evaluation gateway
-is staged alongside Prefill work; Paged KV, continuous batching, production
-serving, MTP, and vision remain later work. See [the roadmap](docs/ROADMAP.md).
+Prefill optimization resumes. The current exact-C512 FP8 QKV production route
+reaches **198.483270 Prefix token/s** and **190.825320 complete-prompt
+token/s** at P513. That is only **46.386%** of the matched stock-vLLM result,
+leaving a **2.155820x** gap, so the project is not yet close to its vLLM
+reference. A minimal OpenAI-compatible evaluation gateway is staged alongside
+Prefill work; Paged KV, continuous batching, production serving, MTP, and
+vision remain later work. See [the roadmap](docs/ROADMAP.md).
 
 ## Why a new engine?
 
@@ -277,11 +281,13 @@ causal Conv/GDN and Q/K+RoPE subtiles.
 The request controller schedules larger prefixes with the explicit palette
 `{C512,C256,C64,C32,tail<=31}`. On SM87, exact C256/C512 full-attention tiles
 use one bulk causal GQA plus sigmoid-Gate kernel, and exact aligned NVFP4
-`[5120,17408]` Down and FP8 linear-attention QKV `[10240,5120]`, Z
-`[6144,5120]`, and attention output `[5120,6144]` each use one N-major
-whole-chunk grid. Full-attention Q `[12288,5120]` also uses N-major at C256 and
-C512; K/V `[1024,5120]` use M-major at C256's under-filled 32-CTA grid and
-N-major at C512. Exact aligned C256/C512 NVFP4 Gate and Up `[17408,5120]`
+`[5120,17408]` Down, FP8 linear-attention Z `[6144,5120]`, and attention
+output `[5120,6144]` each use one N-major whole-chunk grid. Linear-attention
+QKV `[10240,5120]` keeps that canonical grid at C256; eligible C512 instead
+uses the fragment-native register-feed grid described below. Full-attention Q
+`[12288,5120]` also uses N-major at C256 and C512; K/V `[1024,5120]` use
+M-major at C256's under-filled 32-CTA grid and N-major at C512. Exact aligned
+C256/C512 NVFP4 Gate and Up `[17408,5120]`
 now each use one whole-chunk grid: Gate runs on the main stream, Up on the
 owned auxiliary stream, and the existing events join them before SiLU.
 Each M128 CTA reuses a decoded/staged B tile across eight M16 accumulator
@@ -289,9 +295,27 @@ panels, halving grid X relative to the earlier M64 whole-chunk route.
 Generic projection APIs remain capped at C64; residual/RMS, Conv/GDN, other
 shapes, and every near miss retain their established subtiles. This layer-local
 branch overlap is neither double/triple buffering nor Prefill/Decode overlap.
-Its current fixed-clock P257/P513 Prefix result is 175.547/175.730 token/s,
-with full evidence in the
+The Gate/Up mechanism has full evidence in the
 [M128 Gate/Up production record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-m128-production-benchmark.json).
+
+For exact aligned C512 linear-attention QKV, engine startup losslessly packs
+48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The
+M128 kernel uses a three-stage raw A/B `cp.async` pipeline and feeds decoded
+matrix B directly from registers. This is bounded long-term dual residency,
+not single residency or request buffering: canonical QKV remains authoritative
+for C256, finish-Prefill, and Decode, and pre/post-allocation checks preserve
+the configured 8-GiB free-memory reserve or retain the canonical route. The
+48-launch GPU pack totals 28.090400 ms in the matched startup trace and is
+outside request latency. Fixed-clock P513 Prefix improves
+**195.013482 -> 198.483270 token/s**, while complete-prompt throughput improves
+**187.618324 -> 190.825320 token/s**. The 48 QKV kernels improve
+**1.291122684x**, but no global-traffic reduction is claimed. See the
+[C512 QKV register-feed production record](docs/metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark.json).
+The next P513 screen first tries canonical row-major raw B with three
+`cp.async` slots plus a shared-memory fragment gather, retaining register
+feed without another sidecar. If its first-process stop-loss fails, sidecar
+work proceeds in hotspot order Z, full-attention Q, then attention output;
+C256 remains later.
 The faster sequential FP32-B8 GDN micro-kernel is intentionally not routed:
 its pinned-checkpoint Prefix state NRMSE grows from 0.0741 at P257 to 0.1486
 at P1025 against the frozen 0.01 gate. The default executable remains on the
@@ -642,7 +666,10 @@ aligned NVFP4 C32/C64 and C256/C512 MLP Gate/Up: the runner may overlap Gate
 on its main stream with Up on one owned auxiliary stream and join them with
 events. C256/C512 use one whole-chunk kernel per branch; other shapes retain
 their ordered schedules. This is layer-local branch overlap, not a general
-multi-stream scheduler or double/triple buffering. The
+multi-stream scheduler or double/triple buffering. The C512 QKV register-feed
+sidecar is a derived-weight representation built once at engine startup; it
+does not add another request buffer, a separate Prefill/Decode executor, or
+phase overlap. The
 independent target-device oracle,
 including exact prompt/output token IDs and chosen-token log probabilities, is
 checked in as

@@ -1315,11 +1315,17 @@ row-search structure without an unpriced global-progress assumption. See the
   no-more-than-100-ms/token and at-least-10-token/s objective remains an unmet
   stretch target, but no longer gates dedicated Prefill work. Earlier Phase 3
   statements that placed Prefill behind that gate are historical decisions
-  superseded by this handoff. The first bounded strict-C512 FP8 QKV
-  split-M64 cell is rejected below; the active Prefill line now requires a
-  materially different QKV/Z/O mechanism that reduces measured global/shared
-  traffic or a kernel boundary instead of only repartitioning the same M128
-  arithmetic across more threads. MTP remains excluded.
+  superseded by this handoff. The same-traffic strict-C512 FP8 QKV split-M64
+  cell is rejected below, while the later fragment-native register-feed cell
+  has passed full production admission at `6ab59ea`. It improves mirrored
+  P513 Prefix from **2,625.4595 to 2,579.5625 ms**, or
+  **1.017792552x**, without changing C256 or Decode. Continue the traffic-first
+  line first with an exact-C512 QKV P0 that reads canonical row-major raw B
+  through three `cp.async` slots, gathers fragments in shared memory, and
+  register-feeds matrix B without a new sidecar. Apply the first-process
+  stop-loss before any NCU or model work. Only if it fails, extend sidecars in
+  P513-hotspot order Z -> full-Q -> O; keep C256 behind those rows. MTP remains
+  excluded.
 - [done, current-HEAD Prefill baseline lock] At `edef543`, one fixed-frequency
   reusable-engine process with one warmup and five measured generations per
   prompt establishes the C32/max1 direct baseline. P33/P65/P129/P513 median
@@ -1631,10 +1637,10 @@ row-search structure without an unpriced global-progress assumption. See the
   result is consistent with the wider synchronization domain and one-CTA
   schedule, but no NCU/Nsys causal claim is made. C256 timing, profiling,
   full-model, and production work are skipped; production, Decode, and MTP
-  remain unchanged. The next main-line action is to audit existing FP8
-  QKV/Z/O candidates, currently 564.576448 ms or 21.425% of P513 projected GPU
-  time, and combine that inventory with the independent read-only first-cell
-  analysis before selecting an implementation. See the
+  remain unchanged. At rejection time, the next action was to audit the FP8
+  QKV/Z/O group, then 564.576448 ms or 21.425% of P513 projected GPU time, and
+  combine that inventory with the independent read-only first-cell analysis.
+  That work led to the QKV production promotion recorded below. See the
   [fused/shared-A rejection](metadata/qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json).
 - [measured and rejected, FP8 QKV M128 split-M64] Commit `b626b7d`
   keeps production dispatch frozen and screens only exact
@@ -1658,6 +1664,43 @@ row-search structure without an unpriced global-progress assumption. See the
   cleanup, locks the 512-NaN gate, and corrects that traffic label without
   changing candidate arithmetic. Decode and MTP remain unchanged. See the
   [split-M64 rejection](metadata/qwen36-27b-prefill-fp8-qkv-m128-split-m64-rejection.json).
+- [done, production exact-C512 FP8 QKV register feed] Commit `6ab59ea`
+  promotes the admitted M128 cell through a lossless GPU pack, transactional
+  48-layer model binding, bounded engine-lifetime ownership, and exact
+  production dispatch. Only aligned C512 linear-attention QKV
+  `[10240,5120]` consumes the fragment-native layout; C256, Decode M1,
+  finish-Prefill, other shapes, null sidecars, and 8-byte-only activation
+  alignment retain the canonical route. The compute kernel is
+  **128 registers / 512 B static + 79,872 B dynamic shared / zero local /
+  two CTA/SM**. The pack is 24 registers with zero shared/local/stack.
+  Checkpoint direct plus two-replay output is bit-exact for all 5,242,880
+  values, C512 model E2E and P257/P513 bulk E2E are exact, and the Release
+  suite closes at **62 passes / 12 expected skips / zero failures**.
+
+  Fixed-clock frozen-binary `B1-C1-C2-B2` moves mirrored P513 Prefix from
+  **2,625.4595 to 2,579.5625 ms (1.017792552x)** and Prefix throughput from
+  **195.013482 to 198.483270 token/s**. TTFT falls from **2,734.2745 to
+  2,688.3225 ms** and complete-prompt throughput rises from **187.618324 to
+  190.825320 token/s**. Matched Nsight substitutes all 48 QKV launches:
+  **200.807712 ms / 4.183494 ms average** becomes
+  **155.529536 ms / 3.240199 ms average**, or **1.291122684x**. The one-time
+  48-layer GPU pack totals **28.090400 ms** and sits outside request Prefix;
+  its full startup prepare phases are **259.600/277.259 ms** in C1/C2.
+
+  This is explicitly bounded long-term dual residency, not single residency:
+  the equal-byte 48-layer arena is **2,516,582,400 bytes / 2.34375 GiB** in
+  addition to canonical QKV. Pre/post-allocation probes preserve the configured
+  8-GiB free-memory reserve or fall back as a complete unit; both candidate
+  processes report zero persistent drop. Do not attribute B/C total load-time
+  differences to this path because other startup sidecar preparation differs
+  between processes. The C32/max26 Decode control disables this sidecar,
+  reproduces the exact 26-token oracle with 125/0 Graph/serial steps, and
+  measures **105.866 ms/token** as a non-regression check. No MTP, FlashInfer
+  integration, double/triple buffering, independent phase executor, or
+  Prefill/Decode overlap is introduced. Native complete P513 throughput is
+  only **46.386%** of the matched stock-vLLM **411.385053 token/s**, leaving a
+  **2.155820x** gap; this result must not be described as close to vLLM. See
+  the [production record](metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark.json).
 
 Closed
 table-free, half-tile, pair-fused, and shared-pipeline variants are not
@@ -1695,11 +1738,12 @@ prerequisite for Prefill work. The current C256/C512 route bundle includes
 production M128 B reuse for Gate/Up, FP8 large-N projections, and NVFP4 Down;
 its exact-model, memory, mirrored-latency, resource/invalid, full-suite, and
 fresh-profile gates pass. P257/P513 Prefix reaches
-**196.261675/195.040523 token/s** and complete-prompt throughput reaches
-**181.985297/187.647869 token/s**. Gate and Up remain one node each on the
-existing two-stream fork/join; current P513 attribution finds only
-12.384256 ms of overlap inside 839.826784 ms raw time. No new double/triple
-buffering or Prefill/Decode overlap was introduced.
+**196.261675/198.483270 token/s** and complete-prompt throughput reaches
+**181.985297/190.825320 token/s**. P257 remains on its canonical C256 QKV
+route; P513 now uses the exact-C512 register-feed QKV layout. Gate and Up
+remain one node each on the existing two-stream fork/join. The new QKV sidecar
+is bounded 2.34375-GiB dual residency for derived weights, not request
+double/triple buffering, and no Prefill/Decode overlap was introduced.
 The parallel GDN screen measured sequential FP32-B8 at **2.76977x/2.78551x**
 over production M16 and rejected WY, but the subsequent real-checkpoint gate
 also rejects FP32-B8: Prefix aggregate state NRMSE rises from **0.0741172** at
@@ -1711,16 +1755,20 @@ subsequent K16/K64 single-branch register-fed sidecars all failed their frozen
 stop-losses. K64's consistent **1.017890x** is insufficient and the line is
 closed before pair/full-model work. The canonical-weight 512-thread M128
 fused Gate+Up/shared-A follow-up is also rejected: **0.890109x** at C512,
-with all six rounds regressing. The subsequent first FP8 QKV cell also rejects
-the 512-thread M128 split-M64 mapping at **0.936190x**: resource, exactness,
-Graph, replay, NaN-class/sign, guard, and immutable-input gates pass, but all
-six rounds regress. That result closes same-traffic split-M64 tuning before
-profiling or model work. The immediate main line remains the FP8 QKV/Z/O group
-at **564.576448 ms / 21.425%** of P513 projected GPU time, but its next bounded
-candidate must materially reduce measured global/shared traffic or a kernel
-boundary rather than only redistribute M128 arithmetic across a wider CTA.
-Bulk attention is already production-integrated and only 2.904% of the current
-profile.
+with all six rounds regressing. The subsequent 512-thread M128 split-M64 QKV
+mapping also rejects at **0.936190x**, closing same-traffic wider-CTA tuning.
+The materially different fragment-native register-feed cell is now
+production-promoted: matched P513 Nsight moves 48 QKV launches from
+**200.807712 to 155.529536 ms (1.291122684x)** and the mirrored whole-model
+Prefix improves **1.017792552x**. It does not prove reduced global traffic:
+the prerequisite matched NCU screen in fact recorded higher global-load
+requests on its LDGSTS path. Next, screen the exact-C512 QKV canonical-row-
+major raw-B three-slot `cp.async` plus shared-gather/register-feed P0. It adds
+no sidecar and must pass the first process before NCU, full-model, or
+production work. If it fails, extend the admitted sidecar layout in
+P513-hotspot order **Z -> full-Q -> O**, with an explicit cumulative memory
+budget at each step. C256 stays behind those P513 rows. Bulk attention remains
+production-integrated.
 Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
@@ -1731,17 +1779,20 @@ serving throughput is a separate later target.
 Before Phase 3.5, retain the completed offline same-token vLLM/FlashInfer
 matrix as the cross-framework reference. Its batch-one/output-one comparison
 uses `P / scheduled-to-first-token`; native direct timing uses complete-prompt
-`P/TTFT`. Current native production reaches **181.985297/187.647869
+`P/TTFT`. Current native production reaches **181.985297/190.825320
 token/s** at P257/P513, while matched stock vLLM reaches 373.579/411.385.
 These are different runtime systems and leave directional
-**2.052799903x/2.192324678x** gaps, not a same-kernel attribution. The user's
+**2.052799903x/2.155820066x** gaps, not a same-kernel attribution. P513 native
+throughput is only **46.386%** of stock vLLM and is not yet close. The user's
 separately tuned 2k--8k range has no matched raw protocol and is not treated as
 a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
 shared-A screen are now closed as rejected. The exact-C512 FP8 QKV split-M64
-screen is also closed at **0.936190x** without candidate profiling or
-production promotion. Continue the HTTP adapter and EvalScope in parallel
-with selection of a traffic-changing FP8 QKV/Z/O screen so the external
-baseline precedes later system-level optimization.
+screen is closed at **0.936190x**, while its distinct register-feed successor
+is production-promoted at **1.017792552x** whole-model Prefix. Continue the
+HTTP adapter and EvalScope in parallel with the no-new-sidecar exact-C512 QKV
+P0; only after its stop-loss fails should sidecar work proceed
+**Z -> full-Q -> O**. C256 is intentionally later so the P513 hotspot line and
+external baseline advance first.
 Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
@@ -1870,8 +1921,11 @@ release gates rather than optional cleanup.
 
 ## 2026-07-28 — FP8 QKV register-feed first cell admitted (test-only)
 
-The first traffic-changing exact-C512 QKV cell is admitted to the next
-validation stage, but not to production. The test-only M128 candidate keeps
+This section preserves the historical `830091a` admission state; the same
+cell subsequently passed production promotion at `6ab59ea`, recorded in the
+section below. At the first-cell checkpoint, the traffic-changing exact-C512
+QKV cell was admitted to the next validation stage but was not yet production.
+The test-only M128 candidate keeps
 the production 320-CTA/256-thread ownership and tensor-core work, stages raw A
 and fragment-native FP8 B through a kernel-local three-stage `cp.async`
 pipeline, and feeds decoded B directly into SM87 matrix-B registers. It uses
@@ -1911,10 +1965,37 @@ cell and support the isolated latency-hiding mechanism; they are not
 full-model evidence. The separate pinned-checkpoint timing above supplies the
 real-weight first-cell evidence.
 
-Next, require mirrored full-P513 performance with generated-token and Decode
-non-regression gates. A production design must also avoid long-term
-canonical/sidecar dual residency: admission requires a single-resident
-representation or another bounded ownership scheme serving both Prefill and
-Decode, followed by explicit production-dispatch validation. Production
-dispatch stays frozen until those gates pass. See the
+The next gate required mirrored full-P513 performance, generated-token and
+Decode non-regression, bounded ownership, memory fallback, and explicit
+production dispatch. Those gates now pass through bounded dual residency in
+`6ab59ea`; the historical screen remains unchanged as first-cell evidence.
+See the
 [register-feed first-cell record](metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-benchmark.json).
+
+## 2026-07-28 — Exact-C512 FP8 QKV register feed promoted
+
+Commit `6ab59ea` completes production promotion. Mirrored fixed-clock P513
+Prefix improves **2,625.4595 -> 2,579.5625 ms (1.017792552x)**, or
+**195.013482 -> 198.483270 token/s**. TTFT improves
+**2,734.2745 -> 2,688.3225 ms**, reaching **190.825320 complete-prompt
+token/s**. Matched Nsight moves the 48 QKV kernels from **200.807712 to
+155.529536 ms (1.291122684x)**; its 48-launch **28.090400-ms** GPU pack is
+startup-only and outside Prefix.
+
+The 2,516,582,400-byte sidecar is bounded long-term dual residency, with
+pre/post-allocation checks and a complete canonical fallback. C256 and Decode
+remain canonical, the C32/max26 exact Decode control measures
+**105.866 ms/token**, and the Release suite has **62 passes / 12 expected
+skips / zero failures**. No MTP, native FlashInfer, double/triple buffering, or
+Prefill/Decode overlap is used. Native P513 is **46.386%** of matched stock
+vLLM, so this milestone narrows a still-large **2.155820x** gap and is not
+described as close to vLLM. See the
+[production record](metadata/qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark.json).
+
+The next measured step stays on P513 rather than C256. First screen one
+exact-C512 QKV P0 that consumes canonical row-major raw B through three
+`cp.async` slots, performs the fragment gather in shared memory, and
+register-feeds matrix B without another sidecar. Enforce the first-process
+stop-loss before NCU, full-model, or production work. Only if this P0 fails,
+extend the sidecar mechanism in order **Z -> full-Q -> O**, with an explicit
+cumulative memory budget. C256 register-feed work follows those P513 hotspots.

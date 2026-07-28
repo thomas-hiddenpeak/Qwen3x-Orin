@@ -1,0 +1,388 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-qkv-m128-cp-async-register-feed-production-benchmark",
+  "status": "promoted",
+  "recorded_at": "2026-07-28T15:36:17+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "candidate_commit": "6ab59ea02d74e4f13ee47df54efe1ebfdf5942b2",
+    "candidate_tree": "209165c7213abe409de1d89f903128099d0f5057",
+    "candidate_subject": "feat: promote C512 FP8 QKV register feed",
+    "baseline_commit": "830091a9eb8261f138858963df228ea42da9369e",
+    "baseline_tree": "0cbf3d6094d87d038157f9f7304455e71d0f2405",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "baseline_binary": {
+      "path": "/tmp/q3x-prefill-qkv-register-feed-baseline-830091a",
+      "bytes": 6544592,
+      "sha256": "2b14ed6f61054382dd1fcf56acfa6552f64f0fcdfb5a0cf3b62e54d0a5e8d39d",
+      "elf_build_id": "c44bbac56d36338967a75b3eca3616a587184d8b",
+      "build_type": "Release",
+      "route": "canonical exact-C512 FP8 QKV whole-chunk M128 B-reuse kernel"
+    },
+    "candidate_binary": {
+      "path": "/tmp/q3x-prefill-qkv-register-feed-candidate-6ab59ea",
+      "bytes": 6887688,
+      "sha256": "621a962e0b5f795dbf72ef0a0befc851a6ae22ff3dc32947432ea43e57329150",
+      "elf_build_id": "9e0721bb1be5f26b844b61029649950641ef0529",
+      "build_type": "Release",
+      "route": "production exact-C512 FP8 QKV register-feed kernel with engine-lifetime GPU-packed sidecars"
+    },
+    "comparability": "The candidate is the direct child of the frozen baseline. The production delta is the C512 QKV sidecar owner, GPU pack, model binding, dispatch selection, and the already-admitted register-feed compute kernel; C256 and Decode retain the baseline canonical route."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "nvpmodel": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_hz": 3200000000,
+      "emc_rate_locked": true
+    },
+    "nsight_systems_version": "2026.1.3.243-261337792075v0",
+    "claim_scope": "one fixed-clock Jetson AGX Orin, one pinned checkpoint, batch one, output one, direct native-runner timing"
+  },
+  "production_route": {
+    "backend": "sm87_weight_only",
+    "weight_format": "FP8 E4M3FN",
+    "activation_and_output_format": "BF16",
+    "shape": {
+      "role": "linear-attention in_proj_qkv",
+      "rows": 10240,
+      "columns": 5120,
+      "linear_attention_layers": 48
+    },
+    "selected_token_count": 512,
+    "selected_kernel": "M128-by-N128, 256 threads, 320 CTAs, three-stage raw A/B cp.async pipeline, decoded matrix-B register feed",
+    "sidecar_layout": "[nblock80][kstage80][k16=4][thread256][slot8]",
+    "sidecar_bytes_per_layer": 52428800,
+    "sidecar_bytes_all_layers": 2516582400,
+    "canonical_route_retained_for": [
+      "C256 QKV",
+      "Decode M1 QKV",
+      "finish-Prefill M1",
+      "C512 with only 8-byte rather than 16-byte activation alignment",
+      "all non-QKV shapes and all unsupported or unrequested configurations"
+    ],
+    "generic_projection_maximum_tokens": 64,
+    "c256_route_changed": false,
+    "decode_route_changed": false,
+    "mtp_used": false,
+    "flashinfer_dependency_added": false,
+    "double_or_triple_buffering_added": false,
+    "prefill_decode_overlap_added": false,
+    "independent_prefill_decode_executors_added": false,
+    "interpretation": "This is a C512-only projection data-layout and kernel promotion. Prefill and Decode remain logically distinct host plans in the existing runner, but the request remains causally serial and this change adds no phase overlap or request buffering."
+  },
+  "sidecar_lifecycle": {
+    "ownership": "one engine-lifetime contiguous arena declared before ModelWeights so reverse destruction retires runner, request state, and model views before the arena",
+    "representation_policy": "bounded dual residency: canonical QKV remains authoritative for validation, C256, finish-Prefill, and Decode; the lossless equal-byte fragment-native layout is optional and C512-only",
+    "inventory": "all 48 actual linear-attention layer indices are validated before allocation; layer indices are not assumed contiguous",
+    "construction": "one nonblocking startup stream launches one GPU pack per eligible layer, then synchronizes, destroys the stream, and atomically attaches the complete descriptor set",
+    "admission": "cudaMemGetInfo is checked before and after allocation against the configured 8-GiB minimum free-memory reserve",
+    "fallback": "an ineligible inventory, capacity miss, or CUDA allocation miss releases or avoids the complete arena and retains canonical production dispatch with an explicit load-stat fallback reason",
+    "partial_attachment_possible": false,
+    "request_time_pack": false,
+    "additional_engine_lifetime_bytes": 2516582400,
+    "additional_request_workspace_bytes": 0,
+    "startup_phase_ms": {
+      "formal_C1": 259.600,
+      "formal_C2": 277.259,
+      "release_e2e_C512": 288.240,
+      "nsight_candidate": 282.387
+    },
+    "nsight_gpu_pack": {
+      "instances": 48,
+      "total_ms": 28.090400,
+      "average_ms": 0.5852167,
+      "inside_prefill_prefix_range": false,
+      "interpretation": "The 28.090400-ms GPU sum is one engine-startup pack across 48 layers. It is not included in request Prefix or TTFT latency."
+    }
+  },
+  "kernel_resources": {
+    "compute": {
+      "registers_per_thread": 128,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 79872,
+      "total_shared_bytes": 80384,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2,
+      "resident_warps_per_sm": 16
+    },
+    "pack": {
+      "registers_per_thread": 24,
+      "static_shared_bytes": 0,
+      "local_bytes": 0,
+      "stack_bytes": 0,
+      "threads_per_block": 256,
+      "blocks_per_layer": 6400
+    },
+    "source": "release-binary cuobjdump resource usage plus the production checkpoint validation resource query"
+  },
+  "formal_protocol": {
+    "order": ["B1", "C1", "C2", "B2"],
+    "baseline": "frozen Release binary at 830091a",
+    "candidate": "frozen Release binary at 6ab59ea",
+    "batch_size": 1,
+    "projection_backend": "sm87_weight_only",
+    "prefill_chunk_size": 512,
+    "max_new_tokens": 1,
+    "request_max_sequence_length": 1024,
+    "warmup_rounds": 1,
+    "measured_rounds_per_process": 5,
+    "prompt": "P513",
+    "prompt_tokens": 513,
+    "prefix_tokens": 512,
+    "comparison": "arithmetic mean of mirrored per-process medians: B=(B1+B2)/2 and C=(C1+C2)/2",
+    "prefix_definition": "all prompt tokens except the final prompt token and LM head",
+    "complete_prompt_throughput_definition": "P divided by native time_to_first_token",
+    "decode_graph_cache": "disabled"
+  },
+  "raw_process_medians_ms": {
+    "B1": {
+      "prefix": 2625.601,
+      "finish_prefill": 108.789,
+      "ttft": 2734.380
+    },
+    "C1": {
+      "prefix": 2580.044,
+      "finish_prefill": 108.784,
+      "ttft": 2688.821
+    },
+    "C2": {
+      "prefix": 2579.081,
+      "finish_prefill": 108.746,
+      "ttft": 2687.824
+    },
+    "B2": {
+      "prefix": 2625.318,
+      "finish_prefill": 108.830,
+      "ttft": 2734.169
+    }
+  },
+  "formal_result": {
+    "prompt": "P513",
+    "baseline_prefix_mirrored_mean_ms": 2625.4595,
+    "candidate_prefix_mirrored_mean_ms": 2579.5625,
+    "prefix_saved_ms": 45.8970,
+    "prefix_speedup": 1.017792552,
+    "prefix_latency_reduction_percent": 1.748151133,
+    "baseline_prefix_tokens_per_second": 195.013482,
+    "candidate_prefix_tokens_per_second": 198.483270,
+    "baseline_ttft_mirrored_mean_ms": 2734.2745,
+    "candidate_ttft_mirrored_mean_ms": 2688.3225,
+    "ttft_saved_ms": 45.9520,
+    "ttft_speedup": 1.017093187,
+    "ttft_latency_reduction_percent": 1.680592055,
+    "baseline_complete_prompt_tokens_per_second": 187.618324,
+    "candidate_complete_prompt_tokens_per_second": 190.825320,
+    "gate": "pass"
+  },
+  "correctness": {
+    "formal_measured_generations": 20,
+    "formal_generated_ids_every_generation": [9419],
+    "formal_generated_text_every_generation": "Hello",
+    "formal_stop_reason_every_generation": "max_new_tokens",
+    "formal_step_count_every_generation": 513,
+    "formal_canonical_output_extraction": {
+      "fields": "prompt_ids, generated_ids, generated_text, stop_reason, step_count, steps",
+      "sha256_each": "e5341ba049865b5233dc73275564c0c171d615ccd4a4f1256b0227efe8ea52c1",
+      "all_four_processes_equal": true
+    },
+    "production_checkpoint_kernel_gate": {
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "checkpoint_shard": "model-00001-of-00003.safetensors",
+      "checkpoint_bytes": 52428800,
+      "outputs_compared": 5242880,
+      "direct_mismatches": 0,
+      "graph_replay_1_mismatches": 0,
+      "graph_replay_2_mismatches": 0,
+      "guards": "intact",
+      "canonical_sidecar_and_activation_immutable": true
+    },
+    "gpu_pack_gate": {
+      "invalid_calls": 10,
+      "invalid_graph_nodes": 0,
+      "host_oracle_equal_bytes": true
+    },
+    "dispatch_gate": {
+      "attached_C512": "one production register-feed kernel, grid 320, block 256, dynamic shared 79872",
+      "null_sidecar_C512": "one canonical whole-chunk kernel",
+      "attached_C256": "same canonical kernel as null-sidecar C256",
+      "attached_Decode_M1": "same canonical kernel as null-sidecar M1",
+      "non_QKV_C512": "ignores the QKV sidecar",
+      "malformed_attached_sidecar": "cudaErrorInvalidValue with zero captured nodes",
+      "eight_byte_activation_alignment": "preserves the canonical public C512 ABI"
+    },
+    "release_reference_e2e": "pass: 19 prompt IDs, 26 generated IDs, exact text, im_end, and 44 steps with all 48 QKV sidecars enabled",
+    "bulk_e2e": {
+      "P257": "exact token 9419, text Hello, 257 steps, canonical C256 route",
+      "P513": "exact token 9419, text Hello, 513 steps, production C512 register-feed route"
+    }
+  },
+  "memory": {
+    "request_arena_bytes_each_formal_process": 233940992,
+    "minimum_free_bytes_after_create": 8589934592,
+    "candidate_sidecar_bytes": 2516582400,
+    "candidate_sidecar_gib": 2.34375,
+    "formal_process": {
+      "B1": {
+        "start_free_bytes": 39488696320,
+        "minimum_free_bytes": 39485489152,
+        "end_free_bytes": 39506255872,
+        "maximum_observed_drop_bytes": 3207168,
+        "persistent_drop_bytes": 0
+      },
+      "C1": {
+        "start_free_bytes": 36508315648,
+        "minimum_free_bytes": 36508315648,
+        "end_free_bytes": 36576788480,
+        "maximum_observed_drop_bytes": 0,
+        "persistent_drop_bytes": 0
+      },
+      "C2": {
+        "start_free_bytes": 36504567808,
+        "minimum_free_bytes": 36504567808,
+        "end_free_bytes": 36542468096,
+        "maximum_observed_drop_bytes": 0,
+        "persistent_drop_bytes": 0
+      },
+      "B2": {
+        "start_free_bytes": 38741184512,
+        "minimum_free_bytes": 38741184512,
+        "end_free_bytes": 38778163200,
+        "maximum_observed_drop_bytes": 0,
+        "persistent_drop_bytes": 0
+      }
+    },
+    "assessment": "The candidate adds one fixed-size engine-lifetime derived-weight arena and no request workspace. Both candidate formal processes keep more than 36.5 GB free at the logged minimum and report zero persistent drop. Capacity failure is a complete canonical fallback, not a partial sidecar state."
+  },
+  "decode_non_regression": {
+    "protocol": "P19, C32, max26, one warmup, five measurements, prepared short-position Decode Graph cache",
+    "qkv_sidecar_requested": false,
+    "qkv_sidecar_enabled": false,
+    "qkv_sidecar_bytes": 0,
+    "generated_ids": [77517, 220, 95761, 32449, 220, 97039, 101692, 119548, 97792, 125574, 102027, 103725, 3709, 109238, 97327, 21966, 220, 127361, 130111, 95860, 103806, 108751, 97792, 97995, 1710, 248046],
+    "generated_text": "CUDA 是 NVIDIA 开发的一种并行计算平台和编程模型，旨在利用 GPU 的强大算力来加速通用计算任务。",
+    "stop_reason": "im_end",
+    "step_count": 44,
+    "output_sha256": "db918ca4ff54455c4b035d4ae851d38a02b97df9a3088414de1d354366c9585a",
+    "decode_graph_replays": 125,
+    "decode_graph_serial_fallbacks": 0,
+    "subsequent_token_median_ms": 105.866,
+    "subsequent_tokens_per_second": 9.445903312,
+    "persistent_drop_bytes": 0,
+    "assessment": "pass: Decode remains canonical and exact; the diagnostic candidate result is consistent with the frozen 105.870500-ms/token non-MTP regression anchor"
+  },
+  "nsight_p513_c512": {
+    "protocol": "matched frozen baseline and candidate Release binaries, one P513/output-one generation each, NVTX phase ranges enabled, no benchmark warmup; whole-process startup is captured so the pack row can be separated from request Prefix",
+    "prefix": {
+      "baseline_nvtx_wall_ms": 2635.330368,
+      "candidate_nvtx_wall_ms": 2591.335360,
+      "saved_ms": 43.995008,
+      "speedup": 1.016977736,
+      "baseline_gpu_projected_ms": 2634.336512,
+      "candidate_gpu_projected_ms": 2590.455232,
+      "gpu_projected_saved_ms": 43.881280,
+      "kernel_and_memop_nodes_each": 8209
+    },
+    "qkv": {
+      "baseline_kernel": "fp8_w8a16_whole_chunk_m128_n128_k64_b_reuse_kernel<10240,5120,4>",
+      "candidate_kernel": "fp8_w8a16_whole_chunk_qkv_m128_cp_async_register_feed_kernel",
+      "launches_each": 48,
+      "baseline_total_ms": 200.807712,
+      "candidate_total_ms": 155.529536,
+      "saved_ms": 45.278176,
+      "speedup": 1.291122684,
+      "latency_reduction_percent": 22.548026442,
+      "baseline_average_ms": 4.183494,
+      "candidate_average_ms": 3.2401987
+    },
+    "startup_pack": {
+      "kernel": "fp8_w8a16_whole_chunk_qkv_register_feed_pack_kernel",
+      "launches": 48,
+      "total_ms": 28.090400,
+      "average_ms": 0.5852167,
+      "inside_prefix_range": false
+    },
+    "interpretation": "The 48-for-48 QKV substitution explains the matched isolated row improvement. Prefix node count is unchanged because this is a dataflow replacement, while the one-time pack is outside the request range. Formal mirrored logs, rather than these one-shot traces, are authoritative for end-to-end latency."
+  },
+  "external_comparison": {
+    "reference_artifact": "qwen36-27b-vllm-flashinfer-prefill-reference",
+    "accounting": "P divided by scheduled-to-first-token for stock vLLM and P divided by native TTFT for this candidate",
+    "prompt": "P513",
+    "stock_vllm_complete_prompt_tokens_per_second": 411.385053,
+    "native_candidate_complete_prompt_tokens_per_second": 190.825320,
+    "native_as_percent_of_stock_vllm": 46.386061,
+    "stock_vllm_over_native_ratio": 2.155820,
+    "stock_vllm_backend": "FlashInfer for 16 full-attention layers, Triton/FLA GDN Prefill for 48 linear-attention layers, and Marlin FP8/NVFP4 projections",
+    "native_flashinfer_used": false,
+    "native_mtp_used": false,
+    "interpretation": "This is a directional comparison between different runtime systems under matched batch-one/output-one accounting, not a same-kernel attribution. The production promotion narrows but does not close the remaining 2.155820x P513 gap."
+  },
+  "validation": {
+    "release_build": "pass",
+    "production_checkpoint_screen": "pass",
+    "production_dispatch": "pass",
+    "release_reference_e2e_C512": "pass",
+    "bulk_P257_P513_e2e": "pass",
+    "full_ctest": {
+      "total": 74,
+      "passed": 62,
+      "expected_skips": 12,
+      "failed": 0,
+      "skip_breakdown": "one tokenizer plus eleven external-model/performance tests"
+    }
+  },
+  "evidence": {
+    "formal_logs": {
+      "B1": {"path": "/tmp/q3x-prefill-qkv-register-feed-B1.log", "bytes": 19719, "sha256": "b5adcf0fea825632b006494814a558ff8a436ff471e4e2e1ad02a867cc5546ed"},
+      "C1": {"path": "/tmp/q3x-prefill-qkv-register-feed-C1.log", "bytes": 19923, "sha256": "c15313a3c4c4ee6602ddac5d864567e37f09103276057963976e2392aa134625"},
+      "C2": {"path": "/tmp/q3x-prefill-qkv-register-feed-C2.log", "bytes": 19923, "sha256": "1a5b2e95561438efc7198cb43a62d5741e1f4c53f4c729cf66eaa1885512fd6d"},
+      "B2": {"path": "/tmp/q3x-prefill-qkv-register-feed-B2.log", "bytes": 19713, "sha256": "fba13e0f2cbdf971c899362152cea8d3d084ae0c019dd33ab7867eab0ba842ac"}
+    },
+    "decode_log": {"path": "/tmp/q3x-prefill-qkv-register-feed-decode-candidate.log", "bytes": 9861, "sha256": "80129f331c3753fbbdaf5555bc6288e2851548f770d5c26e925ccffcc38ee526"},
+    "checkpoint_validation": {"path": "/tmp/q3x-prefill-qkv-register-feed-production-checkpoint-validate.log", "bytes": 1414, "sha256": "79f79e43e400f194c0b0ccf87cdc87226f11e8db14deb885792c67261bf50ee9"},
+    "production_dispatch": {"path": "/tmp/q3x-prefill-qkv-register-feed-production-dispatch.log", "bytes": 190, "sha256": "d2066fdf459cf8b63e693859b4ff17e52534b80b1dd2ad4b6e4422d59b14fdbb"},
+    "release_ctest": {"path": "/tmp/q3x-prefill-qkv-register-feed-production-ctest.log", "bytes": 11452, "sha256": "bfe10fcda4fd47174b8fcf5bf9f5604e7629399ec7f4328feb6b1a27e80c9017"},
+    "release_e2e_C512": {"path": "/tmp/q3x-prefill-qkv-register-feed-production-e2e-c512.log", "bytes": 836, "sha256": "e6219228b73ad49d8dc544145aa0491e759c56fac83853069b9d36e2db8afed8"},
+    "bulk_e2e": {"path": "/tmp/q3x-prefill-qkv-register-feed-production-bulk-e2e.log", "bytes": 370, "sha256": "a7b599d15dd30035946c0045e5cafbfd2f8c6421d92c1bd789a78654baa59db3"},
+    "nsight_baseline": {
+      "report": {"path": "/tmp/q3x-prefill-qkv-register-feed-baseline-p513.nsys-rep", "bytes": 850576, "sha256": "699015667079435fdb847c02daee395eaca79b05145166568811d72618ddf203"},
+      "sqlite": {"path": "/tmp/q3x-prefill-qkv-register-feed-baseline-p513.sqlite", "bytes": 2404352, "sha256": "fd51039895e913a010b466f565a05345f6f315ec2c0419b40207b17773ee3ace"},
+      "kernel_summary": {"path": "/tmp/q3x-prefill-qkv-register-feed-baseline-p513-kernel-summary.csv", "bytes": 9179, "sha256": "b54a72e378e8120b11af12af8581239b742262645d1b4d078f0e378718803451"},
+      "console_log": {"path": "/tmp/q3x-prefill-qkv-register-feed-baseline-p513-nsys.log", "bytes": 9827, "sha256": "2b41cbbb4aacda5c1f8100260b8bacedeecb283734a57f59cf519b57735758df"}
+    },
+    "nsight_candidate": {
+      "report": {"path": "/tmp/q3x-prefill-qkv-register-feed-candidate-p513.nsys-rep", "bytes": 855024, "sha256": "54c6e05d66ca273de7fd55d9e4f3f355a16e065aff5be6bdc2be97393f4cc5c5"},
+      "sqlite": {"path": "/tmp/q3x-prefill-qkv-register-feed-candidate-p513.sqlite", "bytes": 2428928, "sha256": "0dcf9807d610d6f4cc29f493a24809c1c2926c1969d18917769f198b7118c123"},
+      "kernel_summary": {"path": "/tmp/q3x-prefill-qkv-register-feed-candidate-p513-kernel-summary.csv", "bytes": 9287, "sha256": "b6627f9dfaf7a1e7b71d558e4a1f64c87625b0a90fe5c87b7e95580fa6d01941"},
+      "console_log": {"path": "/tmp/q3x-prefill-qkv-register-feed-candidate-p513-nsys.log", "bytes": 10045, "sha256": "5670c63fc9d3cabdcfe92c255e9c7346ee0656a9af95f044896c64a2de365a65"}
+    }
+  },
+  "decision": {
+    "result": "promote exact aligned C512 linear-attention FP8 QKV register feed",
+    "why": "The previously admitted real-checkpoint cell now passes production ownership, GPU-pack, dispatch, exact-output, model E2E, bounded-memory, Decode non-regression, mirrored fixed-clock Prefix/TTFT, full-suite, and matched Nsight gates. P513 Prefix improves 1.017792552x and the 48 QKV kernels improve 1.291122684x.",
+    "retained_boundaries": "C256 and Decode remain canonical; the sidecar is a bounded optional derived layout with an 8-GiB reserve and complete fallback; no MTP, FlashInfer integration, new double/triple buffering, or Prefill/Decode overlap is used.",
+    "next_priority": [
+      "first screen one exact-C512 QKV P0 that consumes canonical row-major raw B through three cp.async slots, performs the fragment gather in shared memory, and feeds matrix-B registers without allocating another sidecar; enforce the frozen first-process stop-loss before NCU, full-model, or production work",
+      "only if that no-new-sidecar QKV P0 fails its stop-loss, extend the admitted sidecar mechanism in P513-hotspot order: linear-attention Z, then full-attention Q, then attention output, with an explicit cumulative engine-memory budget at each step",
+      "keep C256 register-feed work behind those P513 hotspots; C256 and Decode remain canonical until a later shape-specific gate",
+      "re-profile the resulting P513 Prefix and continue against the matched 411.385053-token/s stock-vLLM reference",
+      "continue the bounded OpenAI-compatible API and EvalScope alignment in parallel"
+    ]
+  },
+  "limitations": [
+    "The formal result is batch one, P513, max1, one pinned checkpoint, one Orin, fixed clocks, and mirrored process medians; it is not concurrent serving throughput, a latency tail, power, or energy result.",
+    "The 2.34375-GiB sidecar is deliberate bounded dual residency because canonical QKV is still required by C256 and Decode. This is not yet a single-resident representation.",
+    "B/C load.total_ms is not used for attribution because unrelated NVFP4 down-sidecar startup preparation differs materially between those processes. Only the named QKV prepare phase and matched Nsight pack row are attributed.",
+    "Only C512 QKV selects register feed. C256, finish-Prefill, Decode, every other projection shape, and alignment near misses retain canonical routes.",
+    "The matched stock-vLLM result is a different-system directional reference. Native P513 remains 2.155820x behind it.",
+    "No MTP, native FlashInfer dependency, continuous batching, double/triple buffering, independent phase executor, or Prefill/Decode overlap is introduced."
+  ]
+}
