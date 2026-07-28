@@ -123,6 +123,21 @@ template <std::size_t SpanCount>
       bf16_weight_scratch, bf16_weight_scratch_bytes, output, cuda_stream);
 }
 
+[[nodiscard]] int launch_nvfp4_c512_cublaslt_down_branch(
+    void* const,
+    kernels::Sm87Nvfp4PrefillDownCublasLtContext* const context,
+    const NvFp4LinearWeight& weight,
+    const std::uint16_t* const input,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  return kernels::launch_sm87_nvfp4_prefill_cublaslt_down_c512(
+      context, weight.packed_weight, weight.block_scale,
+      weight.weight_scale_2, input, kMaximumRequestPrefillChunkSize,
+      kReferenceHiddenSize, kReferenceIntermediateSize,
+      bf16_weight_scratch, bf16_weight_scratch_bytes, output, cuda_stream);
+}
+
 [[nodiscard]] ReferenceRunnerStatus runner_status(
     const ReferenceRunnerError error, const char* const operation,
     const std::size_t layer = kReferenceNoLayer,
@@ -1091,6 +1106,88 @@ route_nvfp4_c512_cublaslt_prefill_gate_up(
   return result;
 }
 
+bool use_nvfp4_c512_cublaslt_prefill_down(
+    const ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count,
+    const kernels::Sm87Nvfp4PrefillDownCublasLtContext* const context,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes) noexcept {
+  constexpr std::size_t kRows = kReferenceHiddenSize;
+  constexpr std::size_t kColumns = kReferenceIntermediateSize;
+  constexpr std::size_t kTokens = kMaximumRequestPrefillChunkSize;
+  constexpr std::size_t kPackedBytes = kRows * (kColumns / 2U);
+  constexpr std::size_t kScaleBytes = kRows * (kColumns / 16U);
+  constexpr std::size_t kInputBytes =
+      kTokens * kColumns * sizeof(std::uint16_t);
+  constexpr std::size_t kOutputBytes =
+      kTokens * kRows * sizeof(std::uint16_t);
+  constexpr std::size_t kRequiredScratchBytes =
+      static_cast<std::size_t>(
+          kRequestNvFp4LargeMWeightBf16ScratchBytes);
+  static_assert(kRequiredScratchBytes ==
+                kRows * kColumns * sizeof(std::uint16_t));
+
+  const auto* const down = std::get_if<NvFp4LinearWeight>(&down_weight);
+  const auto aligned = [](const void* const pointer,
+                          const std::size_t alignment) noexcept {
+    return pointer != nullptr &&
+           (reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0U;
+  };
+  if (backend != ProjectionBackend::kSm87WeightOnly ||
+      token_count != kTokens || context == nullptr || down == nullptr ||
+      down->output_size != kRows || down->input_size != kColumns ||
+      !std::isfinite(down->weight_scale_2) ||
+      down->weight_scale_2 <= 0.0F ||
+      bf16_weight_scratch_bytes < kRequiredScratchBytes ||
+      !aligned(down->packed_weight, 16U) ||
+      !aligned(down->block_scale, 4U) || !aligned(input, 16U) ||
+      !aligned(output, 16U) || !aligned(bf16_weight_scratch, 16U)) {
+    return false;
+  }
+
+  const std::array<ByteSpan, 5U> spans{{
+      {down->packed_weight, kPackedBytes},
+      {down->block_scale, kScaleBytes},
+      {input, kInputBytes},
+      {bf16_weight_scratch, kRequiredScratchBytes},
+      {output, kOutputBytes},
+  }};
+  return byte_ranges_are_pairwise_disjoint(spans);
+}
+
+NvFp4C512DownCublasLtRouteResult
+route_nvfp4_c512_cublaslt_prefill_down(
+    const ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* const input, std::uint16_t* const output,
+    const std::size_t token_count,
+    kernels::Sm87Nvfp4PrefillDownCublasLtContext* const context,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    void* const cuda_stream,
+    const NvFp4C512DownCublasLtLauncher launcher,
+    void* const launcher_user_data) noexcept {
+  NvFp4C512DownCublasLtRouteResult result;
+  if (!use_nvfp4_c512_cublaslt_prefill_down(
+          backend, down_weight, input, output, token_count, context,
+          bf16_weight_scratch, bf16_weight_scratch_bytes)) {
+    return result;
+  }
+
+  result.selected = true;
+  result.fallback_allowed_before_enqueue = false;
+  if (launcher == nullptr) {
+    result.launch_status = static_cast<int>(cudaErrorInvalidValue);
+    return result;
+  }
+  const auto* const down = std::get_if<NvFp4LinearWeight>(&down_weight);
+  ++result.down_calls;
+  result.launch_status = launcher(
+      launcher_user_data, context, *down, input, bf16_weight_scratch,
+      bf16_weight_scratch_bytes, output, cuda_stream);
+  return result;
+}
+
 bool use_nvfp4_m32_prefill_gate_up_dual_stream(
     const ProjectionBackend backend, const LinearWeight& gate_weight,
     const LinearWeight& up_weight, const std::uint16_t* const input,
@@ -1254,6 +1351,10 @@ ReferenceRunner& ReferenceRunner::operator=(ReferenceRunner&& other) noexcept {
       std::exchange(other.nvfp4_prefill_cublaslt_context_, nullptr);
   nvfp4_prefill_cublaslt_scratch_bytes_ =
       std::exchange(other.nvfp4_prefill_cublaslt_scratch_bytes_, 0U);
+  nvfp4_prefill_down_cublaslt_context_ =
+      std::exchange(other.nvfp4_prefill_down_cublaslt_context_, nullptr);
+  nvfp4_prefill_down_cublaslt_scratch_bytes_ =
+      std::exchange(other.nvfp4_prefill_down_cublaslt_scratch_bytes_, 0U);
   pinned_logits_ = std::exchange(other.pinned_logits_, nullptr);
   pinned_trace_ = std::exchange(other.pinned_trace_, nullptr);
   decode_graph_p1_slots_ = other.decode_graph_p1_slots_;
@@ -1291,6 +1392,8 @@ void ReferenceRunner::release() noexcept {
   }
   kernels::destroy_sm87_nvfp4_prefill_cublaslt_context(
       nvfp4_prefill_cublaslt_context_);
+  kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(
+      nvfp4_prefill_down_cublaslt_context_);
   destroy_decode_graph_p1();
   if (prefill_branch_ready_event_ != nullptr) {
     (void)cudaEventDestroy(
@@ -1321,6 +1424,8 @@ void ReferenceRunner::release() noexcept {
   prefill_branch_done_event_ = nullptr;
   nvfp4_prefill_cublaslt_context_ = nullptr;
   nvfp4_prefill_cublaslt_scratch_bytes_ = 0U;
+  nvfp4_prefill_down_cublaslt_context_ = nullptr;
+  nvfp4_prefill_down_cublaslt_scratch_bytes_ = 0U;
   pinned_logits_ = nullptr;
   pinned_trace_ = nullptr;
   decode_graph_capture_active_ = false;
@@ -3341,9 +3446,33 @@ ReferencePrefillTileOutcome ReferenceRunner::prefill_prefix_tile(
                         views_.projection[0], views_.projection[1],
                         token_count * kReferenceIntermediateSize,
                         views_.projection[0], stream_),
-                    "prefill_mlp_silu_mul", layer) ||
-        !project_down(layer_weights.mlp.down_proj, views_.projection[0],
-                      views_.hidden[1], "prefill_mlp_down_projection", layer)) {
+                    "prefill_mlp_silu_mul", layer)) {
+      return fail_prefill_tile(launch_failure);
+    }
+    const reference_runner_detail::NvFp4C512DownCublasLtRouteResult
+        c512_down_cublaslt_route =
+            reference_runner_detail::
+                route_nvfp4_c512_cublaslt_prefill_down(
+                    projection_backend_, layer_weights.mlp.down_proj,
+                    views_.projection[0], views_.hidden[1], token_count,
+                    nvfp4_prefill_down_cublaslt_context_,
+                    views_.nvfp4_large_m_weight_bf16_scratch,
+                    nvfp4_prefill_down_cublaslt_scratch_bytes_, stream_,
+                    launch_nvfp4_c512_cublaslt_down_branch);
+    if (c512_down_cublaslt_route.selected) {
+      if (!c512_down_cublaslt_route.ok()) {
+        const int status =
+            c512_down_cublaslt_route.launch_status ==
+                    static_cast<int>(cudaSuccess)
+                ? static_cast<int>(cudaErrorUnknown)
+                : c512_down_cublaslt_route.launch_status;
+        return fail_prefill_tile(runner_status(
+            ReferenceRunnerError::kCudaFailure,
+            "prefill_mlp_down_c512_cublaslt", layer, status));
+      }
+    } else if (!project_down(
+                   layer_weights.mlp.down_proj, views_.projection[0],
+                   views_.hidden[1], "prefill_mlp_down_projection", layer)) {
       return fail_prefill_tile(launch_failure);
     }
     if (use_m32_residual_rms_fusion) {
@@ -3518,6 +3647,38 @@ ReferenceRunnerFactoryResult create_reference_runner(
       // This exact-C512 route is optional. A context/query/zero-workspace or
       // scratch-capacity miss retains the established M128 dual-stream path.
       kernels::destroy_sm87_nvfp4_prefill_cublaslt_context(context);
+      (void)cudaGetLastError();
+    }
+  }
+
+  if (options.projection_backend == ProjectionBackend::kSm87WeightOnly &&
+      runner.views_.nvfp4_large_m_weight_bf16_scratch != nullptr) {
+    kernels::Sm87Nvfp4PrefillDownCublasLtContext* context = nullptr;
+    const int create_status =
+        kernels::create_sm87_nvfp4_prefill_down_cublaslt_context(&context);
+    std::size_t required_scratch_bytes = 0U;
+    std::size_t workspace_bytes = 0U;
+    int heuristic_rank = -1;
+    const int query_status =
+        create_status == static_cast<int>(cudaSuccess) && context != nullptr
+            ? kernels::query_sm87_nvfp4_prefill_down_cublaslt_context(
+                  context, &required_scratch_bytes, &workspace_bytes,
+                  &heuristic_rank)
+            : static_cast<int>(cudaErrorInitializationError);
+    if (create_status == static_cast<int>(cudaSuccess) &&
+        query_status == static_cast<int>(cudaSuccess) &&
+        context != nullptr && required_scratch_bytes != 0U &&
+        workspace_bytes == 0U && heuristic_rank >= 0 &&
+        required_scratch_bytes <=
+            runner.views_.nvfp4_large_m_weight_bf16_scratch_bytes) {
+      runner.nvfp4_prefill_down_cublaslt_context_ = context;
+      runner.nvfp4_prefill_down_cublaslt_scratch_bytes_ =
+          required_scratch_bytes;
+    } else {
+      // Down admission is independent of Gate/Up. A Down-only factory/query,
+      // zero-workspace, or capacity miss preserves the established Down
+      // projection without disabling an already-ready Gate/Up context.
+      kernels::destroy_sm87_nvfp4_prefill_down_cublaslt_context(context);
       (void)cudaGetLastError();
     }
   }

@@ -12,6 +12,7 @@
 namespace q3x::kernels {
 
 struct Sm87Nvfp4PrefillCublasLtContext;
+struct Sm87Nvfp4PrefillDownCublasLtContext;
 
 }  // namespace q3x::kernels
 
@@ -421,6 +422,51 @@ route_nvfp4_c512_cublaslt_prefill_gate_up(
     NvFp4C512CublasLtBranchLauncher launcher,
     void* launcher_user_data = nullptr) noexcept;
 
+// Pure-host selector for the independent exact-C512 large-M NVFP4 Down
+// route. The Down-specific opaque context and the request-owned 170 MiB
+// scratch must both be ready. A selector miss preserves the established
+// whole-chunk Down route; a selected launch can never fall back.
+[[nodiscard]] bool use_nvfp4_c512_cublaslt_prefill_down(
+    ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count,
+    const kernels::Sm87Nvfp4PrefillDownCublasLtContext* context,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes) noexcept;
+
+struct NvFp4C512DownCublasLtRouteResult {
+  bool selected = false;
+  std::size_t down_calls = 0U;
+  bool fallback_allowed_before_enqueue = true;
+  int launch_status = 0;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return selected && down_calls == 1U && launch_status == 0;
+  }
+};
+
+using NvFp4C512DownCublasLtLauncher = int (*)(
+    void* user_data,
+    kernels::Sm87Nvfp4PrefillDownCublasLtContext* context,
+    const NvFp4LinearWeight& weight, const std::uint16_t* input,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes, std::uint16_t* output,
+    void* cuda_stream) noexcept;
+
+// Selects once and invokes Down exactly once on the supplied main stream.
+// Once selected, fallback is forbidden because either half of the module's
+// dequantization-plus-GEMM pair may already have been enqueued.
+[[nodiscard]] NvFp4C512DownCublasLtRouteResult
+route_nvfp4_c512_cublaslt_prefill_down(
+    ProjectionBackend backend, const LinearWeight& down_weight,
+    const std::uint16_t* input, std::uint16_t* output,
+    std::size_t token_count,
+    kernels::Sm87Nvfp4PrefillDownCublasLtContext* context,
+    std::uint16_t* bf16_weight_scratch,
+    std::size_t bf16_weight_scratch_bytes, void* cuda_stream,
+    NvFp4C512DownCublasLtLauncher launcher,
+    void* launcher_user_data = nullptr) noexcept;
+
 // Pure-host selector for the narrow C32/C64 NVFP4 MLP scheduling optimization.
 // C64 retains two ordered C32 launches per branch. It accepts only the two
 // exact aligned direct-output projections with non-overlapping complete output
@@ -502,10 +548,11 @@ class ReferenceRunner {
   // aligned C256/C512 FP8 QKV/Z/O and NVFP4 Down projections each use one
   // whole-chunk grid. Exact aligned NVFP4 C512 Gate/Up first uses the
   // request-owned large-M BF16 scratch and opaque cuBLASLt context, serially
-  // overwriting that scratch on the main stream. A selector/context miss and
-  // C256 preserve the whole-chunk two-stream event fork/join; C32/C64 retains
-  // the M32 dual-stream schedule and C64 preserves two ordered C32 launches on
-  // each branch.
+  // overwriting that scratch on the main stream. Exact aligned NVFP4 C512
+  // Down independently reuses the same scratch through its own context after
+  // SiLU. A selector/context miss and C256 preserve the established Gate/Up
+  // and Down routes; C32/C64 retains the M32 dual-stream schedule and C64
+  // preserves two ordered C32 launches on each branch.
   // Exact SM87 C256/C512 full-attention tiles use one bulk causal GQA/Gate
   // launch with tile-local Q/Gate/output and global NHD K/V caches. Every
   // fallback remains on the main stream, and the logical request length is
@@ -592,6 +639,9 @@ class ReferenceRunner {
   kernels::Sm87Nvfp4PrefillCublasLtContext*
       nvfp4_prefill_cublaslt_context_ = nullptr;
   std::size_t nvfp4_prefill_cublaslt_scratch_bytes_ = 0U;
+  kernels::Sm87Nvfp4PrefillDownCublasLtContext*
+      nvfp4_prefill_down_cublaslt_context_ = nullptr;
+  std::size_t nvfp4_prefill_down_cublaslt_scratch_bytes_ = 0U;
   void* pinned_logits_ = nullptr;
   std::uint16_t* pinned_trace_ = nullptr;
   std::array<DecodeGraphP1Slot, kReferenceDecodeGraphP2MaximumSlots>

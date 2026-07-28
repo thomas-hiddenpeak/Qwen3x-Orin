@@ -1406,6 +1406,198 @@ void test_nvfp4_c512_cublaslt_route(TestContext& test) {
               "Up failure records both calls and forbids old-kernel fallback");
 }
 
+struct FakeNvFp4C512DownLaunchState {
+  std::size_t call_count = 0U;
+  int launch_status = 0;
+  const std::uint8_t* packed_weight = nullptr;
+  const std::uint16_t* input = nullptr;
+  std::uint16_t* scratch = nullptr;
+  std::size_t scratch_bytes = 0U;
+  std::uint16_t* output = nullptr;
+  void* stream = nullptr;
+};
+
+[[nodiscard]] int fake_nvfp4_c512_down_launcher(
+    void* const user_data,
+    q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext* const,
+    const runtime::NvFp4LinearWeight& weight,
+    const std::uint16_t* const input,
+    std::uint16_t* const bf16_weight_scratch,
+    const std::size_t bf16_weight_scratch_bytes,
+    std::uint16_t* const output, void* const cuda_stream) noexcept {
+  auto* const state =
+      static_cast<FakeNvFp4C512DownLaunchState*>(user_data);
+  if (state == nullptr || state->call_count != 0U) {
+    return 91;
+  }
+  ++state->call_count;
+  state->packed_weight = weight.packed_weight;
+  state->input = input;
+  state->scratch = bf16_weight_scratch;
+  state->scratch_bytes = bf16_weight_scratch_bytes;
+  state->output = output;
+  state->stream = cuda_stream;
+  return state->launch_status;
+}
+
+void test_nvfp4_c512_down_cublaslt_route(TestContext& test) {
+  static_assert(sizeof(std::uintptr_t) >= sizeof(std::uint64_t));
+  constexpr std::uintptr_t kPackedAddress = 0x11'0000'0000ULL;
+  constexpr std::uintptr_t kScaleAddress = 0x22'0000'0000ULL;
+  constexpr std::uintptr_t kInputAddress = 0x33'0000'0000ULL;
+  constexpr std::uintptr_t kScratchAddress = 0x44'0000'0000ULL;
+  constexpr std::uintptr_t kOutputAddress = 0x55'0000'0000ULL;
+  constexpr std::uintptr_t kContextAddress = 0x66'0000'0000ULL;
+  constexpr std::uintptr_t kStreamAddress = 0x77'0000'0000ULL;
+  const auto* const packed_weight =
+      reinterpret_cast<const std::uint8_t*>(kPackedAddress);
+  const auto* const block_scale =
+      reinterpret_cast<const std::uint8_t*>(kScaleAddress);
+  const auto* const input =
+      reinterpret_cast<const std::uint16_t*>(kInputAddress);
+  auto* const scratch = reinterpret_cast<std::uint16_t*>(kScratchAddress);
+  auto* const output = reinterpret_cast<std::uint16_t*>(kOutputAddress);
+  auto* const context = reinterpret_cast<
+      q3x::kernels::Sm87Nvfp4PrefillDownCublasLtContext*>(kContextAddress);
+  void* const stream = reinterpret_cast<void*>(kStreamAddress);
+  float device_weight_scale = 1.0F;
+  float device_input_scale = 1.0F;
+  const runtime::LinearWeight down = runtime::NvFp4LinearWeight{
+      packed_weight, block_scale, &device_weight_scale, &device_input_scale,
+      1.0F / 64.0F, 1.0F, runtime::kReferenceHiddenSize,
+      runtime::kReferenceIntermediateSize};
+  constexpr std::size_t kScratchBytes = static_cast<std::size_t>(
+      runtime::kRequestNvFp4LargeMWeightBf16ScratchBytes);
+
+  const auto selects =
+      [&](const runtime::LinearWeight& selected_down,
+          const std::uint16_t* const selected_input,
+          std::uint16_t* const selected_scratch,
+          const std::size_t selected_scratch_bytes,
+          std::uint16_t* const selected_output,
+          const std::size_t token_count = 512U,
+          const runtime::ProjectionBackend backend =
+              runtime::ProjectionBackend::kSm87WeightOnly) noexcept {
+        return detail::use_nvfp4_c512_cublaslt_prefill_down(
+            backend, selected_down, selected_input, selected_output,
+            token_count, context, selected_scratch, selected_scratch_bytes);
+      };
+  test.expect(selects(down, input, scratch, kScratchBytes, output),
+              "exact C512 NVFP4 Down cuBLASLt route selects with its own "
+              "context and the shared request scratch");
+
+  runtime::NvFp4LinearWeight zero_scale =
+      std::get<runtime::NvFp4LinearWeight>(down);
+  zero_scale.weight_scale_2 = 0.0F;
+  runtime::NvFp4LinearWeight infinite_scale =
+      std::get<runtime::NvFp4LinearWeight>(down);
+  infinite_scale.weight_scale_2 =
+      std::numeric_limits<float>::infinity();
+  runtime::NvFp4LinearWeight wrong_shape =
+      std::get<runtime::NvFp4LinearWeight>(down);
+  --wrong_shape.input_size;
+  test.expect(
+      !selects(down, input, scratch, kScratchBytes, output, 256U) &&
+          !selects(down, input, scratch, kScratchBytes, output, 512U,
+                   runtime::ProjectionBackend::kReference) &&
+          !detail::use_nvfp4_c512_cublaslt_prefill_down(
+              runtime::ProjectionBackend::kSm87WeightOnly, down, input,
+              output, 512U, nullptr, scratch, kScratchBytes) &&
+          !selects(down, input, nullptr, kScratchBytes, output) &&
+          !selects(down, input, scratch, kScratchBytes - 1U, output) &&
+          !selects(runtime::LinearWeight{zero_scale}, input, scratch,
+                   kScratchBytes, output) &&
+          !selects(runtime::LinearWeight{infinite_scale}, input, scratch,
+                   kScratchBytes, output) &&
+          !selects(runtime::LinearWeight{wrong_shape}, input, scratch,
+                   kScratchBytes, output),
+      "C512 Down selector preserves token/backend/context/scratch/scale/"
+      "shape fallbacks");
+
+  runtime::NvFp4LinearWeight unaligned_packed =
+      std::get<runtime::NvFp4LinearWeight>(down);
+  unaligned_packed.packed_weight =
+      reinterpret_cast<const std::uint8_t*>(kPackedAddress + 1U);
+  runtime::NvFp4LinearWeight unaligned_scale =
+      std::get<runtime::NvFp4LinearWeight>(down);
+  unaligned_scale.block_scale =
+      reinterpret_cast<const std::uint8_t*>(kScaleAddress + 2U);
+  test.expect(
+      !selects(runtime::LinearWeight{unaligned_packed}, input, scratch,
+               kScratchBytes, output) &&
+          !selects(runtime::LinearWeight{unaligned_scale}, input, scratch,
+                   kScratchBytes, output) &&
+          !selects(down,
+                   reinterpret_cast<const std::uint16_t*>(
+                       kInputAddress + 2U),
+                   scratch, kScratchBytes, output) &&
+          !selects(down, input,
+                   reinterpret_cast<std::uint16_t*>(kScratchAddress + 2U),
+                   kScratchBytes, output) &&
+          !selects(down, input, scratch, kScratchBytes,
+                   reinterpret_cast<std::uint16_t*>(kOutputAddress + 2U)) &&
+          !selects(down, input, output, kScratchBytes, output) &&
+          !selects(down, input, scratch, kScratchBytes,
+                   reinterpret_cast<std::uint16_t*>(kPackedAddress)),
+      "C512 Down selector rejects launch-alignment and overlapping-span "
+      "near misses before enqueue");
+
+  FakeNvFp4C512DownLaunchState fallback_state;
+  const detail::NvFp4C512DownCublasLtRouteResult fallback =
+      detail::route_nvfp4_c512_cublaslt_prefill_down(
+          runtime::ProjectionBackend::kSm87WeightOnly, down, input, output,
+          256U, context, scratch, kScratchBytes, stream,
+          fake_nvfp4_c512_down_launcher, &fallback_state);
+  test.expect(!fallback.selected && fallback.down_calls == 0U &&
+                  fallback.fallback_allowed_before_enqueue &&
+                  fallback.launch_status == 0 &&
+                  fallback_state.call_count == 0U,
+              "Down selector miss permits the established fallback before "
+              "any large-M call");
+
+  FakeNvFp4C512DownLaunchState success_state;
+  const detail::NvFp4C512DownCublasLtRouteResult success =
+      detail::route_nvfp4_c512_cublaslt_prefill_down(
+          runtime::ProjectionBackend::kSm87WeightOnly, down, input, output,
+          512U, context, scratch, kScratchBytes, stream,
+          fake_nvfp4_c512_down_launcher, &success_state);
+  test.expect(success.ok() && success.down_calls == 1U &&
+                  !success.fallback_allowed_before_enqueue &&
+                  success_state.call_count == 1U &&
+                  success_state.packed_weight == packed_weight &&
+                  success_state.input == input &&
+                  success_state.scratch == scratch &&
+                  success_state.scratch_bytes == kScratchBytes &&
+                  success_state.output == output &&
+                  success_state.stream == stream,
+              "selected Down route calls exactly once on the supplied main "
+              "stream and reuses the Gate/Up scratch after SiLU");
+
+  const detail::NvFp4C512DownCublasLtRouteResult missing_launcher =
+      detail::route_nvfp4_c512_cublaslt_prefill_down(
+          runtime::ProjectionBackend::kSm87WeightOnly, down, input, output,
+          512U, context, scratch, kScratchBytes, stream, nullptr);
+  test.expect(missing_launcher.selected &&
+                  missing_launcher.down_calls == 0U &&
+                  !missing_launcher.fallback_allowed_before_enqueue &&
+                  missing_launcher.launch_status != 0,
+              "selected Down route forbids fallback when its launcher is "
+              "unavailable");
+
+  FakeNvFp4C512DownLaunchState failure_state;
+  failure_state.launch_status = 67;
+  const detail::NvFp4C512DownCublasLtRouteResult failure =
+      detail::route_nvfp4_c512_cublaslt_prefill_down(
+          runtime::ProjectionBackend::kSm87WeightOnly, down, input, output,
+          512U, context, scratch, kScratchBytes, stream,
+          fake_nvfp4_c512_down_launcher, &failure_state);
+  test.expect(failure.selected && failure.down_calls == 1U &&
+                  !failure.fallback_allowed_before_enqueue &&
+                  failure.launch_status == 67 &&
+                  failure_state.call_count == 1U,
+              "Down failure records one call and forbids old-kernel fallback");
+}
+
 void test_trace_layout_and_factory_error(TestContext& test) {
   static std::array<std::uint16_t, runtime::kReferenceTraceElements> trace{};
   trace[0U] = 11U;
@@ -1458,6 +1650,7 @@ int main() {
   test_schedule_and_workspace(test);
   test_fake_linear_weight_validation(test);
   test_nvfp4_c512_cublaslt_route(test);
+  test_nvfp4_c512_down_cublaslt_route(test);
   test_trace_layout_and_factory_error(test);
   if (test.failures() != 0) {
     std::cerr << test.failures() << " reference-runner host test(s) failed\n";
