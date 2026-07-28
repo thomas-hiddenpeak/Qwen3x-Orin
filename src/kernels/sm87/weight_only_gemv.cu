@@ -6255,6 +6255,360 @@ nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel(
   }
 }
 
+// Test-only exact Down M128 candidate. It intentionally duplicates the
+// proven Gate/Up M128 arithmetic instead of parameterizing that production
+// kernel, preserving the production Gate cubin symbol and the public Down M64
+// dispatch. One CTA owns M128xN128, decodes each canonical B tile once, and
+// applies it to eight ordered M16 accumulator panels.
+template <unsigned int kM128TileCount>
+__global__ __launch_bounds__(kThreads, 2) void
+nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations, std::uint16_t* const output) {
+  constexpr unsigned int kRows = 5'120U;
+  constexpr unsigned int kColumns = 17'408U;
+  constexpr unsigned int kTokenCount = kM128TileCount * 128U;
+  constexpr unsigned int kResidentTokenCount = 128U;
+  constexpr unsigned int kPanelTokenCount = 16U;
+  constexpr unsigned int kOutputColumnsPerBlock = 128U;
+  constexpr unsigned int kOutputColumnsPerWarp = 16U;
+  constexpr unsigned int kColumnsPerStage = 64U;
+  constexpr unsigned int kColumnsPerScaleWindow = 256U;
+  constexpr unsigned int kStagesPerScaleWindow =
+      kColumnsPerScaleWindow / kColumnsPerStage;
+  constexpr unsigned int kScaleWordsPerOutputRow =
+      kColumnsPerScaleWindow / kNvFp4GroupSize;
+  constexpr unsigned int kBf16ValuesPerActivationWord = 4U;
+  constexpr unsigned int kActivationWordsPerToken =
+      kColumnsPerStage / kBf16ValuesPerActivationWord;
+  constexpr unsigned int kSharedActivationWordsPerToken = 18U;
+  constexpr unsigned int kActivationWordCount =
+      kResidentTokenCount * kActivationWordsPerToken;
+  constexpr unsigned int kActivationLoadPasses =
+      kActivationWordCount / kThreads;
+  constexpr unsigned int kPackedColumns =
+      kColumns / kNvFp4ValuesPerByte;
+  constexpr unsigned int kScaleColumns = kColumns / kNvFp4GroupSize;
+  constexpr unsigned int kValuesPerWeightVector =
+      sizeof(uint4) * kNvFp4ValuesPerByte;
+  constexpr unsigned int kWeightVectorsPerRow =
+      kColumnsPerStage / kValuesPerWeightVector;
+  constexpr unsigned int kBf16ValuesPerWeightWord = 2U;
+  constexpr unsigned int kSharedWeightWordsPerRow =
+      72U / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kSharedWeightWordCount =
+      kOutputColumnsPerBlock * kSharedWeightWordsPerRow;
+  constexpr unsigned int kSharedOutputTokenCount = 32U;
+  constexpr unsigned int kSharedOutputCount =
+      kSharedOutputTokenCount * kOutputColumnsPerBlock;
+  constexpr unsigned int kScalePaddingFirstWord =
+      kColumnsPerStage / kBf16ValuesPerWeightWord;
+  constexpr unsigned int kOutputColumnBlockCount =
+      kRows / kOutputColumnsPerBlock;
+  static_assert(kM128TileCount == 2U || kM128TileCount == 4U);
+  static_assert(kTokenCount == 256U || kTokenCount == 512U);
+  static_assert(kActivationWordCount == 2'048U);
+  static_assert(kActivationLoadPasses == 8U);
+  static_assert(kWeightVectorsPerRow == 2U);
+  static_assert(kSharedWeightWordsPerRow == 36U);
+  static_assert(kScaleWordsPerOutputRow == 16U);
+  static_assert(kScaleWordsPerOutputRow / 4U ==
+                kSharedWeightWordsPerRow - kScalePaddingFirstWord);
+  static_assert(kOutputColumnBlockCount == 40U);
+
+  union __align__(32) BOrCStorage {
+    std::uint32_t weights[kSharedWeightWordCount];
+    float output[kSharedOutputCount];
+  };
+  __shared__ NvFp4M32ProductLookupStorage<true, true> product_lookup;
+  __shared__ __align__(32) std::uint64_t
+      shared_activations[kResidentTokenCount *
+                         kSharedActivationWordsPerToken];
+  __shared__ BOrCStorage b_or_c;
+
+  namespace wmma = nvcuda::wmma;
+  const unsigned int thread = threadIdx.x;
+  const unsigned int warp = thread / kWarpSize;
+  const std::uint8_t encoded = static_cast<std::uint8_t>(thread);
+  product_lookup.scale_values[thread] =
+      encode_bf16_rne(decode_e4m3fn(encoded));
+  __syncthreads();
+
+  // Adjacent CTAs cover adjacent M128 tiles for one N128 panel, retaining the
+  // selected N-major whole-chunk locality while halving the logical grid.
+  const unsigned int output_column_block = blockIdx.x / kM128TileCount;
+  const unsigned int token_tile = blockIdx.x % kM128TileCount;
+  const unsigned int first_output_column =
+      output_column_block * kOutputColumnsPerBlock;
+  const std::size_t first_token =
+      static_cast<std::size_t>(token_tile) * kResidentTokenCount;
+  const std::uint16_t* const tile_activations =
+      activations + first_token * kColumns;
+  std::uint16_t* const tile_output = output + first_token * kRows;
+  const unsigned int local_output_column = thread / kWeightVectorsPerRow;
+  const unsigned int vector_in_row = thread % kWeightVectorsPerRow;
+  const unsigned int output_column =
+      first_output_column + local_output_column;
+
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator0;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator1;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator2;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator3;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator4;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator5;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator6;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator7;
+  wmma::fill_fragment(accumulator0, 0.0F);
+  wmma::fill_fragment(accumulator1, 0.0F);
+  wmma::fill_fragment(accumulator2, 0.0F);
+  wmma::fill_fragment(accumulator3, 0.0F);
+  wmma::fill_fragment(accumulator4, 0.0F);
+  wmma::fill_fragment(accumulator5, 0.0F);
+  wmma::fill_fragment(accumulator6, 0.0F);
+  wmma::fill_fragment(accumulator7, 0.0F);
+
+#pragma unroll 1
+  for (unsigned int first_window_k = 0U; first_window_k < kColumns;
+       first_window_k += kColumnsPerScaleWindow) {
+#pragma unroll
+    for (unsigned int pass = 0U; pass < 4U; ++pass) {
+      const unsigned int scale_index = thread + pass * kThreads;
+      const unsigned int scale_row =
+          scale_index / (kScaleWordsPerOutputRow / 2U);
+      const unsigned int scale_word =
+          scale_index % (kScaleWordsPerOutputRow / 2U);
+      const std::uint16_t raw_scale =
+          *reinterpret_cast<const std::uint16_t*>(
+              block_scales +
+              static_cast<std::size_t>(first_output_column + scale_row) *
+                  kScaleColumns +
+              first_window_k / kNvFp4GroupSize + scale_word * 2U);
+      const unsigned int partner_scale = __shfl_down_sync(
+          0xffffffffU, static_cast<unsigned int>(raw_scale), 1U);
+      if ((scale_word & 1U) == 0U) {
+        b_or_c.weights[scale_row * kSharedWeightWordsPerRow +
+                       kScalePaddingFirstWord + scale_word / 2U] =
+            static_cast<std::uint32_t>(raw_scale) |
+            (static_cast<std::uint32_t>(partner_scale) << 16U);
+      }
+    }
+    __syncthreads();
+
+#pragma unroll 1
+    for (unsigned int stage = 0U; stage < kStagesPerScaleWindow; ++stage) {
+      const unsigned int first_k =
+          first_window_k + stage * kColumnsPerStage;
+#pragma unroll
+      for (unsigned int load_pass = 0U;
+           load_pass < kActivationLoadPasses; ++load_pass) {
+        const unsigned int activation_index = thread + load_pass * kThreads;
+        const unsigned int token =
+            activation_index / kActivationWordsPerToken;
+        const unsigned int activation_word =
+            activation_index % kActivationWordsPerToken;
+        shared_activations[token * kSharedActivationWordsPerToken +
+                           activation_word] =
+            *reinterpret_cast<const std::uint64_t*>(
+                tile_activations + static_cast<std::size_t>(token) * kColumns +
+                first_k +
+                activation_word * kBf16ValuesPerActivationWord);
+      }
+
+      const unsigned int first_vector_column =
+          first_k + vector_in_row * kValuesPerWeightVector;
+      const uint4 packed = *reinterpret_cast<const uint4*>(
+          packed_weights +
+          static_cast<std::size_t>(output_column) * kPackedColumns +
+          first_vector_column / kNvFp4ValuesPerByte);
+      const std::uint32_t staged_scale_pairs =
+          b_or_c.weights[local_output_column * kSharedWeightWordsPerRow +
+                         kScalePaddingFirstWord + stage];
+      const std::uint16_t encoded_scales = static_cast<std::uint16_t>(
+          staged_scale_pairs >> (vector_in_row * 16U));
+      const std::uint16_t decoded_scale0 =
+          product_lookup.scale_values[static_cast<std::uint8_t>(
+              encoded_scales & 0xffU)];
+      const std::uint16_t decoded_scale1 =
+          product_lookup.scale_values[static_cast<std::uint8_t>(
+              encoded_scales >> 8U)];
+      std::uint32_t* const decoded =
+          b_or_c.weights +
+          local_output_column * kSharedWeightWordsPerRow +
+          vector_in_row *
+              (kValuesPerWeightVector / kBf16ValuesPerWeightWord);
+      auto* const decoded_vectors = reinterpret_cast<uint4*>(decoded);
+      decoded_vectors[0] = decode_nvfp4x8_to_bf16x8_table_free_vector(
+          packed.x, decoded_scale0);
+      decoded_vectors[1] = decode_nvfp4x8_to_bf16x8_table_free_vector(
+          packed.y, decoded_scale0);
+      decoded_vectors[2] = decode_nvfp4x8_to_bf16x8_table_free_vector(
+          packed.z, decoded_scale1);
+      decoded_vectors[3] = decode_nvfp4x8_to_bf16x8_table_free_vector(
+          packed.w, decoded_scale1);
+      __syncthreads();
+
+      const auto* const shared_a =
+          reinterpret_cast<const __nv_bfloat16*>(shared_activations);
+      const auto* const shared_b =
+          reinterpret_cast<const __nv_bfloat16*>(b_or_c.weights);
+#pragma unroll 1
+      for (unsigned int inner_k = 0U; inner_k < kColumnsPerStage;
+           inner_k += 16U) {
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16,
+                       wmma::row_major>
+            activation_fragment;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16,
+                       wmma::col_major>
+            weight_fragment;
+        wmma::load_matrix_sync(
+            weight_fragment,
+            shared_b +
+                warp * kOutputColumnsPerWarp * kSharedWeightWordsPerRow * 2U +
+                inner_k,
+            kSharedWeightWordsPerRow * 2U);
+        wmma::load_matrix_sync(activation_fragment, shared_a + inner_k,
+                               kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator0, activation_fragment, weight_fragment,
+                       accumulator0);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator1, activation_fragment, weight_fragment,
+                       accumulator1);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 2U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator2, activation_fragment, weight_fragment,
+                       accumulator2);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 3U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator3, activation_fragment, weight_fragment,
+                       accumulator3);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 4U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator4, activation_fragment, weight_fragment,
+                       accumulator4);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 5U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator5, activation_fragment, weight_fragment,
+                       accumulator5);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 6U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator6, activation_fragment, weight_fragment,
+                       accumulator6);
+        wmma::load_matrix_sync(
+            activation_fragment,
+            shared_a + 7U * kPanelTokenCount *
+                           kSharedActivationWordsPerToken * 4U +
+                inner_k,
+            kSharedActivationWordsPerToken * 4U);
+        wmma::mma_sync(accumulator7, activation_fragment, weight_fragment,
+                       accumulator7);
+      }
+      __syncthreads();
+    }
+  }
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator0,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      b_or_c.output + kPanelTokenCount * kOutputColumnsPerBlock +
+          warp * kOutputColumnsPerWarp,
+      accumulator1, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+  }
+  __syncthreads();
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator2,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      b_or_c.output + kPanelTokenCount * kOutputColumnsPerBlock +
+          warp * kOutputColumnsPerWarp,
+      accumulator3, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock + 32U;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+  }
+  __syncthreads();
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator4,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      b_or_c.output + kPanelTokenCount * kOutputColumnsPerBlock +
+          warp * kOutputColumnsPerWarp,
+      accumulator5, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock + 64U;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+  }
+  __syncthreads();
+
+  wmma::store_matrix_sync(
+      b_or_c.output + warp * kOutputColumnsPerWarp, accumulator6,
+      kOutputColumnsPerBlock, wmma::mem_row_major);
+  wmma::store_matrix_sync(
+      b_or_c.output + kPanelTokenCount * kOutputColumnsPerBlock +
+          warp * kOutputColumnsPerWarp,
+      accumulator7, kOutputColumnsPerBlock, wmma::mem_row_major);
+  __syncthreads();
+#pragma unroll
+  for (unsigned int index = thread; index < kSharedOutputCount;
+       index += kThreads) {
+    const unsigned int token = index / kOutputColumnsPerBlock + 96U;
+    const unsigned int local_column = index % kOutputColumnsPerBlock;
+    tile_output[static_cast<std::size_t>(token) * kRows +
+                first_output_column + local_column] =
+        encode_bf16_rne(b_or_c.output[index] * weight_scale_2);
+  }
+}
+
+
 // Test-only persistent P0 for the exact down projection at M=256.  This is a
 // mechanism probe, not a Marlin implementation: it keeps the established
 // table-free E2M1/BF16 WMMA arithmetic and synchronous K64 stage pipeline,
@@ -23489,6 +23843,99 @@ int query_sm87_nvfp4_w4a16_whole_chunk_gate_m128_b_reuse_resources_test_cuda(
   } else {
     const auto kernel =
         nvfp4_w4a16_gate_whole_chunk_m128_n128_k64_b_reuse_kernel<4U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  }
+  if (status != cudaSuccess) {
+    return static_cast<int>(status);
+  }
+  *registers_per_thread = attributes.numRegs;
+  *static_shared_bytes = attributes.sharedSizeBytes;
+  *local_bytes = attributes.localSizeBytes;
+  *maximum_threads_per_block = attributes.maxThreadsPerBlock;
+  *active_blocks_per_sm = active_blocks;
+  return static_cast<int>(cudaSuccess);
+}
+
+// Test-only exact-M128 Down candidate. The production Down dispatcher above
+// deliberately remains on its selected N-major M64 schedule until this
+// candidate clears the frozen correctness, resource, graph, and performance
+// admission screen. No sidecar or alternate checkpoint layout is involved.
+int launch_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_test_cuda(
+    const std::uint8_t* const packed_weights,
+    const std::uint8_t* const block_scales, const float weight_scale_2,
+    const std::uint16_t* const activations,
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, std::uint16_t* const output,
+    void* const cuda_stream) noexcept {
+  if (rows != 5'120U || columns != 17'408U) {
+    return invalid_value();
+  }
+  const int validation = validate_nvfp4_m64_tiles_launch(
+      packed_weights, block_scales, weight_scale_2, activations, token_count,
+      rows, columns, output);
+  if (validation != static_cast<int>(cudaSuccess)) {
+    return validation;
+  }
+  const bool aligned =
+      (reinterpret_cast<std::uintptr_t>(packed_weights) % alignof(uint4)) ==
+          0U &&
+      (reinterpret_cast<std::uintptr_t>(block_scales) %
+       alignof(std::uint16_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(activations) %
+       alignof(std::uint64_t)) == 0U &&
+      (reinterpret_cast<std::uintptr_t>(output) %
+       alignof(std::uint16_t)) == 0U;
+  if (!aligned) {
+    return invalid_value();
+  }
+
+  const auto stream = reinterpret_cast<cudaStream_t>(cuda_stream);
+  (void)cudaGetLastError();
+  constexpr unsigned int kOutputColumnBlockCount = 5'120U / 128U;
+  if (token_count == 256U) {
+    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>
+        <<<kOutputColumnBlockCount * 2U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
+  } else {
+    nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>
+        <<<kOutputColumnBlockCount * 4U, kThreads, 0U, stream>>>(
+            packed_weights, block_scales, weight_scale_2, activations, output);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+int query_sm87_nvfp4_w4a16_whole_chunk_down_m128_b_reuse_resources_test_cuda(
+    const std::size_t token_count, const std::size_t rows,
+    const std::size_t columns, int* const registers_per_thread,
+    std::size_t* const static_shared_bytes, std::size_t* const local_bytes,
+    int* const maximum_threads_per_block,
+    int* const active_blocks_per_sm) noexcept {
+  if ((token_count != 256U && token_count != 512U) || rows != 5'120U ||
+      columns != 17'408U || registers_per_thread == nullptr ||
+      static_shared_bytes == nullptr || local_bytes == nullptr ||
+      maximum_threads_per_block == nullptr ||
+      active_blocks_per_sm == nullptr) {
+    return invalid_value();
+  }
+
+  cudaFuncAttributes attributes{};
+  cudaError_t status = cudaSuccess;
+  int active_blocks = 0;
+  if (token_count == 256U) {
+    const auto kernel =
+        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<2U>;
+    status = cudaFuncGetAttributes(&attributes, kernel);
+    if (status == cudaSuccess) {
+      status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &active_blocks, kernel, static_cast<int>(kThreads), 0U);
+    }
+  } else {
+    const auto kernel =
+        nvfp4_w4a16_down_whole_chunk_m128_n128_k64_b_reuse_test_kernel<4U>;
     status = cudaFuncGetAttributes(&attributes, kernel);
     if (status == cudaSuccess) {
       status = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
