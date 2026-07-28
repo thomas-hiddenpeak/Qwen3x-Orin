@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-fp8-z-m128-canonical-xor-u16-register-feed-admission",
+  "status": "test_only_baseline_gate_admitted_not_production_promoted",
+  "recorded_at": "2026-07-28T16:52:34+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "6e3b36439427df7d2a548ec84f50bde5b7296e57",
+    "tree": "02a1441a2f09925c60b7394c86b2be608c68037d",
+    "parent_commit": "3f5b77bfe2cbcd1ad21ab87ff05e107cc98dec6e",
+    "subject": "test: admit canonical FP8 Z register feed",
+    "tree_state_at_measurement": "The formal validation and screen preceded the source commit timestamp. The measured source/test changes were then committed as 6e3b364 without a content change; the post-commit full CTest used the same unchanged build artifact.",
+    "model_repository": "nvidia/Qwen3.6-27B-NVFP4",
+    "model_revision": "0893e1606ff3d5f97a441f405d5fc541a6bdf404",
+    "changed_files": [
+      "CMakeLists.txt",
+      "src/kernels/sm87/weight_only_gemv.cu",
+      "tests/sm87_fp8_prefill_qkv_m128_split_m64_screen.cu"
+    ],
+    "production_route_changed": false,
+    "production_dispatch_changed": false,
+    "public_api_or_abi_changed": false,
+    "model_weights_layout_or_ownership_changed": false,
+    "interpretation": "The exact-C512 Z kernel, launcher, resource query, and harness are test-only. No production selector, runner, public header, checkpoint format, persistent sidecar owner, or Decode path references the candidate."
+  },
+  "measured_binary": {
+    "path_at_measurement": "/home/rm01/Qwen3x-Orin/build/q3x_fp8_prefill_z_m128_canonical_xor_register_feed_screen",
+    "bytes": 5274432,
+    "sha256": "5fc3d84e02758e0293e675e3e6eb45ff5a2b3ce6b0063d1e1f574c42ee268b0b",
+    "elf_build_id": "cdb67c2bb1251055dde82309765b9e31fd624c9a",
+    "build_type": "Release",
+    "persistence_note": "The mutable build-tree binary is identified here for auditability but is not a checked-in artifact."
+  },
+  "environment": {
+    "device": "Jetson AGX Orin",
+    "compute_capability": "8.7",
+    "sm_count": 16,
+    "maximum_mode": "MAXN",
+    "fixed_frequency_readback": {
+      "gpu_min_hz": 1300500000,
+      "gpu_max_hz": 1300500000,
+      "gpu_current_hz": 1300500000,
+      "emc_cap_hz": 3200000000
+    },
+    "claim_scope": "one fixed-clock Orin, one isolated exact-C512 linear-attention Z cell, one pinned layer-0 checkpoint tensor, and the current production canonical Z kernel as baseline"
+  },
+  "scope": {
+    "shape": {
+      "tokens": 512,
+      "rows": 6144,
+      "columns": 5120,
+      "weight_format": "FP8 E4M3FN",
+      "activation_and_output_format": "BF16",
+      "weight_bytes_per_layer": 31457280,
+      "activation_elements": 2621440,
+      "output_elements": 3145728
+    },
+    "checkpoint": {
+      "directory_at_measurement": "/home/rm01/models/dev/llm/nvidia/Qwen3.6-27B-NVFP4",
+      "tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight",
+      "scale_tensor": "model.language_model.layers.0.linear_attn.in_proj_z.weight_scale",
+      "shard": "model-00001-of-00003.safetensors",
+      "weight_dtype": "F8_E4M3",
+      "weight_shape": [6144, 5120],
+      "weight_bytes": 31457280,
+      "weight_sha256": "79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae",
+      "scale_dtype": "F32",
+      "scale_shape": [],
+      "scale_bytes": 4,
+      "scale_value": 0.0005231585237197578,
+      "scale_sha256": "861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9",
+      "read_contract": "The harness opens the index and shard read-only, rejects symlinks or shard escape, validates exact dtype/shape/byte ranges and a finite positive scale, then freezes both tensor SHA-256 values before upload."
+    },
+    "baseline": "the public current-production exact-C512 FP8 whole-chunk Z launcher on canonical row-major weights",
+    "candidate": "a production-unreachable exact-C512 Z M128 raw-A/raw-B three-slot cp.async kernel with canonical raw-B K16-chunk XOR placement, uint16 fragment gathers, and direct SM87 matrix-B register feed",
+    "common_topology": {
+      "logical_cta": "M128-by-N128",
+      "grid_x": 192,
+      "threads_per_block": 256,
+      "tensor_core_arithmetic_and_accumulation_order_preserved": true
+    },
+    "candidate_resources": {
+      "raw_a_b_cp_async_slots": 3,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 79872,
+      "total_shared_bytes": 80384,
+      "stack_bytes": 0,
+      "local_bytes": 0,
+      "active_blocks_per_sm": 2,
+      "resident_warps_per_sm": 16
+    },
+    "canonical_weight_no_sidecar": true,
+    "candidate_sidecar_allocated": false,
+    "additional_persistent_weight_bytes": 0,
+    "additional_engine_lifetime_bytes": 0,
+    "production_memory_changed": false,
+    "mtp_used": false,
+    "flashinfer_integrated": false,
+    "request_buffering_changed": false,
+    "prefill_decode_overlap_changed": false
+  },
+  "mechanism": {
+    "provenance": "The candidate transfers the separately admitted QKV P1 canonical raw-B XOR plus uint16-gather register-feed mechanism to the exact-C512 Z shape; it does not import FlashInfer or qwen35-thor code.",
+    "shared_weight_placement": "each aligned row-wise group of four K16 chunks uses the same two-bit XOR key derived from row>>1",
+    "fragment_gather": "uint16 loads gather the swizzled canonical raw-B bytes directly into the matrix-B register-fragment encoding",
+    "decoded_b_shared_round_trip_removed": true,
+    "global_traffic_claim": "none: no matched NCU or Nsys candidate profile was performed",
+    "qkv_p1_isolation": {
+      "sass_before_bytes": 312735,
+      "sass_after_bytes": 312735,
+      "sass_before_sha256": "dc35481dbdecba00e24266fcb0ad686abff72cd8b84392ca50cbfc9e1cdefb2a",
+      "sass_after_sha256": "dc35481dbdecba00e24266fcb0ad686abff72cd8b84392ca50cbfc9e1cdefb2a",
+      "byte_identical": true,
+      "interpretation": "The pre-existing QKV P1 selected-function disassembly is unchanged by the independent Z test kernel."
+    }
+  },
+  "validation": {
+    "resource_gate": {
+      "register_limit": 128,
+      "registers_per_thread": 126,
+      "static_shared_bytes": 512,
+      "dynamic_shared_bytes": 79872,
+      "total_shared_bytes": 80384,
+      "local_bytes": 0,
+      "threads_per_block": 256,
+      "active_blocks_per_sm": 2,
+      "gate": "pass"
+    },
+    "invalid_graph_gate": {
+      "invalid_statuses": 23,
+      "total_cases": 23,
+      "captured_nodes": 0,
+      "gate": "pass"
+    },
+    "valid_graph_gate": {
+      "baseline_nodes": 1,
+      "candidate_nodes": 1,
+      "baseline_grid_x": 192,
+      "candidate_grid_x": 192,
+      "baseline_block_x": 256,
+      "candidate_block_x": 256,
+      "candidate_dynamic_shared_bytes": 79872,
+      "functions_distinct": true,
+      "gate": "pass"
+    },
+    "synthetic": {
+      "direct_mismatches": 0,
+      "graph_replay_1_mismatches": 0,
+      "graph_replay_2_mismatches": 0,
+      "outputs_compared_per_execution": 3145728,
+      "raw_e4m3_codes_per_byte_position": 256,
+      "byte_positions": 4,
+      "classified_nan_outputs": 512,
+      "nan_class_or_sign_mismatches": 0,
+      "guards": "intact",
+      "canonical_weights_and_activations_immutable": true,
+      "gate": "pass"
+    },
+    "pinned_checkpoint_layer0": {
+      "direct_mismatches": 0,
+      "graph_replay_1_mismatches": 0,
+      "graph_replay_2_mismatches": 0,
+      "outputs_compared_per_execution": 3145728,
+      "unexpected_nonfinite_outputs": 0,
+      "guards": "intact",
+      "canonical_weights_and_activations_immutable": true,
+      "gate": "pass"
+    },
+    "regression_sentinels": {
+      "pre_existing_split_m64_harness": "pass",
+      "production_qkv_register_feed": "pass",
+      "qkv_p1_sass_unchanged": true
+    },
+    "full_ctest": {
+      "command": "ctest --test-dir build --output-on-failure",
+      "total": 76,
+      "passed": 64,
+      "expected_skips": 12,
+      "failed": 0,
+      "skip_breakdown": "one tokenizer plus eleven external-model/performance tests"
+    }
+  },
+  "performance_protocol": {
+    "payload": "read-only pinned checkpoint layer-0 Z weight and scale tensors",
+    "order": "B-C-C-B",
+    "rounds": 6,
+    "warmups_per_pass": 10,
+    "iterations_per_pass": 24,
+    "l2_scrub_bytes_outside_timing": 33554432,
+    "baseline": "public production canonical exact-C512 Z launcher",
+    "candidate": "test-only canonical raw-B XOR plus uint16-gather register-feed Z launcher",
+    "per_round_minimum_speedup_gate": 1.15,
+    "aggregate_speedup_gate": 1.20,
+    "comparison": "aggregate means sum all B1/B2 and C1/C2 CUDA-event pass averages across six rounds in one fixed-clock process"
+  },
+  "performance": {
+    "baseline_ms": 2.524897,
+    "candidate_ms": 2.062244,
+    "saved_ms": 0.462653,
+    "speedup": 1.224345,
+    "latency_reduction_percent": 18.323638548424,
+    "round_speedups": [
+      1.224188,
+      1.224453,
+      1.224296,
+      1.224550,
+      1.224317,
+      1.224265
+    ],
+    "minimum_round_speedup": 1.224188,
+    "every_round_gate": true,
+    "aggregate_gate": true,
+    "decision": "admit the mechanism as a test-only Z cell against the current production canonical Z baseline"
+  },
+  "projection_only_ceiling": {
+    "linear_attention_z_layers_at_p513": 48,
+    "calculation": "0.462653 ms isolated layer-0 saving multiplied by 48 same-shape Z launches",
+    "projected_prefix_saving_ms": 22.207344,
+    "rounded_projected_prefix_saving_ms": 22.21,
+    "classification": "arithmetic projection from one isolated layer-0 cell, not a production-runner, full-Prefix, TTFT, or end-to-end measurement",
+    "candidate_sidecar_bytes_per_layer_not_allocated": 31457280,
+    "candidate_sidecar_bytes_48_layers_not_allocated": 1509949440,
+    "candidate_sidecar_gib_48_layers_not_allocated": 1.40625,
+    "memory_interpretation": "The canonical candidate demonstrates this mechanism without an equal-size persistent Z sidecar. Because the code remains test-only, it neither adds nor removes production memory, and it does not change the existing QKV sidecar."
+  },
+  "evidence": {
+    "configure": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-configure.log",
+      "bytes": 279,
+      "sha256": "9734b97e9ef2aaaa8281f75a7c5669f885be4e0be85fdcec140ab39ac4bd2c4f"
+    },
+    "build": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-build.log",
+      "bytes": 937,
+      "sha256": "fe5a829c9d05f71044e6684feb9f826db4d2db6133d327907db79a6c8fe91295"
+    },
+    "synthetic_validation": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-synthetic-validate-final.log",
+      "bytes": 1207,
+      "sha256": "fa52800a6ea5fc2d808a01a3213de0cdd0e31f3088ff5350e928cd5e80cdcaea"
+    },
+    "checkpoint_validation": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-checkpoint-validate-final.log",
+      "bytes": 1581,
+      "sha256": "45a004ca1be7319b8e5e0a75cb623059c47047cbd9326d661cd8ed539f151e49"
+    },
+    "formal_checkpoint_screen": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-checkpoint-screen-final-process1.log",
+      "bytes": 7884,
+      "sha256": "033ca550c0a9cd676556d6dd59da53b04e9fe132ae71d90117d28bbf73eb7748"
+    },
+    "cuobjdump_resources": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-resource-usage-final.log",
+      "bytes": 53974,
+      "sha256": "3688b184f7d5df10cdd7b636ef620b24477ac693d47eeb1945ef36842d44c5cf"
+    },
+    "qkv_p1_sass_before": {
+      "path": "/tmp/q3x-prefill-z-qkv-p1-sass-before.log",
+      "bytes": 312735,
+      "sha256": "dc35481dbdecba00e24266fcb0ad686abff72cd8b84392ca50cbfc9e1cdefb2a"
+    },
+    "qkv_p1_sass_after": {
+      "path": "/tmp/q3x-prefill-z-qkv-p1-sass-after.log",
+      "bytes": 312735,
+      "sha256": "dc35481dbdecba00e24266fcb0ad686abff72cd8b84392ca50cbfc9e1cdefb2a"
+    },
+    "split_m64_regression": {
+      "path": "/tmp/q3x-prefill-qkv-split-m64-regression-final.log",
+      "bytes": 1038,
+      "sha256": "52d851ceab429494e9f9f8b62e32d3fe1374b276614926ba3e01830f1f0efdeb"
+    },
+    "production_qkv_register_feed_regression": {
+      "path": "/tmp/q3x-prefill-qkv-canonical-register-feed-regression-final.log",
+      "bytes": 1298,
+      "sha256": "7b82bffcc49e029a22751a100f323dd85e3b04a71474eb720742e305967e41c6"
+    },
+    "full_ctest": {
+      "path": "/tmp/q3x-prefill-z-canonical-xor-u16-full-ctest.log",
+      "bytes": 12533,
+      "sha256": "1732e9c28d3612ee5c95ad096e5db17bb2c5ef029c69f8543ae3cc8da758942d"
+    }
+  },
+  "decision": {
+    "result": "admit exact-C512 linear-attention Z canonical raw-B XOR plus uint16-gather register feed as a test-only production-integration candidate",
+    "why": "The candidate is bit-exact, spill-free, two-CTA/SM, sidecar-free, and clears every 1.15x round gate plus the 1.20x aggregate gate at 1.224345x against the current production Z baseline.",
+    "production": "unchanged: commit 6e3b364 does not route the candidate from production and supplies no full-P513 or Decode result",
+    "next_priority": "perform a bounded exact-C512 Z production integration, then require mirrored full-P513 Prefix/TTFT, generated-token and persistent-state exactness, memory/fallback checks, and Decode non-regression before promotion; keep C256 behind this P513 gate"
+  },
+  "limitations": [
+    "This is one fixed-clock process and one pinned layer-0 Z tensor, not an independent multi-process absolute-performance distribution.",
+    "No production engine invoked the candidate; no Prefix, TTFT, complete-prompt throughput, Decode, serving, power, or energy conclusion follows.",
+    "The approximately 22.21-ms 48-layer saving is simple isolated-cell arithmetic and must not be reported as an achieved P513 or end-to-end result.",
+    "No matched NCU or Nsys run was performed, so no global-load, L1, L2, DRAM, occupancy-stall, or causal traffic claim is made.",
+    "The 1.40625-GiB figure is the equal-size 48-layer candidate sidecar allocation that this canonical mechanism does not require; it is not production memory removed by this test-only commit.",
+    "Production QKV and its 2.34375-GiB sidecar, production Z, C256, Decode, MTP policy, FlashInfer policy, buffering, and Prefill/Decode execution remain unchanged."
+  ]
+}

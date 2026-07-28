@@ -1319,13 +1319,18 @@ row-search structure without an unpriced global-progress assumption. See the
   cell is rejected below, while the later fragment-native register-feed cell
   has passed full production admission at `6ab59ea`. It improves mirrored
   P513 Prefix from **2,625.4595 to 2,579.5625 ms**, or
-  **1.017792552x**, without changing C256 or Decode. Continue the traffic-first
-  line from the `3e52696` canonical-weight closeout below. Plain row-major P0
-  rejects at **1.173187x**. XOR-only P1 clears the canonical-baseline gate at
+  **1.017792552x**, without changing C256 or Decode. The traffic-first line
+  continued from the `3e52696` canonical-weight closeout below. Plain
+  row-major P0 rejects at **1.173187x**. XOR-only P1 clears the
+  canonical-baseline gate at
   **1.222762x**, but remains **6.416%** slower than the current production
-  sidecar and therefore does not replace QKV. Migrate the no-sidecar XOR plus
-  uint16-gather mechanism to exact-C512 linear-attention Z next; keep C256
-  behind that P513 row. MTP remains excluded.
+  sidecar and therefore does not replace QKV. Commit `6e3b364` has now
+  transferred the no-sidecar XOR plus uint16-gather mechanism to exact-C512
+  linear-attention Z: the test-only layer-0 cell reaches **1.224345x**, with
+  all six rounds at least **1.224188x**. It is not yet production-routed or an
+  end-to-end result. Integrate only this exact-C512 Z route under mirrored
+  P513, exactness, memory/fallback, and Decode non-regression gates; keep C256
+  behind that row. MTP remains excluded.
 - [done, current-HEAD Prefill baseline lock] At `edef543`, one fixed-frequency
   reusable-engine process with one warmup and five measured generations per
   prompt establishes the C32/max1 direct baseline. P33/P65/P129/P513 median
@@ -1767,9 +1772,12 @@ the 1.20 aggregate gate at **1.173187x**. Its XOR-only, same-uint16-gather P1
 reaches **1.222762x** with all six rounds at least **1.222597x**, but its
 **3.417671 ms** is still **6.416%** slower than the contemporaneous
 **3.211603-ms** production sidecar. QKV production therefore stays unchanged,
-and no P1 NCU, full-model, or dispatch promotion follows. Migrate the
-canonical raw-B XOR/register-feed mechanism to exact-C512 Z next; C256 remains
-later. Bulk attention remains production-integrated.
+and no P1 NCU, full-model, or dispatch promotion follows. The exact-C512 Z
+transfer now passes its test-only gate at **2.524897 -> 2.062244 ms
+(1.224345x)** without a candidate sidecar. Its arithmetic 48-layer saving is
+about **22.21 ms**, not a measured Prefix result. Bounded Z production
+integration and mirrored P513 validation are next; C256 remains later. Bulk
+attention remains production-integrated.
 Bounded
 OpenAI-compatible API/EvalScope work continues in parallel so the kernel path
 and external baseline advance together.
@@ -1790,11 +1798,12 @@ a comparable result. GDN B8 admission and the canonical-weight fused Gate/Up
 shared-A screen are now closed as rejected. The exact-C512 FP8 QKV split-M64
 screen is closed at **0.936190x**, while its distinct register-feed successor
 is production-promoted at **1.017792552x** whole-model Prefix. Continue the
-HTTP adapter and EvalScope in parallel with the now-selected exact-C512 Z
-canonical raw-B XOR/register-feed screen. QKV P1 is retained only as a
-test-only admitted mechanism because it trails production by **6.416%**; C256
-is intentionally later so the P513 hotspot line and external baseline advance
-first.
+HTTP adapter and EvalScope in parallel with the now-admitted, test-only
+exact-C512 Z canonical raw-B XOR/register-feed cell. It clears the isolated
+gate at **1.224345x**, but production routing and whole-P513 evidence remain
+pending. QKV P1 is retained only as a test-only admitted mechanism because it
+trails production by **6.416%**; C256 is intentionally later so the P513
+hotspot line and external baseline advance first.
 Phase 3.5 remains
 where EvalScope and user-visible TTFT become first-class release evidence.
 
@@ -2024,8 +2033,56 @@ production sidecar at **3.211603 ms**, making P1 **6.416% slower**. Production
 dispatch, the 2.34375-GiB QKV sidecar, full-model Prefix, Decode, MTP, and
 buffering remain unchanged; no NCU/Nsys traffic claim follows.
 
-Next, migrate the no-sidecar canonical raw-B XOR plus uint16-gather
-register-feed mechanism to exact-C512 linear-attention Z and give that shape
-its own correctness, first-process performance, incumbent-comparison, and
-memory gates. See the
+That migration is now complete as the separate test-only Z admission below;
+it does not retroactively change QKV production. See the
 [canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-qkv-m128-canonical-xor-u16-register-feed-admission.json).
+
+## 2026-07-28 — Exact-C512 Z canonical XOR register feed admitted test-only
+
+Commit `6e3b364` transfers the QKV P1 canonical raw-B XOR plus uint16-gather
+register-feed mechanism to the exact-C512 linear-attention Z shape
+`[6144,5120]`. The independent test-only kernel retains the production
+M128-by-N128, grid-192/block-256 ownership, uses three raw-A/raw-B `cp.async`
+slots, and feeds the decoded matrix-B fragment directly from registers. It
+uses 126 registers/thread, 512 B static plus 79,872 B dynamic shared memory,
+zero local/stack, and two CTA/SM. Production dispatch, public API, model
+ownership, checkpoint format, Decode, C256, MTP, and buffering remain
+unchanged.
+
+Synthetic and pinned layer-0 validation pass. All 23 malformed or aliased
+calls return invalid and capture zero Graph nodes. Baseline and candidate each
+capture one distinct Function at grid 192/block 256; direct plus two Graph
+replays compare all **3,145,728** BF16 outputs bit-exact. Synthetic coverage
+exercises 256 FP8 codes at all four byte positions and preserves all 512 NaN
+class/sign results. The pinned
+`model.language_model.layers.0.linear_attn.in_proj_z.weight` tensor is
+F8_E4M3 `[6144,5120]`, contains 31,457,280 bytes, and hashes to
+`79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae`;
+its scalar scale hashes to
+`861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9`.
+Guards and inputs remain intact. The pre-existing QKV P1 disassembly is
+byte-identical before and after, and the full Release suite closes at
+**64 passes / 12 expected skips / zero failures** out of 76 tests.
+
+One MAXN process with GPU fixed at 1.3005 GHz and EMC at 3.2 GHz runs six
+pinned-checkpoint `B-C-C-B` rounds. The current production canonical Z
+baseline moves from **2.524897 to 2.062244 ms**, or **1.224345x**. Round
+speedups are **1.224188x, 1.224453x, 1.224296x, 1.224550x, 1.224317x, and
+1.224265x**; every round clears 1.15x and the aggregate clears the frozen
+1.20x gate.
+
+This is a test-only admission, not production promotion. Multiplying the
+isolated 0.462653-ms layer-0 saving by 48 same-shape Z launches gives an
+arithmetic **22.207344-ms (about 22.21-ms)** P513 opportunity, but no runner
+used the candidate and no Prefix, TTFT, throughput, or Decode conclusion
+follows. The canonical mechanism allocates no candidate sidecar; an equal-size
+copy over 48 Z tensors would be 1,509,949,440 bytes, or **1.40625 GiB**, which
+the cell avoids requiring. Because it remains test-only, it neither adds nor
+removes production memory and does not change the QKV sidecar.
+
+Next, perform bounded production integration for exact-C512 Z only, then
+require mirrored full-P513 Prefix/TTFT, generated-token and persistent-state
+exactness, memory/fallback, and Decode non-regression before promotion. C256
+stays behind that gate, and OpenAI-compatible API/EvalScope work may continue
+in parallel. See the
+[Z canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-u16-register-feed-admission.json).

@@ -8413,3 +8413,66 @@ before selecting one bounded implementation; no specific FP8 mechanism is
 inferred from this rejection. Full samples, validation contracts, commands,
 artifact identities, skipped work, and limitations are frozen in the
 [fused/shared-A rejection record](metadata/qwen36-27b-prefill-nvfp4-gate-up-fused-m128-shared-a-rejection.json).
+
+## FP8 exact-C512 Z canonical raw-B register-feed admission
+
+Commit `6e3b364` adds one production-unreachable exact-C512 linear-attention Z
+candidate and its isolated harness. The current public whole-chunk launcher is
+the baseline. The candidate retains the M128-by-N128 grid-192/block-256
+topology and canonical FP8 `[6144,5120]` weight, but uses three raw-A/raw-B
+`cp.async` slots, XOR placement of each row's four K16 raw-B chunks, uint16
+fragment gathers, and direct matrix-B register feed. It allocates no sidecar.
+The compiled candidate uses 126 registers/thread, 512 B static plus 79,872 B
+dynamic shared memory, zero local/stack, and two CTA/SM.
+
+The frozen synthetic and pinned-checkpoint gates both pass. All 23 invalid
+calls capture zero nodes. Baseline and candidate each capture one distinct
+kernel at the expected topology, and direct plus two Graph replays compare
+all **3,145,728** outputs bit-exact. The synthetic fixture covers every one of
+256 FP8 codes at four byte positions and all 512 NaN class/sign cases. The
+read-only layer-0 Z weight hashes to
+`79a60d790f4ca146c05ea2efeff51964f825b1cdd92a83c8ee11b9fe9cfafdae`;
+its positive F32 scale hashes to
+`861e5d0c508a43c225a124a22f8e12e331ad3abe057c528bdc3a256754b856e9`.
+Guards and inputs remain intact. The pre-existing QKV P1 selected-function
+SASS is byte-identical before and after, and full CTest reports **64 passes,
+12 expected skips, and zero failures** out of 76 tests.
+
+The formal first cell uses one pinned layer-0 checkpoint payload in one MAXN
+process, with GPU locked at 1.3005 GHz and EMC capped at 3.2 GHz. Each pass has
+ten warmups and 24 CUDA-event iterations; a 32-MiB L2 scrub remains outside
+timing. Six mirrored `B-C-C-B` rounds produce:
+
+| Round | Production canonical Z | Test-only XOR/U16 Z | Speedup |
+| ---: | ---: | ---: | ---: |
+| 1 | 2.524562 ms | 2.062234 ms | 1.224188x |
+| 2 | 2.525230 ms | 2.062334 ms | 1.224453x |
+| 3 | 2.524980 ms | 2.062394 ms | 1.224296x |
+| 4 | 2.524978 ms | 2.061964 ms | 1.224550x |
+| 5 | 2.524470 ms | 2.061941 ms | 1.224317x |
+| 6 | 2.525164 ms | 2.062596 ms | 1.224265x |
+| Aggregate | **2.524897 ms** | **2.062244 ms** | **1.224345x** |
+
+Every round clears the frozen 1.15x floor and the aggregate clears 1.20x. The
+isolated saving is 0.462653 ms, or an 18.323638548424% latency reduction. The
+formal log is 7,884 bytes with SHA-256
+`033ca550c0a9cd676556d6dd59da53b04e9fe132ae71d90117d28bbf73eb7748`.
+The measured 5,274,432-byte binary hashes to
+`5fc3d84e02758e0293e675e3e6eb45ff5a2b3ce6b0063d1e1f574c42ee268b0b`
+and has build ID `cdb67c2bb1251055dde82309765b9e31fd624c9a`.
+
+This result admits a test-only production-integration candidate; it does not
+promote Z. Multiplying the isolated saving by 48 same-shape launches gives an
+arithmetic **22.207344-ms (about 22.21-ms)** opportunity, not a measured P513
+Prefix or end-to-end reduction. An equal-size 48-layer Z sidecar would occupy
+1,509,949,440 bytes (**1.40625 GiB**); this canonical mechanism does not
+allocate it. Since the route remains test-only, production memory is not
+changed and the existing QKV sidecar is unaffected. No candidate NCU/Nsys,
+Prefix, TTFT, Decode, serving, power, or energy result was collected.
+
+The next bounded step is exact-C512 Z production integration followed by
+mirrored P513 Prefix/TTFT, generated-token and persistent-state exactness,
+memory/fallback, and Decode non-regression gates. C256 remains later. Full
+commands, resource output, hashes, regression sentinels, and limitations are
+in the
+[Z canonical XOR admission record](metadata/qwen36-27b-prefill-fp8-z-m128-canonical-xor-u16-register-feed-admission.json).
