@@ -1512,6 +1512,22 @@ The diagnostic Phase 3 records are:
   expected skips; an earlier ceiling-test miss during concurrent GPU resource
   contention is excluded rather than classified as a regression. Production,
   Decode, and MTP remain unchanged.
+- [`qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-full-product-rejection.json`](qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-full-product-rejection.json),
+  which rejects the test-only runtime-built scale-major 256x16 full-product
+  lookup at its compiled-mechanism stop-loss. Whole-projection and two-node
+  Graph replay comparisons are bitwise exact, 23/23 invalid calls fail with
+  zero captured nodes, and the kernel keeps 128 registers, zero local memory,
+  and two CTAs/SM. Its 8,192 static plus 43,008 dynamic shared bytes are 51,200
+  logical bytes/CTA, or 52,224 bytes after the driver's additional 1,024-byte
+  overhead. The generic `REGISTER_FED_X4_EXHAUSTIVE` result validates only the
+  retained decoder; the candidate's table-initialization logic covers all
+  256x16 entries but has no independent candidate-specific exhaustive oracle.
+  SASS changes from 1416 instructions/32 HFMA2/128 PRMT/70 LDS to 1472/0/48/118
+  while preserving 64 HMMA and 15 LDGSTS sites. It therefore misses the preset
+  at-most-1384 instruction gate and stops before performance timing, NCU, or
+  Gate+Up pair work. The isolated full suite is clean at 69 passes and 12
+  expected skips. Production dispatch, Decode, and MTP are unchanged, though
+  the test binary physically changes.
 - [`qwen36-27b-prefill-gdn-b8-block-transition-screen.json`](qwen36-27b-prefill-gdn-b8-block-transition-screen.json),
   which selects the test-only sequential FP32-B8 GDN dataflow and rejects the
   measured WY control. C256 reaches **2.76977x** versus production M16 while

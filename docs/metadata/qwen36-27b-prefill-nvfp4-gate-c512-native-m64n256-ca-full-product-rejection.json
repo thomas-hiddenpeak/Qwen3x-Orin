@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "artifact": "qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-full-product-rejection",
+  "status": "test-only-static-mechanism-rejection",
+  "recorded_at": "2026-07-28T23:56:28+08:00",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "commit": "4b9e8584391695f3aed33c3f552fe52d37dc55a5",
+    "tree": "cbd8b39a0def113da4a86438207aee72f36b9638",
+    "parent_commit": "463fc48f72ebb66bba88a7f76a8b4f7a96f4caab",
+    "subject": "test: reject full-product M64N256 NVFP4 Gate",
+    "kernel_source": "src/kernels/sm87/weight_only_gemv.cu",
+    "screen": "tests/sm87_nvfp4_prefill_gate_register_fed_screen.cu",
+    "production_dispatch_changed": false,
+    "public_header_changed": false,
+    "cmake_changed": false,
+    "abi_scope": "private test-only CUDA entry points",
+    "test_binary_physically_changed": true
+  },
+  "purpose": {
+    "question": "Can a runtime-built shared-memory table containing every E4M3FN-scale by E2M1-value BF16 product remove enough decoder arithmetic and permutation work from the retained M64xN256 A-only-CA kernel to pass a compact-SASS mechanism gate?",
+    "answer": "No. The candidate removes all 32 HFMA2 sites and 80 of 128 PRMT sites, but adds 48 LDS sites and grows by 56 static instructions, from 1416 to 1472, instead of reaching the preset ceiling of 1384.",
+    "classification": "reject before timing and retain the runtime-codebook A-only-CA M64xN256 test baseline",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "production_dispatch_changed": false,
+    "decode_route_changed": false,
+    "mtp_used": false
+  },
+  "shape_and_topology": {
+    "tokens_M": 512,
+    "output_columns_N": 17408,
+    "input_columns_K": 5120,
+    "cta_tile": "M64xN256xK64",
+    "grid": "68 N tiles x 8 M tiles = 544 CTAs",
+    "threads_per_cta": 256,
+    "warps_per_cta": 8,
+    "warp_tile": "M64xN32",
+    "accumulator_fragments_per_warp": 16,
+    "k64_stages": 80,
+    "pipeline": "two-slot canonical raw-A/raw-B cp.async pipeline",
+    "activation_cache_operator": "A uses cp.async.ca",
+    "weight_and_scale_cache_operator": "packed B and scales use cp.async.cg",
+    "sidecar_required": false,
+    "comparison_baseline": "retained M64xN256 A-only-CA test kernel with identical topology, cache operators, pipeline, HMMA body, and packed-BF16 epilogue"
+  },
+  "full_product_lookup": {
+    "scope": "test-only candidate decoder and per-CTA runtime table construction",
+    "layout": "scale-major: 256 consecutive scale rows, each containing 16 BF16 E2M1 products",
+    "scale_encodings": 256,
+    "e2m1_encodings_per_scale": 16,
+    "entries": 4096,
+    "bytes_per_entry": 2,
+    "table_bytes": 8192,
+    "storage": "2048 shared uint32 product words",
+    "runtime_builder": "256 threads execute eight initialization passes; each thread writes one packed pair of adjacent E2M1 products per pass, covering all 256x16 table entries by construction",
+    "decode": "each packed NVFP4 x4 indexes four BF16 products from the encoded-scale row",
+    "independent_candidate_exhaustive_test": false,
+    "exhaustive_claim_guard": "The logged REGISTER_FED_X4_EXHAUSTIVE mismatch_count=0 invokes the retained register-fed x4 decoder test and does not validate the candidate full-product table independently. Table initialization covers all 256x16 entries logically, but no candidate-specific exhaustive full-table oracle was run."
+  },
+  "resource_contract": {
+    "registers_per_thread": 128,
+    "static_shared_bytes": 8192,
+    "dynamic_shared_bytes": 43008,
+    "logical_shared_bytes_per_cta": 51200,
+    "driver_overhead_bytes_per_cta": 1024,
+    "occupancy_accounted_shared_bytes_per_cta": 52224,
+    "local_bytes_per_thread": 0,
+    "maximum_threads_per_block": 256,
+    "active_ctas_per_sm": 2,
+    "resident_warps_per_sm": 16,
+    "resource_gate": "pass"
+  },
+  "correctness_and_graph_contract": {
+    "generic_retained_decoder_x4_exhaustive_mismatches": 0,
+    "generic_retained_decoder_x4_exhaustive_gate": "pass",
+    "generic_exhaustive_scope": "retained decoder only; not candidate-specific full-product validation",
+    "candidate_full_table_initialization_logical_coverage": "256 scale codes x 16 E2M1 encodings",
+    "candidate_specific_full_table_exhaustive": "not run",
+    "invalid_cases_passed": 23,
+    "invalid_cases_total": 23,
+    "invalid_capture_graph_nodes": 0,
+    "valid_capture_graph_nodes": 2,
+    "bitwise_projection_outputs_compared": 17825792,
+    "baseline_candidate_bitwise_mismatches": 0,
+    "candidate_graph_replay_outputs_compared": 17825792,
+    "candidate_graph_replay_bitwise_mismatches": 0,
+    "unexpected_nonfinite_outputs": 0,
+    "canonical_inputs_immutable": true,
+    "activation_inputs_immutable": true,
+    "sidecars_immutable": true,
+    "sidecar_allocation": "skipped; canonical direct path",
+    "output_guards": "intact",
+    "gate": "pass for the measured whole-projection fixture and Graph replay; no independent candidate-specific exhaustive-table claim"
+  },
+  "static_sass_stop_loss": {
+    "measurement": "static instruction sites in the instantiated kernel SASS, not dynamic execution counts",
+    "baseline_m64n256_a_only_ca": {
+      "instructions": 1416,
+      "hfma2_bf16_v2_sites": 32,
+      "prmt_sites": 128,
+      "lds_sites": 70,
+      "hmma_sites": 64,
+      "ldgsts_sites": 15,
+      "sts_sites": 1,
+      "bar_sites": 3,
+      "depbar_sites": 3
+    },
+    "candidate_full_product": {
+      "instructions": 1472,
+      "hfma2_bf16_v2_sites": 0,
+      "prmt_sites": 48,
+      "lds_sites": 118,
+      "hmma_sites": 64,
+      "ldgsts_sites": 15,
+      "sts_sites": 1,
+      "bar_sites": 3,
+      "depbar_sites": 3
+    },
+    "candidate_minus_baseline": {
+      "instructions": 56,
+      "hfma2_bf16_v2_sites": -32,
+      "prmt_sites": -80,
+      "lds_sites": 48,
+      "hmma_sites": 0,
+      "ldgsts_sites": 0
+    },
+    "preset_candidate_maximum_instructions": 1384,
+    "required_reduction_from_baseline_instructions": 32,
+    "candidate_gap_above_preset_maximum_instructions": 88,
+    "mechanism_gate": "fail",
+    "decision": "reject before performance timing"
+  },
+  "measurement_stop_loss": {
+    "performance_timing": "not run",
+    "formal_six_round_screen": "not run",
+    "nsight_compute": "not run",
+    "gate_up_pair": "not run",
+    "absolute_latency_gate": "not evaluated because the static SASS mechanism gate failed first",
+    "causal_performance_claim": "none"
+  },
+  "artifacts": {
+    "validation_log": {
+      "path": "/tmp/q3x-m64n256cafullproduct-validate.log",
+      "bytes": 1408,
+      "sha256": "07ea93d50b57c337cc3f34c481555c8ca1a78bc2b0df787ac19f9c241256d9f5"
+    },
+    "clean_full_ctest_log": {
+      "path": "/tmp/q3x-m64n256cafullproduct-ctest.log",
+      "bytes": 13521,
+      "sha256": "893f72af155bd121a67d6de5ba8534542bc648065cfd2b4ad12f2cafd620fb68"
+    },
+    "candidate_kernel_sass": {
+      "path": "/tmp/q3x-m64n256cafullproduct.kernel.sass",
+      "bytes": 371198,
+      "sha256": "a84ba0eb57e6b77054830f8db63a268e41c5e6ef87f5bc4cf677eb06b9d0bb79"
+    },
+    "control_kernel_sass": {
+      "path": "/tmp/q3x-m64n256ca-control.kernel.sass",
+      "bytes": 357086,
+      "sha256": "9791b9b253d3ffeda30f75ecbe5db3e32558442cc956fc013814b97f3a1e687c"
+    },
+    "sass_summary": {
+      "path": "/tmp/q3x-m64n256cafullproduct-sass-summary.log",
+      "bytes": 374,
+      "sha256": "e8f1dc127263727186d12ac5434946eba1cd959bf6c8a3fa3d41c09e62bc1f55"
+    },
+    "binary": {
+      "path": "build/q3x_nvfp4_prefill_gate_register_fed_screen",
+      "bytes": 5531216,
+      "sha256": "f81b4ef7f3da207b02e7f950c7bce61a331bbc2303d41faf13155d348c97b478"
+    }
+  },
+  "regression_validation": {
+    "manual_m64n256_ca_full_product_validate": "pass",
+    "full_ctest": {
+      "total": 81,
+      "passed": 69,
+      "expected_skips": 12,
+      "failed": 0,
+      "wall_time_seconds": 27.34,
+      "execution": "clean isolated serial full suite"
+    }
+  },
+  "decision": {
+    "candidate": "rejected by static mechanism stop-loss",
+    "retained_value": "keep the test-only implementation and SASS sentinel; do not treat its generic x4 exhaustive line as candidate-specific evidence",
+    "retained_native_baseline": "M64xN256 A-only cp.async.ca with runtime E4M3-to-BF16 codebook construction and table-free x4 products",
+    "production_route": "unchanged hybrid direct-dequant plus cuBLASLt bridge",
+    "production_dispatch_semantics": "unchanged",
+    "public_header": "unchanged",
+    "decode_route": "unchanged",
+    "mtp_used": false,
+    "test_binary_physically_changed": true,
+    "next_bounded_work": "Require a candidate-specific correctness oracle where applicable and a compact compiled-SASS pass before allocating formal timing or profiling budget."
+  }
+}

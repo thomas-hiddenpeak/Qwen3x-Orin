@@ -435,6 +435,22 @@ earlier performance-test failure under concurrent GPU resource contention is
 excluded and is not a regression. Production and MTP remain unchanged. See
 the [M64xN256 CA scale-factored rejection
 record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-factored-rejection.json).
+A runtime-built scale-major full-product lookup is rejected even earlier by
+its compiled-mechanism stop-loss. The test-only M64xN256 A-only-CA candidate
+constructs all 256 E4M3 scale rows by 16 E2M1 values in an 8-KiB shared table,
+then replaces the retained decoder's arithmetic with indexed product loads.
+The complete projection and two-node Graph replay are bitwise exact, but the
+generic `REGISTER_FED_X4_EXHAUSTIVE` line exercises only the retained decoder;
+there is no independent candidate-specific exhaustive full-table oracle.
+Resources remain at 128 registers, zero local memory, and two CTAs/SM, with
+8,192 static plus 43,008 dynamic shared bytes (51,200 logical bytes and 52,224
+bytes/CTA after the driver's 1,024-byte overhead). Static SASS removes all 32
+HFMA2 sites and cuts PRMT from 128 to 48, yet raises LDS from 70 to 118 and
+grows from 1416 to 1472 instructions. That misses the preset at-most-1384
+mechanism gate, so performance timing, NCU, and Gate+Up pair work are not run.
+Production dispatch, Decode, and MTP remain unchanged, while the test binary
+itself does change. See the [M64xN256 CA full-product rejection
+record](docs/metadata/qwen36-27b-prefill-nvfp4-gate-c512-native-m64n256-ca-full-product-rejection.json).
 
 For exact aligned C512 linear-attention QKV, engine startup losslessly packs
 48 canonical matrices into a 2,516,582,400-byte fragment-native sidecar. The
