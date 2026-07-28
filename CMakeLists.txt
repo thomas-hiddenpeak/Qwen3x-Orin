@@ -239,6 +239,26 @@ if(BUILD_TESTING)
     SKIP_RETURN_CODE 77
   )
 
+  # Test-only SM87 sentinel for the lane/slot layout used when a BF16 WMMA
+  # matrix_b fragment is fed directly from registers instead of shared memory.
+  add_executable(q3x_sm87_bf16_matrix_b_register_feed_sentinel
+    tests/sm87_bf16_matrix_b_register_feed_sentinel.cu
+  )
+  target_link_libraries(q3x_sm87_bf16_matrix_b_register_feed_sentinel
+    PRIVATE CUDA::cudart
+  )
+  target_compile_options(q3x_sm87_bf16_matrix_b_register_feed_sentinel PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
+  )
+  q3x_enable_warnings(q3x_sm87_bf16_matrix_b_register_feed_sentinel)
+  add_test(NAME sm87_bf16_matrix_b_register_feed_sentinel
+    COMMAND q3x_sm87_bf16_matrix_b_register_feed_sentinel
+  )
+  set_tests_properties(sm87_bf16_matrix_b_register_feed_sentinel PROPERTIES
+    LABELS "cuda;sm87;prefill"
+    SKIP_RETURN_CODE 77
+  )
+
   add_executable(q3x_sm87_projection_route_registry_test
     tests/sm87_projection_route_registry_test.cpp
   )
